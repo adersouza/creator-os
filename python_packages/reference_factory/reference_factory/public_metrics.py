@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -125,17 +126,9 @@ def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
         FROM public_posts
         LEFT JOIN prompt_outcomes ON prompt_outcomes.reference_id = public_posts.reference_id
         WHERE video_play_count IS NOT NULL OR video_view_count IS NOT NULL
-        ORDER BY CASE WHEN prompt_outcomes.measured_outcome_score IS NULL THEN 1 ELSE 0 END,
-                 prompt_outcomes.measured_outcome_score DESC,
-                 prompt_outcomes.measured_outcome_confidence DESC,
-                 COALESCE(public_rate_score, -1) DESC,
-                 COALESCE(video_play_count, video_view_count, 0) DESC,
-                 COALESCE(video_view_count, 0) DESC,
-                 COALESCE(likes_count, 0) DESC
-        LIMIT ?
         """,
-        (limit,),
     ).fetchall()
+    rows = sorted(rows, key=_public_post_sort_key, reverse=True)[:limit]
     return {
         "schema": "reference_factory.top_public_posts.v1",
         "limit": limit,
@@ -369,6 +362,7 @@ def _public_post_row(row, rank: int) -> dict[str, object]:
         "commentsCount": row["comments_count"],
         "ownerFollowerCount": row["owner_follower_count"],
         "publicRateScore": row["public_rate_score"],
+        "publicEngagementRecencyScore": _public_engagement_recency_score(row),
         "displayUrl": row["display_url"],
         "videoUrl": row["video_url"],
         "matchType": row["match_type"],
@@ -433,6 +427,40 @@ def _public_rate_score(post: dict[str, Any]) -> float | None:
     if exposure <= 0:
         return None
     return round(exposure / followers, 6)
+
+
+def _public_post_sort_key(row) -> tuple[float, float, float, float, int, int, int]:
+    return (
+        1.0 if row["measured_outcome_score"] is not None else 0.0,
+        float(row["measured_outcome_score"] or 0),
+        float(row["measured_outcome_confidence"] or 0),
+        _public_engagement_recency_score(row),
+        int(row["video_play_count"] or row["video_view_count"] or 0),
+        int(row["video_view_count"] or 0),
+        int(row["likes_count"] or 0),
+    )
+
+
+def _public_engagement_recency_score(row) -> float:
+    exposure = max(int(row["video_play_count"] or row["video_view_count"] or 0), 1)
+    engagements = int(row["likes_count"] or 0) + int(row["comments_count"] or 0)
+    engagement_rate = engagements / exposure
+    recency = _recency_weight(row["timestamp"])
+    return round(engagement_rate * recency, 8)
+
+
+def _recency_weight(timestamp: str | None) -> float:
+    if not timestamp:
+        return 0.5
+    value = str(timestamp).replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return 0.5
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    age_days = max(0.0, (datetime.now(UTC) - dt.astimezone(UTC)).days)
+    return 1.0 / (1.0 + (age_days / 90.0))
 
 
 def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:

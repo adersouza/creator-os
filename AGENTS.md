@@ -46,6 +46,10 @@ from its own external checkout, not from a Creator OS mirror path.
 
 ## Tooling And PR Safety
 
+- One command verifies everything locally, mirroring CI: `make verify` (static
+  gates + all test suites) or `pnpm check:all` (static gates only: contracts,
+  ruff lint/format, mypy, contentforge eslint, arch boundaries, artifacts). Run
+  one of these before pushing instead of guessing which individual check to run.
 - Use GitHub Actions logs/checks before guessing at PR failures.
 - CodeQL and TruffleHog run from `.github/workflows/security.yml`.
 - Use `pnpm security:secrets` for local secret scanning when `gitleaks` or
@@ -113,6 +117,49 @@ open area in the composition" rather than naming text or overlays.
 If a run adds fake UI, inspect the saved `.higgsfield.json` prompt before
 retrying and remove the triggering words first. Do not keep repeating the same
 prompt shape and hoping the next seed fixes it.
+
+### Reference → Soul Variant Generation (Original + Sexy)
+
+Settled house recipe for turning one reference image into postable
+Stacey/Stacey1 stills. Do NOT re-derive this each session.
+
+1. **Crop the reference UI-free first** — status bar AND bottom nav. Leftover
+   chrome makes Higgsfield render fake app UI (see "Higgsfield UI Artifact
+   Salvage").
+2. **Pass 1 — reference-conditioned:** Soul V2 (`model soul_2`) with `medias`
+   role `image` (the crop) + the creator `soul_id`. A reference image ALWAYS
+   force-enhances; `enhance_prompt` is not toggleable on Soul 2.0. Higgsfield
+   rewrites the prompt from the image and **discards any text you pass**, so you
+   cannot inject a body/sexy edit here. Capture the returned `params.prompt` —
+   that is the composition description.
+3. **Clean the captured prompt:** strip identity descriptors (hair color,
+   ethnicity, piercings — they fight the Soul) and every UI/screenshot word (see
+   "Higgsfield Prompt UI Trigger Rule").
+4. **Original variant** = the Pass-1 output.
+5. **Sexy variant** = cleaned prompt + append-only body emphasis, regenerated
+   **TEXT-ONLY** (no `medias`) + `soul_id`. Text-only does NOT force-enhance, so
+   the edit sticks and no UI leaks; composition is preserved by the detailed
+   captured text. Regenerating WITH the reference image re-enhances and wipes the
+   edit — that is why this step must be text-only.
+6. Both variants → `reel_factory/virality_select.py` predict-and-select → post
+   the winner (per-post approval required; never auto-publish).
+
+**Body-emphasis ceiling (house style):** spicy/implied — bikini/lingerie, more
+skin, teasing, NO explicit nudity. Amp EXACTLY two things and nothing else:
+fuller chest/cleavage and rounder butt. Adding pose/expression/lighting/extra
+descriptors degrades Soul V2 quality — keep scene/pose/outfit/light identical to
+the original.
+
+**Aspect ratio per shot:** portrait/selfie/close-up `3:4`; full-body
+(legs/butt visible) `2:3`; reels/stories `9:16`.
+
+**Soul IDs (verify against Higgsfield `show_characters` before trusting):**
+Stacey `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`, Stacey1
+`5828d958-91dd-4d6d-8909-934503f47644`, Larissa
+`44326567-b12c-410c-95b7-31891bb0629b`, Lola
+`4c86c548-7aa5-4ad1-bc03-b94aa4ce8385`. NOTE: `campaign_store.py`
+`DEFAULT_CREATORS` maps "Stacey" → `5828d958`, which is Higgsfield's *Stacey1* —
+the repo config and Higgsfield naming disagree; confirm the soul_id before a run.
 
 ## Reel Captions, Overlay Text, And Fonts (Source Of Truth)
 

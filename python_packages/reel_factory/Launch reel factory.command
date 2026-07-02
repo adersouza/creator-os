@@ -15,6 +15,11 @@ cat <<'EOF'
 
 EOF
 
+export ALLOW_INSECURE_LOCAL=1
+echo "  local dev auth: loopback-only bypass enabled for this launcher."
+echo "  set CREATOR_OS_API_TOKEN for shared, non-loopback, or real-token testing."
+echo
+
 # Run the server. It will auto-open the browser and auto-shutdown when
 # the tab is closed (server returns control here, then we close Terminal).
 if [ ! -x ".venv/bin/python" ]; then

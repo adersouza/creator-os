@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import shlex
@@ -27,6 +28,7 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import link_campaign_output
@@ -34,6 +36,7 @@ from caption_bank import (
     caption_static_metadata,
     load_or_build_caption_bank_store,
 )
+from caption_render import CAPTION_LEGIBILITY_SHRINK_FLOOR
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     CAPTION_TOPIC_FIT_VERSION,
@@ -67,6 +70,10 @@ from project_config import load_config
 from recipe_loader import load_recipes
 from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
+
+from pipeline_contracts import validate_generated_asset_lineage
+
+AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -616,6 +623,60 @@ def timed_caption_band(
     return "lower_center" if segment_index % 2 == 0 else "lower_center_alt"
 
 
+# Sub-band ladder: finer vertical stops inside each scored lane so
+# similar-composition clips don't all snap to the same y (owner: "all in the
+# exact same spot"). Each sub-band lists the scored lanes it physically sits
+# inside; it's only offered when NONE of those lanes were rejected by the
+# scorer, so variety never nudges text onto the subject.
+_SUBBAND_SUPPORT = {
+    "top": ("top",),
+    "center": ("center",),
+    "lower_center": ("center", "bottom"),
+    "lower_center_alt": ("center", "bottom"),
+    "bottom": ("bottom",),
+}
+_LANE_SUBBANDS = {
+    "top": ("top",),
+    "center": ("center", "lower_center"),
+    "bottom": ("bottom", "lower_center_alt"),
+}
+
+
+def vary_band_within_lane(
+    band: str, summary: PlacementSummary, *, diversity_key: str
+) -> str:
+    """Jitter a static caption vertically within its scored lane, per clip.
+
+    Picks among sub-bands inside the winning lane, skipping any whose supporting
+    lanes the scorer rejected. Deterministic per clip via diversity_key. Bands
+    outside the ladder (left/right/lower_center/explicit presets) pass through.
+    """
+    options = _LANE_SUBBANDS.get(band)
+    if not options:
+        return band
+    decision = (
+        summary.metadata.get("captionPlacementDecision")
+        if isinstance(summary.metadata, dict)
+        else None
+    )
+    rejected = (
+        {str(zone) for zone in (decision or {}).get("rejectedLanes", [])}
+        if isinstance(decision, dict)
+        else set()
+    )
+    eligible = [
+        sub
+        for sub in options
+        if not any(lane in rejected for lane in _SUBBAND_SUPPORT[sub])
+    ]
+    if len(eligible) <= 1:
+        return eligible[0] if eligible else band
+    idx = int(hashlib.sha256(diversity_key.encode("utf-8")).hexdigest()[:8], 16) % len(
+        eligible
+    )
+    return eligible[idx]
+
+
 def build_caption_placement_qc_row(
     *,
     source_clip: str,
@@ -666,7 +727,7 @@ def write_generated_asset_lineage_sidecar(
 ) -> Path:
     sidecar = out_path.with_suffix(out_path.suffix + ".generated_asset_lineage.json")
     payload = {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "pipelineTraceId": f"trace_reel_render_{hashlib.sha256(f'{source_hash}:{render_job_key}'.encode()).hexdigest()[:16]}",
         "source": {
             "sourceLineagePath": str(source_lineage_path)
@@ -686,6 +747,7 @@ def write_generated_asset_lineage_sidecar(
         },
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
     }
+    validate_generated_asset_lineage(payload)
     sidecar.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
@@ -891,6 +953,31 @@ def ensure_source_asset_lineage(
     return path
 
 
+def write_required_similarity_audit(
+    source_video: Path, clip_out: Path, audit_func=None
+):
+    """Run real SSCD similarity and fail loud on copy-detection failures."""
+    if audit_func is None:
+        from sscd_video import audit_video_dir
+
+        audit_func = audit_video_dir
+    rows = audit_func(source_video, clip_out)
+    if rows:
+        (clip_out / "_similarity.json").write_text(
+            json.dumps(rows, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    failed = [
+        row
+        for row in rows
+        if row.get("status") == "fail" or str(row.get("verdict", "")).startswith("FAIL")
+    ]
+    if failed:
+        names = ", ".join(str(row.get("filename")) for row in failed[:5])
+        raise RuntimeError(f"SSCD copy gate failed for {clip_out.name}: {names}")
+    return rows
+
+
 def build_single_job_enqueue_cmd(
     *,
     root: Path,
@@ -1067,6 +1154,9 @@ async def process_one(
     if not is_timed_caption:
         diversity_key = f"{src_hash}|{hook_idx}|{recipe.name}|{caption}"
         band = centered_static_caption_band(
+            band, _placement_summary, diversity_key=diversity_key
+        )
+        band = vary_band_within_lane(
             band, _placement_summary, diversity_key=diversity_key
         )
     style = recipe.caption_style if recipe.caption_style != "auto" else auto_style
@@ -1828,6 +1918,8 @@ STATIC_ALLOWED_LENGTHS = {
     "unknown": {"very_short", "short", "medium"},
 }
 CAPTION_FIT_VERSION = "v1"
+CAPTION_LEGIBLE_MAX_LINES = 5
+CAPTION_LEGIBLE_CHARS_PER_LINE = 30
 STATIC_FALLBACK_LENGTHS = {
     "closeup": {"very_short", "short", "medium", "long"},
     "halfbody": {"very_short", "short", "medium"},
@@ -1836,6 +1928,32 @@ STATIC_FALLBACK_LENGTHS = {
     "gym_body": {"very_short", "short", "medium"},
     "unknown": {"very_short", "short", "medium"},
 }
+
+
+def _caption_legibility_capacity(
+    hook: str | dict, *, format_class: str
+) -> tuple[bool, str, int]:
+    text = caption_text_for_scene(hook)
+    lines = text.splitlines() or [text]
+    estimated_lines = sum(
+        max(1, math.ceil(len(line.strip()) / CAPTION_LEGIBLE_CHARS_PER_LINE))
+        for line in lines
+        if line.strip()
+    )
+    estimated_lines = max(1, estimated_lines)
+    if estimated_lines <= CAPTION_LEGIBLE_MAX_LINES:
+        return (
+            True,
+            f"estimated {estimated_lines} lines fits legible render capacity",
+            estimated_lines,
+        )
+    return (
+        False,
+        "caption exceeds legible render capacity "
+        f"({estimated_lines}>{CAPTION_LEGIBLE_MAX_LINES} lines at "
+        f"{CAPTION_LEGIBILITY_SHRINK_FLOOR:.2f}x floor)",
+        estimated_lines,
+    )
 
 
 def classify_frame_type_for_caption_fit(
@@ -1979,19 +2097,25 @@ def apply_caption_fit_to_caption_set(
             )
         }
         topic_allowed = not topic_banks or bool(selected_banks & set(topic_banks))
-        readable = length_class in allowed_lengths
+        renderable, render_reason, estimated_render_lines = (
+            _caption_legibility_capacity(hook, format_class=format_class)
+        )
+        readable = length_class in allowed_lengths and renderable
         scene = evaluate_scene_compatibility(
             caption_text=caption_text_for_scene(hook),
             caption_lineage=lineage,
             reel_scene_tags=reel_scene_tags,
             scene_fit_mode=scene_fit_mode,
         )
-        decision = "allowed" if readable else "skipped"
-        reason = (
-            f"{length_class} static caption allowed for {frame_type}"
-            if readable
-            else f"{length_class} static caption too long for {frame_type}"
-        )
+        if readable:
+            decision = "allowed"
+            reason = f"{length_class} static caption allowed for {frame_type}"
+        elif not renderable:
+            decision = "unrenderable"
+            reason = render_reason
+        else:
+            decision = "skipped"
+            reason = f"{length_class} static caption too long for {frame_type}"
         topic_decision = "fit_disabled"
         topic_reason = "caption topic fit disabled"
         if topic_banks:
@@ -2014,6 +2138,8 @@ def apply_caption_fit_to_caption_set(
             "captionFitVersion": CAPTION_FIT_VERSION,
             "suitabilityDecision": decision,
             "reason": reason,
+            "estimatedRenderLines": estimated_render_lines,
+            "renderLegibilityFloor": CAPTION_LEGIBILITY_SHRINK_FLOOR,
             "captionSceneTags": scene.caption_scene_tags,
             "reelSceneTags": scene.reel_scene_tags,
             "sceneCompatibilityDecision": scene.decision,
@@ -2037,6 +2163,8 @@ def apply_caption_fit_to_caption_set(
             "captionFitVersion": CAPTION_FIT_VERSION,
             "suitabilityDecision": decision,
             "suitabilityReason": reason,
+            "estimatedRenderLines": estimated_render_lines,
+            "renderLegibilityFloor": CAPTION_LEGIBILITY_SHRINK_FLOOR,
             "captionSceneTags": scene.caption_scene_tags,
             "reelSceneTags": scene.reel_scene_tags,
             "sceneCompatibilityDecision": scene.decision,
@@ -2051,7 +2179,7 @@ def apply_caption_fit_to_caption_set(
         scene_allowed = scene.decision in {"allowed", "unknown_allowed", "fit_disabled"}
         if topic_allowed and readable and scene_allowed:
             allowed.append((idx, hook, enriched_lineage))
-        elif topic_allowed and scene_allowed:
+        elif topic_allowed and renderable and scene_allowed:
             fallback.append((idx, hook, enriched_lineage))
 
     target = max_hooks if max_hooks is not None else len(cap_set.hooks)
@@ -2626,36 +2754,36 @@ async def amain(args):
                         f"campaign output link failed for {result.get('out')}: {e}"
                     )
 
-        # Per-clip summary artifacts: CSV index + contact sheet PNG.
-        try:
-            from post_render import summarize_clip_outputs
+        # Per-clip summary artifacts: CSV/contact sheet are best-effort. SSCD is not.
+        for video, _ in pairs:
+            clip_out = proc_dir / video.stem
+            if not (clip_out.exists() and any(clip_out.glob("*.mp4"))):
+                continue
+            try:
+                from post_render import summarize_clip_outputs
 
-            for video, _ in pairs:
-                clip_out = proc_dir / video.stem
-                if clip_out.exists() and any(clip_out.glob("*.mp4")):
-                    info = summarize_clip_outputs(clip_out)
-                    log.info(
-                        f"summarize {video.stem}: csv+sheet for {info['count']} outputs"
-                    )
-                    try:
-                        from sscd_check import audit_clip_dir
-
-                        novelty = audit_clip_dir(clip_out)
-                        if novelty:
-                            (clip_out / "_similarity.json").write_text(
-                                json.dumps(novelty, indent=2, ensure_ascii=False),
-                                encoding="utf-8",
-                            )
-                            log.info(f"similarity {video.stem}: {len(novelty)} rows")
-                    except Exception as e:
-                        log.warning(f"similarity audit failed for {video.stem}: {e}")
-        except Exception as e:
-            log.warning(f"post-render summary failed: {e}")
+                info = summarize_clip_outputs(clip_out)
+                log.info(
+                    f"summarize {video.stem}: csv+sheet for {info['count']} outputs"
+                )
+            except Exception as e:
+                log.warning(f"post-render summary failed for {video.stem}: {e}")
+            similarity = write_required_similarity_audit(video, clip_out)
+            log.info(f"sscd similarity {video.stem}: {len(similarity)} rows")
         if args.mux_audio:
             try:
                 from audio_mux import mux_root
 
-                mux_summary = mux_root(root, audio_tag=args.audio_tag, seed=args.seed)
+                selected_audio_path, audio_selection = _selected_audio_for_mux(
+                    root, seed=args.seed, explicit_audio_path=args.audio_path
+                )
+                mux_summary = mux_root(
+                    root,
+                    audio_tag=args.audio_tag,
+                    seed=args.seed,
+                    selected_audio_path=selected_audio_path,
+                )
+                _write_mux_audio_intents(mux_summary, audio_selection)
                 log.info(f"audio mux: {json.dumps(mux_summary)}")
             except Exception as e:
                 log.error(f"audio mux failed: {e}")
@@ -2707,6 +2835,101 @@ async def amain(args):
             log.info(f"qc: {json.dumps(qc_summary)}")
         except Exception as e:
             log.error(f"qc pass failed: {e}")
+
+
+def _resolve_audio_path(root: Path, value: object) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    path = Path(text)
+    return path if path.is_absolute() else root / path
+
+
+def _audio_selection_local_path(
+    root: Path, selection: dict[str, Any] | None
+) -> Path | None:
+    if not isinstance(selection, dict):
+        return None
+    containers: list[dict[str, Any]] = [selection]
+    metadata = selection.get("metadata")
+    if isinstance(metadata, dict):
+        containers.append(metadata)
+    for container in containers:
+        for key in AUDIO_SELECTION_PATH_KEYS:
+            path = _resolve_audio_path(root, container.get(key))
+            if path:
+                return path
+    return None
+
+
+def _manual_audio_selection(audio_path: str | Path) -> dict[str, Any]:
+    path = Path(audio_path)
+    return {
+        "schema": "reel_factory.audio_provider.v1.selection",
+        "track_id": f"manual_{path.stem}",
+        "track_name": path.stem,
+        "source": "manual_audio_path",
+        "selected_reason": "manual_audio_path_override",
+        "local_path": str(path),
+    }
+
+
+def _selected_audio_for_mux(
+    root: Path, *, seed: int, explicit_audio_path: str | None
+) -> tuple[str | None, dict[str, Any] | None]:
+    if explicit_audio_path:
+        return explicit_audio_path, _manual_audio_selection(explicit_audio_path)
+    try:
+        from audio_provider import select_audio as select_ranked_audio
+    except ImportError:
+        return None, None
+    try:
+        selection = select_ranked_audio(root, mode="AUTO_TRENDING", seed=seed)
+    except FileNotFoundError:
+        return None, None
+    path = _audio_selection_local_path(root, selection)
+    if not path or not path.exists():
+        return None, selection
+    selection.setdefault("local_path", str(path))
+    return str(path), selection
+
+
+def _write_mux_audio_intents(
+    mux_summary: dict[str, Any], ranked_selection: dict[str, Any] | None
+) -> None:
+    try:
+        from audio_intent import write_audio_intent
+    except ImportError:
+        return
+    for track in mux_summary.get("tracks") or []:
+        if not isinstance(track, dict):
+            continue
+        output = track.get("output")
+        if not output:
+            continue
+        selection = dict(ranked_selection or {})
+        if not selection:
+            audio_path = str(track.get("audio_path") or "")
+            selection = {
+                "schema": "reel_factory.audio_provider.v1.selection",
+                "track_id": str(track.get("track_id") or Path(audio_path).stem),
+                "track_name": Path(audio_path).stem,
+                "source": "local_audio_library",
+                "selected_reason": "audio_mux_random_fallback",
+                "local_path": audio_path,
+            }
+        try:
+            write_audio_intent(
+                Path(str(output)),
+                mode="native_trending_audio",
+                platform="instagram_reels",
+                notes="Audio selected during local mux; live schedule remains blocked.",
+                audio_selection=selection,
+            )
+        except Exception as exc:
+            log.warning(f"audio intent write failed for {output}: {exc}")
 
 
 def main():
@@ -2979,6 +3202,11 @@ def main():
     )
     ap.add_argument(
         "--audio-tag", default=None, help="audio library tag used with --mux-audio"
+    )
+    ap.add_argument(
+        "--audio-path",
+        default=None,
+        help="specific local audio file to use with --mux-audio",
     )
     ap.add_argument(
         "--enqueue-only",

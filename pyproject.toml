@@ -75,6 +75,7 @@ root_packages = [
   "campaign_factory",
   "pipeline_contracts",
   "reference_factory",
+  "reel_factory",
   "repurposer",
 ]
 
@@ -102,3 +103,13 @@ name = "campaign_factory core does not import reference_factory directly"
 type = "forbidden"
 source_modules = ["campaign_factory"]
 forbidden_modules = ["reference_factory"]
+
+[[tool.importlinter.contracts]]
+name = "reel_factory does not import campaign ownership"
+type = "forbidden"
+source_modules = ["reel_factory"]
+forbidden_modules = [
+  "campaign_factory",
+  "reference_factory",
+  "repurposer",
+]

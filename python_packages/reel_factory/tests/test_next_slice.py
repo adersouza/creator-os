@@ -439,7 +439,7 @@ class NextSliceTests(unittest.TestCase):
                 encoding="utf-8",
             )
             out.with_suffix(out.suffix + ".generated_asset_lineage.json").write_text(
-                '{"schema":"campaign_factory.generated_asset_lineage.v1","source":{"patternCardId":"pattern_1"},"generation":{"tool":"higgsfield_kling_manual"},"review":{"humanReviewRequired":true}}',
+                '{"schema":"reel_factory.generated_asset_lineage.v1","source":{"patternCardId":"pattern_1"},"generation":{"tool":"higgsfield_kling_manual"},"review":{"humanReviewRequired":true}}',
                 encoding="utf-8",
             )
             (root / "_readiness.json").write_text(

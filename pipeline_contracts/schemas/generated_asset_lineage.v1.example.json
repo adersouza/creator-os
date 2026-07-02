@@ -1,5 +1,5 @@
 {
-  "schema": "campaign_factory.generated_asset_lineage.v1",
+  "schema": "reel_factory.generated_asset_lineage.v1",
   "source": {
     "referenceId": "ref_001",
     "patternCardId": "pattern_mirror_001",

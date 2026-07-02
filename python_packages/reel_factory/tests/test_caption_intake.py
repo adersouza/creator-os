@@ -56,6 +56,38 @@ class CaptionIntakeTests(unittest.TestCase):
         self.assertIn("would you date me or run away?", texts)
         self.assertNotIn("be honest\nam i your type", texts)
 
+    def test_scan_local_blocks_quarantined_caption_reentry(self):
+        root = self._root()
+        quarantined = "would you date me or run away?"
+        quarantine_path = root / "caption_banks" / "bad_caption_quarantine.json"
+        quarantine_path.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.bad_caption_quarantine.v1",
+                    "captions": [
+                        {
+                            "caption_hash": caption_hash(quarantined),
+                            "normalizedCaption": quarantined,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        source = root / "tmp" / "lineage.json"
+        source.parent.mkdir()
+        source.write_text(
+            json.dumps({"rawCaptionText": quarantined}),
+            encoding="utf-8",
+        )
+
+        blocked = scan_local(root, include_seed=False)
+        quarantine_path.unlink()
+        reaccepted = scan_local(root, include_seed=False)
+
+        self.assertNotIn(quarantined, {row["text"] for row in blocked["candidates"]})
+        self.assertIn(quarantined, {row["text"] for row in reaccepted["candidates"]})
+
     def test_candidate_intake_does_not_affect_caption_mix(self):
         root = self._root()
         candidate_path = root / "caption_banks" / "candidate_intake.json"

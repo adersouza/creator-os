@@ -960,6 +960,37 @@ def export_threadsdash(
         )
         return result
     except Exception as exc:
+        failed_path = (
+            dirs["exports"]
+            / f"supabase_drafts_{campaign['slug']}_{locals().get('export_id', pipeline_job['id'])}_failed.json"
+        )
+        failed_payload = {
+            "schema": "campaign_factory.supabase_export_failure.v1",
+            "campaign": campaign["slug"],
+            "userId": user_id,
+            "dryRun": dry_run,
+            "createdAt": utc_now(),
+            "scheduleMode": normalized_schedule_mode,
+            "pipelineJobId": pipeline_job["id"],
+            "error": str(exc),
+        }
+        failed_path.parent.mkdir(parents=True, exist_ok=True)
+        failed_path.write_text(
+            json.dumps(failed_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        factory.conn.execute(
+            "INSERT OR REPLACE INTO threadsdash_exports (id, campaign_id, manifest_path, user_id, dry_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(locals().get("export_id", pipeline_job["id"])),
+                campaign["id"],
+                str(failed_path),
+                user_id,
+                1 if dry_run else 0,
+                "failed",
+                utc_now(),
+            ),
+        )
         factory.record_event(
             "threadsdash_export_created",
             campaign_id=campaign["id"],
@@ -2106,7 +2137,11 @@ def _upload_media(
         "url": public_url,
         "tags": tags,
     }
-    row = client.insert_with_fallback("media", base_row, fallback_remove=["url"])
+    try:
+        upserted = client.upsert("media", base_row, on_conflict="storage_path")
+        row = upserted[0] if isinstance(upserted, list) and upserted else upserted
+    except (AttributeError, RuntimeError):
+        row = client.insert_with_fallback("media", base_row, fallback_remove=["url"])
     return {
         "id": row.get("id"),
         "publicUrl": public_url,
@@ -5503,12 +5538,25 @@ class SupabaseRestClient:
         return self._open_json_or_empty(request)
 
     def _open_json_or_empty(self, request: Request) -> Any:
-        try:
-            with urlopen(request, timeout=60) as response:
-                raw = response.read()
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Supabase request failed {exc.code}: {body}") from exc
+        transient_statuses = {408, 409, 425, 429, 500, 502, 503, 504}
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                with urlopen(request, timeout=60) as response:
+                    raw = response.read()
+                break
+            except HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                last_error = RuntimeError(f"Supabase request failed {exc.code}: {body}")
+                if exc.code not in transient_statuses or attempt == 2:
+                    raise last_error from exc
+            except URLError as exc:
+                last_error = RuntimeError(f"Supabase request failed: {exc}")
+                if attempt == 2:
+                    raise last_error from exc
+            time.sleep(0.25 * (2**attempt))
+        else:  # pragma: no cover - loop either breaks or raises
+            raise last_error or RuntimeError("Supabase request failed")
         if not raw:
             return {}
         text = raw.decode("utf-8")

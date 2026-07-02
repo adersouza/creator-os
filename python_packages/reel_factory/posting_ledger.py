@@ -15,9 +15,11 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from audio_intent import read_audio_intent
 from intelligence_store import winner_score
+from reel_factory.sqlite_utils import connect_sqlite
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (
@@ -32,6 +34,7 @@ POST_STATUSES = (
 )
 TERMINAL_STATUSES = {"metrics_imported", "skipped", "failed"}
 DEFAULT_SLOT_TIMES = {"main": "10:00", "trial_1": "15:00", "trial_2": "20:00"}
+DEFAULT_TIMEZONE = "America/New_York"
 SCHEMA = "campaign_factory.account_posting_ledger.v1"
 DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS = 14
 
@@ -46,9 +49,13 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
         campaign_id TEXT,
         creator TEXT,
         soul_name TEXT,
+        soul_id TEXT,
+        accepted_soul_ids_json TEXT NOT NULL DEFAULT '[]',
         date TEXT NOT NULL,
-        slot_type TEXT NOT NULL CHECK(slot_type IN ('main', 'trial_1', 'trial_2')),
+        slot_type TEXT NOT NULL,
         planned_slot_time TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'America/New_York',
+        planned_at TEXT,
         source_reference_id TEXT,
         source_reference_path TEXT,
         source_family_id TEXT,
@@ -106,6 +113,8 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_posting_slots_campaign ON posting_slots(campaign_id, date, account_id);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_status ON posting_slots(post_status, review_status);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_fingerprint ON posting_slots(account_id, content_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_rendered_output ON posting_slots(rendered_output_path);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_content_fingerprint ON posting_slots(content_fingerprint);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_cluster ON posting_slots(campaign_id, perceptual_cluster_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source_family ON posting_slots(campaign_id, source_family_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source ON posting_slots(account_id, source_reference_id, date);
@@ -126,6 +135,10 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
         "perceptual_cluster_id": "TEXT",
         "account_group_id": "TEXT",
         "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
+        "soul_id": "TEXT",
+        "accepted_soul_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+        "timezone": "TEXT NOT NULL DEFAULT 'America/New_York'",
+        "planned_at": "TEXT",
     }
     for name, ddl in columns.items():
         if name not in existing:
@@ -135,8 +148,7 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
 def connect(root: Path) -> sqlite3.Connection:
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(root / "manifest.sqlite", timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(root / "manifest.sqlite")
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_posting_ledger_schema(conn)
     return conn
@@ -155,6 +167,57 @@ def account_id_for(handle: str) -> str:
     return _slug(handle)
 
 
+def _account_slot_plan(
+    account: str | dict[str, Any], slot_times: dict[str, str]
+) -> list[tuple[str, str]]:
+    max_per_day = (
+        int(account.get("max_per_day") or account.get("maxPerDay") or len(SLOT_TYPES))
+        if isinstance(account, dict)
+        else len(SLOT_TYPES)
+    )
+    max_per_day = max(1, max_per_day)
+    if max_per_day <= len(SLOT_TYPES):
+        return [
+            (slot_type, slot_times[slot_type]) for slot_type in SLOT_TYPES[:max_per_day]
+        ]
+    gap_hours = (
+        int(account.get("min_gap_hours") or account.get("minGapHours") or 1)
+        if isinstance(account, dict)
+        else 1
+    )
+    gap_hours = max(1, gap_hours)
+    start_hour, start_minute = (int(part) for part in slot_times["main"].split(":", 1))
+    start_minutes = start_hour * 60 + start_minute
+    slots = []
+    for index in range(max_per_day):
+        slot_type = "main" if index == 0 else f"trial_{index}"
+        minutes = (start_minutes + index * gap_hours * 60) % (24 * 60)
+        slots.append((slot_type, f"{minutes // 60:02d}:{minutes % 60:02d}"))
+    return slots
+
+
+def _account_timezone(account: str | dict[str, Any]) -> str:
+    tz = (
+        account.get("timezone") or account.get("timeZone")
+        if isinstance(account, dict)
+        else None
+    )
+    tz = str(tz or DEFAULT_TIMEZONE)
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"unknown account timezone: {tz}") from exc
+    return tz
+
+
+def _planned_at(slot_date: str, planned_slot_time: str, timezone: str) -> str:
+    hour, minute = (int(part) for part in planned_slot_time.split(":", 1))
+    local = datetime.fromisoformat(slot_date).replace(
+        hour=hour, minute=minute, tzinfo=ZoneInfo(timezone)
+    )
+    return local.isoformat()
+
+
 def create_posting_plan(
     root: Path,
     *,
@@ -165,6 +228,8 @@ def create_posting_plan(
     days: int = 7,
     platform: str = "ig",
     slot_times: dict[str, str] | None = None,
+    soul_id: str | None = None,
+    accepted_soul_ids: list[str] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     slot_times = {**DEFAULT_SLOT_TIMES, **(slot_times or {})}
@@ -174,6 +239,9 @@ def create_posting_plan(
     created = 0
     existing = 0
     now = int(time.time())
+    creator_defaults = _creator_identity_defaults(conn, creator, campaign_id)
+    plan_soul_id = _first_text(soul_id)
+    plan_accepted = _text_list(accepted_soul_ids)
     for account in accounts:
         handle = str(
             account.get("handle") if isinstance(account, dict) else account
@@ -183,9 +251,36 @@ def create_posting_plan(
             if isinstance(account, dict) and account.get("account_id")
             else account_id_for(handle)
         )
+        account_soul_id = _first_text(
+            account.get("soul_id") or account.get("soulId")
+            if isinstance(account, dict)
+            else None
+        )
+        account_accepted = _text_list(
+            account.get("accepted_soul_ids") or account.get("acceptedSoulIds")
+            if isinstance(account, dict)
+            else None
+        )
+        final_soul_id = (
+            account_soul_id
+            or plan_soul_id
+            or (account_accepted[0] if account_accepted else None)
+            or (plan_accepted[0] if plan_accepted else None)
+            or creator_defaults["soul_id"]
+        )
+        final_accepted = _dedupe_texts(
+            account_accepted
+            or plan_accepted
+            or creator_defaults["accepted_soul_ids"]
+            or ([final_soul_id] if final_soul_id else [])
+        )
+        if final_soul_id and final_soul_id not in final_accepted:
+            final_accepted.insert(0, final_soul_id)
+        account_slots = _account_slot_plan(account, slot_times)
+        account_timezone = _account_timezone(account)
         for day_offset in range(days):
             slot_date = (start + timedelta(days=day_offset)).isoformat()
-            for slot_type in SLOT_TYPES:
+            for slot_type, planned_slot_time in account_slots:
                 slot_id = _slot_id(account_id, slot_date, slot_type)
                 row = {
                     "posting_slot_id": slot_id,
@@ -195,9 +290,15 @@ def create_posting_plan(
                     "campaign_id": campaign_id,
                     "creator": creator,
                     "soul_name": creator,
+                    "soul_id": final_soul_id,
+                    "accepted_soul_ids_json": json.dumps(final_accepted),
                     "date": slot_date,
                     "slot_type": slot_type,
-                    "planned_slot_time": slot_times[slot_type],
+                    "planned_slot_time": planned_slot_time,
+                    "timezone": account_timezone,
+                    "planned_at": _planned_at(
+                        slot_date, planned_slot_time, account_timezone
+                    ),
                     "post_status": "planned",
                     "review_status": "pending",
                     "created_at": now,
@@ -210,12 +311,14 @@ def create_posting_plan(
                     """
                     INSERT OR IGNORE INTO posting_slots (
                         posting_slot_id, account_id, account_handle, platform, campaign_id,
-                        creator, soul_name, date, slot_type, planned_slot_time, post_status,
-                        review_status, created_at, updated_at
+                        creator, soul_name, soul_id, accepted_soul_ids_json, date,
+                        slot_type, planned_slot_time, timezone, planned_at, post_status, review_status,
+                        created_at, updated_at
                     ) VALUES (
                         :posting_slot_id, :account_id, :account_handle, :platform, :campaign_id,
-                        :creator, :soul_name, :date, :slot_type, :planned_slot_time, :post_status,
-                        :review_status, :created_at, :updated_at
+                        :creator, :soul_name, :soul_id, :accepted_soul_ids_json, :date,
+                        :slot_type, :planned_slot_time, :timezone, :planned_at, :post_status, :review_status,
+                        :created_at, :updated_at
                     )
                     """,
                     row,
@@ -268,7 +371,7 @@ def assign_approved_reels(
     ]
     assigned: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
-    slot_idx = 0
+    available_slots = list(slots)
     now = int(time.time())
     for item in items:
         output_path = Path(
@@ -297,12 +400,26 @@ def assign_approved_reels(
         candidate_uniqueness = _uniqueness_values(
             item, lineage=item_lineage, fingerprint=fp
         )
+        if available_slots:
+            identity_reason = _creator_identity_conflict(
+                conn, item=item, lineage=item_lineage, slot=available_slots[0]
+            )
+            if identity_reason:
+                conflicts.append(
+                    {
+                        "posting_slot_id": available_slots[0]["posting_slot_id"],
+                        "account_handle": available_slots[0]["account_handle"],
+                        "output_path": str(output_path.resolve()),
+                        "content_fingerprint": fp,
+                        "reasons": [identity_reason],
+                    }
+                )
+                continue
         slot_result: tuple[dict[str, Any], list[str]] | None = None
         conflict_accounts_seen: set[str] = set()
         terminal_conflict = False
-        while slot_idx < len(slots):
-            slot = slots[slot_idx]
-            slot_idx += 1
+        assigned_slot_index: int | None = None
+        for idx, slot in enumerate(available_slots):
             reasons = _assignment_conflicts(
                 conn,
                 slot=slot,
@@ -314,6 +431,7 @@ def assign_approved_reels(
             )
             if not reasons:
                 slot_result = (slot, reasons)
+                assigned_slot_index = idx
                 break
             if "duplicate_content_fingerprint_for_campaign" in reasons:
                 conflicts.append(
@@ -338,9 +456,11 @@ def assign_approved_reels(
                     }
                 )
                 conflict_accounts_seen.add(slot["account_id"])
+        if assigned_slot_index is not None:
+            available_slots.pop(assigned_slot_index)
         if not slot_result:
             if (
-                slot_idx >= len(slots)
+                not available_slots
                 and not conflict_accounts_seen
                 and not terminal_conflict
             ):
@@ -501,9 +621,10 @@ def review_queue(root: Path, *, campaign_id: str | None = None) -> dict[str, Any
         params.append(campaign_id)
     rows = conn.execute(
         f"""
-        SELECT posting_slot_id, account_id, account_handle, campaign_id, creator, date,
-            slot_type, planned_slot_time, rendered_output_path, content_fingerprint,
-            caption, audio_track_id, audio_source, audio_selected_reason, manual_audio_needed,
+        SELECT posting_slot_id, account_id, account_handle, campaign_id, creator,
+            soul_name, soul_id, accepted_soul_ids_json, date, slot_type,
+            planned_slot_time, timezone, planned_at, rendered_output_path, content_fingerprint, caption,
+            audio_track_id, audio_source, audio_selected_reason, manual_audio_needed,
             lineage_path, review_status, post_status
         FROM posting_slots
         {where}
@@ -514,6 +635,7 @@ def review_queue(root: Path, *, campaign_id: str | None = None) -> dict[str, Any
     items = []
     for row in rows:
         data = dict(row)
+        data["accepted_soul_ids"] = _json_text_list(data.pop("accepted_soul_ids_json"))
         data["audio_intent"] = _audio_state(data)
         data["actions"] = ["approve", "reject", "skip"]
         items.append(data)
@@ -662,6 +784,8 @@ def cli_main() -> int:
     plan.add_argument("--start-date", default=datetime.now(UTC).date().isoformat())
     plan.add_argument("--days", type=int, default=7)
     plan.add_argument("--platform", default="ig")
+    plan.add_argument("--soul-id")
+    plan.add_argument("--accepted-soul-id", action="append", default=[])
     plan.add_argument("--dry-run", action="store_true")
     assign = sub.add_parser("assign-approved-reels")
     assign.add_argument("--root", default=".")
@@ -691,6 +815,8 @@ def cli_main() -> int:
             start_date=args.start_date,
             days=args.days,
             platform=args.platform,
+            soul_id=args.soul_id,
+            accepted_soul_ids=args.accepted_soul_id or None,
             dry_run=args.dry_run,
         )
     elif args.cmd == "assign-approved-reels":
@@ -1011,9 +1137,13 @@ def _schedule_item(row: dict[str, Any], audio: dict[str, Any]) -> dict[str, Any]
         "campaign_id": row["campaign_id"],
         "creator": row["creator"],
         "soul_name": row["soul_name"],
+        "soul_id": row["soul_id"],
+        "accepted_soul_ids": _json_text_list(row["accepted_soul_ids_json"]),
         "date": row["date"],
         "slot_type": row["slot_type"],
         "planned_slot_time": row["planned_slot_time"],
+        "timezone": row["timezone"],
+        "planned_at": row["planned_at"],
         "scheduled_at": row["scheduled_at"],
         "rendered_output_path": row["rendered_output_path"],
         "content_fingerprint": row["content_fingerprint"],
@@ -1065,6 +1195,159 @@ def _record_event(
             int(time.time()),
         ),
     )
+
+
+def _creator_identity_defaults(
+    conn: sqlite3.Connection, creator: str, campaign_id: str
+) -> dict[str, Any]:
+    row = None
+    if _table_exists(conn, "campaigns") and _table_exists(conn, "creators"):
+        row = conn.execute(
+            """
+            SELECT cr.name, cr.soul_id, cr.default_settings_json
+            FROM campaigns c JOIN creators cr ON cr.creator_id = c.creator_id
+            WHERE c.campaign_id=? OR c.name=?
+            LIMIT 1
+            """,
+            (campaign_id, campaign_id),
+        ).fetchone()
+    if row is None and _table_exists(conn, "creators"):
+        row = conn.execute(
+            "SELECT name, soul_id, default_settings_json FROM creators WHERE lower(name)=lower(?)",
+            (creator,),
+        ).fetchone()
+    if row is None:
+        return {"soul_id": None, "accepted_soul_ids": [], "accepted_names": [creator]}
+    settings = _json_object(row["default_settings_json"])
+    accepted = _text_list(settings.get("accepted_soul_ids"))
+    soul_id = _first_text(row["soul_id"])
+    return {
+        "soul_id": soul_id,
+        "accepted_soul_ids": accepted or ([soul_id] if soul_id else []),
+        "accepted_names": _dedupe_texts([row["name"], creator]),
+    }
+
+
+def _creator_identity_conflict(
+    conn: sqlite3.Connection,
+    *,
+    item: dict[str, Any],
+    lineage: dict[str, Any],
+    slot: dict[str, Any],
+) -> str | None:
+    item_soul_id = _first_text(
+        _lineage_value(lineage, "soulId", "soul_id")
+        or item.get("soulId")
+        or item.get("soul_id")
+    )
+    item_names = _dedupe_texts(
+        [
+            _lineage_value(lineage, "soulName", "soul_name")
+            or item.get("soulName")
+            or item.get("soul_name"),
+            item.get("creator"),
+        ]
+    )
+    if not item_soul_id and not item_names:
+        return "creator_identity_unverifiable_for_slot"
+
+    accepted_ids = _json_text_list(slot.get("accepted_soul_ids_json"))
+    if not accepted_ids and slot.get("soul_id"):
+        accepted_ids = [_first_text(slot.get("soul_id"))]
+    if item_soul_id and accepted_ids:
+        if item_soul_id not in accepted_ids:
+            return "creator_identity_mismatch_for_slot"
+        return None
+
+    accepted_names = _slot_accepted_names(conn, slot, accepted_ids)
+    if item_names and accepted_names:
+        item_name_set = {_normalize_name(name) for name in item_names}
+        accepted_name_set = {_normalize_name(name) for name in accepted_names}
+        if item_name_set & accepted_name_set:
+            return None
+        return "creator_identity_mismatch_for_slot"
+    return "creator_identity_unverifiable_for_slot"
+
+
+def _slot_accepted_names(
+    conn: sqlite3.Connection, slot: dict[str, Any], accepted_ids: list[str]
+) -> list[str]:
+    names = [slot.get("creator"), slot.get("soul_name")]
+    if accepted_ids and _table_exists(conn, "creators"):
+        placeholders = ",".join("?" for _ in accepted_ids)
+        rows = conn.execute(
+            f"SELECT name FROM creators WHERE soul_id IN ({placeholders})",
+            accepted_ids,
+        ).fetchall()
+        names.extend(row["name"] for row in rows)
+    return _dedupe_texts(names)
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (name,),
+        ).fetchone()
+        is not None
+    )
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_text_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = value
+        return _text_list(parsed)
+    return _text_list(value)
+
+
+def _text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw = value.split(",")
+    elif isinstance(value, (list, tuple, set)):
+        raw = value
+    else:
+        raw = [value]
+    return _dedupe_texts(raw)
+
+
+def _dedupe_texts(values: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = _first_text(value)
+        if not text or text in seen:
+            continue
+        result.append(text)
+        seen.add(text)
+    return result
+
+
+def _first_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_name(value: str) -> str:
+    return value.strip().lower()
 
 
 def _find_lineage_path(output_path: Path) -> Path | None:

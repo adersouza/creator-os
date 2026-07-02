@@ -131,5 +131,12 @@ After code changes, refresh the graph locally:
 pnpm graphify:update
 ```
 
+When no semantic Graphify backend is available, refresh the code architecture
+graph only:
+
+```bash
+pnpm graphify:update -- --code-only
+```
+
 Do not commit `graphify-out/` unless a lightweight graph artifact is explicitly
 approved.

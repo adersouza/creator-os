@@ -19,6 +19,8 @@ from audio_mux import mux_audio
 from caption_render import render_caption_png
 from PIL import Image
 
+from pipeline_contracts import validate_generated_asset_lineage
+
 SCHEMA = "reel_factory.motion_edit_render.v1"
 CANVAS_W = 1080
 CANVAS_H = 1920
@@ -314,7 +316,7 @@ def _write_lineage(
     request: MotionEditRequest, *, still: Path, output: Path, quality: dict[str, Any]
 ) -> Path:
     payload = {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "pipelineTraceId": f"trace_motion_edit_{_text_hash(str(still) + ':' + str(output) + ':' + str(request.seed))}",
         "createdAt": _utc_now(),
         "source": {
@@ -347,6 +349,7 @@ def _write_lineage(
             },
         },
     }
+    validate_generated_asset_lineage(payload)
     path = output.with_suffix(output.suffix + ".generated_asset_lineage.json")
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
@@ -387,10 +390,8 @@ def _result_payload(
 
 
 def _validate_result(payload: dict[str, Any]) -> None:
-    try:
-        from pipeline_contracts import validate_motion_edit_render
-    except ImportError:
-        return
+    from pipeline_contracts import validate_motion_edit_render
+
     validate_motion_edit_render(payload)
 
 

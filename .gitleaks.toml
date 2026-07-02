@@ -1,3 +1,6 @@
+[extend]
+useDefault = true
+
 [[rules]]
 id = "juno-api-key"
 description = "Juno API key"
@@ -7,7 +10,9 @@ keywords = ["juno_ak_"]
 [allowlist]
 description = "Creator OS local false positives and generated review artifacts"
 paths = [
+  '''(^|/)\.git/''',
   '''^apps/dashboard/\.claude/''',
+  '''^apps/dashboard/mcp-server/README\.md$''',
   '''^apps/dashboard/storybook-static/''',
   '''(^|/)node_modules/''',
   '''(^|/)\.venv/''',

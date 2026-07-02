@@ -153,6 +153,16 @@ def test_dependabot_ignores_known_incompatible_eslint_major() -> None:
     assert "version-update:semver-major" in eslint_ignores[0]["update-types"]
 
 
+def test_secret_scan_and_ignore_defaults_cover_local_secret_files() -> None:
+    gitleaks = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "[extend]" in gitleaks
+    assert "useDefault = true" in gitleaks
+    assert "\nsecrets.toml\n" in gitignore
+    assert "\n*.secrets.toml\n" in gitignore
+
+
 def test_architecture_guard_configs_are_narrow_and_present() -> None:
     depcruise = (ROOT / ".dependency-cruiser.cjs").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

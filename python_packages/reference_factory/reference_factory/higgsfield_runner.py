@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -29,6 +31,8 @@ DEFAULT_VIDEO_CREDITS = 7.5
 DEFAULT_VARIATION_CREDITS = 1.0
 DEFAULT_PANEL_VIDEO_CREDITS = DEFAULT_VIDEO_CREDITS
 MIN_REFERENCE_BYTES = 100_000
+MIN_RESULT_BYTES = 1
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 60 * 30
 DEFAULT_PROMPT_SCORE_THRESHOLD = 72
 BLOCKED_PROVIDER_STATUSES = {
     "blocked",
@@ -124,6 +128,7 @@ def generate_with_higgsfield(
         _run_pair(
             pair,
             prompt_score=score_by_ref.get(pair.reference_id, {}),
+            data_root=data_root,
             output_root=output_root,
             soul_name=soul_id,
             soul_uuid=soul_uuid,
@@ -206,6 +211,9 @@ def _manifest_status(
     if dry_run:
         return "dry_run_with_blocked" if blocked else "dry_run"
     ok = all(r["status"] in {"generated", "image_generated"} for r in runs)
+    submitted = bool(runs) and all(r["status"] == "submitted" for r in runs)
+    if submitted:
+        return "submitted_with_blocked" if blocked else "submitted"
     if ok and blocked:
         return "ok_with_blocked"
     return "ok" if ok else "partial"
@@ -634,6 +642,118 @@ def estimate_credits(
     return round(count * per, 2)
 
 
+def _campaign_cost_db_path(
+    *, data_root: Path, campaign_factory_root: Path | None
+) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    if campaign_factory_root:
+        return campaign_factory_root.expanduser().resolve() / "campaign_factory.sqlite"
+    root = data_root.expanduser().resolve()
+    candidates = [
+        root / "campaign_factory.sqlite",
+        Path(__file__).resolve().parents[2]
+        / "campaign_factory"
+        / "campaign_factory.sqlite",
+    ]
+    return candidates[0] if candidates[0].exists() else candidates[-1]
+
+
+def _load_cost_tracker_module():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "campaign_factory"
+        / "campaign_factory"
+        / "cost_tracker.py"
+    )
+    spec = importlib.util.spec_from_file_location("_creator_os_cost_tracker", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load cost tracker from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _record_generation_cost(
+    *,
+    data_root: Path,
+    campaign_factory_root: Path | None,
+    provider: str,
+    operation: str,
+    campaign: str | None,
+    model: str,
+    result: dict[str, Any] | None,
+    lineage_path: Path,
+    reference_id: str,
+) -> dict[str, Any] | None:
+    result = result or {}
+    job_id = _result_id(result)
+    if not job_id:
+        return None
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(
+        data_root=data_root, campaign_factory_root=campaign_factory_root
+    )
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    actual_credits = _result_credits(result)
+    # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
+    metadata = {
+        "schema": "reference_factory.ai_cost_metadata.v1",
+        "actualCredits": actual_credits,
+        "creditCurrency": "higgsfield_credits",
+        "model": model,
+        "jobId": job_id,
+        "lineagePath": str(lineage_path),
+        "referenceId": reference_id,
+    }
+    with sqlite3.connect(db_path) as conn:
+        event_id = cost_tracker.record_ai_cost(
+            conn,
+            provider=provider,
+            operation=operation,
+            campaign_id=campaign,
+            generations=1,
+            metadata=metadata,
+            source_event_key=f"reference_factory:{provider}:{operation}:{job_id}",
+        )
+    return {
+        "eventId": event_id,
+        "provider": provider,
+        "operation": operation,
+        "jobId": job_id,
+        "actualCredits": actual_credits,
+    }
+
+
+def _record_image_generation_costs(
+    *,
+    data_root: Path,
+    campaign_factory_root: Path | None,
+    campaign: str | None,
+    lineage_path: Path,
+    reference_id: str,
+    candidate_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for item in candidate_results:
+        result = item.get("result") if isinstance(item.get("result"), dict) else item
+        event = _record_generation_cost(
+            data_root=data_root,
+            campaign_factory_root=campaign_factory_root,
+            provider="higgsfield",
+            operation="image_create",
+            campaign=campaign,
+            model=DEFAULT_IMAGE_MODEL,
+            result=result,
+            lineage_path=lineage_path,
+            reference_id=reference_id,
+        )
+        if event:
+            events.append(event)
+    return events
+
+
 def resolve_soul_id(soul_id: str) -> str:
     return DEFAULT_SOUL_IDS.get(soul_id.strip().lower(), soul_id.strip())
 
@@ -642,6 +762,7 @@ def _run_pair(
     pair: PromptPair,
     *,
     prompt_score: dict[str, Any],
+    data_root: Path,
     output_root: Path,
     soul_name: str,
     soul_uuid: str,
@@ -700,6 +821,8 @@ def _run_pair(
     local_variation_path: str | None = None
     candidate_results: list[dict[str, Any]] = []
     selected_candidate_index = 1
+    lineage_path = out_dir / "generated_asset_lineage.json"
+    cost_events: list[dict[str, Any]] = []
 
     if dry_run:
         candidate_results = [
@@ -787,8 +910,11 @@ def _run_pair(
                         result = _normalize_result(
                             json.loads(image_asset.read_text(encoding="utf-8"))
                         )
+                        _raise_for_provider_status(result)
                     else:
                         result = _run_json(cmd, runner)
+                        _raise_for_provider_status(result)
+                        _write_job_id(out_dir / f"{image_stem}_job_id.txt", result)
                         image_asset.write_text(
                             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8",
@@ -809,10 +935,23 @@ def _run_pair(
                     first.get("result") if isinstance(first.get("result"), dict) else {}
                 )
                 local_image_path = str(first.get("localPath") or "") or None
+                if wait and not local_image_path:
+                    raise RuntimeError("Higgsfield image result did not materialize")
             media_ref = local_image_path or _result_id_or_url(image_result or {})
             if not media_ref:
                 raise RuntimeError(
                     "Higgsfield image result did not include a usable media id, URL, or local file"
+                )
+            if not dry_run:
+                cost_events.extend(
+                    _record_image_generation_costs(
+                        data_root=data_root,
+                        campaign_factory_root=campaign_factory_root,
+                        campaign=campaign,
+                        lineage_path=lineage_path,
+                        reference_id=pair.reference_id,
+                        candidate_results=candidate_results,
+                    )
                 )
             if variation_grid:
                 variation_stem = "variation_grid_" + _safe_name(variation_layout)
@@ -977,16 +1116,27 @@ def _run_pair(
                             "command": variation_cmd,
                         }
             if no_video:
-                status = "image_generated"
+                if local_image_path:
+                    status = "image_generated"
+                elif not wait and _result_id(image_result or {}):
+                    status = "submitted"
+                else:
+                    raise RuntimeError("Higgsfield image result did not materialize")
             else:
                 try:
                     if video_asset.exists():
                         video_result = _normalize_result(
                             json.loads(video_asset.read_text(encoding="utf-8"))
                         )
+                        _raise_for_provider_status(video_result)
                     else:
                         video_cmd = _video_command(pair, media_ref, kling_mode, wait)
                         video_result = _run_json(video_cmd, runner)
+                        _raise_for_provider_status(video_result)
+                        _write_job_id(
+                            out_dir / f"kling_video{soul_grid_suffix}_job_id.txt",
+                            video_result,
+                        )
                         video_asset.write_text(
                             json.dumps(video_result, indent=2, ensure_ascii=False)
                             + "\n",
@@ -997,7 +1147,14 @@ def _run_pair(
                     local_video_path = _materialize_result_asset(
                         video_result, out_dir / "kling_video"
                     )
-                    status = "generated"
+                    if local_video_path:
+                        status = "generated"
+                    elif not wait and _result_id(video_result or {}):
+                        status = "submitted"
+                    else:
+                        raise RuntimeError(
+                            "Higgsfield video result did not materialize"
+                        )
                 except Exception as exc:  # noqa: BLE001 - returned in manifest for fallback recovery
                     errors.append(f"kling_video_failed: {exc}")
                     status = "video_failed"
@@ -1037,7 +1194,39 @@ def _run_pair(
             variation_panel_dir_provided=variation_panel_dir is not None,
         ),
     )
-    lineage_path = out_dir / "generated_asset_lineage.json"
+    if not dry_run and status in {"generated", "image_generated", "submitted"}:
+        if video_result:
+            event = _record_generation_cost(
+                data_root=data_root,
+                campaign_factory_root=campaign_factory_root,
+                provider="kling",
+                operation="video_create",
+                campaign=campaign,
+                model=DEFAULT_VIDEO_MODEL,
+                result=video_result,
+                lineage_path=lineage_path,
+                reference_id=pair.reference_id,
+            )
+            if event:
+                cost_events.append(event)
+        if variation_result:
+            event = _record_generation_cost(
+                data_root=data_root,
+                campaign_factory_root=campaign_factory_root,
+                provider="higgsfield",
+                operation="variation_create",
+                campaign=campaign,
+                model=variation_model,
+                result=variation_result,
+                lineage_path=lineage_path,
+                reference_id=pair.reference_id,
+            )
+            if event:
+                cost_events.append(event)
+    lineage["generation"]["costLedger"] = {
+        "schema": "reference_factory.ai_cost_ledger.v1",
+        "events": cost_events,
+    }
     lineage_path.write_text(
         json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -1542,7 +1731,7 @@ def _lineage(
     )
     selected_image_path = selected_panel_path or local_image_path
     return {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "pipelineTraceId": f"trace_higgsfield_{pair.reference_id}_{_result_id(video_result or {}) or _result_id(image_result or {}) or 'pending'}",
         "source": {
             "referenceId": pair.reference_id,
@@ -2503,7 +2692,13 @@ def _normalize_result(parsed: Any) -> dict[str, Any]:
 
 
 def _run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, text=True, capture_output=True, check=False)
+    return subprocess.run(
+        cmd,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    )
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -2523,18 +2718,53 @@ def _materialize_result_asset(result: dict[str, Any], prefix: Path) -> str | Non
     if local and Path(local).exists():
         suffix = Path(local).suffix or ".bin"
         target = prefix.with_suffix(suffix)
+        copied = False
         if Path(local).resolve() != target.resolve():
             shutil.copy2(local, target)
+            copied = True
+        if target.stat().st_size < MIN_RESULT_BYTES:
+            if copied:
+                target.unlink(missing_ok=True)
+            return None
         return str(target)
     url = _result_url(result)
     if url and url.startswith("http"):
         suffix = _suffix_for_url(url)
         target = prefix.with_suffix(suffix)
         try:
-            urllib.request.urlretrieve(url, target)
+            with urllib.request.urlopen(url, timeout=60) as response:
+                target.write_bytes(response.read())
+            if target.stat().st_size < MIN_RESULT_BYTES:
+                target.unlink(missing_ok=True)
+                return None
             return str(target)
         except Exception:
             return None
+    return None
+
+
+def _write_job_id(path: Path, result: dict[str, Any]) -> None:
+    job_id = _result_id(result)
+    if job_id:
+        path.write_text(job_id + "\n", encoding="utf-8")
+
+
+def _raise_for_provider_status(result: dict[str, Any]) -> None:
+    status = _provider_status(result)
+    if status in BLOCKED_PROVIDER_STATUSES:
+        raise RuntimeError(f"Higgsfield provider blocked generation: {status}")
+    if status in FAILED_PROVIDER_STATUSES:
+        raise RuntimeError(f"Higgsfield provider failed generation: {status}")
+
+
+def _provider_status(result: dict[str, Any]) -> str | None:
+    for key in ("status", "state"):
+        value = str(result.get(key) or "").strip().lower()
+        if value:
+            return value
+    first = _first_nested_result(result)
+    if first is not None and first is not result:
+        return _provider_status(first)
     return None
 
 

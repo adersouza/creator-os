@@ -12,11 +12,11 @@ from typing import Any
 
 from embedding_provider import HASH_MODEL, cosine_similarity, get_embedding_provider
 from intelligence_store import ensure_intelligence_schema
+from reel_factory.sqlite_utils import connect_sqlite
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(Path(root) / "manifest.sqlite")
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(Path(root) / "manifest.sqlite")
     ensure_intelligence_schema(conn)
     return conn
 

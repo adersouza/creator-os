@@ -116,15 +116,44 @@ test("variant-pack route runs orchestration through an injectable subprocess bou
     },
   });
 
-  var response = await handler(jsonRequest("http://localhost/api/variant-pack", {
+  var request = jsonRequest("http://localhost/api/variant-pack", {
     source: "source.mp4",
     count: 2,
-  }));
+  });
+  var response = await handler(request);
   var body = await response.json();
 
   assert.equal(response.status, 200);
   assert.deepEqual(body, { runId: "variant-stub", variants: [] });
+  assert.equal(calls[0].signal, request.signal);
+  delete calls[0].signal;
   assert.deepEqual(calls, [{ source: "source.mp4", count: 2 }]);
+  assert.equal(lock.calls.release, 1);
+});
+
+test("variant-pack route forwards an aborted request signal to orchestration", async function () {
+  var lock = lockStub();
+  var seenSignal;
+  var handler = createVariantPackPostHandler({
+    acquireProcessLockImpl: lock.acquireProcessLockImpl,
+    existsSyncImpl: () => true,
+    runVariantPackImpl: async function (body) {
+      seenSignal = body.signal;
+      controller.abort();
+      return { runId: "variant-abort-stub", variants: [] };
+    },
+  });
+  var controller = new AbortController();
+  var request = new Request("http://localhost/api/variant-pack", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: "source.mp4" }),
+    signal: controller.signal,
+  });
+
+  await handler(request);
+
+  assert.equal(seenSignal.aborted, true);
   assert.equal(lock.calls.release, 1);
 });
 

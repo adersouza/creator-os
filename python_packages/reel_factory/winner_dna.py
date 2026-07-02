@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from audio_intent import read_audio_intent
+from caption_bank import caption_static_metadata
 from intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
@@ -19,6 +21,7 @@ from intelligence_store import (
     low_data_warning,
     winner_score,
 )
+from reel_factory.sqlite_utils import connect_sqlite
 
 FEATURE_KEYS = (
     "scene",
@@ -30,13 +33,13 @@ FEATURE_KEYS = (
     "body_style",
     "caption_style",
     "hook_type",
+    "audio_track_id",
 )
 _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(Path(root) / "manifest.sqlite")
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(Path(root) / "manifest.sqlite")
     ensure_intelligence_schema(conn)
     return conn
 
@@ -75,7 +78,7 @@ def infer_features_from_text(text: str) -> dict[str, Any]:
         "pose": pose,
         "motion": motion,
         "outfit": outfit,
-        "creator": "stacey" if "stacey" in low else "unknown",
+        "creator": _creator_from_text(low),
         "grid_source": 1 if "grid" in low or "panel" in low else 0,
         "caption_style": "short_direct",
         "hook_type": "curiosity"
@@ -91,6 +94,133 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _creator_from_text(low: str) -> str:
+    for name in ("stacey1", "stacey", "larissa", "lola"):
+        if name in low:
+            return name
+    return "unknown"
+
+
+def _lineage_value(lineage: dict[str, Any], *keys: str) -> Any:
+    stack = [lineage]
+    while stack:
+        obj = stack.pop()
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            if key in obj and obj[key] not in (None, ""):
+                return obj[key]
+        stack.extend(v for v in obj.values() if isinstance(v, dict))
+    return None
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+    )
+
+
+def _caption_style_from_lineage(output_path: Path) -> str | None:
+    lineage = _read_json(
+        output_path.with_suffix(output_path.suffix + ".caption_lineage.json")
+    )
+    if not lineage:
+        return None
+    raw_text = _lineage_value(lineage, "rawCaptionText", "captionText", "caption_text")
+    length_class = _lineage_value(lineage, "length_class", "lengthClass")
+    format_class = _lineage_value(lineage, "format_class", "formatClass")
+    if (not length_class or not format_class) and raw_text:
+        static = caption_static_metadata(str(raw_text))
+        length_class = length_class or static.get("length_class")
+        format_class = format_class or static.get("format_class")
+    parts = [str(value).strip() for value in (length_class, format_class) if value]
+    return "_".join(parts) if parts else None
+
+
+def _creator_from_metadata(
+    conn: sqlite3.Connection,
+    output_path: Path,
+    *,
+    asset_generation_id: str | None,
+    campaign_id: str | None,
+) -> str | None:
+    if not (_table_exists(conn, "creators") and _table_exists(conn, "campaigns")):
+        return None
+    if campaign_id:
+        row = conn.execute(
+            """
+            SELECT cr.name
+            FROM campaigns c
+            JOIN creators cr ON cr.creator_id = c.creator_id
+            WHERE c.campaign_id=?
+            LIMIT 1
+            """,
+            (campaign_id,),
+        ).fetchone()
+        if row and row["name"]:
+            return str(row["name"]).lower()
+    if _table_exists(conn, "campaign_outputs"):
+        row = conn.execute(
+            """
+            SELECT cr.name
+            FROM campaign_outputs co
+            JOIN campaigns c ON c.campaign_id = co.campaign_id
+            JOIN creators cr ON cr.creator_id = c.creator_id
+            WHERE co.output_path=?
+               OR (? IS NOT NULL AND co.asset_generation_id=?)
+            ORDER BY co.updated_at DESC
+            LIMIT 1
+            """,
+            (str(output_path), asset_generation_id, asset_generation_id),
+        ).fetchone()
+        if row and row["name"]:
+            return str(row["name"]).lower()
+    if asset_generation_id and _table_exists(conn, "asset_generations"):
+        row = conn.execute(
+            """
+            SELECT cr.name
+            FROM asset_generations ag
+            JOIN creators cr ON cr.creator_id = ag.creator_id
+            WHERE ag.asset_generation_id=?
+            LIMIT 1
+            """,
+            (asset_generation_id,),
+        ).fetchone()
+        if row and row["name"]:
+            return str(row["name"]).lower()
+    return None
+
+
+def _metadata_features(
+    conn: sqlite3.Connection,
+    output_path: Path,
+    *,
+    asset_generation_id: str | None,
+    campaign_id: str | None,
+) -> dict[str, Any]:
+    features: dict[str, Any] = {}
+    caption_style = _caption_style_from_lineage(output_path)
+    if caption_style:
+        features["caption_style"] = caption_style
+    creator = _creator_from_metadata(
+        conn,
+        output_path,
+        asset_generation_id=asset_generation_id,
+        campaign_id=campaign_id,
+    )
+    if creator:
+        features["creator"] = creator
+    audio_intent = read_audio_intent(output_path)
+    if isinstance(audio_intent, dict):
+        selection = audio_intent.get("audio_selection")
+        if isinstance(selection, dict) and selection.get("track_id"):
+            features["audio_track_id"] = str(selection["track_id"])
+    return features
 
 
 def _video_analysis_sidecar_paths(root: Path, output_path: Path) -> list[Path]:
@@ -241,11 +371,17 @@ def upsert_reel_feature(
     root = Path(root).resolve()
     output_path = Path(output_path).expanduser().resolve()
     conn = connect(root)
-    features = (
-        features
-        or video_analysis_features_for_output(root, output_path)
-        or infer_features_from_text(feature_text_for_output(root, output_path))
-    )
+    if features is None:
+        features = video_analysis_features_for_output(
+            root, output_path
+        ) or infer_features_from_text(feature_text_for_output(root, output_path))
+        metadata = _metadata_features(
+            conn,
+            output_path,
+            asset_generation_id=asset_generation_id,
+            campaign_id=campaign_id,
+        )
+        features.update(metadata)
     now = int(time.time())
     feature_id = f"feat_{abs(hash(str(output_path))) & 0xFFFFFFFF:x}"
     conn.execute(
@@ -253,8 +389,8 @@ def upsert_reel_feature(
         INSERT INTO reel_features (
             feature_id, output_path, asset_generation_id, campaign_id, source_reference_id,
             scene, camera, pose, motion, outfit, creator, grid_source, caption_style,
-            hook_type, body_style, features_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            hook_type, audio_track_id, body_style, features_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(output_path) DO UPDATE SET
             asset_generation_id=COALESCE(excluded.asset_generation_id, reel_features.asset_generation_id),
             campaign_id=COALESCE(excluded.campaign_id, reel_features.campaign_id),
@@ -268,6 +404,7 @@ def upsert_reel_feature(
             grid_source=excluded.grid_source,
             caption_style=excluded.caption_style,
             hook_type=excluded.hook_type,
+            audio_track_id=excluded.audio_track_id,
             body_style=excluded.body_style,
             features_json=excluded.features_json,
             updated_at=excluded.updated_at
@@ -287,6 +424,7 @@ def upsert_reel_feature(
             int(bool(features.get("grid_source"))),
             features.get("caption_style"),
             features.get("hook_type"),
+            features.get("audio_track_id"),
             features.get("body_style"),
             json.dumps(features, ensure_ascii=False),
             now,
@@ -839,7 +977,28 @@ def refresh_winner_dna(root: Path) -> dict[str, Any]:
         """
         SELECT f.*, o.views, o.likes, o.comments, o.shares, o.saves, o.manual_score
         FROM reel_features f
-        JOIN reel_outcomes o ON o.output_path = f.output_path OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
+        LEFT JOIN campaign_outputs co
+          ON co.output_path = f.output_path
+          OR (
+              f.asset_generation_id IS NOT NULL
+              AND co.asset_generation_id = f.asset_generation_id
+          )
+        JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
+          OR (
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND o.job_key = co.job_key
+          )
+          OR (
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  o.output_path = f.output_path
+                  OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
+              )
+          )
         """
     ).fetchall()
     buckets: dict[tuple[str, str], list[tuple[float, str]]] = {}
@@ -909,25 +1068,64 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
             ).fetchall()
         ]
 
-    combo_rows = conn.execute(
+    combo_source_rows = conn.execute(
         """
-        SELECT creator, scene, COUNT(*) AS sample_size, AVG(score) AS avg_winner_score
-        FROM (
-            SELECT f.creator, f.scene, o.views, o.likes, o.comments, o.shares, o.saves, o.manual_score,
-                   CASE
-                     WHEN o.manual_score IS NOT NULL THEN o.manual_score
-                     ELSE (COALESCE(o.views,0) + COALESCE(o.likes,0) * 3 + COALESCE(o.comments,0) * 8 + COALESCE(o.shares,0) * 15 + COALESCE(o.saves,0) * 12)
-                   END AS score
-            FROM reel_features f
-            JOIN reel_outcomes o ON o.output_path = f.output_path OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
-            WHERE f.creator IS NOT NULL AND f.creator != 'unknown' AND f.scene IS NOT NULL AND f.scene != 'unknown'
-        )
-        GROUP BY creator, scene
-        ORDER BY avg_winner_score DESC, sample_size DESC
-        LIMIT ?
+        SELECT f.creator, f.scene, o.views, o.likes, o.comments, o.shares, o.saves, o.manual_score
+        FROM reel_features f
+        LEFT JOIN campaign_outputs co
+          ON co.output_path = f.output_path
+          OR (
+              f.asset_generation_id IS NOT NULL
+              AND co.asset_generation_id = f.asset_generation_id
+          )
+        JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
+          OR (
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND o.job_key = co.job_key
+          )
+          OR (
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  o.output_path = f.output_path
+                  OR o.filename = substr(f.output_path, length(f.output_path) - length(o.filename) + 1)
+              )
+          )
+        WHERE f.creator IS NOT NULL AND f.creator != 'unknown' AND f.scene IS NOT NULL AND f.scene != 'unknown'
         """,
-        (limit,),
     ).fetchall()
+    combo_groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in combo_source_rows:
+        key = (str(row["creator"]), str(row["scene"]))
+        group = combo_groups.setdefault(
+            key,
+            {
+                "creator": row["creator"],
+                "scene": row["scene"],
+                "sample_size": 0,
+                "score": 0.0,
+            },
+        )
+        group["sample_size"] += 1
+        group["score"] += winner_score(row)
+    combo_rows = sorted(
+        (
+            {
+                "creator": group["creator"],
+                "scene": group["scene"],
+                "sample_size": group["sample_size"],
+                "avg_winner_score": round(
+                    group["score"] / max(group["sample_size"], 1), 2
+                ),
+            }
+            for group in combo_groups.values()
+        ),
+        key=lambda row: (row["avg_winner_score"], row["sample_size"]),
+        reverse=True,
+    )[:limit]
     costs = cost_analytics(root)
     matched_sample_size = int(rows[0]["sample_size"] or 0) if rows else 0
     quality = data_quality_from_connection(
@@ -950,7 +1148,7 @@ def winner_dna_leaderboard(root: Path, limit: int = 50) -> dict[str, Any]:
         "top_poses": top_for("pose"),
         "top_motions": top_for("motion"),
         "top_outfits": top_for("outfit"),
-        "best_creator_scene_combinations": [dict(row) for row in combo_rows],
+        "best_creator_scene_combinations": combo_rows,
         "worst_rejection_patterns": [dict(row) for row in rejection_rows],
         "costs": costs["by_entity_type"],
         "best_roi_assets": costs["assets"][:20],

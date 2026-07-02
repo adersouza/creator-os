@@ -24,7 +24,9 @@ CREATOR_OS_CONTENTFORGE_ROOT = CREATOR_OS_ROOT / "apps" / "contentforge"
 CREATOR_OS_REFERENCE_FACTORY_ROOT = (
     CREATOR_OS_ROOT / "python_packages" / "reference_factory"
 )
-DEFAULT_THREADSDASH_ROOT = Path("/Users/aderdesouza/Developer/ThreadsDashboard")
+# ThreadsDashboard is an external sibling repo; default to <workspace>/ThreadsDashboard,
+# override with THREADSDASH_ROOT. Avoids a hardcoded personal path.
+DEFAULT_THREADSDASH_ROOT = WORKSPACE_ROOT / "ThreadsDashboard"
 
 
 @dataclass(frozen=True)

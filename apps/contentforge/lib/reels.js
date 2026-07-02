@@ -487,6 +487,7 @@ export async function analyzeReelsRun({ runId, profileId = "organic", sourceFile
     keptCandidates: runConfig && runConfig.keptCandidates || variantReports.length,
     rejectedCandidates: runConfig && runConfig.rejectedCandidates || 0,
     rejectionReasons: runConfig && runConfig.rejectionReasons || {},
+    rejectionSamples: runConfig && runConfig.rejectionSamples || [],
     captions: primaryReport.captions,
     generatedAt: new Date().toISOString(),
   };

@@ -43,7 +43,7 @@ def _batch(
         _write_json(
             output.with_suffix(output.suffix + ".generated_asset_lineage.json"),
             {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {
                     "sourceLineagePath": str(
                         root

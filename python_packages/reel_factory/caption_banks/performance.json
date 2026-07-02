@@ -1,6 +1,14 @@
 {
   "schema": "reel_factory.caption_performance.v1",
-  "updated_at": null,
-  "notes": "Manual-ready caption performance metadata keyed by caption_hash. No automatic learning is implemented.",
+  "updated_at": 1782874000,
+  "notes": "Approved outcome weights from real posted views (2026-06-30). Coded/unique captions not in bank are omitted.",
+  "approvedWeights": {
+    "captionHashes": {
+      "4a1d2ffc9650eb6992dd919529c989c908e624151f0bf42320c3448b037f3569": 30600.0,
+      "7951e4337e7091f0c52f76d9ab8eb4d2e096a0854038022a211add016b7d8bd8": 6786.0,
+      "8d15d598d13854f2c469c9e7509aae84da97fda711f1901aa535622d27b194c5": 1258.0,
+      "075c1da7eaa44b0253612ef07098dae78674be2ac3fe1969d7d50b69720041f9": 3124.0
+    }
+  },
   "captions": {}
 }

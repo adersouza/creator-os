@@ -501,7 +501,11 @@ export default function SimilarityChecker({ sourcePath, runId }) {
       var res = await fetch("/api/similarity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: sourcePath, runId: runId || "latest", layers: ["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim"] }),
+        body: JSON.stringify({
+          source: sourcePath,
+          runId: runId || "latest",
+          layers: ["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "virality", "videoAnalysis"],
+        }),
       });
       if (!res.ok) {
         var errData = await res.json();
