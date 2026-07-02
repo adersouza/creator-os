@@ -163,15 +163,6 @@ rf_auth.install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
-def _asset_job_requested(body: dict[str, Any]) -> bool:
-    return bool(
-        body.get("async_job")
-        or body.get("asyncJob")
-        or body.get("idempotency_key")
-        or body.get("idempotencyKey")
-    )
-
-
 def _asset_idempotency_key(kind: str, body: dict[str, Any]) -> str | None:
     raw = body.get("idempotency_key") or body.get("idempotencyKey")
     if not raw:
