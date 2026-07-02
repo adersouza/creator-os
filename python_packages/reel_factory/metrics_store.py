@@ -14,6 +14,7 @@ from typing import Any
 from audio_intent import read_audio_intent
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
+from sqlite_utils import connect_sqlite
 
 METRIC_COLUMNS = (
     "filename",
@@ -31,11 +32,7 @@ METRIC_COLUMNS = (
 
 
 def connect_metrics_db(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(Path(db_path), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    return conn
+    return connect_sqlite(Path(db_path))
 
 
 def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
@@ -454,8 +451,7 @@ def refresh_outcomes_from_performance_sync(
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
 
-    source = sqlite3.connect(source_db, timeout=30.0)
-    source.row_factory = sqlite3.Row
+    source = connect_sqlite(source_db, readonly=True, wal=False)
     where = ["p.metrics_eligible = 1"]
     params: list[Any] = []
     if campaign:

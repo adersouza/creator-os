@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from campaign_store import ensure_campaign_schema
 from intelligence_store import ensure_intelligence_schema
 from metrics_store import ensure_metrics_schema
+from sqlite_utils import connect_sqlite
 
 log = logging.getLogger("reel")
 
@@ -41,10 +42,8 @@ class Manifest:
     def __init__(self, json_path: Path):
         self.json_path = json_path
         self.db_path = json_path.with_suffix(".sqlite")
-        self.conn = sqlite3.connect(self.db_path, timeout=30.0)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect_sqlite(self.db_path)
         self.conn.execute("PRAGMA foreign_keys=ON")
-        self.conn.execute("PRAGMA busy_timeout=30000")
         self._init_db()
         if self._is_empty() and json_path.exists():
             self._import_json(json_path)

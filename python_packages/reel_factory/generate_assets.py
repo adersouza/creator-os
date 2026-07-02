@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import time
@@ -30,6 +29,7 @@ from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from identity_verification import verify_identity
 from PIL import Image
+from sqlite_utils import connect_sqlite
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
@@ -684,7 +684,7 @@ def _record_ai_cost_event(
         "lineagePath": lineage_path_text,
         "stem": stem,
     }
-    with sqlite3.connect(db_path) as conn:
+    with connect_sqlite(db_path) as conn:
         return cost_tracker.record_ai_cost(
             conn,
             provider=provider,

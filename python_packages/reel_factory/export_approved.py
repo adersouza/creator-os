@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from campaign_store import ensure_campaign_schema
 from posting_ledger import content_fingerprint
 from readiness_check import load_readiness_for_output, normalize_platform
+from sqlite_utils import connect_sqlite
 
 
 def export_approved(
@@ -26,8 +26,7 @@ def export_approved(
     db_path = root / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path)
     ensure_campaign_schema(conn)
     rows = conn.execute("""
         SELECT

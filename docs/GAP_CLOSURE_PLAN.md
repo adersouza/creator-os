@@ -169,7 +169,9 @@ entire point of the item ("publishing died, nobody noticed").
 **Tests:** multi-campaign fixture, one stuck job → discovered without `--campaign`; stuck-hours
 threshold respected.
 
-### 1.2 One shared sqlite opener everywhere (finish RELIABILITY 5.1)  ·  MED-HIGH · S-M · [ ]
+### 1.2 One shared sqlite opener everywhere (finish RELIABILITY 5.1)  ·  MED-HIGH · S-M · [x]
+
+**Status:** Reel Factory production SQLite openers now use a shared 30s/WAL/busy-timeout helper with a bare-connect guard and reader/writer smoke test.
 
 **Branch:** `codex/sqlite-opener-sweep`
 

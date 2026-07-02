@@ -20,6 +20,7 @@ from intelligence_store import (
     low_data_warning,
     validate_review,
 )
+from sqlite_utils import connect_sqlite
 
 from pipeline_contracts import validate_recommendation_next_batch
 
@@ -120,8 +121,7 @@ def db_path(root: Path) -> Path:
 
 def connect(root: Path) -> sqlite3.Connection:
     Path(root).resolve().mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path(root), timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_campaign_schema(conn)
     return conn

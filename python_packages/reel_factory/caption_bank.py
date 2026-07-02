@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from intelligence_store import winner_score
+from sqlite_utils import connect_sqlite
 
 ACTIVE_BANKS = [
     "shared_girl_next_door",
@@ -671,7 +672,7 @@ def _history_captions(root: Path) -> list[tuple[str, str]]:
     db_path = root / "manifest.sqlite"
     if db_path.exists():
         try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            conn = connect_sqlite(db_path, readonly=True, wal=False)
             for (text,) in conn.execute(
                 "SELECT DISTINCT caption_text FROM variations WHERE caption_text != ''"
             ):
@@ -721,8 +722,7 @@ def refresh_caption_weights(root: Path) -> dict[str, Any]:
     db_path = root / "manifest.sqlite"
     if not db_path.exists():
         return {"updated": 0, "unresolved": 0, "performancePath": None}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path)
     try:
         rows = conn.execute(
             """

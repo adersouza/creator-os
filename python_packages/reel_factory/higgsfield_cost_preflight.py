@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from project_config import load_config
+from sqlite_utils import connect_sqlite
 
 SCHEMA = "reel_factory.higgsfield_cost_preflight.v1"
 
@@ -129,7 +130,7 @@ def _spent_today_usd(root: Path, *, now: datetime.datetime | None = None) -> flo
         return 0.0
     now = now or datetime.datetime.now(datetime.UTC)
     day = now.date().isoformat()
-    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+    with connect_sqlite(db_path, readonly=True, wal=False) as conn:
         row = conn.execute(
             """
             SELECT COALESCE(SUM(estimated_cost_usd), 0)

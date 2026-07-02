@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from audio_intent import read_audio_intent
 from intelligence_store import winner_score
+from sqlite_utils import connect_sqlite
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (
@@ -147,8 +148,7 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
 def connect(root: Path) -> sqlite3.Connection:
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(root / "manifest.sqlite", timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(root / "manifest.sqlite")
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_posting_ledger_schema(conn)
     return conn
