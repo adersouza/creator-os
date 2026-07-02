@@ -821,48 +821,6 @@ def rate_output(
     return {"ok": True, "rating_id": rating_id}
 
 
-def latest_rating_for_output(root: Path, output_path: Path) -> dict[str, Any] | None:
-    conn = connect(root)
-    row = conn.execute(
-        "SELECT * FROM operator_ratings WHERE output_path=? ORDER BY created_at DESC LIMIT 1",
-        (str(Path(output_path).resolve()),),
-    ).fetchone()
-    if not row:
-        return None
-    return {
-        "identity": row["identity_score"],
-        "pose": row["pose_score"],
-        "taste": row["taste_score"],
-        "artifacts": row["artifact_score"],
-        "motion": row["motion_score"],
-        "caption": row["caption_score"],
-        "face": row["face_score"] if "face_score" in row.keys() else None,
-        "eyes": row["eyes_score"] if "eyes_score" in row.keys() else None,
-        "hands": row["hands_score"] if "hands_score" in row.keys() else None,
-        "pose_accuracy": row["pose_accuracy_score"]
-        if "pose_accuracy_score" in row.keys()
-        else None,
-        "body_taste": row["body_taste_score"]
-        if "body_taste_score" in row.keys()
-        else None,
-        "background": row["background_score"]
-        if "background_score" in row.keys()
-        else None,
-        "crop": row["crop_score"] if "crop_score" in row.keys() else None,
-        "labels": json.loads(row["labels_json"] or "[]"),
-        "retry_helper": row["retry_helper"],
-        "reason": row["approve_reject_reason"],
-        "decision": row["decision"] if "decision" in row.keys() else "unreviewed",
-        "primary_reason": row["primary_reason"]
-        if "primary_reason" in row.keys()
-        else None,
-        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]")
-        if "secondary_reasons_json" in row.keys()
-        else [],
-        "notes": row["notes"],
-    }
-
-
 def list_campaigns(root: Path) -> list[dict[str, Any]]:
     conn = connect(root)
     rows = conn.execute(

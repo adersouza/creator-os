@@ -380,15 +380,16 @@ touches it.
 
 ## TIER 6 — Dead code / debt cleanup (do last; low risk, high clarity)
 
-### 6.1 Delete dead modules + dead functions  ·  LOW · S · [ ]
+### 6.1 Delete dead modules + dead functions  ·  LOW · S · [x]
 **Branch:** `codex/delete-dead-code`
 **Why:** zero-importer modules: `reel_factory/probe.py` (7-line re-export shim), `campaign_factory/readiness.py:9`
 (orphan dup of live `execution_readiness.py:258`), `reel_factory/reel_motion_prompt.py`,
 `reel_factory/experiments/tribev2_score_generated_panels.py`. Zero-ref functions: `import_audit_manifest`
 (`adapters/contentforge.py:823`), `format_cost_report` (`cost_tracker.py:253`), `latest_rating_for_output`
 (`campaign_store.py:790`).
-**Do:** delete them. **DO NOT** delete `deprecated_generators.py` — it's live (`reel_gui.py:65`,
-`generate_assets.py:24`) despite the name; rename it if anything, in a separate PR.
+**Do:** delete confirmed-dead modules/functions. **DO NOT** delete `deprecated_generators.py` — it's live
+(`reel_gui.py:65`, `generate_assets.py:24`) despite the name; rename it if anything, in a separate PR. Keep
+`reel_motion_prompt.py` until its current tests/docs/agent guidance are retired.
 **STOP-and-ask** before touching the standalone CLIs (`review_truth.py`, `reference_grid_production.py`,
 `approval_board.py`, `overnight_grid_worker.py`, `review_batch_guard.py`) — some may be intentionally
 operator-invoked; confirm per file.
@@ -462,7 +463,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 5.2 schema migrations — Reference Factory now creates tables, diffs declared schema columns across every declared table, adds missing non-PK columns, then creates indexes; legacy audio_catalog migration regression passed.
 - [x] 5.3 hot-path indexes — posting slots now index rendered paths and bare fingerprints, campaign outputs index metrics filenames with exact lookups preferred before legacy suffix fallback, and Campaign Factory lineage cost recording avoids per-event schema DDL; focused tests passed.
 - [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
-- [ ] 6.1 delete dead code
+- [x] 6.1 delete dead code
 - [ ] 6.2 consolidate helpers + config drift
 - [x] 6.3 virality_select reward basis — stale raw-view TODO/doc wording is removed and a refresh_winner_dna regression proves high engagement-rate content outranks higher raw-volume content; focused virality tests passed.
 

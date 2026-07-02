@@ -250,36 +250,3 @@ def cost_summary(
             "days": days,
         },
     }
-
-
-def format_cost_report(summary: dict[str, Any]) -> str:
-    """Format a cost summary as a human-readable report."""
-    lines = [
-        "═══ AI Cost Report ═══",
-        f"Total calls: {summary['total_calls']}",
-        f"Total cost:  ${summary['total_cost_usd']:.4f} USD",
-    ]
-
-    filters = summary.get("filters", {})
-    if filters.get("campaign_id"):
-        lines.append(f"Campaign:    {filters['campaign_id']}")
-    if filters.get("days"):
-        lines.append(f"Period:      last {filters['days']} days")
-
-    lines.append("")
-
-    for provider, ops in summary.get("by_provider", {}).items():
-        provider_total = sum(o["cost_usd"] for o in ops)
-        lines.append(f"── {provider} (${provider_total:.4f}) ──")
-        for op in ops:
-            tokens_str = ""
-            if op.get("input_tokens"):
-                tokens_str = f"  [{op['input_tokens']:,} in / {op['output_tokens'] or 0:,} out tokens]"
-            elif op.get("generations"):
-                tokens_str = f"  [{op['generations']:,} generations]"
-            lines.append(
-                f"  {op['operation']}: {op['calls']} calls = ${op['cost_usd']:.4f}{tokens_str}"
-            )
-        lines.append("")
-
-    return "\n".join(lines)
