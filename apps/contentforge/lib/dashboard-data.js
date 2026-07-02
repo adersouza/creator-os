@@ -1,6 +1,6 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { PROJECT_ROOT, RUNS_DIR } from "./paths.js";
 
@@ -83,15 +83,56 @@ export function collectSpend({ dbPath = CAMPAIGN_FACTORY_DB, now = new Date() } 
 }
 
 var MEDIA_RE = /\.(mp4|mov|webm|png|jpe?g|webp)$/i;
+var MAX_APPROVAL_RUN_SCAN = 100;
+
+function errorMessage(error) {
+  return error && error.message ? error.message : String(error || "unknown error");
+}
+
+function withCollectorError(fallback, error) {
+  return { ...fallback, available: false, error: errorMessage(error) };
+}
+
+async function newestRunIds(runsDir, maxScan = MAX_APPROVAL_RUN_SCAN) {
+  var entries = await readdir(runsDir, { withFileTypes: true });
+  var runs = await Promise.all(
+    entries
+      .filter(function (entry) {
+        return entry.isDirectory();
+      })
+      .map(async function (entry) {
+        var runPath = path.join(runsDir, entry.name);
+        var info = await stat(runPath);
+        return { runId: entry.name, mtimeMs: info.mtimeMs };
+      }),
+  );
+  runs.sort(function (a, b) {
+    return b.mtimeMs - a.mtimeMs || b.runId.localeCompare(a.runId);
+  });
+  return {
+    runIds: runs.slice(0, maxScan).map(function (entry) {
+      return entry.runId;
+    }),
+    skipped: Math.max(0, runs.length - maxScan),
+  };
+}
 
 export async function collectApprovals(runsDir = RUNS_DIR, limit = 6) {
-  var summary = { pending: 0, approved: 0, rejected: 0, runs: [] };
+  var summary = {
+    available: existsSync(runsDir),
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    scanned: 0,
+    skipped: 0,
+    runs: [],
+  };
   if (!existsSync(runsDir)) return summary;
-  var entries = await readdir(runsDir).catch(function () {
-    return [];
-  });
+  var { runIds, skipped } = await newestRunIds(runsDir);
+  summary.skipped = skipped;
+  summary.scanned = runIds.length;
   var runs = [];
-  for (var runId of entries) {
+  for (var runId of runIds) {
     var finalDir = path.join(runsDir, runId, "final");
     if (!existsSync(finalDir)) continue;
     var files = await readdir(finalDir).catch(function () {
@@ -181,16 +222,68 @@ export async function collectInFlight(baseUrl = REEL_GUI_URL) {
   }
 }
 
-export async function collectDashboard() {
-  var [approvals, inFlight] = await Promise.all([collectApprovals(), collectInFlight()]);
+export async function collectDashboard({ collectors = {} } = {}) {
+  var collectApprovalsFn = collectors.collectApprovals || collectApprovals;
+  var collectInFlightFn = collectors.collectInFlight || collectInFlight;
+  var collectRenderQueueFn = collectors.collectRenderQueue || collectRenderQueue;
+  var collectFailedGenerationsFn =
+    collectors.collectFailedGenerations || collectFailedGenerations;
+  var collectSpendFn = collectors.collectSpend || collectSpend;
+  var collectOutcomesFn = collectors.collectOutcomes || collectOutcomes;
+  var [approvals, inFlight] = await Promise.all([
+    Promise.resolve()
+      .then(function () {
+        return collectApprovalsFn();
+      })
+      .catch(function (error) {
+      return withCollectorError(
+        { pending: 0, approved: 0, rejected: 0, scanned: 0, skipped: 0, runs: [] },
+        error,
+      );
+    }),
+    Promise.resolve()
+      .then(function () {
+        return collectInFlightFn();
+      })
+      .catch(function () {
+        return null;
+      }),
+  ]);
+  var renderQueue;
+  try {
+    renderQueue = collectRenderQueueFn();
+  } catch (error) {
+    renderQueue = withCollectorError({ counts: {} }, error);
+  }
+  var failedGenerations;
+  try {
+    failedGenerations = collectFailedGenerationsFn();
+  } catch (error) {
+    failedGenerations = withCollectorError({ count: 0, recent: [] }, error);
+  }
+  var spend;
+  try {
+    spend = collectSpendFn();
+  } catch (error) {
+    spend = withCollectorError(
+      { todayUsd: 0, todayEvents: 0, budgetUsd: null, recent: [] },
+      error,
+    );
+  }
+  var outcomes;
+  try {
+    outcomes = collectOutcomesFn();
+  } catch (error) {
+    outcomes = withCollectorError({ count: 0, totals: {}, recent: [], slots: {} }, error);
+  }
   return {
     schema: "contentforge.dashboard.v1",
     generatedAt: new Date().toISOString(),
-    renderQueue: collectRenderQueue(),
-    failedGenerations: collectFailedGenerations(),
-    spend: collectSpend(),
+    renderQueue,
+    failedGenerations,
+    spend,
     approvals,
-    outcomes: collectOutcomes(),
+    outcomes,
     reelGui: inFlight ? { online: true, commandCenter: inFlight } : { online: false, commandCenter: null },
   };
 }

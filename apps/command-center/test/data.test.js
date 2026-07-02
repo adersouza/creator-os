@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -13,6 +13,7 @@ import {
   collectRenderQueue,
   collectSouls,
   collectSpend,
+  collectState,
 } from "../lib/data.js";
 
 function tempDir() {
@@ -82,6 +83,31 @@ test("collectApprovals derives pending from media minus decisions", async functi
   var approvals = await collectApprovals(runsDir);
   assert.equal(approvals.pending, 2);
   assert.equal(approvals.approved, 1);
+  assert.equal(approvals.scanned, 1);
+  assert.equal(approvals.skipped, 0);
+});
+
+test("collectApprovals scans only the newest 100 run directories", async function () {
+  var runsDir = tempDir();
+  for (var i = 0; i < 105; i++) {
+    var runId = "run-" + String(i).padStart(3, "0");
+    var finalDir = path.join(runsDir, runId, "final");
+    mkdirSync(finalDir, { recursive: true });
+    if (i === 0 || i === 104) writeFileSync(path.join(finalDir, "clip.mp4"), "x");
+    var when = new Date("2026-07-02T00:00:00Z").getTime() / 1000 + i;
+    utimesSync(path.join(runsDir, runId), when, when);
+  }
+
+  var approvals = await collectApprovals(runsDir);
+  assert.equal(approvals.scanned, 100);
+  assert.equal(approvals.skipped, 5);
+  assert.equal(approvals.pending, 1);
+  assert.deepEqual(
+    approvals.runs.map(function (run) {
+      return run.runId;
+    }),
+    ["run-104"],
+  );
 });
 
 test("collectOutcomes + collectSouls aggregate and name souls", function () {
@@ -119,4 +145,38 @@ test("buildProductionLine tones + buildEventLog ordering", function () {
   });
   assert.equal(events[0].kind, "failure");
   assert.equal(events[2].kind, "post");
+});
+
+test("collectState marks thrown collectors unavailable without failing the route", async function () {
+  var state = await collectState({
+    collectors: {
+      collectApprovals: async function () {
+        return { pending: 7, approved: 1, rejected: 0, scanned: 1, skipped: 0, runs: [] };
+      },
+      collectReelGui: async function () {
+        return null;
+      },
+      collectRenderQueue: function () {
+        throw new Error("queue broken");
+      },
+      collectFailedGenerations: function () {
+        return { count: 0, recent: [] };
+      },
+      collectSpend: function () {
+        return { available: true, todayUsd: 0, todayEvents: 0, budgetUsd: null, recent: [] };
+      },
+      collectOutcomes: function () {
+        return { available: true, count: 0, totals: {}, recent: [], slots: {} };
+      },
+      collectSouls: function () {
+        throw new Error("soul db broken");
+      },
+    },
+  });
+
+  assert.equal(state.approvals.pending, 7);
+  assert.equal(state.renderQueue.available, false);
+  assert.equal(state.renderQueue.error, "queue broken");
+  assert.equal(state.souls.available, false);
+  assert.equal(state.souls.error, "soul db broken");
 });
