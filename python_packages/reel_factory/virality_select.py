@@ -2,10 +2,10 @@
 
 The winner-DNA loop already measures, per content feature, how much engagement it
 historically earned (`winner_dna` table, built by `winner_dna.refresh_winner_dna`,
-scored by the views+likes*3+comments*8+shares*15+saves*12 formula). This module
-runs that loop *forward*: it matches a fresh candidate's features against that
-history, confidence-weights each match, and aggregates into a predicted-engagement
-score. Generate N -> rank -> post the best, instead of posting the first render.
+scored by the shared reach-plus-engagement-rate winner_score). This module runs
+that loop *forward*: it matches a fresh candidate's features against that history,
+confidence-weights each match, and aggregates into a predicted-engagement score.
+Generate N -> rank -> post the best, instead of posting the first render.
 
 The default predictor is data-only: deterministic, no external calls, CI-testable.
 Pass `scorer=` to blend an external signal (e.g. a Higgsfield virality prediction)
@@ -21,9 +21,6 @@ from typing import Any
 
 from intelligence_store import confidence_for_sample_size
 from winner_dna import FEATURE_KEYS, connect
-
-# TODO(1.2): winner_dna avg_winner_score is still backed by the legacy
-# raw-view-weighted reward; switch this to the shared engagement-rate score.
 
 # Down-weight low-sample feature clusters so a single fluke outcome can't crown a
 # candidate. Tunable: raise the low/medium weights as the outcome corpus grows.

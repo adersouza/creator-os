@@ -408,7 +408,7 @@ effect; paid-budget vars `HIGGSFIELD_DAILY_BUDGET_USD`/`RUN_MAX_ASSETS`/`MIN_BAL
 one `slugify`; align env-var names + document the budget vars and kill-switch in `.env.example`; drop the dead one.
 **Tests:** the shared helper's contract is tested once; a smoke test that documented env vars match the names code reads.
 
-### 6.3 Fix `virality_select` reward basis (leftover raw-view weighting)  ·  MED · S · [ ]
+### 6.3 Fix `virality_select` reward basis (leftover raw-view weighting)  ·  MED · S · [x]
 **Branch:** `codex/virality-select-reward`
 **Why:** `virality_select.py:25` `avg_winner_score` still uses the legacy raw-view-weighted reward, contradicting
 the module's own docstring — the restored predict-and-select ranker ranks candidates on the wrong reward basis.
@@ -464,7 +464,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
 - [ ] 6.1 delete dead code
 - [ ] 6.2 consolidate helpers + config drift
-- [ ] 6.3 virality_select reward basis
+- [x] 6.3 virality_select reward basis — stale raw-view TODO/doc wording is removed and a refresh_winner_dna regression proves high engagement-rate content outranks higher raw-volume content; focused virality tests passed.
 
 ## Verified-solid (audited, do NOT "fix")
 - **No SQL injection** anywhere — all values `?`-bound; interpolated identifiers are hardcoded/whitelisted.
