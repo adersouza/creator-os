@@ -105,38 +105,36 @@ def sync_status(ops_log: Path, now: datetime) -> dict[str, Any]:
     }
 
 
-def dir_size(path: Path) -> int:
-    total = 0
-    for child in path.rglob("*"):
-        if child.is_file():
-            total += child.stat().st_size
-    return total
-
-
-def human_size(size: int) -> str:
-    if size >= 1024 * 1024 * 1024:
-        return f"{size / (1024 * 1024 * 1024):.1f}GB"
-    if size >= 1024 * 1024:
-        return f"{size // (1024 * 1024)}MB"
-    if size >= 1024:
-        return f"{size // 1024}KB"
-    return f"{size}B"
-
-
-def backup_status(repo_root: Path, now: datetime) -> dict[str, Any]:
-    backups = repo_root / "backups" / "runtime"
-    candidates = [item for item in backups.iterdir()] if backups.exists() else []
-    candidates = [item for item in candidates if item.is_dir()]
-    if not candidates:
+def backup_status(backup_log: Path, now: datetime) -> dict[str, Any]:
+    # The backup job appends "<iso-ts> backup ok: <snapshot> ( <size>)" to
+    # ~/.creator-os/backup.log after its integrity check passes — that log
+    # is the source of truth (snapshots live on iCloud, not in the repo).
+    latest: tuple[datetime, str] | None = None
+    if backup_log.exists():
+        for line in backup_log.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            if "backup ok" not in line:
+                continue
+            ts = parse_time(line.split(" ", 1)[0])
+            if ts is None:
+                continue
+            if latest is None or ts > latest[0]:
+                latest = (ts, line)
+    if latest is None:
         return {"summary": "backup missing", "level": "error", "timestamp": None}
-    latest = max(candidates, key=lambda item: item.stat().st_mtime)
-    ts = datetime.fromtimestamp(latest.stat().st_mtime, UTC)
+    ts, line = latest
+    size = line.rsplit("(", 1)[-1].rstrip(")").strip() if "(" in line else ""
+    summary = (
+        f"backup {size} {format_age(ts, now)}"
+        if size
+        else f"backup {format_age(ts, now)}"
+    )
     level = "error" if now - ts > BACKUP_STALE_AFTER else "info"
     return {
-        "summary": f"backup {human_size(dir_size(latest))} {format_age(ts, now)}",
+        "summary": summary,
         "level": level,
         "timestamp": ts.isoformat(),
-        "path": str(latest),
     }
 
 
@@ -169,7 +167,10 @@ def latest_orchestrator_tick(repo_root: Path) -> dict[str, Any]:
 
 def reference_db_paths(repo_root: Path) -> list[Path]:
     return [
-        repo_root / "python_packages" / "reference_factory" / "reference_factory.sqlite",
+        repo_root
+        / "python_packages"
+        / "reference_factory"
+        / "reference_factory.sqlite",
         Path.home() / "Developer" / "reference_reels" / "reference_factory.sqlite",
     ]
 
@@ -186,7 +187,9 @@ def audio_status(repo_root: Path, now: datetime) -> dict[str, Any]:
     if db_path is None or "audio_catalog" not in sqlite_tables(db_path):
         return {"summary": "audio missing", "level": "error", "timestamp": None}
     with sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True) as conn:
-        row = conn.execute("SELECT MAX(imported_at) FROM audio_catalog").fetchone()
+        # audio_catalog has no imported_at; updated_at is bumped on every
+        # refresh-tiktok-audio run, which is exactly the freshness signal.
+        row = conn.execute("SELECT MAX(updated_at) FROM audio_catalog").fetchone()
     ts = parse_time(row[0] if row else None)
     level = "error" if ts is None or now - ts > AUDIO_STALE_AFTER else "info"
     return {
@@ -209,18 +212,28 @@ def reference_status(repo_root: Path) -> dict[str, Any]:
             if table.startswith("sqlite_"):
                 continue
             try:
-                total += int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+                total += int(
+                    conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                )
             except sqlite3.Error:
                 continue
     return {"summary": f"refs {total}", "level": "info", "rows": total}
 
 
-def digest(repo_root: Path, ops_log: Path, *, now: datetime | None = None) -> dict[str, Any]:
+def digest(
+    repo_root: Path,
+    ops_log: Path,
+    *,
+    backup_log: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     timestamp = now or utc_now()
+    if backup_log is None:
+        backup_log = Path.home() / ".creator-os" / "backup.log"
     checks = [
         outcome_status(repo_root, timestamp),
         sync_status(ops_log, timestamp),
-        backup_status(repo_root, timestamp),
+        backup_status(backup_log, timestamp),
         latest_orchestrator_tick(repo_root),
         audio_status(repo_root, timestamp),
         reference_status(repo_root),
@@ -264,10 +277,19 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path.home() / ".creator-os" / "notify.sh",
     )
+    parser.add_argument(
+        "--backup-log",
+        type=Path,
+        default=Path.home() / ".creator-os" / "backup.log",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    result = digest(args.repo_root.resolve(), args.ops_log.expanduser())
+    result = digest(
+        args.repo_root.resolve(),
+        args.ops_log.expanduser(),
+        backup_log=args.backup_log.expanduser(),
+    )
     print(result["line"])
     if not args.dry_run:
         send_notify(args.notify.expanduser(), result["level"], result["line"])

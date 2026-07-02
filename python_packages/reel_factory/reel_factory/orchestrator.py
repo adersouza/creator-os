@@ -312,7 +312,9 @@ def record_rejection_evidence(
     created_at = datetime.fromtimestamp(ts, UTC).isoformat()
     asset_id = str(asset["asset_id"])
     try:
-        conn = sqlite3.connect(db_path)
+        # wal=False: this is campaign_factory's database — leave its journal
+        # mode to its owner, we only append one evidence row.
+        conn = connect_sqlite(db_path, wal=False)
         try:
             has_table = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_rejection_evidence'"
@@ -534,9 +536,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "decide":
         try:
-            result = decide(
-                args.root, args.asset_id, args.decision, reason=args.reason
-            )
+            result = decide(args.root, args.asset_id, args.decision, reason=args.reason)
         except ValueError as exc:
             print(json.dumps({"error": str(exc)}))
             return 2
