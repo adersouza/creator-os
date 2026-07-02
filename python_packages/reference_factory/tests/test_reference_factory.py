@@ -2061,6 +2061,61 @@ def test_higgsfield_runner_records_cost_events(
     assert rows[1][0] == "kling"
 
 
+def test_higgsfield_runner_records_image_cost_when_video_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root, "ref_video_fail")
+    image_file = tmp_path / "image.png"
+    image_file.write_bytes(b"png")
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "text2image_soul_v2" in cmd:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {
+                        "id": "img_before_video_fail",
+                        "path": str(image_file),
+                        "credits": 0.12,
+                    }
+                ),
+                "",
+            )
+        if "kling3_0" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "video failed")
+        raise AssertionError(cmd)
+
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        campaign="daily",
+        runner=fake_runner,
+        max_credits=20,
+    )
+
+    assert result["status"] == "partial"
+    assert result["runs"][0]["status"] == "video_failed"
+    lineage = json.loads(
+        Path(result["runs"][0]["lineagePath"]).read_text(encoding="utf-8")
+    )
+    assert [
+        event["operation"] for event in lineage["generation"]["costLedger"]["events"]
+    ] == ["image_create"]
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT provider, operation, campaign_id, metadata_json FROM ai_cost_events"
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "higgsfield"
+    assert rows[0][1] == "image_create"
+    assert rows[0][2] == "daily"
+    assert json.loads(rows[0][3])["actualCredits"] == 0.12
+
+
 def test_higgsfield_failed_image_prevents_video_generation(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     write_higgsfield_prompt_pair(data_root)

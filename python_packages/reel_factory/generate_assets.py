@@ -95,6 +95,7 @@ class AssetGenerationPlan:
     video_model: str = VIDEO_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,7 @@ class DirectReferenceImagePlan:
     image_model: str = IMAGE_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 def load_prompt(path: Path) -> AssetPromptSet:
@@ -1083,6 +1085,7 @@ def _cost_preflight_for_plan(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+        budget_override_ledger_error=plan.budget_override_ledger_error,
         root=plan.source_dir.parent,
     )
 
@@ -2282,6 +2285,7 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         video_model=args.video_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -2307,6 +2311,7 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         image_model=args.image_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -2366,6 +2371,7 @@ def main() -> int:
     ap.add_argument("--video-model", default=VIDEO_MODEL)
     ap.add_argument("--estimated-cost-usd", type=float)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
+    ap.add_argument("--budget-override-ledger-error", action="store_true")
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--download", action="store_true")

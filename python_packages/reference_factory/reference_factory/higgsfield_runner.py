@@ -726,6 +726,34 @@ def _record_generation_cost(
     }
 
 
+def _record_image_generation_costs(
+    *,
+    data_root: Path,
+    campaign_factory_root: Path | None,
+    campaign: str | None,
+    lineage_path: Path,
+    reference_id: str,
+    candidate_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for item in candidate_results:
+        result = item.get("result") if isinstance(item.get("result"), dict) else item
+        event = _record_generation_cost(
+            data_root=data_root,
+            campaign_factory_root=campaign_factory_root,
+            provider="higgsfield",
+            operation="image_create",
+            campaign=campaign,
+            model=DEFAULT_IMAGE_MODEL,
+            result=result,
+            lineage_path=lineage_path,
+            reference_id=reference_id,
+        )
+        if event:
+            events.append(event)
+    return events
+
+
 def resolve_soul_id(soul_id: str) -> str:
     return DEFAULT_SOUL_IDS.get(soul_id.strip().lower(), soul_id.strip())
 
@@ -793,6 +821,8 @@ def _run_pair(
     local_variation_path: str | None = None
     candidate_results: list[dict[str, Any]] = []
     selected_candidate_index = 1
+    lineage_path = out_dir / "generated_asset_lineage.json"
+    cost_events: list[dict[str, Any]] = []
 
     if dry_run:
         candidate_results = [
@@ -911,6 +941,17 @@ def _run_pair(
             if not media_ref:
                 raise RuntimeError(
                     "Higgsfield image result did not include a usable media id, URL, or local file"
+                )
+            if not dry_run:
+                cost_events.extend(
+                    _record_image_generation_costs(
+                        data_root=data_root,
+                        campaign_factory_root=campaign_factory_root,
+                        campaign=campaign,
+                        lineage_path=lineage_path,
+                        reference_id=pair.reference_id,
+                        candidate_results=candidate_results,
+                    )
                 )
             if variation_grid:
                 variation_stem = "variation_grid_" + _safe_name(variation_layout)
@@ -1153,28 +1194,7 @@ def _run_pair(
             variation_panel_dir_provided=variation_panel_dir is not None,
         ),
     )
-    lineage_path = out_dir / "generated_asset_lineage.json"
-    cost_events = []
     if not dry_run and status in {"generated", "image_generated", "submitted"}:
-        for event in (
-            _record_generation_cost(
-                data_root=data_root,
-                campaign_factory_root=campaign_factory_root,
-                provider="higgsfield",
-                operation="image_create",
-                campaign=campaign,
-                model=DEFAULT_IMAGE_MODEL,
-                result=item.get("result")
-                if isinstance(item.get("result"), dict)
-                else item,
-                lineage_path=lineage_path,
-                reference_id=pair.reference_id,
-            )
-            for item in candidate_results
-            if isinstance(item, dict)
-        ):
-            if event:
-                cost_events.append(event)
         if video_result:
             event = _record_generation_cost(
                 data_root=data_root,

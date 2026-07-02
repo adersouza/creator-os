@@ -125,7 +125,9 @@ rank-weighted trending selection built in REEL_ENGINE 3.7.
 overrides; provider-empty falls back. Extend `tests/test_audio_mux.py` /
 `tests/test_audio_provider.py`.
 
-### 0.4 Ledger image spend when the paired video fails; budget fail-closed  ·  MED · S · [ ]
+### 0.4 Ledger image spend when the paired video fails; budget fail-closed  ·  MED · S · [x]
+
+**Status:** Reference image spend is recorded after image success even when video fails, and unreadable cost ledgers fail closed unless explicitly overridden; focused spend/preflight tests pass.
 
 **Branch:** `codex/spend-edge-cases`
 

@@ -662,6 +662,58 @@ def test_higgsfield_cost_preflight_sums_existing_daily_spend(
     assert result["budgetPolicy"]["projectedDailySpendUsd"] == 10.25
 
 
+def test_higgsfield_cost_preflight_blocks_when_cost_ledger_unreadable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    db_path = tmp_path / "campaign_factory.sqlite"
+    db_path.write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=2.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "cost_ledger_unreadable" in result["blockingReasons"]
+    assert result["budgetPolicy"]["costLedgerReadable"] is False
+
+
+def test_higgsfield_cost_preflight_ledger_override_unblocks_ledger_error_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    db_path = tmp_path / "campaign_factory.sqlite"
+    db_path.write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=2.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+        budget_override_ledger_error=True,
+    )
+
+    assert result["allowed"] is True
+    assert result["blockingReasons"] == []
+    assert result["budgetPolicy"]["costLedgerReadable"] is False
+    assert result["budgetOverrideLedgerError"] is True
+
+
 def test_higgsfield_cost_preflight_blocks_over_asset_limit(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -782,6 +834,75 @@ def test_reel_generation_costs_record_completed_provider_events(
     assert rows[0][2] == "daily"
     assert json.loads(rows[0][3])["actualCredits"] == 0.12
     assert rows[1][0] == "kling"
+
+
+def test_reel_generation_costs_ensure_cost_schema_once_per_connection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class FakeCostTracker:
+        def __init__(self) -> None:
+            self.ensure_calls = 0
+            self.record_schema_flags: list[bool] = []
+
+        def ensure_cost_table(self, conn) -> None:
+            self.ensure_calls += 1
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_cost_events (
+                    id TEXT PRIMARY KEY,
+                    source_event_key TEXT UNIQUE
+                )
+                """
+            )
+
+        def record_ai_cost(
+            self, conn, *, source_event_key: str, ensure_schema: bool, **_kwargs
+        ):
+            self.record_schema_flags.append(ensure_schema)
+            event_id = f"cost_{len(self.record_schema_flags)}"
+            conn.execute(
+                "INSERT OR IGNORE INTO ai_cost_events VALUES (?, ?)",
+                (event_id, source_event_key),
+            )
+            return event_id
+
+    tracker = FakeCostTracker()
+    monkeypatch.setattr("generate_assets._load_cost_tracker_module", lambda: tracker)
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(tmp_path / "campaign_factory.sqlite"))
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="clip_001",
+        reference=None,
+        soul_id="soul_1",
+        soul_name="Stacey",
+        start_image=None,
+        out_dir=tmp_path / "out",
+        source_dir=tmp_path / "sources",
+        campaign="daily",
+        creator="Stacey",
+    )
+    records = [
+        {
+            "provider": "higgsfield",
+            "operation": "image_create",
+            "model": "text2image_soul_v2",
+            "raw": {"id": "img_1", "status": "completed"},
+        },
+        {
+            "provider": "kling",
+            "operation": "video_create",
+            "model": "kling3_0",
+            "raw": {"id": "vid_1", "status": "completed"},
+        },
+    ]
+
+    result = _record_generation_costs(
+        plan, lineage_path_text=str(tmp_path / "lineage.json"), records=records
+    )
+
+    assert len(result["events"]) == 2
+    assert tracker.ensure_calls == 1
+    assert tracker.record_schema_flags == [False, False]
 
 
 def test_cost_preflight_block_appends_failed_generation_dead_letter(

@@ -129,18 +129,15 @@ def _spent_today_usd(root: Path, *, now: datetime.datetime | None = None) -> flo
         return 0.0
     now = now or datetime.datetime.now(datetime.UTC)
     day = now.date().isoformat()
-    try:
-        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-            row = conn.execute(
-                """
-                SELECT COALESCE(SUM(estimated_cost_usd), 0)
-                FROM ai_cost_events
-                WHERE substr(created_at, 1, 10) = ?
-                """,
-                (day,),
-            ).fetchone()
-    except sqlite3.Error:
-        return 0.0
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(estimated_cost_usd), 0)
+            FROM ai_cost_events
+            WHERE substr(created_at, 1, 10) = ?
+            """,
+            (day,),
+        ).fetchone()
     return float(row[0] or 0.0)
 
 
@@ -150,6 +147,7 @@ def check_higgsfield_cost_preflight(
     estimated_cost_usd: float | None = None,
     provider: BalanceProvider | None = None,
     allow_unbudgeted_local_test: bool = False,
+    budget_override_ledger_error: bool = False,
     root: str | Path = ".",
 ) -> dict[str, Any]:
     provider = provider or CliBalanceProvider()
@@ -183,7 +181,14 @@ def check_higgsfield_cost_preflight(
         blocking_reasons.append(balance_error or "balance_unavailable")
     elif minimum_balance is not None and balance < minimum_balance:
         blocking_reasons.append("minimum_balance_not_met")
-    spent_today = _spent_today_usd(root_path)
+    ledger_error: str | None = None
+    try:
+        spent_today = _spent_today_usd(root_path)
+    except sqlite3.Error as exc:
+        spent_today = 0.0
+        ledger_error = str(exc)
+        if not budget_override_ledger_error:
+            blocking_reasons.append("cost_ledger_unreadable")
     projected_daily_spend = spent_today + (estimated_cost_usd or 0.0)
     if (
         estimated_cost_usd is not None
@@ -207,11 +212,14 @@ def check_higgsfield_cost_preflight(
             "spentTodayUsd": round(spent_today, 4),
             "projectedDailySpendUsd": round(projected_daily_spend, 4),
             "assetCount": asset_count,
+            "costLedgerReadable": ledger_error is None,
+            "costLedgerError": ledger_error,
         },
         "allowed": allowed,
         "blockingReason": "" if allowed else blocking_reasons[0],
         "blockingReasons": blocking_reasons,
         "localTestOverride": bool(allow_unbudgeted_local_test),
+        "budgetOverrideLedgerError": bool(budget_override_ledger_error),
     }
 
 
@@ -220,11 +228,13 @@ def main() -> int:
     ap.add_argument("--asset-count", type=int, required=True)
     ap.add_argument("--estimated-cost-usd", type=float)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
+    ap.add_argument("--budget-override-ledger-error", action="store_true")
     args = ap.parse_args()
     result = check_higgsfield_cost_preflight(
         asset_count=args.asset_count,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0 if result["allowed"] else 2
