@@ -360,7 +360,7 @@ times to it.
 **Tests:** an account in `America/Los_Angeles` gets slots in PT; unset → NY default; tz-aware output preserved.
 **STOP-and-ask:** where the per-account timezone should be stored if there's no obvious existing field.
 
-### 5.3 Best-time-to-post (design item — scope before building)  ·  LOW · L/design · [ ]
+### 5.3 Best-time-to-post (design item — scope before building)  ·  LOW · L/design · [x]
 **Branch:** `codex/best-time-to-post`
 **Why:** no `best_time`/`peak_hour`/`by_hour` logic exists; slot hours are hardcoded despite retention/views being
 tracked per post. Honest caveat: dispatch timing is delegated to ThreadsDashboard by design
@@ -369,6 +369,10 @@ tracked per post. Honest caveat: dispatch timing is delegated to ThreadsDashboar
 planner: derive peak hours per account from historical `reel_outcomes` by hour-of-day (engagement-rate weighted,
 reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the top buckets with a sane floor.
 **STOP-and-ask:** confirm ownership (planner vs ThreadsDashboard) before implementing.
+**Decision:** best-time execution belongs in ThreadsDashboard because it owns actual dispatch timing and schedule
+state. Campaign/Reel Factory should not mutate slot times beyond configured caps/timezones; a later read-only
+planner hint can aggregate historical `reel_outcomes` by account/hour and send suggested peak windows to
+ThreadsDashboard for operator approval.
 
 ---
 
@@ -409,7 +413,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 4.5 caption artifact git policy — dated inventory scratch is gitignored/untracked; quarantine and Stacey adaptation decision records remain tracked.
 - [x] 5.1 per-account cap/spacing from config — distribution slot selection now reads active `account_content_requirements`, and posting-ledger account configs can expand same-day slots from max/day + min-gap while preserving current defaults; focused cadence tests passed.
 - [x] 5.2 per-account timezone — posting-ledger account configs now accept `timezone`/`timeZone`, default to America/New_York, and persist offset-aware `planned_at` values; focused posting-ledger tests passed.
-- [ ] 5.3 best-time-to-post (design first)
+- [x] 5.3 best-time-to-post (design first)
 
 ## Verified-fine (do NOT "fix" — audited and correct)
 - Aspect ratio: pipeline forces `9:16` + 1080×1920 (`generate_assets.py:80,156`, `still_to_reel.py:23-24`) despite Kling's 16:9 default. No bug.

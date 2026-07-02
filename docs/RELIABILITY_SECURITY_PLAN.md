@@ -294,7 +294,7 @@ RunHistory ops.
 
 ## TIER 4 — Enforce the cross-package contracts (silent-corruption guard)
 
-### 4.1 Enforce contracts at producer write boundaries  ·  HIGH · M · [ ]
+### 4.1 Enforce contracts at producer write boundaries  ·  HIGH · M · [x]
 **Branch:** `codex/enforce-contracts`
 **Why:** the contract layer is ~60% decorative. 11 of 18 contracts are emitted across package boundaries but
 validated by NObody (no production call sites, only tests/re-exports): `audio_intent`,
@@ -313,6 +313,10 @@ high-traffic ones: `generated_asset_lineage` in `still_to_reel._build_lineage`, 
 **Tests:** a malformed payload for each newly-enforced contract raises at the write boundary; valid payloads pass.
 Coordinate the `recommendation_next_batch` change with the sibling doc's "unify next_batch schema" item (this is
 the *enforcement* half; that was the *shape* half).
+**Implemented:** generated-asset lineage now has the Reel Factory schema id and is validated before sidecar writes;
+audio intent, caption outcome context, creative plan, and next-batch recommendation producers validate before
+write/return. Remaining Reference Factory prompt/card emitters should get their own narrow pass because their
+payload builders need safer fixture-by-fixture validation.
 
 ### 4.2 De-duplicate the committed schema copies + validator footgun  ·  MED · S · [x]
 **Branch:** `codex/dedupe-schema-copies`
@@ -457,7 +461,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 3.3 surface silent failures (both UIs) — Reel Factory run status now counts QC skips as rejected with reason tallies, cockpit fetch failures surface via guarded JSON/global rejection handling, and ContentForge scan/similarity/rejection failures render explicit banners/breakdowns; focused Python, JS parse, and ContentForge tests passed.
 - [x] 3.4 onboarding + subprocess timeouts + health view — reel GUI dev launch now documents/sets explicit loopback auth, request-bound render/preview/ffprobe calls have timeout-to-504 behavior, and dashboard summary includes generation, failed-gen, render-queue, and cost health; focused tests passed.
 - [x] 3.5 contentforge review polish
-- [ ] 4.1 enforce contracts at write boundaries
+- [x] 4.1 enforce contracts at write boundaries
 - [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
 - [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.
 - [x] 5.2 schema migrations — Reference Factory now creates tables, diffs declared schema columns across every declared table, adds missing non-PK columns, then creates indexes; legacy audio_catalog migration regression passed.
