@@ -1,17 +1,19 @@
 # Creator OS Agent Notes
 
-This monorepo is a repaired import/reconciliation workspace. The deployable runtime baseline is still the split repos under `/Users/aderdesouza/Developer` unless the user explicitly promotes the monorepo.
+This monorepo is the Creator OS runtime source for Campaign Factory, Reel
+Factory, Reference Factory, ContentForge, Pipeline Contracts, local docs, and
+local generated evidence. ThreadsDashboard remains an external repo and is the
+dashboard production source unless the user explicitly changes that boundary.
 
-## Promotion Status
+## Runtime Status
 
-`creator-os/main` is the CI-green source integration baseline. It is not yet
-the production runtime source. A non-mutating staged acceptance run from the
-monorepo path against a copied Campaign Factory SQLite database certified the
-25-account gate and blocked the 50-account gate on inventory buffer only.
+`creator-os/main` is the CI-green integration baseline for Creator OS local
+pipeline code. A non-mutating staged acceptance run from the monorepo path
+against a copied Campaign Factory SQLite database certified the 25-account gate
+and blocked the 50-account gate on inventory buffer only.
 
-Do not promote production deployments from this repo without an explicit
-deployment instruction. ThreadsDashboard is external to this repo and remains
-the dashboard production source unless the user explicitly changes that.
+Do not promote production deployments or scheduling/publishing behavior from
+this repo without an explicit deployment instruction.
 
 ## Current Runtime Truth
 

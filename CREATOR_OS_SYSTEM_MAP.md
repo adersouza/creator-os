@@ -5,9 +5,9 @@ This is the durable operator map. Keep this file aligned with `AGENTS.md`,
 
 ## Repos
 
-- `/Users/aderdesouza/Developer/creator-os`: Creator OS source integration
-  baseline. Owns Campaign Factory, Reel Factory, Reference Factory,
-  ContentForge, Pipeline Contracts, docs, maps, and local generated evidence.
+- `/Users/aderdesouza/Developer/creator-os`: Creator OS runtime source for
+  Campaign Factory, Reel Factory, Reference Factory, ContentForge, Pipeline
+  Contracts, docs, maps, and local generated evidence.
 - `/Users/aderdesouza/Developer/ThreadsDashboard`: real dashboard product and
   runtime. Owns composer, drafts, native audio selection, scheduling,
   publishing, analytics, and Supabase runtime behavior.
