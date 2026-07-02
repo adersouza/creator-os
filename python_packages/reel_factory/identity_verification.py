@@ -504,7 +504,9 @@ def main(argv: list[str] | None = None) -> int:
             threshold=args.threshold,
         )
         if not args.json_embeddings:
-            result = {key: value for key, value in result.items() if key != "embeddings"}
+            result = {
+                key: value for key, value in result.items() if key != "embeddings"
+            }
     elif args.command == "identity-reference-delete":
         result = delete_reference_set(creator=args.creator, root=args.root)
     elif args.command == "identity-health":

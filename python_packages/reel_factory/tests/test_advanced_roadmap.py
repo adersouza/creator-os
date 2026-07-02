@@ -1343,7 +1343,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             }
 
             with (
-                patch("reference_analyzer.latest_analysis_record", return_value=analysis),
+                patch(
+                    "reference_analyzer.latest_analysis_record", return_value=analysis
+                ),
                 patch("generate_prompts.load_xai_api_key", return_value="key"),
                 patch("generate_prompts.call_grok", return_value=fake_raw),
             ):

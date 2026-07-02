@@ -35,7 +35,11 @@ def _validate_url(url: str) -> str:
 
 def _validate_stem(stem: str) -> str:
     clean = str(stem or "").strip()
-    if not clean or clean != Path(clean).name or any(sep in clean for sep in {"/", "\\"}):
+    if (
+        not clean
+        or clean != Path(clean).name
+        or any(sep in clean for sep in {"/", "\\"})
+    ):
         raise ValueError("download_reel_url requires a safe stem")
     return clean
 

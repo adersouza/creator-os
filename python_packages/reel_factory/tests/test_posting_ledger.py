@@ -69,9 +69,7 @@ class PostingLedgerTests(unittest.TestCase):
                 root,
                 creator="Stacey",
                 campaign_id="camp_stacey",
-                accounts=[
-                    {"handle": "stacey_a", "max_per_day": 5, "min_gap_hours": 2}
-                ],
+                accounts=[{"handle": "stacey_a", "max_per_day": 5, "min_gap_hours": 2}],
                 start_date="2026-06-03",
                 days=1,
             )

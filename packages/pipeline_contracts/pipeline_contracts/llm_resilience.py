@@ -34,12 +34,16 @@ def urlopen_json_with_retry(
         except (TimeoutError, urllib.error.URLError) as exc:
             last_error = exc
             if attempt == attempts - 1:
-                raise RuntimeError(f"LLM request failed after {attempts} attempts: {exc}") from exc
+                raise RuntimeError(
+                    f"LLM request failed after {attempts} attempts: {exc}"
+                ) from exc
         sleep(backoff_seconds * (2**attempt))
     raise RuntimeError(f"LLM request failed: {last_error}")
 
 
-def decode_json_object(text: str, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+def decode_json_object(
+    text: str, fallback: dict[str, Any] | None = None
+) -> dict[str, Any]:
     stripped = _strip_json_fence(text)
     decoder = json.JSONDecoder(strict=False)
     for candidate in (stripped, _braced_json(stripped)):

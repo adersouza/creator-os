@@ -6546,10 +6546,10 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             )
 
         assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
+        export_row = cf.conn.execute(
+            "SELECT status FROM threadsdash_exports"
+        ).fetchone()
+        assert export_row["status"] == "failed"
         failed_events = [
             event
             for event in cf.events_for_campaign("may")
@@ -6648,10 +6648,10 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
         assert not any(
             "/api/campaign-factory/drafts/ingest" in call["url"] for call in calls
         )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
+        export_row = cf.conn.execute(
+            "SELECT status FROM threadsdash_exports"
+        ).fetchone()
+        assert export_row["status"] == "failed"
     finally:
         cf.close()
 

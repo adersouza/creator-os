@@ -178,8 +178,7 @@ def _account_slot_plan(
     max_per_day = max(1, max_per_day)
     if max_per_day <= len(SLOT_TYPES):
         return [
-            (slot_type, slot_times[slot_type])
-            for slot_type in SLOT_TYPES[:max_per_day]
+            (slot_type, slot_times[slot_type]) for slot_type in SLOT_TYPES[:max_per_day]
         ]
     gap_hours = (
         int(account.get("min_gap_hours") or account.get("minGapHours") or 1)

@@ -41,11 +41,7 @@ def test_packaged_schema_copy_matches_canonical_source():
     repo_root = Path(__file__).resolve().parents[3]
     canonical = repo_root / "packages" / "pipeline_contracts" / "schemas"
     packaged = (
-        repo_root
-        / "packages"
-        / "pipeline_contracts"
-        / "pipeline_contracts"
-        / "schemas"
+        repo_root / "packages" / "pipeline_contracts" / "pipeline_contracts" / "schemas"
     )
     canonical_files = sorted(path.name for path in canonical.glob("*.json"))
     packaged_files = sorted(path.name for path in packaged.glob("*.json"))

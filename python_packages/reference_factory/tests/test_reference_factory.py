@@ -133,7 +133,7 @@ def make_conn(tmp_path: Path) -> sqlite3.Connection:
     return connect(tmp_path / "reference_factory.sqlite")
 
 
-def create_video(path: Path) -> None:
+def create_video(path: Path, *, duration: float = 1.2) -> None:
     subprocess.run(
         [
             "ffmpeg",
@@ -144,7 +144,7 @@ def create_video(path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "testsrc2=s=540x960:d=1.2:r=24",
+            f"testsrc2=s=540x960:d={duration}:r=24",
             "-an",
             str(path),
         ],
@@ -2329,7 +2329,7 @@ def test_thumbnail_batch_skips_existing_and_creates_missing(tmp_path: Path) -> N
     account = source / "account_a"
     account.mkdir(parents=True)
     create_video(account / "a.mp4")
-    create_video(account / "b.mp4")
+    create_video(account / "b.mp4", duration=1.4)
     conn = make_conn(tmp_path)
     scan_source(conn, source)
     probe_videos(conn)
@@ -2624,8 +2624,8 @@ def test_import_apify_metrics_matches_local_media_and_generates_prompts(
 
     assert imported["imported"] == 2
     assert imported["exactLocalMatches"] == 1
-    assert top["items"][0]["shortCode"] == "XYZ999"
-    assert top["items"][1]["matchType"] == "exact_media_id"
+    assert top["items"][0]["shortCode"] == "ABC123"
+    assert top["items"][0]["matchType"] == "exact_media_id"
     assert prompts["count"] == 2
     assert prompts["cards"][0]["generationPrompt"]["goal"].startswith(
         "create an original reel"

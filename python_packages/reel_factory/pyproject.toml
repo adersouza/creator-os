@@ -87,7 +87,6 @@ py-modules = [
   "post_render_acceptance",
   "posting_ledger",
   "preflight",
-  "probe",
   "project_config",
   "qc_check",
   "queue_admin",

@@ -199,7 +199,9 @@ def _run_asset_job(job_id: str, runner: Any, body: dict[str, Any]) -> None:
     try:
         result = runner(body)
         status = "done" if result.get("ok", True) else "failed"
-        _update_asset_job(job_id, status=status, result=result, error=result.get("error"))
+        _update_asset_job(
+            job_id, status=status, result=result, error=result.get("error")
+        )
     except HTTPException as exc:
         _update_asset_job(
             job_id,
@@ -755,7 +757,11 @@ def _update_run_progress_from_line(line: str) -> None:
         reasons = dict(_run_state.get("rejection_reasons") or {})
         reasons[reason] = int(reasons.get(reason, 0)) + 1
         _run_state["rejection_reasons"] = reasons
-    if text.startswith("done ") or text.startswith("DRY ") or text.startswith("preview "):
+    if (
+        text.startswith("done ")
+        or text.startswith("DRY ")
+        or text.startswith("preview ")
+    ):
         _run_state["completed"] = int(_run_state.get("completed", 0)) + 1
     if text.startswith("FAIL ") or "task exception" in text:
         _run_state["failed"] = int(_run_state.get("failed", 0)) + 1
@@ -968,9 +974,7 @@ def _threadsdashboard_queue_identity_conflict(
         ] or [row["soul_id"]]
         lineage_path = ledger_find_lineage_path(output_path)
         lineage = (
-            json.loads(lineage_path.read_text(encoding="utf-8"))
-            if lineage_path
-            else {}
+            json.loads(lineage_path.read_text(encoding="utf-8")) if lineage_path else {}
         )
         return ledger_creator_identity_conflict(
             conn,
