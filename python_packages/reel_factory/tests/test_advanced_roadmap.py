@@ -3786,6 +3786,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True, "log": "sync render ok"})
 
+    def test_launch_command_exports_loopback_dev_auth(self):
+        text = (REEL_ROOT / "Launch reel factory.command").read_text(encoding="utf-8")
+
+        self.assertIn("export ALLOW_INSECURE_LOCAL=1", text)
+        self.assertIn("loopback-only bypass enabled", text)
+        self.assertIn("CREATOR_OS_API_TOKEN", text)
+
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
         import reel_gui
 

@@ -259,7 +259,9 @@ crash.
 
 ## Tier 2 — operator polish (batch into one or two PRs)
 
-### 2.1 Fix the double-click launcher 401 (finish RELIABILITY 3.4a)  ·  MED · S · [ ]
+### 2.1 Fix the double-click launcher 401 (finish RELIABILITY 3.4a)  ·  MED · S · [x]
+
+**Status:** The Finder launcher now exports the same loopback-only dev auth env as `make dev-reel` and prints the local bypass plus real-token hint; script/test checks pass.
 
 **Branch:** `codex/launcher-onboarding`
 
@@ -328,7 +330,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 - [x] 1.3 filename join key — variations filename is migrated/backfilled/indexed, lookups are exact-first, and cost schema setup runs once per connection.
 - [x] 1.4 reference_factory contract enforcement — pattern cards, video analyses, and both prompt contracts validate before producer writes/exports.
 - [x] 1.5 import metrics to reference record — source metrics columns are migrated, populated from info-json/archive metadata, and backfilled from existing sidecars.
-- [ ] 2.1 launcher onboarding fix (explicit dev-auth env in `.command`)
+- [x] 2.1 launcher onboarding fix — the `.command` launcher exports loopback-only dev auth, prints the bypass/token hint, and keeps auth enforcement unchanged.
 - [ ] 2.2 CF cost tile from ledger + loading skeleton
 - [ ] 2.3 hydration window honors max `min_gap_hours`
 
