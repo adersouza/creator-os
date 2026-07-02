@@ -134,6 +134,7 @@ def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
     assert audio_intent is not None
     assert audio_intent["mode"] == "platform_auto_music"
     lineage = json.loads(Path(result["lineagePath"]).read_text(encoding="utf-8"))
+    assert lineage["schema"] == "reel_factory.generated_asset_lineage.v1"
     assert lineage["generation"]["workflow"] == "motion_edit_still_to_reel"
     assert lineage["generation"]["paidGeneration"] is False
     assert lineage["generation"]["models"] == {}

@@ -70,6 +70,8 @@ from recipe_loader import load_recipes
 from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 
+from pipeline_contracts import validate_generated_asset_lineage
+
 
 # ────────────────────────────────────────────────────────────────────────────
 # Logging — line-delimited JSON to stdout, easy to grep / pipe to jq
@@ -722,7 +724,7 @@ def write_generated_asset_lineage_sidecar(
 ) -> Path:
     sidecar = out_path.with_suffix(out_path.suffix + ".generated_asset_lineage.json")
     payload = {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "pipelineTraceId": f"trace_reel_render_{hashlib.sha256(f'{source_hash}:{render_job_key}'.encode()).hexdigest()[:16]}",
         "source": {
             "sourceLineagePath": str(source_lineage_path)
@@ -742,6 +744,7 @@ def write_generated_asset_lineage_sidecar(
         },
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
     }
+    validate_generated_asset_lineage(payload)
     sidecar.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )

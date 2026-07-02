@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "campaign_factory.generated_asset_lineage.v1",
-  "title": "Campaign Factory Generated Asset Lineage",
+  "$id": "reel_factory.generated_asset_lineage.v1",
+  "title": "Reel Factory Generated Asset Lineage",
   "type": "object",
   "required": [
     "schema",
@@ -12,7 +12,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "campaign_factory.generated_asset_lineage.v1"
+      "const": "reel_factory.generated_asset_lineage.v1"
     },
     "source": {
       "type": "object"
