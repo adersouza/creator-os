@@ -183,6 +183,105 @@ def test_error_retry_increments_attempts_and_caps_at_limit(tmp_path: Path) -> No
     assert failed["last_error"] == "retry_attempt_limit"
 
 
+def _seed_awaiting_approval(tmp_path: Path, asset_id: str = "asset_1") -> None:
+    conn = orchestrator.open_manifest(tmp_path)
+    orchestrator.create_asset(
+        conn,
+        asset_id=asset_id,
+        campaign="campaign_a",
+        run_id="run_1",
+        now=100,
+    )
+    conn.execute(
+        "UPDATE asset_pipeline_state SET state = 'awaiting_approval' WHERE asset_id = ?",
+        (asset_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_decide_approved_records_decision(tmp_path: Path) -> None:
+    _seed_awaiting_approval(tmp_path)
+
+    result = orchestrator.decide(tmp_path, "asset_1", "approved", now=200)
+
+    assert result["asset"]["state"] == "approved"
+    assert result["asset"]["approval_decision"] == "approved"
+    assert result["asset"]["approved_at"] == 200
+    assert result["rejectionEvidenceRecorded"] is False
+
+
+def test_decide_rejected_writes_rejection_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_awaiting_approval(tmp_path)
+    cf_db = tmp_path / "campaign_factory.sqlite"
+    with sqlite3.connect(cf_db) as conn:
+        conn.execute("CREATE TABLE rendered_assets (id TEXT PRIMARY KEY)")
+        conn.execute(
+            """
+            CREATE TABLE asset_rejection_evidence (
+              id TEXT PRIMARY KEY,
+              rendered_asset_id TEXT,
+              source_asset_id TEXT,
+              campaign_id TEXT,
+              content_surface TEXT NOT NULL DEFAULT 'reel',
+              failed_stage TEXT NOT NULL,
+              failure_category TEXT NOT NULL,
+              matched_text TEXT NOT NULL DEFAULT '',
+              source_field TEXT NOT NULL DEFAULT '',
+              policy_version TEXT NOT NULL,
+              repairable INTEGER NOT NULL DEFAULT 1,
+              evidence_json TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(rendered_asset_id, failed_stage, failure_category,
+                     matched_text, source_field, policy_version)
+            )
+            """
+        )
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(cf_db))
+
+    result = orchestrator.decide(
+        tmp_path, "asset_1", "rejected", reason="off brand", now=200
+    )
+
+    assert result["asset"]["state"] == "rejected"
+    assert result["rejectionEvidenceRecorded"] is True
+    with sqlite3.connect(cf_db) as conn:
+        row = conn.execute(
+            "SELECT failed_stage, failure_category, matched_text, evidence_json"
+            " FROM asset_rejection_evidence"
+        ).fetchone()
+    assert row[0] == "human_approval"
+    assert row[1] == "operator_rejected"
+    assert row[2] == "off brand"
+    assert '"assetId": "asset_1"' in row[3]
+
+
+def test_decide_rejected_tolerates_missing_campaign_factory_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_awaiting_approval(tmp_path)
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(tmp_path / "missing.sqlite"))
+
+    result = orchestrator.decide(tmp_path, "asset_1", "rejected", now=200)
+
+    assert result["asset"]["state"] == "rejected"
+    assert result["rejectionEvidenceRecorded"] is False
+
+
+def test_decide_rejects_unknown_decision_and_illegal_state(tmp_path: Path) -> None:
+    _seed_awaiting_approval(tmp_path)
+
+    with pytest.raises(ValueError, match="unknown decision"):
+        orchestrator.decide(tmp_path, "asset_1", "exported")
+
+    orchestrator.decide(tmp_path, "asset_1", "approved", now=200)
+    with pytest.raises(ValueError, match="illegal transition"):
+        orchestrator.decide(tmp_path, "asset_1", "rejected", now=201)
+
+
 def test_counts_ignore_missing_state_table(tmp_path: Path) -> None:
     db_path = tmp_path / "manifest.sqlite"
     with sqlite3.connect(db_path) as conn:

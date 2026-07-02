@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 var REFRESH_MS = 30000;
@@ -334,6 +335,12 @@ export default function CommandCenter() {
           <Eyebrow>Master control</Eyebrow>
         </div>
         <div className="flex items-center gap-4">
+          <Link
+            href="/inbox"
+            className="font-display font-bold text-[11px] tracking-[0.18em] uppercase text-signal hover:underline"
+          >
+            Inbox →
+          </Link>
           <span
             className={
               "flex items-center gap-2 border rounded-panel px-3 py-1.5 font-display font-bold text-[11px] tracking-[0.18em] uppercase " +
