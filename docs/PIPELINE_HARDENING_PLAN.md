@@ -96,7 +96,7 @@ throughput.
 
 ## TIER 0 — Correctness bug (do first)
 
-### 0.1 Distribution planner double-books accounts across runs  ·  CRITICAL · M · [ ]
+### 0.1 Distribution planner double-books accounts across runs  ·  CRITICAL · M · [x]
 **Branch:** `codex/distribution-cadence-hydrate`
 **Why:** `distribution.py:392-393` initialises `account_day_counts = {}` and `account_last_time = {}`
 fresh every planner run. The ≥1/day cap (`:604`) and the <4h spacing gate (`:608-609`) therefore only

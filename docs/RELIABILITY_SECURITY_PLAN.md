@@ -76,7 +76,7 @@ security, then operator visibility, then contracts + DB hardening, then debt.**
 
 ## TIER 0 — Correctness / data-integrity bugs (do first)
 
-### 0.1 `reel_outcomes` re-import crashes on NULL `posted_at`/`account`  ·  HIGH · M · [ ]
+### 0.1 `reel_outcomes` re-import crashes on NULL `posted_at`/`account`  ·  HIGH · M · [x]
 **Branch:** `codex/reel-outcomes-upsert-null`
 **Why:** conflict target is `ON CONFLICT(filename, platform, account, posted_at)` (`metrics_store.py:283,468`)
 but the PK `outcome_id` is deterministic with `'unknown'`/`'account'` fallbacks (`:245`). For a dateless post,
@@ -89,7 +89,7 @@ the normal metric-update path (re-importing a CSV for a post with no date).
 upserts as today.
 **STOP-and-ask** if a schema backfill on real data would be needed beyond `''`-coalescing.
 
-### 0.2 `render_queue.claim()` can double-claim a job  ·  HIGH · S · [ ]
+### 0.2 `render_queue.claim()` can double-claim a job  ·  HIGH · S · [x]
 **Branch:** `codex/render-queue-claim-rowcount`
 **Why:** `render_queue.py:79-91` runs a guarded `UPDATE ... WHERE status='queued'` but never checks
 `cur.rowcount`; the worker whose UPDATE hit 0 rows still re-SELECTs and returns the row as claimed → two workers
@@ -97,7 +97,7 @@ render the same job (wasted work, possible duplicate output).
 **Do:** check `cur.rowcount`; if 0, return `None` (job was claimed by another worker).
 **Tests:** two concurrent claims of one queued job → exactly one gets it, the other gets `None`.
 
-### 0.3 Contract validation silently no-ops when the package isn't importable  ·  MED-HIGH · S · [ ]
+### 0.3 Contract validation silently no-ops when the package isn't importable  ·  MED-HIGH · S · [x]
 **Branch:** `codex/contract-validation-hard`
 **Why:** `still_to_reel.py:391-394` does `try: from pipeline_contracts import validate_motion_edit_render /
 except ImportError: return` — in any env where the first-party workspace dep isn't installed, validation becomes
@@ -110,7 +110,7 @@ error, not a soft-skip). Same pattern anywhere else it appears.
 
 ## TIER 1 — External-call robustness (reliability + protects paid spend)
 
-### 1.1 Harden the reference_factory Higgsfield runner (timeout + status + download verify + job-id persist)  ·  HIGH · M · [ ]
+### 1.1 Harden the reference_factory Higgsfield runner (timeout + status + download verify + job-id persist)  ·  HIGH · M · [x]
 **Branch:** `codex/higgsfield-runner-harden`
 **Why:** the `reference_factory/higgsfield_runner.py` `run_daily_generation` path lags the already-hardened
 reel_factory adapter (`generate_assets.py:258-321` — copy its patterns). Four bugs:
@@ -134,7 +134,7 @@ reel_factory adapter (`generate_assets.py:258-321` — copy its patterns). Four 
 status → run fails; truncated download rejected; job-id file written at submit. Use the injectable/mockable seams;
 NO real paid calls.
 
-### 1.2 Shared LLM-call resilience helper (timeout + retry + defensive parse)  ·  HIGH · M · [ ]
+### 1.2 Shared LLM-call resilience helper (timeout + retry + defensive parse)  ·  HIGH · M · [x]
 **Branch:** `codex/llm-call-resilience`
 **Why:** every external LLM call is one-shot with a pathological timeout:
 - `call_grok` default `timeout=3600` (1 hour) (`generate_prompts.py:1521`), used by `reference_analyzer.py:296`,
