@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { DAYS } from "../lib/presets";
+import { costLabelFromSpend, showSummarySkeleton } from "../lib/review-summary";
 import SourceVariantPreview from "./SourceVariantPreview";
 
 function formatSize(bytes) {
@@ -192,11 +193,26 @@ function BatchRunSummary({ result }) {
   );
 }
 
+function SummarySkeleton({ count = 5 }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className="animate-pulse">
+          <div className="h-8 mx-auto rounded bg-[#1b1b24] w-14" />
+          <div className="h-2.5 mx-auto rounded bg-[#171720] w-16 mt-3" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile }) {
   const isImage = mediaType === "image";
   const [files, setFiles] = useState([]);
+  const [scanPending, setScanPending] = useState(false);
   const [scores, setScores] = useState(null);
   const [decisions, setDecisions] = useState({});
+  const [dashboardSpend, setDashboardSpend] = useState(null);
   const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
   const [reviewError, setReviewError] = useState("");
   const [scanError, setScanError] = useState("");
@@ -208,6 +224,7 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
 
   useEffect(() => {
     async function loadFiles() {
+      setScanPending(true);
       try {
         const res = await fetch("/api/scan-output?runId=" + encodeURIComponent(runId));
         const data = await res.json();
@@ -217,10 +234,26 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
       } catch (error) {
         setFiles([]);
         setScanError(error.message || "scan failed");
+      } finally {
+        setScanPending(false);
       }
     }
     loadFiles();
   }, [forgeResult, runId]);
+
+  useEffect(() => {
+    async function loadSpend() {
+      try {
+        const res = await fetch("/api/dashboard");
+        if (!res.ok) return;
+        const data = await res.json();
+        setDashboardSpend(data.spend || null);
+      } catch {
+        setDashboardSpend(null);
+      }
+    }
+    loadSpend();
+  }, [forgeResult]);
 
   useEffect(() => {
     async function loadScores() {
@@ -303,6 +336,10 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
   const displayFiles = isImage
     ? files.filter(f => f.type === "image")
     : files.filter(f => f.type === "video");
+  const costLabel = costLabelFromSpend(
+    forgeResult?.spend || forgeResult?.costLedger || dashboardSpend,
+  );
+  const skeletonVisible = showSummarySkeleton({ scanPending, files });
   const rejectionEntries = Object.entries(forgeResult?.rejectionReasons || {})
     .sort((a, b) => b[1] - a[1]);
   const reviewedCount = Object.values(decisions).filter((item) => item?.decision).length;
@@ -334,53 +371,61 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
         className="bg-card rounded-card border border-green-dim p-6"
         style={{ background: "linear-gradient(135deg, #0c0c12, #0a140e)" }}
       >
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-light text-green font-mono">
-              {scanError ? "--" : displayFiles.length}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Variants
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-amber font-mono">
-              {forgeResult?.attemptedCandidates ?? "--"}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Attempted
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-red-400 font-mono">
-              {forgeResult?.rejectedCandidates ?? 0}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Rejected
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-[#c8c8d0] font-mono">
-              {forgeResult?.elapsed || "--"}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Total time
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-purple font-mono">
-              {isImage ? "1" : pods}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              {isImage ? "Source" : "Pods"}
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-green font-mono">$0</div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Cost
-            </div>
-          </div>
+        <div className={"grid grid-cols-2 " + (costLabel ? "md:grid-cols-6" : "md:grid-cols-5") + " gap-4 text-center"}>
+          {skeletonVisible ? (
+            <SummarySkeleton count={costLabel ? 6 : 5} />
+          ) : (
+            <>
+              <div>
+                <div className="text-2xl font-light text-green font-mono">
+                  {scanError ? "--" : displayFiles.length}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Variants
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-amber font-mono">
+                  {forgeResult?.attemptedCandidates ?? "--"}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Attempted
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-red-400 font-mono">
+                  {forgeResult?.rejectedCandidates ?? 0}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Rejected
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-[#c8c8d0] font-mono">
+                  {forgeResult?.elapsed || "--"}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Total time
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-purple font-mono">
+                  {isImage ? "1" : pods}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  {isImage ? "Source" : "Pods"}
+                </div>
+              </div>
+              {costLabel && (
+                <div>
+                  <div className="text-2xl font-light text-green font-mono">{costLabel}</div>
+                  <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                    Cost
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
       {rejectionEntries.length > 0 && (

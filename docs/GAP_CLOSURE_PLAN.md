@@ -276,7 +276,9 @@ a real token. Do NOT weaken `local_api_auth.py` defaults.
 **Tests:** shellcheck/bats-style check that the launcher exports the vars; existing node/python auth
 tests unchanged.
 
-### 2.2 ContentForge review: real cost tile + loading skeleton (finish RELIABILITY 3.5)  ·  LOW · S · [ ]
+### 2.2 ContentForge review: real cost tile + loading skeleton (finish RELIABILITY 3.5)  ·  LOW · S · [x]
+
+**Status:** ContentForge review summary now hides cost when the ledger is unavailable, shows ledger-derived spend when present, and renders a loading skeleton while output scan is pending.
 
 **Branch:** `codex/cf-review-polish-2`
 
@@ -331,7 +333,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 - [x] 1.4 reference_factory contract enforcement — pattern cards, video analyses, and both prompt contracts validate before producer writes/exports.
 - [x] 1.5 import metrics to reference record — source metrics columns are migrated, populated from info-json/archive metadata, and backfilled from existing sidecars.
 - [x] 2.1 launcher onboarding fix — the `.command` launcher exports loopback-only dev auth, prints the bypass/token hint, and keeps auth enforcement unchanged.
-- [ ] 2.2 CF cost tile from ledger + loading skeleton
+- [x] 2.2 CF cost tile from ledger + loading skeleton — review summary uses dashboard spend, omits unavailable cost, and shows skeleton tiles during scan load.
 - [ ] 2.3 hydration window honors max `min_gap_hours`
 
 ## Verified-fine in the 2026-07-02 pass (do not re-litigate)
