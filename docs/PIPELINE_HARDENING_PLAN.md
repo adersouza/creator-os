@@ -178,7 +178,7 @@ neither supplied.
 
 ## TIER 2 — Cost accounting (spend is currently blind)
 
-### 2.1 Record paid Higgsfield/Kling spend to the cost ledger  ·  HIGH · M · [ ]
+### 2.1 Record paid Higgsfield/Kling spend to the cost ledger  ·  HIGH · M · [x]
 **Branch:** `codex/wire-ai-cost-ledger`
 **Why:** `campaign_factory/cost_tracker.py` has an `ai_cost_events` table + `record_ai_cost` with
 `higgsfield`/`kling` pricing slots, but neither `reel_factory/generate_assets.py` nor
@@ -193,7 +193,7 @@ zero-cost failed row, your call — test whichever you implement).
 **Note:** `PROVIDER_PRICING` is a hardcoded June-2026 estimate and `actualCredits`→USD conversion doesn't exist
 — leave a `TODO` to reconcile credits→USD from the Higgsfield API; don't block this PR on it.
 
-### 2.2 Make the "daily budget" an actual daily sum, not a per-run cap  ·  HIGH · S-M · [ ]
+### 2.2 Make the "daily budget" an actual daily sum, not a per-run cap  ·  HIGH · S-M · [x]
 **Branch:** `codex/preflight-daily-sum`
 **Why:** `higgsfield_cost_preflight.py:147-152` compares a single run's `estimated_cost_usd` against
 `HIGGSFIELD_DAILY_BUDGET_USD` with no persisted daily total — so N runs each under budget never trip the cap.

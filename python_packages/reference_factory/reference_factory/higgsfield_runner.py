@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -126,6 +128,7 @@ def generate_with_higgsfield(
         _run_pair(
             pair,
             prompt_score=score_by_ref.get(pair.reference_id, {}),
+            data_root=data_root,
             output_root=output_root,
             soul_name=soul_id,
             soul_uuid=soul_uuid,
@@ -639,6 +642,90 @@ def estimate_credits(
     return round(count * per, 2)
 
 
+def _campaign_cost_db_path(
+    *, data_root: Path, campaign_factory_root: Path | None
+) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    if campaign_factory_root:
+        return campaign_factory_root.expanduser().resolve() / "campaign_factory.sqlite"
+    root = data_root.expanduser().resolve()
+    candidates = [
+        root / "campaign_factory.sqlite",
+        Path(__file__).resolve().parents[2]
+        / "campaign_factory"
+        / "campaign_factory.sqlite",
+    ]
+    return candidates[0] if candidates[0].exists() else candidates[-1]
+
+
+def _load_cost_tracker_module():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "campaign_factory"
+        / "campaign_factory"
+        / "cost_tracker.py"
+    )
+    spec = importlib.util.spec_from_file_location("_creator_os_cost_tracker", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load cost tracker from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _record_generation_cost(
+    *,
+    data_root: Path,
+    campaign_factory_root: Path | None,
+    provider: str,
+    operation: str,
+    campaign: str | None,
+    model: str,
+    result: dict[str, Any] | None,
+    lineage_path: Path,
+    reference_id: str,
+) -> dict[str, Any] | None:
+    result = result or {}
+    job_id = _result_id(result)
+    if not job_id:
+        return None
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(
+        data_root=data_root, campaign_factory_root=campaign_factory_root
+    )
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    actual_credits = _result_credits(result)
+    # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
+    metadata = {
+        "schema": "reference_factory.ai_cost_metadata.v1",
+        "actualCredits": actual_credits,
+        "creditCurrency": "higgsfield_credits",
+        "model": model,
+        "jobId": job_id,
+        "lineagePath": str(lineage_path),
+        "referenceId": reference_id,
+    }
+    with sqlite3.connect(db_path) as conn:
+        event_id = cost_tracker.record_ai_cost(
+            conn,
+            provider=provider,
+            operation=operation,
+            campaign_id=campaign,
+            generations=1,
+            metadata=metadata,
+            source_event_key=f"reference_factory:{provider}:{operation}:{job_id}",
+        )
+    return {
+        "eventId": event_id,
+        "provider": provider,
+        "operation": operation,
+        "jobId": job_id,
+        "actualCredits": actual_credits,
+    }
+
+
 def resolve_soul_id(soul_id: str) -> str:
     return DEFAULT_SOUL_IDS.get(soul_id.strip().lower(), soul_id.strip())
 
@@ -647,6 +734,7 @@ def _run_pair(
     pair: PromptPair,
     *,
     prompt_score: dict[str, Any],
+    data_root: Path,
     output_root: Path,
     soul_name: str,
     soul_uuid: str,
@@ -814,7 +902,7 @@ def _run_pair(
                     )
                 first = candidate_results[0]
                 image_result = (
-                first.get("result") if isinstance(first.get("result"), dict) else {}
+                    first.get("result") if isinstance(first.get("result"), dict) else {}
                 )
                 local_image_path = str(first.get("localPath") or "") or None
                 if wait and not local_image_path:
@@ -1066,6 +1154,59 @@ def _run_pair(
         ),
     )
     lineage_path = out_dir / "generated_asset_lineage.json"
+    cost_events = []
+    if not dry_run and status in {"generated", "image_generated", "submitted"}:
+        for event in (
+            _record_generation_cost(
+                data_root=data_root,
+                campaign_factory_root=campaign_factory_root,
+                provider="higgsfield",
+                operation="image_create",
+                campaign=campaign,
+                model=DEFAULT_IMAGE_MODEL,
+                result=item.get("result")
+                if isinstance(item.get("result"), dict)
+                else item,
+                lineage_path=lineage_path,
+                reference_id=pair.reference_id,
+            )
+            for item in candidate_results
+            if isinstance(item, dict)
+        ):
+            if event:
+                cost_events.append(event)
+        if video_result:
+            event = _record_generation_cost(
+                data_root=data_root,
+                campaign_factory_root=campaign_factory_root,
+                provider="kling",
+                operation="video_create",
+                campaign=campaign,
+                model=DEFAULT_VIDEO_MODEL,
+                result=video_result,
+                lineage_path=lineage_path,
+                reference_id=pair.reference_id,
+            )
+            if event:
+                cost_events.append(event)
+        if variation_result:
+            event = _record_generation_cost(
+                data_root=data_root,
+                campaign_factory_root=campaign_factory_root,
+                provider="higgsfield",
+                operation="variation_create",
+                campaign=campaign,
+                model=variation_model,
+                result=variation_result,
+                lineage_path=lineage_path,
+                reference_id=pair.reference_id,
+            )
+            if event:
+                cost_events.append(event)
+    lineage["generation"]["costLedger"] = {
+        "schema": "reference_factory.ai_cost_ledger.v1",
+        "events": cost_events,
+    }
     lineage_path.write_text(
         json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

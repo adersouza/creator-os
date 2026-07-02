@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -598,6 +601,132 @@ def extract_status(data: dict[str, Any]) -> str | None:
     return None
 
 
+def _result_credits(data: dict[str, Any]) -> float | None:
+    item = _primary_generation_item(data) or data
+    for key in ("credits", "creditCost", "costCredits", "cost"):
+        value = item.get(key) if isinstance(item, dict) else None
+        try:
+            if value is not None and value != "":
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+    usage = item.get("usage") if isinstance(item, dict) else None
+    if isinstance(usage, dict):
+        return _result_credits(usage)
+    return None
+
+
+def _generation_completed(data: dict[str, Any]) -> bool:
+    if not data:
+        return False
+    status = extract_status(data)
+    return bool(extract_id(data)) and (status in {None, "", "completed"})
+
+
+def _campaign_cost_db_path(root: Path) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    root = Path(root).expanduser().resolve()
+    candidates = [
+        root / "campaign_factory.sqlite",
+        root.parent / "campaign_factory" / "campaign_factory.sqlite",
+        Path(__file__).resolve().parent.parent
+        / "campaign_factory"
+        / "campaign_factory.sqlite",
+    ]
+    return candidates[0] if candidates[0].exists() else candidates[-1]
+
+
+def _load_cost_tracker_module():
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "campaign_factory"
+        / "campaign_factory"
+        / "cost_tracker.py"
+    )
+    spec = importlib.util.spec_from_file_location("_creator_os_cost_tracker", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load cost tracker from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _record_ai_cost_event(
+    root: Path,
+    *,
+    provider: str,
+    operation: str,
+    campaign_id: str | None,
+    model: str,
+    job_id: str,
+    actual_credits: float | None,
+    lineage_path_text: str,
+    stem: str,
+) -> str:
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(root)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
+    metadata = {
+        "schema": "reel_factory.ai_cost_metadata.v1",
+        "actualCredits": actual_credits,
+        "creditCurrency": "higgsfield_credits",
+        "model": model,
+        "jobId": job_id,
+        "lineagePath": lineage_path_text,
+        "stem": stem,
+    }
+    with sqlite3.connect(db_path) as conn:
+        return cost_tracker.record_ai_cost(
+            conn,
+            provider=provider,
+            operation=operation,
+            campaign_id=campaign_id,
+            generations=1,
+            metadata=metadata,
+            source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
+        )
+
+
+def _record_generation_costs(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    *,
+    lineage_path_text: str,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    events = []
+    for record in records:
+        raw = record.get("raw")
+        if not isinstance(raw, dict) or not _generation_completed(raw):
+            continue
+        job_id = extract_id(raw)
+        if not job_id:
+            continue
+        event_id = _record_ai_cost_event(
+            plan.source_dir.parent,
+            provider=str(record["provider"]),
+            operation=str(record["operation"]),
+            campaign_id=getattr(plan, "campaign", None),
+            model=str(record["model"]),
+            job_id=job_id,
+            actual_credits=_result_credits(raw),
+            lineage_path_text=lineage_path_text,
+            stem=plan.stem,
+        )
+        events.append(
+            {
+                "eventId": event_id,
+                "provider": record["provider"],
+                "operation": record["operation"],
+                "jobId": job_id,
+                "actualCredits": _result_credits(raw),
+            }
+        )
+    return {"schema": "reel_factory.ai_cost_ledger.v1", "events": events}
+
+
 def extract_higgsfield_generated_prompt(data: dict[str, Any]) -> str | None:
     item = _primary_generation_item(data)
     if item:
@@ -1122,13 +1251,31 @@ def create_assets(
         )
     )
     payload["review"]["generatedVideoQc"] = video_qc
+    path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "image_create",
+                "model": resolved["imageModel"],
+                "raw": raw.get("image"),
+            },
+            {
+                "provider": "kling",
+                "operation": "video_create",
+                "model": resolved["videoModel"],
+                "raw": raw.get("video"),
+            },
+        ],
+    )
     if video_qc["status"] == "failed":
         payload["generation"]["status"] = "video_qc_rejected"
         payload["generation"]["failure"] = {
             "stage": "generated_video_qc",
             "reason": generated_video_qc_failure_reason(video_qc),
         }
-    path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     if video_status and video_status != "completed":
@@ -1491,6 +1638,19 @@ def create_image_asset(
     )
     payload["review"]["generatedImageQc"] = qc
     path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "image_create",
+                "model": resolved["imageModel"],
+                "raw": image_raw,
+            }
+            for image_raw in raw_images
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
         payload["generation"]["status"] = "image_qc_rejected"
@@ -1652,6 +1812,18 @@ def create_direct_reference_image_asset(
     )
     payload["review"]["generatedImageQc"] = qc
     path = direct_reference_lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "direct_reference_image_create",
+                "model": resolved["imageModel"],
+                "raw": raw.get("image"),
+            }
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
         payload["generation"]["status"] = "image_qc_rejected"
@@ -1839,6 +2011,18 @@ def create_video_asset(
             "reason": generated_video_qc_failure_reason(video_qc),
         }
     path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "kling",
+                "operation": "video_create",
+                "model": resolved["videoModel"],
+                "raw": raw.get("video"),
+            }
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     if video_status and video_status != "completed":

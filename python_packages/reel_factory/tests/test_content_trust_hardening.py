@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ai_visual_qc import record_from_scores
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
 from generate_assets import (
+    AssetGenerationPlan,
+    _record_generation_costs,
     generated_image_qc,
     generated_image_qc_failure_reason,
     generated_video_qc,
@@ -448,6 +452,44 @@ def test_higgsfield_cost_preflight_blocks_over_default_budget(
     assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
 
 
+def test_higgsfield_cost_preflight_sums_existing_daily_spend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE ai_cost_events (
+                estimated_cost_usd REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO ai_cost_events VALUES (?, ?)",
+            (7.25, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")),
+        )
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=3.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
+    assert result["budgetPolicy"]["spentTodayUsd"] == 7.25
+    assert result["budgetPolicy"]["projectedDailySpendUsd"] == 10.25
+
+
 def test_higgsfield_cost_preflight_blocks_over_asset_limit(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -510,6 +552,64 @@ def test_higgsfield_cost_preflight_blocks_when_balance_unreadable(
     assert result["allowed"] is False
     assert result["balanceChecked"] is False
     assert "higgsfield_balance_unavailable" in result["blockingReasons"]
+
+
+def test_reel_generation_costs_record_completed_provider_events(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="clip_001",
+        reference=None,
+        soul_id="soul_1",
+        soul_name="Stacey",
+        start_image=None,
+        out_dir=tmp_path / "out",
+        source_dir=tmp_path / "sources",
+        campaign="daily",
+        creator="Stacey",
+    )
+    records = [
+        {
+            "provider": "higgsfield",
+            "operation": "image_create",
+            "model": "text2image_soul_v2",
+            "raw": {"id": "img_1", "status": "completed", "credits": 0.12},
+        },
+        {
+            "provider": "kling",
+            "operation": "video_create",
+            "model": "kling3_0",
+            "raw": {"id": "vid_1", "status": "completed", "credits": 7.5},
+        },
+        {
+            "provider": "kling",
+            "operation": "video_create",
+            "model": "kling3_0",
+            "raw": {"id": "vid_failed", "status": "failed", "credits": 7.5},
+        },
+    ]
+
+    first = _record_generation_costs(
+        plan, lineage_path_text=str(tmp_path / "lineage.json"), records=records
+    )
+    second = _record_generation_costs(
+        plan, lineage_path_text=str(tmp_path / "lineage.json"), records=records
+    )
+
+    assert [event["provider"] for event in first["events"]] == ["higgsfield", "kling"]
+    assert second["events"][0]["eventId"] == first["events"][0]["eventId"]
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT provider, operation, campaign_id, metadata_json FROM ai_cost_events ORDER BY provider"
+        ).fetchall()
+    assert len(rows) == 2
+    assert rows[0][0] == "higgsfield"
+    assert rows[0][2] == "daily"
+    assert json.loads(rows[0][3])["actualCredits"] == 0.12
+    assert rows[1][0] == "kling"
 
 
 def test_metadata_normalization_reports_missing_exiftool_without_spoofing(
