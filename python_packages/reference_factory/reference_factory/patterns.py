@@ -452,7 +452,11 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             audio_signal=audio_signal,
         ),
         "reviewTags": review_tags,
-        "promptPattern": _prompt_pattern(visual_format, hook_type, caption_archetype),
+        "promptPattern": _prompt_pattern(
+            visual_format,
+            hook_type,
+            caption_archetype,
+        ),
         "referenceUse": {
             "recommendedUse": _recommended_use(quality_score, item.get("matchType")),
             "matchGoal": "close_format" if quality_score >= 72 else "loose_inspiration",
@@ -502,6 +506,19 @@ def apply_vision_pattern_overrides(
     winner_dna = dict(pattern.get("winnerDna") or {})
     winner_dna.update(_vision_winner_dna(card, analysis, vision, pattern))
     pattern["winnerDna"] = winner_dna
+    pattern["promptPattern"] = _prompt_pattern(
+        str(pattern.get("visualFormat") or "visual_reference"),
+        str(pattern.get("hookType") or "curiosity_gap"),
+        str(pattern.get("captionArchetype") or "captionless_visual"),
+        winner_dna,
+    )
+    reference_use = pattern.setdefault("referenceUse", {})
+    reference_use["whatToLearn"] = _what_to_learn(
+        str(pattern.get("visualFormat") or "visual_reference"),
+        str(pattern.get("hookType") or "curiosity_gap"),
+        str(pattern.get("captionArchetype") or "captionless_visual"),
+        winner_dna,
+    )
 
     reasons = list(pattern.get("reasons") or [])
     if visual_format and "vision-derived visual format" not in reasons:
@@ -539,10 +556,19 @@ def _vision_winner_dna(
     supplied = card.get("winnerDna") or analysis.get("winnerDna")
     dna = dict(supplied) if isinstance(supplied, dict) else {}
     blueprint = _vision_blueprint(analysis)
+    first_frame = _vision_first_frame(blueprint, analysis)
+    motion_beats = _vision_motion_beats(blueprint, analysis)
     format_card = (
         analysis.get("winningFormatCard")
         if isinstance(analysis.get("winningFormatCard"), dict)
         else {}
+    )
+    subject = (
+        analysis.get("subject") if isinstance(analysis.get("subject"), dict) else {}
+    )
+    card_subject = card.get("subject") if isinstance(card.get("subject"), dict) else {}
+    setting = (
+        analysis.get("setting") if isinstance(analysis.get("setting"), dict) else {}
     )
     visual_format = str(pattern.get("visualFormat") or "other")
     hook_type = str(pattern.get("hookType") or card.get("hookType") or "pov")
@@ -554,17 +580,37 @@ def _vision_winner_dna(
             "hookType": hook_type,
             "subjectAction": _first_nonempty(
                 card.get("subjectAction"),
-                (analysis.get("subject") or {}).get("action")
-                if isinstance(analysis.get("subject"), dict)
-                else None,
+                subject.get("action"),
                 format_card.get("poseAction"),
+            ),
+            "pose": _first_nonempty(
+                first_frame.get("pose"),
+                subject.get("pose"),
+                format_card.get("poseAction"),
+                card.get("subjectAction"),
+            ),
+            "outfit": _first_nonempty(
+                first_frame.get("outfit_silhouette"),
+                first_frame.get("outfitSilhouette"),
+                subject.get("wardrobe"),
+                card_subject.get("wardrobe"),
+                format_card.get("styling"),
             ),
             "setting": _first_nonempty(
                 card.get("setting"),
-                (analysis.get("setting") or {}).get("location")
-                if isinstance(analysis.get("setting"), dict)
-                else None,
+                setting.get("location"),
                 format_card.get("setting"),
+            ),
+            "lighting": _first_nonempty(
+                first_frame.get("lighting"),
+                setting.get("lighting"),
+                format_card.get("lighting"),
+            ),
+            "framing": _vision_framing(first_frame, card, analysis, format_card),
+            "subjectCount": _first_number(
+                card_subject.get("count"),
+                subject.get("count"),
+                format_card.get("subjectCount"),
             ),
             "shotSequence": _first_list(
                 card.get("shotSequence"), analysis.get("shotSequence")
@@ -589,7 +635,19 @@ def _vision_winner_dna(
                 analysis.get("audioVibe"),
                 format_card.get("audioVibe"),
             ),
+            "motionBeats": motion_beats,
+            "firstFrameGeometry": first_frame,
             "recreationBlueprint": blueprint,
+            "transformationInstructions": _first_list(
+                card.get("transformationInstructions"),
+                format_card.get("transformationInstructions"),
+                analysis.get("transformationNotes"),
+            ),
+            "copyRiskNotes": _first_list(
+                card.get("copyRiskNotes"),
+                format_card.get("copyRiskNotes"),
+                analysis.get("copyRiskNotes"),
+            ),
         }
     )
     return {key: value for key, value in dna.items() if value not in (None, "", [], {})}
@@ -606,6 +664,57 @@ def _vision_blueprint(analysis: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
     return {}
+
+
+def _vision_first_frame(
+    blueprint: dict[str, Any], analysis: dict[str, Any]
+) -> dict[str, Any]:
+    for key in ("first_frame", "firstFrame", "first_frame_blueprint"):
+        value = blueprint.get(key)
+        if isinstance(value, dict):
+            return value
+    value = analysis.get("firstFrame") or analysis.get("first_frame")
+    return value if isinstance(value, dict) else {}
+
+
+def _vision_motion_beats(
+    blueprint: dict[str, Any], analysis: dict[str, Any]
+) -> list[Any]:
+    for key in ("motion_beats", "motionBeats", "motion_blueprint"):
+        value = blueprint.get(key)
+        if isinstance(value, list) and value:
+            return value
+    value = analysis.get("motionBeats") or analysis.get("shotSequence")
+    return value if isinstance(value, list) else []
+
+
+def _vision_framing(
+    first_frame: dict[str, Any],
+    card: dict[str, Any],
+    analysis: dict[str, Any],
+    format_card: dict[str, Any],
+) -> dict[str, Any]:
+    framing = {
+        key: value
+        for key, value in {
+            "subjectScale": first_frame.get("subject_scale")
+            or first_frame.get("subjectScale"),
+            "crop": first_frame.get("crop"),
+            "bodyAngle": first_frame.get("body_angle") or first_frame.get("bodyAngle"),
+            "cameraHeight": first_frame.get("camera_height")
+            or first_frame.get("cameraHeight"),
+            "cameraDistance": first_frame.get("camera_distance")
+            or first_frame.get("cameraDistance"),
+            "lensFeel": first_frame.get("lens_feel") or first_frame.get("lensFeel"),
+        }.items()
+        if value not in (None, "", [], {})
+    }
+    camera = _first_dict(
+        card.get("cameraStyle"), analysis.get("camera"), format_card.get("camera")
+    )
+    if camera:
+        framing["camera"] = camera
+    return framing
 
 
 def _first_nonempty(*values: Any) -> str | None:
@@ -630,6 +739,15 @@ def _first_dict(*values: Any) -> dict[str, Any]:
         if isinstance(value, dict) and value:
             return value
     return {}
+
+
+def _first_number(*values: Any) -> int | None:
+    for value in values:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value)
+    return None
 
 
 def _resolve_provider(provider: str) -> str:
@@ -886,9 +1004,23 @@ def _suggested_label(item: dict[str, Any], quality_score: float) -> str:
 
 
 def _prompt_pattern(
-    visual_format: str, hook_type: str, caption_archetype: str
+    visual_format: str,
+    hook_type: str,
+    caption_archetype: str,
+    winner_dna: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    return {
+    return prompt_briefs_from_winner_dna(
+        visual_format, hook_type, caption_archetype, winner_dna
+    )
+
+
+def prompt_briefs_from_winner_dna(
+    visual_format: str,
+    hook_type: str,
+    caption_archetype: str,
+    winner_dna: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    briefs = {
         "visualBrief": {
             "mirror_selfie": "vertical mirror-shot reel, phone visible or implied, immediate body/outfit framing",
             "fit_check": "vertical outfit or body-frame check, simple background, one clear reveal",
@@ -918,6 +1050,88 @@ def _prompt_pattern(
             "cta_bait": "light CTA or send/share prompt",
         }.get(caption_archetype, "short meme-style caption"),
     }
+    dna = winner_dna if isinstance(winner_dna, dict) else {}
+    visual_detail = _dna_visual_brief(dna)
+    if visual_detail:
+        briefs["visualBrief"] = visual_detail
+    first_frame = _dna_first_frame_brief(dna)
+    if first_frame:
+        briefs["firstFrameBrief"] = first_frame
+    motion = _dna_motion_brief(dna)
+    if motion:
+        briefs["motionBrief"] = motion
+    transformation = _dna_transformation_brief(dna)
+    if transformation:
+        briefs["transformationBrief"] = transformation
+    return briefs
+
+
+def _dna_visual_brief(dna: dict[str, Any]) -> str | None:
+    parts = []
+    subject_action = dna.get("subjectAction") or dna.get("pose")
+    if subject_action:
+        parts.append(f"pose/action: {subject_action}")
+    outfit = dna.get("outfit")
+    if outfit:
+        parts.append(f"outfit silhouette: {outfit}")
+    setting = dna.get("setting")
+    if setting:
+        parts.append(f"setting: {setting}")
+    lighting = dna.get("lighting")
+    if lighting:
+        parts.append(f"lighting: {lighting}")
+    framing = _compact_dict_text(dna.get("framing"))
+    if framing:
+        parts.append(f"framing: {framing}")
+    if not parts:
+        return None
+    return "Source-specific creator reel blueprint; " + "; ".join(parts)
+
+
+def _dna_first_frame_brief(dna: dict[str, Any]) -> str | None:
+    first_frame = dna.get("firstFrameGeometry")
+    if not isinstance(first_frame, dict) or not first_frame:
+        return None
+    return _compact_dict_text(first_frame)
+
+
+def _dna_motion_brief(dna: dict[str, Any]) -> str | None:
+    beats = dna.get("motionBeats")
+    if not isinstance(beats, list) or not beats:
+        return None
+    compact = []
+    for beat in beats[:4]:
+        if isinstance(beat, dict):
+            compact.append(_compact_dict_text(beat))
+        elif str(beat).strip():
+            compact.append(str(beat).strip())
+    return " | ".join(item for item in compact if item)
+
+
+def _dna_transformation_brief(dna: dict[str, Any]) -> str | None:
+    value = dna.get("transformationInstructions")
+    if isinstance(value, list):
+        text = "; ".join(str(item).strip() for item in value[:4] if str(item).strip())
+        return text or None
+    return str(value).strip() if value else None
+
+
+def _compact_dict_text(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return str(value).strip() if value else None
+    parts = []
+    for key, item in value.items():
+        if item in (None, "", [], {}):
+            continue
+        if isinstance(item, dict):
+            item_text = _compact_dict_text(item)
+        elif isinstance(item, list):
+            item_text = ", ".join(str(part) for part in item[:4])
+        else:
+            item_text = str(item)
+        if item_text:
+            parts.append(f"{key}: {item_text}")
+    return "; ".join(parts) if parts else None
 
 
 def _recommended_use(quality_score: float, match_type: object) -> str:
@@ -931,7 +1145,10 @@ def _recommended_use(quality_score: float, match_type: object) -> str:
 
 
 def _what_to_learn(
-    visual_format: str, hook_type: str, caption_archetype: str
+    visual_format: str,
+    hook_type: str,
+    caption_archetype: str,
+    winner_dna: dict[str, Any] | None = None,
 ) -> list[str]:
     learn = [
         f"visual_format:{visual_format}",
@@ -944,6 +1161,19 @@ def _what_to_learn(
         learn.extend(
             ["slide_order", "first_slide_headline", "carousel_caption_formula"]
         )
+    dna = winner_dna if isinstance(winner_dna, dict) else {}
+    for key in (
+        "outfit",
+        "pose",
+        "setting",
+        "lighting",
+        "framing",
+        "subjectCount",
+        "motionBeats",
+        "firstFrameGeometry",
+    ):
+        if dna.get(key) not in (None, "", [], {}):
+            learn.append(f"winner_dna:{key}")
     return learn
 
 

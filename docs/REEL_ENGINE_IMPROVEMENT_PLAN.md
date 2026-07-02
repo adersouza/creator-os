@@ -214,7 +214,7 @@ So even when an operator runs the good vision analysis, it never reaches the clu
 vision-derived `visualFormat` / `winnerDna` over the text heuristic when present.
 **Status:** Implemented in PR #331.
 
-### 2.3 Enrich the winnerDNA schema so it can drive generation  ·  HIGH · M · [ ]
+### 2.3 Enrich the winnerDNA schema so it can drive generation  ·  HIGH · M · [x]
 **Branch:** `codex/winnerdna-schema-enrich`
 **Why:** `patterns.py:764` `_winner_dna` emits only `visualStructure` / `hookType` / `captionArchetype` /
 `audioRole`. Prompts are static dict lookups on ~7 enum strings (`_prompt_pattern:685`, `_prompt_template:588`,
@@ -223,6 +223,7 @@ brief. None of outfit/pose/scene/lighting/subjectCount/framing/motionBeats — e
 **Do:** expand winnerDNA to structured per-reference fields (outfit, pose, setting, lighting, framing,
 subjectCount, motionBeats, firstFrameGeometry), populate from 2.1's VLM pass, and template prompts from the
 per-reference blueprint instead of the shared enum→string tables. Depends on 2.1.
+**Status:** Implemented in PR #332.
 
 ### 2.4 Capture the human approve/reject decision (ContentForge)  ·  HIGH · M · [ ]
 **Branch:** `codex/contentforge-capture-decision`
@@ -346,7 +347,7 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 1.5 next-batch bandit — PR #329
 - [x] 2.1 reference vision DNA — PR #330
 - [x] 2.2 un-silo vision analyses — PR #331
-- [ ] 2.3 enrich winnerDNA schema
+- [x] 2.3 enrich winnerDNA schema — PR #332
 - [ ] 2.4 contentforge capture decision
 - [x] 3.1 per-soul metrics — PR #323 merged 2026-07-01
 - [ ] 3.2 orchestrator

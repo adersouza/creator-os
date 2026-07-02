@@ -20,7 +20,11 @@ from .embeddings import (
     build_embedding_clusters,
 )
 from .identity import stable_id
-from .patterns import analyze_patterns, apply_vision_pattern_overrides
+from .patterns import (
+    analyze_patterns,
+    apply_vision_pattern_overrides,
+    prompt_briefs_from_winner_dna,
+)
 from .timeutil import now_iso
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
@@ -310,6 +314,8 @@ def _cluster_from_items(
     ]
     cluster_score = _cluster_score(items, plays, quality, accounts, measured_scores)
     label = _cluster_label(visual, hook, caption)
+    top_dna = top.get("winnerDna") if isinstance(top.get("winnerDna"), dict) else {}
+    prompt_template = _prompt_template(visual, hook, caption, top_dna)
     cluster = {
         "schema": "reference_factory.learning_cluster.v1",
         "patternId": key,
@@ -336,7 +342,7 @@ def _cluster_from_items(
         ],
         "topExamples": [_compact_example(item) for item in ranked[:8]],
         "captionFormulas": _caption_formulas(caption, hook, captions),
-        "visualRecipeHints": _visual_recipe_hints(visual, hook, caption),
+        "visualRecipeHints": _visual_recipe_hints(visual, hook, caption, top_dna),
         "suggestedVariantRecipes": _suggested_variant_recipes(visual, hook, caption),
         "suggestedFormats": _suggested_formats(visual, hook, caption),
         "audioRecommendations": cluster_audio_recommendations(
@@ -348,6 +354,7 @@ def _cluster_from_items(
             "captionArchetype": caption,
             "performanceClassCounts": dict(performance_classes.most_common()),
             "audioRoles": audio_roles,
+            "topReferenceDna": _compact_winner_dna(top_dna),
         },
         "accountWinnerSignals": _winner_signals(items, "account", "account"),
         "personaWinnerSignals": _winner_signals(items, "persona", "persona"),
@@ -361,8 +368,10 @@ def _cluster_from_items(
             "performanceClassCounts": dict(performance_classes.most_common()),
             "topAccounts": accounts[:10],
         },
-        "promptTemplate": _prompt_template(visual, hook, caption),
-        "higgsfieldJsonTemplate": _higgsfield_json_template(visual, hook, caption),
+        "promptTemplate": prompt_template,
+        "higgsfieldJsonTemplate": _higgsfield_json_template(
+            visual, hook, caption, top_dna, prompt_template
+        ),
         "operatorUse": _operator_use(label, len(items), cluster_score),
     }
     if embedding_meta:
@@ -503,7 +512,12 @@ def _cluster_label(visual: str, hook: str, caption: str) -> str:
     )
 
 
-def _visual_recipe_hints(visual: str, hook: str, caption: str) -> list[str]:
+def _visual_recipe_hints(
+    visual: str,
+    hook: str,
+    caption: str,
+    winner_dna: dict[str, Any] | None = None,
+) -> list[str]:
     hints = ["vertical 9:16", "clear first-second hook"]
     if caption != "captionless_visual":
         hints.append("center caption")
@@ -525,6 +539,15 @@ def _visual_recipe_hints(visual: str, hook: str, caption: str) -> list[str]:
         hints.append("natural walking motion")
     if hook in {"curiosity_gap", "direct_response"}:
         hints.append("caption appears immediately")
+    dna = winner_dna if isinstance(winner_dna, dict) else {}
+    if dna.get("pose") or dna.get("subjectAction"):
+        hints.append("source pose/action geometry")
+    if dna.get("outfit"):
+        hints.append("source outfit silhouette")
+    if dna.get("firstFrameGeometry"):
+        hints.append("source first-frame geometry")
+    if dna.get("motionBeats"):
+        hints.append("source motion beats")
     return list(dict.fromkeys(hints))
 
 
@@ -567,7 +590,28 @@ def _compact_example(item: dict[str, Any]) -> dict[str, Any]:
         "comments": item.get("comments"),
         "caption": item.get("caption"),
         "qualityScore": item.get("qualityScore"),
+        "winnerDna": _compact_winner_dna(item.get("winnerDna")),
     }
+
+
+def _compact_winner_dna(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    keys = [
+        "visionSource",
+        "visualStructure",
+        "hookType",
+        "outfit",
+        "pose",
+        "setting",
+        "lighting",
+        "framing",
+        "subjectCount",
+        "motionBeats",
+        "firstFrameGeometry",
+        "transformationInstructions",
+    ]
+    return {key: value[key] for key in keys if value.get(key) not in (None, "", [], {})}
 
 
 def _caption_formulas(
@@ -612,7 +656,15 @@ def _caption_formulas(
     ]
 
 
-def _prompt_template(visual: str, hook: str, caption: str) -> dict[str, str]:
+def _prompt_template(
+    visual: str,
+    hook: str,
+    caption: str,
+    winner_dna: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    dna = winner_dna if isinstance(winner_dna, dict) else {}
+    if _compact_winner_dna(dna):
+        return prompt_briefs_from_winner_dna(visual, hook, caption, dna)
     return {
         "visualBrief": {
             "caption_led_visual": "simple vertical creator shot composed around a readable centered caption",
@@ -642,19 +694,25 @@ def _prompt_template(visual: str, hook: str, caption: str) -> dict[str, str]:
 
 
 def _higgsfield_json_template(
-    visual: str, hook: str, caption: str
+    visual: str,
+    hook: str,
+    caption: str,
+    winner_dna: dict[str, Any] | None = None,
+    prompt_template: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    template = _prompt_template(visual, hook, caption)
+    template = prompt_template or _prompt_template(visual, hook, caption, winner_dna)
+    dna = winner_dna if isinstance(winner_dna, dict) else {}
     output_format = (
         "vertical_slideshow" if visual == "tiktok_slideshow" else "vertical_reel"
     )
     duration = "6-10" if visual == "tiktok_slideshow" else "6-12"
-    return {
+    payload = {
         "format": output_format,
         "duration_seconds": duration,
         "scene": template["visualBrief"],
-        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
-        "action": template["hookBrief"],
+        "camera": _cluster_camera_brief(dna)
+        or "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": template.get("motionBrief") or template["hookBrief"],
         "caption_overlay": template["captionBrief"],
         "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
         "style": "high-performing Instagram Reels reference pattern",
@@ -671,6 +729,28 @@ def _higgsfield_json_template(
         },
         "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
     }
+    if template.get("firstFrameBrief"):
+        payload["first_frame_geometry"] = template["firstFrameBrief"]
+    if template.get("transformationBrief"):
+        payload["transformation_instructions"] = template["transformationBrief"]
+    if _compact_winner_dna(dna):
+        payload["source_winner_dna"] = _compact_winner_dna(dna)
+    return payload
+
+
+def _cluster_camera_brief(dna: dict[str, Any]) -> str | None:
+    framing = dna.get("framing") if isinstance(dna.get("framing"), dict) else {}
+    camera = framing.get("camera") if isinstance(framing.get("camera"), dict) else {}
+    parts = []
+    for key in ("framing", "angle", "movement"):
+        value = camera.get(key)
+        if value:
+            parts.append(f"{key}: {value}")
+    for key in ("cameraHeight", "cameraDistance", "lensFeel"):
+        value = framing.get(key)
+        if value:
+            parts.append(f"{key}: {value}")
+    return "; ".join(parts) if parts else None
 
 
 def _operator_use(label: str, item_count: int, score: float) -> dict[str, object]:
