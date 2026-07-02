@@ -21,6 +21,7 @@ def score_lanes(
     *,
     stddev_samples: list[tuple[float, float, float]],
     face_samples: list[tuple[float, float, float]] | None = None,
+    head_samples: list[tuple[float, float, float]] | None = None,
     focal_samples: list[tuple[float, float, float]] | None = None,
     motion_samples: list[tuple[float, float, float]] | None = None,
     pose_samples: list[tuple[float, float, float]] | None = None,
@@ -34,6 +35,7 @@ def score_lanes(
         lane: {
             "busyness": 0.0,
             "face": 0.0,
+            "head": 0.0,
             "focal": 0.0,
             "motion": 0.0,
             "pose": 0.0,
@@ -56,13 +58,23 @@ def score_lanes(
 
     if face_samples:
         max_face = max(max(sample) for sample in face_samples) or 1.0
-        for lane, value in zip(LANES, _mean3(face_samples), strict=True):
+        for lane, value in zip(LANES, _max3(face_samples), strict=True):
             weight = 180.0 if normalized_policy == "focal-safe" else 90.0
             penalty = (value / max_face) * weight
             scores[lane] += penalty
             components[lane]["face"] = penalty
 
-    has_body_specific_signal = bool(face_samples or pose_samples)
+    if head_samples:
+        max_head = max(max(sample) for sample in head_samples) or 1.0
+        for lane, value in zip(LANES, _max3(head_samples), strict=True):
+            # PP-HumanSeg head slice: robust head/hair blocker for angles YuNet
+            # misses. Below face weight so YuNet stays primary; union-aggregated.
+            weight = 110.0 if normalized_policy == "focal-safe" else 55.0
+            penalty = (value / max_head) * weight
+            scores[lane] += penalty
+            components[lane]["head"] = penalty
+
+    has_body_specific_signal = bool(face_samples or head_samples or pose_samples)
     if normalized_policy == "focal-safe" and focal_samples:
         max_focal = max(max(sample) for sample in focal_samples) or 1.0
         for lane, value in zip(LANES, _mean3(focal_samples), strict=True):
@@ -84,7 +96,7 @@ def score_lanes(
 
     if pose_samples:
         max_pose = max(max(sample) for sample in pose_samples) or 1.0
-        for lane, value in zip(LANES, _mean3(pose_samples), strict=True):
+        for lane, value in zip(LANES, _max3(pose_samples), strict=True):
             weight = 90.0 if normalized_policy == "focal-safe" else 42.0
             penalty = (value / max_pose) * weight
             scores[lane] += penalty
@@ -106,7 +118,12 @@ def score_lanes(
             if candidate == lane:
                 continue
             c = components[candidate]
-            if c["face"] >= 70.0 or c["focal"] >= 70.0 or c["pose"] >= 65.0:
+            if (
+                c["face"] >= 70.0
+                or c["head"] >= 60.0
+                or c["focal"] >= 70.0
+                or c["pose"] >= 65.0
+            ):
                 rejected_lanes.append(candidate)
     reason = (
         f"{lane} lane lowest "
@@ -153,4 +170,20 @@ def _mean3(samples: list[tuple[float, float, float]]) -> tuple[float, float, flo
         sum(sample[0] for sample in samples) / n,
         sum(sample[1] for sample in samples) / n,
         sum(sample[2] for sample in samples) / n,
+    )
+
+
+def _max3(samples: list[tuple[float, float, float]]) -> tuple[float, float, float]:
+    """Per-lane worst-case coverage across all frames (whole-clip subject union).
+
+    Hard blockers (face, pose) use this so a static caption is penalized in any
+    lane the subject enters on ANY frame, not just on average — the subject moves
+    in motion clips, the caption doesn't. Soft signals stay averaged.
+    """
+    if not samples:
+        return 0.0, 0.0, 0.0
+    return (
+        max(sample[0] for sample in samples),
+        max(sample[1] for sample in samples),
+        max(sample[2] for sample in samples),
     )

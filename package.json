@@ -10,6 +10,7 @@
     "sync:contracts": "node scripts/sync-pipeline-contracts.mjs",
     "lint:py": "uv run ruff check python_packages packages && uv run ruff format --check python_packages packages",
     "typecheck:py": "uv run mypy packages/pipeline_contracts/pipeline_contracts",
+    "check:all": "pnpm check:contracts && pnpm lint:py && pnpm typecheck:py && pnpm --filter contentforge lint && pnpm check:arch && pnpm check:artifacts",
     "check:contracts": "node scripts/generate-pipeline-contract-schemas.mjs --check && node scripts/check-pipeline-contracts-sync.mjs",
     "check:integration": "uv run pytest tests/integration",
     "check:artifacts": "bash scripts/check-runtime-artifacts.sh",
@@ -17,13 +18,15 @@
     "check:arch:fixtures": "bash scripts/test-architecture-guards.sh",
     "check:arch:py": "uv run lint-imports && python3 scripts/check-python-architecture-boundaries.py",
     "check:arch:ts": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
-    "graphify:update": "graphify update .",
+    "graphify:update": "bash scripts/graphify-update.sh",
     "lint": "turbo run lint",
+    "audit:js-dead": "knip --workspace apps/contentforge --no-exit-code",
     "security:codeql-note": "node scripts/security/codeql-note.mjs",
     "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
     "dependency-cruiser": "^17.4.3",
+    "knip": "^6.23.0",
     "turbo": "^2.3.0"
   }
 }

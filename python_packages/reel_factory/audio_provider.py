@@ -215,6 +215,32 @@ def _choice(
     return payload
 
 
+def _trend_weight(track: AudioTrack) -> float:
+    if track.trend_rank is None:
+        return 0.01
+    return 1.0 / max(float(track.trend_rank), 1.0)
+
+
+def _weighted_trending_choice(
+    rng: random.Random, tracks: list[AudioTrack], *, reason: str
+) -> dict[str, Any]:
+    if not tracks:
+        raise ValueError("cannot choose from an empty track list")
+    weights = [_trend_weight(track) for track in tracks]
+    track = rng.choices(tracks, weights=weights, k=1)[0]
+    payload = asdict(track)
+    payload["tags"] = list(track.tags)
+    payload.update(
+        {
+            "schema": SCHEMA + ".selection",
+            "selected_reason": reason,
+            "selection_weight": round(_trend_weight(track), 6),
+            "selected_at": int(time.time()),
+        }
+    )
+    return payload
+
+
 def select_audio(
     root: Path,
     *,
@@ -254,13 +280,17 @@ def select_audio(
 
     roll = rng.random()
     if roll < CML_PRIMARY_WEIGHT and cml_primary:
-        return _choice(rng, cml_primary, reason="auto_cml_primary_60pct")
+        return _weighted_trending_choice(
+            rng, cml_primary, reason="auto_cml_primary_60pct_rank_weighted"
+        )
     if roll < CML_PRIMARY_WEIGHT + LOCAL_WINNER_WEIGHT and winners:
         return _choice(rng, winners, reason="auto_local_winner_30pct")
     if watch_list:
         return _choice(rng, watch_list, reason="auto_watch_list_10pct")
     if cml_primary:
-        return _choice(rng, cml_primary, reason="auto_fallback_cml_primary")
+        return _weighted_trending_choice(
+            rng, cml_primary, reason="auto_fallback_cml_primary_rank_weighted"
+        )
     return _choice(rng, winners, reason="auto_fallback_local_winner")
 
 

@@ -98,7 +98,7 @@
             "rendered_output": "/tmp/rendered.mp4"
           },
           "generated_asset_lineage": {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "schema": "reel_factory.generated_asset_lineage.v1",
             "pipelineTraceId": "trace_campaign_draft_payload_example",
             "source": {
               "formatType": "reel",

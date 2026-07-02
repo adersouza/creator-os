@@ -66,10 +66,13 @@ path.
 ## GUI
 
 ```bash
-python3 reel_gui.py
+ALLOW_INSECURE_LOCAL=1 python3 reel_gui.py
 ```
 
-The local GUI opens at `http://localhost:8765`. It supports uploading clips,
+The local GUI opens at `http://localhost:8765`. Local development requires
+either `ALLOW_INSECURE_LOCAL=1` on loopback only, or
+`CREATOR_OS_API_TOKEN=<token>` with browser/API calls sending
+`Authorization: Bearer <token>`. It supports uploading clips,
 editing hooks, spinning hook variants, choosing exact captions versus slang
 variants, running the pipeline, and previewing outputs. The hook editor warns
 when blocks are near-duplicates, supports up/down reordering, and can save or
@@ -287,6 +290,39 @@ Heuristic AI visual QA can also run standalone after rendering:
 ```bash
 python3 ai_visual_qc.py --root . --clip clip_001
 ```
+
+Fetch local runtime models before render/QC work:
+
+```bash
+make reel-models
+```
+
+This installs the `vision` + `ai` + `identity` extras and downloads ignored
+model files into `python_packages/reel_factory/models/`: YuNet face detection,
+PP-HumanSeg, Meta SSCD, and InsightFace buffalo_l. Render/QC runs fail loud if
+required placement, SSCD, or identity models are absent.
+
+Seed a local per-creator identity reference set from approved stills before
+generation QC:
+
+```bash
+python3 identity_verification.py identity-reference-build --creator Stacey --input-dir path/to/approved_refs --root .
+```
+
+This writes ignored JSON under `identity_references/<creator>.json`.
+
+Generated stills must pass anatomy + exposure QC before they enter ranking or
+render review, and must pass ArcFace identity verification when a creator is
+provided. The Higgsfield image-generation paths run this gate automatically for
+downloaded stills:
+
+```bash
+python3 anatomy_qc.py --image path/to/generated.png --root .
+```
+
+Exit `0` means pass; exit `1` means reject or unverifiable. The gate fail-closes
+on provider/key errors, anatomy defects, and explicit exposure such as visible
+nipples/genitals. Bikini, lingerie, cleavage, and implied sexy posing are allowed.
 
 It writes `02_processed/clip_001/_ai_qc.json` with non-blocking warnings for
 blur/low detail, abrupt frame jumps, likely text/watermarks, and face-count

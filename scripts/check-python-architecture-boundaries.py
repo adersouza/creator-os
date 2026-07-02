@@ -11,10 +11,17 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
-BOUNDARIES: tuple[tuple[Path, str, tuple[str, ...], dict[str, tuple[Path, ...]]], ...] = (
+BOUNDARIES: tuple[
+    tuple[Path, str, tuple[str, ...], dict[str, tuple[Path, ...]]], ...
+] = (
+    (
+        ROOT / "python_packages/reel_factory",
+        "reel_factory",
+        ("campaign_factory", "reference_factory", "repurposer"),
+        {},
+    ),
     (
         ROOT / "packages/pipeline_contracts/pipeline_contracts",
         "pipeline_contracts",
@@ -32,7 +39,10 @@ BOUNDARIES: tuple[tuple[Path, str, tuple[str, ...], dict[str, tuple[Path, ...]]]
         "campaign_factory",
         ("reference_factory", "repurposer"),
         {
-            "repurposer": (ROOT / "python_packages/campaign_factory/campaign_factory/variation_stage.py",),
+            "repurposer": (
+                ROOT
+                / "python_packages/campaign_factory/campaign_factory/variation_stage.py",
+            ),
         },
     ),
 )
@@ -49,7 +59,9 @@ def main() -> int:
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             except SyntaxError as exc:
-                violations.append(f"{path.relative_to(ROOT)}:{exc.lineno}: syntax error blocks boundary scan")
+                violations.append(
+                    f"{path.relative_to(ROOT)}:{exc.lineno}: syntax error blocks boundary scan"
+                )
                 continue
             for line, imported in _imports(tree):
                 if imported in forbidden and path not in allowlist.get(imported, ()):
@@ -70,7 +82,9 @@ def _imports(tree: ast.AST) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found.extend((node.lineno, alias.name.split(".", 1)[0]) for alias in node.names)
+            found.extend(
+                (node.lineno, alias.name.split(".", 1)[0]) for alias in node.names
+            )
         elif isinstance(node, ast.ImportFrom) and node.module:
             found.append((node.lineno, node.module.split(".", 1)[0]))
     return found

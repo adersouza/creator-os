@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function stateClass(state) {
   if (state === "ready") return "text-green-400";
@@ -9,22 +9,100 @@ function stateClass(state) {
   return "text-muted";
 }
 
+function rankScore(item) {
+  var stateBoost = item.operatorState === "ready" ? 2000 : item.operatorState === "review" ? 1000 : 0;
+  return (
+    (item.recommended ? 5000 : 0) +
+    stateBoost +
+    (Number(item.qualityScore ?? item.creativeQualityScore) || 0) +
+    (Number(item.variationScore) || 0) / 100
+  );
+}
+
+function rankingReason(item) {
+  if (item.recommendationReason) return item.recommendationReason;
+  var best = (item.scoreBreakdown || [])
+    .slice()
+    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))[0];
+  return best?.summary || best?.label || "Ranked by quality and variation signals.";
+}
+
+function ReviewButtons({ current, onReview }) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => onReview("approved")}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "approved" && !current?.chosen
+            ? "border-green-500/50 bg-green-500/15 text-green-300"
+            : "border-border bg-[#111118] text-muted hover:border-green-500/40")}
+      >
+        Approve
+      </button>
+      <button
+        onClick={() => onReview("approved", { chosen: true })}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.chosen
+            ? "border-purple-dim bg-purple/20 text-purple"
+            : "border-border bg-[#111118] text-muted hover:border-purple-dim")}
+      >
+        Pick
+      </button>
+      <button
+        onClick={() => onReview("rejected")}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "rejected"
+            ? "border-red-400/50 bg-red-500/15 text-red-300"
+            : "border-border bg-[#111118] text-muted hover:border-red-400/40")}
+      >
+        Reject
+      </button>
+    </div>
+  );
+}
+
+const TERMINAL_JOB_STATUSES = new Set(["succeeded", "failed", "timed_out", "aborted", "cancelled"]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function VariationLabPanel({ file }) {
   const [variantCount, setVariantCount] = useState(8);
   const [variationPreset, setVariationPreset] = useState("balanced");
   const [captionMode, setCaptionMode] = useState("none");
   const [suppliedHooks, setSuppliedHooks] = useState("");
   const [running, setRunning] = useState(false);
+  const [job, setJob] = useState(null);
   const [report, setReport] = useState(null);
+  const [decisions, setDecisions] = useState({});
+  const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadDecisions() {
+      if (!report?.runId) return;
+      try {
+        const res = await fetch("/api/review-decisions?runId=" + encodeURIComponent(report.runId));
+        if (!res.ok) return;
+        const data = await res.json();
+        setDecisions(data.decisions || {});
+        setApprovedManifestUrl(data.approvedManifestUrl || "");
+      } catch {
+        // review decisions are optional until a pack exists
+      }
+    }
+    loadDecisions();
+  }, [report?.runId]);
 
   async function runPack() {
     if (!file?.path) return;
     setRunning(true);
     setError("");
+    setJob(null);
     setReport(null);
     try {
-      const res = await fetch("/api/variant-pack", {
+      const res = await fetch("/api/variant-pack/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -37,13 +115,58 @@ export default function VariationLabPanel({ file }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Variant pack failed");
-      setReport(data);
+      let current = data;
+      setJob(current);
+      while (!TERMINAL_JOB_STATUSES.has(current.status)) {
+        await sleep(1500);
+        const poll = await fetch(current.pollUrl);
+        const polled = await poll.json();
+        if (!poll.ok) throw new Error(polled.error || "Variant pack poll failed");
+        current = polled;
+        setJob(current);
+      }
+      if (current.status !== "succeeded") {
+        throw new Error(current.error || "Variant pack job " + current.status);
+      }
+      setReport(current.report);
+      setDecisions({});
+      setApprovedManifestUrl(current.report?.approvedManifestUrl || "");
     } catch (err) {
       setError(err.message);
     } finally {
       setRunning(false);
     }
   }
+
+  async function submitReviewDecision(item, decision, options = {}) {
+    if (!report?.runId || !item?.file) return;
+    const res = await fetch("/api/review-decisions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId: report.runId,
+        file: item.file,
+        decision,
+        chosen: options.chosen === true,
+        recommended: item.recommended,
+        operatorState: item.operatorState,
+        recommendationReason: item.recommendationReason,
+        blockingReasons: item.blockingReasons,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Review decision failed");
+      return;
+    }
+    setError("");
+    setDecisions(data.state?.decisions || {});
+    setApprovedManifestUrl(data.approvedManifestUrl || "");
+  }
+
+  const rankedResults = (report?.results || [])
+    .slice()
+    .sort((a, b) => rankScore(b) - rankScore(a));
 
   return (
     <div className="flex flex-col gap-5">
@@ -127,6 +250,11 @@ export default function VariationLabPanel({ file }) {
           </div>
         )}
         {error && <div className="mt-3 text-[12px] text-red-300">{error}</div>}
+        {job?.queueDiagnostics && (
+          <div className="mt-3 text-[11px] text-muted font-mono">
+            queue {job.queueDiagnostics.runningJobs} running · {job.queueDiagnostics.pendingJobs} pending
+          </div>
+        )}
       </div>
 
       {report && (
@@ -138,15 +266,25 @@ export default function VariationLabPanel({ file }) {
                 {report.operatorSummary.recommended} recommended · avg variation {report.operatorSummary.avgVariation}
               </div>
             </div>
-            <a
-              className="px-3 py-2 rounded-card border border-border text-[10px] text-muted font-mono"
-              href={report.manifestUrl || ("/api/variant-pack/" + encodeURIComponent(report.runId) + "/manifest")}
-            >
-              Manifest
-            </a>
+            <div className="flex items-center gap-2">
+              {approvedManifestUrl && (
+                <a
+                  className="px-3 py-2 rounded-card border border-border text-[10px] text-purple font-mono"
+                  href={approvedManifestUrl}
+                >
+                  Approved
+                </a>
+              )}
+              <a
+                className="px-3 py-2 rounded-card border border-border text-[10px] text-muted font-mono"
+                href={report.manifestUrl || ("/api/variant-pack/" + encodeURIComponent(report.runId) + "/manifest")}
+              >
+                Manifest
+              </a>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(report.results || []).map((item, index) => (
+            {rankedResults.map((item, index) => (
               <div key={item.file} className="rounded-card border border-border bg-[#08080c] p-3">
                 <video
                   className="w-full aspect-[9/16] object-cover bg-black rounded-md mb-3"
@@ -156,8 +294,18 @@ export default function VariationLabPanel({ file }) {
                   src={"/api/preview?runId=" + encodeURIComponent(report.runId) + "&file=" + encodeURIComponent(item.file)}
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-muted font-mono truncate">#{index + 1} {item.file}</span>
+                  <span className="text-[10px] text-muted font-mono truncate">
+                    {index === 0 && <span className="mr-2 text-purple">#1 pick</span>}
+                    #{index + 1} {item.file}
+                  </span>
                   <span className={"text-[10px] uppercase font-mono " + stateClass(item.operatorState)}>{item.operatorState}</span>
+                </div>
+                <div className="mt-2 text-[10px] text-muted-darker">{rankingReason(item)}</div>
+                <div className="mt-3">
+                  <ReviewButtons
+                    current={decisions[item.file]}
+                    onReview={(decision, options) => submitReviewDecision(item, decision, options)}
+                  />
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3 text-[10px] text-muted">
                   <span>variation <b className="text-[#d7d7df]">{item.variationScore}</b></span>

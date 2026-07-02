@@ -82,6 +82,40 @@ class AudioProviderTests(unittest.TestCase):
             self.assertEqual(selection["trend_rank"], 4)
             self.assertIn("selected_reason", selection)
 
+    def test_auto_trending_weights_lower_trend_rank_more_heavily(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = trending_cml_path(root)
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "track_id": "rank_1",
+                            "track_name": "Top Trend",
+                            "trend_rank": 1,
+                            "tags": ["upbeat"],
+                        },
+                        {
+                            "track_id": "rank_100",
+                            "track_name": "Deep Trend",
+                            "trend_rank": 100,
+                            "tags": ["upbeat"],
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            selected = [
+                select_audio(root, mode="AUTO_TRENDING", seed=f"weighted-{idx}")[
+                    "track_id"
+                ]
+                for idx in range(80)
+            ]
+
+            self.assertGreater(selected.count("rank_1"), selected.count("rank_100"))
+
     def test_auto_mix_can_select_local_winners_and_watch_list(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -36,7 +36,7 @@ export function createVariantPackPostHandler(deps = {}) {
       releaseLock().catch(() => {});
     }, { once: true });
     try {
-      var report = await runVariantPackImpl(body);
+      var report = await runVariantPackImpl({ ...body, signal: request.signal });
       return Response.json(report);
     } catch (err) {
       return Response.json({ error: err.message }, { status: 500 });

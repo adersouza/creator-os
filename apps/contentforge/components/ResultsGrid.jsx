@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { DAYS } from "../lib/presets";
+import { costLabelFromSpend, showSummarySkeleton } from "../lib/review-summary";
 import SourceVariantPreview from "./SourceVariantPreview";
 
 function formatSize(bytes) {
@@ -10,7 +11,7 @@ function formatSize(bytes) {
   return (bytes / 1e3).toFixed(0) + " KB";
 }
 
-function VideoPreview({ file, index, runId }) {
+function VideoPreview({ file, index, runId, decisionRecord, onReview }) {
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef(null);
 
@@ -59,12 +60,12 @@ function VideoPreview({ file, index, runId }) {
           #{index + 1}
         </div>
       </div>
-      <FileInfo file={file} onDownload={downloadFile} />
+      <FileInfo file={file} onDownload={downloadFile} decisionRecord={decisionRecord} onReview={onReview} />
     </div>
   );
 }
 
-function ImagePreview({ file, index, runId }) {
+function ImagePreview({ file, index, runId, decisionRecord, onReview }) {
   const downloadFile = (e) => {
     e.stopPropagation();
     window.location.href = "/api/download?runId=" + encodeURIComponent(runId || "latest") + "&file=" + encodeURIComponent(file.name);
@@ -83,32 +84,69 @@ function ImagePreview({ file, index, runId }) {
           #{index + 1}
         </div>
       </div>
-      <FileInfo file={file} onDownload={downloadFile} />
+      <FileInfo file={file} onDownload={downloadFile} decisionRecord={decisionRecord} onReview={onReview} />
     </div>
   );
 }
 
-function FileInfo({ file, onDownload }) {
+function ReviewButtons({ current, onReview, compact = false }) {
   return (
-    <div className="p-2.5 flex items-center justify-between">
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] text-muted-dark font-mono truncate">
-          {file.name}
-        </div>
-        <div className="text-[9px] text-muted-darker mt-0.5">
-          {formatSize(file.size)}
-        </div>
-      </div>
+    <div className={"flex items-center gap-1 " + (compact ? "justify-end" : "mt-2")}>
       <button
-        onClick={onDownload}
-        className="ml-2 shrink-0 w-7 h-7 rounded-md bg-[#16161e] hover:bg-purple/20 border border-border
-          hover:border-purple-dim flex items-center justify-center transition-all cursor-pointer"
-        title="Download"
+        onClick={(event) => { event.stopPropagation(); onReview("approved"); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "approved" && !current?.chosen
+            ? "border-green-500/50 bg-green-500/15 text-green-300"
+            : "border-border bg-[#111118] text-muted hover:border-green-500/40")}
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a855f7" strokeWidth="1.5">
-          <path d="M6 1v7M3 6l3 3 3-3M2 10h8" />
-        </svg>
+        Approve
       </button>
+      <button
+        onClick={(event) => { event.stopPropagation(); onReview("approved", { chosen: true }); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.chosen
+            ? "border-purple-dim bg-purple/20 text-purple"
+            : "border-border bg-[#111118] text-muted hover:border-purple-dim")}
+      >
+        Pick
+      </button>
+      <button
+        onClick={(event) => { event.stopPropagation(); onReview("rejected"); }}
+        className={"rounded-md border px-2 py-1 text-[9px] font-mono transition-all " +
+          (current?.decision === "rejected"
+            ? "border-red-400/50 bg-red-500/15 text-red-300"
+            : "border-border bg-[#111118] text-muted hover:border-red-400/40")}
+      >
+        Reject
+      </button>
+    </div>
+  );
+}
+
+function FileInfo({ file, onDownload, decisionRecord, onReview }) {
+  return (
+    <div className="p-2.5">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] text-muted-dark font-mono truncate">
+            {file.name}
+          </div>
+          <div className="text-[9px] text-muted-darker mt-0.5">
+            {formatSize(file.size)}
+          </div>
+        </div>
+        <button
+          onClick={onDownload}
+          className="ml-2 shrink-0 w-7 h-7 rounded-md bg-[#16161e] hover:bg-purple/20 border border-border
+            hover:border-purple-dim flex items-center justify-center transition-all cursor-pointer"
+          title="Download"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#a855f7" strokeWidth="1.5">
+            <path d="M6 1v7M3 6l3 3 3-3M2 10h8" />
+          </svg>
+        </button>
+      </div>
+      {onReview && <ReviewButtons current={decisionRecord} onReview={onReview} />}
     </div>
   );
 }
@@ -155,10 +193,30 @@ function BatchRunSummary({ result }) {
   );
 }
 
+function SummarySkeleton({ count = 5 }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className="animate-pulse">
+          <div className="h-8 mx-auto rounded bg-[#1b1b24] w-14" />
+          <div className="h-2.5 mx-auto rounded bg-[#171720] w-16 mt-3" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile }) {
   const isImage = mediaType === "image";
   const [files, setFiles] = useState([]);
+  const [scanPending, setScanPending] = useState(false);
   const [scores, setScores] = useState(null);
+  const [decisions, setDecisions] = useState({});
+  const [dashboardSpend, setDashboardSpend] = useState(null);
+  const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [scanError, setScanError] = useState("");
+  const [similarityError, setSimilarityError] = useState("");
   const [downloading, setDownloading] = useState(false);
   const runId = forgeResult?.runId || "latest";
   const total = isImage ? (config.variants || 50) : config.edits * config.spins;
@@ -166,18 +224,36 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
 
   useEffect(() => {
     async function loadFiles() {
+      setScanPending(true);
       try {
         const res = await fetch("/api/scan-output?runId=" + encodeURIComponent(runId));
-        if (res.ok) {
-          const data = await res.json();
-          setFiles(data.files || []);
-        }
-      } catch (e) {
-        // ignore
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "scan failed");
+        setFiles(data.files || []);
+        setScanError("");
+      } catch (error) {
+        setFiles([]);
+        setScanError(error.message || "scan failed");
+      } finally {
+        setScanPending(false);
       }
     }
     loadFiles();
   }, [forgeResult, runId]);
+
+  useEffect(() => {
+    async function loadSpend() {
+      try {
+        const res = await fetch("/api/dashboard");
+        if (!res.ok) return;
+        const data = await res.json();
+        setDashboardSpend(data.spend || null);
+      } catch {
+        setDashboardSpend(null);
+      }
+    }
+    loadSpend();
+  }, [forgeResult]);
 
   useEffect(() => {
     async function loadScores() {
@@ -188,13 +264,54 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ runId: forgeResult.runId, threshold: 0.92, sourceFile }),
         });
-        if (res.ok) setScores(await res.json());
-      } catch (e) {
-        // scoring is optional for the preview grid
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "similarity unavailable");
+        setScores(data);
+        setSimilarityError(data.error || data.reason || (data.available === false ? "similarity unavailable" : ""));
+      } catch (error) {
+        setSimilarityError(error.message || "similarity unavailable");
       }
     }
     loadScores();
   }, [forgeResult, sourceFile]);
+
+  useEffect(() => {
+    async function loadDecisions() {
+      try {
+        const res = await fetch("/api/review-decisions?runId=" + encodeURIComponent(runId));
+        if (!res.ok) return;
+        const data = await res.json();
+        setDecisions(data.decisions || {});
+        setApprovedManifestUrl(data.approvedManifestUrl || "");
+      } catch {
+        // review decisions are loaded opportunistically
+      }
+    }
+    loadDecisions();
+  }, [runId]);
+
+  const submitReviewDecision = async (file, decision, options = {}) => {
+    const score = scores?.files?.find((item) => item.name === file.name) || {};
+    const res = await fetch("/api/review-decisions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId,
+        file: file.name,
+        decision,
+        chosen: options.chosen === true,
+        recommendedAction: score.recommendedAction,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setReviewError(data.error || "Review decision failed");
+      return;
+    }
+    setReviewError("");
+    setDecisions(data.state?.decisions || {});
+    setApprovedManifestUrl(data.approvedManifestUrl || "");
+  };
 
   const downloadAll = async () => {
     setDownloading(true);
@@ -219,65 +336,117 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
   const displayFiles = isImage
     ? files.filter(f => f.type === "image")
     : files.filter(f => f.type === "video");
+  const costLabel = costLabelFromSpend(
+    forgeResult?.spend || forgeResult?.costLedger || dashboardSpend,
+  );
+  const skeletonVisible = showSummarySkeleton({ scanPending, files });
+  const rejectionEntries = Object.entries(forgeResult?.rejectionReasons || {})
+    .sort((a, b) => b[1] - a[1]);
+  const reviewedCount = Object.values(decisions).filter((item) => item?.decision).length;
+  const selectedCount = Object.values(decisions).filter((item) => item?.chosen).length;
+  const scoredFiles = (scores?.files || []).filter((file) => file.bucket !== "source");
+  const warningCount = scoredFiles.reduce((sum, file) => {
+    return sum + (Array.isArray(file.warnings) ? file.warnings.length : 0);
+  }, 0);
+  const sortedScoreFiles = scoredFiles.slice().sort((a, b) => {
+    return (Number(b.qualityRetained) || 0) - (Number(a.qualityRetained) || 0);
+  });
 
   return (
     <div className="flex flex-col gap-6">
       <BatchRunSummary result={forgeResult} />
+      {scanError && (
+        <div className="bg-red-950/30 border border-red-500/40 rounded-card p-4 text-[12px] text-red-200">
+          Output scan failed: {scanError}
+        </div>
+      )}
+      {similarityError && (
+        <div className="bg-amber-950/30 border border-amber-500/40 rounded-card p-4 text-[12px] text-amber-100">
+          Similarity unavailable: {similarityError}
+        </div>
+      )}
 
       {/* Summary stats */}
       <div
         className="bg-card rounded-card border border-green-dim p-6"
         style={{ background: "linear-gradient(135deg, #0c0c12, #0a140e)" }}
       >
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-light text-green font-mono">
-              {displayFiles.length || forgeResult?.total || total}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Variants
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-amber font-mono">
-              {forgeResult?.attemptedCandidates ?? "--"}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Attempted
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-red-400 font-mono">
-              {forgeResult?.rejectedCandidates ?? 0}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Rejected
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-[#c8c8d0] font-mono">
-              {forgeResult?.elapsed || "--"}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Total time
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-purple font-mono">
-              {isImage ? "1" : pods}
-            </div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              {isImage ? "Source" : "Pods"}
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-light text-green font-mono">$0</div>
-            <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
-              Cost
-            </div>
-          </div>
+        <div className={"grid grid-cols-2 " + (costLabel ? "md:grid-cols-6" : "md:grid-cols-5") + " gap-4 text-center"}>
+          {skeletonVisible ? (
+            <SummarySkeleton count={costLabel ? 6 : 5} />
+          ) : (
+            <>
+              <div>
+                <div className="text-2xl font-light text-green font-mono">
+                  {scanError ? "--" : displayFiles.length}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Variants
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-amber font-mono">
+                  {forgeResult?.attemptedCandidates ?? "--"}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Attempted
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-red-400 font-mono">
+                  {forgeResult?.rejectedCandidates ?? 0}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Rejected
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-[#c8c8d0] font-mono">
+                  {forgeResult?.elapsed || "--"}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  Total time
+                </div>
+              </div>
+              <div>
+                <div className="text-2xl font-light text-purple font-mono">
+                  {isImage ? "1" : pods}
+                </div>
+                <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                  {isImage ? "Source" : "Pods"}
+                </div>
+              </div>
+              {costLabel && (
+                <div>
+                  <div className="text-2xl font-light text-green font-mono">{costLabel}</div>
+                  <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
+                    Cost
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
+      {rejectionEntries.length > 0 && (
+        <div className="bg-card rounded-card border border-border p-5">
+          <div className="text-[10px] text-muted-dark uppercase tracking-[0.1em] font-medium mb-3">
+            Rejection reasons
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {rejectionEntries.map(([reason, count]) => (
+              <span key={reason} className="tag bg-[#16161e] border border-border">
+                {reason}: {count}
+              </span>
+            ))}
+          </div>
+          {forgeResult?.rejectionSamples?.length > 0 && (
+            <div className="mt-3 text-[10px] text-muted-darker font-mono">
+              {forgeResult.rejectionSamples.slice(0, 4).map((sample) => sample.filename || sample.file || "candidate").join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Preview grid */}
       {displayFiles.length > 0 && (
@@ -297,9 +466,23 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           }`}>
             {displayFiles.map((file, i) =>
               file.type === "image" ? (
-                <ImagePreview key={file.name} file={file} index={i} runId={runId} />
+                <ImagePreview
+                  key={file.name}
+                  file={file}
+                  index={i}
+                  runId={runId}
+                  decisionRecord={decisions[file.name]}
+                  onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                />
               ) : (
-                <VideoPreview key={file.name} file={file} index={i} runId={runId} />
+                <VideoPreview
+                  key={file.name}
+                  file={file}
+                  index={i}
+                  runId={runId}
+                  decisionRecord={decisions[file.name]}
+                  onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                />
               )
             )}
           </div>
@@ -307,6 +490,7 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
       )}
 
       <SourceVariantPreview sourceFile={sourceFile} files={displayFiles} runId={runId} mediaType={mediaType} />
+      {reviewError && <div className="text-[12px] text-red-300">{reviewError}</div>}
 
       {scores?.files?.length > 0 && (
         <div className="bg-card rounded-card border border-border p-5">
@@ -327,23 +511,39 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
                   <th className="p-2">Difference</th>
                   <th className="p-2">Max variant sim</th>
                   <th className="p-2">Size</th>
-                  <th className="p-2">Action</th>
+                  <th className="p-2">Recommendation</th>
+                  <th className="p-2">Review</th>
                 </tr>
               </thead>
               <tbody>
-                {scores.files.filter((file) => file.bucket !== "source").map((file) => (
+                {sortedScoreFiles.map((file, index) => (
                   <tr key={file.name} className="border-t border-border">
-                    <td className="p-2 font-mono text-muted">{file.name}</td>
+                    <td className="p-2 font-mono text-muted">
+                      {index === 0 && <span className="mr-2 text-purple">#1</span>}
+                      {file.name}
+                    </td>
                     <td className="p-2 text-green">{file.qualityRetained ?? "--"}%</td>
                     <td className="p-2 text-purple">{file.differenceFromOriginal ?? "--"}%</td>
                     <td className="p-2 text-amber">{Math.round((file.maxCrossVariantSimilarity || 0) * 100)}%</td>
                     <td className="p-2 text-muted">{formatSize(file.size)}</td>
                     <td className="p-2 text-muted">{file.recommendedAction || "--"}</td>
+                    <td className="p-2">
+                      <ReviewButtons
+                        compact
+                        current={decisions[file.name]}
+                        onReview={(decision, options) => submitReviewDecision(file, decision, options)}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {approvedManifestUrl && (
+            <a className="inline-block mt-3 text-[10px] text-purple font-mono" href={approvedManifestUrl}>
+              Approved manifest
+            </a>
+          )}
         </div>
       )}
 
@@ -395,15 +595,17 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
             </div>
             <div className="bg-[#0a0a10] rounded-[10px] p-3 border border-border">
               <div className="text-lg font-light text-green my-1 font-mono">
-                {displayFiles.length}
+                {selectedCount || reviewedCount || "--"}
               </div>
-              <div className="text-[9px] text-muted-dark">Selected outputs</div>
+              <div className="text-[9px] text-muted-dark">
+                {selectedCount ? "Picked outputs" : "Reviewed outputs"}
+              </div>
             </div>
             <div className="bg-[#0a0a10] rounded-[10px] p-3 border border-border">
               <div className="text-lg font-light text-purple my-1 font-mono">
-                0%
+                {scores ? warningCount : "--"}
               </div>
-              <div className="text-[9px] text-muted-dark">Warnings</div>
+              <div className="text-[9px] text-muted-dark">QA warnings</div>
             </div>
           </div>
         </div>

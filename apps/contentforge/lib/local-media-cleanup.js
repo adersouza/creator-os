@@ -20,7 +20,13 @@ async function walk(dir) {
       files.push(...await walk(fullPath));
       continue;
     }
-    var stats = await stat(fullPath);
+    var stats;
+    try {
+      stats = await stat(fullPath);
+    } catch (error) {
+      if (error && error.code === "ENOENT") continue;
+      throw error;
+    }
     files.push({
       path: fullPath,
       rel: path.relative(PROJECT_ROOT, fullPath),

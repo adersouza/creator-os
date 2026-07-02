@@ -16,7 +16,6 @@ from pipeline_contracts import (
     validate_threadsdash_draft_payload_strict,
 )
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_MIRRORS = [
     REPO_ROOT / "pipeline_contracts" / "schemas",
@@ -93,7 +92,7 @@ def _audio_intent() -> dict:
 
 def _generated_asset_lineage(caption: dict) -> dict:
     return {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "source": {
             "referenceImage": "fixture://reference/stacey_mirror",
             "sourceReferenceId": "reference_acceptance_1",
@@ -110,7 +109,11 @@ def _generated_asset_lineage(caption: dict) -> dict:
             "visualVerificationId": "visual_verify_acceptance_1",
             "captionVerificationId": "caption_verify_acceptance_1",
         },
-        "quality": {"safeZone": "pass", "captionPlacement": "pass", "discoverability": "pass"},
+        "quality": {
+            "safeZone": "pass",
+            "captionPlacement": "pass",
+            "discoverability": "pass",
+        },
         "asset_state": "exportable",
         "publishability_failure_reasons": [],
         "blockingReason": None,
@@ -187,7 +190,11 @@ def _campaign_draft_payload() -> dict:
         "visualQcStatus": "passed",
         "identityVerificationStatus": "passed",
         "visualQc": {"visualQcStatus": "passed", "status": "passed"},
-        "identityVerification": {"schema": "reel_factory.identity_verification.v1", "status": "passed", "score": 0.91},
+        "identityVerification": {
+            "schema": "reel_factory.identity_verification.v1",
+            "status": "passed",
+            "score": 0.91,
+        },
     }
     return {
         "schema": "campaign_factory.threadsdash_drafts.v1",
@@ -224,7 +231,9 @@ def _feed_single_draft_payload() -> dict:
             "contentSurface": "feed_single",
             "ig_media_type": "IMAGE",
             "igMediaType": "IMAGE",
-            "mediaItems": [{"type": "image", "url": "https://cdn.example/acceptance-feed.jpg"}],
+            "mediaItems": [
+                {"type": "image", "url": "https://cdn.example/acceptance-feed.jpg"}
+            ],
             "audio_id": "not_required",
             "surfaceReadiness": {"canHandoff": True, "blockers": []},
         }
@@ -246,15 +255,21 @@ def test_contract_mirrors_match_canonical_package() -> None:
                 canonical_schema_dir / name
             ).read_text(encoding="utf-8")
 
-    canonical_ts = REPO_ROOT / "packages" / "pipeline_contracts" / "typescript" / "index.ts"
+    canonical_ts = (
+        REPO_ROOT / "packages" / "pipeline_contracts" / "typescript" / "index.ts"
+    )
     for mirror in TS_MIRRORS:
         assert mirror.exists(), f"missing TypeScript mirror: {mirror}"
-        assert mirror.read_text(encoding="utf-8") == canonical_ts.read_text(encoding="utf-8")
+        assert mirror.read_text(encoding="utf-8") == canonical_ts.read_text(
+            encoding="utf-8"
+        )
 
     assert len(validate_schema_examples()) >= 14
 
 
-def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign_handoff() -> None:
+def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign_handoff() -> (
+    None
+):
     still_prompt = {
         "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
         "tool": "higgsfield_soul_image",
@@ -279,13 +294,17 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
         "firstFrameInstruction": "Use accepted still fixture://render/stacey_mirror_still.png as the first frame.",
         "mainPrompt": "Five second 9:16 mirror selfie motion: tiny phone sway, breathing, slight posture shift. No new text or pose change.",
         "negativePrompt": "no text, no logos, no face crop, no outfit change, no location change",
-        "closenessControls": {"pose": "locked", "wardrobe": "locked", "setting": "locked"},
+        "closenessControls": {
+            "pose": "locked",
+            "wardrobe": "locked",
+            "setting": "locked",
+        },
         "scenes": [{"durationSeconds": 5, "motion": "subtle_handheld_sway"}],
         "aspectRatio": "9:16",
         "reviewNotes": ["deterministic acceptance fixture; no animation invoked"],
     }
     lineage = {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
         "source": {
             "referenceImage": "fixture://reference/stacey_mirror.jpg",
             "sourceReferenceId": still_prompt["sourceReferenceId"],
@@ -302,7 +321,11 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
             "visualVerificationId": "visual_verify_acceptance_1",
             "captionVerificationId": "caption_verify_acceptance_1",
         },
-        "quality": {"safeZone": "pass", "captionPlacement": "pass", "discoverability": "pass"},
+        "quality": {
+            "safeZone": "pass",
+            "captionPlacement": "pass",
+            "discoverability": "pass",
+        },
         "asset_state": "exportable",
         "publishability_failure_reasons": [],
         "blockingReason": None,
@@ -323,7 +346,9 @@ def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign
     validate_threadsdash_draft_payload_strict(payload)
 
 
-def test_contentforge_variant_pack_output_maps_to_campaign_factory_variant_lineage() -> None:
+def test_contentforge_variant_pack_output_maps_to_campaign_factory_variant_lineage() -> (
+    None
+):
     repurposing_plan = {
         "schema": "campaign_factory.repurposing_plan.v1",
         "master_asset_id": "parent_acceptance_1",
@@ -383,7 +408,9 @@ def test_contentforge_variant_pack_output_maps_to_campaign_factory_variant_linea
     validate_threadsdash_draft_payload_strict(payload)
 
 
-def test_campaign_handoff_manifest_v2_matches_dashboard_surface_draft_expectations() -> None:
+def test_campaign_handoff_manifest_v2_matches_dashboard_surface_draft_expectations() -> (
+    None
+):
     payload = _feed_single_draft_payload()
     validate_threadsdash_draft_payload_strict(payload)
 
@@ -393,10 +420,17 @@ def test_campaign_handoff_manifest_v2_matches_dashboard_surface_draft_expectatio
     assert manifest["exported_by_system"] == "campaign_factory"
     assert manifest["content_surface"] == "feed_single"
     assert manifest["ig_media_type"] == "IMAGE"
-    assert manifest["mediaItems"] == [{"type": "image", "url": "https://cdn.example/acceptance-feed.jpg"}]
+    assert manifest["mediaItems"] == [
+        {"type": "image", "url": "https://cdn.example/acceptance-feed.jpg"}
+    ]
     assert manifest["surfaceReadiness"]["canHandoff"] is True
 
-    assert json.loads(schema_path("campaign_draft_payload").read_text(encoding="utf-8"))["$id"] == "campaign_factory.threadsdash_drafts.v1"
+    assert (
+        json.loads(schema_path("campaign_draft_payload").read_text(encoding="utf-8"))[
+            "$id"
+        ]
+        == "campaign_factory.threadsdash_drafts.v1"
+    )
 
 
 def test_integration_fixtures_do_not_require_runtime_artifacts() -> None:
@@ -410,8 +444,8 @@ def test_integration_fixtures_do_not_require_runtime_artifacts() -> None:
         "/campaigns/",
         "/tmp/",
         ".sqlite",
-        ".mp4\"",
-        ".mov\"",
+        '.mp4"',
+        '.mov"',
     ]
     assert "fixture://" in serialized
     for fragment in forbidden_fragments:

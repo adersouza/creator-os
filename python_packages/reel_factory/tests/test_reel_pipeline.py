@@ -24,6 +24,8 @@ from reel_pipeline import (
     CaptionSet,
     Manifest,
     Recipe,
+    _audio_selection_local_path,
+    _selected_audio_for_mux,
     apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
     build_avconvert_finalize_cmd,
@@ -44,13 +46,79 @@ from reel_pipeline import (
     reconcile_interrupted_temp_outputs,
     source_lineage_path_for,
     timed_caption_band,
+    vary_band_within_lane,
     write_caption_lineage_sidecar,
     write_generated_asset_lineage_sidecar,
+    write_required_similarity_audit,
 )
 from render_plan import RenderPlan
 
+from pipeline_contracts import ContractValidationError, validate_generated_asset_lineage
+
 
 class ReelPipelineTests(unittest.TestCase):
+    def test_audio_selection_local_path_reads_nested_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            selected = _audio_selection_local_path(
+                root,
+                {
+                    "track_id": "ranked_1",
+                    "metadata": {"local_path": "03_audio_library/ranked.m4a"},
+                },
+            )
+
+            self.assertEqual(selected, root / "03_audio_library" / "ranked.m4a")
+
+    def test_selected_audio_for_mux_prefers_manual_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with patch("audio_provider.select_audio") as provider:
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path="manual.m4a"
+                )
+
+            provider.assert_not_called()
+            self.assertEqual(selected, "manual.m4a")
+            self.assertEqual(selection["track_id"], "manual_manual")
+
+    def test_selected_audio_for_mux_uses_ranked_provider_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            audio = root / "03_audio_library" / "ranked.m4a"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"audio")
+            provider_selection = {
+                "track_id": "ranked_1",
+                "track_name": "Ranked",
+                "source": "local_winners",
+                "metadata": {"local_path": "03_audio_library/ranked.m4a"},
+            }
+            with patch("audio_provider.select_audio", return_value=provider_selection):
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path=None
+                )
+
+            self.assertEqual(selected, str(audio))
+            self.assertEqual(selection["track_id"], "ranked_1")
+            self.assertEqual(selection["local_path"], str(audio))
+
+    def test_selected_audio_for_mux_allows_random_fallback_when_provider_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            provider_selection = {
+                "track_id": "remote_only",
+                "track_name": "Remote Only",
+                "source": "cml",
+            }
+            with patch("audio_provider.select_audio", return_value=provider_selection):
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path=None
+                )
+
+            self.assertIsNone(selected)
+            self.assertEqual(selection["track_id"], "remote_only")
+
     def test_recipe_default_font_is_instagram_sans_condensed(self):
         recipe = Recipe("v01_original")
 
@@ -390,6 +458,43 @@ class ReelPipelineTests(unittest.TestCase):
             any(row["suitabilityDecision"] == "skipped" for row in diagnostics)
         )
 
+    def test_caption_fit_rejects_paragraph_that_cannot_render_legibly(self):
+        long_paragraph = "\n".join(
+            [
+                "3 different ways a guy would ask me out",
+                "Smooth: " + "very specific romantic setup " * 6,
+                "Nervous: " + "awkward cute overthinking line " * 6,
+                "Playful: " + "teasing challenge with extra words " * 6,
+            ]
+        )
+        cap_set = CaptionSet(
+            hooks=["short readable hook", long_paragraph],
+            hook_lineage={
+                0: {
+                    "lengthClass": "short",
+                    "formatClass": "single_line",
+                    "selectedBankWeight": 1,
+                },
+                1: {
+                    "lengthClass": "long",
+                    "formatClass": "paragraph",
+                    "selectedBankWeight": 100,
+                },
+            },
+        )
+
+        fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            max_hooks=2,
+            seed=1,
+            fit_mode="auto",
+        )
+
+        self.assertEqual(fitted.hooks, ["short readable hook"])
+        self.assertEqual(diagnostics[1]["suitabilityDecision"], "unrenderable")
+        self.assertIn("legible render capacity", diagnostics[1]["reason"])
+
     def test_caption_fit_off_preserves_old_selection(self):
         cap_set = CaptionSet(
             hooks=["wife or girlfriend", "long caption " * 12],
@@ -549,6 +654,39 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(fitted.hooks, ["beach day, pick me up?"])
         self.assertEqual(diagnostics[0]["sceneCompatibilityDecision"], "allowed")
         self.assertEqual(diagnostics[1]["sceneCompatibilityDecision"], "blocked")
+
+    def test_caption_scene_fit_allows_bedroom_caption_for_unknown_reel(self):
+        # unknown reel scene = undetected, NOT incompatible: bedroom/coded winners
+        # must survive instead of falling back to generic captions (finding #2).
+        cap_set = CaptionSet(
+            hooks=["ngl it's kinda sad\nI'm not in your room rn", "pick me up?"],
+            hook_lineage={
+                0: {
+                    "selectedBanks": ["bedroom_mirror"],
+                    "lengthClass": "short",
+                    "formatClass": "multiline",
+                },
+                1: {
+                    "selectedBanks": ["shared_girl_next_door"],
+                    "lengthClass": "very_short",
+                    "formatClass": "single_line",
+                },
+            },
+        )
+
+        _fitted, diagnostics = apply_caption_fit_to_caption_set(
+            cap_set,
+            frame_type="closeup",
+            reel_scene_tags=["unknown"],
+            max_hooks=None,
+            seed=1,
+            fit_mode="auto",
+            scene_fit_mode="auto",
+        )
+
+        self.assertEqual(
+            diagnostics[0]["sceneCompatibilityDecision"], "unknown_allowed"
+        )
 
     def test_caption_scene_fit_off_preserves_old_scene_mismatch_selection(self):
         cap_set = CaptionSet(
@@ -923,6 +1061,47 @@ class ReelPipelineTests(unittest.TestCase):
         }
 
         self.assertEqual(bands, {"top", "center", "bottom"})
+
+    def _subband_summary(self, lane, rejected):
+        return PlacementSummary(
+            lane,
+            {"top": 5.0, "center": 8.0, "bottom": 6.0},
+            3,
+            f"{lane} lowest",
+            {"captionPlacementDecision": {"rejectedLanes": rejected}},
+        )
+
+    def test_vary_band_jitters_within_lane_when_adjacent_clear(self):
+        summary = self._subband_summary("bottom", [])
+        bands = {
+            vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
+            for i in range(24)
+        }
+        # bottom lane offers bottom + lower_center_alt for per-clip variety
+        self.assertEqual(bands, {"bottom", "lower_center_alt"})
+
+    def test_vary_band_skips_subband_when_supporting_lane_rejected(self):
+        # center rejected → lower_center_alt (needs center+bottom) unavailable,
+        # so a bottom-lane caption never drifts up into the subject.
+        summary = self._subband_summary("bottom", ["center"])
+        bands = {
+            vary_band_within_lane("bottom", summary, diversity_key=f"clip-{i}")
+            for i in range(24)
+        }
+        self.assertEqual(bands, {"bottom"})
+
+    def test_vary_band_passes_through_unladdered_bands(self):
+        summary = self._subband_summary("bottom", [])
+        for band in ("left", "right", "lower_center", "lower_center_alt"):
+            self.assertEqual(
+                vary_band_within_lane(band, summary, diversity_key="x"), band
+            )
+
+    def test_vary_band_is_deterministic(self):
+        summary = self._subband_summary("center", [])
+        first = vary_band_within_lane("center", summary, diversity_key="stable")
+        again = vary_band_within_lane("center", summary, diversity_key="stable")
+        self.assertEqual(first, again)
 
     def test_job_key_changes_when_recipe_changes(self):
         a = compute_job_key("video", "caption", Recipe("v01_original"))
@@ -1533,9 +1712,59 @@ class ReelPipelineTests(unittest.TestCase):
                 source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid"
             )
             self.assertEqual(data["source"]["sourceLineagePath"], str(source_lineage))
+            self.assertEqual(data["schema"], "reel_factory.generated_asset_lineage.v1")
             self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
             self.assertEqual(data["render"]["renderJobKey"], "job")
             self.assertTrue(data["review"]["humanReviewRequired"])
+
+    def test_generated_asset_lineage_contract_rejects_malformed_payload(self):
+        with self.assertRaises(ContractValidationError):
+            validate_generated_asset_lineage(
+                {
+                    "schema": "reel_factory.generated_asset_lineage.v1",
+                    "source": {},
+                    "generation": {},
+                    "review": {},
+                }
+            )
+
+    def test_required_similarity_audit_writes_sidecar_and_blocks_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.mp4"
+            out_dir = root / "02_processed" / "source"
+            out_dir.mkdir(parents=True)
+            source.write_bytes(b"source")
+
+            rows = [
+                {
+                    "filename": "rendered.mp4",
+                    "status": "pass",
+                    "max_similarity": 0.25,
+                    "verdict": "PASS (distinct content)",
+                }
+            ]
+            self.assertEqual(
+                write_required_similarity_audit(
+                    source, out_dir, audit_func=lambda _s, _o: rows
+                ),
+                rows,
+            )
+            sidecar = json.loads((out_dir / "_similarity.json").read_text())
+            self.assertEqual(sidecar[0]["status"], "pass")
+
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(
+                    source,
+                    out_dir,
+                    audit_func=lambda _s, _o: [
+                        {
+                            "filename": "copy.mp4",
+                            "status": "fail",
+                            "verdict": "FAIL (copy detected)",
+                        }
+                    ],
+                )
 
     def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -50,6 +50,10 @@ def import_tiktok_archive(
         author = authors.get(author_id) or {}
         username = _author_username(author, author_id)
         caption = str(texts.get(video_id) or "").strip()
+        play_count = _int_or_none(video.get("playCount"))
+        source_likes = _int_or_none(video.get("diggCount"))
+        source_comments = _int_or_none(video.get("commentCount"))
+        source_posted_at = _timestamp_from_epoch(video.get("createTime"))
         if caption:
             captions += 1
         cover_path = video_path.parent.parent / "covers" / f"{video_id}.jpg"
@@ -72,9 +76,10 @@ def import_tiktok_archive(
             """
             INSERT INTO source_files (
               reference_id, path, account, file_name, extension, kind,
-              size_bytes, mtime, path_hash, content_hash, created_at, updated_at
+              size_bytes, mtime, path_hash, content_hash, source_views,
+              source_likes, source_comments, source_posted_at, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, 'mp4', 'video', ?, ?, ?, NULL, ?, ?)
+            VALUES (?, ?, ?, ?, 'mp4', 'video', ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(reference_id) DO UPDATE SET
               path = excluded.path,
               account = excluded.account,
@@ -83,6 +88,16 @@ def import_tiktok_archive(
               kind = excluded.kind,
               size_bytes = excluded.size_bytes,
               mtime = excluded.mtime,
+              source_views = COALESCE(excluded.source_views, source_files.source_views),
+              source_likes = COALESCE(excluded.source_likes, source_files.source_likes),
+              source_comments = COALESCE(
+                excluded.source_comments,
+                source_files.source_comments
+              ),
+              source_posted_at = COALESCE(
+                excluded.source_posted_at,
+                source_files.source_posted_at
+              ),
               updated_at = excluded.updated_at
             """,
             (
@@ -93,6 +108,10 @@ def import_tiktok_archive(
                 stat.st_size,
                 timestamp_from_stat(stat.st_mtime),
                 reference_id.removeprefix("ref_"),
+                play_count,
+                source_likes,
+                source_comments,
+                source_posted_at,
                 timestamp,
                 timestamp,
             ),
@@ -102,7 +121,6 @@ def import_tiktok_archive(
         else:
             inserted += 1
         accounts[username] += 1
-        play_count = _int_or_none(video.get("playCount"))
         public_post_id = stable_id("public_post", "tiktok", video_id)
         raw_json = {
             "sourcePlatform": "tiktok",
@@ -146,7 +164,7 @@ def import_tiktok_archive(
                 username,
                 f"tiktok_{video_id}",
                 f"https://www.tiktok.com/@{username}/video/{video_id}",
-                _timestamp_from_epoch(video.get("createTime")),
+                source_posted_at,
                 "tiktok_slideshow_reference"
                 if treat_as_slideshow
                 else "tiktok_reference",

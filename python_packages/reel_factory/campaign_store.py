@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import random
 import re
 import sqlite3
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +21,25 @@ from intelligence_store import (
     low_data_warning,
     validate_review,
 )
+from reel_factory.sqlite_utils import connect_sqlite
+
+from pipeline_contracts import validate_recommendation_next_batch
 
 DEFAULT_CREATORS = {
     "Stacey": {
+        "soul_id": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        "default_settings": {
+            "image_model": "text2image_soul_v2",
+            "video_model": "kling3_0",
+            "accepted_soul_ids": ["d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"],
+        },
+    },
+    "Stacey1": {
         "soul_id": "5828d958-91dd-4d6d-8909-934503f47644",
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["5828d958-91dd-4d6d-8909-934503f47644"],
         },
     },
     "Larissa": {
@@ -32,6 +47,7 @@ DEFAULT_CREATORS = {
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["44326567-b12c-410c-95b7-31891bb0629b"],
         },
     },
     "Lola": {
@@ -39,6 +55,7 @@ DEFAULT_CREATORS = {
         "default_settings": {
             "image_model": "text2image_soul_v2",
             "video_model": "kling3_0",
+            "accepted_soul_ids": ["4c86c548-7aa5-4ad1-bc03-b94aa4ce8385"],
         },
     },
 }
@@ -52,6 +69,8 @@ VALID_RETRY_HELPERS = {
     "more_body_emphasis",
     "more_cleavage",
 }
+
+DEFAULT_RECIPE_HINTS = ("v01_original", "v09_caption_bg")
 
 RETRY_HELPER_DIRECTIONS = {
     "fix_pose": (
@@ -103,8 +122,7 @@ def db_path(root: Path) -> Path:
 
 def connect(root: Path) -> sqlite3.Connection:
     Path(root).resolve().mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path(root), timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_campaign_schema(conn)
     return conn
@@ -113,6 +131,23 @@ def connect(root: Path) -> sqlite3.Connection:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
     return slug or f"campaign_{int(time.time())}"
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if not exists:
+        return
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
@@ -142,6 +177,10 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         campaign_id TEXT NOT NULL,
         source_path TEXT NOT NULL,
         source_type TEXT NOT NULL,
+        source_views INTEGER,
+        source_likes INTEGER,
+        source_comments INTEGER,
+        source_posted_at TEXT,
         extracted_frames_json TEXT NOT NULL DEFAULT '[]',
         visual_tags_json TEXT NOT NULL DEFAULT '[]',
         intended_pose TEXT,
@@ -247,9 +286,15 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         saves INTEGER,
         manual_score REAL,
         notes TEXT,
+        soul_id TEXT,
+        campaign_output_id TEXT,
+        job_key TEXT,
         imported_at INTEGER
     );
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id);
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key);
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_campaign_outputs_metrics_filename ON campaign_outputs(metrics_filename);
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)
@@ -257,6 +302,28 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
 
     ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
+    _ensure_columns(
+        conn,
+        "publish_metrics",
+        {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
+    )
+    _ensure_columns(
+        conn,
+        "campaign_references",
+        {
+            "source_views": "INTEGER",
+            "source_likes": "INTEGER",
+            "source_comments": "INTEGER",
+            "source_posted_at": "TEXT",
+        },
+    )
+    _backfill_campaign_reference_source_metrics(conn)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key)"
+    )
     now = int(time.time())
     for name, cfg in DEFAULT_CREATORS.items():
         conn.execute(
@@ -352,6 +419,7 @@ def add_reference(
     intended_outfit: str = "",
     intended_scene: str = "",
     notes: str = "",
+    source_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign)
@@ -360,15 +428,21 @@ def add_reference(
         "video" if source_path.suffix.lower() in {".mp4", ".mov", ".m4v"} else "image"
     )
     reference_id = f"{campaign_row['campaign_id']}_{slugify(source_path.stem)}"
+    normalized_metrics = _normalize_source_metrics(source_metrics or {})
     conn.execute(
         """
         INSERT INTO campaign_references (
-            reference_id, campaign_id, source_path, source_type, extracted_frames_json,
+            reference_id, campaign_id, source_path, source_type, source_views,
+            source_likes, source_comments, source_posted_at, extracted_frames_json,
             visual_tags_json, intended_pose, intended_outfit, intended_scene, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(reference_id) DO UPDATE SET
             source_path = excluded.source_path,
             source_type = excluded.source_type,
+            source_views = COALESCE(excluded.source_views, campaign_references.source_views),
+            source_likes = COALESCE(excluded.source_likes, campaign_references.source_likes),
+            source_comments = COALESCE(excluded.source_comments, campaign_references.source_comments),
+            source_posted_at = COALESCE(excluded.source_posted_at, campaign_references.source_posted_at),
             extracted_frames_json = excluded.extracted_frames_json,
             visual_tags_json = excluded.visual_tags_json,
             intended_pose = excluded.intended_pose,
@@ -381,6 +455,10 @@ def add_reference(
             campaign_row["campaign_id"],
             str(source_path),
             inferred,
+            normalized_metrics["source_views"],
+            normalized_metrics["source_likes"],
+            normalized_metrics["source_comments"],
+            normalized_metrics["source_posted_at"],
             json.dumps(frames or [], ensure_ascii=False),
             json.dumps(visual_tags or [], ensure_ascii=False),
             intended_pose,
@@ -396,6 +474,117 @@ def add_reference(
         "reference_id": reference_id,
         "campaign_id": campaign_row["campaign_id"],
     }
+
+
+def _normalize_source_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_views": _int_or_none(
+            metrics.get("source_views")
+            or metrics.get("view_count")
+            or metrics.get("views")
+        ),
+        "source_likes": _int_or_none(
+            metrics.get("source_likes")
+            or metrics.get("like_count")
+            or metrics.get("likes")
+        ),
+        "source_comments": _int_or_none(
+            metrics.get("source_comments")
+            or metrics.get("comment_count")
+            or metrics.get("comments")
+        ),
+        "source_posted_at": _posted_at_from_metrics(metrics),
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _posted_at_from_metrics(metrics: dict[str, Any]) -> str | None:
+    value = (
+        metrics.get("source_posted_at")
+        or metrics.get("posted_at")
+        or metrics.get("upload_date")
+    )
+    if value:
+        text = str(value)
+        if re.fullmatch(r"\d{8}", text):
+            return datetime(
+                int(text[0:4]),
+                int(text[4:6]),
+                int(text[6:8]),
+                tzinfo=UTC,
+            ).isoformat()
+        return text
+    timestamp = _int_or_none(metrics.get("timestamp"))
+    if timestamp is not None:
+        return datetime.fromtimestamp(timestamp, UTC).isoformat()
+    return None
+
+
+def _backfill_campaign_reference_source_metrics(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT reference_id, source_path
+        FROM campaign_references
+        WHERE source_views IS NULL
+           OR source_likes IS NULL
+           OR source_comments IS NULL
+           OR source_posted_at IS NULL
+        """
+    ).fetchall()
+    for row in rows:
+        metrics = _source_metrics_for_reference(Path(str(row["source_path"])))
+        if not any(value is not None for value in metrics.values()):
+            continue
+        conn.execute(
+            """
+            UPDATE campaign_references
+            SET source_views = COALESCE(source_views, ?),
+                source_likes = COALESCE(source_likes, ?),
+                source_comments = COALESCE(source_comments, ?),
+                source_posted_at = COALESCE(source_posted_at, ?)
+            WHERE reference_id = ?
+            """,
+            (
+                metrics["source_views"],
+                metrics["source_likes"],
+                metrics["source_comments"],
+                metrics["source_posted_at"],
+                row["reference_id"],
+            ),
+        )
+
+
+def _source_metrics_for_reference(source_path: Path) -> dict[str, Any]:
+    sidecar = source_path.with_suffix(".reel_url_import.json")
+    if sidecar.exists():
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            metrics = (
+                payload.get("sourceMetrics") or payload.get("source_metrics") or {}
+            )
+            if isinstance(metrics, dict):
+                normalized = _normalize_source_metrics(metrics)
+                if any(value is not None for value in normalized.values()):
+                    return normalized
+        except (OSError, json.JSONDecodeError):
+            pass
+    info_json = source_path.with_suffix(".info.json")
+    if info_json.exists():
+        try:
+            payload = json.loads(info_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if isinstance(payload, dict):
+            return _normalize_source_metrics(payload)
+    return _normalize_source_metrics({})
 
 
 def latest_reference_for_campaign(
@@ -772,48 +961,6 @@ def rate_output(
     return {"ok": True, "rating_id": rating_id}
 
 
-def latest_rating_for_output(root: Path, output_path: Path) -> dict[str, Any] | None:
-    conn = connect(root)
-    row = conn.execute(
-        "SELECT * FROM operator_ratings WHERE output_path=? ORDER BY created_at DESC LIMIT 1",
-        (str(Path(output_path).resolve()),),
-    ).fetchone()
-    if not row:
-        return None
-    return {
-        "identity": row["identity_score"],
-        "pose": row["pose_score"],
-        "taste": row["taste_score"],
-        "artifacts": row["artifact_score"],
-        "motion": row["motion_score"],
-        "caption": row["caption_score"],
-        "face": row["face_score"] if "face_score" in row.keys() else None,
-        "eyes": row["eyes_score"] if "eyes_score" in row.keys() else None,
-        "hands": row["hands_score"] if "hands_score" in row.keys() else None,
-        "pose_accuracy": row["pose_accuracy_score"]
-        if "pose_accuracy_score" in row.keys()
-        else None,
-        "body_taste": row["body_taste_score"]
-        if "body_taste_score" in row.keys()
-        else None,
-        "background": row["background_score"]
-        if "background_score" in row.keys()
-        else None,
-        "crop": row["crop_score"] if "crop_score" in row.keys() else None,
-        "labels": json.loads(row["labels_json"] or "[]"),
-        "retry_helper": row["retry_helper"],
-        "reason": row["approve_reject_reason"],
-        "decision": row["decision"] if "decision" in row.keys() else "unreviewed",
-        "primary_reason": row["primary_reason"]
-        if "primary_reason" in row.keys()
-        else None,
-        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]")
-        if "secondary_reasons_json" in row.keys()
-        else [],
-        "notes": row["notes"],
-    }
-
-
 def list_campaigns(root: Path) -> list[dict[str, Any]]:
     conn = connect(root)
     rows = conn.execute(
@@ -879,7 +1026,22 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
                m.shares, m.saves, m.manual_score
         FROM campaign_outputs co
         LEFT JOIN operator_ratings r ON r.output_path = co.output_path
-        LEFT JOIN publish_metrics m ON substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+        LEFT JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
         WHERE co.campaign_id=?
         """,
         (campaign_row["campaign_id"],),
@@ -947,16 +1109,137 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
     }
 
 
-def next_batch_plan(
-    root: Path, *, campaign: str, count: int = 20, persist: bool = False
+def _default_recipe_names(root: Path) -> list[str]:
+    path = Path(root).resolve() / "recipes" / "default.json"
+    if not path.exists():
+        path = Path(__file__).resolve().parent / "recipes" / "default.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return list(DEFAULT_RECIPE_HINTS)
+    recipes = [
+        item.get("name")
+        for item in data
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    ]
+    return recipes or list(DEFAULT_RECIPE_HINTS)
+
+
+def _engagement_rate_reward(row: sqlite3.Row) -> float:
+    views = max(float(row["views"] or 0), 1.0)
+    engagements = sum(
+        float(row[metric] or 0) for metric in ("likes", "comments", "shares", "saves")
+    )
+    return max(0.0, min(1.0, engagements / views))
+
+
+def _recipe_bandit_state(
+    conn: sqlite3.Connection, root: Path, *, campaign_id: str
 ) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT co.recipe, m.views, m.likes, m.comments, m.shares, m.saves
+        FROM campaign_outputs co
+        JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
+        WHERE co.campaign_id=? AND co.recipe IS NOT NULL
+        """,
+        (campaign_id,),
+    ).fetchall()
+    recipes = {
+        str(row["recipe"])
+        for row in conn.execute(
+            """
+            SELECT DISTINCT recipe
+            FROM campaign_outputs
+            WHERE campaign_id=? AND recipe IS NOT NULL AND recipe != ''
+            """,
+            (campaign_id,),
+        ).fetchall()
+    }
+    recipes.update(_default_recipe_names(root))
+    rewards: dict[str, list[float]] = {recipe: [] for recipe in recipes}
+    for row in rows:
+        rewards.setdefault(str(row["recipe"]), []).append(_engagement_rate_reward(row))
+    arms = []
+    for recipe in sorted(rewards):
+        rates = rewards[recipe]
+        alpha = 1.0 + sum(rates)
+        beta = 1.0 + sum(1.0 - rate for rate in rates)
+        arms.append(
+            {
+                "recipe": recipe,
+                "alpha": round(alpha, 6),
+                "beta": round(beta, 6),
+                "post_count": len(rates),
+                "mean_reward": round(sum(rates) / len(rates), 6) if rates else None,
+            }
+        )
+    return {
+        "mode": "thompson_beta_engagement_rate",
+        "metric_posts": len(rows),
+        "arms": arms,
+    }
+
+
+def _draw_recipe_from_bandit(
+    state: dict[str, Any], rng: random.Random
+) -> tuple[str, dict[str, Any]]:
+    samples = {
+        arm["recipe"]: rng.betavariate(float(arm["alpha"]), float(arm["beta"]))
+        for arm in state["arms"]
+    }
+    chosen = max(sorted(samples), key=lambda recipe: samples[recipe])
+    chosen_arm = next(arm for arm in state["arms"] if arm["recipe"] == chosen)
+    metadata = {
+        "mode": state["mode"],
+        "chosen_recipe": chosen,
+        "chosen_alpha": chosen_arm["alpha"],
+        "chosen_beta": chosen_arm["beta"],
+        "chosen_post_count": chosen_arm["post_count"],
+        "sampled_theta": round(samples[chosen], 6),
+        "samples": {recipe: round(theta, 6) for recipe, theta in samples.items()},
+        "arms": state["arms"],
+    }
+    return chosen, metadata
+
+
+def next_batch_plan(
+    root: Path,
+    *,
+    campaign: str,
+    count: int = 20,
+    persist: bool = False,
+    rng: random.Random | None = None,
+    seed: int | None = None,
+) -> dict[str, Any]:
+    if rng is None:
+        rng = random.Random(seed)
     board = campaign_leaderboard(root, campaign=campaign)
     reject_labels = {item["label"] for item in board["worst_failure_patterns"]}
-    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or [
-        "v01_original",
-        "v09_caption_bg",
-    ]
+    best_recipes = [item["recipe"] for item in board["best_recipes"][:3]] or list(
+        DEFAULT_RECIPE_HINTS
+    )
     conn = connect(root)
+    campaign_row = campaign_by_name(conn, campaign)
+    bandit_state = _recipe_bandit_state(
+        conn, root, campaign_id=campaign_row["campaign_id"]
+    )
+    use_bandit = bool(bandit_state["metric_posts"] and bandit_state["arms"])
     total_outcomes = int(
         conn.execute("SELECT COUNT(*) AS n FROM reel_outcomes").fetchone()["n"] or 0
     )
@@ -983,7 +1266,7 @@ def next_batch_plan(
         conn, matched_sample_size=int(recommendation["sample_size"] or 0)
     )
     recommendation["data_quality"] = data_quality
-    ideas = []
+    items = []
     for idx in range(count):
         retry_focus = "more_reference_fidelity"
         if "hands_bad" in reject_labels or "hand_bad" in reject_labels:
@@ -994,11 +1277,50 @@ def next_batch_plan(
             retry_focus = "less_smile"
         elif "not_sexy_enough" in reject_labels:
             retry_focus = "more_body_emphasis"
-        ideas.append(
+        if use_bandit:
+            recipe_hint, recipe_bandit = _draw_recipe_from_bandit(bandit_state, rng)
+        else:
+            recipe_hint = best_recipes[idx % len(best_recipes)]
+            recipe_bandit = {
+                "mode": "cold_start_round_robin",
+                "chosen_recipe": recipe_hint,
+                "arms": bandit_state["arms"],
+                "metric_posts": bandit_state["metric_posts"],
+            }
+        recommendation_id = f"local_next_batch_{campaign_row['campaign_id']}_{idx + 1}"
+        item = {
+            "recommendationId": recommendation_id,
+            "recommendationGraphId": None,
+            "status": "proposed",
+            "campaignGraphId": None,
+            "rank": idx + 1,
+            "score": int(recommendation.get("score") or 0),
+            "confidence": recommendation["confidence"],
+            "confidenceReason": recommendation.get("reason") or "",
+            "targetAccount": None,
+            "suggestedRecipe": recipe_hint,
+            "hookGuidance": retry_focus,
+            "captionGuidance": _next_batch_brief(winner_dna_focus),
+            "reasons": [str(recommendation.get("reason") or "local winner DNA")],
+            "risks": [low_data_warning(total_outcomes)]
+            if low_data_warning(total_outcomes)
+            else [],
+            "scoreBreakdown": {
+                "winnerDnaScore": int(recommendation.get("score") or 0),
+                "sampleSize": int(recommendation.get("sample_size") or 0),
+            },
+            "graphEvidence": {
+                "source": "reel_factory.local_next_batch",
+                "recipeBandit": recipe_bandit,
+                "winnerDnaFocus": winner_dna_focus,
+            },
+        }
+        item.update(
             {
                 "index": idx,
                 "campaign": campaign,
-                "recipe_hint": best_recipes[idx % len(best_recipes)],
+                "recipe_hint": recipe_hint,
+                "recipe_bandit": recipe_bandit,
                 "prompt_focus": retry_focus,
                 "avoid_labels": sorted(reject_labels),
                 "winner_dna_focus": winner_dna_focus,
@@ -1009,12 +1331,26 @@ def next_batch_plan(
                 "brief": _next_batch_brief(winner_dna_focus),
             }
         )
+        items.append(item)
+    input_hash = hashlib.sha256(
+        json.dumps(items, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
     plan = {
-        "schema": "campaign_factory.next_batch.v1",
+        "schema": "campaign_factory.recommendations.next_batch.v1",
         "campaign": campaign,
-        "count": count,
-        "ideas": ideas,
+        "campaignGraphId": None,
+        "persisted": bool(persist),
+        "scoringVersion": "reel_factory.local_next_batch.v3",
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "count": len(items),
+        "requestedCount": count,
+        "inputHash": input_hash,
+        "items": items,
+        "ideas": items,
+        "recipe_bandit": bandit_state
+        | {"active": use_bandit, "fallback_recipes": best_recipes},
     }
+    validate_recommendation_next_batch(plan)
     if persist:
         from winner_dna import persist_recommendation_decision
 
@@ -1026,7 +1362,7 @@ def next_batch_plan(
         )
         if decision_id:
             plan["decision_id"] = decision_id
-            for idea in ideas:
+            for idea in items:
                 idea["decision_id"] = decision_id
                 idea["recommendation"]["decision_id"] = decision_id
     return plan

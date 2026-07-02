@@ -2882,6 +2882,7 @@ ai = [
     { name = "mlx-whisper" },
     { name = "sentence-transformers" },
     { name = "timm" },
+    { name = "torch" },
     { name = "torchvision" },
 ]
 dev = [
@@ -2931,6 +2932,7 @@ requires-dist = [
     { name = "rq", marker = "extra == 'queue'", specifier = ">=1.16,<3" },
     { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=3,<6" },
     { name = "timm", marker = "extra == 'ai'", specifier = ">=1,<2" },
+    { name = "torch", marker = "extra == 'ai'", specifier = ">=2,<3" },
     { name = "torchvision", marker = "extra == 'ai'", specifier = ">=0.18,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
     { name = "watchdog", specifier = ">=4,<7" },

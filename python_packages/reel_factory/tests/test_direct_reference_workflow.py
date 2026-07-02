@@ -23,6 +23,26 @@ CAPABILITIES = {
     ],
     "videoModels": [{"job_set_type": "kling3_0"}],
 }
+QC_PASS = {
+    "available": True,
+    "anatomy": {"plausible": True, "severity": "none", "defects": []},
+    "exposure": {"safe": True, "severity": "none", "issues": []},
+}
+QC_FAIL_EXPOSURE = {
+    "available": True,
+    "anatomy": {"plausible": True, "severity": "none", "defects": []},
+    "exposure": {"safe": False, "severity": "severe", "issues": ["visible nipple"]},
+}
+IDENTITY_PASS = {
+    "schema": "reel_factory.identity_verification.v1",
+    "creator": "Stacey",
+    "status": "passed",
+    "score": 0.99,
+    "threshold": 0.42,
+    "provider": "fake_identity",
+    "referenceSetId": "stacey_refs",
+    "failureReason": "",
+}
 
 
 class DirectReferenceWorkflowTests(unittest.TestCase):
@@ -99,6 +119,8 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                 ),
                 patch("generate_assets._run_json", return_value=raw_image),
                 patch("generate_assets.download_result", side_effect=fake_download),
+                patch("generate_assets.assess_image_qc", return_value=QC_PASS),
+                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
             ):
                 result = create_direct_reference_image_asset(
                     plan, wait=True, download=True
@@ -123,11 +145,79 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             self.assertEqual(
                 lineage["generation"]["promptPolicy"]["capturedPromptReused"], False
             )
+            self.assertEqual(lineage["review"]["generatedImageQc"]["status"], "passed")
+            self.assertEqual(
+                lineage["review"]["generatedImageQc"]["results"][0][
+                    "identityVerification"
+                ]["status"],
+                "passed",
+            )
             self.assertEqual(
                 lineage["generation"]["promptPolicy"]["policy"], "reference_image_only"
             )
             self.assertTrue(Path(lineage["assets"]["localPaths"]["image"]).exists())
             self.assertTrue(Path(result["path"]).exists())
+
+    def test_direct_reference_generation_blocks_failed_image_qc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reference = root / "reference.jpg"
+            reference.write_bytes(b"jpg")
+            plan = DirectReferenceImagePlan(
+                reference_image=str(reference),
+                stem="ref_bad",
+                soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                soul_name=None,
+                creator="Stacey",
+                out_dir=root / "output",
+                source_dir=root / "00_source_videos",
+            )
+            raw_image = {
+                "id": "img_1",
+                "status": "completed",
+                "result_url": "https://example.test/image.png",
+            }
+
+            def fake_download(url, out_path):
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(b"png")
+                return out_path
+
+            with (
+                patch(
+                    "generate_assets.ensure_required_capabilities",
+                    return_value=CAPABILITIES,
+                ),
+                patch(
+                    "generate_assets._cost_preflight_for_plan",
+                    return_value={
+                        "allowed": True,
+                        "blockingReason": "",
+                        "blockingReasons": [],
+                    },
+                ),
+                patch("generate_assets._run_json", return_value=raw_image),
+                patch("generate_assets.download_result", side_effect=fake_download),
+                patch("generate_assets.assess_image_qc", return_value=QC_FAIL_EXPOSURE),
+                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
+            ):
+                result = create_direct_reference_image_asset(
+                    plan, wait=True, download=True
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(
+                result["lineage"]["generation"]["status"], "image_qc_rejected"
+            )
+            self.assertEqual(
+                result["lineage"]["review"]["generatedImageQc"]["status"], "failed"
+            )
+            self.assertEqual(
+                result["lineage"]["review"]["generatedImageQc"]["results"][0][
+                    "exposure"
+                ]["issues"],
+                ["visible nipple"],
+            )
 
     def test_direct_reference_prompt_is_reference_only_seed(self):
         prompt = direct_reference_prompt("3:4")

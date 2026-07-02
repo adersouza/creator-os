@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
@@ -66,6 +68,7 @@ from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
 from campaign_factory.db import _repair_source_asset_fk_references
+from campaign_factory.distribution import _normalize_schedule_mode
 from campaign_factory.front_generation_stage import (
     ACCEPTED_STILL_PLACEHOLDER,
     run_front_generation_stage,
@@ -235,6 +238,39 @@ def test_finished_video_lineage_cost_recorder_records_generation_costs_once(
             "source_event_key": f"lineage:{lineage_hash}:kling:video_animate",
         },
     ]
+
+
+def test_finished_video_lineage_cost_recorder_ensures_table_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    factory = make_factory(tmp_path)
+    ensure_calls = []
+    record_kwargs = []
+
+    def fake_ensure(conn: sqlite3.Connection) -> None:
+        ensure_calls.append(conn)
+
+    def fake_record(conn: sqlite3.Connection, **kwargs: Any) -> str:
+        record_kwargs.append(kwargs)
+        return str(kwargs["source_event_key"])
+
+    repo = factory.services.finished_video
+    monkeypatch.setattr(repo, "_ensure_cost_table", fake_ensure)
+    monkeypatch.setattr(repo, "_record_ai_cost", fake_record)
+    try:
+        factory._record_lineage_costs(
+            {
+                "campaign": "camp_1",
+                "usage": {"input_tokens": 100, "output_tokens": 25},
+                "generation": {"tool": "higgsfield_kling_cli"},
+            }
+        )
+    finally:
+        factory.conn.close()
+
+    assert len(ensure_calls) == 1
+    assert len(record_kwargs) == 3
+    assert {item["ensure_schema"] for item in record_kwargs} == {False}
 
 
 def test_caption_outcome_context_preserves_additive_scene_fields():
@@ -2069,7 +2105,7 @@ def test_import_folder_accepts_guarded_reel_review_package(
     lineage.write_text(
         json.dumps(
             {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "workflow": "reel_factory_review_batch",
                 "pipelineTraceId": "trace_review_1",
                 "captionPlacementDecision": {
@@ -2483,7 +2519,7 @@ def test_finished_video_intake_uses_reference_pipeline_metadata(
         assert source_prompt["sourcePreflight"]["warnings"] == []
         assert (
             source_prompt["generatedAssetLineage"]["schema"]
-            == "campaign_factory.generated_asset_lineage.v1"
+            == "reel_factory.generated_asset_lineage.v1"
         )
         assert (
             source_prompt["generatedAssetLineage"]["source"]["formatType"]
@@ -2502,7 +2538,7 @@ def test_finished_video_intake_accepts_higgsfield_source_lineage(
     lineage_path.write_text(
         json.dumps(
             {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {
                     "referenceId": "ref_001",
                     "patternCardId": "pattern_001",
@@ -3090,7 +3126,7 @@ def test_batch_summary_includes_linked_creative_plan(tmp_path: Path):
                     "creativePlanId": plan["id"],
                     "creativePlanName": plan["name"],
                     "generatedAssetLineage": {
-                        "schema": "campaign_factory.generated_asset_lineage.v1",
+                        "schema": "reel_factory.generated_asset_lineage.v1",
                         "source": {
                             "referenceId": "ref_1",
                             "patternCardId": "pattern_1",
@@ -5248,7 +5284,7 @@ def test_reel_ledger_promotion_dry_run_writes_nothing(tmp_path: Path):
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_ready"},
             },
             audio_track_id="audio_1",
@@ -5297,7 +5333,7 @@ def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distributi
             rendered_output_path=rendered_path,
             content_fingerprint="fp_ready",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_ready"},
             },
             audio_track_id="audio_1",
@@ -5499,7 +5535,7 @@ def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(
             rendered_output_path=rendered_path,
             content_fingerprint="fp_caption_sidecar",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "render": {"renderJobKey": "job_1"},
             },
             audio_track_id=None,
@@ -5535,7 +5571,7 @@ def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(
         for path in (first, second, third):
             path.write_bytes(path.name.encode("utf-8"))
         lineage = {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "schema": "reel_factory.generated_asset_lineage.v1",
             "source": {"referenceId": "ref"},
         }
         _write_reel_posting_slot(
@@ -5629,7 +5665,7 @@ def test_reel_ledger_promotion_marks_posted_without_proof_unverified(tmp_path: P
             rendered_output_path=rendered_path,
             content_fingerprint="fp_posted",
             lineage={
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {"referenceId": "ref_posted"},
             },
             audio_track_id="audio_1",
@@ -5664,7 +5700,7 @@ def test_reel_ledger_promotion_reports_account_day_quota_issue(tmp_path: Path):
     try:
         campaign = cf.upsert_campaign("may", "model")
         lineage = {
-            "schema": "campaign_factory.generated_asset_lineage.v1",
+            "schema": "reel_factory.generated_asset_lineage.v1",
             "source": {"referenceId": "ref"},
         }
         for idx in range(4):
@@ -6510,10 +6546,10 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             )
 
         assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
+        export_row = cf.conn.execute(
+            "SELECT status FROM threadsdash_exports"
+        ).fetchone()
+        assert export_row["status"] == "failed"
         failed_events = [
             event
             for event in cf.events_for_campaign("may")
@@ -6612,10 +6648,10 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
         assert not any(
             "/api/campaign-factory/drafts/ingest" in call["url"] for call in calls
         )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
+        export_row = cf.conn.execute(
+            "SELECT status FROM threadsdash_exports"
+        ).fetchone()
+        assert export_row["status"] == "failed"
     finally:
         cf.close()
 
@@ -8158,6 +8194,32 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                                 "mode": "native_platform_audio",
                                 "required": required,
                                 "status": status,
+                                "platform": "instagram",
+                                "recommendations": [],
+                                "gates": {
+                                    "allow_draft_export": True,
+                                    "allow_preview_schedule": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                    "allow_live_schedule": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                    "allow_publish": status
+                                    in {
+                                        "attached",
+                                        "verified",
+                                        "skipped",
+                                        "not_required",
+                                    },
+                                },
                                 **(
                                     {
                                         "operator_selection": {
@@ -8802,6 +8864,203 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
         assert unplanned_id not in {
             draft["renderedAssetId"] for draft in payload["drafts"]
         }
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_empty_history_uses_first_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        first_slot = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [
+                first_slot,
+                first_slot + timedelta(hours=4),
+            ],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == first_slot.isoformat()
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_hydrates_account_day_counts_across_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        day_one = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [
+                day_one,
+                day_one + timedelta(hours=4),
+                day_one + timedelta(days=1),
+            ],
+        )
+
+        first = cf.plan_distribution("may", user_id="user_1", replace=False)
+        second = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert first["planned"][0]["plannedWindowStart"] == day_one.isoformat()
+        assert (
+            second["planned"][0]["plannedWindowStart"]
+            == (day_one + timedelta(days=1)).isoformat()
+        )
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_hydrates_min_gap_from_existing_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
+        too_close = existing + timedelta(hours=3)
+        valid = existing + timedelta(hours=5)
+        cf.create_distribution_plan(
+            "asset_1",
+            instagram_account_id="ig_1",
+            planned_window_start=existing.isoformat(),
+        )
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [too_close, valid],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == valid.isoformat()
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_hydrates_window_from_max_min_gap_hours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        model = cf.upsert_model("model", name="Model")
+        account = cf.upsert_account(
+            "ig_1",
+            platform="instagram",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        cf.conn.execute(
+            """
+            INSERT INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, allowed_days, active, created_at, updated_at)
+            VALUES ('req_ig_1_gap_6', ?, 'Model', 'reel', 'daily', 3, 6,
+                    '[]', 1, '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """,
+            (account["id"],),
+        )
+        existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
+        too_close = existing + timedelta(hours=5)
+        valid = existing + timedelta(hours=7)
+        cf.create_distribution_plan(
+            "asset_1",
+            instagram_account_id="ig_1",
+            planned_window_start=existing.isoformat(),
+        )
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [too_close, valid],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == valid.isoformat()
+    finally:
+        cf.close()
+
+
+def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("stacey", name="Stacey")
+        account = cf.upsert_account(
+            "stacey_main",
+            platform="instagram",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.conn.execute(
+            """
+            INSERT INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, allowed_days, active, created_at, updated_at)
+            VALUES ('req_stacey_reel', ?, 'Stacey', 'reel', 'daily', 2, 2,
+                    '[]', 1, '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """,
+            (account["id"],),
+        )
+        slots = [
+            datetime(2026, 1, 2, 10, tzinfo=UTC),
+            datetime(2026, 1, 2, 11, tzinfo=UTC),
+            datetime(2026, 1, 2, 12, tzinfo=UTC),
+        ]
+        day_counts: dict[tuple[str, str], int] = {}
+        slot_times: dict[str, list[datetime]] = {}
+        caption_counts: dict[tuple[str, str], int] = {}
+        source_counts: dict[tuple[str, str], int] = {}
+        warnings: list[dict[str, Any]] = []
+
+        first, index = cf.services.distribution.next_valid_distribution_slot(
+            slots,
+            0,
+            "ig_1",
+            {"id": "asset_1", "caption_hash": "caption_1", "source_asset_id": "src_1"},
+            day_counts,
+            slot_times,
+            caption_counts,
+            source_counts,
+            warnings,
+        )
+        second, _ = cf.services.distribution.next_valid_distribution_slot(
+            slots,
+            index,
+            "ig_1",
+            {"id": "asset_2", "caption_hash": "caption_2", "source_asset_id": "src_2"},
+            day_counts,
+            slot_times,
+            caption_counts,
+            source_counts,
+            warnings,
+        )
+
+        assert first == slots[0]
+        assert second == slots[2]
     finally:
         cf.close()
 
@@ -9536,7 +9795,7 @@ def test_publishability_uses_review_package_generated_lineage_for_caption_placem
                 "status": "not_required",
             },
             "generatedAssetLineage": {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "captionPlacementPolicy": "focal-safe",
                 "captionPlacementDecision": {
                     "status": "passed",
@@ -17288,7 +17547,7 @@ def test_performance_summary_builds_hook_recipe_audio_leaderboards(tmp_path: Pat
                     "referencePattern": "caption_led_visual::direct_response::question_hook",
                     "strategy": {"primaryMetric": "views_reach"},
                     "generatedAssetLineage": {
-                        "schema": "campaign_factory.generated_asset_lineage.v1",
+                        "schema": "reel_factory.generated_asset_lineage.v1",
                         "source": {
                             "referenceId": "ref_1",
                             "patternCardId": "pattern_1",
@@ -24785,3 +25044,241 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
     assert payload["schema"] == "campaign_factory.rejection_evidence_capture.v1"
     assert payload["capturedCount"] >= 1
     assert payload["wouldWrite"] is True
+
+
+def test_schedule_mode_rejects_unknown_non_empty_value() -> None:
+    assert _normalize_schedule_mode(None) == "draft"
+    assert _normalize_schedule_mode("") == "draft"
+    assert _normalize_schedule_mode("preview") == "preview"
+    with pytest.raises(ValueError, match="unknown schedule mode"):
+        _normalize_schedule_mode("surprise")
+
+
+def test_export_threadsdash_cli_live_missing_credentials_fails_loud(
+    tmp_path: Path,
+) -> None:
+    env = {
+        **os.environ,
+        "PYTHONPATH": CLI_PYTHONPATH,
+        "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+    }
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.cli",
+            "export-threadsdash",
+            "--campaign",
+            "may",
+            "--user-id",
+            "user_1",
+        ],
+        cwd=PACKAGE_ROOT,
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode != 0
+    assert "live ThreadsDashboard export requested" in result.stderr
+
+
+def test_jobs_for_campaign_filters_by_status(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        campaign = cf.upsert_campaign("may", "model")
+        running = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        failed = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        cf.start_pipeline_job(running["id"])
+        cf.fail_pipeline_job(failed["id"], "boom")
+
+        rows = cf.jobs_for_campaign("may", statuses=["failed"])
+
+        assert [row["id"] for row in rows] == [failed["id"]]
+    finally:
+        cf.close()
+
+
+def test_jobs_can_scan_all_campaigns_and_mark_stuck_jobs(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        may = cf.upsert_campaign("may", "model")
+        june = cf.upsert_campaign("june", "model")
+        old_job = cf.create_pipeline_job("threadsdash_export", may["id"], {})
+        fresh_job = cf.create_pipeline_job("threadsdash_export", june["id"], {})
+        old_ts = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (old_ts, old_ts, old_job["id"]),
+        )
+        cf.conn.commit()
+
+        rows = cf.jobs_for_campaign(None, statuses=["queued"], limit=10, stuck_hours=24)
+
+        by_id = {row["id"]: row for row in rows}
+        assert by_id[old_job["id"]]["campaignSlug"] == "may"
+        assert by_id[fresh_job["id"]]["campaignSlug"] == "june"
+        assert by_id[old_job["id"]]["stuck"] is True
+        assert by_id[fresh_job["id"]]["stuck"] is False
+    finally:
+        cf.close()
+
+
+def test_jobs_stuck_hours_threshold_is_respected(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        campaign = cf.upsert_campaign("may", "model")
+        job = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        ts = (datetime.now(UTC) - timedelta(hours=6)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (ts, ts, job["id"]),
+        )
+        cf.conn.commit()
+
+        assert cf.jobs_for_campaign(None, stuck_hours=5)[0]["stuck"] is True
+        assert cf.jobs_for_campaign(None, stuck_hours=7)[0]["stuck"] is False
+    finally:
+        cf.close()
+
+
+def test_failed_job_resolution_is_scoped_to_asset_identity(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        jobs = [
+            {
+                "id": "failed_a",
+                "jobType": "threadsdash_export",
+                "status": "failed",
+                "input": {"renderedAssetId": "asset_a"},
+                "result": {},
+                "finishedAt": "2026-06-01T10:00:00Z",
+                "updatedAt": "2026-06-01T10:00:00Z",
+                "createdAt": "2026-06-01T10:00:00Z",
+            },
+            {
+                "id": "success_b",
+                "jobType": "threadsdash_export",
+                "status": "succeeded",
+                "input": {"renderedAssetId": "asset_b"},
+                "result": {},
+                "finishedAt": "2026-06-01T11:00:00Z",
+                "updatedAt": "2026-06-01T11:00:00Z",
+                "createdAt": "2026-06-01T11:00:00Z",
+            },
+        ]
+
+        unresolved = cf._unresolved_failed_jobs(jobs)
+
+        assert [job["id"] for job in unresolved] == ["failed_a"]
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_failure_writes_failed_export_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        cf.upsert_campaign("may", "model")
+
+        def fail_payload(*_args, **_kwargs):
+            raise RuntimeError("payload exploded")
+
+        monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", fail_payload)
+
+        with pytest.raises(RuntimeError, match="payload exploded"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=True,
+            )
+
+        row = cf.conn.execute(
+            "SELECT status, manifest_path FROM threadsdash_exports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert row["status"] == "failed"
+        failure = json.loads(Path(row["manifest_path"]).read_text(encoding="utf-8"))
+        assert failure["error"] == "payload exploded"
+    finally:
+        cf.close()
+
+
+def test_supabase_rest_client_retries_transient_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def fake_urlopen(_request, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise HTTPError(
+                "https://example.supabase.co",
+                503,
+                "temporary",
+                {},
+                io.BytesIO(b"try again"),
+            )
+        return FakeResponse()
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    client = threadsdash_adapter.SupabaseRestClient(
+        "https://example.supabase.co", "service-role"
+    )
+
+    result = client.get_storage_bucket("media")
+
+    assert result == {"ok": True}
+    assert calls["count"] == 2
+
+
+def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+    upserted: list[tuple[str, str]] = []
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            return []
+
+        def upload_storage_object(
+            self, bucket, storage_path, file_path, content_type, *, upsert=False
+        ):
+            assert upsert is True
+
+        def upsert(self, table, row, *, on_conflict):
+            upserted.append((table, on_conflict))
+            return [{"id": "media_1", **row}]
+
+    result = threadsdash_adapter._upload_media(
+        FakeClient(),
+        bucket="media",
+        user_id="user_1",
+        local_path=media,
+        tags=["campaign_factory"],
+    )
+
+    assert result["id"] == "media_1"
+    assert upserted == [("media", "storage_path")]
