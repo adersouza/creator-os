@@ -5,7 +5,7 @@
 body {
   background: #0b0e14;
   color: #e8edf7;
-  font-family: "Archivo", system-ui, sans-serif;
+  font-family: var(--font-archivo), system-ui, sans-serif;
 }
 
 /* faint studio grid on the void */

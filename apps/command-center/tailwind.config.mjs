@@ -18,8 +18,8 @@ var config = {
         soul: "#B98CFF",
       },
       fontFamily: {
-        display: ["Archivo", "system-ui", "sans-serif"],
-        mono: ["Spline Sans Mono", "SF Mono", "monospace"],
+        display: ["var(--font-archivo)", "system-ui", "sans-serif"],
+        mono: ["var(--font-spline-sans-mono)", "SF Mono", "monospace"],
       },
       borderRadius: {
         panel: "10px",

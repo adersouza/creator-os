@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeApiRequest } from "./lib/auth.js";
 
-export function middleware(request) {
+export function proxy(request) {
   var result = authorizeApiRequest(request);
   if (result.ok) return NextResponse.next();
   return NextResponse.json(
