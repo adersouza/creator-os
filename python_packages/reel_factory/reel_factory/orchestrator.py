@@ -53,7 +53,14 @@ TRANSITIONS = {
 }
 
 MAX_REGENERATE_ATTEMPTS = 2
+MAX_TOTAL_ATTEMPTS = 3
 DEFAULT_STALL_SECONDS = 6 * 60 * 60
+
+# Human-paced states: assets here are waiting on an operator decision or
+# parked as approved-pool replacements, not stuck. The stall sweep must
+# never flush them to error (an operator sleeping 8h would otherwise wipe
+# the approval inbox).
+HUMAN_PACED_STATES = {"export_ready", "awaiting_approval"}
 
 
 def now_epoch() -> int:
@@ -192,6 +199,13 @@ def advance(
         approval_reason = reason
     elif to_state == "error":
         last_error = reason or "error"
+    elif to_state == "planned" and from_state == "error":
+        attempts += 1
+        if attempts > MAX_TOTAL_ATTEMPTS:
+            update_state = "failed"
+            last_error = "retry_attempt_limit"
+        else:
+            last_error = None
     else:
         last_error = None if from_state == "error" else last_error
 
@@ -248,7 +262,10 @@ def recover_stalled(
         """
         SELECT asset_id
         FROM asset_pipeline_state
-        WHERE state NOT IN ('exported', 'rejected', 'failed', 'qc_failed', 'error')
+        WHERE state NOT IN (
+            'exported', 'rejected', 'failed', 'qc_failed', 'error',
+            'export_ready', 'awaiting_approval'
+          )
           AND state_updated_at < ?
         """,
         (cutoff,),

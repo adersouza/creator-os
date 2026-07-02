@@ -561,6 +561,35 @@ def test_higgsfield_cost_preflight_allows_default_policy(
     assert result["balanceChecked"] is True
 
 
+def test_higgsfield_cost_preflight_blocks_missing_estimate_even_under_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "cost_estimate_missing" in result["blockingReasons"]
+
+    override = check_higgsfield_cost_preflight(
+        asset_count=1,
+        provider=FakeBalanceProvider(25.0),
+        allow_unbudgeted_local_test=True,
+        root=tmp_path,
+    )
+
+    assert override["allowed"] is True
+
+
 def test_higgsfield_balance_parser_accepts_account_status_credits() -> None:
     assert _parse_balance({"email": "hidden@example.test", "credits": 506.53}) == 506.53
 

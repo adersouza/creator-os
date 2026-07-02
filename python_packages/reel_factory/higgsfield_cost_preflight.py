@@ -191,6 +191,10 @@ def check_higgsfield_cost_preflight(
         if not budget_override_ledger_error:
             blocking_reasons.append("cost_ledger_unreadable")
     projected_daily_spend = spent_today + (estimated_cost_usd or 0.0)
+    if estimated_cost_usd is None:
+        # A missing estimate would make the daily-budget check pass trivially;
+        # block instead of silently spending unbudgeted.
+        blocking_reasons.append("cost_estimate_missing")
     if daily_budget is not None and projected_daily_spend > daily_budget:
         blocking_reasons.append("estimated_cost_exceeds_daily_budget")
     if allow_unbudgeted_local_test:
