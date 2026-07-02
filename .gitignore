@@ -19,6 +19,7 @@ secrets.toml
 
 # Python
 .venv
+.uv-cache/
 __pycache__/
 *.pyc
 .pytest_cache/

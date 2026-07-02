@@ -6,32 +6,65 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
 from campaign_store import next_batch_plan
+
+CAMPAIGN_FACTORY_CLI_ENV = "REEL_FACTORY_CAMPAIGN_FACTORY_CLI"
+CAMPAIGN_FACTORY_TIMEOUT_ENV = "REEL_FACTORY_CAMPAIGN_FACTORY_TIMEOUT_SECONDS"
 
 
 def campaign_factory_next_batch(campaign: str, *, count: int) -> dict | None:
     if os.environ.get("REEL_FACTORY_LOCAL_NEXT_BATCH_ONLY"):
         return None
     try:
-        from campaign_factory.config import get_settings
-        from campaign_factory.core import CampaignFactory
-    except (ImportError, ModuleNotFoundError):
-        return None
-    cf = CampaignFactory(get_settings())
+        timeout = float(os.environ.get(CAMPAIGN_FACTORY_TIMEOUT_ENV, "30"))
+    except ValueError:
+        timeout = 30.0
+    cmd = _campaign_factory_command(campaign, count=count)
     try:
-        result = cf.recommend_next_batch(campaign, count=count, persist=False)
-    except (OSError, RuntimeError, ValueError, sqlite3.Error):
+        completed = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        result = json.loads(completed.stdout)
+    except (
+        json.JSONDecodeError,
+        OSError,
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        ValueError,
+    ):
         return None
-    finally:
-        cf.close()
     if result.get("items"):
         result["source"] = "campaign_factory"
         result["fallbackAvailable"] = "reel_factory.local_next_batch"
         return result
     return None
+
+
+def _campaign_factory_command(campaign: str, *, count: int) -> list[str]:
+    override = os.environ.get(CAMPAIGN_FACTORY_CLI_ENV)
+    base = (
+        shlex.split(override)
+        if override
+        else [sys.executable, "-m", "campaign_factory.cli"]
+    )
+    return [
+        *base,
+        "recommend-next-batch",
+        "--campaign",
+        campaign,
+        "--count",
+        str(count),
+    ]
 
 
 def select_next_batch(
