@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from audio_intent import read_audio_intent
 from caption_render import render_caption_png
 from caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
@@ -26,6 +27,7 @@ from reel_pipeline import (
     Recipe,
     _audio_selection_local_path,
     _selected_audio_for_mux,
+    _write_mux_audio_intents,
     apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
     build_avconvert_finalize_cmd,
@@ -118,6 +120,32 @@ class ReelPipelineTests(unittest.TestCase):
 
             self.assertIsNone(selected)
             self.assertEqual(selection["track_id"], "remote_only")
+
+    def test_mux_audio_intent_keeps_ranked_track_id_when_file_falls_back(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "clip__audio.mp4"
+            output.write_bytes(b"video")
+            _write_mux_audio_intents(
+                {
+                    "tracks": [
+                        {
+                            "output": str(output),
+                            "audio_path": str(Path(td) / "fallback.m4a"),
+                            "track_id": "fallback_track",
+                        }
+                    ]
+                },
+                {
+                    "schema": "reel_factory.audio_provider.v1.selection",
+                    "track_id": "ranked_missing",
+                    "track_name": "Ranked Missing",
+                    "source": "cml",
+                },
+            )
+
+            sidecar = read_audio_intent(output)
+
+            self.assertEqual(sidecar["audio_selection"]["track_id"], "ranked_missing")
 
     def test_recipe_default_font_is_instagram_sans_condensed(self):
         recipe = Recipe("v01_original")

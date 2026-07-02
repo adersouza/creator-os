@@ -1,4 +1,4 @@
-.PHONY: dev test verify sync format install reel-models
+.PHONY: dev test verify sync format install reel-models backup-runtime
 
 install:
 	pnpm install
@@ -8,6 +8,9 @@ install:
 reel-models:
 	uv sync --package reel-factory --extra vision --extra ai --extra identity --inexact
 	uv run --package reel-factory --extra vision --extra ai --extra identity python python_packages/reel_factory/fetch_models.py
+
+backup-runtime:
+	uv run python scripts/backup_runtime_state.py
 
 dev-web:
 	pnpm run dev

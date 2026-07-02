@@ -662,6 +662,42 @@ def test_higgsfield_cost_preflight_sums_existing_daily_spend(
     assert result["budgetPolicy"]["projectedDailySpendUsd"] == 10.25
 
 
+def test_higgsfield_cost_preflight_blocks_over_budget_without_estimate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE ai_cost_events (
+                estimated_cost_usd REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO ai_cost_events VALUES (?, ?)",
+            (10.25, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")),
+        )
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
+    assert result["budgetPolicy"]["estimatedCostUsd"] is None
+
+
 def test_higgsfield_cost_preflight_blocks_when_cost_ledger_unreadable(
     tmp_path: Path, monkeypatch
 ) -> None:

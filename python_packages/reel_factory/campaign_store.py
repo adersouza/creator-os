@@ -1023,24 +1023,24 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
         """
         SELECT co.recipe, co.caption_text, co.output_path, r.labels_json,
                r.identity_score, r.pose_score, r.taste_score, r.artifact_score,
-               r.motion_score, r.caption_score, m.views, m.likes, m.comments,
-               m.shares, m.saves, m.manual_score
+               r.motion_score, r.caption_score, o.views, o.likes, o.comments,
+               o.shares, o.saves, o.manual_score
         FROM campaign_outputs co
         LEFT JOIN operator_ratings r ON r.output_path = co.output_path
-        LEFT JOIN publish_metrics m
-          ON m.campaign_output_id = co.campaign_output_id
+        LEFT JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
           OR (
-              m.campaign_output_id IS NULL
-              AND m.job_key IS NOT NULL
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
               AND co.job_key IS NOT NULL
-              AND m.job_key = co.job_key
+              AND o.job_key = co.job_key
           )
           OR (
-              m.campaign_output_id IS NULL
-              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR co.job_key IS NULL)
               AND (
-                  m.filename = co.metrics_filename
-                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+                  o.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(o.filename) + 1) = o.filename
               )
           )
         WHERE co.campaign_id=?
@@ -1139,22 +1139,22 @@ def _recipe_bandit_state(
 ) -> dict[str, Any]:
     rows = conn.execute(
         """
-        SELECT co.recipe, m.views, m.likes, m.comments, m.shares, m.saves
+        SELECT co.recipe, o.views, o.likes, o.comments, o.shares, o.saves
         FROM campaign_outputs co
-        JOIN publish_metrics m
-          ON m.campaign_output_id = co.campaign_output_id
+        JOIN reel_outcomes o
+          ON o.campaign_output_id = co.campaign_output_id
           OR (
-              m.campaign_output_id IS NULL
-              AND m.job_key IS NOT NULL
+              o.campaign_output_id IS NULL
+              AND o.job_key IS NOT NULL
               AND co.job_key IS NOT NULL
-              AND m.job_key = co.job_key
+              AND o.job_key = co.job_key
           )
           OR (
-              m.campaign_output_id IS NULL
-              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              o.campaign_output_id IS NULL
+              AND (o.job_key IS NULL OR co.job_key IS NULL)
               AND (
-                  m.filename = co.metrics_filename
-                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+                  o.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(o.filename) + 1) = o.filename
               )
           )
         WHERE co.campaign_id=? AND co.recipe IS NOT NULL

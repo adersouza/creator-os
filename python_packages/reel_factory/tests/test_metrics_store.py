@@ -13,6 +13,8 @@ from metrics_store import (
     ensure_metrics_schema,
     import_metrics_csv,
     import_outcomes_csv,
+    metrics_leaderboard,
+    metrics_summary,
     refresh_outcomes_from_performance_sync,
     soul_metrics_report,
 )
@@ -354,6 +356,27 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
             self.assertEqual(row[1], 250)
             self.assertEqual(row[2], "")
             self.assertEqual(row[3], "")
+
+    def test_gui_metrics_read_from_reel_outcomes_not_legacy_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = self._variation(root)
+            csv_path = root / "outcomes.csv"
+            csv_path.write_text(
+                "filename,platform,account,posted_at,views,likes,comments,shares,saves\n"
+                f"{out.name},instagram_reels,acct,2026-07-01,123,10,2,3,5\n",
+                encoding="utf-8",
+            )
+            import_outcomes_csv(root, csv_path)
+            conn = sqlite3.connect(root / "manifest.sqlite")
+            conn.execute("DELETE FROM publish_metrics WHERE filename=?", (out.name,))
+            conn.commit()
+
+            summary = metrics_summary(root)
+            leaderboard = metrics_leaderboard(root)
+
+            self.assertEqual(summary[0]["avg_views"], 123.0)
+            self.assertEqual(leaderboard["recipes"][0]["avg_views"], 123.0)
 
     def test_metrics_schema_coalesces_legacy_null_outcome_dimensions(self):
         with tempfile.TemporaryDirectory() as tmp:

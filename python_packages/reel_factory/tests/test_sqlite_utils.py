@@ -7,13 +7,22 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 
 def test_production_sqlite_connects_use_shared_helper() -> None:
-    package_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[3]
+    package_root = repo_root / "python_packages"
+    allowed = {
+        Path("reference_factory/reference_factory/db.py"),
+        Path("reference_factory/reference_factory/higgsfield_runner.py"),
+        Path("campaign_factory/campaign_factory/db.py"),
+        Path("campaign_factory/campaign_factory/readiness_report.py"),
+        Path("campaign_factory/campaign_factory/reel_execution.py"),
+        Path("campaign_factory/campaign_factory/reel_ledger_promotion.py"),
+        Path("campaign_factory/scripts/caption_outcome_e2e_proof.py"),
+        Path("reel_factory/reel_factory/sqlite_utils.py"),
+    }
     offenders: list[str] = []
     for path in sorted(package_root.rglob("*.py")):
         relative = path.relative_to(package_root)
-        if relative.parts[0] == "tests":
-            continue
-        if path.name == "sqlite_utils.py":
+        if "tests" in relative.parts or relative in allowed:
             continue
         if "sqlite3.connect(" in path.read_text(encoding="utf-8"):
             offenders.append(str(relative))

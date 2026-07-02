@@ -33,6 +33,7 @@ campaign_factory.sqlite
 campaign_factory.sqlite-*
 campaigns/
 tmp/
+backups/
 models/
 00_source_videos/
 02_processed/
