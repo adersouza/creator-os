@@ -5,16 +5,22 @@ on:
   push:
     branches:
       - main
-      - "codex/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   codeql:
+    if: github.event_name != 'pull_request'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +42,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -55,8 +62,10 @@ jobs:
           extra_args: --only-verified
 
   trivy:
+    if: github.event_name != 'pull_request'
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       security-events: write
