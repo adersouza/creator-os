@@ -13,6 +13,7 @@ let lastAiGeneration = null;
 let showSafeZones = false;
 let hookEditorOpen = false;
 let generationState = {status: "not started"};
+const generationInFlight = new Map();
 let gridCropState = {open: false, frame_time: 0.25, boxes: [], grid_preset: {columns: 3, rows: 2}, render_captions: true};
 let gridCropDrag = null;
 let reviewModalState = null;
@@ -637,6 +638,82 @@ function focusOutcomeImport() {
 function setGenerationState(patch) {
   generationState = {...generationState, ...patch};
   renderGenerationState();
+}
+function generationJobKey(kind, body) {
+  return [
+    kind,
+    body.stem || generationStem(),
+    body.prompt_json || "",
+    body.start_image || body.source_image || "",
+    body.image_mode || "",
+    body.selected_panel || "",
+    body.asset_generation_id || ""
+  ].join("|");
+}
+function setPaidGenerationButtonsDisabled(disabled) {
+  document.querySelectorAll([
+    "button[onclick*='createSoulImage']",
+    "button[onclick*='createSixPackSoulImages']",
+    "button[onclick*='createKlingVideo']",
+    "button[onclick*='renderGeneratedPack']",
+    "button[onclick*='confirmAndRunPanelAnimations']",
+    "button[onclick*='createGridFanoutWorkflow']"
+  ].join(",")).forEach(button => {
+    button.disabled = disabled;
+    button.classList.toggle("is-disabled", disabled);
+  });
+}
+async function jsonFetch(url, options = {}) {
+  const response = await fetch(url, options);
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch (_) {
+    payload = {ok: false, error: `non-JSON response (${response.status})`};
+  }
+  if (!response.ok) {
+    const detail = payload.detail || payload.error || `request failed (${response.status})`;
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return payload;
+}
+async function pollAssetJob(jobId) {
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const job = await jsonFetch(`/api/assets/jobs/${encodeURIComponent(jobId)}`);
+    if (job.panels) setGenerationState({fanout: {...(generationState.fanout || {}), panels: job.panels}});
+    if (job.status === "done") return job.result || job;
+    if (job.status === "failed") return job.result || {ok: false, error: job.error || "asset job failed"};
+    setGenerationState({status: `${job.kind || "asset"} ${job.status}`, asset_job_id: job.job_id});
+  }
+}
+async function runAssetJob(kind, url, body, statusLabel) {
+  const idempotencyKey = body.idempotency_key || generationJobKey(kind, body);
+  if (generationInFlight.has(idempotencyKey)) return generationInFlight.get(idempotencyKey);
+  const promise = (async () => {
+    setPaidGenerationButtonsDisabled(true);
+    setGenerationState({status: statusLabel || "queued", asset_job_id: null});
+    const started = await jsonFetch(url, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({...body, async_job: true, idempotency_key: idempotencyKey})
+    });
+    setGenerationState({status: `${kind} queued`, asset_job_id: started.job_id});
+    genLog(started);
+    if (started.job_id && started.status !== "done" && !started.result) return await pollAssetJob(started.job_id);
+    return started.result || started;
+  })();
+  generationInFlight.set(idempotencyKey, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    setGenerationState({status: "failed"});
+    flash(error.message || String(error));
+    return {ok: false, error: error.message || String(error)};
+  } finally {
+    generationInFlight.delete(idempotencyKey);
+    if (!generationInFlight.size) setPaidGenerationButtonsDisabled(false);
+  }
 }
 function generationStatusTag() {
   const label = generationState.status || "not started";
@@ -1826,21 +1903,15 @@ async function dryRunAssets() {
 }
 async function createSoulImage(options = {}) {
   if (!options.skipConfirm && !confirm("Create paid Higgsfield Soul image for Stacey?")) return null;
-  setGenerationState({status: "running"});
-  const r = await fetch("/api/assets/create-image", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      stem: generationStem(),
-      campaign: currentCampaign() || null,
-      creator: "Stacey",
-      prompt_json: generationPromptPath(),
-      image_mode: options.imageMode || "single",
-      wait: true,
-      download: true
-    })
-  });
-  const j = await r.json();
+  const j = await runAssetJob("create-image", "/api/assets/create-image", {
+    stem: generationStem(),
+    campaign: currentCampaign() || null,
+    creator: "Stacey",
+    prompt_json: generationPromptPath(),
+    image_mode: options.imageMode || "single",
+    wait: true,
+    download: true
+  }, "Soul image queued");
   if (!j.ok) {
     setGenerationState({status: "failed"});
     genLog(j);
@@ -1881,12 +1952,13 @@ async function fanoutPanels(options = {}) {
     ...generationGridDimensions()
   };
   if (options.maxJobs != null) body.max_jobs = options.maxJobs;
-  const r = await fetch("/api/assets/fanout-panels", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify(body)
-  });
-  const j = await r.json();
+  const j = options.dryRun
+    ? await jsonFetch("/api/assets/fanout-panels", {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify(body)
+      })
+    : await runAssetJob("fanout-panels", "/api/assets/fanout-panels", body, "panel animations queued");
   const crops = j.cropManifest?.panelCrops || [];
   setGenerationState({
     status: j.failed ? "fanout partial failure" : (j.dry_run ? "fanout ready" : "panel animations ready"),
@@ -1942,21 +2014,15 @@ async function createGridFanoutWorkflow() {
 }
 async function createSixPackSoulImages() {
   if (!confirm("Create six paid Higgsfield Soul image jobs for Stacey?")) return;
-  setGenerationState({status: "running"});
-  const r = await fetch("/api/assets/create-image", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      stem: generationStem(),
-      campaign: currentCampaign() || null,
-      creator: "Stacey",
-      prompt_json: generationPromptPath(),
-      image_mode: "six-pack",
-      wait: true,
-      download: true
-    })
-  });
-  const j = await r.json();
+  const j = await runAssetJob("create-six-pack", "/api/assets/create-image", {
+    stem: generationStem(),
+    campaign: currentCampaign() || null,
+    creator: "Stacey",
+    prompt_json: generationPromptPath(),
+    image_mode: "six-pack",
+    wait: true,
+    download: true
+  }, "six-pack queued");
   if (!j.ok) {
     setGenerationState({status: "failed"});
     return genLog(j);
@@ -2014,23 +2080,17 @@ async function createKlingVideo() {
   if (!confirm("Create paid Kling video from selected panel/start image?")) return;
   const startImage = document.getElementById("genStartImage")?.value;
   if (!startImage) return flash("select panel/start image first");
-  setGenerationState({status: "running"});
-  const r = await fetch("/api/assets/create-video", {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      stem: generationStem(),
-      campaign: currentCampaign() || null,
-      creator: "Stacey",
-      prompt_json: generationPromptPath(),
-      start_image: startImage,
-      selected_panel: generationState.selected_panel || null,
-      asset_generation_id: generationState.asset_generation_id || null,
-      wait: true,
-      download: false
-    })
-  });
-  const j = await r.json();
+  const j = await runAssetJob("create-video", "/api/assets/create-video", {
+    stem: generationStem(),
+    campaign: currentCampaign() || null,
+    creator: "Stacey",
+    prompt_json: generationPromptPath(),
+    start_image: startImage,
+    selected_panel: generationState.selected_panel || null,
+    asset_generation_id: generationState.asset_generation_id || null,
+    wait: true,
+    download: false
+  }, "Kling video queued");
   if (!j.ok) {
     setGenerationState({status: "failed"});
     return genLog(j);
@@ -2075,21 +2135,16 @@ async function downloadKlingVideo() {
   await renderDetail();
 }
 async function renderGeneratedPack() {
-  setGenerationState({status: "running"});
-  const r = await fetch(`/api/campaigns/${encodeURIComponent(currentCampaign())}/render-pack`, {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      stem: generationState.downloaded_stem || generationStem(),
-      asset_generation_id: generationState.asset_generation_id || null,
-      asset_prompt_json: generationPromptPath(),
-      recipes: ["v01_original", "v09_caption_bg"],
-      max_hooks: 3,
-      target_ratios: ["9:16"],
-      workers: 2
-    })
-  });
-  const j = await r.json();
+  const body = {
+    stem: generationState.downloaded_stem || generationStem(),
+    asset_generation_id: generationState.asset_generation_id || null,
+    asset_prompt_json: generationPromptPath(),
+    recipes: ["v01_original", "v09_caption_bg"],
+    max_hooks: 3,
+    target_ratios: ["9:16"],
+    workers: 2
+  };
+  const j = await runAssetJob("render_pack", `/api/campaigns/${encodeURIComponent(currentCampaign())}/render-pack`, body, "render queued");
   setGenerationState({status: j.ok ? "rendered" : "failed"});
   genLog(j);
   await loadClips();
@@ -2456,9 +2511,10 @@ async function startRun() {
 }
 
 async function pollRun() {
-  const s = await (await fetch("/api/run/status")).json();
+  const s = await jsonFetch("/api/run/status");
   const progress = s.total ? ` ${s.completed || 0}/${s.total}` : "";
-  document.getElementById("run-state").textContent = s.running ? `running…${progress}` : (s.summary ? `done${progress}` : "idle");
+  const rejected = s.rejected ? ` · ${s.rejected} rejected` : "";
+  document.getElementById("run-state").textContent = s.running ? `running…${progress}${rejected}` : (s.summary ? `done${progress}${rejected}` : "idle");
   document.getElementById("run-elapsed").textContent = `${Math.round(s.elapsed)}s`;
   document.getElementById("run-log").innerHTML = s.log_tail.map(l => `<div>${escHtml(l)}</div>`).join("");
   document.getElementById("run-log").scrollTop = 99999;
@@ -2537,6 +2593,11 @@ function flash(msg) {
   clearTimeout(el._timer);
   el._timer = setTimeout(() => el.style.opacity = "0", 2500);
 }
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason?.message || event.reason || "unexpected UI error";
+  flash(String(reason));
+});
 
 document.getElementById("run").addEventListener("click", startRun);
 configureCreatorTabs("reel");

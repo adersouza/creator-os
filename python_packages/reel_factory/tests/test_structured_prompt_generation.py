@@ -16,6 +16,29 @@ from PIL import Image
 
 
 class StructuredPromptGenerationTests(unittest.TestCase):
+    def _fake_prompt_response(self) -> dict:
+        return {
+            "output": [
+                {
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": json.dumps(
+                                {
+                                    "image_prompt": (
+                                        "Create one high-quality native 2x3 grid featuring six variations "
+                                        "of an adult woman taking a bathroom mirror selfie, exact same pose, "
+                                        "fitted lounge outfit, warm bedroom lighting."
+                                    ),
+                                    "notes": "test prompt",
+                                }
+                            ),
+                        }
+                    ]
+                }
+            ]
+        }
+
     def test_instruction_requests_auditable_json_contract(self):
         instruction = build_json_structured_recreation_instruction(
             "preserve the outfit check pose",
@@ -212,6 +235,91 @@ class StructuredPromptGenerationTests(unittest.TestCase):
                 result["structured_prompt_spec"]["schema"],
                 "reel_factory.reference_recreation_prompt.v1",
             )
+
+    def test_generate_prompt_injects_confident_next_batch_guidance(self):
+        plan = {
+            "ideas": [
+                {
+                    "brief": "Lean into Winner DNA: bathroom_mirror / hip_shift.",
+                    "prompt_focus": "fix_hands",
+                    "winner_dna_focus": [
+                        {"feature_key": "scene", "feature_value": "bathroom_mirror"},
+                        {"feature_key": "pose", "feature_value": "hip_shift"},
+                    ],
+                    "recommendation": {"confidence": "medium"},
+                    "data_quality": {"score": 72},
+                    "low_data_warning": None,
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = root / "reference.jpg"
+            Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
+
+            with (
+                patch("generate_prompts.taste_memory", return_value=""),
+                patch("generate_prompts.next_batch_plan", return_value=plan),
+                patch("generate_prompts.load_xai_api_key", return_value="test-key"),
+                patch(
+                    "generate_prompts.call_grok",
+                    return_value=self._fake_prompt_response(),
+                ) as grok,
+            ):
+                generate_prompt(
+                    out_path=root / "prompt.json",
+                    root=root,
+                    reference_images=[ref],
+                    campaign="Stacey Campaign",
+                    dry_run=True,
+                )
+
+        instruction = grok.call_args.args[0]["input"][0]["content"][0]["text"]
+        self.assertIn("Next-batch learning guidance", instruction)
+        self.assertIn("bathroom_mirror", instruction)
+        self.assertIn("fix_hands", instruction)
+        self.assertIn("pose=hip_shift", instruction)
+
+    def test_generate_prompt_ignores_low_data_next_batch_plan(self):
+        plan = {
+            "ideas": [
+                {
+                    "brief": "Lean into Winner DNA: bathroom_mirror.",
+                    "prompt_focus": "fix_hands",
+                    "winner_dna_focus": [
+                        {"feature_key": "scene", "feature_value": "bathroom_mirror"},
+                    ],
+                    "recommendation": {"confidence": "low"},
+                    "data_quality": {"score": 20},
+                    "low_data_warning": "Winner DNA is based on fewer than 50 rows.",
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ref = root / "reference.jpg"
+            Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
+
+            with (
+                patch("generate_prompts.taste_memory", return_value=""),
+                patch("generate_prompts.next_batch_plan", return_value=plan),
+                patch("generate_prompts.load_xai_api_key", return_value="test-key"),
+                patch(
+                    "generate_prompts.call_grok",
+                    return_value=self._fake_prompt_response(),
+                ) as grok,
+            ):
+                generate_prompt(
+                    out_path=root / "prompt.json",
+                    root=root,
+                    reference_images=[ref],
+                    campaign="Stacey Campaign",
+                    dry_run=True,
+                )
+
+        instruction = grok.call_args.args[0]["input"][0]["content"][0]["text"]
+        self.assertNotIn("Next-batch learning guidance", instruction)
+        self.assertNotIn("fix_hands", instruction)
 
 
 if __name__ == "__main__":

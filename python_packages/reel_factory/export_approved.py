@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from campaign_store import ensure_campaign_schema
 from posting_ledger import content_fingerprint
 from readiness_check import load_readiness_for_output, normalize_platform
+from reel_factory.sqlite_utils import connect_sqlite
 
 
 def export_approved(
@@ -26,9 +26,9 @@ def export_approved(
     db_path = root / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path)
     ensure_campaign_schema(conn)
+    _ensure_variations_filename(conn)
     rows = conn.execute("""
         SELECT
             v.job_key,
@@ -50,7 +50,24 @@ def export_approved(
         LEFT JOIN campaign_outputs co
             ON co.output_path = v.output_path
         LEFT JOIN publish_metrics m
-            ON substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+            ON m.campaign_output_id = co.campaign_output_id
+            OR (
+                m.campaign_output_id IS NULL
+                AND m.job_key IS NOT NULL
+                AND v.job_key IS NOT NULL
+                AND m.job_key = v.job_key
+            )
+            OR (
+                m.campaign_output_id IS NULL
+                AND (m.job_key IS NULL OR v.job_key IS NULL)
+                AND (
+                    m.filename = v.filename
+                    OR (
+                        (v.filename IS NULL OR v.filename = '')
+                        AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                    )
+                )
+            )
         WHERE v.status = 'ok' AND v.review_state = 'approved'
         ORDER BY v.encoded_at, v.output_path
     """).fetchall()
@@ -132,6 +149,24 @@ def export_approved(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {"ok": True, "count": len(items), "path": str(out_path), "items": items}
+
+
+def _ensure_variations_filename(conn) -> None:
+    existing = {
+        row["name"] for row in conn.execute("PRAGMA table_info(variations)").fetchall()
+    }
+    if "filename" not in existing:
+        conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
+    rows = conn.execute(
+        "SELECT job_key, output_path FROM variations WHERE filename IS NULL OR filename = ''"
+    ).fetchall()
+    conn.executemany(
+        "UPDATE variations SET filename = ? WHERE job_key = ?",
+        [(Path(row["output_path"]).name, row["job_key"]) for row in rows],
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_variations_filename ON variations(filename)"
+    )
 
 
 def _hook_idx(filename: str) -> int:

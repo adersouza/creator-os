@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from intelligence_store import winner_score
 
 
 def utc_now() -> str:
@@ -30,6 +33,7 @@ def score_caption_quality(
     recent_hooks: list[str] | None = None,
     min_chars: int = 10,
     max_chars: int = 140,
+    performance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     stripped = text.strip()
@@ -50,14 +54,58 @@ def score_caption_quality(
     normalized = _normalize(stripped)
     if recent_hooks and normalized in {_normalize(hook) for hook in recent_hooks}:
         warnings.append("recent_duplicate")
-    score = max(0, 100 - len(set(warnings)) * 15)
+    format_score = max(0, 100 - len(set(warnings)) * 15)
+    performance_score = _caption_performance_score(performance)
+    score = (
+        round((format_score * 0.7) + (performance_score * 0.3))
+        if performance_score is not None
+        else format_score
+    )
+    hook_features = _hook_features(stripped)
     return {
         "captionHash": caption_hash(stripped),
         "charCount": len(stripped),
         "lineCount": len(lines) or (1 if stripped else 0),
         "qualityScore": score,
+        "formatScore": format_score,
+        "performanceScore": performance_score,
+        "hookFeatures": hook_features,
         "warnings": sorted(set(warnings)),
     }
+
+
+def _caption_performance_score(performance: dict[str, Any] | None) -> int | None:
+    if not performance:
+        return None
+    views = max(float(performance.get("views") or 0), 0.0)
+    engagements = sum(
+        float(performance.get(metric) or 0)
+        for metric in ("likes", "comments", "shares", "saves")
+    )
+    rate = max(0.0, min(1.0, engagements / max(views, 1.0)))
+    volume = min(1.0, math.log1p(views) / math.log1p(10000))
+    return round(100 * ((rate * 0.75) + (volume * 0.25)))
+
+
+def _hook_features(text: str) -> dict[str, str]:
+    low = text.lower()
+    if "?" in text or any(token in low for token in ("which", "what", "why")):
+        hook_type = "question"
+    elif re.search(r"^\s*\d+[\).]", text):
+        hook_type = "numbered_list"
+    elif any(token in low for token in ("pov", "when he", "when she")):
+        hook_type = "scenario"
+    else:
+        hook_type = "statement"
+    if "?" in text:
+        archetype = "curiosity"
+    elif re.search(r"^\s*\d+[\).]", text):
+        archetype = "list"
+    elif "when " in low:
+        archetype = "relatable_scenario"
+    else:
+        archetype = "direct"
+    return {"hook_type": hook_type, "archetype": archetype}
 
 
 def append_generation_log(path: Path, payload: dict[str, Any]) -> None:
@@ -264,14 +312,10 @@ def _performance_component(performance: dict[str, Any]) -> int:
         or performance.get("averages")
         or performance
     )
-    views = float(metrics.get("views") or 0)
-    shares = float(metrics.get("shares") or 0)
-    saves = float(metrics.get("saves") or 0)
-    likes = float(metrics.get("likes") or 0)
-    signal = views + shares * 25 + saves * 20 + likes * 2
+    signal = winner_score(metrics)
     if signal <= 0:
         return 45
-    return int(max(35, min(100, 50 + signal / 100)))
+    return int(max(35, min(100, 50 + signal)))
 
 
 def _rank_reasons(quality_score: int, perf_score: int, warnings: set[str]) -> list[str]:

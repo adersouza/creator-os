@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from reel_factory.sqlite_utils import connect_sqlite
+
 QUEUE_STATES = {"queued", "claimed", "running", "succeeded", "failed", "interrupted"}
 
 
@@ -17,8 +19,7 @@ class RenderQueue:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
         self.db_path = self.root / "render_queue.sqlite"
-        self.conn = sqlite3.connect(self.db_path, timeout=30)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect_sqlite(self.db_path)
         self._init_db()
 
     def _init_db(self) -> None:
@@ -76,7 +77,7 @@ class RenderQueue:
         ).fetchone()
         if row is None:
             return None
-        self.conn.execute(
+        cur = self.conn.execute(
             """
             UPDATE queue_jobs
             SET status = 'claimed', worker_id = ?, claimed_at = ?, heartbeat_at = ?
@@ -85,6 +86,8 @@ class RenderQueue:
             (worker_id, now, now, row["job_id"]),
         )
         self.conn.commit()
+        if cur.rowcount == 0:
+            return None
         row = self.conn.execute(
             "SELECT * FROM queue_jobs WHERE job_id = ?", (row["job_id"],)
         ).fetchone()

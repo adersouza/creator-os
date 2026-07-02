@@ -68,6 +68,42 @@ class CaptionRenderTests(unittest.TestCase):
             self.assertLessEqual(bbox[2] - bbox[0], 360)
             self.assertLessEqual(bbox[3], 960 - safe_bottom)
 
+    def test_unrenderable_caption_truncates_instead_of_crashing(self):
+        try:
+            from caption_render import render_caption_png
+        except ModuleNotFoundError as e:
+            if e.name == "pilmoji":
+                self.skipTest("pilmoji is not installed in this interpreter")
+            raise
+
+        text = "\n".join(
+            [
+                "3 different ways a guy would ask me out",
+                "Smooth: " + "very specific romantic setup " * 6,
+                "Nervous: " + "awkward cute overthinking line " * 6,
+                "Playful: " + "teasing challenge with extra words " * 6,
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "caption.png"
+            render_caption_png(
+                text,
+                font_family="Onest",
+                fonts_dir=Path("fonts"),
+                color_scheme="light",
+                band="bottom",
+                style="classic",
+                out_path=out,
+                canvas_w=540,
+                canvas_h=960,
+            )
+            img = Image.open(out).convert("RGBA")
+            bbox = img.getbbox()
+            self.assertIsNotNone(bbox)
+            assert bbox is not None
+            self.assertLessEqual(bbox[2], 540)
+            self.assertLessEqual(bbox[3], 960)
+
 
 if __name__ == "__main__":
     unittest.main()

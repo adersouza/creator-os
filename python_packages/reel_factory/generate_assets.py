@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from anatomy_qc import assess_image_qc, is_image_postable
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import (
     connect,
@@ -22,7 +27,9 @@ from campaign_store import (
 )
 from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from identity_verification import verify_identity
 from PIL import Image
+from reel_factory.sqlite_utils import connect_sqlite
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
@@ -36,6 +43,10 @@ IMAGE_MODEL_CANDIDATES = ("soul_2", "soul_v2", IMAGE_MODEL)
 VIDEO_MODEL_CANDIDATES = (VIDEO_MODEL,)
 CAPABILITY_SCHEMA = "reel_factory.higgsfield_capabilities.v1"
 VIDEO_SOUND_MODELS = {"kling2_6", "kling3_0"}
+DOWNLOAD_TIMEOUT_SECONDS = 60
+MIN_IMAGE_RESULT_BYTES = 10_000
+MIN_VIDEO_RESULT_BYTES = 100_000
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class HiggsfieldCommandError(RuntimeError):
@@ -68,6 +79,7 @@ class AssetGenerationPlan:
     start_image: str | None
     out_dir: Path
     source_dir: Path
+    end_image: str | None = None
     video_reference: str | None = None
     campaign: str | None = None
     creator: str | None = None
@@ -77,11 +89,13 @@ class AssetGenerationPlan:
     image_quality: str = "2k"
     video_aspect_ratio: str = "9:16"
     video_duration: int = 5
+    video_mode: str | None = "pro"
     video_sound: str = "off"
     image_model: str = IMAGE_MODEL
     video_model: str = VIDEO_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,6 +112,7 @@ class DirectReferenceImagePlan:
     image_model: str = IMAGE_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 def load_prompt(path: Path) -> AssetPromptSet:
@@ -149,10 +164,12 @@ def build_video_cmd(
     prompt: AssetPromptSet,
     *,
     start_image: str | None,
+    end_image: str | None = None,
     video_reference: str | None = None,
     model: str = VIDEO_MODEL,
     aspect_ratio: str = "9:16",
     duration: int = 5,
+    mode: str | None = "pro",
     sound: str = "off",
     wait: bool = False,
 ) -> list[str]:
@@ -166,12 +183,16 @@ def build_video_cmd(
     ]
     if start_image:
         cmd += ["--start-image", start_image]
+    if end_image:
+        cmd += ["--end-image", end_image]
     if video_reference:
         cmd += ["--video", video_reference]
     if aspect_ratio:
         cmd += ["--aspect_ratio", aspect_ratio]
     if duration:
         cmd += ["--duration", str(duration)]
+    if mode:
+        cmd += ["--mode", mode]
     if sound and model in VIDEO_SOUND_MODELS:
         cmd += ["--sound", sound]
     if wait:
@@ -186,6 +207,46 @@ def build_wait_cmd(job_id: str) -> list[str]:
 
 def build_get_cmd(job_id: str) -> list[str]:
     return ["higgsfield", "generate", "get", job_id, "--json"]
+
+
+def reference_matched_video_duration(
+    reference: str | Path | None,
+    *,
+    default: int = 5,
+    cap: int = 8,
+) -> int:
+    if not reference:
+        return default
+    path = Path(reference)
+    if not path.exists() or path.suffix.lower() not in {
+        ".mp4",
+        ".mov",
+        ".m4v",
+        ".webm",
+    }:
+        return default
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        raw = subprocess.check_output(
+            [
+                ffprobe,
+                "-v",
+                "0",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+        duration = float(raw.decode().strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return default
+    if duration <= 0:
+        return default
+    return max(1, min(cap, round(duration)))
 
 
 def build_soul_list_cmd() -> list[str]:
@@ -546,6 +607,139 @@ def extract_status(data: dict[str, Any]) -> str | None:
     return None
 
 
+def _result_credits(data: dict[str, Any]) -> float | None:
+    item = _primary_generation_item(data) or data
+    for key in ("credits", "creditCost", "costCredits", "cost"):
+        value = item.get(key) if isinstance(item, dict) else None
+        try:
+            if value is not None and value != "":
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+    usage = item.get("usage") if isinstance(item, dict) else None
+    if isinstance(usage, dict):
+        return _result_credits(usage)
+    return None
+
+
+def _generation_completed(data: dict[str, Any]) -> bool:
+    if not data:
+        return False
+    status = extract_status(data)
+    return bool(extract_id(data)) and (status in {None, "", "completed"})
+
+
+def _campaign_cost_db_path(root: Path) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    root = Path(root).expanduser().resolve()
+    candidates = [
+        root / "campaign_factory.sqlite",
+        root.parent / "campaign_factory" / "campaign_factory.sqlite",
+        Path(__file__).resolve().parent.parent
+        / "campaign_factory"
+        / "campaign_factory.sqlite",
+    ]
+    return candidates[0] if candidates[0].exists() else candidates[-1]
+
+
+def _load_cost_tracker_module():
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "campaign_factory"
+        / "campaign_factory"
+        / "cost_tracker.py"
+    )
+    spec = importlib.util.spec_from_file_location("_creator_os_cost_tracker", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load cost tracker from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _record_ai_cost_event(
+    conn,
+    cost_tracker,
+    *,
+    provider: str,
+    operation: str,
+    campaign_id: str | None,
+    model: str,
+    job_id: str,
+    actual_credits: float | None,
+    lineage_path_text: str,
+    stem: str,
+) -> str:
+    # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
+    metadata = {
+        "schema": "reel_factory.ai_cost_metadata.v1",
+        "actualCredits": actual_credits,
+        "creditCurrency": "higgsfield_credits",
+        "model": model,
+        "jobId": job_id,
+        "lineagePath": lineage_path_text,
+        "stem": stem,
+    }
+    return cost_tracker.record_ai_cost(
+        conn,
+        provider=provider,
+        operation=operation,
+        campaign_id=campaign_id,
+        generations=1,
+        metadata=metadata,
+        source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
+        ensure_schema=False,
+    )
+
+
+def _record_generation_costs(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    *,
+    lineage_path_text: str,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    events = []
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(plan.source_dir.parent)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with connect_sqlite(db_path) as conn:
+        cost_tracker.ensure_cost_table(conn)
+        for record in records:
+            raw = record.get("raw")
+            if not isinstance(raw, dict) or not _generation_completed(raw):
+                continue
+            job_id = extract_id(raw)
+            if not job_id:
+                continue
+            provider = str(record["provider"])
+            operation = str(record["operation"])
+            actual_credits = _result_credits(raw)
+            event_id = _record_ai_cost_event(
+                conn,
+                cost_tracker,
+                provider=provider,
+                operation=operation,
+                campaign_id=getattr(plan, "campaign", None),
+                model=str(record["model"]),
+                job_id=job_id,
+                actual_credits=actual_credits,
+                lineage_path_text=lineage_path_text,
+                stem=plan.stem,
+            )
+            events.append(
+                {
+                    "eventId": event_id,
+                    "provider": provider,
+                    "operation": operation,
+                    "jobId": job_id,
+                    "actualCredits": actual_credits,
+                }
+            )
+    return {"schema": "reel_factory.ai_cost_ledger.v1", "events": events}
+
+
 def extract_higgsfield_generated_prompt(data: dict[str, Any]) -> str | None:
     item = _primary_generation_item(data)
     if item:
@@ -656,9 +850,45 @@ def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
     ]
 
 
+def _download_min_bytes(out_path: Path, content_type: str | None) -> int:
+    if content_type and content_type.lower().startswith("video/"):
+        return MIN_VIDEO_RESULT_BYTES
+    if out_path.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}:
+        return MIN_VIDEO_RESULT_BYTES
+    return MIN_IMAGE_RESULT_BYTES
+
+
 def download_result(url: str, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, out_path)
+    tmp_path: Path | None = None
+    try:
+        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get_content_type()
+            if content_type not in {None, "", "application/octet-stream"} and not (
+                content_type.startswith("image/") or content_type.startswith("video/")
+            ):
+                raise RuntimeError(f"unexpected result content type: {content_type}")
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=out_path.parent,
+                prefix=f".{out_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+                    tmp.write(chunk)
+        min_bytes = _download_min_bytes(out_path, content_type)
+        size = tmp_path.stat().st_size if tmp_path else 0
+        if size < min_bytes:
+            raise RuntimeError(
+                f"downloaded result too small: {size} bytes < {min_bytes} bytes"
+            )
+        tmp_path.replace(out_path)
+    except Exception:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
     return out_path
 
 
@@ -724,10 +954,12 @@ def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     video_cmd = build_video_cmd(
         prompt,
         start_image=video_start,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=plan.video_model,
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -777,10 +1009,12 @@ def dry_run_video_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, A
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=plan.video_model,
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -837,6 +1071,7 @@ def _record_cost_preflight_block(
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _append_failed_generation(plan, lineage_path=path, lineage=payload)
     return {
         "ok": False,
         "path": str(path),
@@ -857,6 +1092,8 @@ def _cost_preflight_for_plan(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+        budget_override_ledger_error=plan.budget_override_ledger_error,
+        root=plan.source_dir.parent,
     )
 
 
@@ -902,6 +1139,7 @@ def _record_generation_failure(
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _append_failed_generation(plan, lineage_path=path, lineage=payload)
     campaign_record = None
     if plan.campaign or plan.creator:
         campaign_record = record_asset_generation(
@@ -919,6 +1157,54 @@ def _record_generation_failure(
         "lineage": payload,
         "campaign_record": campaign_record,
         "error": failure,
+    }
+
+
+def failed_generations_path(root: Path | str) -> Path:
+    return Path(root).resolve() / "failed_generations.jsonl"
+
+
+def _append_failed_generation(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    *,
+    lineage_path: Path,
+    lineage: dict[str, Any],
+) -> None:
+    generation = lineage.get("generation") if isinstance(lineage, dict) else {}
+    failure = generation.get("failure") if isinstance(generation, dict) else {}
+    record = {
+        "schema": "reel_factory.failed_generation.v1",
+        "createdAt": int(time.time()),
+        "stem": plan.stem,
+        "creator": getattr(plan, "creator", None),
+        "campaign": getattr(plan, "campaign", None),
+        "status": generation.get("status") if isinstance(generation, dict) else None,
+        "failure": failure if isinstance(failure, dict) else {},
+        "lineagePath": str(lineage_path),
+    }
+    path = failed_generations_path(plan.source_dir.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def list_failed_generations(root: Path | str, *, limit: int = 100) -> dict[str, Any]:
+    path = failed_generations_path(root)
+    rows = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    rows = rows[-max(1, limit) :]
+    return {
+        "schema": "reel_factory.failed_generations.v1",
+        "path": str(path),
+        "count": len(rows),
+        "items": rows,
     }
 
 
@@ -983,10 +1269,12 @@ def create_assets(
     video_cmd = build_video_cmd(
         prompt,
         start_image=video_start,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=resolved["videoModel"],
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -1053,7 +1341,41 @@ def create_assets(
         payload["generation"]["error"] = (
             f"video job {video_job_id or ''} returned status {video_status}".strip()
         )
+    video_qc = (
+        {"status": "skipped", "reason": "video_job_not_completed", "results": []}
+        if video_status and video_status != "completed"
+        else generated_video_qc(
+            local_paths,
+            root=plan.source_dir.parent,
+            required=download,
+        )
+    )
+    payload["review"]["generatedVideoQc"] = video_qc
     path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "image_create",
+                "model": resolved["imageModel"],
+                "raw": raw.get("image"),
+            },
+            {
+                "provider": "kling",
+                "operation": "video_create",
+                "model": resolved["videoModel"],
+                "raw": raw.get("video"),
+            },
+        ],
+    )
+    if video_qc["status"] == "failed":
+        payload["generation"]["status"] = "video_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_video_qc",
+            "reason": generated_video_qc_failure_reason(video_qc),
+        }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     if video_status and video_status != "completed":
@@ -1063,6 +1385,14 @@ def create_assets(
             "lineage": payload,
             "campaign_record": None,
             "error": payload["generation"]["error"],
+        }
+    if video_qc["status"] == "failed":
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"]["reason"],
         }
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1081,6 +1411,189 @@ def create_assets(
         "lineage": payload,
         "campaign_record": campaign_record,
     }
+
+
+def generated_image_qc(
+    local_paths: dict[str, str],
+    *,
+    root: Path | str,
+    required: bool = False,
+    creator: str | None = None,
+    identity_provider: Any | None = None,
+    vision_call=None,
+) -> dict[str, Any]:
+    image_items = [
+        (key, Path(value))
+        for key, value in sorted(local_paths.items())
+        if key == "image" or key.startswith("variation_")
+    ]
+    if not image_items:
+        return {
+            "schema": "reel_factory.generated_image_qc.v1",
+            "status": "failed" if required else "skipped",
+            "reason": "no_downloaded_images",
+            "results": [],
+        }
+    results = []
+    for key, path in image_items:
+        assessment = assess_image_qc(path, root=root, vision_call=vision_call)
+        identity = (
+            verify_identity(
+                path, creator=creator, root=root, provider=identity_provider
+            )
+            if creator
+            else {
+                "schema": "reel_factory.identity_verification.v1",
+                "creator": "",
+                "status": "unavailable",
+                "score": 0.0,
+                "threshold": 0.42,
+                "provider": "unavailable",
+                "referenceSetId": "",
+                "failureReason": "creator_missing",
+            }
+        )
+        identity_postable = identity.get("status") == "passed"
+        results.append(
+            {
+                "key": key,
+                "path": str(path),
+                "postable": is_image_postable(assessment) and identity_postable,
+                "identityVerification": identity,
+                **assessment,
+            }
+        )
+    return {
+        "schema": "reel_factory.generated_image_qc.v1",
+        "status": "passed" if all(row["postable"] for row in results) else "failed",
+        "results": results,
+    }
+
+
+def generated_image_qc_failure_reason(qc: dict[str, Any]) -> str:
+    for row in qc.get("results") or []:
+        if not isinstance(row, dict) or row.get("postable"):
+            continue
+        identity = row.get("identityVerification")
+        if isinstance(identity, dict) and identity.get("status") != "passed":
+            reason = identity.get("failureReason") or "identity verification failed"
+            return f"generated image failed identity QC: {reason}"
+        exposure = row.get("exposure")
+        if isinstance(exposure, dict) and not exposure.get("safe", True):
+            issues = exposure.get("issues") or []
+            return "generated image failed exposure QC" + (
+                f": {', '.join(str(item) for item in issues)}" if issues else ""
+            )
+        anatomy = row.get("anatomy")
+        if isinstance(anatomy, dict) and not anatomy.get("plausible", True):
+            defects = anatomy.get("defects") or []
+            return "generated image failed anatomy QC" + (
+                f": {', '.join(str(item) for item in defects)}" if defects else ""
+            )
+    return "generated image failed anatomy/exposure/identity QC"
+
+
+def generated_video_qc(
+    local_paths: dict[str, str],
+    *,
+    root: Path | str,
+    required: bool = False,
+    vision_call=None,
+    frame_sampler=None,
+) -> dict[str, Any]:
+    video_items = [
+        (key, Path(value))
+        for key, value in sorted(local_paths.items())
+        if key == "video"
+    ]
+    if not video_items:
+        return {
+            "schema": "reel_factory.generated_video_qc.v1",
+            "status": "failed" if required else "skipped",
+            "reason": "no_downloaded_video",
+            "results": [],
+        }
+    results = []
+    for key, path in video_items:
+        try:
+            frames = (
+                [Path(frame) for frame in frame_sampler(path)]
+                if frame_sampler
+                else _sample_video_frames(path)
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "key": key,
+                    "path": str(path),
+                    "postable": False,
+                    "frames": [],
+                    "error": f"video frame sampling failed: {exc}",
+                }
+            )
+            continue
+        frame_results = []
+        for frame in frames:
+            assessment = assess_image_qc(frame, root=root, vision_call=vision_call)
+            frame_results.append(
+                {
+                    "path": str(frame),
+                    "postable": is_image_postable(assessment),
+                    **assessment,
+                }
+            )
+        results.append(
+            {
+                "key": key,
+                "path": str(path),
+                "postable": bool(frame_results)
+                and all(row["postable"] for row in frame_results),
+                "frames": frame_results,
+            }
+        )
+    return {
+        "schema": "reel_factory.generated_video_qc.v1",
+        "status": "passed" if all(row["postable"] for row in results) else "failed",
+        "results": results,
+    }
+
+
+def _sample_video_frames(path: Path) -> list[Path]:
+    from sscd_video import extract_frames
+
+    with tempfile.TemporaryDirectory() as td:
+        temp_dir = Path(td)
+        frames = extract_frames(path, temp_dir)
+        copied: list[Path] = []
+        for idx, frame in enumerate(frames):
+            target = path.with_suffix(path.suffix + f".qc_frame_{idx}.jpg")
+            target.write_bytes(frame.read_bytes())
+            copied.append(target)
+        return copied
+
+
+def generated_video_qc_failure_reason(qc: dict[str, Any]) -> str:
+    for row in qc.get("results") or []:
+        if not isinstance(row, dict) or row.get("postable"):
+            continue
+        if row.get("error"):
+            return f"generated video failed frame QC: {row['error']}"
+        for frame in row.get("frames") or []:
+            if not isinstance(frame, dict) or frame.get("postable"):
+                continue
+            exposure = frame.get("exposure")
+            if isinstance(exposure, dict) and not exposure.get("safe", True):
+                issues = exposure.get("issues") or []
+                return "generated video failed exposure QC" + (
+                    f": {', '.join(str(item) for item in issues)}" if issues else ""
+                )
+            anatomy = frame.get("anatomy")
+            if isinstance(anatomy, dict) and not anatomy.get("plausible", True):
+                defects = anatomy.get("defects") or []
+                return "generated video failed anatomy QC" + (
+                    f": {', '.join(str(item) for item in defects)}" if defects else ""
+                )
+    return "generated video failed anatomy/exposure QC"
 
 
 def create_image_asset(
@@ -1217,8 +1730,44 @@ def create_image_asset(
             "count": len([k for k in local_paths if k.startswith("variation_")]),
         }
     )
+    qc = generated_image_qc(
+        local_paths,
+        root=plan.source_dir.parent,
+        required=download,
+        creator=plan.creator or plan.soul_name,
+    )
+    payload["review"]["generatedImageQc"] = qc
     path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "image_create",
+                "model": resolved["imageModel"],
+                "raw": image_raw,
+            }
+            for image_raw in raw_images
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
+    if qc["status"] == "failed":
+        payload["generation"]["status"] = "image_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_image_qc",
+            "reason": generated_image_qc_failure_reason(qc),
+        }
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"],
+        }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1282,6 +1831,7 @@ def create_direct_reference_image_asset(
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
             "ok": False,
             "path": str(path),
@@ -1320,6 +1870,7 @@ def create_direct_reference_image_asset(
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
             "ok": False,
             "path": str(path),
@@ -1355,8 +1906,44 @@ def create_direct_reference_image_asset(
         status="image_completed",
     )
     payload["generation"]["costPreflight"] = cost_preflight
+    qc = generated_image_qc(
+        local_paths,
+        root=plan.source_dir.parent,
+        required=download,
+        creator=plan.creator or plan.soul_name,
+    )
+    payload["review"]["generatedImageQc"] = qc
     path = direct_reference_lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "higgsfield",
+                "operation": "direct_reference_image_create",
+                "model": resolved["imageModel"],
+                "raw": raw.get("image"),
+            }
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
+    if qc["status"] == "failed":
+        payload["generation"]["status"] = "image_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_image_qc",
+            "reason": generated_image_qc_failure_reason(qc),
+        }
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"],
+        }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return {"ok": True, "path": str(path), "lineage": payload, "campaign_record": None}
 
@@ -1449,10 +2036,12 @@ def create_video_asset(
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=resolved["videoModel"],
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -1508,7 +2097,35 @@ def create_video_asset(
         payload["generation"]["error"] = (
             f"video job {video_job_id or ''} returned status {video_status}".strip()
         )
+    video_qc = (
+        {"status": "skipped", "reason": "video_job_not_completed", "results": []}
+        if video_status and video_status != "completed"
+        else generated_video_qc(
+            local_paths,
+            root=plan.source_dir.parent,
+            required=download,
+        )
+    )
+    payload["review"]["generatedVideoQc"] = video_qc
+    if video_qc["status"] == "failed":
+        payload["generation"]["status"] = "video_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_video_qc",
+            "reason": generated_video_qc_failure_reason(video_qc),
+        }
     path = lineage_path(plan)
+    payload["generation"]["costLedger"] = _record_generation_costs(
+        plan,
+        lineage_path_text=str(path),
+        records=[
+            {
+                "provider": "kling",
+                "operation": "video_create",
+                "model": resolved["videoModel"],
+                "raw": raw.get("video"),
+            }
+        ],
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     if video_status and video_status != "completed":
@@ -1518,6 +2135,14 @@ def create_video_asset(
             "lineage": payload,
             "campaign_record": None,
             "error": payload["generation"]["error"],
+        }
+    if video_qc["status"] == "failed":
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"]["reason"],
         }
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1566,6 +2191,7 @@ def build_source_lineage(
             "soulName": soul_name or plan.soul_name,
             "selectedPanel": plan.selected_panel,
             "startImage": plan.start_image,
+            "endImage": plan.end_image,
             "videoReference": plan.video_reference,
         },
         "generation": {
@@ -1595,6 +2221,7 @@ def build_source_lineage(
                 "imageQuality": plan.image_quality,
                 "videoAspectRatio": plan.video_aspect_ratio,
                 "videoDuration": plan.video_duration,
+                "videoMode": plan.video_mode,
                 "videoSound": plan.video_sound,
             },
             "commands": commands,
@@ -1642,6 +2269,7 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         soul_id=soul_id,
         soul_name=soul_name,
         start_image=args.start_image,
+        end_image=args.end_image,
         video_reference=args.video_reference,
         out_dir=(root / args.out_dir).resolve(),
         source_dir=(root / "00_source_videos").resolve(),
@@ -1652,12 +2280,19 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         image_aspect_ratio=args.image_aspect_ratio or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=args.image_quality,
         video_aspect_ratio=args.video_aspect_ratio,
-        video_duration=args.video_duration,
+        video_duration=args.video_duration
+        if args.video_duration is not None
+        else reference_matched_video_duration(
+            args.video_reference or args.reference,
+            cap=args.max_video_duration,
+        ),
+        video_mode=None if args.video_mode == "off" else args.video_mode,
         video_sound=args.video_sound,
         image_model=args.image_model,
         video_model=args.video_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -1683,6 +2318,7 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         image_model=args.image_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -1700,6 +2336,7 @@ def main() -> int:
             "wait",
             "status",
             "capabilities",
+            "failed-generations",
         ],
     )
     ap.add_argument("--root", default=".")
@@ -1717,6 +2354,7 @@ def main() -> int:
         help="Resolve a completed Higgsfield Soul ID by name, e.g. Stacey",
     )
     ap.add_argument("--start-image")
+    ap.add_argument("--end-image")
     ap.add_argument(
         "--video-reference",
         help="Reference reel/video for models that accept --video, e.g. Seedance 2.0",
@@ -1727,12 +2365,20 @@ def main() -> int:
     ap.add_argument("--image-aspect-ratio")
     ap.add_argument("--image-quality", default="2k")
     ap.add_argument("--video-aspect-ratio", default="9:16")
-    ap.add_argument("--video-duration", type=int, default=5)
+    ap.add_argument("--video-duration", type=int, default=None)
+    ap.add_argument("--max-video-duration", type=int, default=8)
+    ap.add_argument(
+        "--video-mode",
+        choices=["std", "pro", "4k", "off"],
+        default="pro",
+        help="Kling quality mode; use 'off' to omit --mode for compatibility",
+    )
     ap.add_argument("--video-sound", default="off")
     ap.add_argument("--image-model", default=IMAGE_MODEL)
     ap.add_argument("--video-model", default=VIDEO_MODEL)
     ap.add_argument("--estimated-cost-usd", type=float)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
+    ap.add_argument("--budget-override-ledger-error", action="store_true")
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--download", action="store_true")
@@ -1743,6 +2389,8 @@ def main() -> int:
         result = probe_higgsfield_capabilities(
             Path(args.root).resolve(), force=args.force
         )
+    elif args.mode == "failed-generations":
+        result = list_failed_generations(Path(args.root).resolve())
     elif args.mode in {"reference-image", "reference-image-dry-run"}:
         if not args.reference or not args.stem:
             raise SystemExit("--reference and --stem are required")

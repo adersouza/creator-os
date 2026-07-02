@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from .persistence import json_load
@@ -122,18 +123,47 @@ class EventRepository:
         return [self.event_payload(dict(row)) for row in rows]
 
     def jobs_for_campaign(
-        self, campaign_slug: str, limit: int = 100
+        self,
+        campaign_slug: str | None = None,
+        limit: int = 100,
+        statuses: list[str] | None = None,
+        stuck_hours: float | None = None,
     ) -> list[dict[str, Any]]:
-        row = self.conn.execute(
-            "SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)
-        ).fetchone()
-        if not row:
-            raise ValueError(f"campaign not found: {campaign_slug}")
+        clauses = []
+        params: list[Any] = []
+        if campaign_slug:
+            row = self.conn.execute(
+                "SELECT id FROM campaigns WHERE slug = ?",
+                (self._slugify(campaign_slug),),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"campaign not found: {campaign_slug}")
+            clauses.append("pipeline_jobs.campaign_id = ?")
+            params.append(row["id"])
+        if statuses:
+            normalized = [
+                status.strip().lower() for status in statuses if status.strip()
+            ]
+            if normalized:
+                placeholders = ", ".join("?" for _ in normalized)
+                clauses.append(f"pipeline_jobs.status IN ({placeholders})")
+                params.extend(normalized)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.conn.execute(
-            "SELECT * FROM pipeline_jobs WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (row["id"], max(1, min(limit, 1000))),
+            f"""
+            SELECT pipeline_jobs.*, campaigns.slug AS campaign_slug, campaigns.name AS campaign_name
+            FROM pipeline_jobs
+            LEFT JOIN campaigns ON campaigns.id = pipeline_jobs.campaign_id
+            {where}
+            ORDER BY pipeline_jobs.created_at DESC, pipeline_jobs.id DESC
+            LIMIT ?
+            """,
+            (*params, max(1, min(limit, 1000))),
         ).fetchall()
-        return [self.pipeline_job_payload(dict(job_row)) for job_row in rows]
+        return [
+            self.pipeline_job_payload(dict(job_row), stuck_hours=stuck_hours)
+            for job_row in rows
+        ]
 
     def create_pipeline_job(
         self,
@@ -234,8 +264,10 @@ class EventRepository:
             raise ValueError(f"pipeline job not found: {job_id}")
         return self.pipeline_job_payload(dict(row))
 
-    def pipeline_job_payload(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def pipeline_job_payload(
+        self, row: dict[str, Any], *, stuck_hours: float | None = None
+    ) -> dict[str, Any]:
+        payload = {
             "id": row["id"],
             "jobType": row["job_type"],
             "campaignId": row["campaign_id"],
@@ -249,3 +281,40 @@ class EventRepository:
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }
+        if "campaign_slug" in row:
+            payload["campaignSlug"] = row.get("campaign_slug")
+            payload["campaignName"] = row.get("campaign_name")
+        if stuck_hours is not None:
+            stuck, age_hours = _pipeline_job_stuck_status(row, stuck_hours)
+            payload["stuck"] = stuck
+            payload["stuckAgeHours"] = (
+                round(age_hours, 3) if age_hours is not None else None
+            )
+            payload["stuckThresholdHours"] = stuck_hours
+        return payload
+
+
+def _parse_sqlite_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _pipeline_job_stuck_status(
+    row: dict[str, Any], threshold_hours: float
+) -> tuple[bool, float | None]:
+    if str(row.get("status") or "").lower() not in {"queued", "running"}:
+        return False, None
+    timestamp = _parse_sqlite_timestamp(
+        row.get("updated_at")
+    ) or _parse_sqlite_timestamp(row.get("created_at"))
+    if timestamp is None:
+        return False, None
+    age_hours = max(0.0, (datetime.now(UTC) - timestamp).total_seconds() / 3600.0)
+    return age_hours >= threshold_hours, age_hours

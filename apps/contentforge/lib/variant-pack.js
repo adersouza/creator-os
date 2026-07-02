@@ -247,6 +247,7 @@ export async function runVariantPack(input, sendEvent) {
     vertical: true,
     outputProfile: "organic",
     variantOptions: variantOptionsForCaptions(request),
+    signal: input.signal,
   };
   await runPipeline(pipelineConfig, function (event) {
     events.push(event);

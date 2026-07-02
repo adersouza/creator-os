@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pipeline_contracts import (
@@ -33,6 +35,20 @@ def test_all_schema_examples_validate():
     checks = validate_schema_examples()
 
     assert {check["name"] for check in checks} == set(example_names())
+
+
+def test_packaged_schema_copy_matches_canonical_source():
+    repo_root = Path(__file__).resolve().parents[3]
+    canonical = repo_root / "packages" / "pipeline_contracts" / "schemas"
+    packaged = (
+        repo_root / "packages" / "pipeline_contracts" / "pipeline_contracts" / "schemas"
+    )
+    canonical_files = sorted(path.name for path in canonical.glob("*.json"))
+    packaged_files = sorted(path.name for path in packaged.glob("*.json"))
+
+    assert packaged_files == canonical_files
+    for name in canonical_files:
+        assert (packaged / name).read_bytes() == (canonical / name).read_bytes(), name
 
 
 def test_named_validators_accept_examples():

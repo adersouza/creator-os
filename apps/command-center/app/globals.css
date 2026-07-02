@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #0b0e14;
+  color: #e8edf7;
+  font-family: var(--font-archivo), system-ui, sans-serif;
+}
+
+/* faint studio grid on the void */
+.stage-floor {
+  background-image:
+    linear-gradient(rgba(49, 61, 90, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(49, 61, 90, 0.12) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* tally lamps */
+.tally {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.tally-live {
+  background: #3ddc97;
+  box-shadow: 0 0 8px #3ddc9788;
+}
+.tally-signal {
+  background: #ffb224;
+  box-shadow: 0 0 8px #ffb22488;
+}
+.tally-alert {
+  background: #ff5c5c;
+  box-shadow: 0 0 8px #ff5c5c88;
+}
+.tally-off {
+  background: #313d5a;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tally-live,
+  .tally-alert {
+    animation: tally-breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes tally-breathe {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #222b40;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid #ffb224;
+  outline-offset: 2px;
+}

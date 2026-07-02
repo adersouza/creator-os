@@ -358,11 +358,11 @@ class AccountPlanningRepository:
             if isinstance(source_prompt.get("generatedAssetLineage"), dict)
             else {}
         )
-        if existing.get("schema") == "campaign_factory.generated_asset_lineage.v1":
+        if existing.get("schema") == "reel_factory.generated_asset_lineage.v1":
             lineage = dict(existing)
         else:
             lineage = {
-                "schema": "campaign_factory.generated_asset_lineage.v1",
+                "schema": "reel_factory.generated_asset_lineage.v1",
                 "source": {},
                 "generation": {},
                 "review": {"humanReviewRequired": True, "status": "draft"},

@@ -276,18 +276,10 @@ def _blocked_caption_tags_for_reel(reel_tags: list[str]) -> set[str]:
         return {"bedroom", "gym"}
     if tags & {"indoor_selfie", "bedroom_mirror", "bathroom_mirror"}:
         return {"beach", "pool", "gym", "car", "outdoor", "travel"}
-    if "unknown" in tags:
-        return {
-            "beach",
-            "pool",
-            "gym",
-            "car",
-            "outdoor",
-            "travel",
-            "bedroom",
-            "bathroom",
-            "kitchen",
-        }
+    # unknown reel scene = undetected, NOT incompatible. Blocking on uncertainty
+    # threw away the best captions (bedroom/coded winners) whenever scene detection
+    # came back empty. Only block on a positive conflicting reel tag; "unknown"
+    # falls through to the unknown_allowed path in evaluate_scene_compatibility.
     return set()
 
 

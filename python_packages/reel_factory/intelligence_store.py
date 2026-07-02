@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+
+from reel_factory.sqlite_utils import connect_sqlite
 
 REVIEW_LABELS = {
     "eyes_bad",
@@ -41,6 +44,14 @@ POSITIVE_REASONS = {
 }
 DECISIONS = {"approve", "reject", "maybe", "unreviewed"}
 LOW_DATA_OUTCOME_THRESHOLD = 50
+WINNER_SCORE_REACH_WEIGHT = 10.0
+WINNER_SCORE_RATE_WEIGHT = 100.0
+WINNER_SCORE_ENGAGEMENT_WEIGHTS = {
+    "likes": 1.0,
+    "comments": 3.0,
+    "shares": 5.0,
+    "saves": 4.0,
+}
 
 
 def db_path(root: Path) -> Path:
@@ -48,8 +59,7 @@ def db_path(root: Path) -> Path:
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path(root), timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_intelligence_schema(conn)
     return conn
@@ -67,6 +77,8 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         asset_generation_id TEXT,
         prompt_run_id TEXT,
         source_reference_id TEXT,
+        soul_id TEXT,
+        audio_track_id TEXT,
         platform TEXT,
         account TEXT,
         posted_at TEXT,
@@ -129,6 +141,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         grid_source INTEGER NOT NULL DEFAULT 0,
         caption_style TEXT,
         hook_type TEXT,
+        audio_track_id TEXT,
         body_style TEXT,
         features_json TEXT NOT NULL DEFAULT '{}',
         created_at INTEGER NOT NULL,
@@ -237,9 +250,28 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         "reel_outcomes",
         {
             "campaign_id": "TEXT",
+            "campaign_output_id": "TEXT",
+            "job_key": "TEXT",
             "prompt_run_id": "TEXT",
             "source_reference_id": "TEXT",
+            "soul_id": "TEXT",
+            "audio_track_id": "TEXT",
         },
+    )
+    _ensure_columns(
+        conn,
+        "reel_features",
+        {
+            "audio_track_id": "TEXT",
+        },
+    )
+    conn.execute("UPDATE reel_outcomes SET account = '' WHERE account IS NULL")
+    conn.execute("UPDATE reel_outcomes SET posted_at = '' WHERE posted_at IS NULL")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_campaign_output ON reel_outcomes(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_job_key ON reel_outcomes(job_key)"
     )
     conn.commit()
 
@@ -247,11 +279,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
 def _ensure_columns(
     conn: sqlite3.Connection, table: str, columns: dict[str, str]
 ) -> None:
-    exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    if not exists:
+    if not _table_exists(conn, table):
         return
     existing = {
         row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -259,6 +287,15 @@ def _ensure_columns(
     for name, ddl in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+    )
 
 
 def validate_review(
@@ -281,20 +318,34 @@ def validate_review(
     return decision, primary_reason, secondary_reasons
 
 
-def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
-    get = (
+def _row_get(row: sqlite3.Row | dict[str, Any]):
+    return (
         row.get
         if isinstance(row, dict)
         else lambda k, default=None: row[k] if k in row.keys() else default
     )
+
+
+def weighted_engagement_rate(row: sqlite3.Row | dict[str, Any]) -> float:
+    get = _row_get(row)
+    views = max(float(get("views") or 0), 1.0)
+    weighted_engagement = sum(
+        float(get(metric) or 0) * weight
+        for metric, weight in WINNER_SCORE_ENGAGEMENT_WEIGHTS.items()
+    )
+    return weighted_engagement / views
+
+
+def winner_score(row: sqlite3.Row | dict[str, Any]) -> float:
+    get = _row_get(row)
     if get("manual_score") is not None:
         return float(get("manual_score") or 0)
-    views = float(get("views") or 0)
-    likes = float(get("likes") or 0)
-    comments = float(get("comments") or 0)
-    shares = float(get("shares") or 0)
-    saves = float(get("saves") or 0)
-    return views + likes * 3 + comments * 8 + shares * 15 + saves * 12
+    views = max(float(get("views") or 0), 1.0)
+    reach = math.log10(views)
+    return (
+        WINNER_SCORE_REACH_WEIGHT * reach
+        + WINNER_SCORE_RATE_WEIGHT * weighted_engagement_rate(row)
+    )
 
 
 def confidence_for_sample_size(
@@ -437,16 +488,18 @@ def data_quality_from_connection(
         FROM reel_outcomes
         """
     ).fetchone()
-    review_row = conn.execute(
-        """
-        SELECT
-          COUNT(*) AS reviewed,
-          SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
-          COUNT(DISTINCT primary_reason) AS distinct_labels
-        FROM operator_ratings
-        WHERE decision IN ('approve','reject','maybe')
-        """
-    ).fetchone()
+    review_row = None
+    if _table_exists(conn, "operator_ratings"):
+        review_row = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS reviewed,
+              SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
+              COUNT(DISTINCT primary_reason) AS distinct_labels
+            FROM operator_ratings
+            WHERE decision IN ('approve','reject','maybe')
+            """
+        ).fetchone()
     outcome_total = outcome_row["total"] if outcome_row else 0
     outcome_with_metrics = outcome_row["with_metrics"] if outcome_row else 0
     reviewed = review_row["reviewed"] if review_row else 0

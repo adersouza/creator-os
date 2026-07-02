@@ -4,10 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TS_FIXTURE="$ROOT/packages/pipeline_contracts/__arch_guard_violation__.ts"
 PY_FIXTURE="$ROOT/packages/pipeline_contracts/pipeline_contracts/__arch_guard_violation__.py"
+REEL_FACTORY_PY_FIXTURE="$ROOT/python_packages/reel_factory/__arch_guard_violation__.py"
 
 cleanup() {
   rm -f "$TS_FIXTURE"
   rm -f "$PY_FIXTURE"
+  rm -f "$REEL_FACTORY_PY_FIXTURE"
 }
 trap cleanup EXIT
 
@@ -34,6 +36,20 @@ FIXTURE
 if (cd "$ROOT" && python3 scripts/check-python-architecture-boundaries.py >/tmp/creator-os-arch-guard-py.log 2>&1); then
   cat /tmp/creator-os-arch-guard-py.log
   echo "ERROR: import-linter did not reject pipeline_contracts -> campaign_factory import" >&2
+  exit 1
+fi
+
+cleanup
+
+cat > "$REEL_FACTORY_PY_FIXTURE" <<'FIXTURE'
+from campaign_factory import core
+
+VALUE = core.CampaignFactory
+FIXTURE
+
+if (cd "$ROOT" && python3 scripts/check-python-architecture-boundaries.py >/tmp/creator-os-arch-guard-reel-factory-py.log 2>&1); then
+  cat /tmp/creator-os-arch-guard-reel-factory-py.log
+  echo "ERROR: import-linter did not reject reel_factory -> campaign_factory import" >&2
   exit 1
 fi
 

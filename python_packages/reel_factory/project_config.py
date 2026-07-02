@@ -19,6 +19,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "target_ratios": ["9:16"],
     "audio_enabled": False,
     "strict_preflight": False,
+    "dailyBudgetUsd": 10.0,
+    "perRunMaxAssets": 2,
+    "minimumBalanceUsd": 5.0,
 }
 
 

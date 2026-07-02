@@ -633,6 +633,34 @@ def _existing_keys(reel_root: Path) -> set[str]:
         text = str(item.get("text") or "")
         keys.add(str(item.get("caption_hash")))
         keys.add(_caption_key(text))
+    keys.update(_quarantined_caption_keys(reel_root))
+    return keys
+
+
+def _quarantined_caption_keys(reel_root: Path) -> set[str]:
+    path = reel_root / "caption_banks" / "bad_caption_quarantine.json"
+    if not path.exists():
+        return set()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    rows = payload.get("captions")
+    if not isinstance(rows, list):
+        return set()
+    keys: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = str(
+            row.get("text") or row.get("normalizedCaption") or row.get("caption") or ""
+        )
+        h = str(row.get("caption_hash") or row.get("captionHash") or "")
+        if text:
+            keys.add(caption_hash(text))
+            keys.add(_caption_key(text))
+        if h:
+            keys.add(h)
     return keys
 
 

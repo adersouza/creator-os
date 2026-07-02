@@ -12,6 +12,7 @@ function formatSize(bytes) {
 export default function RunHistory({ currentRunId, expanded = false }) {
   var [runs, setRuns] = useState([]);
   var [busy, setBusy] = useState(false);
+  var [error, setError] = useState("");
   var [olderThanDays, setOlderThanDays] = useState(14);
   var [maxGb, setMaxGb] = useState("");
 
@@ -31,9 +32,14 @@ export default function RunHistory({ currentRunId, expanded = false }) {
 
   var deleteRun = async (runId) => {
     setBusy(true);
+    setError("");
     try {
-      await fetch("/api/runs?runId=" + encodeURIComponent(runId), { method: "DELETE" });
+      var res = await fetch("/api/runs?runId=" + encodeURIComponent(runId), { method: "DELETE" });
+      var data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.detail || "Delete failed");
       await loadRuns();
+    } catch (err) {
+      setError(err.message || "Delete failed");
     } finally {
       setBusy(false);
     }
@@ -41,8 +47,9 @@ export default function RunHistory({ currentRunId, expanded = false }) {
 
   var cleanup = async () => {
     setBusy(true);
+    setError("");
     try {
-      await fetch("/api/runs", {
+      var res = await fetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -50,7 +57,11 @@ export default function RunHistory({ currentRunId, expanded = false }) {
           maxBytes: maxGb ? Math.max(0, Math.round((parseFloat(maxGb) || 0) * 1024 * 1024 * 1024)) : 0,
         }),
       });
+      var data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.detail || "Cleanup failed");
       await loadRuns();
+    } catch (err) {
+      setError(err.message || "Cleanup failed");
     } finally {
       setBusy(false);
     }
@@ -97,6 +108,7 @@ export default function RunHistory({ currentRunId, expanded = false }) {
           </button>
         </div>
       </div>
+      {error && <div className="mb-3 text-[10px] text-red-300">{error}</div>}
       <div className="flex flex-col gap-2 max-h-[240px] overflow-y-auto">
         {runs.map((run) => (
           <div key={run.runId} className={"rounded-lg border p-3 flex items-center justify-between gap-3 " + (run.runId === currentRunId ? "border-purple-dim bg-purple/5" : "border-border bg-[#08080c]")}>

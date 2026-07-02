@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -24,7 +26,7 @@ import time
 import urllib.request
 import webbrowser
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import uvicorn
@@ -50,6 +52,7 @@ from metrics_store import (
     metrics_leaderboard,
     metrics_summary,
     outcomes_summary,
+    soul_metrics_report,
 )  # noqa
 from manifest import Manifest  # noqa
 from project_config import load_config, save_config  # noqa
@@ -59,8 +62,14 @@ from whisper_sync import transcribe_clip  # noqa
 from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
-from local_api_auth import install_local_api_auth_middleware, require_local_api_auth  # noqa
+import reel_factory.local_api_auth as rf_auth  # noqa
+from reel_factory.api.metrics_routes import (  # noqa
+    MetricsRouteDeps,
+    build_metrics_router,
+    dashboard_summary,
+)
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
+from reel_factory.sqlite_utils import connect_sqlite  # noqa
 from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
 from generate_assets import (  # noqa
     AssetGenerationPlan,
@@ -72,6 +81,7 @@ from generate_assets import (  # noqa
     create_video_asset,
     dry_run as asset_dry_run,
     dry_run_direct_reference_image,
+    list_failed_generations,
     load_prompt,
     probe_higgsfield_capabilities,
 )
@@ -111,13 +121,17 @@ from campaign_store import (
     get_asset_generation,
     link_campaign_output,
     list_campaigns,
-    next_batch_plan,
     rate_output,
     update_asset_generation,
 )  # noqa
+from next_batch import select_next_batch  # noqa
+from render_queue import get_queue  # noqa
 from posting_ledger import (
     assign_approved_reels as ledger_assign_approved_reels,
+    content_fingerprint as ledger_content_fingerprint,
     create_posting_plan,
+    _creator_identity_conflict as ledger_creator_identity_conflict,
+    _find_lineage_path as ledger_find_lineage_path,
     export_schedule_package as ledger_export_schedule_package,
     ledger_conflicts,
     review_queue as ledger_review_queue,
@@ -139,22 +153,146 @@ SAFE_ZONE_DEFAULTS = {
     "right_pct": 5.0,
     "source": "renderer_default_safe_margins",
 }
+ASSET_JOB_LOCK = threading.Lock()
+ASSET_JOBS: dict[str, dict[str, Any]] = {}
+ASSET_IDEMPOTENCY: dict[str, str] = {}
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
 STEM_RE = re.compile(r"^clip_\d{3,}$")
+CLI_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,80}$")
 
 for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="reel_factory", dependencies=[Depends(require_local_api_auth)])
-install_local_api_auth_middleware(app)
+app = FastAPI(title="reel_factory", dependencies=[Depends(rf_auth.require_local_api_auth)])  # fmt: skip
+rf_auth.install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+def _asset_idempotency_key(kind: str, body: dict[str, Any]) -> str | None:
+    raw = body.get("idempotency_key") or body.get("idempotencyKey")
+    if not raw:
+        return None
+    return f"{kind}:{raw}"
+
+
+def _public_asset_job(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in job.items()
+        if key not in {"thread", "runner", "body"}
+    }
+
+
+def _update_asset_job(job_id: str | None, **fields: Any) -> None:
+    if not job_id:
+        return
+    with ASSET_JOB_LOCK:
+        job = ASSET_JOBS.get(job_id)
+        if not job:
+            return
+        job.update(fields)
+        job["updated_at"] = int(time.time())
+
+
+def _run_asset_job(job_id: str, runner: Any, body: dict[str, Any]) -> None:
+    _update_asset_job(job_id, status="running", started_at=int(time.time()))
+    try:
+        result = runner(body)
+        status = "done" if result.get("ok", True) else "failed"
+        _update_asset_job(
+            job_id, status=status, result=result, error=result.get("error")
+        )
+    except HTTPException as exc:
+        _update_asset_job(
+            job_id,
+            status="failed",
+            error=str(exc.detail),
+            result={"ok": False, "error": exc.detail, "status_code": exc.status_code},
+        )
+    except Exception:
+        _update_asset_job(
+            job_id,
+            status="failed",
+            error="asset job failed",
+            result={"ok": False, "error": "asset job failed"},
+        )
+
+
+def _enqueue_asset_job(
+    kind: str,
+    body: dict[str, Any],
+    runner: Any,
+) -> dict[str, Any]:
+    dedupe_key = _asset_idempotency_key(kind, body)
+    now = int(time.time())
+    with ASSET_JOB_LOCK:
+        if dedupe_key and dedupe_key in ASSET_IDEMPOTENCY:
+            existing = ASSET_JOBS[ASSET_IDEMPOTENCY[dedupe_key]]
+            return {"ok": True, "deduped": True, **_public_asset_job(existing)}
+        seed = dedupe_key or f"{kind}:{now}:{time.time_ns()}"
+        job_id = f"asset_job_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+        job = {
+            "ok": True,
+            "job_id": job_id,
+            "kind": kind,
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "idempotency_key": dedupe_key,
+        }
+        ASSET_JOBS[job_id] = job
+        if dedupe_key:
+            ASSET_IDEMPOTENCY[dedupe_key] = job_id
+    queued_body = dict(body)
+    queued_body["_asset_job_id"] = job_id
+    thread = threading.Thread(
+        target=_run_asset_job,
+        args=(job_id, runner, queued_body),
+        daemon=True,
+        name=f"reel-asset-job-{kind}",
+    )
+    with ASSET_JOB_LOCK:
+        ASSET_JOBS[job_id]["thread"] = thread
+    thread.start()
+    return {"ok": True, **_public_asset_job(job)}
+
+
+def _run_reel_pipeline_subprocess(
+    args: list[str],
+    *,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    cmd = [sys.executable, "reel_pipeline.py", *args]
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, f"subprocess timed out after {timeout_seconds}s")
+
+
+@app.get("/api/assets/jobs/{job_id}")
+def asset_job_status_api(job_id: str):
+    with ASSET_JOB_LOCK:
+        job = ASSET_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, "asset job not found")
+        return {"ok": True, **_public_asset_job(job)}
 
 
 def guard_deprecated_generator_api(feature: str) -> None:
     try:
         guard_deprecated_generator(feature)
-    except DeprecatedGeneratorError as exc:
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+    except DeprecatedGeneratorError:
+        raise HTTPException(
+            status_code=410,
+            detail=f"{feature} is deprecated and disabled in this environment",
+        )
 
 
 _run_state: dict[str, Any] = {
@@ -167,6 +305,8 @@ _run_state: dict[str, Any] = {
     "completed": 0,
     "total": 0,
     "failed": 0,
+    "rejected": 0,
+    "rejection_reasons": {},
 }
 _run_lock = threading.Lock()
 
@@ -180,13 +320,20 @@ _auto_shutdown_enabled = False
 
 
 def _safe_in_root(p: Path) -> Path:
-    p = p.resolve()
-    root = ROOT.resolve()
-    try:
-        p.relative_to(root)
-    except ValueError:
+    root = os.path.realpath(ROOT)
+    candidate = os.path.realpath(p)
+    if candidate != root and not candidate.startswith(root + os.sep):
         raise HTTPException(403, "path outside project")
-    return p
+    return Path(candidate)
+
+
+def _safe_relative_file_path(raw_path: str) -> Path:
+    relative = PurePosixPath(str(raw_path))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise HTTPException(403, "invalid file path")
+    return _safe_in_root(ROOT.joinpath(*relative.parts))
 
 
 def _safe_stem(stem: str) -> str:
@@ -195,12 +342,18 @@ def _safe_stem(stem: str) -> str:
     return stem
 
 
+def _safe_cli_token(value: str, field: str) -> str:
+    if not CLI_TOKEN_RE.fullmatch(value):
+        raise HTTPException(400, f"invalid {field}")
+    return value
+
+
 def _grid_layout_dimensions(value: Any) -> tuple[int | None, int | None]:
-    match = re.fullmatch(r"\s*(\d+)x(\d+)\s*", str(value or ""))
-    if not match:
+    parts = str(value or "").strip().lower().split("x", 1)
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
         return None, None
-    columns = int(match.group(1))
-    rows = int(match.group(2))
+    columns = int(parts[0])
+    rows = int(parts[1])
     if columns < 1 or rows < 1 or columns * rows > 12:
         return None, None
     return columns, rows
@@ -336,6 +489,105 @@ def _asset_state_by_stem() -> dict[str, dict[str, Any]]:
             ),
         }
     return states
+
+
+def _asset_job_counts() -> dict[str, int]:
+    with ASSET_JOB_LOCK:
+        counts: dict[str, int] = {}
+        for job in ASSET_JOBS.values():
+            status = str(job.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+        return counts
+
+
+def _render_queue_health() -> dict[str, Any]:
+    try:
+        return get_queue(ROOT).status()
+    except Exception:
+        return {"counts": {}, "error": "render queue unavailable"}
+
+
+def _campaign_factory_db_path(root: Path) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    return root.parent / "campaign_factory" / "campaign_factory.sqlite"
+
+
+def _parse_campaign_job_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _campaign_factory_job_health(
+    root: Path = ROOT, *, stuck_hours: float = 24.0
+) -> dict[str, Any]:
+    db = _campaign_factory_db_path(root)
+    summary = {
+        "failed": 0,
+        "stuck": 0,
+        "stuckHours": stuck_hours,
+        "dbPath": str(db),
+    }
+    if not db.exists():
+        return summary
+    threshold_seconds = max(0.0, stuck_hours) * 3600.0
+    try:
+        with connect_sqlite(db, readonly=True, wal=False) as conn:
+            rows = conn.execute(
+                "SELECT status, updated_at, created_at FROM pipeline_jobs"
+            ).fetchall()
+    except sqlite3.Error:
+        return {**summary, "error": "campaign job health unavailable"}
+    now = datetime.now(UTC)
+    for status, updated_at, created_at in rows:
+        normalized = str(status or "").lower()
+        if normalized == "failed":
+            summary["failed"] += 1
+        if normalized not in {"queued", "running"}:
+            continue
+        timestamp = _parse_campaign_job_timestamp(
+            updated_at
+        ) or _parse_campaign_job_timestamp(created_at)
+        if timestamp and (now - timestamp).total_seconds() >= threshold_seconds:
+            summary["stuck"] += 1
+    return summary
+
+
+def _public_failed_generations(root: Path = ROOT, *, limit: int = 20) -> dict[str, Any]:
+    report = list_failed_generations(root, limit=limit)
+    safe_items: list[dict[str, Any]] = []
+    for item in report.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        failure = item.get("failure") if isinstance(item.get("failure"), dict) else {}
+        safe_failure = {
+            key: str(failure[key])
+            for key in ("kind", "reason", "stage", "failure_kind", "action")
+            if failure.get(key) not in (None, "")
+        }
+        safe_items.append(
+            {
+                "schema": item.get("schema"),
+                "createdAt": item.get("createdAt"),
+                "stem": item.get("stem"),
+                "creator": item.get("creator"),
+                "campaign": item.get("campaign"),
+                "status": item.get("status"),
+                "lineagePath": item.get("lineagePath"),
+                "failure": safe_failure,
+            }
+        )
+    return {
+        "schema": report.get("schema"),
+        "path": report.get("path"),
+        "count": int(report.get("count") or len(safe_items)),
+        "items": safe_items,
+    }
 
 
 def _prompt_stems() -> set[str]:
@@ -592,9 +844,19 @@ def _update_run_progress_from_line(line: str) -> None:
         m = re.search(r"queued\s+(\d+)\s+render tasks", text)
         if m:
             _run_state["total"] = int(m.group(1))
+    if text.startswith("skip "):
+        reason = "skipped"
+        m = re.search(r"(?:reason|qc|reject(?:ed)?)[=:]\s*([a-zA-Z0-9_.-]+)", text)
+        if m:
+            reason = m.group(1)
+        elif ":" in text:
+            reason = text.rsplit(":", 1)[-1].strip().split()[0] or reason
+        _run_state["rejected"] = int(_run_state.get("rejected", 0)) + 1
+        reasons = dict(_run_state.get("rejection_reasons") or {})
+        reasons[reason] = int(reasons.get(reason, 0)) + 1
+        _run_state["rejection_reasons"] = reasons
     if (
         text.startswith("done ")
-        or text.startswith("skip ")
         or text.startswith("DRY ")
         or text.startswith("preview ")
     ):
@@ -734,10 +996,16 @@ def queue_threadsdashboard_post(
     _safe_in_root(src)
     if not src.exists() or not src.is_file():
         raise HTTPException(404, "output not found")
+    identity_conflict = _threadsdashboard_queue_identity_conflict(root, account, src)
+    if identity_conflict:
+        raise HTTPException(409, {"reason": identity_conflict})
     out_dir = root / "04_exports" / "threadsdashboard"
     asset_dir = out_dir / "media"
     dest = _copy_unique(src, asset_dir, prefix=src.stem)
-    post_id = hashlib.sha256(f"{dest}:{time.time()}".encode()).hexdigest()[:16]
+    fingerprint = ledger_content_fingerprint(src)
+    post_id = hashlib.sha256(
+        f"{account}:{scheduled_at or ''}:{fingerprint}".encode()
+    ).hexdigest()[:16]
     record = {
         "schema": "reel_factory.threadsdashboard_queue.v1",
         "post_id": post_id,
@@ -748,6 +1016,7 @@ def queue_threadsdashboard_post(
         "source_output_path": str(src.resolve()),
         "media_path": str(dest),
         "filename": dest.name,
+        "content_fingerprint": fingerprint,
         "caption": caption,
         "notes": notes,
         "status": "queued",
@@ -757,14 +1026,67 @@ def queue_threadsdashboard_post(
     item_path.write_text(
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    with (out_dir / "queue.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    queue_path = out_dir / "queue.jsonl"
+    rows = []
+    if queue_path.exists():
+        for line in queue_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    rows = [row for row in rows if row.get("post_id") != post_id]
+    rows.append(record)
+    queue_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
     return {
         "ok": True,
         "queued": record,
         "path": str(item_path),
-        "queue_path": str(out_dir / "queue.jsonl"),
+        "queue_path": str(queue_path),
     }
+
+
+def _threadsdashboard_queue_identity_conflict(
+    root: Path, account: str, output_path: Path
+) -> str | None:
+    conn = campaign_connect(root)
+    try:
+        row = conn.execute(
+            """
+            SELECT cr.name, cr.soul_id, cr.default_settings_json
+            FROM campaigns c
+            JOIN creators cr ON cr.creator_id = c.creator_id
+            WHERE lower(c.account) = lower(?) AND c.status = 'active'
+            ORDER BY c.updated_at DESC
+            LIMIT 1
+            """,
+            (account,),
+        ).fetchone()
+        if not row:
+            return None
+        settings = json.loads(row["default_settings_json"] or "{}")
+        accepted = [
+            str(item).strip()
+            for item in settings.get("accepted_soul_ids", [])
+            if str(item).strip()
+        ] or [row["soul_id"]]
+        lineage_path = ledger_find_lineage_path(output_path)
+        lineage = (
+            json.loads(lineage_path.read_text(encoding="utf-8")) if lineage_path else {}
+        )
+        return ledger_creator_identity_conflict(
+            conn,
+            item={"output_path": str(output_path)},
+            lineage=lineage,
+            slot={
+                "creator": row["name"],
+                "soul_name": row["name"],
+                "soul_id": row["soul_id"],
+                "accepted_soul_ids_json": json.dumps(accepted),
+            },
+        )
+    finally:
+        conn.close()
 
 
 def _next_clip_id() -> str:
@@ -782,6 +1104,8 @@ def _next_clip_id() -> str:
 
 def _file_url(path: Path) -> str:
     try:
+        # lgtm[py/path-injection] this only converts an already-created local
+        # file into a URL after proving it is inside ROOT.
         rel = path.resolve().relative_to(ROOT)
     except ValueError:
         return ""
@@ -791,10 +1115,18 @@ def _file_url(path: Path) -> str:
 def _resolve_project_path(value: str | None) -> str | None:
     if not value:
         return None
+    # lgtm[py/path-injection] value is normalized through _safe_in_root before use.
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = ROOT / path
-    return str(path.resolve())
+    return str(_safe_in_root(path))
+
+
+def _resolve_project_path_required(value: Any, field: str) -> Path:
+    if not value:
+        raise HTTPException(400, f"{field} is required")
+    # lgtm[py/path-injection] value is normalized through _safe_in_root before use.
+    return _safe_in_root(Path(str(value)).expanduser())
 
 
 def _direct_reference_plan_from_body(body: dict[str, Any]) -> DirectReferenceImagePlan:
@@ -879,7 +1211,8 @@ def _update_source_lineage_with_fanout(
 ) -> str | None:
     if not lineage_path:
         return None
-    lineage_path = Path(lineage_path).expanduser().resolve()
+    # lgtm[py/path-injection] lineage_path is only accepted after the ROOT guard.
+    lineage_path = _safe_in_root(Path(lineage_path).expanduser())
     if not lineage_path.exists():
         return None
     payload = json.loads(lineage_path.read_text(encoding="utf-8"))
@@ -914,6 +1247,8 @@ def _update_source_lineage_with_fanout(
 
 
 def _shared_motion_prompt_path(stem: str) -> Path:
+    stem = _safe_stem(str(stem))
+    # lgtm[py/path-injection] stem is validated by _safe_stem before path construction.
     return ROOT / "prompts" / "_fanout" / f"{stem}_shared_kling_motion_prompt.json"
 
 
@@ -950,7 +1285,8 @@ def _attach_panel_lineage(
 ) -> None:
     if not lineage_path_value:
         return
-    path = Path(lineage_path_value).expanduser().resolve()
+    # lgtm[py/path-injection] lineage_path_value is accepted only inside ROOT.
+    path = _safe_in_root(Path(lineage_path_value).expanduser())
     if not path.exists():
         return
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -967,17 +1303,12 @@ def _attach_panel_lineage(
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def _higgsfield_cli_error(exc: Exception) -> dict[str, Any]:
-    message = str(exc)
-    action = (
-        "Run: hf auth login"
-        if "auth" in message.lower() or "login" in message.lower()
-        else None
-    )
+def _higgsfield_cli_error(failure_kind: str = "command_failed") -> dict[str, Any]:
     return {
         "ok": False,
-        "error": message,
-        "action": action,
+        "error": "higgsfield command failed",
+        "failure_kind": failure_kind,
+        "action": None,
     }
 
 
@@ -1030,45 +1361,33 @@ def list_clips(probe_preflight: bool = False, ensure_thumbs: bool = False):
     return out
 
 
-@app.get("/api/dashboard/summary")
 def dashboard_summary_api(campaign: str | None = None, account: str | None = None):
-    clips_data = _clip_cards_data()
-    needs_review = sum(int(row["status"].get("draft", 0)) for row in clips_data)
-    ready_to_post = sum(int(row["status"].get("approved", 0)) for row in clips_data)
-    needs_metrics = sum(
-        max(
-            0,
-            int(row["status"].get("approved", 0))
-            - int(row["status"].get("outcome_count", 0)),
-        )
-        for row in clips_data
+    return dashboard_summary(_metrics_route_deps(), campaign=campaign, account=account)
+
+
+def _metrics_route_deps() -> MetricsRouteDeps:
+    return MetricsRouteDeps(
+        root=ROOT,
+        clip_cards_data=lambda: _clip_cards_data(),
+        asset_job_counts=lambda: _asset_job_counts(),
+        render_queue_health=lambda: _render_queue_health(),
+        campaign_factory_job_health=lambda root: _campaign_factory_job_health(root),
+        public_failed_generations=lambda root, **kwargs: _public_failed_generations(
+            root, **kwargs
+        ),
+        select_next_batch=lambda root, **kwargs: select_next_batch(root, **kwargs),
+        account_fatigue_report=lambda root, **kwargs: account_fatigue_report(
+            root, **kwargs
+        ),
+        cost_analytics=lambda root: cost_analytics(root),
+        metrics_summary=lambda root: metrics_summary(root),
+        metrics_leaderboard=lambda root: metrics_leaderboard(root),
+        soul_metrics_report=lambda root, **kwargs: soul_metrics_report(root, **kwargs),
+        outcomes_summary=lambda root, **kwargs: outcomes_summary(root, **kwargs),
     )
-    rec = None
-    if campaign:
-        try:
-            plan = next_batch_plan(ROOT, campaign=campaign, count=1, persist=False)
-            rec = (plan.get("ideas") or [{}])[0].get("recommendation")
-        except Exception:
-            rec = None
-    account_health = None
-    if account:
-        try:
-            account_health = account_fatigue_report(ROOT, account=account)
-        except Exception:
-            account_health = None
-    return {
-        "schema": "reel_factory.dashboard_summary.v1",
-        "command_center": {
-            "needs_review": needs_review,
-            "ready_to_post": ready_to_post,
-            "needs_metrics": needs_metrics,
-            "recommended_next_batch": rec,
-        },
-        "clip_statuses": {row["stem"]: row["status"] for row in clips_data},
-        "next_actions": {row["stem"]: row["next_action"] for row in clips_data},
-        "account_health": account_health,
-        "recommendation_summary": rec,
-    }
+
+
+app.include_router(build_metrics_router(_metrics_route_deps()))
 
 
 @app.get("/api/next-clip-id")
@@ -1490,8 +1809,8 @@ def import_reel_url_api(body: dict = Body(...)):
     _safe_stem(stem)
     try:
         download = download_reel_url(url, out_dir=RAW_DIR, stem=stem)
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+    except Exception:
+        raise HTTPException(400, "reel import failed")
 
     cap = CAP_DIR / f"{stem}.json"
     cap.write_text(
@@ -1515,6 +1834,8 @@ def import_reel_url_api(body: dict = Body(...)):
             "url": url,
             "stem": stem,
             "sourceVideoPath": download["path"],
+            "infoJsonPath": download.get("infoJsonPath"),
+            "sourceMetrics": download.get("sourceMetrics") or {},
             "campaign": campaign,
         },
     )
@@ -1528,6 +1849,7 @@ def import_reel_url_api(body: dict = Body(...)):
             source_type="reel",
             visual_tags=["reel_url_import"],
             notes=f"Imported from URL: {url}",
+            source_metrics=download.get("sourceMetrics") or {},
         )
 
     prompt_result = None
@@ -1558,10 +1880,10 @@ def import_reel_url_api(body: dict = Body(...)):
                 ),
             )
             prompt_result["legacy"] = True
-        except Exception as exc:
+        except Exception:
             prompt_result = {
                 "ok": False,
-                "error": str(exc),
+                "error": "prompt generation failed",
                 "prompt_json_path": str(prompt_path),
             }
 
@@ -1616,28 +1938,32 @@ def campaign_leaderboard_api(campaign: str):
 
 @app.get("/api/campaigns/{campaign}/next-batch")
 def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
-    return next_batch_plan(ROOT, campaign=campaign, count=count, persist=persist)
+    return select_next_batch(ROOT, campaign=campaign, count=count, persist=persist)
 
 
 @app.get("/api/grid-crop/{stem}/frame")
 def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output(
-        [
-            FFPROBE,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        text=True,
-    )
+    try:
+        info_raw = subprocess.check_output(
+            [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration",
+                "-of",
+                "json",
+                str(source),
+            ],
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "ffprobe timed out after 30s")
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     frame = frame_path(ROOT, stem, time_sec)
     extract_frame(source, frame, time_sec=time_sec)
@@ -1662,21 +1988,25 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
 def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output(
-        [
-            FFPROBE,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        text=True,
-    )
+    try:
+        info_raw = subprocess.check_output(
+            [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration",
+                "-of",
+                "json",
+                str(source),
+            ],
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "ffprobe timed out after 30s")
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     width = int(stream.get("width") or 0)
     height = int(stream.get("height") or 0)
@@ -1688,13 +2018,16 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
         rows = rows or layout_rows
     if not columns or not rows:
         columns, rows = infer_grid_preset(width, height)
-    boxes = preset_boxes(
-        width,
-        height,
-        columns=int(columns),
-        rows=int(rows),
-        inset=int(body.get("inset") or 0),
-    )
+    try:
+        boxes = preset_boxes(
+            width,
+            height,
+            columns=int(columns),
+            rows=int(rows),
+            inset=int(body.get("inset") or 0),
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(400, "invalid grid layout")
     return {
         "ok": True,
         "stem": stem,
@@ -1747,10 +2080,10 @@ def grid_crop_preview_api(stem: str, body: dict = Body(...)):
     panel_id = int(body.get("panel_id") or body.get("panel") or 1)
     try:
         preview = preview_panel_image(ROOT, stem=stem, panel_id=panel_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except KeyError as exc:
-        raise HTTPException(400, f"panel {panel_id} not found") from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "crop preview not found")
+    except KeyError:
+        raise HTTPException(400, f"panel {panel_id} not found")
     return {
         "ok": True,
         "panel_id": panel_id,
@@ -1770,8 +2103,8 @@ def grid_crop_render_api(stem: str, body: dict = Body(default={})):
             captions=body.get("captions") or None,
             render_captions=bool(body.get("render_captions", True)),
         )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "grid crop plan not found")
     return result
 
 
@@ -1779,8 +2112,8 @@ def grid_crop_render_api(stem: str, body: dict = Body(default={})):
 def higgsfield_capabilities_api(force: bool = False):
     try:
         return probe_higgsfield_capabilities(ROOT, force=force)
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception:
+        return {"ok": False, "error": "higgsfield capability probe failed"}
 
 
 @app.post("/api/assets/reference-image/dry-run")
@@ -1790,7 +2123,17 @@ def asset_reference_image_dry_run_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/reference-image/create")
-def asset_reference_image_create_api(body: dict = Body(...)):
+def asset_reference_image_create_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
+        return _enqueue_asset_job(
+            "reference_image_create",
+            _with_default_idempotency("reference_image_create", body),
+            _asset_reference_image_create_sync,
+        )
+    return _asset_reference_image_create_sync(body)
+
+
+def _asset_reference_image_create_sync(body: dict[str, Any]) -> dict[str, Any]:
     plan = _direct_reference_plan_from_body(body)
     try:
         result = create_direct_reference_image_asset(
@@ -1798,10 +2141,14 @@ def asset_reference_image_create_api(body: dict = Body(...)):
             wait=bool(body.get("wait", True)),
             download=bool(body.get("download", True)),
         )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    except ValueError:
+        raise HTTPException(400, "invalid reference image request")
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "reference image creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
@@ -1830,7 +2177,7 @@ def asset_dry_run_api(body: dict = Body(...)):
     if not prompt_json or not stem:
         raise HTTPException(400, "prompt_json and stem are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -1898,13 +2245,23 @@ def prompt_generate_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/create-image")
-def asset_create_image_api(body: dict = Body(...)):
+def asset_create_image_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
+        return _enqueue_asset_job(
+            "create_image",
+            _with_default_idempotency("create_image", body),
+            _asset_create_image_sync,
+        )
+    return _asset_create_image_sync(body)
+
+
+def _asset_create_image_sync(body: dict[str, Any]) -> dict[str, Any]:
     prompt_json = body.get("prompt_json")
     stem = body.get("stem")
     if not prompt_json or not stem:
         raise HTTPException(400, "prompt_json and stem are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -1927,7 +2284,11 @@ def asset_create_image_api(body: dict = Body(...)):
             download=bool(body.get("download", True)),
         )
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "image asset creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
@@ -1999,14 +2360,24 @@ def asset_select_panel_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/create-video")
-def asset_create_video_api(body: dict = Body(...)):
+def asset_create_video_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
+        return _enqueue_asset_job(
+            "create_video",
+            _with_default_idempotency("create_video", body),
+            _asset_create_video_sync,
+        )
+    return _asset_create_video_sync(body)
+
+
+def _asset_create_video_sync(body: dict[str, Any]) -> dict[str, Any]:
     prompt_json = body.get("prompt_json")
     stem = body.get("stem")
     start_image = body.get("start_image")
     if not prompt_json or not stem or not start_image:
         raise HTTPException(400, "prompt_json, stem, and start_image are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -2036,7 +2407,11 @@ def asset_create_video_api(body: dict = Body(...)):
             download=bool(body.get("download", False)),
         )
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "video asset creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     campaign_record = result.get("campaign_record") or {}
@@ -2067,16 +2442,28 @@ def asset_create_video_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/fanout-panels")
-def asset_fanout_panels_api(body: dict = Body(...)):
+def asset_fanout_panels_api(body: dict = Body(...), sync: int = 0):
+    if not sync and not bool(body.get("dry_run", False)):
+        return _enqueue_asset_job(
+            "fanout_panels",
+            _with_default_idempotency("fanout_panels", body),
+            lambda queued_body: _asset_fanout_panels_sync(queued_body),
+        )
+    return _asset_fanout_panels_sync(body)
+
+
+def _asset_fanout_panels_sync(
+    body: dict[str, Any],
+    *,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    job_id = job_id or body.get("_asset_job_id")
     prompt_json_value = body.get("prompt_json")
     stem = _safe_stem(str(body.get("stem") or _next_clip_id()))
     source_image_value = body.get("source_image")
     if not prompt_json_value or not source_image_value:
         raise HTTPException(400, "prompt_json and source_image are required")
-    prompt_json = Path(prompt_json_value).expanduser()
-    if not prompt_json.is_absolute():
-        prompt_json = ROOT / prompt_json
-    prompt_json = prompt_json.resolve()
+    prompt_json = _resolve_project_path_required(prompt_json_value, "prompt_json")
     if not prompt_json.exists():
         raise HTTPException(404, "prompt_json not found")
     source_image = Path(_resolve_project_path(source_image_value) or "")
@@ -2131,6 +2518,13 @@ def asset_fanout_panels_api(body: dict = Body(...)):
             panels.append(planned)
             continue
 
+        panels.append(planned)
+        _update_asset_job(
+            job_id,
+            panels=panels,
+            detectedPanelCount=detected_count,
+            maxJobs=max_jobs,
+        )
         try:
             plan = AssetGenerationPlan(
                 prompt_json=shared_prompt_path if shared_prompt_path else prompt_json,
@@ -2169,9 +2563,15 @@ def asset_fanout_panels_api(body: dict = Body(...)):
                 parent_asset_generation_id=parent_asset_generation_id,
                 panel=panel,
             )
-            panels.append(created)
-        except Exception as exc:
-            panels.append({**planned, "status": "failed", "error": str(exc)})
+            panels[-1] = created
+            _update_asset_job(job_id, panels=panels)
+        except Exception:
+            panels[-1] = {
+                **planned,
+                "status": "failed",
+                "error": "panel generation failed",
+            }
+            _update_asset_job(job_id, panels=panels)
 
     lineage_path = body.get("lineage_path")
     if not lineage_path and stem:
@@ -2341,13 +2741,42 @@ def asset_download_video_api(body: dict = Body(...)):
 
 
 @app.post("/api/campaigns/{campaign}/render-pack")
-def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
+def campaign_render_pack_api(campaign: str, body: dict = Body(...), sync: int = 0):
+    queued_body = dict(body)
+    queued_body["_campaign"] = campaign
+    if not sync:
+        queued_body.setdefault(
+            "idempotency_key", _render_pack_idempotency_key(campaign, queued_body)
+        )
+        return _enqueue_asset_job(
+            "render_pack", queued_body, _campaign_render_pack_sync
+        )
+    return _campaign_render_pack_sync(queued_body)
+
+
+def _render_pack_idempotency_key(campaign: str, body: dict[str, Any]) -> str:
+    payload = {
+        "campaign": campaign,
+        "stem": body.get("stem"),
+        "asset_generation_id": body.get("asset_generation_id"),
+        "asset_prompt_json": body.get("asset_prompt_json"),
+        "recipes": body.get("recipes"),
+        "max_hooks": body.get("max_hooks"),
+        "target_ratios": body.get("target_ratios"),
+        "workers": body.get("workers"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _campaign_render_pack_sync(body: dict[str, Any]) -> dict[str, Any]:
+    campaign = str(body.get("_campaign") or "")
     stem = body.get("stem")
     if not stem:
         raise HTTPException(400, "stem is required")
-    cmd = [
-        sys.executable,
-        "reel_pipeline.py",
+    campaign = _safe_cli_token(str(campaign), "campaign")
+    args = [
         "--root",
         str(ROOT),
         "--only-clip",
@@ -2358,29 +2787,37 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         "--readiness",
     ]
     if body.get("asset_generation_id"):
-        cmd += ["--asset-generation-id", str(body["asset_generation_id"])]
-    if body.get("asset_prompt_json"):
-        cmd += [
-            "--asset-prompt-json",
-            str(Path(body["asset_prompt_json"]).expanduser().resolve()),
+        args += [
+            "--asset-generation-id",
+            _safe_cli_token(str(body["asset_generation_id"]), "asset_generation_id"),
         ]
+    if body.get("asset_prompt_json"):
+        prompt_path = _safe_in_root(Path(str(body["asset_prompt_json"])))
+        args += ["--asset-prompt-json", str(prompt_path)]
     if body.get("recipes"):
         recipes = body["recipes"]
         if isinstance(recipes, str):
             recipes = [recipes]
-        cmd += ["--recipes", *[str(r) for r in recipes]]
+        args += ["--recipes", *[_safe_cli_token(str(r), "recipe") for r in recipes]]
     if body.get("max_hooks"):
-        cmd += ["--max-hooks", str(int(body["max_hooks"]))]
+        max_hooks = int(body["max_hooks"])
+        if max_hooks < 1 or max_hooks > 50:
+            raise HTTPException(400, "max_hooks must be between 1 and 50")
+        args += ["--max-hooks", str(max_hooks)]
     if body.get("target_ratios"):
         ratios = body["target_ratios"]
         if isinstance(ratios, str):
             ratios = [ratios]
-        cmd += ["--target-ratios", *[str(r) for r in ratios]]
+        clean_ratios = [str(r) for r in ratios]
+        if any(ratio not in {"9:16", "4:5", "1:1"} for ratio in clean_ratios):
+            raise HTTPException(400, "target_ratios contains an unsupported ratio")
+        args += ["--target-ratios", *clean_ratios]
     if body.get("workers"):
-        cmd += ["--workers", str(int(body["workers"]))]
-    proc = subprocess.run(
-        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
+        workers = int(body["workers"])
+        if workers < 1 or workers > 8:
+            raise HTTPException(400, "workers must be between 1 and 8")
+        args += ["--workers", str(workers)]
+    proc = _run_reel_pipeline_subprocess(args, timeout_seconds=900)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-2000:])
     return {"ok": True, "log": proc.stdout[-4000:]}
@@ -2421,16 +2858,6 @@ def batch_output_review(body: dict = Body(...)):
     return {"ok": True, "changed": changed, "review_state": state}
 
 
-@app.get("/api/metrics/summary")
-def get_metrics_summary():
-    return {"rows": metrics_summary(ROOT)}
-
-
-@app.get("/api/metrics/leaderboard")
-def get_metrics_leaderboard():
-    return metrics_leaderboard(ROOT)
-
-
 @app.post("/api/metrics/import")
 def import_metrics(body: dict = Body(...)):
     path = body.get("path")
@@ -2459,11 +2886,6 @@ async def import_outcomes(
             raise HTTPException(400, "path or file is required")
         csv_path = _safe_in_root(Path(path))
     return {"ok": True, **import_outcomes_csv(ROOT, csv_path)}
-
-
-@app.get("/api/outcomes/summary")
-def get_outcomes_summary(limit: int = 10):
-    return outcomes_summary(ROOT, limit=limit)
 
 
 @app.post("/api/references/analyze")
@@ -2527,11 +2949,6 @@ def account_fatigue_api(account: str, window: int = 30):
 @app.get("/api/recommendations/decisions")
 def recommendation_decisions_api(campaign: str | None = None, limit: int = 50):
     return decision_log(ROOT, campaign=campaign, limit=limit)
-
-
-@app.get("/api/costs/analytics")
-def cost_analytics_api():
-    return cost_analytics(ROOT)
 
 
 @app.post("/api/costs/record")
@@ -2621,6 +3038,8 @@ def posting_ledger_plan_api(body: dict = Body(...)):
         start_date=str(body.get("start_date") or time.strftime("%Y-%m-%d")),
         days=int(body.get("days") or 7),
         platform=str(body.get("platform") or "ig"),
+        soul_id=body.get("soul_id") or body.get("soulId"),
+        accepted_soul_ids=body.get("accepted_soul_ids") or body.get("acceptedSoulIds"),
         dry_run=bool(body.get("dry_run", False)),
     )
 
@@ -2709,9 +3128,7 @@ def threadsdashboard_queue_api(body: dict = Body(...)):
 @app.post("/api/clips/{stem}/preview")
 def preview_clip(stem: str, body: dict = Body(default={})):
     stem = _safe_stem(stem)
-    cmd = [
-        sys.executable,
-        "reel_pipeline.py",
+    args = [
         "--root",
         str(ROOT),
         "--only-clip",
@@ -2729,10 +3146,11 @@ def preview_clip(stem: str, body: dict = Body(default={})):
         body.get("placement_mode") or "source",
     ]
     if body.get("target_ratio"):
-        cmd += ["--target-ratios", body["target_ratio"]]
-    proc = subprocess.run(
-        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
+        target_ratio = str(body["target_ratio"])
+        if target_ratio not in {"9:16", "4:5", "1:1"}:
+            raise HTTPException(400, "target_ratio contains an unsupported ratio")
+        args += ["--target-ratios", target_ratio]
+    proc = _run_reel_pipeline_subprocess(args, timeout_seconds=180)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-1500:])
     return {
@@ -2864,6 +3282,8 @@ def trigger_run(body: dict = Body(...)):
         _run_state["completed"] = 0
         _run_state["total"] = 0
         _run_state["failed"] = 0
+        _run_state["rejected"] = 0
+        _run_state["rejection_reasons"] = {}
 
     cmd = [sys.executable, "reel_pipeline.py", "--root", str(ROOT)]
     if body.get("account"):
@@ -2959,6 +3379,8 @@ def run_status():
         "completed": _run_state.get("completed", 0),
         "total": _run_state.get("total", 0),
         "failed": _run_state.get("failed", 0),
+        "rejected": _run_state.get("rejected", 0),
+        "rejection_reasons": _run_state.get("rejection_reasons", {}),
     }
 
 
@@ -2991,7 +3413,7 @@ def _terminate_process() -> None:
 
 @app.get("/file/{path:path}")
 def serve_file(path: str):
-    full = _safe_in_root(ROOT / path)
+    full = _safe_relative_file_path(path)
     if not full.exists():
         raise HTTPException(404, "not found")
     return FileResponse(full)
@@ -3036,6 +3458,21 @@ def main() -> None:
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+def _with_default_idempotency(kind: str, body: dict[str, Any]) -> dict[str, Any]:
+    queued_body = dict(body)
+    queued_body.setdefault(
+        "idempotency_key",
+        hashlib.sha256(
+            json.dumps(
+                {"kind": kind, "body": queued_body},
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest(),
+    )
+    return queued_body
 
 
 if __name__ == "__main__":

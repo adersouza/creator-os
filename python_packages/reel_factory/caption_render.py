@@ -40,6 +40,7 @@ FONT_FILE = {
 CANVAS_W, CANVAS_H = 1080, 1920
 MAX_TEXT_W = 960
 REELS_SAFE_TEXT_W = 600
+CAPTION_LEGIBILITY_SHRINK_FLOOR = 0.55
 
 
 def _resolve_font_path(font_family: str, fonts_dir: Path) -> Path:
@@ -203,23 +204,55 @@ def _layout_text(
         0.68,
         0.62,
         0.56,
-        0.50,
-        0.44,
-        0.38,
     )
     max_lines = 5 if max_width < 700 * scale else 6
+    last: tuple[ImageFont.FreeTypeFont, list[str]] | None = None
     for shrink in shrink_steps:
+        if shrink < CAPTION_LEGIBILITY_SHRINK_FLOOR:
+            continue
         font = _font_for_lines(font_path, explicit_lines, scale=scale * shrink)
         lines = _wrap_lines(text, font, max_width=max_width)
         font = _font_for_lines(font_path, max(1, len(lines)), scale=scale * shrink)
         lines = _wrap_lines(text, font, max_width=max_width)
+        last = (font, lines)
         if (
             lines
             and len(lines) <= max_lines
             and max(_text_width(draw, line, font) for line in lines) <= max_width
         ):
             return font, lines
-    return font, lines
+    line_count = len(last[1]) if last else 0
+    raise ValueError(
+        "caption_unrenderable_at_legible_size:"
+        f" lines={line_count} max_lines={max_lines}"
+        f" min_shrink={CAPTION_LEGIBILITY_SHRINK_FLOOR}"
+    )
+
+
+def _layout_text_truncated(
+    text: str, font_path: Path, scale: float, max_width: int
+) -> tuple[ImageFont.FreeTypeFont, list[str]]:
+    max_lines = 5 if max_width < 700 * scale else 6
+    font = _font_for_lines(
+        font_path, max_lines, scale=scale * CAPTION_LEGIBILITY_SHRINK_FLOOR
+    )
+    tokens = text.split()
+    if not tokens:
+        return font, []
+    best = "..."
+    lo, hi = 0, len(tokens)
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = " ".join(tokens[:mid]).strip()
+        if mid < len(tokens):
+            candidate = f"{candidate} ..." if candidate else "..."
+        lines = _wrap_lines(candidate, font, max_width=max_width)
+        if lines and len(lines) <= max_lines:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return font, _wrap_lines(best, font, max_width=max_width)[:max_lines]
 
 
 def _contains_emoji_like(text: str) -> bool:
@@ -311,7 +344,12 @@ def render_caption_png(
     canvas_h_ = canvas_h
     font_path = _resolve_font_path(font_family, fonts_dir)
     text = text.strip()
-    font, lines = _layout_text(text, font_path, scale, max_text_w)
+    try:
+        font, lines = _layout_text(text, font_path, scale, max_text_w)
+    except ValueError as exc:
+        if not str(exc).startswith("caption_unrenderable_at_legible_size"):
+            raise
+        font, lines = _layout_text_truncated(text, font_path, scale, max_text_w)
     fs = font.size
     line_count = len(lines)
     line_h = int(fs * 1.18)
@@ -474,7 +512,12 @@ def _render_caption_png_pango(
     max_text_w = round((520 if band in {"left", "right"} else 960) * scale)
     font_path = _resolve_font_path(font_family, fonts_dir)
     text = text.strip()
-    pil_font, lines = _layout_text(text, font_path, scale, max_text_w)
+    try:
+        pil_font, lines = _layout_text(text, font_path, scale, max_text_w)
+    except ValueError as exc:
+        if not str(exc).startswith("caption_unrenderable_at_legible_size"):
+            raise
+        pil_font, lines = _layout_text_truncated(text, font_path, scale, max_text_w)
     font_size = pil_font.size
     line_height = int(font_size * 1.18)
     line_height * max(1, len(lines))

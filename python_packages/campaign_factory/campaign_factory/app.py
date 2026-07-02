@@ -848,13 +848,19 @@ def activity_log(campaign: str, limit: int = 200):
 
 
 @app.get("/api/jobs")
-def jobs(campaign: str, limit: int = 100):
+def jobs(campaign: str | None = None, limit: int = 100, stuck_hours: float = 24.0):
     cf = factory()
     try:
+        rows = cf.jobs_for_campaign(campaign, limit=limit, stuck_hours=stuck_hours)
         return {
             "schema": "campaign_factory.jobs.v1",
             "campaign": campaign,
-            "jobs": cf.jobs_for_campaign(campaign, limit=limit),
+            "stuckHours": stuck_hours,
+            "summary": {
+                "failed": sum(1 for job in rows if job.get("status") == "failed"),
+                "stuck": sum(1 for job in rows if job.get("stuck")),
+            },
+            "jobs": rows,
         }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

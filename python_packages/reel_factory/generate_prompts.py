@@ -28,8 +28,12 @@ from asset_prompt_contract import (
     build_grok_simple_prompt,
     parse_asset_prompt_response,
 )
-from campaign_store import retry_helper_direction, taste_memory
+from campaign_store import next_batch_plan, retry_helper_direction, taste_memory
 from PIL import Image, ImageStat
+from pipeline_contracts.llm_resilience import (
+    decode_json_object,
+    urlopen_json_with_retry,
+)
 from project_config import config_path
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
@@ -47,6 +51,9 @@ HIGGSFIELD_REFERENCE_PROMPT_MODE = "higgsfield-reference"
 DEFAULT_PROMPT_IMAGE_ASPECT_RATIO = "4:3"
 HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED = False
 HIGGSFIELD_REFERENCE_IMAGE_PASSED = False
+
+_PROMPT_GUIDANCE_MIN_QUALITY_SCORE = 65
+_PROMPT_GUIDANCE_CONFIDENCE = {"medium", "high"}
 
 _NUMBER_WORDS = {
     1: "one",
@@ -266,6 +273,7 @@ def build_user_instruction(
 
 _PROMPT_FRAGMENT_REJECT_RE = re.compile(
     r"\b(?:no|avoid|without)\b|\bdo\s+not\b|\bbad\s+hands\b|\bextra\s+limbs\b|\bwarped\s+face\b"
+    r"|\bignore\s+(?:previous|all|these)\s+instructions?\b|\bsystem\s+prompt\b|\binstructions?\b"
     r"|\bidentity\b"
     r"|\bhair\b|\bhairstyle\b|\bhair\s+color\b|\beye\s+color\b|\bethnicity\b|\btattoos?\b"
     r"|\bcaption\b|\btext\b|\boverlay\b|\btext\s+overlay\b|\bon-screen\s+text\b|\bhook\b|\bhook\s+text\b"
@@ -326,6 +334,22 @@ def _safe_fragment(value: Any) -> str:
     if _PROMPT_FRAGMENT_REJECT_RE.search(raw):
         return ""
     return re.sub(r"\s+", " ", raw)
+
+
+def _safe_analysis_context(analysis: dict[str, Any]) -> str:
+    safe = {
+        key: value
+        for key, value in (
+            (_safe_fragment(raw_key), _safe_fragment(raw_value))
+            for raw_key, raw_value in analysis.items()
+        )
+        if key and value
+    }
+    if not safe:
+        return ""
+    return "Reference analysis:\n" + json.dumps(
+        safe, indent=2, ensure_ascii=False, sort_keys=True
+    )
 
 
 def _safe_motion_fragment(value: Any) -> str:
@@ -1434,10 +1458,9 @@ def call_gemini_motion(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = urlopen_json_with_retry(req, timeout=timeout)
     text = strip_json_fence(response_text_from_gemini(raw))
-    parsed = json.loads(text)
+    parsed = decode_json_object(text)
     if not isinstance(parsed, dict):
         raise ValueError("Gemini motion response must be a JSON object")
     return {
@@ -1515,7 +1538,7 @@ def parse_prompt_text(text: str) -> AssetPromptSet:
 
 
 def call_grok(
-    payload: dict[str, Any], *, api_key: str, timeout: int = 3600
+    payload: dict[str, Any], *, api_key: str, timeout: int = 120
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -1527,8 +1550,7 @@ def call_grok(
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return urlopen_json_with_retry(req, timeout=timeout)
 
 
 def _load_secret_value(
@@ -1614,6 +1636,38 @@ def write_prompt_lineage(
     return path
 
 
+def _next_batch_prompt_guidance(root: Path, campaign: str | None) -> str:
+    if not campaign:
+        return ""
+    plan = next_batch_plan(root, campaign=campaign, count=1, persist=False)
+    idea = (plan.get("ideas") or [{}])[0]
+    if idea.get("low_data_warning"):
+        return ""
+    recommendation = idea.get("recommendation") or {}
+    if recommendation.get("confidence") not in _PROMPT_GUIDANCE_CONFIDENCE:
+        return ""
+    data_quality = idea.get("data_quality") or {}
+    if int(data_quality.get("score") or 0) < _PROMPT_GUIDANCE_MIN_QUALITY_SCORE:
+        return ""
+
+    parts = [
+        str(value).strip()
+        for value in (idea.get("brief"), idea.get("prompt_focus"))
+        if str(value or "").strip()
+    ]
+    dna = []
+    for row in idea.get("winner_dna_focus") or []:
+        key = str(row.get("feature_key") or "").strip()
+        value = str(row.get("feature_value") or "").strip()
+        if key and value:
+            dna.append(f"{key}={value}")
+    if dna:
+        parts.append("Winner DNA: " + "; ".join(dna[:4]))
+    if not parts:
+        return ""
+    return "Next-batch learning guidance:\n" + "\n".join(f"- {part}" for part in parts)
+
+
 def generate_prompt(
     *,
     out_path: Path,
@@ -1651,6 +1705,7 @@ def generate_prompt(
                 "at least one reference reel or reference image is required"
             )
         memory = taste_memory(root, campaign=campaign) if campaign else ""
+        next_batch_guidance = _next_batch_prompt_guidance(root, campaign)
         retry_direction = retry_helper_direction(retry_helper)
         analysis_context = ""
         reference_analysis_record = None
@@ -1661,8 +1716,8 @@ def generate_prompt(
 
             reference_analysis_record = latest_analysis_record(root, analysis_target)
             if reference_analysis_record:
-                analysis_context = "Reference analysis:\n" + json.dumps(
-                    reference_analysis_record["analysis"], indent=2, ensure_ascii=False
+                analysis_context = _safe_analysis_context(
+                    reference_analysis_record["analysis"]
                 )
             else:
                 try:
@@ -1693,9 +1748,7 @@ def generate_prompt(
                     )
                     merged_analysis.update(motion_analysis_record["analysis"])
                     reference_analysis_record["analysis"] = merged_analysis
-                    analysis_context = "Reference analysis:\n" + json.dumps(
-                        merged_analysis, indent=2, ensure_ascii=False
-                    )
+                    analysis_context = _safe_analysis_context(merged_analysis)
                 except Exception as exc:
                     motion_analysis_record = {
                         "model": DEFAULT_GEMINI_MODEL,
@@ -1703,7 +1756,14 @@ def generate_prompt(
                     }
         merged_direction = "\n".join(
             filter(
-                None, [creative_direction, analysis_context, retry_direction, memory]
+                None,
+                [
+                    creative_direction,
+                    analysis_context,
+                    retry_direction,
+                    memory,
+                    next_batch_guidance,
+                ],
             )
         )
         direct_prompt_mode = prompt_mode == GROK_DIRECT_COMPAT_MODE
