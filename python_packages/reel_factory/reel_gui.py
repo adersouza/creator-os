@@ -62,7 +62,7 @@ from whisper_sync import transcribe_clip  # noqa
 from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
-from local_api_auth import install_local_api_auth_middleware, require_local_api_auth  # noqa
+import reel_factory.local_api_auth as rf_auth  # noqa
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
 from reel_factory.sqlite_utils import connect_sqlite  # noqa
 from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
@@ -158,8 +158,8 @@ CLI_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,80}$")
 for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="reel_factory", dependencies=[Depends(require_local_api_auth)])
-install_local_api_auth_middleware(app)
+app = FastAPI(title="reel_factory", dependencies=[Depends(rf_auth.require_local_api_auth)])  # fmt: skip
+rf_auth.install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
