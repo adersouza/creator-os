@@ -63,6 +63,11 @@ from thumbnail_gen import generate_thumbnails, thumbnail_path_for  # noqa
 from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
 import reel_factory.local_api_auth as rf_auth  # noqa
+from reel_factory.api.metrics_routes import (  # noqa
+    MetricsRouteDeps,
+    build_metrics_router,
+    dashboard_summary,
+)
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
 from reel_factory.sqlite_utils import connect_sqlite  # noqa
 from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
@@ -1356,71 +1361,33 @@ def list_clips(probe_preflight: bool = False, ensure_thumbs: bool = False):
     return out
 
 
-@app.get("/api/dashboard/summary")
 def dashboard_summary_api(campaign: str | None = None, account: str | None = None):
-    clips_data = _clip_cards_data()
-    needs_review = sum(int(row["status"].get("draft", 0)) for row in clips_data)
-    ready_to_post = sum(int(row["status"].get("approved", 0)) for row in clips_data)
-    needs_metrics = sum(
-        max(
-            0,
-            int(row["status"].get("approved", 0))
-            - int(row["status"].get("outcome_count", 0)),
-        )
-        for row in clips_data
+    return dashboard_summary(_metrics_route_deps(), campaign=campaign, account=account)
+
+
+def _metrics_route_deps() -> MetricsRouteDeps:
+    return MetricsRouteDeps(
+        root=ROOT,
+        clip_cards_data=lambda: _clip_cards_data(),
+        asset_job_counts=lambda: _asset_job_counts(),
+        render_queue_health=lambda: _render_queue_health(),
+        campaign_factory_job_health=lambda root: _campaign_factory_job_health(root),
+        public_failed_generations=lambda root, **kwargs: _public_failed_generations(
+            root, **kwargs
+        ),
+        select_next_batch=lambda root, **kwargs: select_next_batch(root, **kwargs),
+        account_fatigue_report=lambda root, **kwargs: account_fatigue_report(
+            root, **kwargs
+        ),
+        cost_analytics=lambda root: cost_analytics(root),
+        metrics_summary=lambda root: metrics_summary(root),
+        metrics_leaderboard=lambda root: metrics_leaderboard(root),
+        soul_metrics_report=lambda root, **kwargs: soul_metrics_report(root, **kwargs),
+        outcomes_summary=lambda root, **kwargs: outcomes_summary(root, **kwargs),
     )
-    rec = None
-    if campaign:
-        try:
-            plan = select_next_batch(ROOT, campaign=campaign, count=1, persist=False)
-            rec = ((plan.get("items") or plan.get("ideas") or [{}])[0]).get(
-                "recommendation"
-            )
-        except Exception:
-            rec = None
-    account_health = None
-    if account:
-        try:
-            account_health = account_fatigue_report(ROOT, account=account)
-        except Exception:
-            account_health = None
-    asset_job_counts = _asset_job_counts()
-    render_queue = _render_queue_health()
-    campaign_jobs = _campaign_factory_job_health(ROOT)
-    failed_generations = _public_failed_generations(ROOT, limit=20)
-    try:
-        costs = cost_analytics(ROOT)
-    except Exception:
-        costs = {"error": "cost analytics unavailable"}
-    return {
-        "schema": "reel_factory.dashboard_summary.v1",
-        "command_center": {
-            "needs_review": needs_review,
-            "ready_to_post": ready_to_post,
-            "needs_metrics": needs_metrics,
-            "recommended_next_batch": rec,
-            "in_flight_generations": int(asset_job_counts.get("queued", 0))
-            + int(asset_job_counts.get("running", 0)),
-            "failed_generations": int(failed_generations.get("count", 0))
-            + int(asset_job_counts.get("failed", 0)),
-            "failed_campaign_jobs": int(campaign_jobs.get("failed", 0)),
-            "stuck_campaign_jobs": int(campaign_jobs.get("stuck", 0)),
-            "render_queue_depth": int(
-                (render_queue.get("counts") or {}).get("queued", 0)
-            ),
-        },
-        "clip_statuses": {row["stem"]: row["status"] for row in clips_data},
-        "next_actions": {row["stem"]: row["next_action"] for row in clips_data},
-        "account_health": account_health,
-        "recommendation_summary": rec,
-        "pipeline_health": {
-            "asset_jobs": asset_job_counts,
-            "failed_generations": failed_generations,
-            "render_queue": render_queue,
-            "campaign_jobs": campaign_jobs,
-            "costs": costs,
-        },
-    }
+
+
+app.include_router(build_metrics_router(_metrics_route_deps()))
 
 
 @app.get("/api/next-clip-id")
@@ -2891,21 +2858,6 @@ def batch_output_review(body: dict = Body(...)):
     return {"ok": True, "changed": changed, "review_state": state}
 
 
-@app.get("/api/metrics/summary")
-def get_metrics_summary():
-    return {"rows": metrics_summary(ROOT)}
-
-
-@app.get("/api/metrics/leaderboard")
-def get_metrics_leaderboard():
-    return metrics_leaderboard(ROOT)
-
-
-@app.get("/api/metrics/soul-report")
-def get_soul_metrics_report(by_account: bool = False):
-    return soul_metrics_report(ROOT, by_account=by_account)
-
-
 @app.post("/api/metrics/import")
 def import_metrics(body: dict = Body(...)):
     path = body.get("path")
@@ -2934,11 +2886,6 @@ async def import_outcomes(
             raise HTTPException(400, "path or file is required")
         csv_path = _safe_in_root(Path(path))
     return {"ok": True, **import_outcomes_csv(ROOT, csv_path)}
-
-
-@app.get("/api/outcomes/summary")
-def get_outcomes_summary(limit: int = 10):
-    return outcomes_summary(ROOT, limit=limit)
 
 
 @app.post("/api/references/analyze")
@@ -3002,11 +2949,6 @@ def account_fatigue_api(account: str, window: int = 30):
 @app.get("/api/recommendations/decisions")
 def recommendation_decisions_api(campaign: str | None = None, limit: int = 50):
     return decision_log(ROOT, campaign=campaign, limit=limit)
-
-
-@app.get("/api/costs/analytics")
-def cost_analytics_api():
-    return cost_analytics(ROOT)
 
 
 @app.post("/api/costs/record")
