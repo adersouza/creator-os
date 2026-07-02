@@ -76,7 +76,7 @@ class RenderQueue:
         ).fetchone()
         if row is None:
             return None
-        self.conn.execute(
+        cur = self.conn.execute(
             """
             UPDATE queue_jobs
             SET status = 'claimed', worker_id = ?, claimed_at = ?, heartbeat_at = ?
@@ -85,6 +85,8 @@ class RenderQueue:
             (worker_id, now, now, row["job_id"]),
         )
         self.conn.commit()
+        if cur.rowcount == 0:
+            return None
         row = self.conn.execute(
             "SELECT * FROM queue_jobs WHERE job_id = ?", (row["job_id"],)
         ).fetchone()

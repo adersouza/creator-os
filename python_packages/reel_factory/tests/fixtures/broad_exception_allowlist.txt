@@ -113,7 +113,7 @@ reference_analyzer.py:latest_analysis_record:379
 reference_grid_production.py:safe_json:172
 reference_grid_production.py:ocr_text:283
 reference_grid_production.py:check_xai_access:626
-render_queue.py:__init__:188
+render_queue.py:__init__:190
 thumbnail_gen.py:generate_thumbnails:70
 whisper_sync.py:transcribe_clip:47
 whisper_sync.py:_has_audio_stream:136
