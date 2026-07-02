@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import {
   collectApprovals,
   collectFailedGenerations,
+  collectDashboard,
   collectOutcomes,
   collectRenderQueue,
   collectSpend,
@@ -90,8 +91,33 @@ test("collectApprovals derives pending from media minus decisions", async functi
   assert.equal(approvals.pending, 1);
   assert.equal(approvals.approved, 1);
   assert.equal(approvals.rejected, 1);
+  assert.equal(approvals.scanned, 1);
+  assert.equal(approvals.skipped, 0);
   assert.equal(approvals.runs[0].runId, "run1");
   assert.equal(approvals.runs[0].media, 3);
+});
+
+test("collectApprovals scans only the newest 100 run directories", async function () {
+  var runsDir = tempDir();
+  for (var i = 0; i < 105; i++) {
+    var runId = "run-" + String(i).padStart(3, "0");
+    var finalDir = path.join(runsDir, runId, "final");
+    mkdirSync(finalDir, { recursive: true });
+    if (i === 0 || i === 104) writeFileSync(path.join(finalDir, "clip.mp4"), "x");
+    var when = new Date("2026-07-02T00:00:00Z").getTime() / 1000 + i;
+    utimesSync(path.join(runsDir, runId), when, when);
+  }
+
+  var approvals = await collectApprovals(runsDir);
+  assert.equal(approvals.scanned, 100);
+  assert.equal(approvals.skipped, 5);
+  assert.equal(approvals.pending, 1);
+  assert.deepEqual(
+    approvals.runs.map(function (run) {
+      return run.runId;
+    }),
+    ["run-104"],
+  );
 });
 
 test("collectOutcomes totals + slots; missing tables tolerated", function () {
@@ -110,4 +136,35 @@ test("collectOutcomes totals + slots; missing tables tolerated", function () {
   assert.equal(outcomes.totals.views, 1200);
   assert.equal(outcomes.recent[0].filename, "r2.mp4");
   assert.deepEqual(outcomes.slots, {});
+});
+
+test("collectDashboard marks thrown collectors unavailable without failing the route", async function () {
+  var dashboard = await collectDashboard({
+    collectors: {
+      collectApprovals: async function () {
+        return { pending: 3, approved: 2, rejected: 1, scanned: 6, skipped: 0, runs: [] };
+      },
+      collectInFlight: async function () {
+        return null;
+      },
+      collectRenderQueue: function () {
+        throw new Error("queue broken");
+      },
+      collectFailedGenerations: function () {
+        return { count: 0, recent: [] };
+      },
+      collectSpend: function () {
+        return { available: true, todayUsd: 0, todayEvents: 0, budgetUsd: null, recent: [] };
+      },
+      collectOutcomes: function () {
+        throw new Error("outcomes broken");
+      },
+    },
+  });
+
+  assert.equal(dashboard.approvals.pending, 3);
+  assert.equal(dashboard.renderQueue.available, false);
+  assert.equal(dashboard.renderQueue.error, "queue broken");
+  assert.equal(dashboard.outcomes.available, false);
+  assert.equal(dashboard.outcomes.error, "outcomes broken");
 });

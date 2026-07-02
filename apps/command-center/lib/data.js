@@ -1,6 +1,6 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -90,15 +90,56 @@ export function collectSpend({ dbPath = CAMPAIGN_FACTORY_DB, now = new Date() } 
 }
 
 var MEDIA_RE = /\.(mp4|mov|webm|png|jpe?g|webp)$/i;
+var MAX_APPROVAL_RUN_SCAN = 100;
+
+function errorMessage(error) {
+  return error && error.message ? error.message : String(error || "unknown error");
+}
+
+function withCollectorError(fallback, error) {
+  return { ...fallback, available: false, error: errorMessage(error) };
+}
+
+async function newestRunIds(runsDir, maxScan = MAX_APPROVAL_RUN_SCAN) {
+  var entries = await readdir(runsDir, { withFileTypes: true });
+  var runs = await Promise.all(
+    entries
+      .filter(function (entry) {
+        return entry.isDirectory();
+      })
+      .map(async function (entry) {
+        var runPath = path.join(runsDir, entry.name);
+        var info = await stat(runPath);
+        return { runId: entry.name, mtimeMs: info.mtimeMs };
+      }),
+  );
+  runs.sort(function (a, b) {
+    return b.mtimeMs - a.mtimeMs || b.runId.localeCompare(a.runId);
+  });
+  return {
+    runIds: runs.slice(0, maxScan).map(function (entry) {
+      return entry.runId;
+    }),
+    skipped: Math.max(0, runs.length - maxScan),
+  };
+}
 
 export async function collectApprovals(runsDir = CONTENTFORGE_RUNS_DIR, limit = 8) {
-  var summary = { available: existsSync(runsDir), pending: 0, approved: 0, rejected: 0, runs: [] };
+  var summary = {
+    available: existsSync(runsDir),
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    scanned: 0,
+    skipped: 0,
+    runs: [],
+  };
   if (!summary.available) return summary;
-  var entries = await readdir(runsDir).catch(function () {
-    return [];
-  });
+  var { runIds, skipped } = await newestRunIds(runsDir);
+  summary.skipped = skipped;
+  summary.scanned = runIds.length;
   var runs = [];
-  for (var runId of entries) {
+  for (var runId of runIds) {
     var finalDir = path.join(runsDir, runId, "final");
     if (!existsSync(finalDir)) continue;
     var files = await readdir(finalDir).catch(function () {
@@ -292,13 +333,67 @@ export function buildEventLog({ spend, failedGenerations, outcomes }, limit = 12
   return events.slice(0, limit);
 }
 
-export async function collectState() {
-  var [approvals, reelGui] = await Promise.all([collectApprovals(), collectReelGui()]);
-  var renderQueue = collectRenderQueue();
-  var failedGenerations = collectFailedGenerations();
-  var spend = collectSpend();
-  var outcomes = collectOutcomes();
-  var souls = collectSouls();
+export async function collectState({ collectors = {} } = {}) {
+  var collectApprovalsFn = collectors.collectApprovals || collectApprovals;
+  var collectReelGuiFn = collectors.collectReelGui || collectReelGui;
+  var collectRenderQueueFn = collectors.collectRenderQueue || collectRenderQueue;
+  var collectFailedGenerationsFn =
+    collectors.collectFailedGenerations || collectFailedGenerations;
+  var collectSpendFn = collectors.collectSpend || collectSpend;
+  var collectOutcomesFn = collectors.collectOutcomes || collectOutcomes;
+  var collectSoulsFn = collectors.collectSouls || collectSouls;
+  var [approvals, reelGui] = await Promise.all([
+    Promise.resolve()
+      .then(function () {
+        return collectApprovalsFn();
+      })
+      .catch(function (error) {
+      return withCollectorError(
+        { pending: 0, approved: 0, rejected: 0, scanned: 0, skipped: 0, runs: [] },
+        error,
+      );
+    }),
+    Promise.resolve()
+      .then(function () {
+        return collectReelGuiFn();
+      })
+      .catch(function () {
+        return null;
+      }),
+  ]);
+  var renderQueue;
+  try {
+    renderQueue = collectRenderQueueFn();
+  } catch (error) {
+    renderQueue = withCollectorError({ counts: {} }, error);
+  }
+  var failedGenerations;
+  try {
+    failedGenerations = collectFailedGenerationsFn();
+  } catch (error) {
+    failedGenerations = withCollectorError({ count: 0, recent: [] }, error);
+  }
+  var spend;
+  try {
+    spend = collectSpendFn();
+  } catch (error) {
+    spend = withCollectorError(
+      { todayUsd: 0, todayEvents: 0, budgetUsd: null, recent: [] },
+      error,
+    );
+  }
+  var outcomes;
+  try {
+    outcomes = collectOutcomesFn();
+  } catch (error) {
+    outcomes = withCollectorError({ count: 0, totals: {}, recent: [], slots: {} }, error);
+  }
+  var souls;
+  try {
+    souls = { available: true, items: collectSoulsFn() };
+  } catch (error) {
+    souls = withCollectorError({ items: [] }, error);
+  }
   return {
     schema: "creator_os.command_center.v1",
     generatedAt: new Date().toISOString(),

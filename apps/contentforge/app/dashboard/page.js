@@ -4,6 +4,46 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 var REFRESH_MS = 30000;
+var RETRY_HINT = "The dashboard will retry every 30 seconds and recover when the API responds.";
+
+function apiErrorHint(status) {
+  if (status === 401) return "Start the server with ALLOW_INSECURE_LOCAL=1 npm run dev or set CREATOR_OS_API_TOKEN.";
+  return RETRY_HINT;
+}
+
+async function readApiJson(path) {
+  try {
+    var res = await fetch(path, { signal: AbortSignal.timeout(10000) });
+    var body = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok) {
+      var reason = body.reason || body.error || body.message || res.statusText || "request failed";
+      return {
+        ok: false,
+        error: {
+          status: res.status,
+          reason,
+          message: "HTTP " + res.status + ": " + reason,
+          hint: apiErrorHint(res.status),
+        },
+      };
+    }
+    return { ok: true, data: body };
+  } catch (err) {
+    var timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
+    var reason = timedOut ? "request timed out after 10s" : err.message || "load failed";
+    return {
+      ok: false,
+      error: {
+        status: timedOut ? "timeout" : "network",
+        reason,
+        message: reason,
+        hint: RETRY_HINT,
+      },
+    };
+  }
+}
 
 function usd(value) {
   if (value == null) return "—";
@@ -74,23 +114,88 @@ function Empty({ children }) {
   return <div className="text-xs text-muted py-4 text-center">{children}</div>;
 }
 
+function PanelIssue({ children }) {
+  if (!children) return null;
+  return <div className="text-xs text-amber py-2">{children}</div>;
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading dashboard">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {Array.from({ length: 4 }, function (_, i) {
+          return (
+            <div key={i} className="bg-card rounded-card border border-border px-5 py-4 space-y-3">
+              <div className="h-3 w-20 bg-border rounded" />
+              <div className="h-8 bg-border/80 rounded" />
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid md:grid-cols-2 gap-3">
+        {Array.from({ length: 4 }, function (_, i) {
+          return (
+            <div key={i} className="bg-card rounded-card border border-border p-5 space-y-4">
+              <div className="h-3 w-28 bg-border rounded" />
+              <div className="h-16 bg-border/80 rounded" />
+              <div className="h-3 bg-border rounded" />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ErrorPanel({ error }) {
+  var title =
+    typeof error?.status === "number"
+      ? "HTTP " + error.status
+      : error?.status === "timeout"
+        ? "Request timed out"
+        : "Request failed";
+  return (
+    <div className="bg-card rounded-card border border-amber p-5">
+      <Label>Dashboard unavailable</Label>
+      <div className="mt-3 font-mono text-2xl text-amber">{title}</div>
+      <div className="mt-2 text-sm text-[#c8c8d0]">{error?.reason || "The API did not respond."}</div>
+      <div className="mt-4 text-xs font-mono text-purple">{error?.hint || RETRY_HINT}</div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  var [data, setData] = useState(null);
-  var [error, setError] = useState("");
+  var [state, setState] = useState({
+    status: "loading",
+    data: null,
+    error: null,
+    stale: false,
+  });
 
   useEffect(function () {
     var alive = true;
     async function load() {
-      try {
-        var res = await fetch("/api/dashboard");
-        var body = await res.json();
-        if (!res.ok) throw new Error(body.error || "load failed");
-        if (alive) {
-          setData(body);
-          setError("");
-        }
-      } catch (err) {
-        if (alive) setError(err.message || "load failed");
+      var result = await readApiJson("/api/dashboard");
+      if (!alive) return;
+      if (result.ok) {
+        setState({
+          status: "loaded",
+          data: result.data,
+          error: null,
+          stale: false,
+        });
+      } else {
+        setState(function (previous) {
+          if (previous.data) {
+            return { ...previous, status: "loaded", error: result.error, stale: true };
+          }
+          return {
+            status: "error",
+            data: null,
+            error: result.error,
+            stale: false,
+          };
+        });
       }
     }
     load();
@@ -101,6 +206,8 @@ export default function Dashboard() {
     };
   }, []);
 
+  var data = state.data;
+  var error = state.error;
   var cc = data?.reelGui?.commandCenter;
   var spend = data?.spend;
   var overBudget = spend?.budgetUsd != null && spend.todayUsd >= spend.budgetUsd;
@@ -118,30 +225,43 @@ export default function Dashboard() {
           </Link>
         </div>
         <span className="text-[10px] font-mono text-muted-dark">
-          {error
-            ? "error: " + error
-            : data
+          {state.stale
+            ? "stale: " + (error?.message || "refresh failed") + " · retrying"
+            : error && !data
+              ? "error: " + (error.message || error.reason)
+              : data
               ? "updated " + timeAgo(data.generatedAt) + " · refreshes 30s"
               : "loading…"}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <Stat
-          label="In-flight gens"
-          value={data ? (cc ? cc.in_flight_generations : "offline") : "…"}
-          tone={cc ? undefined : "bad"}
-        />
-        <Stat label="Failed gens" value={data ? failedCount : "…"} tone={failedCount > 0 ? "bad" : "good"} />
-        <Stat label="Render queue" value={data ? queued : "…"} />
-        <Stat
-          label="Spend today"
-          value={data ? usd(spend?.todayUsd) + (spend?.budgetUsd ? " / " + usd(spend.budgetUsd) : "") : "…"}
-          tone={overBudget ? "bad" : "good"}
-        />
-      </div>
+      {state.status === "loading" ? (
+        <LoadingSkeleton />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={error} />
+      ) : (
+        <>
+          {state.stale && (
+            <div className="bg-amber/10 border border-amber rounded-card px-4 py-3 mb-4 text-xs text-amber">
+              Showing last-good data. Latest refresh failed: {error?.message || error?.reason}
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <Stat
+              label="In-flight gens"
+              value={cc ? cc.in_flight_generations : "offline"}
+              tone={cc ? undefined : "bad"}
+            />
+            <Stat label="Failed gens" value={failedCount} tone={failedCount > 0 ? "bad" : "good"} />
+            <Stat label="Render queue" value={queued} />
+            <Stat
+              label="Spend today"
+              value={usd(spend?.todayUsd) + (spend?.budgetUsd ? " / " + usd(spend.budgetUsd) : "")}
+              tone={overBudget ? "bad" : "good"}
+            />
+          </div>
 
-      <div className="grid md:grid-cols-2 gap-3">
+          <div className="grid md:grid-cols-2 gap-3">
         <Card
           title="Pipeline health"
           right={
@@ -150,8 +270,11 @@ export default function Dashboard() {
             </span>
           }
         >
-          {!data ? (
-            <Empty>Loading…</Empty>
+          {data.renderQueue?.error || data.failedGenerations?.error ? (
+            <>
+              <PanelIssue>{data.renderQueue?.error}</PanelIssue>
+              <PanelIssue>{data.failedGenerations?.error}</PanelIssue>
+            </>
           ) : (
             <>
               {Object.entries(data.renderQueue?.counts || {}).map(function ([status, n]) {
@@ -180,8 +303,8 @@ export default function Dashboard() {
           title="Spend vs budget"
           right={spend?.budgetUsd == null ? <span className="text-[10px] font-mono text-muted">no daily cap set</span> : null}
         >
-          {!data ? (
-            <Empty>Loading…</Empty>
+          {spend?.error ? (
+            <PanelIssue>{spend.error}</PanelIssue>
           ) : !spend?.available ? (
             <Empty>Cost ledger not found.</Empty>
           ) : (
@@ -218,8 +341,8 @@ export default function Dashboard() {
             </span>
           }
         >
-          {!data ? (
-            <Empty>Loading…</Empty>
+          {data.approvals?.error ? (
+            <PanelIssue>{data.approvals.error}</PanelIssue>
           ) : (
             <>
               <div className={"font-mono text-2xl mb-3 " + (data.approvals.pending > 0 ? "text-amber" : "text-green")}>
@@ -236,6 +359,11 @@ export default function Dashboard() {
                   </a>
                 );
               })}
+              {data.approvals.skipped > 0 && (
+                <div className="text-[10px] text-muted mt-2">
+                  scanned newest {data.approvals.scanned} · skipped {data.approvals.skipped}
+                </div>
+              )}
               {data.approvals.runs.length === 0 && <Empty>No runs with media found.</Empty>}
             </>
           )}
@@ -251,8 +379,8 @@ export default function Dashboard() {
             ) : null
           }
         >
-          {!data ? (
-            <Empty>Loading…</Empty>
+          {data.outcomes?.error ? (
+            <PanelIssue>{data.outcomes.error}</PanelIssue>
           ) : !data.outcomes?.available || data.outcomes.count === 0 ? (
             <Empty>No outcomes yet — the learning loop is waiting for real posts.</Empty>
           ) : (
@@ -272,7 +400,9 @@ export default function Dashboard() {
             </>
           )}
         </Card>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

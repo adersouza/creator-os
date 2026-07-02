@@ -4,6 +4,47 @@ import { useEffect, useState } from "react";
 
 var REFRESH_MS = 30000;
 var CONTENTFORGE_URL = "http://localhost:3000";
+var AUTH_HINT =
+  "Start the server with ALLOW_INSECURE_LOCAL=1 npm run dev or set CREATOR_OS_API_TOKEN.";
+
+function apiErrorHint(status) {
+  if (status === 401) return AUTH_HINT;
+  return "The dashboard will retry every 30 seconds and recover when the API responds.";
+}
+
+async function readApiJson(path) {
+  try {
+    var res = await fetch(path, { signal: AbortSignal.timeout(10000) });
+    var body = await res.json().catch(function () {
+      return {};
+    });
+    if (!res.ok) {
+      var reason = body.reason || body.error || body.message || res.statusText || "request failed";
+      return {
+        ok: false,
+        error: {
+          status: res.status,
+          reason,
+          message: "HTTP " + res.status + ": " + reason,
+          hint: apiErrorHint(res.status),
+        },
+      };
+    }
+    return { ok: true, data: body };
+  } catch (err) {
+    var timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
+    var reason = timedOut ? "request timed out after 10s" : err.message || "load failed";
+    return {
+      ok: false,
+      error: {
+        status: timedOut ? "timeout" : "network",
+        reason,
+        message: reason,
+        hint: "The dashboard will retry every 30 seconds and recover when the API responds.",
+      },
+    };
+  }
+}
 
 function usd(value) {
   if (value == null) return "—";
@@ -65,6 +106,60 @@ function Tally({ tone }) {
 
 function Idle({ children }) {
   return <div className="text-xs text-faint py-3">{children}</div>;
+}
+
+function PanelIssue({ children }) {
+  if (!children) return null;
+  return <div className="text-xs text-alert py-2">{children}</div>;
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4" aria-label="Loading dashboard">
+      <div className="border border-seam rounded-panel bg-panel/90 p-5">
+        <div className="h-4 w-32 bg-seam rounded mb-5" />
+        <div className="grid grid-cols-6 gap-3">
+          {Array.from({ length: 6 }, function (_, i) {
+            return (
+              <div key={i} className="space-y-3">
+                <div className="h-3 bg-seam rounded" />
+                <div className="h-8 bg-seam-bright/60 rounded" />
+                <div className="h-2 bg-seam rounded" />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }, function (_, i) {
+          return (
+            <div key={i} className="border border-seam rounded-panel bg-panel/90 p-5 space-y-4">
+              <div className="h-3 w-24 bg-seam rounded" />
+              <div className="h-8 bg-seam-bright/60 rounded" />
+              <div className="h-3 bg-seam rounded" />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ErrorPanel({ error }) {
+  var title =
+    typeof error?.status === "number"
+      ? "HTTP " + error.status
+      : error?.status === "timeout"
+        ? "Request timed out"
+        : "Request failed";
+  return (
+    <section className="border border-alert/50 bg-alert/10 rounded-panel p-5">
+      <Eyebrow>Dashboard unavailable</Eyebrow>
+      <div className="mt-3 font-display font-bold text-alert text-lg">{title}</div>
+      <div className="mt-2 text-sm text-dim">{error?.reason || "The API did not respond."}</div>
+      <div className="mt-4 text-xs font-mono text-phosphor">{error?.hint || apiErrorHint()}</div>
+    </section>
+  );
 }
 
 /* The signature: the production line. */
@@ -156,7 +251,11 @@ function SpendMeter({ spend }) {
 }
 
 function SoulSplit({ souls }) {
-  var named = souls.filter(function (soul) {
+  var items = Array.isArray(souls) ? souls : souls?.items || [];
+  if (souls && souls.available === false) {
+    return <PanelIssue>{souls.error || "Soul metrics unavailable."}</PanelIssue>;
+  }
+  var named = items.filter(function (soul) {
     return soul.soulId !== "unattributed";
   });
   if (named.length === 0) {
@@ -181,22 +280,37 @@ function SoulSplit({ souls }) {
 }
 
 export default function CommandCenter() {
-  var [data, setData] = useState(null);
-  var [error, setError] = useState("");
+  var [state, setState] = useState({
+    status: "loading",
+    data: null,
+    error: null,
+    stale: false,
+  });
 
   useEffect(function () {
     var alive = true;
     async function load() {
-      try {
-        var res = await fetch("/api/state");
-        var body = await res.json();
-        if (!res.ok) throw new Error(body.error || "load failed");
-        if (alive) {
-          setData(body);
-          setError("");
-        }
-      } catch (err) {
-        if (alive) setError(err.message || "load failed");
+      var result = await readApiJson("/api/state");
+      if (!alive) return;
+      if (result.ok) {
+        setState({
+          status: "loaded",
+          data: result.data,
+          error: null,
+          stale: false,
+        });
+      } else {
+        setState(function (previous) {
+          if (previous.data) {
+            return { ...previous, status: "loaded", error: result.error, stale: true };
+          }
+          return {
+            status: "error",
+            data: null,
+            error: result.error,
+            stale: false,
+          };
+        });
       }
     }
     load();
@@ -206,6 +320,9 @@ export default function CommandCenter() {
       clearInterval(timer);
     };
   }, []);
+
+  var data = state.data;
+  var error = state.error;
 
   return (
     <main className="min-h-screen max-w-7xl mx-auto px-6 py-8">
@@ -229,15 +346,28 @@ export default function CommandCenter() {
             {data ? (data.onAir ? "On air" : "Line idle") : "…"}
           </span>
           <span className="text-[10px] font-mono text-faint">
-            {error ? "error: " + error : data ? "updated " + timeAgo(data.generatedAt) + " ago · 30s" : "loading"}
+            {state.stale
+              ? "stale: " + (error?.message || "refresh failed") + " · retrying"
+              : error && !data
+                ? "error: " + (error.message || error.reason)
+                : data
+                  ? "updated " + timeAgo(data.generatedAt) + " ago · 30s"
+                  : "loading"}
           </span>
         </div>
       </header>
 
-      {!data ? (
-        <Idle>Reading the floor…</Idle>
+      {state.status === "loading" ? (
+        <LoadingSkeleton />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={error} />
       ) : (
         <>
+          {state.stale && (
+            <div className="border border-signal/40 bg-signal/10 rounded-panel px-4 py-3 mb-4 text-xs text-signal">
+              Showing last-good data. Latest refresh failed: {error?.message || error?.reason}
+            </div>
+          )}
           <div className="mb-4">
             <ProductionLine line={data.line} failedTotal={data.failedTotal} />
           </div>
@@ -251,7 +381,9 @@ export default function CommandCenter() {
                 </span>
               }
             >
-              {data.spend.available ? (
+              {data.spend.error ? (
+                <PanelIssue>{data.spend.error}</PanelIssue>
+              ) : data.spend.available ? (
                 <SpendMeter spend={data.spend} />
               ) : (
                 <Idle>Cost ledger not found. Paid runs write it automatically.</Idle>
@@ -271,30 +403,41 @@ export default function CommandCenter() {
                 </a>
               }
             >
-              <div className="flex items-baseline gap-2 mb-3">
-                <span
-                  className={
-                    "font-mono text-2xl " + (data.approvals.pending > 0 ? "text-signal" : "text-phosphor")
-                  }
-                >
-                  {data.approvals.pending}
-                </span>
-                <span className="text-[10px] text-faint">
-                  pending · {data.approvals.approved} approved · {data.approvals.rejected} rejected
-                </span>
-              </div>
-              {data.approvals.runs.slice(0, 4).map(function (run) {
-                return (
-                  <div key={run.runId} className="flex justify-between py-1 border-t border-seam/60">
-                    <span className="text-xs text-dim truncate">{run.runId}</span>
-                    <span className="text-xs font-mono text-faint shrink-0">
-                      {run.pending}/{run.media}
+              {data.approvals.error ? (
+                <PanelIssue>{data.approvals.error}</PanelIssue>
+              ) : (
+                <>
+                  <div className="flex items-baseline gap-2 mb-3">
+                    <span
+                      className={
+                        "font-mono text-2xl " + (data.approvals.pending > 0 ? "text-signal" : "text-phosphor")
+                      }
+                    >
+                      {data.approvals.pending}
+                    </span>
+                    <span className="text-[10px] text-faint">
+                      pending · {data.approvals.approved} approved · {data.approvals.rejected} rejected
                     </span>
                   </div>
-                );
-              })}
-              {data.approvals.runs.length === 0 && (
-                <Idle>Nothing staged. Forge a batch in ContentForge to fill the queue.</Idle>
+                  {data.approvals.skipped > 0 && (
+                    <div className="text-[10px] text-faint mb-2">
+                      scanned newest {data.approvals.scanned} · skipped {data.approvals.skipped}
+                    </div>
+                  )}
+                  {data.approvals.runs.slice(0, 4).map(function (run) {
+                    return (
+                      <div key={run.runId} className="flex justify-between py-1 border-t border-seam/60">
+                        <span className="text-xs text-dim truncate">{run.runId}</span>
+                        <span className="text-xs font-mono text-faint shrink-0">
+                          {run.pending}/{run.media}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {data.approvals.runs.length === 0 && (
+                    <Idle>Nothing staged. Forge a batch in ContentForge to fill the queue.</Idle>
+                  )}
+                </>
               )}
             </Panel>
 
@@ -308,7 +451,12 @@ export default function CommandCenter() {
               title="Event log"
               right={<span className="text-[10px] font-mono text-faint">latest {data.events.length}</span>}
             >
-              {data.events.length === 0 ? (
+              {data.failedGenerations.error || data.outcomes.error ? (
+                <>
+                  <PanelIssue>{data.failedGenerations.error}</PanelIssue>
+                  <PanelIssue>{data.outcomes.error}</PanelIssue>
+                </>
+              ) : data.events.length === 0 ? (
                 <Idle>Quiet floor. Events appear as the pipeline generates, fails, spends, and posts.</Idle>
               ) : (
                 <div className="font-mono text-xs">
@@ -336,7 +484,9 @@ export default function CommandCenter() {
                 ) : null
               }
             >
-              {!data.outcomes.available || data.outcomes.count === 0 ? (
+              {data.outcomes.error ? (
+                <PanelIssue>{data.outcomes.error}</PanelIssue>
+              ) : !data.outcomes.available || data.outcomes.count === 0 ? (
                 <Idle>
                   No posted outcomes yet. This panel becomes the scoreboard once reels go live and
                   metrics sync back.
