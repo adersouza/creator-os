@@ -76,6 +76,30 @@ class PostingLedgerTests(unittest.TestCase):
                 ["10:00", "12:00", "14:00", "16:00", "18:00"],
             )
 
+    def test_posting_plan_uses_per_account_timezone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+
+            result = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[
+                    {"handle": "stacey_la", "timezone": "America/Los_Angeles"},
+                    {"handle": "stacey_ny"},
+                ],
+                start_date="2026-06-03",
+                days=1,
+                dry_run=True,
+            )
+            by_handle = {slot["account_handle"]: slot for slot in result["slots"]}
+
+            self.assertEqual(by_handle["stacey_la"]["timezone"], "America/Los_Angeles")
+            self.assertEqual(by_handle["stacey_ny"]["timezone"], "America/New_York")
+            self.assertTrue(by_handle["stacey_la"]["planned_at"].endswith("-07:00"))
+            self.assertTrue(by_handle["stacey_ny"]["planned_at"].endswith("-04:00"))
+
     def test_assignment_blocks_same_content_even_when_filename_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

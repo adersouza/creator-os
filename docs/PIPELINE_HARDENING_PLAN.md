@@ -350,7 +350,7 @@ computed `maxPostsPerDay`/`minimumGapHours` (used only for a health gate, never 
 **Tests:** an account configured for 5/day gets 5 slots; a 2h-gap account spaces at 2h; missing config → current
 defaults.
 
-### 5.2 Per-account timezone (stop assuming America/New_York)  ·  MED · M · [ ]
+### 5.2 Per-account timezone (stop assuming America/New_York)  ·  MED · M · [x]
 **Branch:** `codex/per-account-timezone`
 **Why:** `distribution.py:557-558` posts at fixed hours `[10,14,18]` in a fixed `ZoneInfo("America/New_York")` for
 every creator (datetimes are correctly tz-aware — no naive bug, just one zone); ledger `DEFAULT_SLOT_TIMES` is
@@ -408,7 +408,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 4.4 failed-gen dead-letter view — blocked/failed generation paths append `failed_generations.jsonl`, with a read-only `failed-generations` CLI mode; focused tests passed.
 - [x] 4.5 caption artifact git policy — dated inventory scratch is gitignored/untracked; quarantine and Stacey adaptation decision records remain tracked.
 - [x] 5.1 per-account cap/spacing from config — distribution slot selection now reads active `account_content_requirements`, and posting-ledger account configs can expand same-day slots from max/day + min-gap while preserving current defaults; focused cadence tests passed.
-- [ ] 5.2 per-account timezone
+- [x] 5.2 per-account timezone — posting-ledger account configs now accept `timezone`/`timeZone`, default to America/New_York, and persist offset-aware `planned_at` values; focused posting-ledger tests passed.
 - [ ] 5.3 best-time-to-post (design first)
 
 ## Verified-fine (do NOT "fix" — audited and correct)
