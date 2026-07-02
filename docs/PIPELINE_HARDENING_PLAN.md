@@ -278,7 +278,7 @@ raises; media row upsert doesn't duplicate on re-run.
 
 ## TIER 4 — Ingestion + data integrity
 
-### 4.1 Quarantined captions must stay out on re-scan  ·  HIGH · S · [ ]
+### 4.1 Quarantined captions must stay out on re-scan  ·  HIGH · S · [x]
 **Branch:** `codex/quarantine-blocks-reentry`
 **Why:** `bad_caption_quarantine.json` is written by `build_inventory` (`caption_intake.py:412-424`) but
 `_add_candidate` (`:681-729`) only checks live-bank `existing` keys — never the quarantined hashes. A caption
@@ -289,7 +289,7 @@ quarantined caption is never re-admitted.
 **Tests:** a quarantined caption is not re-added on re-scan; a normal new caption still adds; un-quarantining
 (removing from the file) re-admits.
 
-### 4.2 Content-hash reference dedup + capture source metrics at import  ·  MED · S-M · [ ]
+### 4.2 Content-hash reference dedup + capture source metrics at import  ·  MED · S-M · [x]
 **Branch:** `codex/reference-dedup-and-metrics`
 **Why:** `scan.py:39` keys references on `sha1(path|size)` and `:58` leaves `content_hash = NULL`, though
 `identity.py:19` has a working `content_hash()` that's never used — byte-identical reels at two paths become two
@@ -302,7 +302,7 @@ reference record.
 **Tests:** two paths, same bytes → one reference; info-json parsed into the sidecar; missing metrics degrade
 gracefully (nulls, no crash).
 
-### 4.3 yt-dlp import resilience: retry + duplicate-URL guard  ·  MED · M · [ ]
+### 4.3 yt-dlp import resilience: retry + duplicate-URL guard  ·  MED · M · [x]
 **Branch:** `codex/ytdlp-retry-dedup`
 **Why:** `reel_url_import.py:66-71` runs yt-dlp once — any transient failure or IG/TikTok 429/block raises
 immediately, no backoff. No duplicate-URL detection (dedup is only by dest filename/`stem`, `:60-61`), so the same
@@ -402,9 +402,9 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [ ] 3.3 idempotent + guarded reel_gui queue
 - [x] 3.4 slot assignment cursor fix — assignment now scans open slots without consuming them on non-assignment conflicts; posting-ledger regression tests passed.
 - [x] 3.5 supabase upload retry + media upsert — Supabase REST calls now retry transient failures and media rows upsert by storage path; focused tests passed.
-- [ ] 4.1 quarantine blocks re-entry
-- [ ] 4.2 content-hash dedup + import metrics
-- [ ] 4.3 ytdlp retry + duplicate-URL guard
+- [x] 4.1 quarantine blocks re-entry — caption intake now treats bad-caption quarantine hashes/text as blocked existing keys; focused tests passed.
+- [x] 4.2 content-hash dedup + import metrics — reference scan dedupes by SHA-256 content hash and reel URL import captures yt-dlp info-json metrics; focused tests passed.
+- [x] 4.3 ytdlp retry + duplicate-URL guard — URL imports retry transient failures and skip URLs already recorded by import sidecars; focused tests passed.
 - [ ] 4.4 failed-gen dead-letter view
 - [ ] 4.5 caption artifact git policy
 - [ ] 5.1 per-account cap/spacing from config

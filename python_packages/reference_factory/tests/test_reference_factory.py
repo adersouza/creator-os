@@ -324,6 +324,27 @@ def test_scan_indexes_account_structure_and_marks_other(tmp_path: Path) -> None:
     assert classify_file(account / "notes.txt") == "other"
 
 
+def test_scan_dedupes_references_by_content_hash(tmp_path: Path) -> None:
+    source = tmp_path / "examples"
+    account_a = source / "account_a"
+    account_b = source / "account_b"
+    account_a.mkdir(parents=True)
+    account_b.mkdir(parents=True)
+    (account_a / "a.mp4").write_bytes(b"same bytes")
+    (account_b / "b.mp4").write_bytes(b"same bytes")
+    conn = make_conn(tmp_path)
+
+    result = scan_source(conn, source)
+
+    assert result["inserted"] == 1
+    assert result["updated"] == 1
+    row = conn.execute(
+        "SELECT COUNT(*) AS c, COUNT(DISTINCT content_hash) AS hashes FROM source_files"
+    ).fetchone()
+    assert row["c"] == 1
+    assert row["hashes"] == 1
+
+
 def test_ffprobe_handles_valid_and_broken_video(tmp_path: Path) -> None:
     good = tmp_path / "good.mp4"
     broken = tmp_path / "broken.mp4"

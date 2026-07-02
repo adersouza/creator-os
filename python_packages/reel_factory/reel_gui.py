@@ -1533,6 +1533,7 @@ def import_reel_url_api(body: dict = Body(...)):
             "url": url,
             "stem": stem,
             "sourceVideoPath": download["path"],
+            "sourceMetrics": download.get("sourceMetrics") or {},
             "campaign": campaign,
         },
     )

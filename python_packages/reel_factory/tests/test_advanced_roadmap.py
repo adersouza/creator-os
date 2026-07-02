@@ -110,7 +110,7 @@ from reel_gui import (
     save_photo_post_asset,
 )
 from reel_pipeline import Recipe
-from reel_url_import import download_reel_url
+from reel_url_import import download_reel_url, write_url_sidecar
 from reference_analyzer import (
     analyze_reference,
     build_analysis_instruction,
@@ -3845,6 +3845,17 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 out = Path(str(template).replace("%(ext)s", "mp4"))
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(b"mp4")
+                info = out.with_suffix(".info.json")
+                info.write_text(
+                    json.dumps(
+                        {
+                            "view_count": 1234,
+                            "like_count": 88,
+                            "upload_date": "20260701",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
             with (
@@ -3860,6 +3871,64 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue((root / "clip_001.mp4").exists())
             self.assertEqual(result["stem"], "clip_001")
             self.assertIn("yt-dlp", result["command"][0])
+            self.assertIn("--write-info-json", result["command"])
+            self.assertEqual(result["sourceMetrics"]["view_count"], 1234)
+
+    def test_reel_url_downloader_retries_transient_failure(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = {"count": 0}
+
+            def fake_run(cmd, capture_output, text, timeout):
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="429")
+                template = Path(cmd[cmd.index("-o") + 1])
+                out = Path(str(template).replace("%(ext)s", "mp4"))
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"mp4")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            with (
+                patch("reel_url_import.shutil.which", return_value="/usr/bin/yt-dlp"),
+                patch("reel_url_import.subprocess.run", side_effect=fake_run),
+                patch("reel_url_import.time.sleep", return_value=None),
+            ):
+                result = download_reel_url(
+                    "https://www.instagram.com/reel/retry/",
+                    out_dir=root,
+                    stem="clip_retry",
+                )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(calls["count"], 2)
+
+    def test_reel_url_downloader_skips_already_imported_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = root / "clip_existing.mp4"
+            existing.write_bytes(b"mp4")
+            write_url_sidecar(
+                root / "clip_existing.reel_url_import.json",
+                {
+                    "url": "https://www.instagram.com/reel/existing/",
+                    "stem": "clip_existing",
+                    "sourceVideoPath": str(existing),
+                    "sourceMetrics": {"view_count": 10},
+                },
+            )
+
+            result = download_reel_url(
+                "https://www.instagram.com/reel/existing/",
+                out_dir=root,
+                stem="clip_new",
+            )
+
+            self.assertTrue(result["skipped"])
+            self.assertEqual(result["reason"], "already_imported_url")
+            self.assertEqual(result["path"], str(existing))
 
     def test_gui_reel_url_import_downloads_adds_reference_and_prompt(self):
         import reel_gui

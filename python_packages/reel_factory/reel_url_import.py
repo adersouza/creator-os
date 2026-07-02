@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -25,6 +26,7 @@ def _yt_dlp_cmd(url: str, output_template: Path) -> list[str]:
         "--no-playlist",
         "--no-progress",
         "--restrict-filenames",
+        "--write-info-json",
         "-f",
         "bv*+ba/best",
         "--merge-output-format",
@@ -56,6 +58,19 @@ def download_reel_url(
     """
     url = _validate_url(url)
     out_dir.mkdir(parents=True, exist_ok=True)
+    existing = _existing_import_for_url(out_dir, url)
+    if existing:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "already_imported_url",
+            "url": url,
+            "stem": existing.get("stem")
+            or Path(str(existing.get("sourceVideoPath"))).stem,
+            "path": existing.get("sourceVideoPath"),
+            "command": [],
+            "sourceMetrics": existing.get("sourceMetrics") or {},
+        }
     dest = out_dir / f"{stem}.mp4"
     if dest.exists():
         raise FileExistsError(f"source clip already exists: {dest}")
@@ -63,7 +78,7 @@ def download_reel_url(
         tmp_dir = Path(tmp)
         template = tmp_dir / f"{stem}.%(ext)s"
         cmd = _runner_cmd(url, template)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = _run_ytdlp_with_retry(cmd, timeout=timeout)
         if result.returncode != 0:
             message = result.stderr.strip() or result.stdout.strip() or "yt-dlp failed"
             if "No module named yt_dlp" in message or "not found" in message.lower():
@@ -84,21 +99,67 @@ def download_reel_url(
         )
         if not media:
             raise RuntimeError("yt-dlp finished but no downloaded media file was found")
-        if media.suffix.lower() == ".mp4":
-            shutil.move(str(media), dest)
-        else:
-            # Keep this import path dependency-free; yt-dlp usually remuxes to
-            # mp4 above, but if a site refuses that, preserve the bytes in mp4
-            # naming so the existing source pipeline can still attempt probing.
-            shutil.move(str(media), dest)
+        source_metrics = _source_metrics_from_info_json(tmp_dir, stem)
+        shutil.move(str(media), dest)
     return {
         "ok": True,
         "url": url,
         "stem": stem,
         "path": str(dest.resolve()),
         "command": cmd,
+        "sourceMetrics": source_metrics,
     }
 
 
 def write_url_sidecar(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _existing_import_for_url(out_dir: Path, url: str) -> dict[str, object] | None:
+    for sidecar in sorted(out_dir.glob("*.reel_url_import.json")):
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(payload.get("url") or "").strip() == url:
+            return payload
+    return None
+
+
+def _run_ytdlp_with_retry(
+    cmd: list[str], *, timeout: int, attempts: int = 3
+) -> subprocess.CompletedProcess[str]:
+    result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(max(1, attempts)):
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0 or attempt == attempts - 1:
+            return result
+        time.sleep(0.5 * (2**attempt))
+    return result or subprocess.CompletedProcess(cmd, 1, "", "yt-dlp failed")
+
+
+def _source_metrics_from_info_json(tmp_dir: Path, stem: str) -> dict[str, object]:
+    candidates = sorted(tmp_dir.glob(f"{stem}*.info.json"))
+    if not candidates:
+        return {}
+    try:
+        payload = json.loads(candidates[0].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {
+        key: payload.get(key)
+        for key in (
+            "id",
+            "webpage_url",
+            "uploader",
+            "uploader_id",
+            "upload_date",
+            "timestamp",
+            "view_count",
+            "like_count",
+            "comment_count",
+            "repost_count",
+            "duration",
+        )
+        if payload.get(key) is not None
+    }
