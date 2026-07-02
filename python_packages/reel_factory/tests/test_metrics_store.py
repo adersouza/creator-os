@@ -7,6 +7,7 @@ from pathlib import Path
 
 from manifest import Manifest
 from metrics_store import (
+    connect_metrics_db,
     ensure_metrics_schema,
     import_metrics_csv,
     import_outcomes_csv,
@@ -21,6 +22,17 @@ STACEY1_SOUL = "5828d958-91dd-4d6d-8909-934503f47644"
 
 
 class MetricsStoreSoulAttributionTests(unittest.TestCase):
+    def test_metrics_connection_uses_wal_and_busy_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "manifest.sqlite"
+            conn = connect_metrics_db(db_path)
+
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+            self.assertEqual(journal_mode, "wal")
+            self.assertEqual(busy_timeout, 30000)
+
     def _variation(
         self,
         root: Path,

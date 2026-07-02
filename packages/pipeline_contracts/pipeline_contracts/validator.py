@@ -223,8 +223,8 @@ def _validate_campaign_draft_graph_ids(value: Any) -> None:
         if campaign_factory.get("legacy_compat") is True:
             continue
         for key in STRICT_CAMPAIGN_DRAFT_GRAPH_FIELDS:
-            value = campaign_factory.get(key)
-            if not isinstance(value, str) or not value.strip():
+            field_value = campaign_factory.get(key)
+            if not isinstance(field_value, str) or not field_value.strip():
                 errors.append(
                     f"$.drafts[{index}].metadata.campaign_factory.{key} is required in strict mode"
                 )

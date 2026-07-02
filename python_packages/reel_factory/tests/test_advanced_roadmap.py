@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import tempfile
 import threading
 import time
@@ -93,6 +94,7 @@ from hook_tools import (
 )
 from intelligence_store import (
     confidence_for_sample_size,
+    data_quality_from_connection,
     data_quality_score,
     low_data_warning,
     validate_review,
@@ -2830,6 +2832,30 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(summary["schema"], "reel_factory.dashboard_summary.v1")
         self.assertIn("command_center", summary)
         self.assertIn("clip_statuses", summary)
+
+    def test_data_quality_degrades_without_operator_ratings_table(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """
+            CREATE TABLE reel_outcomes (
+                manual_score REAL,
+                views INTEGER,
+                likes INTEGER,
+                comments INTEGER,
+                shares INTEGER,
+                saves INTEGER
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO reel_outcomes (views, likes, comments, shares, saves) VALUES (100, 10, 2, 1, 3)"
+        )
+
+        quality = data_quality_from_connection(conn)
+
+        self.assertEqual(quality["inputs"]["total_outcomes"], 1)
+        self.assertEqual(quality["inputs"]["reviewed_outputs"], 0)
 
     def test_auto_hooks_api_creates_caption_sidecar_without_manual_editing(self):
         with tempfile.TemporaryDirectory() as tmp:

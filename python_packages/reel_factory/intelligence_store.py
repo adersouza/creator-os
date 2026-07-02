@@ -278,11 +278,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
 def _ensure_columns(
     conn: sqlite3.Connection, table: str, columns: dict[str, str]
 ) -> None:
-    exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    if not exists:
+    if not _table_exists(conn, table):
         return
     existing = {
         row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -290,6 +286,15 @@ def _ensure_columns(
     for name, ddl in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+    )
 
 
 def validate_review(
@@ -482,16 +487,18 @@ def data_quality_from_connection(
         FROM reel_outcomes
         """
     ).fetchone()
-    review_row = conn.execute(
-        """
-        SELECT
-          COUNT(*) AS reviewed,
-          SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
-          COUNT(DISTINCT primary_reason) AS distinct_labels
-        FROM operator_ratings
-        WHERE decision IN ('approve','reject','maybe')
-        """
-    ).fetchone()
+    review_row = None
+    if _table_exists(conn, "operator_ratings"):
+        review_row = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS reviewed,
+              SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
+              COUNT(DISTINCT primary_reason) AS distinct_labels
+            FROM operator_ratings
+            WHERE decision IN ('approve','reject','maybe')
+            """
+        ).fetchone()
     outcome_total = outcome_row["total"] if outcome_row else 0
     outcome_with_metrics = outcome_row["with_metrics"] if outcome_row else 0
     reviewed = review_row["reviewed"] if review_row else 0

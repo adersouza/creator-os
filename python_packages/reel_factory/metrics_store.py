@@ -30,6 +30,14 @@ METRIC_COLUMNS = (
 )
 
 
+def connect_metrics_db(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(Path(db_path), timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
 def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS publish_metrics (
@@ -68,8 +76,7 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
 
@@ -215,8 +222,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
@@ -433,13 +439,12 @@ def refresh_outcomes_from_performance_sync(
     source_db = Path(campaign_factory_db)
     if not source_db.exists():
         raise FileNotFoundError(f"campaign factory DB not found: {source_db}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
 
-    source = sqlite3.connect(source_db)
+    source = sqlite3.connect(source_db, timeout=30.0)
     source.row_factory = sqlite3.Row
     where = ["p.metrics_eligible = 1"]
     params: list[Any] = []
@@ -641,8 +646,7 @@ def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"count": 0, "top": [], "totals": {}}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_intelligence_schema(conn)
     rows = conn.execute("SELECT * FROM reel_outcomes").fetchall()
     totals = {
@@ -661,8 +665,7 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     rows = conn.execute("""
         SELECT
@@ -745,8 +748,7 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"hooks": [], "recipes": [], "combos": []}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     rows = conn.execute("""
         SELECT
@@ -870,8 +872,7 @@ def soul_metrics_report(root: Path, *, by_account: bool = False) -> dict[str, An
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"rows": [], "unattributed_count": 0}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     select_account = "account, " if by_account else ""
     group_account = ", account" if by_account else ""

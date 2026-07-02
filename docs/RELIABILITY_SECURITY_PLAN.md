@@ -314,7 +314,7 @@ high-traffic ones: `generated_asset_lineage` in `still_to_reel._build_lineage`, 
 Coordinate the `recommendation_next_batch` change with the sibling doc's "unify next_batch schema" item (this is
 the *enforcement* half; that was the *shape* half).
 
-### 4.2 De-duplicate the committed schema copies + validator footgun  ·  MED · S · [ ]
+### 4.2 De-duplicate the committed schema copies + validator footgun  ·  MED · S · [x]
 **Branch:** `codex/dedupe-schema-copies`
 **Why:** all 18 schemas exist twice, both git-tracked — `packages/pipeline_contracts/schemas/*.json` (source) and
 `packages/pipeline_contracts/pipeline_contracts/schemas/*.json` (packaged); `validator.py:13-15` prefers the inner
@@ -329,7 +329,7 @@ shadowed `value` param to `field_value`.
 
 ## TIER 5 — DB hardening (concurrency + migrations + perf)
 
-### 5.1 Shared-DB connections: 30s timeout + WAL everywhere  ·  MED-HIGH · S · [ ]
+### 5.1 Shared-DB connections: 30s timeout + WAL everywhere  ·  MED-HIGH · S · [x]
 **Branch:** `codex/db-connect-timeout-wal`
 **Why:** `metrics_store` opens the shared DB with bare `sqlite3.connect(db_path)` (default 5s busy-timeout) at
 `:58,162,366,559,579,650,762` while running the heaviest write loops; every other opener passes `timeout=30.0` +
@@ -367,7 +367,7 @@ connection setup, not per-insert.
 **Tests:** the join uses the index (EXPLAIN QUERY PLAN assertion or a timing smoke test); cost insert no longer
 re-runs DDL.
 
-### 5.4 `intelligence_store` cross-table column migration ordering  ·  LOW · S · [ ]
+### 5.4 `intelligence_store` cross-table column migration ordering  ·  LOW · S · [x]
 **Branch:** `codex/intelligence-store-ordering`
 **Why:** `intelligence_store.py:214` `_ensure_columns("operator_ratings", …)` on a table created by
 `campaign_store.py`; it early-returns if absent (`:265`) then `:465` `SELECT ... FROM operator_ratings` raises if
@@ -457,11 +457,11 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 3.4 onboarding + subprocess timeouts + health view — reel GUI dev launch now documents/sets explicit loopback auth, request-bound render/preview/ffprobe calls have timeout-to-504 behavior, and dashboard summary includes generation, failed-gen, render-queue, and cost health; focused tests passed.
 - [ ] 3.5 contentforge review polish
 - [ ] 4.1 enforce contracts at write boundaries
-- [ ] 4.2 dedupe schema copies + validator footgun
-- [ ] 5.1 db connect timeout + WAL
+- [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
+- [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.
 - [ ] 5.2 schema migrations
 - [ ] 5.3 hot-path indexes
-- [ ] 5.4 intelligence_store ordering
+- [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
 - [ ] 6.1 delete dead code
 - [ ] 6.2 consolidate helpers + config drift
 - [ ] 6.3 virality_select reward basis
