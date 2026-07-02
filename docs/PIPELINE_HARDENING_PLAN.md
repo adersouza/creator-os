@@ -324,7 +324,7 @@ modules import `logging`.
 `queue_admin`/CLI view that lists them for retry/resume. Read-only reporting — no auto-retry of paid gen.
 **Tests:** a blocked gen appends one dead-letter record; the view lists it; a successful gen appends nothing.
 
-### 4.5 Decide policy on generated inventory/quarantine files  ·  LOW · S · [ ]
+### 4.5 Decide policy on generated inventory/quarantine files  ·  LOW · S · [x]
 **Branch:** `codex/caption-artifact-policy`
 **Why:** `caption_source_inventory_20260629.{json,csv,md}`, `stacey_caption_adaptations.json`,
 `bad_caption_quarantine.json` are untracked and not gitignored — dated inventory scratch accumulates per run with
@@ -406,7 +406,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 4.2 content-hash dedup + import metrics — reference scan dedupes by SHA-256 content hash and reel URL import captures yt-dlp info-json metrics; focused tests passed.
 - [x] 4.3 ytdlp retry + duplicate-URL guard — URL imports retry transient failures and skip URLs already recorded by import sidecars; focused tests passed.
 - [x] 4.4 failed-gen dead-letter view — blocked/failed generation paths append `failed_generations.jsonl`, with a read-only `failed-generations` CLI mode; focused tests passed.
-- [ ] 4.5 caption artifact git policy
+- [x] 4.5 caption artifact git policy — dated inventory scratch is gitignored/untracked; quarantine and Stacey adaptation decision records remain tracked.
 - [ ] 5.1 per-account cap/spacing from config
 - [ ] 5.2 per-account timezone
 - [ ] 5.3 best-time-to-post (design first)
