@@ -1264,8 +1264,9 @@ def main() -> int:
     activity.add_argument("--limit", type=int, default=200)
 
     jobs = sub.add_parser("jobs")
-    jobs.add_argument("--campaign", required=True)
+    jobs.add_argument("--campaign")
     jobs.add_argument("--limit", type=int, default=100)
+    jobs.add_argument("--stuck-hours", type=float, default=24.0)
     jobs.add_argument(
         "--status",
         help="Comma-separated job statuses to include, e.g. running,failed",
@@ -3091,14 +3092,25 @@ def main() -> int:
                 if args.status
                 else None
             )
+            jobs = cf.jobs_for_campaign(
+                args.campaign,
+                limit=args.limit,
+                statuses=statuses,
+                stuck_hours=args.stuck_hours,
+            )
             print_json(
                 {
                     "schema": "campaign_factory.jobs.v1",
                     "campaign": args.campaign,
                     "statuses": statuses,
-                    "jobs": cf.jobs_for_campaign(
-                        args.campaign, limit=args.limit, statuses=statuses
-                    ),
+                    "stuckHours": args.stuck_hours,
+                    "summary": {
+                        "failed": sum(
+                            1 for job in jobs if job.get("status") == "failed"
+                        ),
+                        "stuck": sum(1 for job in jobs if job.get("stuck")),
+                    },
+                    "jobs": jobs,
                 }
             )
         elif args.cmd == "job":

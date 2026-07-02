@@ -683,7 +683,13 @@ def test_campaign_factory_delegates_jobs_for_campaign_to_services() -> None:
     factory.services = FakeServices()
 
     assert factory.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
-    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5, "statuses": None})]
+    assert calls == [
+        (
+            "jobs_for_campaign",
+            ("may",),
+            {"limit": 5, "statuses": None, "stuck_hours": None},
+        )
+    ]
 
 
 def test_campaign_factory_delegates_surface_summary_methods_to_services() -> None:
@@ -6659,7 +6665,13 @@ def test_core_services_delegates_jobs_for_campaign_to_event_repository() -> None
     services.events = FakeEvents()
 
     assert services.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
-    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5, "statuses": None})]
+    assert calls == [
+        (
+            "jobs_for_campaign",
+            ("may",),
+            {"limit": 5, "statuses": None, "stuck_hours": None},
+        )
+    ]
 
 
 def test_core_services_delegates_surface_summary_methods_to_surface_summary_repository() -> (

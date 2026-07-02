@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -24,7 +26,7 @@ import time
 import urllib.request
 import webbrowser
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import uvicorn
@@ -273,10 +275,8 @@ def _run_reel_pipeline_subprocess(
             text=True,
             timeout=timeout_seconds,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(
-            504, f"subprocess timed out after {timeout_seconds}s"
-        ) from exc
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, f"subprocess timed out after {timeout_seconds}s")
 
 
 @app.get("/api/assets/jobs/{job_id}")
@@ -291,8 +291,11 @@ def asset_job_status_api(job_id: str):
 def guard_deprecated_generator_api(feature: str) -> None:
     try:
         guard_deprecated_generator(feature)
-    except DeprecatedGeneratorError as exc:
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+    except DeprecatedGeneratorError:
+        raise HTTPException(
+            status_code=410,
+            detail=f"{feature} is deprecated and disabled in this environment",
+        )
 
 
 _run_state: dict[str, Any] = {
@@ -320,13 +323,20 @@ _auto_shutdown_enabled = False
 
 
 def _safe_in_root(p: Path) -> Path:
-    p = p.resolve()
-    root = ROOT.resolve()
-    try:
-        p.relative_to(root)
-    except ValueError:
+    root = os.path.realpath(ROOT)
+    candidate = os.path.realpath(p)
+    if candidate != root and not candidate.startswith(root + os.sep):
         raise HTTPException(403, "path outside project")
-    return p
+    return Path(candidate)
+
+
+def _safe_relative_file_path(raw_path: str) -> Path:
+    relative = PurePosixPath(str(raw_path))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise HTTPException(403, "invalid file path")
+    return _safe_in_root(ROOT.joinpath(*relative.parts))
 
 
 def _safe_stem(stem: str) -> str:
@@ -498,6 +508,89 @@ def _render_queue_health() -> dict[str, Any]:
         return get_queue(ROOT).status()
     except Exception:
         return {"counts": {}, "error": "render queue unavailable"}
+
+
+def _campaign_factory_db_path(root: Path) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    return root.parent / "campaign_factory" / "campaign_factory.sqlite"
+
+
+def _parse_campaign_job_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _campaign_factory_job_health(
+    root: Path = ROOT, *, stuck_hours: float = 24.0
+) -> dict[str, Any]:
+    db = _campaign_factory_db_path(root)
+    summary = {
+        "failed": 0,
+        "stuck": 0,
+        "stuckHours": stuck_hours,
+        "dbPath": str(db),
+    }
+    if not db.exists():
+        return summary
+    threshold_seconds = max(0.0, stuck_hours) * 3600.0
+    try:
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            rows = conn.execute(
+                "SELECT status, updated_at, created_at FROM pipeline_jobs"
+            ).fetchall()
+    except sqlite3.Error:
+        return {**summary, "error": "campaign job health unavailable"}
+    now = datetime.now(UTC)
+    for status, updated_at, created_at in rows:
+        normalized = str(status or "").lower()
+        if normalized == "failed":
+            summary["failed"] += 1
+        if normalized not in {"queued", "running"}:
+            continue
+        timestamp = _parse_campaign_job_timestamp(
+            updated_at
+        ) or _parse_campaign_job_timestamp(created_at)
+        if timestamp and (now - timestamp).total_seconds() >= threshold_seconds:
+            summary["stuck"] += 1
+    return summary
+
+
+def _public_failed_generations(root: Path = ROOT, *, limit: int = 20) -> dict[str, Any]:
+    report = list_failed_generations(root, limit=limit)
+    safe_items: list[dict[str, Any]] = []
+    for item in report.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        failure = item.get("failure") if isinstance(item.get("failure"), dict) else {}
+        safe_failure = {
+            key: str(failure[key])
+            for key in ("kind", "reason", "stage", "failure_kind", "action")
+            if failure.get(key) not in (None, "")
+        }
+        safe_items.append(
+            {
+                "schema": item.get("schema"),
+                "createdAt": item.get("createdAt"),
+                "stem": item.get("stem"),
+                "creator": item.get("creator"),
+                "campaign": item.get("campaign"),
+                "status": item.get("status"),
+                "lineagePath": item.get("lineagePath"),
+                "failure": safe_failure,
+            }
+        )
+    return {
+        "schema": report.get("schema"),
+        "path": report.get("path"),
+        "count": int(report.get("count") or len(safe_items)),
+        "items": safe_items,
+    }
 
 
 def _prompt_stems() -> set[str]:
@@ -1199,11 +1292,11 @@ def _attach_panel_lineage(
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def _higgsfield_cli_error(exc: Exception) -> dict[str, Any]:
+def _higgsfield_cli_error(failure_kind: str = "command_failed") -> dict[str, Any]:
     return {
         "ok": False,
         "error": "higgsfield command failed",
-        "failure_kind": getattr(exc, "failure_kind", "command_failed"),
+        "failure_kind": failure_kind,
         "action": None,
     }
 
@@ -1287,7 +1380,8 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
             account_health = None
     asset_job_counts = _asset_job_counts()
     render_queue = _render_queue_health()
-    failed_generations = list_failed_generations(ROOT, limit=20)
+    campaign_jobs = _campaign_factory_job_health(ROOT)
+    failed_generations = _public_failed_generations(ROOT, limit=20)
     try:
         costs = cost_analytics(ROOT)
     except Exception:
@@ -1303,6 +1397,8 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
             + int(asset_job_counts.get("running", 0)),
             "failed_generations": int(failed_generations.get("count", 0))
             + int(asset_job_counts.get("failed", 0)),
+            "failed_campaign_jobs": int(campaign_jobs.get("failed", 0)),
+            "stuck_campaign_jobs": int(campaign_jobs.get("stuck", 0)),
             "render_queue_depth": int(
                 (render_queue.get("counts") or {}).get("queued", 0)
             ),
@@ -1315,6 +1411,7 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
             "asset_jobs": asset_job_counts,
             "failed_generations": failed_generations,
             "render_queue": render_queue,
+            "campaign_jobs": campaign_jobs,
             "costs": costs,
         },
     }
@@ -1739,8 +1836,8 @@ def import_reel_url_api(body: dict = Body(...)):
     _safe_stem(stem)
     try:
         download = download_reel_url(url, out_dir=RAW_DIR, stem=stem)
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+    except Exception:
+        raise HTTPException(400, "reel import failed")
 
     cap = CAP_DIR / f"{stem}.json"
     cap.write_text(
@@ -1808,10 +1905,10 @@ def import_reel_url_api(body: dict = Body(...)):
                 ),
             )
             prompt_result["legacy"] = True
-        except Exception as exc:
+        except Exception:
             prompt_result = {
                 "ok": False,
-                "error": str(exc),
+                "error": "prompt generation failed",
                 "prompt_json_path": str(prompt_path),
             }
 
@@ -1890,8 +1987,8 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
             text=True,
             timeout=30,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(504, "ffprobe timed out after 30s") from exc
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "ffprobe timed out after 30s")
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     frame = frame_path(ROOT, stem, time_sec)
     extract_frame(source, frame, time_sec=time_sec)
@@ -1933,8 +2030,8 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
             text=True,
             timeout=30,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(504, "ffprobe timed out after 30s") from exc
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "ffprobe timed out after 30s")
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     width = int(stream.get("width") or 0)
     height = int(stream.get("height") or 0)
@@ -1946,13 +2043,16 @@ def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
         rows = rows or layout_rows
     if not columns or not rows:
         columns, rows = infer_grid_preset(width, height)
-    boxes = preset_boxes(
-        width,
-        height,
-        columns=int(columns),
-        rows=int(rows),
-        inset=int(body.get("inset") or 0),
-    )
+    try:
+        boxes = preset_boxes(
+            width,
+            height,
+            columns=int(columns),
+            rows=int(rows),
+            inset=int(body.get("inset") or 0),
+        )
+    except (TypeError, ValueError):
+        raise HTTPException(400, "invalid grid layout")
     return {
         "ok": True,
         "stem": stem,
@@ -2005,10 +2105,10 @@ def grid_crop_preview_api(stem: str, body: dict = Body(...)):
     panel_id = int(body.get("panel_id") or body.get("panel") or 1)
     try:
         preview = preview_panel_image(ROOT, stem=stem, panel_id=panel_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except KeyError as exc:
-        raise HTTPException(400, f"panel {panel_id} not found") from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "crop preview not found")
+    except KeyError:
+        raise HTTPException(400, f"panel {panel_id} not found")
     return {
         "ok": True,
         "panel_id": panel_id,
@@ -2028,8 +2128,8 @@ def grid_crop_render_api(stem: str, body: dict = Body(default={})):
             captions=body.get("captions") or None,
             render_captions=bool(body.get("render_captions", True)),
         )
-    except FileNotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "grid crop plan not found")
     return result
 
 
@@ -2037,8 +2137,8 @@ def grid_crop_render_api(stem: str, body: dict = Body(default={})):
 def higgsfield_capabilities_api(force: bool = False):
     try:
         return probe_higgsfield_capabilities(ROOT, force=force)
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception:
+        return {"ok": False, "error": "higgsfield capability probe failed"}
 
 
 @app.post("/api/assets/reference-image/dry-run")
@@ -2066,10 +2166,14 @@ def _asset_reference_image_create_sync(body: dict[str, Any]) -> dict[str, Any]:
             wait=bool(body.get("wait", True)),
             download=bool(body.get("download", True)),
         )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    except ValueError:
+        raise HTTPException(400, "invalid reference image request")
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "reference image creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
@@ -2201,7 +2305,11 @@ def _asset_create_image_sync(body: dict[str, Any]) -> dict[str, Any]:
             download=bool(body.get("download", True)),
         )
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "image asset creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     assets = (lineage.get("assets") or {}).get("localPaths") or {}
@@ -2316,7 +2424,11 @@ def _asset_create_video_sync(body: dict[str, Any]) -> dict[str, Any]:
             download=bool(body.get("download", False)),
         )
     except HiggsfieldCommandError as exc:
-        return _higgsfield_cli_error(exc)
+        return _higgsfield_cli_error(
+            str(getattr(exc, "failure_kind", "command_failed"))
+        )
+    except Exception:
+        raise HTTPException(500, "video asset creation failed")
     lineage = result.get("lineage") or {}
     generation = lineage.get("generation") or {}
     campaign_record = result.get("campaign_record") or {}
@@ -2473,8 +2585,12 @@ def _asset_fanout_panels_sync(
             )
             panels[-1] = created
             _update_asset_job(job_id, panels=panels)
-        except Exception as exc:
-            panels[-1] = {**planned, "status": "failed", "error": str(exc)}
+        except Exception:
+            panels[-1] = {
+                **planned,
+                "status": "failed",
+                "error": "panel generation failed",
+            }
             _update_asset_job(job_id, panels=panels)
 
     lineage_path = body.get("lineage_path")
@@ -3342,7 +3458,7 @@ def _terminate_process() -> None:
 
 @app.get("/file/{path:path}")
 def serve_file(path: str):
-    full = _safe_in_root(ROOT / path)
+    full = _safe_relative_file_path(path)
     if not full.exists():
         raise HTTPException(404, "not found")
     return FileResponse(full)

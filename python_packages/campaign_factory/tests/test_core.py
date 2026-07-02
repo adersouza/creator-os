@@ -25056,6 +25056,51 @@ def test_jobs_for_campaign_filters_by_status(tmp_path: Path) -> None:
         cf.close()
 
 
+def test_jobs_can_scan_all_campaigns_and_mark_stuck_jobs(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        may = cf.upsert_campaign("may", "model")
+        june = cf.upsert_campaign("june", "model")
+        old_job = cf.create_pipeline_job("threadsdash_export", may["id"], {})
+        fresh_job = cf.create_pipeline_job("threadsdash_export", june["id"], {})
+        old_ts = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (old_ts, old_ts, old_job["id"]),
+        )
+        cf.conn.commit()
+
+        rows = cf.jobs_for_campaign(None, statuses=["queued"], limit=10, stuck_hours=24)
+
+        by_id = {row["id"]: row for row in rows}
+        assert by_id[old_job["id"]]["campaignSlug"] == "may"
+        assert by_id[fresh_job["id"]]["campaignSlug"] == "june"
+        assert by_id[old_job["id"]]["stuck"] is True
+        assert by_id[fresh_job["id"]]["stuck"] is False
+    finally:
+        cf.close()
+
+
+def test_jobs_stuck_hours_threshold_is_respected(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        campaign = cf.upsert_campaign("may", "model")
+        job = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        ts = (datetime.now(UTC) - timedelta(hours=6)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (ts, ts, job["id"]),
+        )
+        cf.conn.commit()
+
+        assert cf.jobs_for_campaign(None, stuck_hours=5)[0]["stuck"] is True
+        assert cf.jobs_for_campaign(None, stuck_hours=7)[0]["stuck"] is False
+    finally:
+        cf.close()
+
+
 def test_failed_job_resolution_is_scoped_to_asset_identity(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:

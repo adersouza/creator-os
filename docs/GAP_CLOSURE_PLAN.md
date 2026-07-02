@@ -150,7 +150,9 @@ override flag unblocks. Extend `tests/test_content_trust_hardening.py`.
 
 ## Tier 1 — visibility + data integrity
 
-### 1.1 Cross-campaign stuck/failed-job discovery (finish HARDENING 3.1a)  ·  HIGH · S · [ ]
+### 1.1 Cross-campaign stuck/failed-job discovery (finish HARDENING 3.1a)  ·  HIGH · S · [x]
+
+**Status:** Campaign jobs can be scanned across all campaigns with stuck-hour detection, and Reel GUI health surfaces all-campaign failed/stuck counts; focused job/GUI tests pass.
 
 **Branch:** `codex/jobs-all-campaigns`
 

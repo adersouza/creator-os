@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -3606,6 +3607,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "_render_queue_health",
                     return_value={"counts": {"queued": 3}},
                 ),
+                patch.object(
+                    reel_gui,
+                    "_campaign_factory_job_health",
+                    return_value={"failed": 4, "stuck": 1, "stuckHours": 24.0},
+                ),
                 patch.object(reel_gui, "cost_analytics", return_value={"assets": []}),
             ):
                 summary = reel_gui.dashboard_summary_api()
@@ -3616,8 +3622,44 @@ class AdvancedRoadmapTests(unittest.TestCase):
         command = summary["command_center"]
         self.assertEqual(command["in_flight_generations"], 1)
         self.assertEqual(command["failed_generations"], 2)
+        self.assertEqual(command["failed_campaign_jobs"], 4)
+        self.assertEqual(command["stuck_campaign_jobs"], 1)
         self.assertEqual(command["render_queue_depth"], 3)
         self.assertIn("pipeline_health", summary)
+        self.assertEqual(summary["pipeline_health"]["campaign_jobs"]["stuck"], 1)
+
+    def test_campaign_factory_job_health_counts_failed_and_stuck_jobs(self):
+        import reel_gui
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "campaign_factory.sqlite"
+            old = datetime.now(UTC) - timedelta(hours=30)
+            fresh = datetime.now(UTC)
+            with sqlite3.connect(db) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE pipeline_jobs (
+                        status TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.executemany(
+                    "INSERT INTO pipeline_jobs VALUES (?, ?, ?)",
+                    [
+                        ("failed", fresh.isoformat(), fresh.isoformat()),
+                        ("queued", old.isoformat(), old.isoformat()),
+                        ("running", fresh.isoformat(), fresh.isoformat()),
+                    ],
+                )
+            with patch.dict(os.environ, {"CAMPAIGN_FACTORY_DB": str(db)}):
+                health = reel_gui._campaign_factory_job_health(
+                    Path(tmp), stuck_hours=24
+                )
+
+        self.assertEqual(health["failed"], 1)
+        self.assertEqual(health["stuck"], 1)
 
     def test_gui_paid_asset_idempotency_dedupes_in_flight_job(self):
         import reel_gui
