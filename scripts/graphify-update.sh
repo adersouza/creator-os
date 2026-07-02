@@ -3,6 +3,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/creator-os-graphify.XXXXXX")"
+CODE_ONLY=0
+GRAPHIFY_ARGS=()
+
+for arg in "$@"; do
+  case "$arg" in
+    --)
+      ;;
+    --code-only)
+      CODE_ONLY=1
+      ;;
+    *)
+      GRAPHIFY_ARGS+=("$arg")
+      ;;
+  esac
+done
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -32,4 +47,49 @@ rsync -a --delete \
   --exclude 'identity_references/' \
   "$ROOT/" "$TMP_ROOT/"
 
-graphify extract "$TMP_ROOT" --out "$ROOT" "$@"
+if [[ "$CODE_ONLY" == "1" ]]; then
+  find "$TMP_ROOT" -type f \( \
+    -iname '*.md' -o \
+    -iname '*.mdx' -o \
+    -iname '*.rst' -o \
+    -iname '*.txt' -o \
+    -iname '*.csv' -o \
+    -iname '*.tsv' -o \
+    -iname '*.yaml' -o \
+    -iname '*.yml' -o \
+    -iname '*.html' -o \
+    -iname '*.pdf' -o \
+    -iname '*.png' -o \
+    -iname '*.jpg' -o \
+    -iname '*.jpeg' -o \
+    -iname '*.gif' -o \
+    -iname '*.webp' -o \
+    -iname '*.svg' -o \
+    -iname '*.mp3' -o \
+    -iname '*.wav' -o \
+    -iname '*.mp4' -o \
+    -iname '*.mov' -o \
+    -iname '*.m4v' -o \
+    -iname '*.webm' -o \
+    -iname 'README' -o \
+    -iname 'README.*' -o \
+    -iname 'LICENSE' -o \
+    -iname 'LICENSE.*' -o \
+    -iname 'NOTICE' -o \
+    -iname 'NOTICE.*' -o \
+    -iname 'CHANGELOG' -o \
+    -iname 'CHANGELOG.*' -o \
+    -iname 'AGENTS' -o \
+    -iname 'AGENTS.*' -o \
+    -iname 'CLAUDE' -o \
+    -iname 'CLAUDE.*' -o \
+    -iname 'GEMINI' -o \
+    -iname 'GEMINI.*' \
+  \) -delete
+fi
+
+if (( ${#GRAPHIFY_ARGS[@]} )); then
+  graphify extract "$TMP_ROOT" --out "$ROOT" "${GRAPHIFY_ARGS[@]}"
+else
+  graphify extract "$TMP_ROOT" --out "$ROOT"
+fi
