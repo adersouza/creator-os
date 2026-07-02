@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,10 @@ CREATE TABLE IF NOT EXISTS source_files (
   mtime TEXT NOT NULL,
   path_hash TEXT NOT NULL,
   content_hash TEXT,
+  source_views INTEGER,
+  source_likes INTEGER,
+  source_comments INTEGER,
+  source_posted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -344,6 +349,7 @@ def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript("\n".join(_schema_statements("TABLE")))
     _ensure_schema_columns(conn)
+    backfill_source_metrics_from_sidecars(conn)
     conn.executescript("\n".join(_schema_statements("INDEX")))
     return conn
 
@@ -396,6 +402,129 @@ def _ensure_columns(
     for name, ddl in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def source_metrics_from_info_json(media_path: Path) -> dict[str, Any]:
+    for sidecar in _info_json_candidates(media_path):
+        if not sidecar.exists():
+            continue
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        return _source_metrics_from_payload(payload)
+    return {
+        "source_views": None,
+        "source_likes": None,
+        "source_comments": None,
+        "source_posted_at": None,
+    }
+
+
+def backfill_source_metrics_from_sidecars(conn: sqlite3.Connection) -> int:
+    updated = 0
+    rows = conn.execute(
+        """
+        SELECT reference_id, path
+        FROM source_files
+        WHERE (source_views IS NULL OR source_likes IS NULL
+          OR source_comments IS NULL OR source_posted_at IS NULL)
+        """
+    ).fetchall()
+    for row in rows:
+        metrics = source_metrics_from_info_json(Path(str(row["path"])))
+        if not any(value is not None for value in metrics.values()):
+            continue
+        conn.execute(
+            """
+            UPDATE source_files
+            SET source_views = COALESCE(source_views, ?),
+                source_likes = COALESCE(source_likes, ?),
+                source_comments = COALESCE(source_comments, ?),
+                source_posted_at = COALESCE(source_posted_at, ?)
+            WHERE reference_id = ?
+            """,
+            (
+                metrics["source_views"],
+                metrics["source_likes"],
+                metrics["source_comments"],
+                metrics["source_posted_at"],
+                row["reference_id"],
+            ),
+        )
+        updated += 1
+    if updated:
+        conn.commit()
+    return updated
+
+
+def _info_json_candidates(media_path: Path) -> list[Path]:
+    return [
+        media_path.with_suffix(".info.json"),
+        Path(f"{media_path}.info.json"),
+    ]
+
+
+def _source_metrics_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_views": _int_or_none(
+            _first_value(
+                payload,
+                "view_count",
+                "views",
+                "play_count",
+                "video_view_count",
+                "videoViewCount",
+                "video_play_count",
+                "videoPlayCount",
+            )
+        ),
+        "source_likes": _int_or_none(
+            _first_value(payload, "like_count", "likes", "likes_count", "likesCount")
+        ),
+        "source_comments": _int_or_none(
+            _first_value(
+                payload,
+                "comment_count",
+                "comments",
+                "comments_count",
+                "commentsCount",
+            )
+        ),
+        "source_posted_at": _posted_at_from_payload(payload),
+    }
+
+
+def _first_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _posted_at_from_payload(payload: dict[str, Any]) -> str | None:
+    timestamp = _int_or_none(
+        _first_value(payload, "timestamp", "release_timestamp", "created_at")
+    )
+    if timestamp is not None:
+        return datetime.fromtimestamp(timestamp, UTC).isoformat()
+    upload_date = str(_first_value(payload, "upload_date", "release_date") or "")
+    if re.fullmatch(r"\d{8}", upload_date):
+        return datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=UTC).isoformat()
+    value = _first_value(payload, "posted_at", "postedAt", "uploadDate")
+    return str(value) if value not in (None, "") else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:

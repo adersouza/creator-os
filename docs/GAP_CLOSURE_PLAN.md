@@ -237,7 +237,9 @@ ones the spec required are still validated by nobody: `pattern_card`, `video_ana
 
 **Tests:** valid payload passes; one mutated required field raises; per contract.
 
-### 1.5 Import metrics reach the DB reference record (finish HARDENING 4.2b)  ·  MED · S · [ ]
+### 1.5 Import metrics reach the DB reference record (finish HARDENING 4.2b)  ·  MED · S · [x]
+
+**Status:** `source_files` now carries nullable source metrics, scan/archive imports populate them from metadata, and connect-time sidecar backfill covers existing yt-dlp info-json files.
 
 **Branch:** `codex/import-metrics-db`
 
@@ -325,7 +327,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 - [x] 1.2 shared sqlite opener sweep — Reel Factory DB openers now use the shared timeout/WAL/busy-timeout helper with a bare-connect guard.
 - [x] 1.3 filename join key — variations filename is migrated/backfilled/indexed, lookups are exact-first, and cost schema setup runs once per connection.
 - [x] 1.4 reference_factory contract enforcement — pattern cards, video analyses, and both prompt contracts validate before producer writes/exports.
-- [ ] 1.5 import metrics to reference record (columns + sidecar backfill)
+- [x] 1.5 import metrics to reference record — source metrics columns are migrated, populated from info-json/archive metadata, and backfilled from existing sidecars.
 - [ ] 2.1 launcher onboarding fix (explicit dev-auth env in `.command`)
 - [ ] 2.2 CF cost tile from ledger + loading skeleton
 - [ ] 2.3 hydration window honors max `min_gap_hours`

@@ -361,6 +361,112 @@ def test_scan_indexes_account_structure_and_marks_other(tmp_path: Path) -> None:
     assert classify_file(account / "notes.txt") == "other"
 
 
+def test_scan_imports_source_metrics_from_info_json(tmp_path: Path) -> None:
+    source = tmp_path / "examples"
+    account = source / "account_a"
+    account.mkdir(parents=True)
+    video = account / "a.mp4"
+    video.write_bytes(b"not a real video")
+    (account / "a.info.json").write_text(
+        json.dumps(
+            {
+                "view_count": 1200,
+                "like_count": 140,
+                "comment_count": 12,
+                "timestamp": 1_783_036_800,
+            }
+        ),
+        encoding="utf-8",
+    )
+    conn = make_conn(tmp_path)
+
+    scan_source(conn, source)
+
+    row = conn.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE file_name = 'a.mp4'
+        """
+    ).fetchone()
+    assert row["source_views"] == 1200
+    assert row["source_likes"] == 140
+    assert row["source_comments"] == 12
+    assert row["source_posted_at"] == "2026-07-03T00:00:00+00:00"
+
+
+def test_connect_backfills_source_metrics_from_existing_sidecar(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "reference_factory.sqlite"
+    source = tmp_path / "examples"
+    source.mkdir()
+    video = source / "legacy.mp4"
+    video.write_bytes(b"not a real video")
+    conn = connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind, size_bytes,
+          mtime, path_hash, content_hash, created_at, updated_at
+        ) VALUES ('ref_legacy', ?, 'account_a', 'legacy.mp4', 'mp4', 'video', 16,
+          '2026-07-01T00:00:00+00:00', 'hash', NULL,
+          '2026-07-01T00:00:00+00:00', '2026-07-01T00:00:00+00:00')
+        """,
+        (str(video),),
+    )
+    conn.commit()
+    conn.close()
+    (source / "legacy.info.json").write_text(
+        json.dumps(
+            {
+                "views": 800,
+                "likes": 88,
+                "comments": 7,
+                "upload_date": "20260701",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    backfilled = connect(db_path)
+
+    row = backfilled.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE reference_id = 'ref_legacy'
+        """
+    ).fetchone()
+    assert row["source_views"] == 800
+    assert row["source_likes"] == 88
+    assert row["source_comments"] == 7
+    assert row["source_posted_at"] == "2026-07-01T00:00:00+00:00"
+
+
+def test_scan_leaves_missing_source_metrics_null(tmp_path: Path) -> None:
+    source = tmp_path / "examples"
+    source.mkdir()
+    (source / "plain.mp4").write_bytes(b"not a real video")
+    conn = make_conn(tmp_path)
+
+    scan_source(conn, source)
+
+    row = conn.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE file_name = 'plain.mp4'
+        """
+    ).fetchone()
+    assert dict(row) == {
+        "source_views": None,
+        "source_likes": None,
+        "source_comments": None,
+        "source_posted_at": None,
+    }
+
+
 def test_scan_dedupes_references_by_content_hash(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account_a = source / "account_a"
