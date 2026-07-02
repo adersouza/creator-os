@@ -263,13 +263,14 @@ unresolved → NULL, import still ok.
 `source.soulId`; missing caption sidecar → stem-strip; unresolvable → NULL/unattributed; report aggregates 2 souls
 + engagement rate. Independent of Tier 1 (can land any order) but more useful after 1.2.
 
-### 3.2 Thin end-to-end orchestrator  ·  HIGH · L · [ ]
+### 3.2 Thin end-to-end orchestrator  ·  HIGH · L · [x]
 **Branch:** `codex/pipeline-orchestrator`
 **Why:** no reference→generate→QC→rank→caption→schedule driver exists; every stage is a manual CLI, `Makefile`
 only launches dev servers. Throughput is bounded by an operator hand-cranking CLIs — the stated volume bottleneck.
 **Do:** add a thin campaign-scoped `reel_factory/pipeline_run.py` chaining `generate_prompts → generate_assets →
 QC gates → winner-DNA/virality rank → caption/render → posting_ledger.assign`, with resume/idempotency, driven off
 `next_batch`. **STOP before publish** — assignment/draft only. Depends on 0.1 (ranker) + 1.1.
+**Status:** Implemented in PR #334.
 
 ### 3.3 ContentForge Variation Lab → the resumable job queue it already has  ·  HIGH · M · [ ]
 **Branch:** `codex/contentforge-lab-jobqueue`
@@ -351,7 +352,7 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 2.3 enrich winnerDNA schema — PR #332
 - [x] 2.4 contentforge capture decision — PR #333
 - [x] 3.1 per-soul metrics — PR #323 merged 2026-07-01
-- [ ] 3.2 orchestrator
+- [x] 3.2 orchestrator — PR #334
 - [ ] 3.3 contentforge job queue
 - [ ] 3.4 unify next_batch schema
 - [ ] 3.5 stable join keys
