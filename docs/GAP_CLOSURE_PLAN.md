@@ -194,7 +194,9 @@ timeouts = `database is locked` under exactly the load the pipeline now generate
 **Tests:** the grep-guard test; concurrent reader/writer smoke test on one shared DB (two threads,
 no `database is locked`).
 
-### 1.3 Kill the leading-wildcard filename LIKE-join (finish RELIABILITY 5.3)  ·  MED · M · [ ]
+### 1.3 Kill the leading-wildcard filename LIKE-join (finish RELIABILITY 5.3)  ·  MED · M · [x]
+
+**Status:** `variations.filename` is migrated/backfilled/indexed, filename lookups are exact-first with legacy fallback, and cost schema setup runs once per ledger connection.
 
 **Branch:** `codex/filename-join-key`
 

@@ -28,6 +28,7 @@ def export_approved(
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_sqlite(db_path)
     ensure_campaign_schema(conn)
+    _ensure_variations_filename(conn)
     rows = conn.execute("""
         SELECT
             v.job_key,
@@ -59,7 +60,13 @@ def export_approved(
             OR (
                 m.campaign_output_id IS NULL
                 AND (m.job_key IS NULL OR v.job_key IS NULL)
-                AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                AND (
+                    m.filename = v.filename
+                    OR (
+                        (v.filename IS NULL OR v.filename = '')
+                        AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                    )
+                )
             )
         WHERE v.status = 'ok' AND v.review_state = 'approved'
         ORDER BY v.encoded_at, v.output_path
@@ -142,6 +149,24 @@ def export_approved(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {"ok": True, "count": len(items), "path": str(out_path), "items": items}
+
+
+def _ensure_variations_filename(conn) -> None:
+    existing = {
+        row["name"] for row in conn.execute("PRAGMA table_info(variations)").fetchall()
+    }
+    if "filename" not in existing:
+        conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
+    rows = conn.execute(
+        "SELECT job_key, output_path FROM variations WHERE filename IS NULL OR filename = ''"
+    ).fetchall()
+    conn.executemany(
+        "UPDATE variations SET filename = ? WHERE job_key = ?",
+        [(Path(row["output_path"]).name, row["job_key"]) for row in rows],
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_variations_filename ON variations(filename)"
+    )
 
 
 def _hook_idx(filename: str) -> int:

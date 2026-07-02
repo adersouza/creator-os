@@ -71,6 +71,7 @@ class Manifest:
             caption_text TEXT NOT NULL,
             caption_hash TEXT NOT NULL,
             output_path TEXT NOT NULL,
+            filename TEXT,
             output_hash TEXT NOT NULL,
             output_size_bytes INTEGER NOT NULL,
             duration_sec REAL NOT NULL,
@@ -165,6 +166,18 @@ class Manifest:
             self.conn.execute(
                 "ALTER TABLE variations ADD COLUMN review_state TEXT NOT NULL DEFAULT 'draft'"
             )
+        if "filename" not in cols:
+            self.conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
+        rows = self.conn.execute(
+            "SELECT job_key, output_path FROM variations WHERE filename IS NULL OR filename = ''"
+        ).fetchall()
+        self.conn.executemany(
+            "UPDATE variations SET filename = ? WHERE job_key = ?",
+            [(Path(row["output_path"]).name, row["job_key"]) for row in rows],
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_variations_filename ON variations(filename)"
+        )
         self.conn.execute(
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (self.SCHEMA_VERSION, int(time.time())),
@@ -341,10 +354,10 @@ class Manifest:
             """
             INSERT OR REPLACE INTO variations (
                 job_key, video_id, recipe, recipe_params_json, caption_text,
-                caption_hash, output_path, output_hash, output_size_bytes,
+                caption_hash, output_path, filename, output_hash, output_size_bytes,
                 duration_sec, audio, encoded_at, encoder, status, review_state,
                 render_time_sec, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_key,
@@ -354,6 +367,7 @@ class Manifest:
                 caption_text,
                 caption_hash,
                 output_path,
+                Path(output_path).name,
                 output_hash,
                 output_size_bytes,
                 round(duration_sec, 3),
@@ -441,6 +455,12 @@ class Manifest:
         )
 
     def _variation_for_filename(self, filename: str) -> sqlite3.Row | None:
+        row = self.conn.execute(
+            "SELECT * FROM variations WHERE filename = ? ORDER BY encoded_at DESC LIMIT 1",
+            (filename,),
+        ).fetchone()
+        if row:
+            return row
         return self.conn.execute(
             "SELECT * FROM variations WHERE output_path LIKE ? ORDER BY encoded_at DESC LIMIT 1",
             (f"%/{filename}",),

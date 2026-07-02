@@ -660,7 +660,8 @@ def _load_cost_tracker_module():
 
 
 def _record_ai_cost_event(
-    root: Path,
+    conn,
+    cost_tracker,
     *,
     provider: str,
     operation: str,
@@ -671,9 +672,6 @@ def _record_ai_cost_event(
     lineage_path_text: str,
     stem: str,
 ) -> str:
-    cost_tracker = _load_cost_tracker_module()
-    db_path = _campaign_cost_db_path(root)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
     metadata = {
         "schema": "reel_factory.ai_cost_metadata.v1",
@@ -684,16 +682,16 @@ def _record_ai_cost_event(
         "lineagePath": lineage_path_text,
         "stem": stem,
     }
-    with connect_sqlite(db_path) as conn:
-        return cost_tracker.record_ai_cost(
-            conn,
-            provider=provider,
-            operation=operation,
-            campaign_id=campaign_id,
-            generations=1,
-            metadata=metadata,
-            source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
-        )
+    return cost_tracker.record_ai_cost(
+        conn,
+        provider=provider,
+        operation=operation,
+        campaign_id=campaign_id,
+        generations=1,
+        metadata=metadata,
+        source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
+        ensure_schema=False,
+    )
 
 
 def _record_generation_costs(
@@ -703,33 +701,42 @@ def _record_generation_costs(
     records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     events = []
-    for record in records:
-        raw = record.get("raw")
-        if not isinstance(raw, dict) or not _generation_completed(raw):
-            continue
-        job_id = extract_id(raw)
-        if not job_id:
-            continue
-        event_id = _record_ai_cost_event(
-            plan.source_dir.parent,
-            provider=str(record["provider"]),
-            operation=str(record["operation"]),
-            campaign_id=getattr(plan, "campaign", None),
-            model=str(record["model"]),
-            job_id=job_id,
-            actual_credits=_result_credits(raw),
-            lineage_path_text=lineage_path_text,
-            stem=plan.stem,
-        )
-        events.append(
-            {
-                "eventId": event_id,
-                "provider": record["provider"],
-                "operation": record["operation"],
-                "jobId": job_id,
-                "actualCredits": _result_credits(raw),
-            }
-        )
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(plan.source_dir.parent)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with connect_sqlite(db_path) as conn:
+        cost_tracker.ensure_cost_table(conn)
+        for record in records:
+            raw = record.get("raw")
+            if not isinstance(raw, dict) or not _generation_completed(raw):
+                continue
+            job_id = extract_id(raw)
+            if not job_id:
+                continue
+            provider = str(record["provider"])
+            operation = str(record["operation"])
+            actual_credits = _result_credits(raw)
+            event_id = _record_ai_cost_event(
+                conn,
+                cost_tracker,
+                provider=provider,
+                operation=operation,
+                campaign_id=getattr(plan, "campaign", None),
+                model=str(record["model"]),
+                job_id=job_id,
+                actual_credits=actual_credits,
+                lineage_path_text=lineage_path_text,
+                stem=plan.stem,
+            )
+            events.append(
+                {
+                    "eventId": event_id,
+                    "provider": provider,
+                    "operation": operation,
+                    "jobId": job_id,
+                    "actualCredits": actual_credits,
+                }
+            )
     return {"schema": "reel_factory.ai_cost_ledger.v1", "events": events}
 
 
