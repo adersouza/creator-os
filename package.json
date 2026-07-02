@@ -18,7 +18,7 @@
     "check:arch:fixtures": "bash scripts/test-architecture-guards.sh",
     "check:arch:py": "uv run lint-imports && python3 scripts/check-python-architecture-boundaries.py",
     "check:arch:ts": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
-    "graphify:update": "graphify update .",
+    "graphify:update": "bash scripts/graphify-update.sh",
     "lint": "turbo run lint",
     "security:codeql-note": "node scripts/security/codeql-note.mjs",
     "security:secrets": "bash scripts/security/secret-scan.sh"
