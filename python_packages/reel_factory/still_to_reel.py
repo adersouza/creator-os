@@ -387,10 +387,8 @@ def _result_payload(
 
 
 def _validate_result(payload: dict[str, Any]) -> None:
-    try:
-        from pipeline_contracts import validate_motion_edit_render
-    except ImportError:
-        return
+    from pipeline_contracts import validate_motion_edit_render
+
     validate_motion_edit_render(payload)
 
 

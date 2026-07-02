@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import json
 import subprocess
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import pytest
 from audio_intent import read_audio_intent
 from PIL import Image
-from still_to_reel import MotionEditRequest, render_motion_edit
+from still_to_reel import MotionEditRequest, _validate_result, render_motion_edit
 
 
 def _still(path: Path, *, size: tuple[int, int] = (1080, 1920)) -> Path:
@@ -83,6 +84,20 @@ def test_motion_edit_dry_run_is_zero_cost_and_no_paid_command(tmp_path: Path) ->
     assert "higgsfield" not in command_text
     assert "kling" not in command_text
     assert not out.exists()
+
+
+def test_motion_edit_contract_import_error_is_not_swallowed(monkeypatch) -> None:
+    real_import = builtins.__import__
+
+    def missing_pipeline_contracts(name, *args, **kwargs):
+        if name == "pipeline_contracts":
+            raise ImportError("forced missing pipeline_contracts")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", missing_pipeline_contracts)
+
+    with pytest.raises(ImportError, match="forced missing pipeline_contracts"):
+        _validate_result({})
 
 
 def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
