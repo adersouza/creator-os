@@ -4116,6 +4116,52 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(queue.recover_stale(stale_after_sec=1), 1)
             self.assertEqual(queue.status()["counts"]["interrupted"], 1)
 
+    def test_render_queue_claim_lost_race_returns_none(self):
+        class RaceConnection:
+            def __init__(self, real, winner_queue):
+                self._real = real
+                self._winner_queue = winner_queue
+                self._raced = False
+
+            def execute(self, sql, parameters=()):
+                if (
+                    not self._raced
+                    and "SELECT * FROM queue_jobs WHERE status = 'queued'" in sql
+                ):
+                    row = self._real.execute(sql, parameters).fetchone()
+                    self._winner_queue.claim("worker-1")
+                    self._raced = True
+
+                    class Result:
+                        def fetchone(self):
+                            return row
+
+                    return Result()
+                return self._real.execute(sql, parameters)
+
+            def commit(self):
+                return self._real.commit()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            winner = RenderQueue(root)
+            loser = RenderQueue(root)
+            job_id = winner.enqueue(
+                job_key="abc",
+                command=["python3", "--version"],
+                cwd=root,
+                max_attempts=1,
+            )
+            loser.conn = RaceConnection(loser.conn, winner)
+
+            self.assertIsNone(loser.claim("worker-2"))
+            row = winner.conn.execute(
+                "SELECT status, worker_id FROM queue_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+
+            self.assertEqual(row["status"], "claimed")
+            self.assertEqual(row["worker_id"], "worker-1")
+
 
 if __name__ == "__main__":
     unittest.main()

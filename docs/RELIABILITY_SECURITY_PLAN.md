@@ -442,7 +442,7 @@ rate formula. Depends on that helper existing; if not yet merged, STOP and note 
 Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 
 ## Status log
-- [ ] 0.1 reel_outcomes NULL upsert crash
+- [x] 0.1 reel_outcomes NULL upsert crash — PR #335
 - [ ] 0.2 render_queue double-claim
 - [ ] 0.3 contract validation silent no-op
 - [ ] 1.1 harden higgsfield runner (timeout/status/download/job-id)
