@@ -3,18 +3,28 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from next_batch import _campaign_factory_command, campaign_factory_next_batch
+from next_batch import (
+    CAMPAIGN_FACTORY_REQUEST_ENV,
+    _campaign_factory_command,
+    campaign_factory_next_batch,
+)
+from reel_factory.next_batch import select_next_batch as packaged_select_next_batch
+
+
+def test_next_batch_packaged_module_is_importable():
+    assert callable(packaged_select_next_batch)
 
 
 def test_campaign_factory_next_batch_prefers_canonical_recommendations(monkeypatch):
     calls = []
 
-    def fake_run(cmd, *, check, capture_output, text, timeout):
+    def fake_run(cmd, *, check, capture_output, env, text, timeout):
         calls.append(
             {
                 "cmd": cmd,
                 "check": check,
                 "capture_output": capture_output,
+                "request": env[CAMPAIGN_FACTORY_REQUEST_ENV],
                 "text": text,
                 "timeout": timeout,
             }
@@ -38,15 +48,11 @@ def test_campaign_factory_next_batch_prefers_canonical_recommendations(monkeypat
             "cmd": [
                 sys.executable,
                 "-m",
-                "campaign_factory.cli",
-                "recommend-next-batch",
-                "--campaign",
-                "may",
-                "--count",
-                "2",
+                "campaign_factory.recommendation_bridge",
             ],
             "check": True,
             "capture_output": True,
+            "request": '{"campaign":"may","count":2}',
             "text": True,
             "timeout": 12.0,
         }
@@ -75,14 +81,9 @@ def test_campaign_factory_next_batch_falls_back_on_cli_failure(monkeypatch):
     assert campaign_factory_next_batch("may", count=2) is None
 
 
-def test_campaign_factory_command_allows_cli_override(monkeypatch):
-    monkeypatch.setenv("REEL_FACTORY_CAMPAIGN_FACTORY_CLI", "campaign-factory")
-
-    assert _campaign_factory_command("may", count=2) == [
-        "campaign-factory",
-        "recommend-next-batch",
-        "--campaign",
-        "may",
-        "--count",
-        "2",
+def test_campaign_factory_command_uses_fixed_module_entrypoint():
+    assert _campaign_factory_command() == [
+        sys.executable,
+        "-m",
+        "campaign_factory.recommendation_bridge",
     ]
