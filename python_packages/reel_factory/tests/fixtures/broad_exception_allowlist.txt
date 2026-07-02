@@ -10,9 +10,6 @@ audio_mux.py:audio_stream_count:44
 audio_mux.py:_audio_meta:71
 audio_mux.py:mux_root:245
 campaign_store.py:get_asset_generation:828
-caption_bank.py:build:332
-caption_bank.py:_history_captions:683
-caption_bank.py:_history_captions:694
 caption_render.py:render_caption_png:329
 discoverability_safety.py:audit_caption_sources:103
 embedding_index.py:text_for_path:30
@@ -39,9 +36,6 @@ hook_tools.py:<module>:21
 hook_tools.py:read_hook_library:126
 identity_verification.py:get_identity_provider:95
 identity_verification.py:_load_reference_embeddings:214
-manifest.py:_import_json:195
-manifest.py:materialize_cached_job:270
-manifest.py:get_analysis:750
 overnight_grid_worker.py:simple_rating:452
 overnight_grid_worker.py:next_clip_stem:488
 placement.py:probe_caption_region_luminance:128
@@ -64,6 +58,12 @@ readiness_check.py:evaluate_output:220
 reel_factory/api/metrics_routes.py:dashboard_summary:51
 reel_factory/api/metrics_routes.py:dashboard_summary:57
 reel_factory/api/metrics_routes.py:dashboard_summary:65
+reel_factory/caption_bank.py:build:333
+reel_factory/caption_bank.py:_history_captions:684
+reel_factory/caption_bank.py:_history_captions:695
+reel_factory/manifest.py:_import_json:196
+reel_factory/manifest.py:materialize_cached_job:271
+reel_factory/manifest.py:get_analysis:751
 reel_gui.py:_run_asset_job:212
 reel_gui.py:_review_states_by_filename:432
 reel_gui.py:_outcome_filenames:453
