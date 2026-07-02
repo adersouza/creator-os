@@ -6,14 +6,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ai_visual_qc import record_from_scores
+from asset_prompt_contract import AssetPromptSet
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
 from generate_assets import (
     AssetGenerationPlan,
+    _record_cost_preflight_block,
     _record_generation_costs,
     generated_image_qc,
     generated_image_qc_failure_reason,
     generated_video_qc,
     generated_video_qc_failure_reason,
+    list_failed_generations,
 )
 from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
@@ -610,6 +613,44 @@ def test_reel_generation_costs_record_completed_provider_events(
     assert rows[0][2] == "daily"
     assert json.loads(rows[0][3])["actualCredits"] == 0.12
     assert rows[1][0] == "kling"
+
+
+def test_cost_preflight_block_appends_failed_generation_dead_letter(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "00_source_videos"
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="blocked_clip",
+        reference=None,
+        soul_id="soul_1",
+        soul_name="Stacey",
+        start_image=None,
+        out_dir=tmp_path / "out",
+        source_dir=source_dir,
+        campaign="daily",
+        creator="Stacey",
+    )
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt="grid",
+        klingMotionPrompt="motion",
+        notes="test",
+    )
+
+    result = _record_cost_preflight_block(
+        plan,
+        prompt=prompt,
+        cost_preflight={"blockingReason": "estimated_cost_exceeds_daily_budget"},
+    )
+    failures = list_failed_generations(tmp_path)
+
+    assert result["ok"] is False
+    assert failures["count"] == 1
+    assert failures["items"][0]["stem"] == "blocked_clip"
+    assert (
+        failures["items"][0]["failure"]["reason"]
+        == "estimated_cost_exceeds_daily_budget"
+    )
 
 
 def test_metadata_normalization_reports_missing_exiftool_without_spoofing(

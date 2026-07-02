@@ -1022,6 +1022,7 @@ def _record_cost_preflight_block(
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _append_failed_generation(plan, lineage_path=path, lineage=payload)
     return {
         "ok": False,
         "path": str(path),
@@ -1088,6 +1089,7 @@ def _record_generation_failure(
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _append_failed_generation(plan, lineage_path=path, lineage=payload)
     campaign_record = None
     if plan.campaign or plan.creator:
         campaign_record = record_asset_generation(
@@ -1105,6 +1107,54 @@ def _record_generation_failure(
         "lineage": payload,
         "campaign_record": campaign_record,
         "error": failure,
+    }
+
+
+def failed_generations_path(root: Path | str) -> Path:
+    return Path(root).resolve() / "failed_generations.jsonl"
+
+
+def _append_failed_generation(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    *,
+    lineage_path: Path,
+    lineage: dict[str, Any],
+) -> None:
+    generation = lineage.get("generation") if isinstance(lineage, dict) else {}
+    failure = generation.get("failure") if isinstance(generation, dict) else {}
+    record = {
+        "schema": "reel_factory.failed_generation.v1",
+        "createdAt": int(time.time()),
+        "stem": plan.stem,
+        "creator": getattr(plan, "creator", None),
+        "campaign": getattr(plan, "campaign", None),
+        "status": generation.get("status") if isinstance(generation, dict) else None,
+        "failure": failure if isinstance(failure, dict) else {},
+        "lineagePath": str(lineage_path),
+    }
+    path = failed_generations_path(plan.source_dir.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def list_failed_generations(root: Path | str, *, limit: int = 100) -> dict[str, Any]:
+    path = failed_generations_path(root)
+    rows = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    rows = rows[-max(1, limit) :]
+    return {
+        "schema": "reel_factory.failed_generations.v1",
+        "path": str(path),
+        "count": len(rows),
+        "items": rows,
     }
 
 
@@ -1731,6 +1781,7 @@ def create_direct_reference_image_asset(
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
             "ok": False,
             "path": str(path),
@@ -1769,6 +1820,7 @@ def create_direct_reference_image_asset(
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
             "ok": False,
             "path": str(path),
@@ -1834,6 +1886,7 @@ def create_direct_reference_image_asset(
         path.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
             "ok": False,
             "path": str(path),
@@ -2231,6 +2284,7 @@ def main() -> int:
             "wait",
             "status",
             "capabilities",
+            "failed-generations",
         ],
     )
     ap.add_argument("--root", default=".")
@@ -2282,6 +2336,8 @@ def main() -> int:
         result = probe_higgsfield_capabilities(
             Path(args.root).resolve(), force=args.force
         )
+    elif args.mode == "failed-generations":
+        result = list_failed_generations(Path(args.root).resolve())
     elif args.mode in {"reference-image", "reference-image-dry-run"}:
         if not args.reference or not args.stem:
             raise SystemExit("--reference and --stem are required")

@@ -314,7 +314,7 @@ while you're here.
 **Tests:** transient failure then success → retried; already-imported URL → skipped, no re-download; distinct URL →
 downloads.
 
-### 4.4 Aggregated failure / dead-letter view for failed gens  ·  MED · M · [ ]
+### 4.4 Aggregated failure / dead-letter view for failed gens  ·  MED · M · [x]
 **Branch:** `codex/gen-dead-letter`
 **Why:** cost-preflight blocks (`generate_assets.py:832-848`) and gen failures (`_record_generation_failure`,
 `:866-925`) each write a single lineage JSON with `status: *_blocked/failed`; there's no aggregated surface
@@ -405,7 +405,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 4.1 quarantine blocks re-entry — caption intake now treats bad-caption quarantine hashes/text as blocked existing keys; focused tests passed.
 - [x] 4.2 content-hash dedup + import metrics — reference scan dedupes by SHA-256 content hash and reel URL import captures yt-dlp info-json metrics; focused tests passed.
 - [x] 4.3 ytdlp retry + duplicate-URL guard — URL imports retry transient failures and skip URLs already recorded by import sidecars; focused tests passed.
-- [ ] 4.4 failed-gen dead-letter view
+- [x] 4.4 failed-gen dead-letter view — blocked/failed generation paths append `failed_generations.jsonl`, with a read-only `failed-generations` CLI mode; focused tests passed.
 - [ ] 4.5 caption artifact git policy
 - [ ] 5.1 per-account cap/spacing from config
 - [ ] 5.2 per-account timezone
