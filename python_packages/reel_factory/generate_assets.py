@@ -43,6 +43,10 @@ IMAGE_MODEL_CANDIDATES = ("soul_2", "soul_v2", IMAGE_MODEL)
 VIDEO_MODEL_CANDIDATES = (VIDEO_MODEL,)
 CAPABILITY_SCHEMA = "reel_factory.higgsfield_capabilities.v1"
 VIDEO_SOUND_MODELS = {"kling2_6", "kling3_0"}
+DOWNLOAD_TIMEOUT_SECONDS = 60
+MIN_IMAGE_RESULT_BYTES = 10_000
+MIN_VIDEO_RESULT_BYTES = 100_000
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class HiggsfieldCommandError(RuntimeError):
@@ -837,9 +841,45 @@ def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
     ]
 
 
+def _download_min_bytes(out_path: Path, content_type: str | None) -> int:
+    if content_type and content_type.lower().startswith("video/"):
+        return MIN_VIDEO_RESULT_BYTES
+    if out_path.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}:
+        return MIN_VIDEO_RESULT_BYTES
+    return MIN_IMAGE_RESULT_BYTES
+
+
 def download_result(url: str, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, out_path)
+    tmp_path: Path | None = None
+    try:
+        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get_content_type()
+            if content_type not in {None, "", "application/octet-stream"} and not (
+                content_type.startswith("image/") or content_type.startswith("video/")
+            ):
+                raise RuntimeError(f"unexpected result content type: {content_type}")
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=out_path.parent,
+                prefix=f".{out_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+                    tmp.write(chunk)
+        min_bytes = _download_min_bytes(out_path, content_type)
+        size = tmp_path.stat().st_size if tmp_path else 0
+        if size < min_bytes:
+            raise RuntimeError(
+                f"downloaded result too small: {size} bytes < {min_bytes} bytes"
+            )
+        tmp_path.replace(out_path)
+    except Exception:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
     return out_path
 
 

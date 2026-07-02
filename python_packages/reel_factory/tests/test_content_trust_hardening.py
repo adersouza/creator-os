@@ -12,6 +12,7 @@ from generate_assets import (
     AssetGenerationPlan,
     _record_cost_preflight_block,
     _record_generation_costs,
+    download_result,
     generated_image_qc,
     generated_image_qc_failure_reason,
     generated_video_qc,
@@ -53,6 +54,25 @@ class PathIdentityProvider(FakeIdentityProvider):
         return self._embeddings_by_name.get(image_path.name, [1.0, 0.0])
 
 
+class FakeDownloadResponse:
+    def __init__(self, chunks: list[bytes], content_type: str = "image/png"):
+        self._chunks = list(chunks)
+        self.headers = self
+        self._content_type = content_type
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def get_content_type(self) -> str:
+        return self._content_type
+
+    def read(self, _size: int = -1) -> bytes:
+        return self._chunks.pop(0) if self._chunks else b""
+
+
 def _write_reference_set(
     root: Path, creator: str, embeddings: list[list[float]]
 ) -> None:
@@ -68,6 +88,50 @@ def _write_reference_set(
 
 def _write_image(path: Path) -> None:
     Image.new("RGB", (24, 24), (120, 90, 80)).save(path)
+
+
+def test_download_result_rejects_truncated_response_without_partial_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import generate_assets
+
+    monkeypatch.setattr(
+        generate_assets.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: FakeDownloadResponse([b"tiny"], "image/png"),
+    )
+
+    out = tmp_path / "asset.png"
+    try:
+        download_result("https://example.test/asset.png", out)
+    except RuntimeError as exc:
+        assert "downloaded result too small" in str(exc)
+    else:
+        raise AssertionError("truncated download was accepted")
+
+    assert not out.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_download_result_timeout_leaves_no_asset_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import generate_assets
+
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(generate_assets.urllib.request, "urlopen", timeout)
+
+    out = tmp_path / "asset.mp4"
+    try:
+        download_result("https://example.test/asset.mp4", out)
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("timeout was accepted")
+
+    assert not out.exists()
 
 
 def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None:

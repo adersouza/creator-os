@@ -301,7 +301,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 
 ## Status log
 
-- [ ] 0.1 reel_factory download verify (timeout + size + content-type + atomic rename, fail-closed)
+- [x] 0.1 reel_factory download verify — shared download_result now uses timeouted streaming, content-type/min-size checks, atomic rename, and no partial files; focused truncated/timeout tests passed.
 - [ ] 0.2 render-pack async + idempotency; async-by-default for paid/long handlers
 - [ ] 0.3 ranked audio reaches mux by default (+ track_id recorded for attribution)
 - [ ] 0.4 spend edge cases: image-on-video-fail ledgers; budget preflight fail-closed on ledger error
