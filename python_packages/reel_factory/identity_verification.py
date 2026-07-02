@@ -131,36 +131,67 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _media_frame_for_embedding(media_path: Path) -> Path:
+def _media_frames_for_embedding(media_path: Path, *, samples: int = 5) -> list[Path]:
     if media_path.suffix.lower() in IMAGE_EXTS:
-        return media_path
+        return [media_path]
     if media_path.suffix.lower() not in VIDEO_EXTS:
-        return media_path
+        return [media_path]
     ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
     tmp = Path(tempfile.mkdtemp(prefix="identity_verify_"))
-    frame = tmp / "frame.jpg"
-    subprocess.run(
-        [
-            ffmpeg,
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-ss",
-            "0.500",
-            "-i",
-            str(media_path),
-            "-frames:v",
-            "1",
-            "-y",
-            str(frame),
-        ],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=60,
-    )
-    return frame
+    duration = _probe_duration(media_path)
+    pcts = [0.15, 0.35, 0.55, 0.75, 0.90][: max(1, samples)]
+    frames: list[Path] = []
+    for idx, pct in enumerate(pcts):
+        frame = tmp / f"frame_{idx}.jpg"
+        timestamp = max(0.05, duration * pct) if duration else 0.5 + idx
+        subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{timestamp:.3f}",
+                "-i",
+                str(media_path),
+                "-frames:v",
+                "1",
+                "-y",
+                str(frame),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+        )
+        frames.append(frame)
+    return frames
+
+
+def _probe_duration(media_path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        raw = subprocess.check_output(
+            [
+                ffprobe,
+                "-v",
+                "0",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(media_path),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        return float(raw.decode().strip())
+    except ValueError:
+        return None
 
 
 def _load_reference_embeddings(path: Path) -> tuple[str, list[list[float]], str | None]:
@@ -323,6 +354,7 @@ def verify_identity(
     root: str | Path = ".",
     threshold: float = DEFAULT_THRESHOLD,
     provider: IdentityProvider | None = None,
+    frame_extractor=None,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     path = Path(media_path)
@@ -352,18 +384,29 @@ def verify_identity(
                 reference_error, creator
             ),
         }
-    frame = _media_frame_for_embedding(path)
-    if not frame.exists():
+    frames = (
+        [Path(frame) for frame in frame_extractor(path)]
+        if frame_extractor
+        else _media_frames_for_embedding(path)
+    )
+    if not frames or any(not frame.exists() for frame in frames):
         return {**base, "failureReason": "frame_extract_failed"}
-    embedding = provider.embedding(frame)
-    if not embedding:
-        return {**base, "failureReason": "face_embedding_missing"}
-    score = max((cosine_similarity(embedding, ref) for ref in references), default=0.0)
+    frame_scores = []
+    for frame in frames:
+        embedding = provider.embedding(frame)
+        if not embedding:
+            return {**base, "failureReason": "face_embedding_missing"}
+        frame_scores.append(
+            max((cosine_similarity(embedding, ref) for ref in references), default=0.0)
+        )
+    score = min(frame_scores) if frame_scores else 0.0
     status = "passed" if score >= threshold else "failed"
     return {
         **base,
         "status": status,
         "score": round(score, 6),
+        "frameCount": len(frame_scores),
+        "frameScores": [round(value, 6) for value in frame_scores],
         "failureReason": ""
         if status == "passed"
         else "identity_similarity_below_threshold",

@@ -113,7 +113,7 @@ existing scheduled post at T forces the next slot ≥ min-gap after T; empty his
 
 ## TIER 1 — Video output quality (highest quality-per-post levers)
 
-### 1.1 Render Kling at `pro` (or `4k` for hero), not the default `std`  ·  HIGH · S · [ ]
+### 1.1 Render Kling at `pro` (or `4k` for hero), not the default `std`  ·  HIGH · S · [x]
 **Branch:** `codex/kling-quality-mode`
 **Why:** `build_video_cmd` (`generate_assets.py:150-182`) never emits `--mode`, so every animated reel
 uses Kling's lowest `std` mode. `higgsfield model get kling3_0` shows `mode {std,pro,4k}` default `std`.
@@ -125,7 +125,7 @@ construction only.
 **Tests:** `build_video_cmd` emits `--mode pro` by default; `4k`/`std` override honored; no `--mode` when
 explicitly disabled (back-comfort).
 
-### 1.2 QC the animated VIDEO, not just the still  ·  HIGH · M · [ ]
+### 1.2 QC the animated VIDEO, not just the still  ·  HIGH · M · [x]
 **Branch:** `codex/video-output-qc`
 **Why:** `run_generated_image_qc` (`generate_assets.py:1098-1102`) filters to `image`/`variation_*` keys;
 the downloaded `video` (`:1023-1024`) is never anatomy/exposure/identity checked. Defects Kling introduces
@@ -136,7 +136,7 @@ frame-extraction helper used by copy-detection (`sscd_video.py` already samples 
 **Tests:** a clip whose sampled frame fails anatomy/exposure is rejected; a clean clip passes; no-provider →
 fail-closed reject (same contract as the still gate). Use the injectable `vision_call` for no-spend tests.
 
-### 1.3 Multi-frame identity check on video (not one frame at t=0.5s)  ·  HIGH · S-M · [ ]
+### 1.3 Multi-frame identity check on video (not one frame at t=0.5s)  ·  HIGH · S-M · [x]
 **Branch:** `codex/identity-multiframe-video`
 **Why:** `identity_verification._media_frame_for_embedding` (`identity_verification.py:149-156`) extracts a
 single frame at `-ss 0.500` and embeds only that. Identity drift later in the clip (face rotating off the
@@ -147,7 +147,7 @@ unchanged.
 **Tests:** a clip that drifts on a late frame fails on the min even though t=0.5s passes; a consistent clip
 passes; still-image path unchanged; threshold stays 0.42.
 
-### 1.4 Audio mux quality: hook offset + loudness + use the ranked track  ·  MED · S-M · [ ]
+### 1.4 Audio mux quality: hook offset + loudness + use the ranked track  ·  MED · S-M · [x]
 **Branch:** `codex/audio-mux-quality`
 **Why (three small, related bugs in the mux path):**
 - `audio_mux.mux_audio` (`audio_mux.py:129-156`) feeds the track from 0:00 (`-stream_loop -1 … -shortest`),
@@ -163,7 +163,7 @@ resolved local path into `mux_root` so the ranked track is what actually gets mu
 **Tests:** offset present → `-ss` in cmd; absent → no `-ss`; `loudnorm` always in `-af`; `mux_root` uses the
 provider-selected path when given, falls back to random only when none supplied.
 
-### 1.5 Optional: `--end-image` bookend + reference-matched duration  ·  MED · M · [ ]
+### 1.5 Optional: `--end-image` bookend + reference-matched duration  ·  MED · M · [x]
 **Branch:** `codex/kling-endframe-duration`
 **Why:** `build_video_cmd` only ever passes `--start-image` (`:169-172`); `--end-image` is supported and
 bookending the motion sharply cuts identity/pose drift and enables controlled camera moves. Separately,
@@ -390,11 +390,11 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 
 ## Status log
 - [x] 0.1 distribution cadence hydrate (double-book fix) — fast branch
-- [ ] 1.1 Kling pro/4k mode
-- [ ] 1.2 video output QC
-- [ ] 1.3 multi-frame identity on video
-- [ ] 1.4 audio mux quality (hook offset + loudnorm + ranked track)
-- [ ] 1.5 end-image bookend + reference duration
+- [x] 1.1 Kling pro/4k mode — `build_video_cmd` now emits `--mode pro` by default, honors `4k`, and supports explicit disabled mode; video dry-run tests passed.
+- [x] 1.2 video output QC — downloaded videos now sample frames and run anatomy/exposure QC fail-closed; focused content-trust tests passed.
+- [x] 1.3 multi-frame identity on video — video identity now checks multiple sampled frames and gates on the minimum similarity; content-trust tests passed.
+- [x] 1.4 audio mux quality (hook offset + loudnorm + ranked track) — mux command now honors hook offsets, applies loudnorm, and accepts provider-selected local audio paths; focused audio mux tests passed.
+- [x] 1.5 end-image bookend + reference duration — Kling commands now support `--end-image`; CLI derives duration from video references with a configurable cap and keeps default fallback; video dry-run tests passed.
 - [ ] 2.1 record AI spend to ledger
 - [ ] 2.2 daily-sum budget cap
 - [ ] 3.1 export failure/stuck visibility

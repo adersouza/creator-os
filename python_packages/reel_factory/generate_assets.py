@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -70,6 +72,7 @@ class AssetGenerationPlan:
     start_image: str | None
     out_dir: Path
     source_dir: Path
+    end_image: str | None = None
     video_reference: str | None = None
     campaign: str | None = None
     creator: str | None = None
@@ -79,6 +82,7 @@ class AssetGenerationPlan:
     image_quality: str = "2k"
     video_aspect_ratio: str = "9:16"
     video_duration: int = 5
+    video_mode: str | None = "pro"
     video_sound: str = "off"
     image_model: str = IMAGE_MODEL
     video_model: str = VIDEO_MODEL
@@ -151,10 +155,12 @@ def build_video_cmd(
     prompt: AssetPromptSet,
     *,
     start_image: str | None,
+    end_image: str | None = None,
     video_reference: str | None = None,
     model: str = VIDEO_MODEL,
     aspect_ratio: str = "9:16",
     duration: int = 5,
+    mode: str | None = "pro",
     sound: str = "off",
     wait: bool = False,
 ) -> list[str]:
@@ -168,12 +174,16 @@ def build_video_cmd(
     ]
     if start_image:
         cmd += ["--start-image", start_image]
+    if end_image:
+        cmd += ["--end-image", end_image]
     if video_reference:
         cmd += ["--video", video_reference]
     if aspect_ratio:
         cmd += ["--aspect_ratio", aspect_ratio]
     if duration:
         cmd += ["--duration", str(duration)]
+    if mode:
+        cmd += ["--mode", mode]
     if sound and model in VIDEO_SOUND_MODELS:
         cmd += ["--sound", sound]
     if wait:
@@ -188,6 +198,46 @@ def build_wait_cmd(job_id: str) -> list[str]:
 
 def build_get_cmd(job_id: str) -> list[str]:
     return ["higgsfield", "generate", "get", job_id, "--json"]
+
+
+def reference_matched_video_duration(
+    reference: str | Path | None,
+    *,
+    default: int = 5,
+    cap: int = 8,
+) -> int:
+    if not reference:
+        return default
+    path = Path(reference)
+    if not path.exists() or path.suffix.lower() not in {
+        ".mp4",
+        ".mov",
+        ".m4v",
+        ".webm",
+    }:
+        return default
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        raw = subprocess.check_output(
+            [
+                ffprobe,
+                "-v",
+                "0",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+        duration = float(raw.decode().strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return default
+    if duration <= 0:
+        return default
+    return max(1, min(cap, round(duration)))
 
 
 def build_soul_list_cmd() -> list[str]:
@@ -726,10 +776,12 @@ def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     video_cmd = build_video_cmd(
         prompt,
         start_image=video_start,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=plan.video_model,
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -779,10 +831,12 @@ def dry_run_video_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, A
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=plan.video_model,
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -986,10 +1040,12 @@ def create_assets(
     video_cmd = build_video_cmd(
         prompt,
         start_image=video_start,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=resolved["videoModel"],
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -1056,6 +1112,22 @@ def create_assets(
         payload["generation"]["error"] = (
             f"video job {video_job_id or ''} returned status {video_status}".strip()
         )
+    video_qc = (
+        {"status": "skipped", "reason": "video_job_not_completed", "results": []}
+        if video_status and video_status != "completed"
+        else generated_video_qc(
+            local_paths,
+            root=plan.source_dir.parent,
+            required=download,
+        )
+    )
+    payload["review"]["generatedVideoQc"] = video_qc
+    if video_qc["status"] == "failed":
+        payload["generation"]["status"] = "video_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_video_qc",
+            "reason": generated_video_qc_failure_reason(video_qc),
+        }
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1066,6 +1138,14 @@ def create_assets(
             "lineage": payload,
             "campaign_record": None,
             "error": payload["generation"]["error"],
+        }
+    if video_qc["status"] == "failed":
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"]["reason"],
         }
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1164,6 +1244,109 @@ def generated_image_qc_failure_reason(qc: dict[str, Any]) -> str:
                 f": {', '.join(str(item) for item in defects)}" if defects else ""
             )
     return "generated image failed anatomy/exposure/identity QC"
+
+
+def generated_video_qc(
+    local_paths: dict[str, str],
+    *,
+    root: Path | str,
+    required: bool = False,
+    vision_call=None,
+    frame_sampler=None,
+) -> dict[str, Any]:
+    video_items = [
+        (key, Path(value))
+        for key, value in sorted(local_paths.items())
+        if key == "video"
+    ]
+    if not video_items:
+        return {
+            "schema": "reel_factory.generated_video_qc.v1",
+            "status": "failed" if required else "skipped",
+            "reason": "no_downloaded_video",
+            "results": [],
+        }
+    results = []
+    for key, path in video_items:
+        try:
+            frames = (
+                [Path(frame) for frame in frame_sampler(path)]
+                if frame_sampler
+                else _sample_video_frames(path)
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "key": key,
+                    "path": str(path),
+                    "postable": False,
+                    "frames": [],
+                    "error": f"video frame sampling failed: {exc}",
+                }
+            )
+            continue
+        frame_results = []
+        for frame in frames:
+            assessment = assess_image_qc(frame, root=root, vision_call=vision_call)
+            frame_results.append(
+                {
+                    "path": str(frame),
+                    "postable": is_image_postable(assessment),
+                    **assessment,
+                }
+            )
+        results.append(
+            {
+                "key": key,
+                "path": str(path),
+                "postable": bool(frame_results)
+                and all(row["postable"] for row in frame_results),
+                "frames": frame_results,
+            }
+        )
+    return {
+        "schema": "reel_factory.generated_video_qc.v1",
+        "status": "passed" if all(row["postable"] for row in results) else "failed",
+        "results": results,
+    }
+
+
+def _sample_video_frames(path: Path) -> list[Path]:
+    from sscd_video import extract_frames
+
+    with tempfile.TemporaryDirectory() as td:
+        temp_dir = Path(td)
+        frames = extract_frames(path, temp_dir)
+        copied: list[Path] = []
+        for idx, frame in enumerate(frames):
+            target = path.with_suffix(path.suffix + f".qc_frame_{idx}.jpg")
+            target.write_bytes(frame.read_bytes())
+            copied.append(target)
+        return copied
+
+
+def generated_video_qc_failure_reason(qc: dict[str, Any]) -> str:
+    for row in qc.get("results") or []:
+        if not isinstance(row, dict) or row.get("postable"):
+            continue
+        if row.get("error"):
+            return f"generated video failed frame QC: {row['error']}"
+        for frame in row.get("frames") or []:
+            if not isinstance(frame, dict) or frame.get("postable"):
+                continue
+            exposure = frame.get("exposure")
+            if isinstance(exposure, dict) and not exposure.get("safe", True):
+                issues = exposure.get("issues") or []
+                return "generated video failed exposure QC" + (
+                    f": {', '.join(str(item) for item in issues)}" if issues else ""
+                )
+            anatomy = frame.get("anatomy")
+            if isinstance(anatomy, dict) and not anatomy.get("plausible", True):
+                defects = anatomy.get("defects") or []
+                return "generated video failed anatomy QC" + (
+                    f": {', '.join(str(item) for item in defects)}" if defects else ""
+                )
+    return "generated video failed anatomy/exposure QC"
 
 
 def create_image_asset(
@@ -1578,10 +1761,12 @@ def create_video_asset(
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
+        end_image=plan.end_image,
         video_reference=plan.video_reference,
         model=resolved["videoModel"],
         aspect_ratio=plan.video_aspect_ratio,
         duration=plan.video_duration,
+        mode=plan.video_mode,
         sound=plan.video_sound,
         wait=wait,
     )
@@ -1637,6 +1822,22 @@ def create_video_asset(
         payload["generation"]["error"] = (
             f"video job {video_job_id or ''} returned status {video_status}".strip()
         )
+    video_qc = (
+        {"status": "skipped", "reason": "video_job_not_completed", "results": []}
+        if video_status and video_status != "completed"
+        else generated_video_qc(
+            local_paths,
+            root=plan.source_dir.parent,
+            required=download,
+        )
+    )
+    payload["review"]["generatedVideoQc"] = video_qc
+    if video_qc["status"] == "failed":
+        payload["generation"]["status"] = "video_qc_rejected"
+        payload["generation"]["failure"] = {
+            "stage": "generated_video_qc",
+            "reason": generated_video_qc_failure_reason(video_qc),
+        }
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1647,6 +1848,14 @@ def create_video_asset(
             "lineage": payload,
             "campaign_record": None,
             "error": payload["generation"]["error"],
+        }
+    if video_qc["status"] == "failed":
+        return {
+            "ok": False,
+            "path": str(path),
+            "lineage": payload,
+            "campaign_record": None,
+            "error": payload["generation"]["failure"]["reason"],
         }
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1695,6 +1904,7 @@ def build_source_lineage(
             "soulName": soul_name or plan.soul_name,
             "selectedPanel": plan.selected_panel,
             "startImage": plan.start_image,
+            "endImage": plan.end_image,
             "videoReference": plan.video_reference,
         },
         "generation": {
@@ -1724,6 +1934,7 @@ def build_source_lineage(
                 "imageQuality": plan.image_quality,
                 "videoAspectRatio": plan.video_aspect_ratio,
                 "videoDuration": plan.video_duration,
+                "videoMode": plan.video_mode,
                 "videoSound": plan.video_sound,
             },
             "commands": commands,
@@ -1771,6 +1982,7 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         soul_id=soul_id,
         soul_name=soul_name,
         start_image=args.start_image,
+        end_image=args.end_image,
         video_reference=args.video_reference,
         out_dir=(root / args.out_dir).resolve(),
         source_dir=(root / "00_source_videos").resolve(),
@@ -1781,7 +1993,13 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         image_aspect_ratio=args.image_aspect_ratio or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=args.image_quality,
         video_aspect_ratio=args.video_aspect_ratio,
-        video_duration=args.video_duration,
+        video_duration=args.video_duration
+        if args.video_duration is not None
+        else reference_matched_video_duration(
+            args.video_reference or args.reference,
+            cap=args.max_video_duration,
+        ),
+        video_mode=None if args.video_mode == "off" else args.video_mode,
         video_sound=args.video_sound,
         image_model=args.image_model,
         video_model=args.video_model,
@@ -1846,6 +2064,7 @@ def main() -> int:
         help="Resolve a completed Higgsfield Soul ID by name, e.g. Stacey",
     )
     ap.add_argument("--start-image")
+    ap.add_argument("--end-image")
     ap.add_argument(
         "--video-reference",
         help="Reference reel/video for models that accept --video, e.g. Seedance 2.0",
@@ -1856,7 +2075,14 @@ def main() -> int:
     ap.add_argument("--image-aspect-ratio")
     ap.add_argument("--image-quality", default="2k")
     ap.add_argument("--video-aspect-ratio", default="9:16")
-    ap.add_argument("--video-duration", type=int, default=5)
+    ap.add_argument("--video-duration", type=int, default=None)
+    ap.add_argument("--max-video-duration", type=int, default=8)
+    ap.add_argument(
+        "--video-mode",
+        choices=["std", "pro", "4k", "off"],
+        default="pro",
+        help="Kling quality mode; use 'off' to omit --mode for compatibility",
+    )
     ap.add_argument("--video-sound", default="off")
     ap.add_argument("--image-model", default=IMAGE_MODEL)
     ap.add_argument("--video-model", default=VIDEO_MODEL)

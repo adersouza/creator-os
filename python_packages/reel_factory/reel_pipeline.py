@@ -2768,7 +2768,12 @@ async def amain(args):
             try:
                 from audio_mux import mux_root
 
-                mux_summary = mux_root(root, audio_tag=args.audio_tag, seed=args.seed)
+                mux_summary = mux_root(
+                    root,
+                    audio_tag=args.audio_tag,
+                    seed=args.seed,
+                    selected_audio_path=args.audio_path,
+                )
                 log.info(f"audio mux: {json.dumps(mux_summary)}")
             except Exception as e:
                 log.error(f"audio mux failed: {e}")
@@ -3092,6 +3097,11 @@ def main():
     )
     ap.add_argument(
         "--audio-tag", default=None, help="audio library tag used with --mux-audio"
+    )
+    ap.add_argument(
+        "--audio-path",
+        default=None,
+        help="specific local audio file to use with --mux-audio",
     )
     ap.add_argument(
         "--enqueue-only",

@@ -5,7 +5,12 @@ from pathlib import Path
 
 from ai_visual_qc import record_from_scores
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
-from generate_assets import generated_image_qc, generated_image_qc_failure_reason
+from generate_assets import (
+    generated_image_qc,
+    generated_image_qc_failure_reason,
+    generated_video_qc,
+    generated_video_qc_failure_reason,
+)
 from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
 from identity_verification import build_reference_set, identity_health, verify_identity
@@ -25,6 +30,15 @@ class FakeIdentityProvider:
 
     def embedding(self, image_path: Path) -> list[float] | None:
         return self._embedding
+
+
+class PathIdentityProvider(FakeIdentityProvider):
+    def __init__(self, embeddings_by_name: dict[str, list[float]]):
+        super().__init__([1.0, 0.0])
+        self._embeddings_by_name = embeddings_by_name
+
+    def embedding(self, image_path: Path) -> list[float] | None:
+        return self._embeddings_by_name.get(image_path.name, [1.0, 0.0])
 
 
 def _write_reference_set(
@@ -73,6 +87,55 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
     assert failed["failureReason"] == "identity_similarity_below_threshold"
     assert unavailable["status"] == "unavailable"
     assert unavailable["failureReason"] == "fake_unavailable"
+    assert passed["frameCount"] == 1
+
+
+def test_video_identity_uses_worst_sampled_frame(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    early = tmp_path / "early.png"
+    late = tmp_path / "late.png"
+    _write_image(early)
+    _write_image(late)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=PathIdentityProvider(
+            {"early.png": [1.0, 0.0], "late.png": [0.0, 1.0]}
+        ),
+        frame_extractor=lambda _path: [early, late],
+    )
+
+    assert result["status"] == "failed"
+    assert result["score"] == 0.0
+    assert result["frameScores"] == [1.0, 0.0]
+
+
+def test_video_identity_passes_when_all_sampled_frames_match(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    early = tmp_path / "early.png"
+    late = tmp_path / "late.png"
+    _write_image(early)
+    _write_image(late)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=PathIdentityProvider(
+            {"early.png": [1.0, 0.0], "late.png": [0.9, 0.1]}
+        ),
+        frame_extractor=lambda _path: [early, late],
+    )
+
+    assert result["status"] == "passed"
+    assert result["score"] == 0.9
+    assert result["frameCount"] == 2
 
 
 def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -> None:
@@ -189,6 +252,79 @@ def test_generated_image_qc_names_identity_reference_seeding_remedy(
         "generated image failed identity QC: "
         "no identity reference set for Stacey - run identity-reference-build"
     )
+
+
+def test_generated_video_qc_passes_clean_sampled_frames(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_ok.png"
+    _write_image(frame)
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=lambda _frames, _prompt: json.dumps(
+            {
+                "anatomy": {"plausible": True, "severity": "none", "defects": []},
+                "exposure": {"safe": True, "severity": "none", "issues": []},
+            }
+        ),
+    )
+
+    assert result["status"] == "passed"
+    assert result["results"][0]["frames"][0]["postable"] is True
+
+
+def test_generated_video_qc_rejects_bad_sampled_frame(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_bad.png"
+    _write_image(frame)
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=lambda _frames, _prompt: json.dumps(
+            {
+                "anatomy": {
+                    "plausible": False,
+                    "severity": "severe",
+                    "defects": ["warped hand"],
+                },
+                "exposure": {"safe": True, "severity": "none", "issues": []},
+            }
+        ),
+    )
+
+    assert result["status"] == "failed"
+    assert "warped hand" in generated_video_qc_failure_reason(result)
+
+
+def test_generated_video_qc_fails_closed_when_provider_unavailable(
+    tmp_path: Path,
+) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_unknown.png"
+    _write_image(frame)
+
+    def unavailable(_frames, _prompt):
+        raise RuntimeError("provider missing")
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=unavailable,
+    )
+
+    assert result["status"] == "failed"
+    assert result["results"][0]["frames"][0]["available"] is False
 
 
 def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:
