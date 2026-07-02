@@ -9,6 +9,24 @@ function stateClass(state) {
   return "text-muted";
 }
 
+function rankScore(item) {
+  var stateBoost = item.operatorState === "ready" ? 2000 : item.operatorState === "review" ? 1000 : 0;
+  return (
+    (item.recommended ? 5000 : 0) +
+    stateBoost +
+    (Number(item.qualityScore ?? item.creativeQualityScore) || 0) +
+    (Number(item.variationScore) || 0) / 100
+  );
+}
+
+function rankingReason(item) {
+  if (item.recommendationReason) return item.recommendationReason;
+  var best = (item.scoreBreakdown || [])
+    .slice()
+    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))[0];
+  return best?.summary || best?.label || "Ranked by quality and variation signals.";
+}
+
 function ReviewButtons({ current, onReview }) {
   return (
     <div className="flex items-center gap-1">
@@ -146,6 +164,10 @@ export default function VariationLabPanel({ file }) {
     setApprovedManifestUrl(data.approvedManifestUrl || "");
   }
 
+  const rankedResults = (report?.results || [])
+    .slice()
+    .sort((a, b) => rankScore(b) - rankScore(a));
+
   return (
     <div className="flex flex-col gap-5">
       <div className="bg-card rounded-card border border-border p-5">
@@ -262,7 +284,7 @@ export default function VariationLabPanel({ file }) {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(report.results || []).map((item, index) => (
+            {rankedResults.map((item, index) => (
               <div key={item.file} className="rounded-card border border-border bg-[#08080c] p-3">
                 <video
                   className="w-full aspect-[9/16] object-cover bg-black rounded-md mb-3"
@@ -272,9 +294,13 @@ export default function VariationLabPanel({ file }) {
                   src={"/api/preview?runId=" + encodeURIComponent(report.runId) + "&file=" + encodeURIComponent(item.file)}
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-muted font-mono truncate">#{index + 1} {item.file}</span>
+                  <span className="text-[10px] text-muted font-mono truncate">
+                    {index === 0 && <span className="mr-2 text-purple">#1 pick</span>}
+                    #{index + 1} {item.file}
+                  </span>
                   <span className={"text-[10px] uppercase font-mono " + stateClass(item.operatorState)}>{item.operatorState}</span>
                 </div>
+                <div className="mt-2 text-[10px] text-muted-darker">{rankingReason(item)}</div>
                 <div className="mt-3">
                   <ReviewButtons
                     current={decisions[item.file]}

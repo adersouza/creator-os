@@ -277,7 +277,7 @@ not a hang (mock); summary includes the new fields.
 **STOP-and-ask:** confirm the auth model (token vs default-allow-loopback) with the human before finalizing — it's
 a security/UX tradeoff that must agree with item 2.1.
 
-### 3.5 ContentForge review polish (dead gates, fake stats, rationale, skeletons)  ·  LOW-MED · M · [ ]
+### 3.5 ContentForge review polish (dead gates, fake stats, rationale, skeletons)  ·  LOW-MED · M · [x]
 **Branch:** `codex/contentforge-review-polish`
 **Why (batch):** model-backed creative-quality/virality gates (`lib/video-analysis-gate.js`,
 `lib/virality-gate.js`) only fire when the caller passes reports, but the sole caller posts only `layers`
@@ -455,7 +455,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 3.2 gen idempotency / no double-bill — paid cockpit calls now send idempotency keys, dedupe in-flight jobs server-side, and disable paid buttons until the job settles; focused duplicate-click tests and JS parse checks passed.
 - [x] 3.3 surface silent failures (both UIs) — Reel Factory run status now counts QC skips as rejected with reason tallies, cockpit fetch failures surface via guarded JSON/global rejection handling, and ContentForge scan/similarity/rejection failures render explicit banners/breakdowns; focused Python, JS parse, and ContentForge tests passed.
 - [x] 3.4 onboarding + subprocess timeouts + health view — reel GUI dev launch now documents/sets explicit loopback auth, request-bound render/preview/ffprobe calls have timeout-to-504 behavior, and dashboard summary includes generation, failed-gen, render-queue, and cost health; focused tests passed.
-- [ ] 3.5 contentforge review polish
+- [x] 3.5 contentforge review polish
 - [ ] 4.1 enforce contracts at write boundaries
 - [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
 - [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.

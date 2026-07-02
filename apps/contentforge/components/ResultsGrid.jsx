@@ -305,6 +305,15 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
     : files.filter(f => f.type === "video");
   const rejectionEntries = Object.entries(forgeResult?.rejectionReasons || {})
     .sort((a, b) => b[1] - a[1]);
+  const reviewedCount = Object.values(decisions).filter((item) => item?.decision).length;
+  const selectedCount = Object.values(decisions).filter((item) => item?.chosen).length;
+  const scoredFiles = (scores?.files || []).filter((file) => file.bucket !== "source");
+  const warningCount = scoredFiles.reduce((sum, file) => {
+    return sum + (Array.isArray(file.warnings) ? file.warnings.length : 0);
+  }, 0);
+  const sortedScoreFiles = scoredFiles.slice().sort((a, b) => {
+    return (Number(b.qualityRetained) || 0) - (Number(a.qualityRetained) || 0);
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -462,9 +471,12 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
                 </tr>
               </thead>
               <tbody>
-                {scores.files.filter((file) => file.bucket !== "source").map((file) => (
+                {sortedScoreFiles.map((file, index) => (
                   <tr key={file.name} className="border-t border-border">
-                    <td className="p-2 font-mono text-muted">{file.name}</td>
+                    <td className="p-2 font-mono text-muted">
+                      {index === 0 && <span className="mr-2 text-purple">#1</span>}
+                      {file.name}
+                    </td>
                     <td className="p-2 text-green">{file.qualityRetained ?? "--"}%</td>
                     <td className="p-2 text-purple">{file.differenceFromOriginal ?? "--"}%</td>
                     <td className="p-2 text-amber">{Math.round((file.maxCrossVariantSimilarity || 0) * 100)}%</td>
@@ -538,15 +550,17 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
             </div>
             <div className="bg-[#0a0a10] rounded-[10px] p-3 border border-border">
               <div className="text-lg font-light text-green my-1 font-mono">
-                {displayFiles.length}
+                {selectedCount || reviewedCount || "--"}
               </div>
-              <div className="text-[9px] text-muted-dark">Selected outputs</div>
+              <div className="text-[9px] text-muted-dark">
+                {selectedCount ? "Picked outputs" : "Reviewed outputs"}
+              </div>
             </div>
             <div className="bg-[#0a0a10] rounded-[10px] p-3 border border-border">
               <div className="text-lg font-light text-purple my-1 font-mono">
-                0%
+                {scores ? warningCount : "--"}
               </div>
-              <div className="text-[9px] text-muted-dark">Warnings</div>
+              <div className="text-[9px] text-muted-dark">QA warnings</div>
             </div>
           </div>
         </div>
