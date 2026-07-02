@@ -389,7 +389,7 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 3.x (reliability) → 4.x (integrity) → 5.x (throughput). Only 2.2→2.1 and 5.1→0.1 are hard-ordered.
 
 ## Status log
-- [ ] 0.1 distribution cadence hydrate (double-book fix)
+- [x] 0.1 distribution cadence hydrate (double-book fix) — fast branch
 - [ ] 1.1 Kling pro/4k mode
 - [ ] 1.2 video output QC
 - [ ] 1.3 multi-frame identity on video

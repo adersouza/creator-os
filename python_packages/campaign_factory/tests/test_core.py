@@ -8806,6 +8806,99 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
         cf.close()
 
 
+def test_plan_distribution_empty_history_uses_first_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile(
+            "model", allowed_instagram_account_ids=["ig_1"]
+        )
+        first_slot = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [
+                first_slot,
+                first_slot + timedelta(hours=4),
+            ],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == first_slot.isoformat()
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_hydrates_account_day_counts_across_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile(
+            "model", allowed_instagram_account_ids=["ig_1"]
+        )
+        day_one = datetime(2026, 1, 2, 10, tzinfo=UTC)
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [
+                day_one,
+                day_one + timedelta(hours=4),
+                day_one + timedelta(days=1),
+            ],
+        )
+
+        first = cf.plan_distribution("may", user_id="user_1", replace=False)
+        second = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert first["planned"][0]["plannedWindowStart"] == day_one.isoformat()
+        assert second["planned"][0]["plannedWindowStart"] == (
+            day_one + timedelta(days=1)
+        ).isoformat()
+    finally:
+        cf.close()
+
+
+def test_plan_distribution_hydrates_min_gap_from_existing_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.upsert_model_account_profile(
+            "model", allowed_instagram_account_ids=["ig_1"]
+        )
+        existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
+        too_close = existing + timedelta(hours=3)
+        valid = existing + timedelta(hours=5)
+        cf.create_distribution_plan(
+            "asset_1",
+            instagram_account_id="ig_1",
+            planned_window_start=existing.isoformat(),
+        )
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [too_close, valid],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == valid.isoformat()
+    finally:
+        cf.close()
+
+
 def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(
     tmp_path: Path, monkeypatch
 ):

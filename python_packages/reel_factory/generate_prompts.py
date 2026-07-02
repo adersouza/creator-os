@@ -30,6 +30,10 @@ from asset_prompt_contract import (
 )
 from campaign_store import next_batch_plan, retry_helper_direction, taste_memory
 from PIL import Image, ImageStat
+from pipeline_contracts.llm_resilience import (
+    decode_json_object,
+    urlopen_json_with_retry,
+)
 from project_config import config_path
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
@@ -1437,10 +1441,9 @@ def call_gemini_motion(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = urlopen_json_with_retry(req, timeout=timeout)
     text = strip_json_fence(response_text_from_gemini(raw))
-    parsed = json.loads(text)
+    parsed = decode_json_object(text)
     if not isinstance(parsed, dict):
         raise ValueError("Gemini motion response must be a JSON object")
     return {
@@ -1518,7 +1521,7 @@ def parse_prompt_text(text: str) -> AssetPromptSet:
 
 
 def call_grok(
-    payload: dict[str, Any], *, api_key: str, timeout: int = 3600
+    payload: dict[str, Any], *, api_key: str, timeout: int = 120
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -1530,8 +1533,7 @@ def call_grok(
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return urlopen_json_with_retry(req, timeout=timeout)
 
 
 def _load_secret_value(

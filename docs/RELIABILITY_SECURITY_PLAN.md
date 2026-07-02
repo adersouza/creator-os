@@ -444,9 +444,9 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 ## Status log
 - [x] 0.1 reel_outcomes NULL upsert crash — PR #335
 - [x] 0.2 render_queue double-claim — PR #336
-- [ ] 0.3 contract validation silent no-op
-- [ ] 1.1 harden higgsfield runner (timeout/status/download/job-id)
-- [ ] 1.2 shared LLM resilience helper
+- [x] 0.3 contract validation silent no-op — fast branch
+- [x] 1.1 harden higgsfield runner (timeout/status/download/job-id) — fast branch
+- [x] 1.2 shared LLM resilience helper — fast branch
 - [ ] 2.1 contentforge API auth
 - [ ] 2.2 biometric privacy (stdout/erasure/chmod/gitignore)
 - [ ] 2.3 scrub analysis_context

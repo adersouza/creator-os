@@ -24,6 +24,7 @@ from generate_prompts import (
     video_duration,
 )
 from intelligence_store import ensure_intelligence_schema
+from pipeline_contracts.llm_resilience import decode_json_object
 
 ANALYSIS_FIELDS = {
     "baseVisualFormula": {},
@@ -295,7 +296,9 @@ def analyze_reference(
             )
         raw_response = call_grok(payload, api_key=api_key)
         text = strip_json_fence(response_text(raw_response))
-        analysis = normalize_analysis(json.loads(text))
+        analysis = normalize_analysis(
+            decode_json_object(text, fallback=heuristic_analysis(reference))
+        )
     reference_hash = sha256_file(reference)
     payload = {
         "schema": "reel_factory.reference_analysis.v1",

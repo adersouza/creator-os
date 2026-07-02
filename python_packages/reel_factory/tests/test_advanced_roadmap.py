@@ -1303,7 +1303,33 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 prompt["prompt_source"], "live_grok_direct_higgsfield_prompt"
             )
             self.assertIn("Reference analysis", prompt["instruction_preview"])
-            self.assertIn("bathroom_mirror", prompt["instruction_preview"])
+
+    def test_reference_analysis_malformed_grok_json_uses_heuristic_fallback(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            ref = root / "bathroom_mirror.png"
+            Image.new("RGB", (1080, 1920), "white").save(ref)
+            fake_raw = {
+                "output": [
+                    {
+                        "content": [
+                            {"type": "output_text", "text": "{not valid json"}
+                        ]
+                    }
+                ]
+            }
+
+            with (
+                patch("reference_analyzer.load_xai_api_key", return_value="key"),
+                patch("reference_analyzer.call_grok", return_value=fake_raw),
+            ):
+                analysis = analyze_reference(root, ref, dry_run=False)
+
+            self.assertEqual(analysis["analysis"]["scene_type"], "bathroom_mirror")
+            self.assertTrue(Path(analysis["path"]).exists())
 
     def test_grok_reference_analysis_instruction_allows_enhanced_visual_direction(self):
         instruction = build_analysis_instruction()

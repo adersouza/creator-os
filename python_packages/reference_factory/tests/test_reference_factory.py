@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
+import pytest
 from reference_factory.audio import (
     analyze_audio_patterns,
     audio_catalog_health,
@@ -35,6 +36,7 @@ from reference_factory.contact_sheet import generate_contact_sheet
 from reference_factory.db import connect
 from reference_factory.embeddings import build_embedding_clusters
 from reference_factory.higgsfield_runner import (
+    _run_command,
     generate_with_higgsfield,
     load_prompt_pairs,
 )
@@ -1963,6 +1965,106 @@ def test_higgsfield_failed_image_prevents_video_generation(tmp_path: Path) -> No
     assert result["status"] == "partial"
     assert result["runs"][0]["status"] == "generation_failed"
     assert len(calls) == 1
+
+
+def test_higgsfield_command_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["higgsfield"], timeout=1800)
+
+    monkeypatch.setattr(
+        "reference_factory.higgsfield_runner.subprocess.run", fake_run
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_command(["higgsfield", "generate", "create"])
+
+
+def test_higgsfield_nowait_without_asset_is_submitted(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root)
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "text2image_soul_v2" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"id": "img_job"}), "")
+        if "kling3_0" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"id": "vid_job"}), "")
+        raise AssertionError(cmd)
+
+    result = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
+
+    run = result["runs"][0]
+    run_dir = Path(run["lineagePath"]).parent
+    assert result["status"] == "submitted"
+    assert run["status"] == "submitted"
+    assert (run_dir / "higgsfield_image_candidate_1_job_id.txt").read_text(
+        encoding="utf-8"
+    ).strip() == "img_job"
+    assert (run_dir / "kling_video_job_id.txt").read_text(
+        encoding="utf-8"
+    ).strip() == "vid_job"
+
+
+def test_higgsfield_primary_moderation_status_fails_run(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root)
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        assert "text2image_soul_v2" in cmd
+        return subprocess.CompletedProcess(
+            cmd, 0, json.dumps({"id": "img_job", "status": "moderated"}), ""
+        )
+
+    result = generate_with_higgsfield(
+        data_root=data_root, limit=1, wait=True, runner=fake_runner
+    )
+
+    assert result["status"] == "partial"
+    assert result["runs"][0]["status"] == "generation_failed"
+    assert "moderated" in result["runs"][0]["errors"][0]
+
+
+def test_higgsfield_empty_download_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root)
+
+    class EmptyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b""
+
+    monkeypatch.setattr(
+        "reference_factory.higgsfield_runner.urllib.request.urlopen",
+        lambda *_args, **_kwargs: EmptyResponse(),
+    )
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        assert "text2image_soul_v2" in cmd
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            json.dumps({"id": "img_job", "url": "https://example.test/image.png"}),
+            "",
+        )
+
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        wait=True,
+        no_video=True,
+        runner=fake_runner,
+    )
+
+    run = result["runs"][0]
+    assert run["status"] == "generation_failed"
+    assert run["localImagePath"] is None
+    assert not (Path(run["lineagePath"]).parent / "higgsfield_image_candidate_1.png").exists()
 
 
 def test_reference_intake_imports_gemini_app_response_from_queue(

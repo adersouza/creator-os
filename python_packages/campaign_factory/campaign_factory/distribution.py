@@ -51,6 +51,18 @@ def _normalize_schedule_mode(value: str | None) -> str:
     return normalized if normalized in {"draft", "preview", "live"} else "draft"
 
 
+def _parse_distribution_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 TRIAL_GRADUATION_STRATEGIES = {"MANUAL", "SS_PERFORMANCE"}
 
 
@@ -390,7 +402,7 @@ class DistributionRepository:
             profile_cache: dict[str, dict[str, Any] | None] = {}
             account_cursors: dict[str, int] = {}
             account_day_counts: dict[tuple[str, str], int] = {}
-            account_last_time: dict[str, datetime] = {}
+            account_slot_times: dict[str, list[datetime]] = {}
             caption_day_counts: dict[tuple[str, str], int] = {}
             source_week_counts: dict[tuple[str, str], int] = {}
             planned = []
@@ -399,6 +411,9 @@ class DistributionRepository:
             slots = self.distribution_slots(
                 fallback_hours or [10, 14, 18],
                 len(primary_assets) + len(primary_assets),
+            )
+            self.hydrate_distribution_cadence(
+                slots, account_day_counts, account_slot_times
             )
             slot_index = 0
             for index, asset in enumerate(primary_assets):
@@ -429,7 +444,7 @@ class DistributionRepository:
                     account_id,
                     asset,
                     account_day_counts,
-                    account_last_time,
+                    account_slot_times,
                     caption_day_counts,
                     source_week_counts,
                     warnings,
@@ -575,6 +590,42 @@ class DistributionRepository:
             day += 1
         return slots
 
+    def hydrate_distribution_cadence(
+        self,
+        slots: list[datetime],
+        account_day_counts: dict[tuple[str, str], int],
+        account_slot_times: dict[str, list[datetime]],
+    ) -> None:
+        if not slots:
+            return
+        window_start = min(slots) - timedelta(hours=4)
+        window_end = max(slots) + timedelta(hours=4)
+        rows = self.conn.execute(
+            """
+            SELECT COALESCE(NULLIF(instagram_account_id, ''), account_id) AS account_id,
+                   planned_window_start AS planned_at
+            FROM distribution_plans
+            WHERE planned_window_start IS NOT NULL
+            UNION ALL
+            SELECT COALESCE(NULLIF(instagram_account_id, ''), account_id) AS account_id,
+                   scheduled_for AS planned_at
+            FROM variant_account_usage
+            WHERE scheduled_for IS NOT NULL
+            """
+        ).fetchall()
+        for row in rows:
+            account_id = str(row["account_id"] or "").strip()
+            planned_at = _parse_distribution_time(row["planned_at"])
+            if not account_id or not planned_at:
+                continue
+            if not (window_start <= planned_at <= window_end):
+                continue
+            day_key = planned_at.date().isoformat()
+            account_day_counts[(account_id, day_key)] = (
+                account_day_counts.get((account_id, day_key), 0) + 1
+            )
+            account_slot_times.setdefault(account_id, []).append(planned_at)
+
     def next_valid_distribution_slot(
         self,
         slots: list[datetime],
@@ -582,7 +633,7 @@ class DistributionRepository:
         account_id: str,
         asset: dict[str, Any],
         account_day_counts: dict[tuple[str, str], int],
-        account_last_time: dict[str, datetime],
+        account_slot_times: dict[str, list[datetime]],
         caption_day_counts: dict[tuple[str, str], int],
         source_week_counts: dict[tuple[str, str], int],
         warnings: list[dict[str, Any]],
@@ -603,10 +654,9 @@ class DistributionRepository:
             week_key = f"{slot.isocalendar().year}-W{slot.isocalendar().week:02d}"
             if account_day_counts.get((account_id, day_key), 0) >= 1:
                 continue
-            if (
-                account_id in account_last_time
-                and abs((slot - account_last_time[account_id]).total_seconds())
-                < 4 * 3600
+            if any(
+                abs((slot - planned_at).total_seconds()) < 4 * 3600
+                for planned_at in account_slot_times.get(account_id, [])
             ):
                 continue
             if (
@@ -633,7 +683,7 @@ class DistributionRepository:
             account_day_counts[(account_id, day_key)] = (
                 account_day_counts.get((account_id, day_key), 0) + 1
             )
-            account_last_time[account_id] = slot
+            account_slot_times.setdefault(account_id, []).append(slot)
             caption_day_counts[(account_id, f"{day_key}:{caption_hash}")] = (
                 caption_day_counts.get((account_id, f"{day_key}:{caption_hash}"), 0) + 1
             )
