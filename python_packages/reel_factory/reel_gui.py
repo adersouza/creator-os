@@ -353,11 +353,11 @@ def _safe_cli_token(value: str, field: str) -> str:
 
 
 def _grid_layout_dimensions(value: Any) -> tuple[int | None, int | None]:
-    match = re.fullmatch(r"\s*(\d+)x(\d+)\s*", str(value or ""))
-    if not match:
+    parts = str(value or "").strip().lower().split("x", 1)
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
         return None, None
-    columns = int(match.group(1))
-    rows = int(match.group(2))
+    columns = int(parts[0])
+    rows = int(parts[1])
     if columns < 1 or rows < 1 or columns * rows > 12:
         return None, None
     return columns, rows
@@ -1108,6 +1108,8 @@ def _next_clip_id() -> str:
 
 def _file_url(path: Path) -> str:
     try:
+        # lgtm[py/path-injection] this only converts an already-created local
+        # file into a URL after proving it is inside ROOT.
         rel = path.resolve().relative_to(ROOT)
     except ValueError:
         return ""
@@ -1117,10 +1119,18 @@ def _file_url(path: Path) -> str:
 def _resolve_project_path(value: str | None) -> str | None:
     if not value:
         return None
+    # lgtm[py/path-injection] value is normalized through _safe_in_root before use.
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = ROOT / path
-    return str(path.resolve())
+    return str(_safe_in_root(path))
+
+
+def _resolve_project_path_required(value: Any, field: str) -> Path:
+    if not value:
+        raise HTTPException(400, f"{field} is required")
+    # lgtm[py/path-injection] value is normalized through _safe_in_root before use.
+    return _safe_in_root(Path(str(value)).expanduser())
 
 
 def _direct_reference_plan_from_body(body: dict[str, Any]) -> DirectReferenceImagePlan:
@@ -1205,7 +1215,8 @@ def _update_source_lineage_with_fanout(
 ) -> str | None:
     if not lineage_path:
         return None
-    lineage_path = Path(lineage_path).expanduser().resolve()
+    # lgtm[py/path-injection] lineage_path is only accepted after the ROOT guard.
+    lineage_path = _safe_in_root(Path(lineage_path).expanduser())
     if not lineage_path.exists():
         return None
     payload = json.loads(lineage_path.read_text(encoding="utf-8"))
@@ -1240,6 +1251,8 @@ def _update_source_lineage_with_fanout(
 
 
 def _shared_motion_prompt_path(stem: str) -> Path:
+    stem = _safe_stem(str(stem))
+    # lgtm[py/path-injection] stem is validated by _safe_stem before path construction.
     return ROOT / "prompts" / "_fanout" / f"{stem}_shared_kling_motion_prompt.json"
 
 
@@ -1276,7 +1289,8 @@ def _attach_panel_lineage(
 ) -> None:
     if not lineage_path_value:
         return
-    path = Path(lineage_path_value).expanduser().resolve()
+    # lgtm[py/path-injection] lineage_path_value is accepted only inside ROOT.
+    path = _safe_in_root(Path(lineage_path_value).expanduser())
     if not path.exists():
         return
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1862,6 +1876,7 @@ def import_reel_url_api(body: dict = Body(...)):
             "url": url,
             "stem": stem,
             "sourceVideoPath": download["path"],
+            "infoJsonPath": download.get("infoJsonPath"),
             "sourceMetrics": download.get("sourceMetrics") or {},
             "campaign": campaign,
         },
@@ -1876,6 +1891,7 @@ def import_reel_url_api(body: dict = Body(...)):
             source_type="reel",
             visual_tags=["reel_url_import"],
             notes=f"Imported from URL: {url}",
+            source_metrics=download.get("sourceMetrics") or {},
         )
 
     prompt_result = None
@@ -2149,11 +2165,11 @@ def asset_reference_image_dry_run_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/reference-image/create")
-def asset_reference_image_create_api(body: dict = Body(...)):
-    if _asset_job_requested(body):
+def asset_reference_image_create_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
         return _enqueue_asset_job(
             "reference_image_create",
-            body,
+            _with_default_idempotency("reference_image_create", body),
             _asset_reference_image_create_sync,
         )
     return _asset_reference_image_create_sync(body)
@@ -2203,7 +2219,7 @@ def asset_dry_run_api(body: dict = Body(...)):
     if not prompt_json or not stem:
         raise HTTPException(400, "prompt_json and stem are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -2271,9 +2287,13 @@ def prompt_generate_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/create-image")
-def asset_create_image_api(body: dict = Body(...)):
-    if _asset_job_requested(body):
-        return _enqueue_asset_job("create_image", body, _asset_create_image_sync)
+def asset_create_image_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
+        return _enqueue_asset_job(
+            "create_image",
+            _with_default_idempotency("create_image", body),
+            _asset_create_image_sync,
+        )
     return _asset_create_image_sync(body)
 
 
@@ -2283,7 +2303,7 @@ def _asset_create_image_sync(body: dict[str, Any]) -> dict[str, Any]:
     if not prompt_json or not stem:
         raise HTTPException(400, "prompt_json and stem are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -2382,9 +2402,13 @@ def asset_select_panel_api(body: dict = Body(...)):
 
 
 @app.post("/api/assets/create-video")
-def asset_create_video_api(body: dict = Body(...)):
-    if _asset_job_requested(body):
-        return _enqueue_asset_job("create_video", body, _asset_create_video_sync)
+def asset_create_video_api(body: dict = Body(...), sync: int = 0):
+    if not sync:
+        return _enqueue_asset_job(
+            "create_video",
+            _with_default_idempotency("create_video", body),
+            _asset_create_video_sync,
+        )
     return _asset_create_video_sync(body)
 
 
@@ -2395,7 +2419,7 @@ def _asset_create_video_sync(body: dict[str, Any]) -> dict[str, Any]:
     if not prompt_json or not stem or not start_image:
         raise HTTPException(400, "prompt_json, stem, and start_image are required")
     plan = AssetGenerationPlan(
-        prompt_json=Path(prompt_json).expanduser().resolve(),
+        prompt_json=_resolve_project_path_required(prompt_json, "prompt_json"),
         stem=str(stem),
         reference=_resolve_project_path(body.get("reference")),
         soul_id=body.get("soul_id"),
@@ -2460,11 +2484,11 @@ def _asset_create_video_sync(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/assets/fanout-panels")
-def asset_fanout_panels_api(body: dict = Body(...)):
-    if _asset_job_requested(body) and not bool(body.get("dry_run", False)):
+def asset_fanout_panels_api(body: dict = Body(...), sync: int = 0):
+    if not sync and not bool(body.get("dry_run", False)):
         return _enqueue_asset_job(
             "fanout_panels",
-            body,
+            _with_default_idempotency("fanout_panels", body),
             lambda queued_body: _asset_fanout_panels_sync(queued_body),
         )
     return _asset_fanout_panels_sync(body)
@@ -2481,10 +2505,7 @@ def _asset_fanout_panels_sync(
     source_image_value = body.get("source_image")
     if not prompt_json_value or not source_image_value:
         raise HTTPException(400, "prompt_json and source_image are required")
-    prompt_json = Path(prompt_json_value).expanduser()
-    if not prompt_json.is_absolute():
-        prompt_json = ROOT / prompt_json
-    prompt_json = prompt_json.resolve()
+    prompt_json = _resolve_project_path_required(prompt_json_value, "prompt_json")
     if not prompt_json.exists():
         raise HTTPException(404, "prompt_json not found")
     source_image = Path(_resolve_project_path(source_image_value) or "")
@@ -3504,6 +3525,21 @@ def main() -> None:
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+def _with_default_idempotency(kind: str, body: dict[str, Any]) -> dict[str, Any]:
+    queued_body = dict(body)
+    queued_body.setdefault(
+        "idempotency_key",
+        hashlib.sha256(
+            json.dumps(
+                {"kind": kind, "body": queued_body},
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest(),
+    )
+    return queued_body
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import random
 import re
 import sqlite3
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -176,6 +177,10 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         campaign_id TEXT NOT NULL,
         source_path TEXT NOT NULL,
         source_type TEXT NOT NULL,
+        source_views INTEGER,
+        source_likes INTEGER,
+        source_comments INTEGER,
+        source_posted_at TEXT,
         extracted_frames_json TEXT NOT NULL DEFAULT '[]',
         visual_tags_json TEXT NOT NULL DEFAULT '[]',
         intended_pose TEXT,
@@ -302,6 +307,17 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         "publish_metrics",
         {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
     )
+    _ensure_columns(
+        conn,
+        "campaign_references",
+        {
+            "source_views": "INTEGER",
+            "source_likes": "INTEGER",
+            "source_comments": "INTEGER",
+            "source_posted_at": "TEXT",
+        },
+    )
+    _backfill_campaign_reference_source_metrics(conn)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
     )
@@ -403,6 +419,7 @@ def add_reference(
     intended_outfit: str = "",
     intended_scene: str = "",
     notes: str = "",
+    source_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     conn = connect(root)
     campaign_row = campaign_by_name(conn, campaign)
@@ -411,15 +428,21 @@ def add_reference(
         "video" if source_path.suffix.lower() in {".mp4", ".mov", ".m4v"} else "image"
     )
     reference_id = f"{campaign_row['campaign_id']}_{slugify(source_path.stem)}"
+    normalized_metrics = _normalize_source_metrics(source_metrics or {})
     conn.execute(
         """
         INSERT INTO campaign_references (
-            reference_id, campaign_id, source_path, source_type, extracted_frames_json,
+            reference_id, campaign_id, source_path, source_type, source_views,
+            source_likes, source_comments, source_posted_at, extracted_frames_json,
             visual_tags_json, intended_pose, intended_outfit, intended_scene, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(reference_id) DO UPDATE SET
             source_path = excluded.source_path,
             source_type = excluded.source_type,
+            source_views = COALESCE(excluded.source_views, campaign_references.source_views),
+            source_likes = COALESCE(excluded.source_likes, campaign_references.source_likes),
+            source_comments = COALESCE(excluded.source_comments, campaign_references.source_comments),
+            source_posted_at = COALESCE(excluded.source_posted_at, campaign_references.source_posted_at),
             extracted_frames_json = excluded.extracted_frames_json,
             visual_tags_json = excluded.visual_tags_json,
             intended_pose = excluded.intended_pose,
@@ -432,6 +455,10 @@ def add_reference(
             campaign_row["campaign_id"],
             str(source_path),
             inferred,
+            normalized_metrics["source_views"],
+            normalized_metrics["source_likes"],
+            normalized_metrics["source_comments"],
+            normalized_metrics["source_posted_at"],
             json.dumps(frames or [], ensure_ascii=False),
             json.dumps(visual_tags or [], ensure_ascii=False),
             intended_pose,
@@ -447,6 +474,117 @@ def add_reference(
         "reference_id": reference_id,
         "campaign_id": campaign_row["campaign_id"],
     }
+
+
+def _normalize_source_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_views": _int_or_none(
+            metrics.get("source_views")
+            or metrics.get("view_count")
+            or metrics.get("views")
+        ),
+        "source_likes": _int_or_none(
+            metrics.get("source_likes")
+            or metrics.get("like_count")
+            or metrics.get("likes")
+        ),
+        "source_comments": _int_or_none(
+            metrics.get("source_comments")
+            or metrics.get("comment_count")
+            or metrics.get("comments")
+        ),
+        "source_posted_at": _posted_at_from_metrics(metrics),
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _posted_at_from_metrics(metrics: dict[str, Any]) -> str | None:
+    value = (
+        metrics.get("source_posted_at")
+        or metrics.get("posted_at")
+        or metrics.get("upload_date")
+    )
+    if value:
+        text = str(value)
+        if re.fullmatch(r"\d{8}", text):
+            return datetime(
+                int(text[0:4]),
+                int(text[4:6]),
+                int(text[6:8]),
+                tzinfo=UTC,
+            ).isoformat()
+        return text
+    timestamp = _int_or_none(metrics.get("timestamp"))
+    if timestamp is not None:
+        return datetime.fromtimestamp(timestamp, UTC).isoformat()
+    return None
+
+
+def _backfill_campaign_reference_source_metrics(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT reference_id, source_path
+        FROM campaign_references
+        WHERE source_views IS NULL
+           OR source_likes IS NULL
+           OR source_comments IS NULL
+           OR source_posted_at IS NULL
+        """
+    ).fetchall()
+    for row in rows:
+        metrics = _source_metrics_for_reference(Path(str(row["source_path"])))
+        if not any(value is not None for value in metrics.values()):
+            continue
+        conn.execute(
+            """
+            UPDATE campaign_references
+            SET source_views = COALESCE(source_views, ?),
+                source_likes = COALESCE(source_likes, ?),
+                source_comments = COALESCE(source_comments, ?),
+                source_posted_at = COALESCE(source_posted_at, ?)
+            WHERE reference_id = ?
+            """,
+            (
+                metrics["source_views"],
+                metrics["source_likes"],
+                metrics["source_comments"],
+                metrics["source_posted_at"],
+                row["reference_id"],
+            ),
+        )
+
+
+def _source_metrics_for_reference(source_path: Path) -> dict[str, Any]:
+    sidecar = source_path.with_suffix(".reel_url_import.json")
+    if sidecar.exists():
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            metrics = (
+                payload.get("sourceMetrics") or payload.get("source_metrics") or {}
+            )
+            if isinstance(metrics, dict):
+                normalized = _normalize_source_metrics(metrics)
+                if any(value is not None for value in normalized.values()):
+                    return normalized
+        except (OSError, json.JSONDecodeError):
+            pass
+    info_json = source_path.with_suffix(".info.json")
+    if info_json.exists():
+        try:
+            payload = json.loads(info_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if isinstance(payload, dict):
+            return _normalize_source_metrics(payload)
+    return _normalize_source_metrics({})
 
 
 def latest_reference_for_campaign(
