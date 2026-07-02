@@ -209,12 +209,12 @@ def _run_asset_job(job_id: str, runner: Any, body: dict[str, Any]) -> None:
             error=str(exc.detail),
             result={"ok": False, "error": exc.detail, "status_code": exc.status_code},
         )
-    except Exception as exc:
+    except Exception:
         _update_asset_job(
             job_id,
             status="failed",
-            error=str(exc),
-            result={"ok": False, "error": str(exc)},
+            error="asset job failed",
+            result={"ok": False, "error": "asset job failed"},
         )
 
 
@@ -257,18 +257,13 @@ def _enqueue_asset_job(
     return {"ok": True, **_public_asset_job(job)}
 
 
-def _run_request_subprocess(
-    cmd: list[str],
+def _run_reel_pipeline_subprocess(
+    args: list[str],
     *,
     timeout_seconds: int,
 ) -> subprocess.CompletedProcess[str]:
-    if not cmd or Path(cmd[0]).resolve() != Path(sys.executable).resolve():
-        raise HTTPException(400, "unsupported subprocess command")
-    if len(cmd) < 2 or cmd[1] != "reel_pipeline.py":
-        raise HTTPException(400, "unsupported subprocess target")
+    cmd = [sys.executable, "reel_pipeline.py", *args]
     try:
-        # codeql[py/command-line-injection] The executable and script target are
-        # fixed above; request values are validated before becoming arguments.
         return subprocess.run(
             cmd,
             cwd=str(ROOT),
@@ -494,8 +489,8 @@ def _asset_job_counts() -> dict[str, int]:
 def _render_queue_health() -> dict[str, Any]:
     try:
         return get_queue(ROOT).status()
-    except Exception as exc:
-        return {"counts": {}, "error": str(exc)}
+    except Exception:
+        return {"counts": {}, "error": "render queue unavailable"}
 
 
 def _prompt_stems() -> set[str]:
@@ -1198,17 +1193,11 @@ def _attach_panel_lineage(
 
 
 def _higgsfield_cli_error(exc: Exception) -> dict[str, Any]:
-    message = str(exc)
-    action = (
-        "Run: hf auth login"
-        if "auth" in message.lower() or "login" in message.lower()
-        else None
-    )
     return {
         "ok": False,
         "error": "higgsfield command failed",
         "failure_kind": getattr(exc, "failure_kind", "command_failed"),
-        "action": action,
+        "action": None,
     }
 
 
@@ -2654,9 +2643,7 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
     if not stem:
         raise HTTPException(400, "stem is required")
     campaign = _safe_stem(str(campaign))
-    cmd = [
-        sys.executable,
-        "reel_pipeline.py",
+    args = [
         "--root",
         str(ROOT),
         "--only-clip",
@@ -2667,20 +2654,20 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         "--readiness",
     ]
     if body.get("asset_generation_id"):
-        cmd += ["--asset-generation-id", _safe_stem(str(body["asset_generation_id"]))]
+        args += ["--asset-generation-id", _safe_stem(str(body["asset_generation_id"]))]
     if body.get("asset_prompt_json"):
         prompt_path = _safe_in_root(Path(str(body["asset_prompt_json"])))
-        cmd += ["--asset-prompt-json", str(prompt_path)]
+        args += ["--asset-prompt-json", str(prompt_path)]
     if body.get("recipes"):
         recipes = body["recipes"]
         if isinstance(recipes, str):
             recipes = [recipes]
-        cmd += ["--recipes", *[_safe_stem(str(r)) for r in recipes]]
+        args += ["--recipes", *[_safe_stem(str(r)) for r in recipes]]
     if body.get("max_hooks"):
         max_hooks = int(body["max_hooks"])
         if max_hooks < 1 or max_hooks > 50:
             raise HTTPException(400, "max_hooks must be between 1 and 50")
-        cmd += ["--max-hooks", str(max_hooks)]
+        args += ["--max-hooks", str(max_hooks)]
     if body.get("target_ratios"):
         ratios = body["target_ratios"]
         if isinstance(ratios, str):
@@ -2688,13 +2675,13 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         clean_ratios = [str(r) for r in ratios]
         if any(ratio not in {"9:16", "4:5", "1:1"} for ratio in clean_ratios):
             raise HTTPException(400, "target_ratios contains an unsupported ratio")
-        cmd += ["--target-ratios", *clean_ratios]
+        args += ["--target-ratios", *clean_ratios]
     if body.get("workers"):
         workers = int(body["workers"])
         if workers < 1 or workers > 8:
             raise HTTPException(400, "workers must be between 1 and 8")
-        cmd += ["--workers", str(workers)]
-    proc = _run_request_subprocess(cmd, timeout_seconds=900)
+        args += ["--workers", str(workers)]
+    proc = _run_reel_pipeline_subprocess(args, timeout_seconds=900)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-2000:])
     return {"ok": True, "log": proc.stdout[-4000:]}
@@ -3030,9 +3017,7 @@ def threadsdashboard_queue_api(body: dict = Body(...)):
 @app.post("/api/clips/{stem}/preview")
 def preview_clip(stem: str, body: dict = Body(default={})):
     stem = _safe_stem(stem)
-    cmd = [
-        sys.executable,
-        "reel_pipeline.py",
+    args = [
         "--root",
         str(ROOT),
         "--only-clip",
@@ -3053,8 +3038,8 @@ def preview_clip(stem: str, body: dict = Body(default={})):
         target_ratio = str(body["target_ratio"])
         if target_ratio not in {"9:16", "4:5", "1:1"}:
             raise HTTPException(400, "target_ratio contains an unsupported ratio")
-        cmd += ["--target-ratios", target_ratio]
-    proc = _run_request_subprocess(cmd, timeout_seconds=180)
+        args += ["--target-ratios", target_ratio]
+    proc = _run_reel_pipeline_subprocess(args, timeout_seconds=180)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-1500:])
     return {

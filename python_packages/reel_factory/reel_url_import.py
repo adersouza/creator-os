@@ -132,11 +132,7 @@ def download_reel_url(
         if not media:
             raise RuntimeError("yt-dlp finished but no downloaded media file was found")
         source_metrics = _source_metrics_from_info_json(tmp_dir, stem)
-        media = media.resolve()
-        media.relative_to(tmp_dir.resolve())
-        dest = dest.resolve()
-        dest.relative_to(out_dir.resolve())
-        shutil.move(str(media), dest)
+        media.replace(dest)
     return {
         "ok": True,
         "url": url,
