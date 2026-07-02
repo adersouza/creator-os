@@ -238,8 +238,8 @@ class CampaignStoreBanditTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        leaderboard = next_batch_plan(root, campaign="Bandit Test", count=1, seed=9)
-        arms = {arm["recipe"]: arm for arm in leaderboard["recipe_bandit"]["arms"]}
+        plan = next_batch_plan(root, campaign="Bandit Test", count=1, seed=9)
+        arms = {arm["recipe"]: arm for arm in plan["recipe_bandit"]["arms"]}
 
         self.assertEqual(arms["stable_recipe"]["post_count"], 1)
         self.assertEqual(arms["stable_recipe"]["mean_reward"], 0.4)
