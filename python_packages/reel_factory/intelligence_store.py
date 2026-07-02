@@ -77,6 +77,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         prompt_run_id TEXT,
         source_reference_id TEXT,
         soul_id TEXT,
+        audio_track_id TEXT,
         platform TEXT,
         account TEXT,
         posted_at TEXT,
@@ -139,6 +140,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         grid_source INTEGER NOT NULL DEFAULT 0,
         caption_style TEXT,
         hook_type TEXT,
+        audio_track_id TEXT,
         body_style TEXT,
         features_json TEXT NOT NULL DEFAULT '{}',
         created_at INTEGER NOT NULL,
@@ -247,13 +249,29 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         "reel_outcomes",
         {
             "campaign_id": "TEXT",
+            "campaign_output_id": "TEXT",
+            "job_key": "TEXT",
             "prompt_run_id": "TEXT",
             "source_reference_id": "TEXT",
             "soul_id": "TEXT",
+            "audio_track_id": "TEXT",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "reel_features",
+        {
+            "audio_track_id": "TEXT",
         },
     )
     conn.execute("UPDATE reel_outcomes SET account = '' WHERE account IS NULL")
     conn.execute("UPDATE reel_outcomes SET posted_at = '' WHERE posted_at IS NULL")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_campaign_output ON reel_outcomes(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_job_key ON reel_outcomes(job_key)"
+    )
     conn.commit()
 
 

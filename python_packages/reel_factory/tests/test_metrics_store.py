@@ -162,6 +162,50 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
 
             self.assertEqual(row[0], STACEY_SOUL)
 
+    def test_import_metrics_writes_stable_campaign_output_key_for_renamed_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = self._variation(root)
+            manifest = Manifest(root / "manifest.json")
+            now = 1
+            manifest.conn.execute(
+                """
+                INSERT INTO campaign_outputs (
+                    campaign_output_id, output_path, job_key, caption_text, recipe,
+                    review_state, metrics_filename, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "co_renamed_metric",
+                    str(out),
+                    "job_renamed_metric",
+                    "hook",
+                    "v01_original",
+                    "approved",
+                    "posted_metric_name.mp4",
+                    now,
+                    now,
+                ),
+            )
+            manifest.conn.commit()
+
+            import_metrics_csv(root, self._metrics_csv(root, "posted_metric_name.mp4"))
+            row = (
+                sqlite3.connect(root / "manifest.sqlite")
+                .execute(
+                    """
+                    SELECT campaign_output_id, job_key
+                    FROM publish_metrics
+                    WHERE filename=?
+                    """,
+                    ("posted_metric_name.mp4",),
+                )
+                .fetchone()
+            )
+
+            self.assertEqual(row[0], "co_renamed_metric")
+            self.assertEqual(row[1], "job_renamed_metric")
+
     def test_unresolvable_soul_id_imports_as_unattributed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

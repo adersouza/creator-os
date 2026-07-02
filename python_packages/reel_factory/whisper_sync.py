@@ -46,7 +46,11 @@ def transcribe_clip(
         )
     except Exception as e:
         return {"ok": False, "error": f"mlx-whisper transcription failed: {e}"}
-    hook = {"segments": _segments_from_whisper(data)}
+    segments = _segments_from_whisper(data)
+    hook = {"segments": segments}
+    spoken_hook = spoken_hook_from_segments(segments)
+    if spoken_hook:
+        hook["spokenHook"] = spoken_hook
     if not hook["segments"]:
         return {"ok": False, "error": "no speech segments found"}
     out_path = root / "01_captions" / f"{clip}.whisper.json"
@@ -87,6 +91,18 @@ def _segments_from_whisper(data: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     return segments
+
+
+def spoken_hook_from_segments(
+    segments: list[dict[str, Any]], *, first_seconds: float = 3.0
+) -> str:
+    parts = [
+        str(segment.get("text") or "").strip()
+        for segment in segments
+        if float(segment.get("start") or 0.0) < first_seconds
+        and str(segment.get("text") or "").strip()
+    ]
+    return " ".join(parts).strip()
 
 
 def _phrase_chunks(text: str, max_chars: int) -> list[str]:

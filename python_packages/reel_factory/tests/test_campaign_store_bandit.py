@@ -7,6 +7,8 @@ from pathlib import Path
 
 from campaign_store import campaign_by_name, connect, create_campaign, next_batch_plan
 
+from pipeline_contracts import validate_recommendation_next_batch
+
 
 class CampaignStoreBanditTests(unittest.TestCase):
     def _root(self) -> Path:
@@ -97,7 +99,14 @@ class CampaignStoreBanditTests(unittest.TestCase):
             [idea["recipe_hint"] for idea in first["ideas"]],
             [idea["recipe_hint"] for idea in second["ideas"]],
         )
-        self.assertEqual(first["schema"], "campaign_factory.next_batch.v2")
+        self.assertEqual(
+            first["schema"], "campaign_factory.recommendations.next_batch.v1"
+        )
+        validate_recommendation_next_batch(first)
+        self.assertEqual(first["items"], first["ideas"])
+        self.assertEqual(
+            first["items"][0]["suggestedRecipe"], first["ideas"][0]["recipe_hint"]
+        )
         self.assertTrue(first["recipe_bandit"]["active"])
 
     def test_next_batch_bandit_cold_start_preserves_round_robin(self):
@@ -179,6 +188,61 @@ class CampaignStoreBanditTests(unittest.TestCase):
         self.assertEqual(arms["v09_caption_bg"]["post_count"], 0)
         self.assertEqual(arms["v09_caption_bg"]["alpha"], 1.0)
         self.assertEqual(arms["v09_caption_bg"]["beta"], 1.0)
+
+    def test_next_batch_bandit_uses_stable_metric_join_key(self):
+        root = self._root()
+        campaign_id = self._create_campaign(root)
+        conn = connect(root)
+        now = int(time.time())
+        out = root / "local_render_name.mp4"
+        out.write_bytes(b"video")
+        conn.execute(
+            """
+            INSERT INTO campaign_outputs (
+                campaign_output_id, campaign_id, output_path, job_key, recipe,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "co_stable_renamed",
+                campaign_id,
+                str(out),
+                "job_stable_renamed",
+                "stable_recipe",
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO publish_metrics (
+                filename, platform, account, uploaded_at, views, likes,
+                comments, shares, saves, campaign_output_id, job_key, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "posted_renamed_elsewhere.mp4",
+                "ig",
+                "acct",
+                "2026-07-01",
+                100,
+                40,
+                0,
+                0,
+                0,
+                "co_stable_renamed",
+                "job_stable_renamed",
+                now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        leaderboard = next_batch_plan(root, campaign="Bandit Test", count=1, seed=9)
+        arms = {arm["recipe"]: arm for arm in leaderboard["recipe_bandit"]["arms"]}
+
+        self.assertEqual(arms["stable_recipe"]["post_count"], 1)
+        self.assertEqual(arms["stable_recipe"]["mean_reward"], 0.4)
 
 
 if __name__ == "__main__":

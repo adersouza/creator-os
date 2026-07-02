@@ -143,9 +143,13 @@ async function buildImageCandidateReport({ sourceHashes, keptReports, outputPath
 /**
  * Run a single FFmpeg command with timeout and stderr size cap.
  */
-function runFFmpeg(args, onLog, timeout) {
+function runFFmpeg(args, onLog, timeout, signal) {
   var timeoutMs = timeout || PROCESS_TIMEOUT_MS;
   return new Promise(function (resolve, reject) {
+    if (signal?.aborted) {
+      reject(new Error("Pipeline aborted"));
+      return;
+    }
     var proc = spawn("ffmpeg", args, {
       cwd: PROJECT_ROOT,
       stdio: ["ignore", "ignore", "pipe"],
@@ -153,13 +157,33 @@ function runFFmpeg(args, onLog, timeout) {
 
     var stderr = "";
     var killed = false;
+    var settled = false;
+
+    function cleanup() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
+
+    function fail(err) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    }
+
+    function abort() {
+      killed = true;
+      proc.kill("SIGKILL");
+      fail(new Error("Pipeline aborted"));
+    }
 
     // Timeout — kill if FFmpeg hangs
     var timer = setTimeout(function () {
       killed = true;
       proc.kill("SIGKILL");
-      reject(new Error("FFmpeg timed out after " + (timeoutMs / 1000) + "s"));
+      fail(new Error("FFmpeg timed out after " + (timeoutMs / 1000) + "s"));
     }, timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
 
     proc.stderr.on("data", function (chunk) {
       var text = chunk.toString();
@@ -171,7 +195,9 @@ function runFFmpeg(args, onLog, timeout) {
     });
 
     proc.on("close", function (code) {
-      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (killed) return; // Already rejected by timeout
       if (code === 0) {
         resolve(stderr);
@@ -181,8 +207,7 @@ function runFFmpeg(args, onLog, timeout) {
     });
 
     proc.on("error", function (err) {
-      clearTimeout(timer);
-      reject(err);
+      fail(err);
     });
   });
 }
@@ -334,6 +359,7 @@ export async function runPipeline(config, sendEvent) {
   var flip = config.flip;
   var vertical = config.vertical;
   var outputProfile = config.outputProfile || "organic";
+  var signal = config.signal;
   var total = numEdits * spinsPerEdit;
   var startTime = Date.now();
 
@@ -452,7 +478,7 @@ export async function runPipeline(config, sendEvent) {
       var p2args = buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical, outputProfile, variantPreset.id, attemptOptions);
 
       try {
-        await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); });
+        await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); }, null, signal);
         // Post-process: strip x264 SEI + Lavf strings
         var sanResult = await sanitizeVideo(outputPath);
         if (sanResult.results && sanResult.results[0] && sanResult.results[0].patches && sanResult.results[0].patches.length > 0) {
@@ -525,7 +551,7 @@ export async function runPipeline(config, sendEvent) {
     });
 
     try {
-      await runFFmpeg(p1args, function (log) { sendEvent({ type: "log", text: log }); });
+      await runFFmpeg(p1args, function (log) { sendEvent({ type: "log", text: log }); }, null, signal);
       successfulEdits.add(i);
       sendEvent({ type: "log", text: "\u2713 edit_" + editNum + ".mp4 complete\n" });
     } catch (err) {
@@ -576,7 +602,7 @@ export async function runPipeline(config, sendEvent) {
       var p2args = buildPhase2Args(srcPath, outputPath, level, hasAudio, vertical, outputProfile, variantPreset.id, attemptOptions);
 
       try {
-        await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); });
+        await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); }, null, signal);
         // Post-process: strip x264 SEI + Lavf strings
         var sanResult = await sanitizeVideo(outputPath);
         if (sanResult.results && sanResult.results[0] && sanResult.results[0].patches && sanResult.results[0].patches.length > 0) {

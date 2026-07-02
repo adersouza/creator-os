@@ -39,6 +39,15 @@ class HookProvider(Protocol):
         self, base: str, *, n: int, min_chars: int, max_chars: int, seed: int = 42
     ) -> list[str]: ...
 
+    def generate_prompt(
+        self,
+        prompt: str,
+        *,
+        n: int,
+        seed: int = 42,
+        temperature: float = 0.2,
+    ) -> list[str]: ...
+
 
 @dataclass
 class OllamaHookProvider:
@@ -77,12 +86,22 @@ class OllamaHookProvider:
         self, base: str, *, n: int, min_chars: int, max_chars: int, seed: int = 42
     ) -> list[str]:
         prompt = _rewrite_prompt(base, n=n, min_chars=min_chars, max_chars=max_chars)
+        return self.generate_prompt(prompt, n=n, seed=seed, temperature=0.2)
+
+    def generate_prompt(
+        self,
+        prompt: str,
+        *,
+        n: int,
+        seed: int = 42,
+        temperature: float = 0.2,
+    ) -> list[str]:
         payload = {
             "model": self.model,
             "prompt": prompt,
             "format": "json",
             "stream": False,
-            "options": {"temperature": 0.2, "seed": seed},
+            "options": {"temperature": temperature, "seed": seed},
         }
         req = urllib.request.Request(
             f"{self.base_url}/api/generate",
@@ -115,6 +134,22 @@ Rules:
   {{"hooks": ["variant 1", "variant 2"]}}
 
 Source hook:
+{base}
+"""
+
+
+def _net_new_prompt(base: str, *, n: int, min_chars: int, max_chars: int) -> str:
+    return f"""Create {n} net-new short-form reel hooks inspired by this winning archetype.
+
+Rules:
+- Do not paraphrase the source hook; create fresh hooks in the same emotional/archetype lane.
+- Keep the audience, tension, and payoff style useful for creator reels.
+- Keep each hook between {min_chars} and {max_chars} characters.
+- Avoid corporate phrasing, hashtags, and platform UI wording.
+- Output strict JSON only:
+  {{"hooks": ["new hook 1", "new hook 2"]}}
+
+Winning archetype seed:
 {base}
 """
 
@@ -297,9 +332,12 @@ def generate_hooks(
     embedding_model: str | None = HASH_MODEL,
     log_path: str | Path | None = None,
     recent_hooks: list[str] | None = None,
+    mode: str = "rewrite",
 ) -> dict[str, Any]:
     if backend != "ollama":
         return {"ok": False, "error": f"unsupported backend: {backend}", "hooks": []}
+    if mode not in {"rewrite", "net_new"}:
+        return {"ok": False, "error": "mode must be rewrite or net_new", "hooks": []}
     similarity_mode = hook_similarity_mode(embedding_model)
     warnings: list[str] = []
     if strict and similarity_mode == "lexical_fallback_similarity":
@@ -309,19 +347,33 @@ def generate_hooks(
     if not ok:
         return {"ok": False, "error": reason, "hooks": []}
     try:
-        prompt = _rewrite_prompt(base, n=n, min_chars=min_chars, max_chars=max_chars)
-        raw_hooks = provider.rewrite(
-            base, n=n, min_chars=min_chars, max_chars=max_chars, seed=seed
-        )
+        if mode == "net_new":
+            prompt = _net_new_prompt(
+                base, n=n, min_chars=min_chars, max_chars=max_chars
+            )
+            raw_hooks = provider.generate_prompt(
+                prompt, n=n, seed=seed, temperature=0.75
+            )
+            validation_required_terms: list[str] | None = []
+            validation_similarity = None
+        else:
+            prompt = _rewrite_prompt(
+                base, n=n, min_chars=min_chars, max_chars=max_chars
+            )
+            raw_hooks = provider.rewrite(
+                base, n=n, min_chars=min_chars, max_chars=max_chars, seed=seed
+            )
+            validation_required_terms = required_terms
+            validation_similarity = min_similarity
         hooks, rejected = validate_hook_variants(
             base,
             raw_hooks,
             min_chars=min_chars,
             max_chars=max_chars,
-            required_terms=required_terms,
+            required_terms=validation_required_terms,
             reject_identical=reject_identical,
             strict=strict,
-            min_similarity=min_similarity,
+            min_similarity=validation_similarity,
             embedding_model=embedding_model,
         )
     except (RuntimeError, ValueError, urllib.error.URLError, OSError) as e:
@@ -371,6 +423,7 @@ def generate_hooks(
         "backend": backend,
         "model": model,
         "generationId": generation_id,
+        "mode": mode,
         "hooks": hooks,
         "quality": quality,
         "rejected": rejected_with_quality,
@@ -384,6 +437,7 @@ def main() -> int:
     ap.add_argument("--backend", default="ollama", choices=["ollama"])
     ap.add_argument("--model")
     ap.add_argument("--base")
+    ap.add_argument("--mode", choices=["rewrite", "net_new"], default="rewrite")
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--min-chars", type=int, default=20)
     ap.add_argument("--max-chars", type=int, default=120)
@@ -448,6 +502,7 @@ def main() -> int:
         min_similarity=args.min_similarity,
         embedding_model=args.embedding_model,
         log_path=None if args.no_log else args.log_path,
+        mode=args.mode,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0

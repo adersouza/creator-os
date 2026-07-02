@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -127,6 +128,23 @@ def connect(root: Path) -> sqlite3.Connection:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
     return slug or f"campaign_{int(time.time())}"
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if not exists:
+        return
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
@@ -262,8 +280,12 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         manual_score REAL,
         notes TEXT,
         soul_id TEXT,
+        campaign_output_id TEXT,
+        job_key TEXT,
         imported_at INTEGER
     );
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id);
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key);
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
@@ -272,6 +294,17 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
 
     ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
+    _ensure_columns(
+        conn,
+        "publish_metrics",
+        {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key)"
+    )
     now = int(time.time())
     for name, cfg in DEFAULT_CREATORS.items():
         conn.execute(
@@ -894,7 +927,22 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
                m.shares, m.saves, m.manual_score
         FROM campaign_outputs co
         LEFT JOIN operator_ratings r ON r.output_path = co.output_path
-        LEFT JOIN publish_metrics m ON substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+        LEFT JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
         WHERE co.campaign_id=?
         """,
         (campaign_row["campaign_id"],),
@@ -994,8 +1042,21 @@ def _recipe_bandit_state(
         SELECT co.recipe, m.views, m.likes, m.comments, m.shares, m.saves
         FROM campaign_outputs co
         JOIN publish_metrics m
-          ON m.filename = co.metrics_filename
-          OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
         WHERE co.campaign_id=? AND co.recipe IS NOT NULL
         """,
         (campaign_id,),
@@ -1106,7 +1167,7 @@ def next_batch_plan(
         conn, matched_sample_size=int(recommendation["sample_size"] or 0)
     )
     recommendation["data_quality"] = data_quality
-    ideas = []
+    items = []
     for idx in range(count):
         retry_focus = "more_reference_fidelity"
         if "hands_bad" in reject_labels or "hand_bad" in reject_labels:
@@ -1127,7 +1188,35 @@ def next_batch_plan(
                 "arms": bandit_state["arms"],
                 "metric_posts": bandit_state["metric_posts"],
             }
-        ideas.append(
+        recommendation_id = f"local_next_batch_{campaign_row['campaign_id']}_{idx + 1}"
+        item = {
+            "recommendationId": recommendation_id,
+            "recommendationGraphId": None,
+            "status": "proposed",
+            "campaignGraphId": None,
+            "rank": idx + 1,
+            "score": int(recommendation.get("score") or 0),
+            "confidence": recommendation["confidence"],
+            "confidenceReason": recommendation.get("reason") or "",
+            "targetAccount": None,
+            "suggestedRecipe": recipe_hint,
+            "hookGuidance": retry_focus,
+            "captionGuidance": _next_batch_brief(winner_dna_focus),
+            "reasons": [str(recommendation.get("reason") or "local winner DNA")],
+            "risks": [low_data_warning(total_outcomes)]
+            if low_data_warning(total_outcomes)
+            else [],
+            "scoreBreakdown": {
+                "winnerDnaScore": int(recommendation.get("score") or 0),
+                "sampleSize": int(recommendation.get("sample_size") or 0),
+            },
+            "graphEvidence": {
+                "source": "reel_factory.local_next_batch",
+                "recipeBandit": recipe_bandit,
+                "winnerDnaFocus": winner_dna_focus,
+            },
+        }
+        item.update(
             {
                 "index": idx,
                 "campaign": campaign,
@@ -1143,13 +1232,24 @@ def next_batch_plan(
                 "brief": _next_batch_brief(winner_dna_focus),
             }
         )
+        items.append(item)
+    input_hash = hashlib.sha256(
+        json.dumps(items, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
     plan = {
-        "schema": "campaign_factory.next_batch.v2",
+        "schema": "campaign_factory.recommendations.next_batch.v1",
         "campaign": campaign,
-        "count": count,
+        "campaignGraphId": None,
+        "persisted": bool(persist),
+        "scoringVersion": "reel_factory.local_next_batch.v3",
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "count": len(items),
+        "requestedCount": count,
+        "inputHash": input_hash,
+        "items": items,
+        "ideas": items,
         "recipe_bandit": bandit_state
         | {"active": use_bandit, "fallback_recipes": best_recipes},
-        "ideas": ideas,
     }
     if persist:
         from winner_dna import persist_recommendation_decision
@@ -1162,7 +1262,7 @@ def next_batch_plan(
         )
         if decision_id:
             plan["decision_id"] = decision_id
-            for idea in ideas:
+            for idea in items:
                 idea["decision_id"] = decision_id
                 idea["recommendation"]["decision_id"] = decision_id
     return plan

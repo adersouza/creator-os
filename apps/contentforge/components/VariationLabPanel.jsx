@@ -43,12 +43,19 @@ function ReviewButtons({ current, onReview }) {
   );
 }
 
+const TERMINAL_JOB_STATUSES = new Set(["succeeded", "failed", "timed_out", "aborted", "cancelled"]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function VariationLabPanel({ file }) {
   const [variantCount, setVariantCount] = useState(8);
   const [variationPreset, setVariationPreset] = useState("balanced");
   const [captionMode, setCaptionMode] = useState("none");
   const [suppliedHooks, setSuppliedHooks] = useState("");
   const [running, setRunning] = useState(false);
+  const [job, setJob] = useState(null);
   const [report, setReport] = useState(null);
   const [decisions, setDecisions] = useState({});
   const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
@@ -74,9 +81,10 @@ export default function VariationLabPanel({ file }) {
     if (!file?.path) return;
     setRunning(true);
     setError("");
+    setJob(null);
     setReport(null);
     try {
-      const res = await fetch("/api/variant-pack", {
+      const res = await fetch("/api/variant-pack/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -89,9 +97,22 @@ export default function VariationLabPanel({ file }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Variant pack failed");
-      setReport(data);
+      let current = data;
+      setJob(current);
+      while (!TERMINAL_JOB_STATUSES.has(current.status)) {
+        await sleep(1500);
+        const poll = await fetch(current.pollUrl);
+        const polled = await poll.json();
+        if (!poll.ok) throw new Error(polled.error || "Variant pack poll failed");
+        current = polled;
+        setJob(current);
+      }
+      if (current.status !== "succeeded") {
+        throw new Error(current.error || "Variant pack job " + current.status);
+      }
+      setReport(current.report);
       setDecisions({});
-      setApprovedManifestUrl(data.approvedManifestUrl || "");
+      setApprovedManifestUrl(current.report?.approvedManifestUrl || "");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -207,6 +228,11 @@ export default function VariationLabPanel({ file }) {
           </div>
         )}
         {error && <div className="mt-3 text-[12px] text-red-300">{error}</div>}
+        {job?.queueDiagnostics && (
+          <div className="mt-3 text-[11px] text-muted font-mono">
+            queue {job.queueDiagnostics.runningJobs} running · {job.queueDiagnostics.pendingJobs} pending
+          </div>
+        )}
       </div>
 
       {report && (

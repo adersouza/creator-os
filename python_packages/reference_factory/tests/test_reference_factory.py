@@ -1971,9 +1971,7 @@ def test_higgsfield_command_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_run(*_args, **_kwargs):
         raise subprocess.TimeoutExpired(["higgsfield"], timeout=1800)
 
-    monkeypatch.setattr(
-        "reference_factory.higgsfield_runner.subprocess.run", fake_run
-    )
+    monkeypatch.setattr("reference_factory.higgsfield_runner.subprocess.run", fake_run)
 
     with pytest.raises(subprocess.TimeoutExpired):
         _run_command(["higgsfield", "generate", "create"])
@@ -1985,9 +1983,13 @@ def test_higgsfield_nowait_without_asset_is_submitted(tmp_path: Path) -> None:
 
     def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         if "text2image_soul_v2" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"id": "img_job"}), "")
+            return subprocess.CompletedProcess(
+                cmd, 0, json.dumps({"id": "img_job"}), ""
+            )
         if "kling3_0" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"id": "vid_job"}), "")
+            return subprocess.CompletedProcess(
+                cmd, 0, json.dumps({"id": "vid_job"}), ""
+            )
         raise AssertionError(cmd)
 
     result = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
@@ -2064,7 +2066,9 @@ def test_higgsfield_empty_download_is_rejected(
     run = result["runs"][0]
     assert run["status"] == "generation_failed"
     assert run["localImagePath"] is None
-    assert not (Path(run["lineagePath"]).parent / "higgsfield_image_candidate_1.png").exists()
+    assert not (
+        Path(run["lineagePath"]).parent / "higgsfield_image_candidate_1.png"
+    ).exists()
 
 
 def test_reference_intake_imports_gemini_app_response_from_queue(
@@ -2520,6 +2524,57 @@ def test_import_apify_metrics_matches_local_media_and_generates_prompts(
     assert learning["exactLocalMatches"] == 1
     assert Path(learning["manifestPath"]).exists()
     assert Path(learning["promptCardsPath"]).exists()
+
+
+def test_top_public_posts_prefers_recent_high_engagement_rate(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    apify_path = tmp_path / "apify_rate.json"
+    apify_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "old_raw",
+                    "ownerUsername": "account_a",
+                    "shortCode": "OLDRAW",
+                    "url": "https://www.instagram.com/p/OLDRAW/",
+                    "timestamp": "2024-01-02T00:00:00.000Z",
+                    "type": "Video",
+                    "productType": "clips",
+                    "caption": "Old raw count",
+                    "videoViewCount": 100000,
+                    "videoPlayCount": 100000,
+                    "likesCount": 100,
+                    "commentsCount": 0,
+                    "ownerFollowersCount": 100000,
+                },
+                {
+                    "id": "fresh_rate",
+                    "ownerUsername": "account_b",
+                    "shortCode": "FRESHRATE",
+                    "url": "https://www.instagram.com/p/FRESHRATE/",
+                    "timestamp": "2026-07-01T00:00:00.000Z",
+                    "type": "Video",
+                    "productType": "clips",
+                    "caption": "Fresh rate",
+                    "videoViewCount": 2000,
+                    "videoPlayCount": 2000,
+                    "likesCount": 500,
+                    "commentsCount": 50,
+                    "ownerFollowersCount": 100000,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    import_apify_metrics(conn, [apify_path], top_limit=2)
+    top = top_public_posts(conn, limit=2)
+
+    assert top["items"][0]["shortCode"] == "FRESHRATE"
+    assert (
+        top["items"][0]["publicEngagementRecencyScore"]
+        > top["items"][1]["publicEngagementRecencyScore"]
+    )
 
 
 def test_pattern_analyzer_labels_top_posts_and_exports_cards(tmp_path: Path) -> None:

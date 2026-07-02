@@ -272,7 +272,7 @@ QC gates → winner-DNA/virality rank → caption/render → posting_ledger.assi
 `next_batch`. **STOP before publish** — assignment/draft only. Depends on 0.1 (ranker) + 1.1.
 **Status:** Implemented in PR #334.
 
-### 3.3 ContentForge Variation Lab → the resumable job queue it already has  ·  HIGH · M · [ ]
+### 3.3 ContentForge Variation Lab → the resumable job queue it already has  ·  HIGH · M · [x]
 **Branch:** `codex/contentforge-lab-jobqueue`
 **Why:** `VariationLabPanel.jsx:27` POSTs to the synchronous blocking `/api/variant-pack`; the full `PQueue`-backed
 job system in `lib/variant-pack-jobs.js` (idempotency, retries, restart-recovery, poll URLs) is never called. A
@@ -281,7 +281,7 @@ client abort but never cancels the FFmpeg child → overlapping runs.
 **Do:** point the Lab at `startVariantPackJob` + poll `pollUrl`; surface `variantPackJobDiagnostics()`; thread an
 `AbortSignal` into `runPipeline`/`runVariantPack` and actually kill the FFmpeg child on abort before releasing the lock.
 
-### 3.4 Unify the split-brain `next_batch` schema  ·  MED · S · [ ]
+### 3.4 Unify the split-brain `next_batch` schema  ·  MED · S · [x]
 **Branch:** `codex/unify-nextbatch-schema`
 **Why:** `next_batch.py:15-48` prefers `campaign_factory.recommend_next_batch` (`{schema:
 "campaign_factory.recommendations.next_batch.v1", items:[...]}`, registered) and falls back to
@@ -291,7 +291,7 @@ silently mis-read `ideas`.
 **Do:** make the reel_factory fallback conform to `recommendation_next_batch.v1` (emit `items`, registered schema id);
 route `reel_gui` through the same `next_batch.py` selection so there's one contract. (Coordinate with 1.5's schema bump.)
 
-### 3.5 Stable join keys instead of filename-suffix matching  ·  MED · S · [ ]
+### 3.5 Stable join keys instead of filename-suffix matching  ·  MED · S · [x]
 **Branch:** `codex/stable-join-keys`
 **Why:** `campaign_store.py:894`, `winner_dna.py:842` + `:922` join metrics↔outputs via
 `substr(output_path, ... )=filename`. Renames / cross-dir moves / duplicate basenames silently drop outcomes from
@@ -299,7 +299,7 @@ winner DNA + leaderboard — the loop loses data with no error. Stable keys (`jo
 `campaign_output_id`) exist but aren't used.
 **Do:** persist the join key at ingest and join on `campaign_output_id` / `job_key` instead of string suffix.
 
-### 3.6 Fix winner-DNA mis-attribution  ·  MED · M · [ ]
+### 3.6 Fix winner-DNA mis-attribution  ·  MED · M · [x]
 **Branch:** `codex/winnerdna-attribution`
 **Why:** `winner_dna.py:44` `infer_features_from_text` hardcodes `caption_style="short_direct"` for **every** reel
 (`:80`) and only detects `creator="stacey"` (`:78`) — Larissa/Lola always `"unknown"`. `caption_style` can never
@@ -307,7 +307,7 @@ learn; per-creator DNA + `best_creator_scene_combinations` are wrong for 2 of 3 
 **Do:** derive `caption_style` from caption lineage / `caption_static_metadata` (length_class/format_class exist in
 `caption_bank.py:106`); resolve `creator` from campaign/soul metadata, not substring "stacey".
 
-### 3.7 Smaller quality levers (batch or defer)  ·  MED · S–M · [ ]
+### 3.7 Smaller quality levers (batch or defer)  ·  MED · S–M · [x]
 - **Rank-weight trending audio:** `audio_provider.py:205` picks `rng.choice` uniformly over top-100 by trend_rank —
   a #1 and #97 sound are equally likely. Weight ∝ 1/rank (or decay); record chosen `track_id` on the outcome so audio
   joins winner DNA. Also caption "quality" (`caption_generation_log.py:27`) is formatting-only and saturates at 100 —
@@ -352,9 +352,9 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 2.3 enrich winnerDNA schema — PR #332
 - [x] 2.4 contentforge capture decision — PR #333
 - [x] 3.1 per-soul metrics — PR #323 merged 2026-07-01
-- [x] 3.2 orchestrator — PR #334
-- [ ] 3.3 contentforge job queue
-- [ ] 3.4 unify next_batch schema
-- [ ] 3.5 stable join keys
-- [ ] 3.6 winner-DNA attribution
-- [ ] 3.7 smaller quality levers
+- [x] 3.2 orchestrator — fast branch
+- [x] 3.3 contentforge job queue — fast branch
+- [x] 3.4 unify next_batch schema — fast branch
+- [x] 3.5 stable join keys — stable campaign output/job keys now populate metrics and drive leaderboard/bandit/winner-DNA joins; focused tests passed (`test_campaign_store_bandit.py`, `test_metrics_store.py`, `test_advanced_roadmap.py -k "bandit or metrics or winner_dna"`).
+- [x] 3.6 winner-DNA attribution — creator now resolves from campaign metadata and caption style from caption lineage/static metadata; focused winner-DNA tests passed.
+- [x] 3.7 smaller quality levers — rank-weighted trending audio, audio track attribution, rate-aware caption quality, net-new hook mode, recency/rate public ranking, and first-3s spoken-hook extraction added; focused tests passed.

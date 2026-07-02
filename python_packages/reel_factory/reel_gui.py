@@ -112,10 +112,10 @@ from campaign_store import (
     get_asset_generation,
     link_campaign_output,
     list_campaigns,
-    next_batch_plan,
     rate_output,
     update_asset_generation,
 )  # noqa
+from next_batch import select_next_batch  # noqa
 from posting_ledger import (
     assign_approved_reels as ledger_assign_approved_reels,
     create_posting_plan,
@@ -1047,8 +1047,10 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
     rec = None
     if campaign:
         try:
-            plan = next_batch_plan(ROOT, campaign=campaign, count=1, persist=False)
-            rec = (plan.get("ideas") or [{}])[0].get("recommendation")
+            plan = select_next_batch(ROOT, campaign=campaign, count=1, persist=False)
+            rec = ((plan.get("items") or plan.get("ideas") or [{}])[0]).get(
+                "recommendation"
+            )
         except Exception:
             rec = None
     account_health = None
@@ -1617,7 +1619,7 @@ def campaign_leaderboard_api(campaign: str):
 
 @app.get("/api/campaigns/{campaign}/next-batch")
 def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
-    return next_batch_plan(ROOT, campaign=campaign, count=count, persist=persist)
+    return select_next_batch(ROOT, campaign=campaign, count=count, persist=persist)
 
 
 @app.get("/api/grid-crop/{stem}/frame")

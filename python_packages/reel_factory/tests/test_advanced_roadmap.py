@@ -1314,11 +1314,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             Image.new("RGB", (1080, 1920), "white").save(ref)
             fake_raw = {
                 "output": [
-                    {
-                        "content": [
-                            {"type": "output_text", "text": "{not valid json"}
-                        ]
-                    }
+                    {"content": [{"type": "output_text", "text": "{not valid json"}]}
                 ]
             }
 
@@ -2296,6 +2292,129 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(board["top_scenes"][0]["confidence"]["level"], "low")
             self.assertEqual(exp["groups"][0]["name"], "individual")
             self.assertGreater(costs["assets"][0]["winner_score_per_cost"], 0)
+
+    def test_winner_dna_refresh_uses_stable_campaign_output_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = Manifest(root / "manifest.json")
+            now = int(time.time())
+            out = root / "local_winner_render.mp4"
+            out.write_bytes(b"video")
+            manifest.conn.execute(
+                """
+                INSERT INTO campaign_outputs (
+                    campaign_output_id, output_path, job_key, recipe,
+                    caption_text, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "co_winner_stable",
+                    str(out.resolve()),
+                    "job_winner_stable",
+                    "v01_original",
+                    "wait?",
+                    now,
+                    now,
+                ),
+            )
+            manifest.conn.execute(
+                """
+                INSERT INTO reel_outcomes (
+                    outcome_id, filename, campaign_output_id, job_key, platform,
+                    account, posted_at, views, likes, comments, shares, saves,
+                    imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "outcome_winner_stable",
+                    "posted_renamed_winner.mp4",
+                    "co_winner_stable",
+                    "job_winner_stable",
+                    "ig",
+                    "acct",
+                    "2026-07-01",
+                    100,
+                    30,
+                    5,
+                    2,
+                    1,
+                    now,
+                ),
+            )
+            manifest.conn.commit()
+            upsert_reel_feature(
+                root,
+                out,
+                features={"scene": "bedroom", "pose": "standing", "creator": "stacey"},
+            )
+
+            refresh_winner_dna(root)
+            board = winner_dna_leaderboard(root)
+
+            self.assertEqual(board["top_scenes"][0]["feature_value"], "bedroom")
+            self.assertEqual(board["top_scenes"][0]["sample_size"], 1)
+
+    def test_winner_dna_derives_creator_and_caption_style_from_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            create_campaign(
+                root,
+                name="Larissa Metadata",
+                creator="Larissa",
+                account="larissa_acct",
+                platform="instagram_reels",
+            )
+            conn = campaign_connect(root)
+            campaign_id = conn.execute(
+                "SELECT campaign_id FROM campaigns WHERE name=?",
+                ("Larissa Metadata",),
+            ).fetchone()["campaign_id"]
+            now = int(time.time())
+            out = root / "generic_render_name.mp4"
+            out.write_bytes(b"video")
+            conn.execute(
+                """
+                INSERT INTO campaign_outputs (
+                    campaign_output_id, campaign_id, output_path, recipe,
+                    caption_text, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "co_larissa_metadata",
+                    campaign_id,
+                    str(out.resolve()),
+                    "v09_caption_bg",
+                    "1. Smooth\n2. Nervous\n3. Playful\n4. Honest\n5. Bold",
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            out.with_suffix(out.suffix + ".caption_lineage.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.caption_lineage.v1",
+                        "rawCaptionText": "1. Smooth\n2. Nervous\n3. Playful\n4. Honest\n5. Bold",
+                        "captionOutcomeContext": {
+                            "length_class": "long",
+                            "format_class": "numbered_list",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_audio_intent(
+                out,
+                mode="native_trending_audio",
+                audio_selection={"track_id": "track_rank_1", "track_name": "Top"},
+            )
+
+            result = upsert_reel_feature(root, out)
+
+            self.assertEqual(result["features"]["creator"], "larissa")
+            self.assertEqual(result["features"]["caption_style"], "long_numbered_list")
+            self.assertEqual(result["features"]["audio_track_id"], "track_rank_1")
 
     def test_winner_dna_features_prefer_video_analysis_sidecar_over_filename_inference(
         self,
@@ -3900,6 +4019,39 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             self.assertEqual(record["rejectedHooks"][0]["reason"], "too_short")
 
+    def test_ollama_net_new_mode_skips_rewrite_similarity_gate(self):
+        class FakeProvider:
+            def __init__(self, model):
+                self.model = model
+
+            def available(self):
+                return True, "ok"
+
+            def rewrite(self, base, *, n, min_chars, max_chars, seed=42):
+                raise AssertionError("net_new should not call rewrite")
+
+            def generate_prompt(self, prompt, *, n, seed=42, temperature=0.2):
+                self.prompt = prompt
+                self.temperature = temperature
+                return ["pick the door he would never open"]
+
+        with patch("hook_ai.OllamaHookProvider", FakeProvider):
+            result = generate_hooks(
+                backend="ollama",
+                model="fake",
+                base="when he says he misses you",
+                mode="net_new",
+                n=1,
+                min_chars=5,
+                max_chars=80,
+                required_terms=["misses"],
+                min_similarity=0.95,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode"], "net_new")
+        self.assertEqual(result["hooks"], ["pick the door he would never open"])
+
     def test_caption_quality_flags_basic_review_warnings(self):
         quality = score_caption_quality(
             "hi\nthere\nagain\nand\nagain\nand\nagain",
@@ -3910,6 +4062,32 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertIn("too_many_lines", quality["warnings"])
         self.assertIn("weak_first_line_hook", quality["warnings"])
         self.assertIn("too_long", quality["warnings"])
+
+    def test_caption_quality_uses_rate_aware_performance_signal(self):
+        low = score_caption_quality(
+            "which one would you pick?",
+            performance={
+                "views": 1000,
+                "likes": 1,
+                "comments": 0,
+                "shares": 0,
+                "saves": 0,
+            },
+        )
+        high = score_caption_quality(
+            "which one would you pick?",
+            performance={
+                "views": 1000,
+                "likes": 180,
+                "comments": 20,
+                "shares": 10,
+                "saves": 15,
+            },
+        )
+
+        self.assertGreater(high["performanceScore"], low["performanceScore"])
+        self.assertGreater(high["qualityScore"], low["qualityScore"])
+        self.assertEqual(high["hookFeatures"]["archetype"], "curiosity")
 
     def test_caption_library_and_rank_existing_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
