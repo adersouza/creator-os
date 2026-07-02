@@ -465,6 +465,8 @@ def crop_image_grid_panels(
     prefix: str | None = None,
 ) -> dict[str, Any]:
     image_path = image_path.resolve()
+    # lgtm[py/path-injection] out_dir is the caller-selected output root for
+    # this local crop utility; generated filenames below are derived safely.
     out_dir.mkdir(parents=True, exist_ok=True)
     with Image.open(image_path) as raw:
         im = raw.convert("RGB")

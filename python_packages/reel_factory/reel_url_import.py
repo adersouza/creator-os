@@ -50,6 +50,18 @@ def _validate_stem(stem: str) -> str:
     return clean
 
 
+def _safe_output_child(out_dir: Path, filename: str) -> Path:
+    root = out_dir.resolve()
+    if filename != Path(filename).name:
+        raise ValueError("download target requires a plain filename")
+    # lgtm[py/path-injection] filename is validated as a single path segment;
+    # the resolved child is rejected unless it remains directly under out_dir.
+    path = (root / filename).resolve()
+    if path.parent != root:
+        raise ValueError("download target escaped output directory")
+    return path
+
+
 def _yt_dlp_cmd(url: str, output_template: Path) -> list[str]:
     return [
         "yt-dlp",
@@ -90,6 +102,7 @@ def download_reel_url(
     url = _validate_url(url)
     stem = _validate_stem(stem)
     out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = out_dir.resolve()
     existing = _existing_import_for_url(out_dir, url)
     if existing:
         return {
@@ -103,7 +116,7 @@ def download_reel_url(
             "command": [],
             "sourceMetrics": existing.get("sourceMetrics") or {},
         }
-    dest = out_dir / f"{stem}.mp4"
+    dest = _safe_output_child(out_dir, f"{stem}.mp4")
     if dest.exists():
         raise FileExistsError(f"source clip already exists: {dest}")
     with tempfile.TemporaryDirectory(prefix=f"{stem}_", dir=str(out_dir)) as tmp:
@@ -131,8 +144,20 @@ def download_reel_url(
         )
         if not media:
             raise RuntimeError("yt-dlp finished but no downloaded media file was found")
-        source_metrics = _source_metrics_from_info_json(tmp_dir, stem)
+        info_json = _info_json_candidates(tmp_dir, stem)
+        source_metrics = _source_metrics_from_info_json(
+            info_json[0] if info_json else None
+        )
         media.replace(dest)
+        info_json_path = None
+        if info_json:
+            info_json_path = _safe_output_child(out_dir, f"{stem}.info.json")
+            # lgtm[py/path-injection] yt-dlp info-json is selected from the
+            # private temp dir and copied to a validated out_dir child path.
+            shutil.copy2(info_json[0], info_json_path)
+        info_json_return_path = (
+            str(info_json_path.resolve()) if info_json_path else None
+        )
     return {
         "ok": True,
         "url": url,
@@ -140,6 +165,7 @@ def download_reel_url(
         "path": str(dest.resolve()),
         "command": cmd,
         "sourceMetrics": source_metrics,
+        "infoJsonPath": info_json_return_path,
     }
 
 
@@ -172,12 +198,15 @@ def _run_ytdlp_with_retry(
     return result or subprocess.CompletedProcess(cmd, 1, "", "yt-dlp failed")
 
 
-def _source_metrics_from_info_json(tmp_dir: Path, stem: str) -> dict[str, object]:
-    candidates = sorted(tmp_dir.glob(f"{stem}*.info.json"))
-    if not candidates:
+def _info_json_candidates(tmp_dir: Path, stem: str) -> list[Path]:
+    return sorted(tmp_dir.glob(f"{stem}*.info.json"))
+
+
+def _source_metrics_from_info_json(path: Path | None) -> dict[str, object]:
+    if not path:
         return {}
     try:
-        payload = json.loads(candidates[0].read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
     return {

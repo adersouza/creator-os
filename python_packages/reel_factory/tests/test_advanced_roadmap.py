@@ -3414,7 +3414,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 patch.object(reel_gui, "create_image_asset", return_value=fake),
             ):
                 result = reel_gui.asset_create_image_api(
-                    {"prompt_json": str(prompt), "stem": "clip_001"}
+                    {"prompt_json": str(prompt), "stem": "clip_001"},
+                    sync=1,
                 )
 
             self.assertEqual(result["image_job_id"], "img_1")
@@ -3467,7 +3468,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "prompt_json": str(prompt),
                         "stem": "clip_001",
                         "start_image": str(start),
-                    }
+                    },
+                    sync=1,
                 )
 
             self.assertEqual(result["video_job_id"], "vid_1")
@@ -3723,6 +3725,55 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue(second["deduped"])
             self.assertEqual(calls["count"], 1)
 
+    def test_paid_asset_handlers_default_to_async_jobs_without_opt_in(self):
+        import reel_gui
+
+        previous_jobs = dict(reel_gui.ASSET_JOBS)
+        previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
+
+        def fake_sync(body):
+            return {"ok": True, "body": body}
+
+        try:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            with (
+                patch.object(reel_gui, "_asset_reference_image_create_sync", fake_sync),
+                patch.object(reel_gui, "_asset_create_image_sync", fake_sync),
+                patch.object(reel_gui, "_asset_create_video_sync", fake_sync),
+                patch.object(reel_gui, "_asset_fanout_panels_sync", fake_sync),
+            ):
+                results = [
+                    reel_gui.asset_reference_image_create_api({"stem": "clip_001"}),
+                    reel_gui.asset_create_image_api({"stem": "clip_002"}),
+                    reel_gui.asset_create_video_api({"stem": "clip_003"}),
+                    reel_gui.asset_fanout_panels_api(
+                        {"stem": "clip_004", "dry_run": False}
+                    ),
+                ]
+                for result in results:
+                    for _ in range(20):
+                        status = reel_gui.asset_job_status_api(result["job_id"])
+                        if status["status"] == "done":
+                            break
+                        time.sleep(0.05)
+                    self.assertEqual(status["status"], "done")
+        finally:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_JOBS.update(previous_jobs)
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            reel_gui.ASSET_IDEMPOTENCY.update(previous_idempotency)
+
+        self.assertEqual(
+            [result["kind"] for result in results],
+            [
+                "reference_image_create",
+                "create_image",
+                "create_video",
+                "fanout_panels",
+            ],
+        )
+
     def test_render_pack_defaults_to_async_job_and_dedupes(self):
         import reel_gui
 
@@ -3845,7 +3896,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "campaign": "Campaign",
                         "creator": "Stacey",
                         "asset_generation_id": "asset_existing",
-                    }
+                    },
+                    sync=1,
                 )
 
             self.assertIsNone(captured["campaign"])
@@ -4041,7 +4093,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "source_image": str(source),
                         "dry_run": False,
                         "max_jobs": 3,
-                    }
+                    },
+                    sync=1,
                 )
 
             self.assertFalse(result["ok"])
@@ -4316,6 +4369,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("yt-dlp", result["command"][0])
             self.assertIn("--write-info-json", result["command"])
             self.assertEqual(result["sourceMetrics"]["view_count"], 1234)
+            self.assertEqual(
+                result["infoJsonPath"], str((root / "clip_001.info.json").resolve())
+            )
+            self.assertTrue((root / "clip_001.info.json").exists())
 
     def test_reel_url_downloader_retries_transient_failure(self):
         import subprocess
@@ -4417,6 +4474,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "stem": stem,
                     "path": str(out.resolve()),
                     "command": ["yt-dlp"],
+                    "sourceMetrics": {
+                        "view_count": 2222,
+                        "like_count": 333,
+                        "comment_count": 44,
+                        "upload_date": "20260701",
+                    },
+                    "infoJsonPath": str(raw / f"{stem}.info.json"),
                 }
 
             fake_prompt = {
@@ -4450,6 +4514,75 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue((cap / "clip_001.json").exists())
             self.assertTrue(result["reference_record"]["reference_id"])
             self.assertTrue(result["prompt"]["ok"])
+            conn = campaign_connect(root)
+            try:
+                ref = conn.execute(
+                    """
+                    SELECT source_views, source_likes, source_comments, source_posted_at
+                    FROM campaign_references
+                    WHERE reference_id = ?
+                    """,
+                    (result["reference_record"]["reference_id"],),
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(ref["source_views"], 2222)
+            self.assertEqual(ref["source_likes"], 333)
+            self.assertEqual(ref["source_comments"], 44)
+            self.assertEqual(ref["source_posted_at"], "2026-07-01T00:00:00+00:00")
+
+    def test_campaign_reference_metrics_backfill_from_reel_url_sidecar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "00_source_videos" / "clip_001.mp4"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"mp4")
+            write_url_sidecar(
+                source.with_suffix(".reel_url_import.json"),
+                {
+                    "schema": "reel_factory.reel_url_import.v1",
+                    "url": "https://www.instagram.com/reel/example/",
+                    "stem": "clip_001",
+                    "sourceVideoPath": str(source),
+                    "sourceMetrics": {
+                        "view_count": 99,
+                        "like_count": 8,
+                        "comment_count": 7,
+                        "timestamp": 1782864000,
+                    },
+                },
+            )
+            create_campaign(
+                root,
+                name="Backfill Campaign",
+                creator="Stacey",
+                account="acct",
+                platform="instagram_reels",
+            )
+            ref = add_reference(
+                root,
+                campaign="Backfill Campaign",
+                source_path=source,
+                source_type="reel",
+            )
+
+            conn = campaign_connect(root)
+            try:
+                row = conn.execute(
+                    """
+                    SELECT source_views, source_likes, source_comments, source_posted_at
+                    FROM campaign_references
+                    WHERE reference_id = ?
+                    """,
+                    (ref["reference_id"],),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(row["source_views"], 99)
+            self.assertEqual(row["source_likes"], 8)
+            self.assertEqual(row["source_comments"], 7)
+            self.assertEqual(row["source_posted_at"], "2026-07-01T00:00:00+00:00")
 
     def test_ollama_parser_accepts_valid_json(self):
         self.assertEqual(parse_hook_response('{"hooks":["one","two"]}'), ["one", "two"])
