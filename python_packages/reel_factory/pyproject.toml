@@ -82,6 +82,7 @@ py-modules = [
   "overnight_grid_worker",
   "placement",
   "placement_scorer",
+  "pipeline_run",
   "post_render",
   "post_render_acceptance",
   "posting_ledger",
