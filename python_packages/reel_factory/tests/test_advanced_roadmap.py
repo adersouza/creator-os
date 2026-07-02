@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -3449,6 +3450,208 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 result["lineage_path"],
                 str(raw / "clip_001.generated_asset_lineage.json"),
             )
+
+    def test_gui_create_video_async_job_returns_immediately_and_reports_done(self):
+        import reel_gui
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = root / "00_source_videos"
+            prompt = root / "prompt.json"
+            start = root / "start.png"
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            start.write_bytes(b"png")
+            started = threading.Event()
+            release = threading.Event()
+
+            def fake_create(plan, *, wait, download):
+                started.set()
+                release.wait(timeout=2)
+                return {
+                    "ok": True,
+                    "path": str(raw / "clip_001.generated_asset_lineage.json"),
+                    "campaign_record": {"asset_generation_id": "asset_2"},
+                    "lineage": {
+                        "generation": {
+                            "videoJobId": "vid_1",
+                            "videoResultUrl": "https://example.test/video.mp4",
+                        },
+                        "assets": {"localPaths": {}},
+                    },
+                }
+
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
+            ):
+                result = reel_gui.asset_create_video_api(
+                    {
+                        "prompt_json": str(prompt),
+                        "stem": "clip_001",
+                        "start_image": str(start),
+                        "async_job": True,
+                        "idempotency_key": "clip_001_video",
+                    }
+                )
+                self.assertEqual(result["kind"], "create_video")
+                self.assertIn(result["status"], {"queued", "running"})
+                self.assertTrue(started.wait(timeout=1))
+                release.set()
+                for _ in range(20):
+                    status = reel_gui.asset_job_status_api(result["job_id"])
+                    if status["status"] == "done":
+                        break
+                    time.sleep(0.05)
+
+            self.assertEqual(status["status"], "done")
+            self.assertEqual(status["result"]["video_job_id"], "vid_1")
+
+    def test_run_progress_counts_qc_skips_as_rejected_not_completed(self):
+        import reel_gui
+
+        previous = dict(reel_gui._run_state)
+        try:
+            reel_gui._run_state.update(
+                {
+                    "completed": 0,
+                    "failed": 0,
+                    "rejected": 0,
+                    "rejection_reasons": {},
+                    "total": 0,
+                }
+            )
+            reel_gui._update_run_progress_from_line("queued 2 render tasks")
+            reel_gui._update_run_progress_from_line(
+                "skip clip_001 reason=identity_mismatch"
+            )
+            reel_gui._update_run_progress_from_line("done clip_002")
+
+            status = reel_gui.run_status()
+        finally:
+            reel_gui._run_state.clear()
+            reel_gui._run_state.update(previous)
+
+        self.assertEqual(status["total"], 2)
+        self.assertEqual(status["completed"], 1)
+        self.assertEqual(status["rejected"], 1)
+        self.assertEqual(status["rejection_reasons"]["identity_mismatch"], 1)
+
+    def test_request_subprocess_timeout_returns_gateway_timeout(self):
+        import reel_gui
+
+        with patch.object(
+            reel_gui.subprocess,
+            "run",
+            side_effect=reel_gui.subprocess.TimeoutExpired(["cmd"], 1),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                reel_gui._run_request_subprocess(["cmd"], timeout_seconds=1)
+
+        self.assertEqual(raised.exception.status_code, 504)
+
+    def test_dashboard_summary_includes_pipeline_health_fields(self):
+        import reel_gui
+
+        previous_jobs = dict(reel_gui.ASSET_JOBS)
+        try:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_JOBS["job_1"] = {"status": "running"}
+            with (
+                patch.object(reel_gui, "_clip_cards_data", return_value=[]),
+                patch.object(
+                    reel_gui,
+                    "list_failed_generations",
+                    return_value={"count": 2, "items": []},
+                ),
+                patch.object(
+                    reel_gui,
+                    "_render_queue_health",
+                    return_value={"counts": {"queued": 3}},
+                ),
+                patch.object(reel_gui, "cost_analytics", return_value={"assets": []}),
+            ):
+                summary = reel_gui.dashboard_summary_api()
+        finally:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_JOBS.update(previous_jobs)
+
+        command = summary["command_center"]
+        self.assertEqual(command["in_flight_generations"], 1)
+        self.assertEqual(command["failed_generations"], 2)
+        self.assertEqual(command["render_queue_depth"], 3)
+        self.assertIn("pipeline_health", summary)
+
+    def test_gui_paid_asset_idempotency_dedupes_in_flight_job(self):
+        import reel_gui
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = root / "00_source_videos"
+            prompt = root / "prompt.json"
+            start = root / "start.png"
+            prompt.write_text(
+                json.dumps(
+                    {
+                        "higgsfieldGridPrompt": "grid prompt",
+                        "klingMotionPrompt": "motion prompt",
+                        "notes": "ok",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            start.write_bytes(b"png")
+            release = threading.Event()
+            calls = {"count": 0}
+
+            def fake_create(plan, *, wait, download):
+                calls["count"] += 1
+                release.wait(timeout=2)
+                return {
+                    "ok": True,
+                    "path": str(raw / "clip_001.generated_asset_lineage.json"),
+                    "lineage": {
+                        "generation": {
+                            "videoJobId": "vid_1",
+                            "videoResultUrl": "https://example.test/video.mp4",
+                        },
+                        "assets": {"localPaths": {}},
+                    },
+                }
+
+            body = {
+                "prompt_json": str(prompt),
+                "stem": "clip_001",
+                "start_image": str(start),
+                "async_job": True,
+                "idempotency_key": "same-click",
+            }
+            with (
+                patch.object(reel_gui, "ROOT", root),
+                patch.object(reel_gui, "RAW_DIR", raw),
+                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
+            ):
+                first = reel_gui.asset_create_video_api(dict(body))
+                second = reel_gui.asset_create_video_api(dict(body))
+                release.set()
+                for _ in range(20):
+                    status = reel_gui.asset_job_status_api(first["job_id"])
+                    if status["status"] == "done":
+                        break
+                    time.sleep(0.05)
+
+            self.assertEqual(first["job_id"], second["job_id"])
+            self.assertTrue(second["deduped"])
+            self.assertEqual(calls["count"], 1)
 
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
         import reel_gui

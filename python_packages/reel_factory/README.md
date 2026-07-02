@@ -66,10 +66,13 @@ path.
 ## GUI
 
 ```bash
-python3 reel_gui.py
+ALLOW_INSECURE_LOCAL=1 python3 reel_gui.py
 ```
 
-The local GUI opens at `http://localhost:8765`. It supports uploading clips,
+The local GUI opens at `http://localhost:8765`. Local development requires
+either `ALLOW_INSECURE_LOCAL=1` on loopback only, or
+`CREATOR_OS_API_TOKEN=<token>` with browser/API calls sending
+`Authorization: Bearer <token>`. It supports uploading clips,
 editing hooks, spinning hook variants, choosing exact captions versus slang
 variants, running the pipeline, and previewing outputs. The hook editor warns
 when blocks are near-duplicates, supports up/down reordering, and can save or

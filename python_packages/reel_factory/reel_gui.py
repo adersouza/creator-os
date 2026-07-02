@@ -73,6 +73,7 @@ from generate_assets import (  # noqa
     create_video_asset,
     dry_run as asset_dry_run,
     dry_run_direct_reference_image,
+    list_failed_generations,
     load_prompt,
     probe_higgsfield_capabilities,
 )
@@ -116,6 +117,7 @@ from campaign_store import (
     update_asset_generation,
 )  # noqa
 from next_batch import select_next_batch  # noqa
+from render_queue import get_queue  # noqa
 from posting_ledger import (
     assign_approved_reels as ledger_assign_approved_reels,
     content_fingerprint as ledger_content_fingerprint,
@@ -143,6 +145,9 @@ SAFE_ZONE_DEFAULTS = {
     "right_pct": 5.0,
     "source": "renderer_default_safe_margins",
 }
+ASSET_JOB_LOCK = threading.Lock()
+ASSET_JOBS: dict[str, dict[str, Any]] = {}
+ASSET_IDEMPOTENCY: dict[str, str] = {}
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
 STEM_RE = re.compile(r"^clip_\d{3,}$")
 
@@ -152,6 +157,131 @@ for d in (RAW_DIR, CAP_DIR, PROC_DIR, ACCT_DIR, DATA_DIR, AUD_DIR):
 app = FastAPI(title="reel_factory", dependencies=[Depends(require_local_api_auth)])
 install_local_api_auth_middleware(app)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+def _asset_job_requested(body: dict[str, Any]) -> bool:
+    return bool(
+        body.get("async_job")
+        or body.get("asyncJob")
+        or body.get("idempotency_key")
+        or body.get("idempotencyKey")
+    )
+
+
+def _asset_idempotency_key(kind: str, body: dict[str, Any]) -> str | None:
+    raw = body.get("idempotency_key") or body.get("idempotencyKey")
+    if not raw:
+        return None
+    return f"{kind}:{raw}"
+
+
+def _public_asset_job(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in job.items()
+        if key not in {"thread", "runner", "body"}
+    }
+
+
+def _update_asset_job(job_id: str | None, **fields: Any) -> None:
+    if not job_id:
+        return
+    with ASSET_JOB_LOCK:
+        job = ASSET_JOBS.get(job_id)
+        if not job:
+            return
+        job.update(fields)
+        job["updated_at"] = int(time.time())
+
+
+def _run_asset_job(job_id: str, runner: Any, body: dict[str, Any]) -> None:
+    _update_asset_job(job_id, status="running", started_at=int(time.time()))
+    try:
+        result = runner(body)
+        status = "done" if result.get("ok", True) else "failed"
+        _update_asset_job(job_id, status=status, result=result, error=result.get("error"))
+    except HTTPException as exc:
+        _update_asset_job(
+            job_id,
+            status="failed",
+            error=str(exc.detail),
+            result={"ok": False, "error": exc.detail, "status_code": exc.status_code},
+        )
+    except Exception as exc:
+        _update_asset_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+            result={"ok": False, "error": str(exc)},
+        )
+
+
+def _enqueue_asset_job(
+    kind: str,
+    body: dict[str, Any],
+    runner: Any,
+) -> dict[str, Any]:
+    dedupe_key = _asset_idempotency_key(kind, body)
+    now = int(time.time())
+    with ASSET_JOB_LOCK:
+        if dedupe_key and dedupe_key in ASSET_IDEMPOTENCY:
+            existing = ASSET_JOBS[ASSET_IDEMPOTENCY[dedupe_key]]
+            return {"ok": True, "deduped": True, **_public_asset_job(existing)}
+        seed = dedupe_key or f"{kind}:{now}:{time.time_ns()}"
+        job_id = f"asset_job_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:16]}"
+        job = {
+            "ok": True,
+            "job_id": job_id,
+            "kind": kind,
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "idempotency_key": dedupe_key,
+        }
+        ASSET_JOBS[job_id] = job
+        if dedupe_key:
+            ASSET_IDEMPOTENCY[dedupe_key] = job_id
+    queued_body = dict(body)
+    queued_body["_asset_job_id"] = job_id
+    thread = threading.Thread(
+        target=_run_asset_job,
+        args=(job_id, runner, queued_body),
+        daemon=True,
+        name=f"reel-asset-job-{kind}",
+    )
+    with ASSET_JOB_LOCK:
+        ASSET_JOBS[job_id]["thread"] = thread
+    thread.start()
+    return {"ok": True, **_public_asset_job(job)}
+
+
+def _run_request_subprocess(
+    cmd: list[str],
+    *,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(
+            504, f"subprocess timed out after {timeout_seconds}s"
+        ) from exc
+
+
+@app.get("/api/assets/jobs/{job_id}")
+def asset_job_status_api(job_id: str):
+    with ASSET_JOB_LOCK:
+        job = ASSET_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(404, "asset job not found")
+        return {"ok": True, **_public_asset_job(job)}
 
 
 def guard_deprecated_generator_api(feature: str) -> None:
@@ -171,6 +301,8 @@ _run_state: dict[str, Any] = {
     "completed": 0,
     "total": 0,
     "failed": 0,
+    "rejected": 0,
+    "rejection_reasons": {},
 }
 _run_lock = threading.Lock()
 
@@ -340,6 +472,22 @@ def _asset_state_by_stem() -> dict[str, dict[str, Any]]:
             ),
         }
     return states
+
+
+def _asset_job_counts() -> dict[str, int]:
+    with ASSET_JOB_LOCK:
+        counts: dict[str, int] = {}
+        for job in ASSET_JOBS.values():
+            status = str(job.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+        return counts
+
+
+def _render_queue_health() -> dict[str, Any]:
+    try:
+        return get_queue(ROOT).status()
+    except Exception as exc:
+        return {"counts": {}, "error": str(exc)}
 
 
 def _prompt_stems() -> set[str]:
@@ -596,12 +744,18 @@ def _update_run_progress_from_line(line: str) -> None:
         m = re.search(r"queued\s+(\d+)\s+render tasks", text)
         if m:
             _run_state["total"] = int(m.group(1))
-    if (
-        text.startswith("done ")
-        or text.startswith("skip ")
-        or text.startswith("DRY ")
-        or text.startswith("preview ")
-    ):
+    if text.startswith("skip "):
+        reason = "skipped"
+        m = re.search(r"(?:reason|qc|reject(?:ed)?)[=:]\s*([a-zA-Z0-9_.-]+)", text)
+        if m:
+            reason = m.group(1)
+        elif ":" in text:
+            reason = text.rsplit(":", 1)[-1].strip().split()[0] or reason
+        _run_state["rejected"] = int(_run_state.get("rejected", 0)) + 1
+        reasons = dict(_run_state.get("rejection_reasons") or {})
+        reasons[reason] = int(reasons.get(reason, 0)) + 1
+        _run_state["rejection_reasons"] = reasons
+    if text.startswith("done ") or text.startswith("DRY ") or text.startswith("preview "):
         _run_state["completed"] = int(_run_state.get("completed", 0)) + 1
     if text.startswith("FAIL ") or "task exception" in text:
         _run_state["failed"] = int(_run_state.get("failed", 0)) + 1
@@ -1124,6 +1278,13 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
             account_health = account_fatigue_report(ROOT, account=account)
         except Exception:
             account_health = None
+    asset_job_counts = _asset_job_counts()
+    render_queue = _render_queue_health()
+    failed_generations = list_failed_generations(ROOT, limit=20)
+    try:
+        costs = cost_analytics(ROOT)
+    except Exception as exc:
+        costs = {"error": str(exc)}
     return {
         "schema": "reel_factory.dashboard_summary.v1",
         "command_center": {
@@ -1131,11 +1292,24 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
             "ready_to_post": ready_to_post,
             "needs_metrics": needs_metrics,
             "recommended_next_batch": rec,
+            "in_flight_generations": int(asset_job_counts.get("queued", 0))
+            + int(asset_job_counts.get("running", 0)),
+            "failed_generations": int(failed_generations.get("count", 0))
+            + int(asset_job_counts.get("failed", 0)),
+            "render_queue_depth": int(
+                (render_queue.get("counts") or {}).get("queued", 0)
+            ),
         },
         "clip_statuses": {row["stem"]: row["status"] for row in clips_data},
         "next_actions": {row["stem"]: row["next_action"] for row in clips_data},
         "account_health": account_health,
         "recommendation_summary": rec,
+        "pipeline_health": {
+            "asset_jobs": asset_job_counts,
+            "failed_generations": failed_generations,
+            "render_queue": render_queue,
+            "costs": costs,
+        },
     }
 
 
@@ -1692,21 +1866,25 @@ def next_batch_api(campaign: str, count: int = 20, persist: bool = False):
 def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output(
-        [
-            FFPROBE,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        text=True,
-    )
+    try:
+        info_raw = subprocess.check_output(
+            [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration",
+                "-of",
+                "json",
+                str(source),
+            ],
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, "ffprobe timed out after 30s") from exc
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     frame = frame_path(ROOT, stem, time_sec)
     extract_frame(source, frame, time_sec=time_sec)
@@ -1731,21 +1909,25 @@ def grid_crop_frame_api(stem: str, time_sec: float = 0.25):
 def grid_crop_suggest_api(stem: str, body: dict = Body(default={})):
     guard_deprecated_generator_api("grid_crop")
     source = _source_video_for_stem(stem)
-    info_raw = subprocess.check_output(
-        [
-            FFPROBE,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(source),
-        ],
-        text=True,
-    )
+    try:
+        info_raw = subprocess.check_output(
+            [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration",
+                "-of",
+                "json",
+                str(source),
+            ],
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, "ffprobe timed out after 30s") from exc
     stream = (json.loads(info_raw).get("streams") or [{}])[0]
     width = int(stream.get("width") or 0)
     height = int(stream.get("height") or 0)
@@ -1860,6 +2042,16 @@ def asset_reference_image_dry_run_api(body: dict = Body(...)):
 
 @app.post("/api/assets/reference-image/create")
 def asset_reference_image_create_api(body: dict = Body(...)):
+    if _asset_job_requested(body):
+        return _enqueue_asset_job(
+            "reference_image_create",
+            body,
+            _asset_reference_image_create_sync,
+        )
+    return _asset_reference_image_create_sync(body)
+
+
+def _asset_reference_image_create_sync(body: dict[str, Any]) -> dict[str, Any]:
     plan = _direct_reference_plan_from_body(body)
     try:
         result = create_direct_reference_image_asset(
@@ -1968,6 +2160,12 @@ def prompt_generate_api(body: dict = Body(...)):
 
 @app.post("/api/assets/create-image")
 def asset_create_image_api(body: dict = Body(...)):
+    if _asset_job_requested(body):
+        return _enqueue_asset_job("create_image", body, _asset_create_image_sync)
+    return _asset_create_image_sync(body)
+
+
+def _asset_create_image_sync(body: dict[str, Any]) -> dict[str, Any]:
     prompt_json = body.get("prompt_json")
     stem = body.get("stem")
     if not prompt_json or not stem:
@@ -2069,6 +2267,12 @@ def asset_select_panel_api(body: dict = Body(...)):
 
 @app.post("/api/assets/create-video")
 def asset_create_video_api(body: dict = Body(...)):
+    if _asset_job_requested(body):
+        return _enqueue_asset_job("create_video", body, _asset_create_video_sync)
+    return _asset_create_video_sync(body)
+
+
+def _asset_create_video_sync(body: dict[str, Any]) -> dict[str, Any]:
     prompt_json = body.get("prompt_json")
     stem = body.get("stem")
     start_image = body.get("start_image")
@@ -2137,6 +2341,21 @@ def asset_create_video_api(body: dict = Body(...)):
 
 @app.post("/api/assets/fanout-panels")
 def asset_fanout_panels_api(body: dict = Body(...)):
+    if _asset_job_requested(body) and not bool(body.get("dry_run", False)):
+        return _enqueue_asset_job(
+            "fanout_panels",
+            body,
+            lambda queued_body: _asset_fanout_panels_sync(queued_body),
+        )
+    return _asset_fanout_panels_sync(body)
+
+
+def _asset_fanout_panels_sync(
+    body: dict[str, Any],
+    *,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    job_id = job_id or body.get("_asset_job_id")
     prompt_json_value = body.get("prompt_json")
     stem = _safe_stem(str(body.get("stem") or _next_clip_id()))
     source_image_value = body.get("source_image")
@@ -2200,6 +2419,13 @@ def asset_fanout_panels_api(body: dict = Body(...)):
             panels.append(planned)
             continue
 
+        panels.append(planned)
+        _update_asset_job(
+            job_id,
+            panels=panels,
+            detectedPanelCount=detected_count,
+            maxJobs=max_jobs,
+        )
         try:
             plan = AssetGenerationPlan(
                 prompt_json=shared_prompt_path if shared_prompt_path else prompt_json,
@@ -2238,9 +2464,11 @@ def asset_fanout_panels_api(body: dict = Body(...)):
                 parent_asset_generation_id=parent_asset_generation_id,
                 panel=panel,
             )
-            panels.append(created)
+            panels[-1] = created
+            _update_asset_job(job_id, panels=panels)
         except Exception as exc:
-            panels.append({**planned, "status": "failed", "error": str(exc)})
+            panels[-1] = {**planned, "status": "failed", "error": str(exc)}
+            _update_asset_job(job_id, panels=panels)
 
     lineage_path = body.get("lineage_path")
     if not lineage_path and stem:
@@ -2447,9 +2675,7 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         cmd += ["--target-ratios", *[str(r) for r in ratios]]
     if body.get("workers"):
         cmd += ["--workers", str(int(body["workers"]))]
-    proc = subprocess.run(
-        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
+    proc = _run_request_subprocess(cmd, timeout_seconds=900)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-2000:])
     return {"ok": True, "log": proc.stdout[-4000:]}
@@ -2806,9 +3032,7 @@ def preview_clip(stem: str, body: dict = Body(default={})):
     ]
     if body.get("target_ratio"):
         cmd += ["--target-ratios", body["target_ratio"]]
-    proc = subprocess.run(
-        cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
+    proc = _run_request_subprocess(cmd, timeout_seconds=180)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-1500:])
     return {
@@ -2940,6 +3164,8 @@ def trigger_run(body: dict = Body(...)):
         _run_state["completed"] = 0
         _run_state["total"] = 0
         _run_state["failed"] = 0
+        _run_state["rejected"] = 0
+        _run_state["rejection_reasons"] = {}
 
     cmd = [sys.executable, "reel_pipeline.py", "--root", str(ROOT)]
     if body.get("account"):
@@ -3035,6 +3261,8 @@ def run_status():
         "completed": _run_state.get("completed", 0),
         "total": _run_state.get("total", 0),
         "failed": _run_state.get("failed", 0),
+        "rejected": _run_state.get("rejected", 0),
+        "rejection_reasons": _run_state.get("rejection_reasons", {}),
     }
 
 

@@ -199,6 +199,8 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
   const [decisions, setDecisions] = useState({});
   const [approvedManifestUrl, setApprovedManifestUrl] = useState("");
   const [reviewError, setReviewError] = useState("");
+  const [scanError, setScanError] = useState("");
+  const [similarityError, setSimilarityError] = useState("");
   const [downloading, setDownloading] = useState(false);
   const runId = forgeResult?.runId || "latest";
   const total = isImage ? (config.variants || 50) : config.edits * config.spins;
@@ -208,12 +210,13 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
     async function loadFiles() {
       try {
         const res = await fetch("/api/scan-output?runId=" + encodeURIComponent(runId));
-        if (res.ok) {
-          const data = await res.json();
-          setFiles(data.files || []);
-        }
-      } catch {
-        // ignore
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "scan failed");
+        setFiles(data.files || []);
+        setScanError("");
+      } catch (error) {
+        setFiles([]);
+        setScanError(error.message || "scan failed");
       }
     }
     loadFiles();
@@ -228,9 +231,12 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ runId: forgeResult.runId, threshold: 0.92, sourceFile }),
         });
-        if (res.ok) setScores(await res.json());
-      } catch {
-        // scoring is optional for the preview grid
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "similarity unavailable");
+        setScores(data);
+        setSimilarityError(data.error || data.reason || (data.available === false ? "similarity unavailable" : ""));
+      } catch (error) {
+        setSimilarityError(error.message || "similarity unavailable");
       }
     }
     loadScores();
@@ -297,10 +303,22 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
   const displayFiles = isImage
     ? files.filter(f => f.type === "image")
     : files.filter(f => f.type === "video");
+  const rejectionEntries = Object.entries(forgeResult?.rejectionReasons || {})
+    .sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="flex flex-col gap-6">
       <BatchRunSummary result={forgeResult} />
+      {scanError && (
+        <div className="bg-red-950/30 border border-red-500/40 rounded-card p-4 text-[12px] text-red-200">
+          Output scan failed: {scanError}
+        </div>
+      )}
+      {similarityError && (
+        <div className="bg-amber-950/30 border border-amber-500/40 rounded-card p-4 text-[12px] text-amber-100">
+          Similarity unavailable: {similarityError}
+        </div>
+      )}
 
       {/* Summary stats */}
       <div
@@ -310,7 +328,7 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center">
           <div>
             <div className="text-2xl font-light text-green font-mono">
-              {displayFiles.length || forgeResult?.total || total}
+              {scanError ? "--" : displayFiles.length}
             </div>
             <div className="text-[9px] text-muted-dark uppercase tracking-[0.12em] mt-1">
               Variants
@@ -356,6 +374,25 @@ export default function ResultsGrid({ config, forgeResult, mediaType, sourceFile
           </div>
         </div>
       </div>
+      {rejectionEntries.length > 0 && (
+        <div className="bg-card rounded-card border border-border p-5">
+          <div className="text-[10px] text-muted-dark uppercase tracking-[0.1em] font-medium mb-3">
+            Rejection reasons
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {rejectionEntries.map(([reason, count]) => (
+              <span key={reason} className="tag bg-[#16161e] border border-border">
+                {reason}: {count}
+              </span>
+            ))}
+          </div>
+          {forgeResult?.rejectionSamples?.length > 0 && (
+            <div className="mt-3 text-[10px] text-muted-darker font-mono">
+              {forgeResult.rejectionSamples.slice(0, 4).map((sample) => sample.filename || sample.file || "candidate").join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Preview grid */}
       {displayFiles.length > 0 && (

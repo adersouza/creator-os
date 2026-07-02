@@ -219,7 +219,7 @@ approval gate — worst case is skewed prompts / wasted paid gen, not auto-publi
 
 ## TIER 3 — Operator-UI reliability (human-in-the-loop must be trustworthy)
 
-### 3.1 Run paid generation as background jobs, not inside the HTTP request  ·  HIGH · L · [ ]
+### 3.1 Run paid generation as background jobs, not inside the HTTP request  ·  HIGH · L · [x]
 **Branch:** `codex/reelgui-async-gen`
 **Why:** `reel_gui.py:2033-2038` (`create_video_asset(..., wait=True)`), `:2077` (render-pack), and the grid
 fan-out `:2119-2175` (N serial paid video gens — a 6-panel grid = 6×10-30min) all run synchronously inside one
@@ -230,7 +230,7 @@ fan-out enqueues per-panel jobs and streams per-panel status.
 **Tests:** POST returns a job id without blocking; status endpoint reports running→done; a second concurrent gen is
 handled (queued or rejected, not corrupt).
 
-### 3.2 Stop double-billing: in-flight disable + idempotency on paid buttons  ·  HIGH · S · [ ]
+### 3.2 Stop double-billing: in-flight disable + idempotency on paid buttons  ·  HIGH · S · [x]
 **Branch:** `codex/reelgui-gen-idempotency`
 **Why:** `static/app.js:2013` (`createKlingVideo`), `:1884` (fanout), `:2077` (render-pack) only gate the first
 click with `confirm()`; nothing disables the button or debounces while in-flight, and the endpoints aren't
@@ -239,7 +239,7 @@ idempotent → a double-click bills a second Kling job.
 idempotency key the server dedupes on (pairs with 3.1's job model).
 **Tests:** rapid double-invoke fires one job; the button is disabled while in-flight.
 
-### 3.3 Surface silent failures across both UIs  ·  HIGH · M · [ ]
+### 3.3 Surface silent failures across both UIs  ·  HIGH · M · [x]
 **Branch:** `codex/ui-surface-failures`
 **Why:** failures are invisible in several spots:
 - reel_gui: run-progress parser counts QC-`skip` (reject) lines as `completed` (`reel_gui.py:598-600`); only `FAIL`
@@ -258,7 +258,7 @@ reason→count breakdown.
 **Tests:** a QC-reject shows as rejected-with-reason not completed; a mocked 500 flips the UI to an error state
 (component/route tests); rejection reasons reach the manifest.
 
-### 3.4 Fix the onboarding cliff + subprocess timeouts + health view  ·  MED · M · [ ]
+### 3.4 Fix the onboarding cliff + subprocess timeouts + health view  ·  MED · M · [x]
 **Branch:** `codex/reelgui-onboarding-health`
 **Why:**
 - Fresh launch 401s: loopback needs `ALLOW_INSECURE_LOCAL` truthy AND no token (`local_api_auth.py:44-53`); the
@@ -451,10 +451,10 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 2.2 biometric privacy (stdout/erasure/chmod/gitignore) — identity reference builds now redact embeddings in default CLI output, constrain writes to `identity_references/`, chmod reference dirs/files, support delete, and ignore embedding caches; focused identity tests passed.
 - [x] 2.3 scrub analysis_context — reference-analysis context is reduced through the existing safe-fragment scrubber before joining prompt instructions; focused injection regression passed.
 - [x] 2.4 security hardening batch (SSRF/gitleaks/gitignore/path) — reel URL imports reject private/link-local hosts and unsafe stems, root ignore covers secret TOML files, and gitleaks default rules are enabled; focused tests passed.
-- [ ] 3.1 async paid-gen jobs
-- [ ] 3.2 gen idempotency / no double-bill
-- [ ] 3.3 surface silent failures (both UIs)
-- [ ] 3.4 onboarding + subprocess timeouts + health view
+- [x] 3.1 async paid-gen jobs — paid asset create-image/create-video/reference/fanout calls can now enqueue background jobs with status polling, while legacy sync callers remain supported; focused no-spend job tests passed.
+- [x] 3.2 gen idempotency / no double-bill — paid cockpit calls now send idempotency keys, dedupe in-flight jobs server-side, and disable paid buttons until the job settles; focused duplicate-click tests and JS parse checks passed.
+- [x] 3.3 surface silent failures (both UIs) — Reel Factory run status now counts QC skips as rejected with reason tallies, cockpit fetch failures surface via guarded JSON/global rejection handling, and ContentForge scan/similarity/rejection failures render explicit banners/breakdowns; focused Python, JS parse, and ContentForge tests passed.
+- [x] 3.4 onboarding + subprocess timeouts + health view — reel GUI dev launch now documents/sets explicit loopback auth, request-bound render/preview/ffprobe calls have timeout-to-504 behavior, and dashboard summary includes generation, failed-gen, render-queue, and cost health; focused tests passed.
 - [ ] 3.5 contentforge review polish
 - [ ] 4.1 enforce contracts at write boundaries
 - [ ] 4.2 dedupe schema copies + validator footgun
