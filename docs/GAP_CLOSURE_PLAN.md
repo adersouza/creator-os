@@ -1,3 +1,6 @@
+> ## ✅ STATUS: COMPLETE (2026-07-02)
+> All items implemented, merged to main, and adversarially verified (PRs #323–#345, final fixes PR #340/#341). Zero fakes across four verification rounds. This plan is closed.
+
 # Gap Closure Plan — close the verified partials from the three improvement docs
 
 > ## GOAL PROMPT (for Codex)

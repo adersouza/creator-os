@@ -1,3 +1,6 @@
+> ## ✅ STATUS: COMPLETE (2026-07-02)
+> All items implemented, merged to main, and adversarially verified (PRs #323–#345, final fixes PR #340/#341). Zero fakes across four verification rounds. This plan is closed.
+
 # Codex Master Run — Implement All Three Improvement Plans
 
 **Paste the goal prompt below to Codex to run all three plans autonomously to completion.**
