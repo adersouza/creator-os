@@ -155,9 +155,7 @@ def test_recover_stalled_never_flushes_human_paced_states(tmp_path: Path) -> Non
 
     assert recovered == 0
     assert orchestrator.get_asset(conn, "asset_ready")["state"] == "export_ready"
-    assert (
-        orchestrator.get_asset(conn, "asset_waiting")["state"] == "awaiting_approval"
-    )
+    assert orchestrator.get_asset(conn, "asset_waiting")["state"] == "awaiting_approval"
 
 
 def test_error_retry_increments_attempts_and_caps_at_limit(tmp_path: Path) -> None:
