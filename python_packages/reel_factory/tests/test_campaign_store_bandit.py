@@ -61,12 +61,13 @@ class CampaignStoreBanditTests(unittest.TestCase):
         )
         conn.execute(
             """
-            INSERT INTO publish_metrics (
-                filename, platform, account, uploaded_at, views, likes, comments,
-                shares, saves, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO reel_outcomes (
+                outcome_id, filename, platform, account, posted_at, views, likes,
+                comments, shares, saves, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                f"outcome_{recipe}_{index}",
                 name,
                 "ig",
                 "acct",
@@ -215,12 +216,13 @@ class CampaignStoreBanditTests(unittest.TestCase):
         )
         conn.execute(
             """
-            INSERT INTO publish_metrics (
-                filename, platform, account, uploaded_at, views, likes,
+            INSERT INTO reel_outcomes (
+                outcome_id, filename, platform, account, posted_at, views, likes,
                 comments, shares, saves, campaign_output_id, job_key, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                "outcome_stable_renamed",
                 "posted_renamed_elsewhere.mp4",
                 "ig",
                 "acct",
