@@ -5,6 +5,33 @@ from collections.abc import Callable
 from typing import Any
 
 
+def _job_resolution_scope(job: dict[str, Any]) -> tuple[str, str]:
+    payloads = [
+        job.get("input") if isinstance(job.get("input"), dict) else {},
+        job.get("result") if isinstance(job.get("result"), dict) else {},
+    ]
+    keys = (
+        "renderedAssetId",
+        "rendered_asset_id",
+        "renderedAssetIds",
+        "rendered_asset_ids",
+        "assetId",
+        "asset_id",
+        "sourceAssetId",
+        "source_asset_id",
+    )
+    values: list[str] = []
+    for payload in payloads:
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                values.extend(str(item) for item in value if str(item).strip())
+            elif value:
+                values.append(str(value))
+    scope = ",".join(sorted(set(values))) if values else "*"
+    return (str(job.get("jobType") or ""), scope)
+
+
 class CampaignOverviewRepository:
     def __init__(
         self,
@@ -177,7 +204,7 @@ class CampaignOverviewRepository:
     def unresolved_failed_jobs(
         self, jobs: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        latest_success_by_type: dict[str, str] = {}
+        latest_success_by_scope: dict[tuple[str, str], str] = {}
         for job in jobs:
             if job["status"] != "succeeded":
                 continue
@@ -187,8 +214,9 @@ class CampaignOverviewRepository:
                 or job.get("createdAt")
                 or ""
             )
-            latest_success_by_type[job["jobType"]] = max(
-                latest_success_by_type.get(job["jobType"], ""), timestamp
+            scope = _job_resolution_scope(job)
+            latest_success_by_scope[scope] = max(
+                latest_success_by_scope.get(scope, ""), timestamp
             )
         unresolved = []
         for job in jobs:
@@ -200,7 +228,7 @@ class CampaignOverviewRepository:
                 or job.get("createdAt")
                 or ""
             )
-            if latest_success_by_type.get(job["jobType"], "") > failed_at:
+            if latest_success_by_scope.get(_job_resolution_scope(job), "") > failed_at:
                 continue
             unresolved.append(job)
         return unresolved

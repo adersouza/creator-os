@@ -47,8 +47,14 @@ def _normalize_distribution_surface(value: str | None) -> str:
 
 
 def _normalize_schedule_mode(value: str | None) -> str:
-    normalized = (value or "draft").strip().lower().replace("-", "_")
-    return normalized if normalized in {"draft", "preview", "live"} else "draft"
+    if value is None or not str(value).strip():
+        return "draft"
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized not in {"draft", "preview", "live"}:
+        raise ValueError(
+            f"unknown schedule mode {value!r}; expected draft, preview, or live"
+        )
+    return normalized
 
 
 def _parse_distribution_time(value: Any) -> datetime | None:

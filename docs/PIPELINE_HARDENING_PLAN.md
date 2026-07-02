@@ -208,7 +208,7 @@ day passes; empty ledger behaves as today.
 
 ## TIER 3 — Publish reliability + operator visibility (prior-incident class)
 
-### 3.1 Surface stuck/failed exports (no more "publishing died, nobody noticed")  ·  HIGH · M · [ ]
+### 3.1 Surface stuck/failed exports (no more "publishing died, nobody noticed")  ·  HIGH · M · [x]
 **Branch:** `codex/export-failure-visibility`
 **Why:** three blind spots let a dead export go unnoticed:
 - Nothing ever SELECTs jobs in `'running'`/`'queued'` — a killed export sticks forever (`events.py:172` writes
@@ -224,7 +224,7 @@ day passes; empty ledger behaves as today.
 **Tests:** a failed export leaves a `failed` row + shows in `jobs --status failed`; a later unrelated success
 does NOT resolve it; a running job that never completes is listable.
 
-### 3.2 Fail loud on silent live→dry-run / mode downgrade  ·  HIGH · S · [ ]
+### 3.2 Fail loud on silent live→dry-run / mode downgrade  ·  HIGH · S · [x]
 **Branch:** `codex/publish-no-silent-downgrade`
 **Why:** `cli.py:1568-1569`: `dry_run = args.dry_run or not (supabase_url and service_role_key)` — a
 misconfigured/absent credential silently coerces a live export to dry-run, exit 0, no warning. And
@@ -250,7 +250,7 @@ has the same guarantees as `assign_approved_reels`.
 **Tests:** enqueuing the same output twice yields one entry (idempotent); different content → distinct ids; an
 identity-mismatched item is rejected the same way the ledger rejects it.
 
-### 3.4 Slot assignment: no global one-way cursor  ·  MED-HIGH · M · [ ]
+### 3.4 Slot assignment: no global one-way cursor  ·  MED-HIGH · M · [x]
 **Branch:** `codex/ledger-slot-matching`
 **Why:** `posting_ledger.py:309/356-358` use a single monotonic `slot_idx` across all items; a conflict advances
 the cursor and those slots are never revisited for later items, and the terminal-conflict branch (`:371-382`)
@@ -262,7 +262,7 @@ in the other doc; this PR is only the cursor-correctness fix.)
 **Tests:** an early-item conflict doesn't burn a slot the next item could use; terminal conflict leaves all slots
 available; happy path assigns identically to today.
 
-### 3.5 Retry Supabase media upload like the ingest POST already does  ·  MED · M · [ ]
+### 3.5 Retry Supabase media upload like the ingest POST already does  ·  MED · M · [x]
 **Branch:** `codex/supabase-upload-retry`
 **Why:** the only retry loop is the ingest POST (`threadsdash.py:1875-1917`); `SupabaseRestClient._open_json_or_empty`
 (`:5505-5511`) has no retry and raises on any HTTP error, and `_upload_media_for_dashboard_ingest` re-raises as a
@@ -395,13 +395,13 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 - [x] 1.3 multi-frame identity on video — video identity now checks multiple sampled frames and gates on the minimum similarity; content-trust tests passed.
 - [x] 1.4 audio mux quality (hook offset + loudnorm + ranked track) — mux command now honors hook offsets, applies loudnorm, and accepts provider-selected local audio paths; focused audio mux tests passed.
 - [x] 1.5 end-image bookend + reference duration — Kling commands now support `--end-image`; CLI derives duration from video references with a configurable cap and keeps default fallback; video dry-run tests passed.
-- [ ] 2.1 record AI spend to ledger
-- [ ] 2.2 daily-sum budget cap
-- [ ] 3.1 export failure/stuck visibility
-- [ ] 3.2 no silent live→dry-run downgrade
+- [x] 2.1 record AI spend to ledger — Reel Factory and Reference Factory successful Higgsfield/Kling calls now write idempotent cost ledger events with raw credit metadata; focused tests passed.
+- [x] 2.2 daily-sum budget cap — Higgsfield preflight now sums today's `ai_cost_events` before applying the daily cap; focused tests passed.
+- [x] 3.1 export failure/stuck visibility — jobs can be filtered by status, failed export attempts write failure manifests/rows, and failed-job resolution is scoped by asset identity; focused tests passed.
+- [x] 3.2 no silent live→dry-run downgrade — live CLI export without credentials now fails loud and unknown schedule modes raise; focused tests passed.
 - [ ] 3.3 idempotent + guarded reel_gui queue
-- [ ] 3.4 slot assignment cursor fix
-- [ ] 3.5 supabase upload retry + media upsert
+- [x] 3.4 slot assignment cursor fix — assignment now scans open slots without consuming them on non-assignment conflicts; posting-ledger regression tests passed.
+- [x] 3.5 supabase upload retry + media upsert — Supabase REST calls now retry transient failures and media rows upsert by storage path; focused tests passed.
 - [ ] 4.1 quarantine blocks re-entry
 - [ ] 4.2 content-hash dedup + import metrics
 - [ ] 4.3 ytdlp retry + duplicate-URL guard

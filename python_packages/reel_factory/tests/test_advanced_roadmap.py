@@ -2833,6 +2833,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     caption="reel caption",
                     scheduled_at="2026-05-30T10:00:00",
                 )
+                queued_again = queue_threadsdashboard_post(
+                    root,
+                    output_path=str(reel),
+                    account="acct",
+                    caption="updated reel caption",
+                    scheduled_at="2026-05-30T10:00:00",
+                )
             finally:
                 reel_gui.ROOT = old_root
 
@@ -2844,6 +2851,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(queued["queued"]["platform"], "threads")
             self.assertEqual(queued["queued"]["status"], "queued")
             self.assertEqual(queued["queued"]["scheduled_at"], "2026-05-30T10:00:00")
+            self.assertEqual(
+                queued_again["queued"]["post_id"], queued["queued"]["post_id"]
+            )
+            queue_lines = [
+                line
+                for line in Path(queued["queue_path"])
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(queue_lines), 1)
+            self.assertIn("updated reel caption", queue_lines[0])
 
     def test_reel_pipeline_accepts_campaign_render_flags(self):
         import subprocess

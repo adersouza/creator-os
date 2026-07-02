@@ -306,7 +306,7 @@ def assign_approved_reels(
     ]
     assigned: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
-    slot_idx = 0
+    available_slots = list(slots)
     now = int(time.time())
     for item in items:
         output_path = Path(
@@ -335,15 +335,15 @@ def assign_approved_reels(
         candidate_uniqueness = _uniqueness_values(
             item, lineage=item_lineage, fingerprint=fp
         )
-        if slot_idx < len(slots):
+        if available_slots:
             identity_reason = _creator_identity_conflict(
-                conn, item=item, lineage=item_lineage, slot=slots[slot_idx]
+                conn, item=item, lineage=item_lineage, slot=available_slots[0]
             )
             if identity_reason:
                 conflicts.append(
                     {
-                        "posting_slot_id": slots[slot_idx]["posting_slot_id"],
-                        "account_handle": slots[slot_idx]["account_handle"],
+                        "posting_slot_id": available_slots[0]["posting_slot_id"],
+                        "account_handle": available_slots[0]["account_handle"],
                         "output_path": str(output_path.resolve()),
                         "content_fingerprint": fp,
                         "reasons": [identity_reason],
@@ -353,9 +353,8 @@ def assign_approved_reels(
         slot_result: tuple[dict[str, Any], list[str]] | None = None
         conflict_accounts_seen: set[str] = set()
         terminal_conflict = False
-        while slot_idx < len(slots):
-            slot = slots[slot_idx]
-            slot_idx += 1
+        assigned_slot_index: int | None = None
+        for idx, slot in enumerate(available_slots):
             reasons = _assignment_conflicts(
                 conn,
                 slot=slot,
@@ -367,6 +366,7 @@ def assign_approved_reels(
             )
             if not reasons:
                 slot_result = (slot, reasons)
+                assigned_slot_index = idx
                 break
             if "duplicate_content_fingerprint_for_campaign" in reasons:
                 conflicts.append(
@@ -391,9 +391,11 @@ def assign_approved_reels(
                     }
                 )
                 conflict_accounts_seen.add(slot["account_id"])
+        if assigned_slot_index is not None:
+            available_slots.pop(assigned_slot_index)
         if not slot_result:
             if (
-                slot_idx >= len(slots)
+                not available_slots
                 and not conflict_accounts_seen
                 and not terminal_conflict
             ):

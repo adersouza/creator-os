@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
@@ -66,6 +68,7 @@ from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
 from campaign_factory.db import _repair_source_asset_fk_references
+from campaign_factory.distribution import _normalize_schedule_mode
 from campaign_factory.front_generation_stage import (
     ACCEPTED_STILL_PLACEHOLDER,
     run_front_generation_stage,
@@ -8814,9 +8817,7 @@ def test_plan_distribution_empty_history_uses_first_slot(
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        cf.upsert_model_account_profile(
-            "model", allowed_instagram_account_ids=["ig_1"]
-        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
         first_slot = datetime(2026, 1, 2, 10, tzinfo=UTC)
         monkeypatch.setattr(
             cf.services.distribution,
@@ -8842,9 +8843,7 @@ def test_plan_distribution_hydrates_account_day_counts_across_runs(
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        cf.upsert_model_account_profile(
-            "model", allowed_instagram_account_ids=["ig_1"]
-        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
         day_one = datetime(2026, 1, 2, 10, tzinfo=UTC)
         monkeypatch.setattr(
             cf.services.distribution,
@@ -8860,9 +8859,10 @@ def test_plan_distribution_hydrates_account_day_counts_across_runs(
         second = cf.plan_distribution("may", user_id="user_1", replace=False)
 
         assert first["planned"][0]["plannedWindowStart"] == day_one.isoformat()
-        assert second["planned"][0]["plannedWindowStart"] == (
-            day_one + timedelta(days=1)
-        ).isoformat()
+        assert (
+            second["planned"][0]["plannedWindowStart"]
+            == (day_one + timedelta(days=1)).isoformat()
+        )
     finally:
         cf.close()
 
@@ -8875,9 +8875,7 @@ def test_plan_distribution_hydrates_min_gap_from_existing_plan(
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.review_rendered_asset("asset_1", decision="approved")
-        cf.upsert_model_account_profile(
-            "model", allowed_instagram_account_ids=["ig_1"]
-        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
         existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
         too_close = existing + timedelta(hours=3)
         valid = existing + timedelta(hours=5)
@@ -24878,3 +24876,196 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
     assert payload["schema"] == "campaign_factory.rejection_evidence_capture.v1"
     assert payload["capturedCount"] >= 1
     assert payload["wouldWrite"] is True
+
+
+def test_schedule_mode_rejects_unknown_non_empty_value() -> None:
+    assert _normalize_schedule_mode(None) == "draft"
+    assert _normalize_schedule_mode("") == "draft"
+    assert _normalize_schedule_mode("preview") == "preview"
+    with pytest.raises(ValueError, match="unknown schedule mode"):
+        _normalize_schedule_mode("surprise")
+
+
+def test_export_threadsdash_cli_live_missing_credentials_fails_loud(
+    tmp_path: Path,
+) -> None:
+    env = {
+        **os.environ,
+        "PYTHONPATH": CLI_PYTHONPATH,
+        "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+    }
+    env.pop("SUPABASE_URL", None)
+    env.pop("SUPABASE_SERVICE_ROLE_KEY", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "campaign_factory.cli",
+            "export-threadsdash",
+            "--campaign",
+            "may",
+            "--user-id",
+            "user_1",
+        ],
+        cwd=PACKAGE_ROOT,
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode != 0
+    assert "live ThreadsDashboard export requested" in result.stderr
+
+
+def test_jobs_for_campaign_filters_by_status(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        campaign = cf.upsert_campaign("may", "model")
+        running = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        failed = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        cf.start_pipeline_job(running["id"])
+        cf.fail_pipeline_job(failed["id"], "boom")
+
+        rows = cf.jobs_for_campaign("may", statuses=["failed"])
+
+        assert [row["id"] for row in rows] == [failed["id"]]
+    finally:
+        cf.close()
+
+
+def test_failed_job_resolution_is_scoped_to_asset_identity(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        jobs = [
+            {
+                "id": "failed_a",
+                "jobType": "threadsdash_export",
+                "status": "failed",
+                "input": {"renderedAssetId": "asset_a"},
+                "result": {},
+                "finishedAt": "2026-06-01T10:00:00Z",
+                "updatedAt": "2026-06-01T10:00:00Z",
+                "createdAt": "2026-06-01T10:00:00Z",
+            },
+            {
+                "id": "success_b",
+                "jobType": "threadsdash_export",
+                "status": "succeeded",
+                "input": {"renderedAssetId": "asset_b"},
+                "result": {},
+                "finishedAt": "2026-06-01T11:00:00Z",
+                "updatedAt": "2026-06-01T11:00:00Z",
+                "createdAt": "2026-06-01T11:00:00Z",
+            },
+        ]
+
+        unresolved = cf._unresolved_failed_jobs(jobs)
+
+        assert [job["id"] for job in unresolved] == ["failed_a"]
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_failure_writes_failed_export_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        cf.upsert_campaign("may", "model")
+
+        def fail_payload(*_args, **_kwargs):
+            raise RuntimeError("payload exploded")
+
+        monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", fail_payload)
+
+        with pytest.raises(RuntimeError, match="payload exploded"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=True,
+            )
+
+        row = cf.conn.execute(
+            "SELECT status, manifest_path FROM threadsdash_exports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert row["status"] == "failed"
+        failure = json.loads(Path(row["manifest_path"]).read_text(encoding="utf-8"))
+        assert failure["error"] == "payload exploded"
+    finally:
+        cf.close()
+
+
+def test_supabase_rest_client_retries_transient_http_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def fake_urlopen(_request, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise HTTPError(
+                "https://example.supabase.co",
+                503,
+                "temporary",
+                {},
+                io.BytesIO(b"try again"),
+            )
+        return FakeResponse()
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    client = threadsdash_adapter.SupabaseRestClient(
+        "https://example.supabase.co", "service-role"
+    )
+
+    result = client.get_storage_bucket("media")
+
+    assert result == {"ok": True}
+    assert calls["count"] == 2
+
+
+def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+    upserted: list[tuple[str, str]] = []
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            return []
+
+        def upload_storage_object(
+            self, bucket, storage_path, file_path, content_type, *, upsert=False
+        ):
+            assert upsert is True
+
+        def upsert(self, table, row, *, on_conflict):
+            upserted.append((table, on_conflict))
+            return [{"id": "media_1", **row}]
+
+    result = threadsdash_adapter._upload_media(
+        FakeClient(),
+        bucket="media",
+        user_id="user_1",
+        local_path=media,
+        tags=["campaign_factory"],
+    )
+
+    assert result["id"] == "media_1"
+    assert upserted == [("media", "storage_path")]

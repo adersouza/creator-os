@@ -118,6 +118,7 @@ from campaign_store import (
 from next_batch import select_next_batch  # noqa
 from posting_ledger import (
     assign_approved_reels as ledger_assign_approved_reels,
+    content_fingerprint as ledger_content_fingerprint,
     create_posting_plan,
     export_schedule_package as ledger_export_schedule_package,
     ledger_conflicts,
@@ -738,7 +739,10 @@ def queue_threadsdashboard_post(
     out_dir = root / "04_exports" / "threadsdashboard"
     asset_dir = out_dir / "media"
     dest = _copy_unique(src, asset_dir, prefix=src.stem)
-    post_id = hashlib.sha256(f"{dest}:{time.time()}".encode()).hexdigest()[:16]
+    fingerprint = ledger_content_fingerprint(src)
+    post_id = hashlib.sha256(
+        f"{account}:{scheduled_at or ''}:{fingerprint}".encode()
+    ).hexdigest()[:16]
     record = {
         "schema": "reel_factory.threadsdashboard_queue.v1",
         "post_id": post_id,
@@ -749,6 +753,7 @@ def queue_threadsdashboard_post(
         "source_output_path": str(src.resolve()),
         "media_path": str(dest),
         "filename": dest.name,
+        "content_fingerprint": fingerprint,
         "caption": caption,
         "notes": notes,
         "status": "queued",
@@ -758,13 +763,23 @@ def queue_threadsdashboard_post(
     item_path.write_text(
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    with (out_dir / "queue.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    queue_path = out_dir / "queue.jsonl"
+    rows = []
+    if queue_path.exists():
+        for line in queue_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    rows = [row for row in rows if row.get("post_id") != post_id]
+    rows.append(record)
+    queue_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
     return {
         "ok": True,
         "queued": record,
         "path": str(item_path),
-        "queue_path": str(out_dir / "queue.jsonl"),
+        "queue_path": str(queue_path),
     }
 
 

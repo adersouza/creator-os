@@ -122,16 +122,29 @@ class EventRepository:
         return [self.event_payload(dict(row)) for row in rows]
 
     def jobs_for_campaign(
-        self, campaign_slug: str, limit: int = 100
+        self,
+        campaign_slug: str,
+        limit: int = 100,
+        statuses: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         row = self.conn.execute(
             "SELECT id FROM campaigns WHERE slug = ?", (self._slugify(campaign_slug),)
         ).fetchone()
         if not row:
             raise ValueError(f"campaign not found: {campaign_slug}")
+        clauses = ["campaign_id = ?"]
+        params: list[Any] = [row["id"]]
+        if statuses:
+            normalized = [
+                status.strip().lower() for status in statuses if status.strip()
+            ]
+            if normalized:
+                placeholders = ", ".join("?" for _ in normalized)
+                clauses.append(f"status IN ({placeholders})")
+                params.extend(normalized)
         rows = self.conn.execute(
-            "SELECT * FROM pipeline_jobs WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
-            (row["id"], max(1, min(limit, 1000))),
+            f"SELECT * FROM pipeline_jobs WHERE {' AND '.join(clauses)} ORDER BY created_at DESC, id DESC LIMIT ?",
+            (*params, max(1, min(limit, 1000))),
         ).fetchall()
         return [self.pipeline_job_payload(dict(job_row)) for job_row in rows]
 

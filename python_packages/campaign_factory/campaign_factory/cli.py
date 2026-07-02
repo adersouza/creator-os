@@ -1266,6 +1266,10 @@ def main() -> int:
     jobs = sub.add_parser("jobs")
     jobs.add_argument("--campaign", required=True)
     jobs.add_argument("--limit", type=int, default=100)
+    jobs.add_argument(
+        "--status",
+        help="Comma-separated job statuses to include, e.g. running,failed",
+    )
 
     job = sub.add_parser("job")
     job.add_argument("--id", required=True)
@@ -1560,13 +1564,18 @@ def main() -> int:
                 )
             )
         elif args.cmd == "export-threadsdash":
+            if not args.dry_run and not (
+                args.supabase_url and args.supabase_service_role_key
+            ):
+                raise SystemExit(
+                    "live ThreadsDashboard export requested but Supabase URL/service role key are missing; pass --dry-run or provide credentials"
+                )
             print_json(
                 export_threadsdash(
                     cf,
                     campaign_slug=args.campaign,
                     user_id=args.user_id,
-                    dry_run=args.dry_run
-                    or not (args.supabase_url and args.supabase_service_role_key),
+                    dry_run=args.dry_run,
                     supabase_url=args.supabase_url,
                     supabase_service_role_key=args.supabase_service_role_key,
                     supabase_storage_bucket=args.supabase_storage_bucket,
@@ -3077,11 +3086,19 @@ def main() -> int:
                 }
             )
         elif args.cmd == "jobs":
+            statuses = (
+                [status.strip() for status in args.status.split(",") if status.strip()]
+                if args.status
+                else None
+            )
             print_json(
                 {
                     "schema": "campaign_factory.jobs.v1",
                     "campaign": args.campaign,
-                    "jobs": cf.jobs_for_campaign(args.campaign, limit=args.limit),
+                    "statuses": statuses,
+                    "jobs": cf.jobs_for_campaign(
+                        args.campaign, limit=args.limit, statuses=statuses
+                    ),
                 }
             )
         elif args.cmd == "job":
