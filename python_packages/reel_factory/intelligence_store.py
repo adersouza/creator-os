@@ -252,6 +252,8 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
             "soul_id": "TEXT",
         },
     )
+    conn.execute("UPDATE reel_outcomes SET account = '' WHERE account IS NULL")
+    conn.execute("UPDATE reel_outcomes SET posted_at = '' WHERE posted_at IS NULL")
     conn.commit()
 
 

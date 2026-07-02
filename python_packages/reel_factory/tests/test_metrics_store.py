@@ -203,6 +203,65 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
             self.assertEqual(outcome[0], STACEY_SOUL)
             self.assertEqual(legacy[0], STACEY_SOUL)
 
+    def test_outcomes_import_reimports_dateless_accountless_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = self._variation(root)
+            csv_path = root / "outcomes.csv"
+            csv_path.write_text(
+                "filename,platform,views,likes,comments,shares,saves\n"
+                f"{out.name},instagram_reels,100,10,2,3,5\n",
+                encoding="utf-8",
+            )
+
+            import_outcomes_csv(root, csv_path)
+            csv_path.write_text(
+                "filename,platform,views,likes,comments,shares,saves\n"
+                f"{out.name},instagram_reels,250,20,4,5,6\n",
+                encoding="utf-8",
+            )
+            import_outcomes_csv(root, csv_path)
+
+            conn = sqlite3.connect(root / "manifest.sqlite")
+            row = conn.execute(
+                """
+                SELECT COUNT(*), MAX(views), account, posted_at
+                FROM reel_outcomes
+                WHERE filename=?
+                """,
+                (out.name,),
+            ).fetchone()
+
+            self.assertEqual(row[0], 1)
+            self.assertEqual(row[1], 250)
+            self.assertEqual(row[2], "")
+            self.assertEqual(row[3], "")
+
+    def test_metrics_schema_coalesces_legacy_null_outcome_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conn = sqlite3.connect(root / "manifest.sqlite")
+            conn.row_factory = sqlite3.Row
+            ensure_metrics_schema(conn)
+            conn.execute(
+                """
+                INSERT INTO reel_outcomes (
+                    outcome_id, filename, platform, account, posted_at, imported_at
+                ) VALUES (?, ?, ?, NULL, NULL, ?)
+                """,
+                ("outcome_legacy", "legacy.mp4", "instagram_reels", 1),
+            )
+            conn.commit()
+
+            ensure_metrics_schema(conn)
+            row = conn.execute(
+                "SELECT account, posted_at FROM reel_outcomes WHERE outcome_id=?",
+                ("outcome_legacy",),
+            ).fetchone()
+
+            self.assertEqual(row["account"], "")
+            self.assertEqual(row["posted_at"], "")
+
     def test_soul_metrics_report_aggregates_souls_and_unattributed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -235,8 +235,8 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     prompt_run_id = prompt_run_id or asset["prompt_run_id"]
                     source_reference_id = asset["reference_id"]
             platform = _text(row.get("platform")) or "instagram_reels"
-            account = _text(row.get("account"))
-            posted_at = _text(
+            account = _outcome_dimension(row.get("account"))
+            posted_at = _outcome_dimension(
                 row.get("posted_at") or row.get("uploaded_at") or row.get("date")
             )
             soul_id = _resolve_metrics_soul_id(
@@ -280,7 +280,8 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     watch_time, retention_rate, profile_visits, follows, manual_score,
                     source_url, notes, imported_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(filename, platform, account, posted_at) DO UPDATE SET
+                ON CONFLICT(outcome_id) DO UPDATE SET
+                    filename=excluded.filename,
                     output_path=excluded.output_path,
                     soul_id=excluded.soul_id,
                     job_key=excluded.job_key,
@@ -289,6 +290,9 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     asset_generation_id=excluded.asset_generation_id,
                     prompt_run_id=excluded.prompt_run_id,
                     source_reference_id=excluded.source_reference_id,
+                    platform=excluded.platform,
+                    account=excluded.account,
+                    posted_at=excluded.posted_at,
                     views=excluded.views,
                     likes=excluded.likes,
                     comments=excluded.comments,
@@ -455,8 +459,12 @@ def refresh_outcomes_from_performance_sync(
             Path(root), conn, filename, output_path=output_path
         )
         platform = _text(row["platform"]) or "instagram_reels"
-        account = _text(row["instagram_account_id"]) or _text(row["account_id"])
-        posted_at = _text(row["published_at"]) or _text(row["snapshot_at"])
+        account = _outcome_dimension(row["instagram_account_id"]) or _outcome_dimension(
+            row["account_id"]
+        )
+        posted_at = _outcome_dimension(row["published_at"]) or _outcome_dimension(
+            row["snapshot_at"]
+        )
         outcome_id = f"outcome_{slugify(filename)}_{slugify(platform or 'platform')}_{slugify(account or 'account')}_{slugify(posted_at or 'unknown')}"
         conn.execute(
             """
@@ -465,11 +473,15 @@ def refresh_outcomes_from_performance_sync(
                 campaign_id, platform, account, posted_at, views, likes, comments,
                 shares, saves, watch_time, source_url, notes, imported_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(filename, platform, account, posted_at) DO UPDATE SET
+            ON CONFLICT(outcome_id) DO UPDATE SET
+                filename=excluded.filename,
                 output_path=excluded.output_path,
                 soul_id=excluded.soul_id,
                 campaign_output_id=excluded.campaign_output_id,
                 campaign_id=excluded.campaign_id,
+                platform=excluded.platform,
+                account=excluded.account,
+                posted_at=excluded.posted_at,
                 views=excluded.views,
                 likes=excluded.likes,
                 comments=excluded.comments,
@@ -1017,6 +1029,10 @@ def _float_from_any(value: Any) -> float | None:
 def _text(value: str | None) -> str | None:
     value = "" if value is None else str(value).strip()
     return value or None
+
+
+def _outcome_dimension(value: Any) -> str:
+    return _text(value) or ""
 
 
 def main() -> None:
