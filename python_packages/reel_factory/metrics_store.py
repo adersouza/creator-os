@@ -14,6 +14,7 @@ from typing import Any
 from audio_intent import read_audio_intent
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
+from sqlite_utils import connect_sqlite
 
 METRIC_COLUMNS = (
     "filename",
@@ -31,11 +32,7 @@ METRIC_COLUMNS = (
 
 
 def connect_metrics_db(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(Path(db_path), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    return conn
+    return connect_sqlite(Path(db_path))
 
 
 def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
@@ -63,6 +60,7 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
         "publish_metrics",
         {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
     )
+    _ensure_variations_filename(conn)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
     )
@@ -105,19 +103,12 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 if filename:
                     ignored.append(filename)
                 continue
-            output_row = conn.execute(
-                "SELECT output_path, job_key, caption_text, recipe, review_state FROM variations WHERE output_path LIKE ? LIMIT 1",
-                (f"%/{filename}",),
-            ).fetchone()
-            campaign_output_row = conn.execute(
-                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
-                (filename,),
-            ).fetchone()
-            if not campaign_output_row:
-                campaign_output_row = conn.execute(
-                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
-                    (f"%/{filename}",),
-                ).fetchone()
+            output_row = _variation_for_filename(
+                conn,
+                filename,
+                "output_path, job_key, caption_text, recipe, review_state",
+            )
+            campaign_output_row = _campaign_output_for_filename(conn, filename)
             output_path = output_row["output_path"] if output_row else None
             if not output_path and campaign_output_row:
                 output_path = campaign_output_row["output_path"]
@@ -223,6 +214,59 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     return {"imported": imported, "ignored": ignored}
 
 
+def _ensure_variations_filename(conn: sqlite3.Connection) -> None:
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='variations'"
+    ).fetchone()
+    if not exists:
+        return
+    existing = {
+        row["name"] for row in conn.execute("PRAGMA table_info(variations)").fetchall()
+    }
+    if "filename" not in existing:
+        conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
+    rows = conn.execute(
+        "SELECT job_key, output_path FROM variations WHERE filename IS NULL OR filename = ''"
+    ).fetchall()
+    conn.executemany(
+        "UPDATE variations SET filename = ? WHERE job_key = ?",
+        [(Path(row["output_path"]).name, row["job_key"]) for row in rows],
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_variations_filename ON variations(filename)"
+    )
+
+
+def _variation_for_filename(
+    conn: sqlite3.Connection, filename: str, columns: str = "*"
+) -> sqlite3.Row | None:
+    row = conn.execute(
+        f"SELECT {columns} FROM variations WHERE filename = ? LIMIT 1",
+        (filename,),
+    ).fetchone()
+    if row:
+        return row
+    return conn.execute(
+        f"SELECT {columns} FROM variations WHERE output_path LIKE ? LIMIT 1",
+        (f"%/{filename}",),
+    ).fetchone()
+
+
+def _campaign_output_for_filename(
+    conn: sqlite3.Connection, filename: str
+) -> sqlite3.Row | None:
+    row = conn.execute(
+        "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+        (filename,),
+    ).fetchone()
+    if row:
+        return row
+    return conn.execute(
+        "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+        (f"%/{filename}",),
+    ).fetchone()
+
+
 def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
@@ -242,19 +286,8 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
             filename = (row.get("filename") or "").strip()
             if not filename:
                 continue
-            variation = conn.execute(
-                "SELECT * FROM variations WHERE output_path LIKE ? LIMIT 1",
-                (f"%/{filename}",),
-            ).fetchone()
-            campaign_output = conn.execute(
-                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
-                (filename,),
-            ).fetchone()
-            if not campaign_output:
-                campaign_output = conn.execute(
-                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
-                    (f"%/{filename}",),
-                ).fetchone()
+            variation = _variation_for_filename(conn, filename)
+            campaign_output = _campaign_output_for_filename(conn, filename)
             if not variation and not campaign_output:
                 ignored.append(filename)
             if variation and not campaign_output:
@@ -454,8 +487,7 @@ def refresh_outcomes_from_performance_sync(
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
 
-    source = sqlite3.connect(source_db, timeout=30.0)
-    source.row_factory = sqlite3.Row
+    source = connect_sqlite(source_db, readonly=True, wal=False)
     where = ["p.metrics_eligible = 1"]
     params: list[Any] = []
     if campaign:
@@ -705,7 +737,13 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
           OR (
               m.campaign_output_id IS NULL
               AND (m.job_key IS NULL OR v.job_key IS NULL)
-              AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+              AND (
+                  m.filename = v.filename
+                  OR (
+                      (v.filename IS NULL OR v.filename = '')
+                      AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                  )
+              )
           )
         WHERE v.status = 'ok'
     """).fetchall()
@@ -789,7 +827,13 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
           OR (
               m.campaign_output_id IS NULL
               AND (m.job_key IS NULL OR v.job_key IS NULL)
-              AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+              AND (
+                  m.filename = v.filename
+                  OR (
+                      (v.filename IS NULL OR v.filename = '')
+                      AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+                  )
+              )
           )
         WHERE v.status = 'ok'
     """).fetchall()
@@ -994,21 +1038,10 @@ def _resolve_rendered_path(
 ) -> Path | None:
     if output_path:
         return _project_path(root, output_path)
-    row = conn.execute(
-        "SELECT output_path FROM variations WHERE output_path LIKE ? LIMIT 1",
-        (f"%/{filename}",),
-    ).fetchone()
+    row = _variation_for_filename(conn, filename, "output_path")
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
-    row = conn.execute(
-        "SELECT output_path FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
-        (filename,),
-    ).fetchone()
-    if not row:
-        row = conn.execute(
-            "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
-            (f"%/{filename}",),
-        ).fetchone()
+    row = _campaign_output_for_filename(conn, filename)
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
     direct = _project_path(root, filename)

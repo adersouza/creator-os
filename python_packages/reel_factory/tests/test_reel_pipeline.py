@@ -24,6 +24,8 @@ from reel_pipeline import (
     CaptionSet,
     Manifest,
     Recipe,
+    _audio_selection_local_path,
+    _selected_audio_for_mux,
     apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
     build_avconvert_finalize_cmd,
@@ -55,6 +57,68 @@ from pipeline_contracts import ContractValidationError, validate_generated_asset
 
 
 class ReelPipelineTests(unittest.TestCase):
+    def test_audio_selection_local_path_reads_nested_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            selected = _audio_selection_local_path(
+                root,
+                {
+                    "track_id": "ranked_1",
+                    "metadata": {"local_path": "03_audio_library/ranked.m4a"},
+                },
+            )
+
+            self.assertEqual(selected, root / "03_audio_library" / "ranked.m4a")
+
+    def test_selected_audio_for_mux_prefers_manual_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with patch("audio_provider.select_audio") as provider:
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path="manual.m4a"
+                )
+
+            provider.assert_not_called()
+            self.assertEqual(selected, "manual.m4a")
+            self.assertEqual(selection["track_id"], "manual_manual")
+
+    def test_selected_audio_for_mux_uses_ranked_provider_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            audio = root / "03_audio_library" / "ranked.m4a"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"audio")
+            provider_selection = {
+                "track_id": "ranked_1",
+                "track_name": "Ranked",
+                "source": "local_winners",
+                "metadata": {"local_path": "03_audio_library/ranked.m4a"},
+            }
+            with patch("audio_provider.select_audio", return_value=provider_selection):
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path=None
+                )
+
+            self.assertEqual(selected, str(audio))
+            self.assertEqual(selection["track_id"], "ranked_1")
+            self.assertEqual(selection["local_path"], str(audio))
+
+    def test_selected_audio_for_mux_allows_random_fallback_when_provider_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            provider_selection = {
+                "track_id": "remote_only",
+                "track_name": "Remote Only",
+                "source": "cml",
+            }
+            with patch("audio_provider.select_audio", return_value=provider_selection):
+                selected, selection = _selected_audio_for_mux(
+                    root, seed=7, explicit_audio_path=None
+                )
+
+            self.assertIsNone(selected)
+            self.assertEqual(selection["track_id"], "remote_only")
+
     def test_recipe_default_font_is_instagram_sans_condensed(self):
         recipe = Recipe("v01_original")
 

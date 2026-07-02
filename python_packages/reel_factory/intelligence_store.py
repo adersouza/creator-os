@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from sqlite_utils import connect_sqlite
+
 REVIEW_LABELS = {
     "eyes_bad",
     "face_drift",
@@ -57,8 +59,7 @@ def db_path(root: Path) -> Path:
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path(root), timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_intelligence_schema(conn)
     return conn

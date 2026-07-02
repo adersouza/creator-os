@@ -655,6 +655,7 @@ function setPaidGenerationButtonsDisabled(disabled) {
     "button[onclick*='createSoulImage']",
     "button[onclick*='createSixPackSoulImages']",
     "button[onclick*='createKlingVideo']",
+    "button[onclick*='renderGeneratedPack']",
     "button[onclick*='confirmAndRunPanelAnimations']",
     "button[onclick*='createGridFanoutWorkflow']"
   ].join(",")).forEach(button => {
@@ -2134,21 +2135,16 @@ async function downloadKlingVideo() {
   await renderDetail();
 }
 async function renderGeneratedPack() {
-  setGenerationState({status: "running"});
-  const r = await fetch(`/api/campaigns/${encodeURIComponent(currentCampaign())}/render-pack`, {
-    method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({
-      stem: generationState.downloaded_stem || generationStem(),
-      asset_generation_id: generationState.asset_generation_id || null,
-      asset_prompt_json: generationPromptPath(),
-      recipes: ["v01_original", "v09_caption_bg"],
-      max_hooks: 3,
-      target_ratios: ["9:16"],
-      workers: 2
-    })
-  });
-  const j = await r.json();
+  const body = {
+    stem: generationState.downloaded_stem || generationStem(),
+    asset_generation_id: generationState.asset_generation_id || null,
+    asset_prompt_json: generationPromptPath(),
+    recipes: ["v01_original", "v09_caption_bg"],
+    max_hooks: 3,
+    target_ratios: ["9:16"],
+    workers: 2
+  };
+  const j = await runAssetJob("render_pack", `/api/campaigns/${encodeURIComponent(currentCampaign())}/render-pack`, body, "render queued");
   setGenerationState({status: j.ok ? "rendered" : "failed"});
   genLog(j);
   await loadClips();

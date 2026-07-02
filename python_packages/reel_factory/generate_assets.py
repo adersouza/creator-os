@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import time
@@ -30,6 +29,7 @@ from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from identity_verification import verify_identity
 from PIL import Image
+from sqlite_utils import connect_sqlite
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
@@ -43,6 +43,10 @@ IMAGE_MODEL_CANDIDATES = ("soul_2", "soul_v2", IMAGE_MODEL)
 VIDEO_MODEL_CANDIDATES = (VIDEO_MODEL,)
 CAPABILITY_SCHEMA = "reel_factory.higgsfield_capabilities.v1"
 VIDEO_SOUND_MODELS = {"kling2_6", "kling3_0"}
+DOWNLOAD_TIMEOUT_SECONDS = 60
+MIN_IMAGE_RESULT_BYTES = 10_000
+MIN_VIDEO_RESULT_BYTES = 100_000
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class HiggsfieldCommandError(RuntimeError):
@@ -91,6 +95,7 @@ class AssetGenerationPlan:
     video_model: str = VIDEO_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,7 @@ class DirectReferenceImagePlan:
     image_model: str = IMAGE_MODEL
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
+    budget_override_ledger_error: bool = False
 
 
 def load_prompt(path: Path) -> AssetPromptSet:
@@ -654,7 +660,8 @@ def _load_cost_tracker_module():
 
 
 def _record_ai_cost_event(
-    root: Path,
+    conn,
+    cost_tracker,
     *,
     provider: str,
     operation: str,
@@ -665,9 +672,6 @@ def _record_ai_cost_event(
     lineage_path_text: str,
     stem: str,
 ) -> str:
-    cost_tracker = _load_cost_tracker_module()
-    db_path = _campaign_cost_db_path(root)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
     metadata = {
         "schema": "reel_factory.ai_cost_metadata.v1",
@@ -678,16 +682,16 @@ def _record_ai_cost_event(
         "lineagePath": lineage_path_text,
         "stem": stem,
     }
-    with sqlite3.connect(db_path) as conn:
-        return cost_tracker.record_ai_cost(
-            conn,
-            provider=provider,
-            operation=operation,
-            campaign_id=campaign_id,
-            generations=1,
-            metadata=metadata,
-            source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
-        )
+    return cost_tracker.record_ai_cost(
+        conn,
+        provider=provider,
+        operation=operation,
+        campaign_id=campaign_id,
+        generations=1,
+        metadata=metadata,
+        source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
+        ensure_schema=False,
+    )
 
 
 def _record_generation_costs(
@@ -697,33 +701,42 @@ def _record_generation_costs(
     records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     events = []
-    for record in records:
-        raw = record.get("raw")
-        if not isinstance(raw, dict) or not _generation_completed(raw):
-            continue
-        job_id = extract_id(raw)
-        if not job_id:
-            continue
-        event_id = _record_ai_cost_event(
-            plan.source_dir.parent,
-            provider=str(record["provider"]),
-            operation=str(record["operation"]),
-            campaign_id=getattr(plan, "campaign", None),
-            model=str(record["model"]),
-            job_id=job_id,
-            actual_credits=_result_credits(raw),
-            lineage_path_text=lineage_path_text,
-            stem=plan.stem,
-        )
-        events.append(
-            {
-                "eventId": event_id,
-                "provider": record["provider"],
-                "operation": record["operation"],
-                "jobId": job_id,
-                "actualCredits": _result_credits(raw),
-            }
-        )
+    cost_tracker = _load_cost_tracker_module()
+    db_path = _campaign_cost_db_path(plan.source_dir.parent)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with connect_sqlite(db_path) as conn:
+        cost_tracker.ensure_cost_table(conn)
+        for record in records:
+            raw = record.get("raw")
+            if not isinstance(raw, dict) or not _generation_completed(raw):
+                continue
+            job_id = extract_id(raw)
+            if not job_id:
+                continue
+            provider = str(record["provider"])
+            operation = str(record["operation"])
+            actual_credits = _result_credits(raw)
+            event_id = _record_ai_cost_event(
+                conn,
+                cost_tracker,
+                provider=provider,
+                operation=operation,
+                campaign_id=getattr(plan, "campaign", None),
+                model=str(record["model"]),
+                job_id=job_id,
+                actual_credits=actual_credits,
+                lineage_path_text=lineage_path_text,
+                stem=plan.stem,
+            )
+            events.append(
+                {
+                    "eventId": event_id,
+                    "provider": provider,
+                    "operation": operation,
+                    "jobId": job_id,
+                    "actualCredits": actual_credits,
+                }
+            )
     return {"schema": "reel_factory.ai_cost_ledger.v1", "events": events}
 
 
@@ -837,9 +850,45 @@ def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
     ]
 
 
+def _download_min_bytes(out_path: Path, content_type: str | None) -> int:
+    if content_type and content_type.lower().startswith("video/"):
+        return MIN_VIDEO_RESULT_BYTES
+    if out_path.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}:
+        return MIN_VIDEO_RESULT_BYTES
+    return MIN_IMAGE_RESULT_BYTES
+
+
 def download_result(url: str, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(url, out_path)
+    tmp_path: Path | None = None
+    try:
+        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get_content_type()
+            if content_type not in {None, "", "application/octet-stream"} and not (
+                content_type.startswith("image/") or content_type.startswith("video/")
+            ):
+                raise RuntimeError(f"unexpected result content type: {content_type}")
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=out_path.parent,
+                prefix=f".{out_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                while chunk := response.read(DOWNLOAD_CHUNK_BYTES):
+                    tmp.write(chunk)
+        min_bytes = _download_min_bytes(out_path, content_type)
+        size = tmp_path.stat().st_size if tmp_path else 0
+        if size < min_bytes:
+            raise RuntimeError(
+                f"downloaded result too small: {size} bytes < {min_bytes} bytes"
+            )
+        tmp_path.replace(out_path)
+    except Exception:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
     return out_path
 
 
@@ -1043,6 +1092,7 @@ def _cost_preflight_for_plan(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
+        budget_override_ledger_error=plan.budget_override_ledger_error,
         root=plan.source_dir.parent,
     )
 
@@ -2242,6 +2292,7 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         video_model=args.video_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -2267,6 +2318,7 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         image_model=args.image_model,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
+        budget_override_ledger_error=args.budget_override_ledger_error,
     )
 
 
@@ -2326,6 +2378,7 @@ def main() -> int:
     ap.add_argument("--video-model", default=VIDEO_MODEL)
     ap.add_argument("--estimated-cost-usd", type=float)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
+    ap.add_argument("--budget-override-ledger-error", action="store_true")
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--download", action="store_true")

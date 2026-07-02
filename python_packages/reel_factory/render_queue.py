@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from sqlite_utils import connect_sqlite
+
 QUEUE_STATES = {"queued", "claimed", "running", "succeeded", "failed", "interrupted"}
 
 
@@ -17,8 +19,7 @@ class RenderQueue:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
         self.db_path = self.root / "render_queue.sqlite"
-        self.conn = sqlite3.connect(self.db_path, timeout=30)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect_sqlite(self.db_path)
         self._init_db()
 
     def _init_db(self) -> None:

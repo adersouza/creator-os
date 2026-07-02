@@ -8956,6 +8956,54 @@ def test_plan_distribution_hydrates_min_gap_from_existing_plan(
         cf.close()
 
 
+def test_plan_distribution_hydrates_window_from_max_min_gap_hours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        model = cf.upsert_model("model", name="Model")
+        account = cf.upsert_account(
+            "ig_1",
+            platform="instagram",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        cf.conn.execute(
+            """
+            INSERT INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, allowed_days, active, created_at, updated_at)
+            VALUES ('req_ig_1_gap_6', ?, 'Model', 'reel', 'daily', 3, 6,
+                    '[]', 1, '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """,
+            (account["id"],),
+        )
+        existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
+        too_close = existing + timedelta(hours=5)
+        valid = existing + timedelta(hours=7)
+        cf.create_distribution_plan(
+            "asset_1",
+            instagram_account_id="ig_1",
+            planned_window_start=existing.isoformat(),
+        )
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [too_close, valid],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == valid.isoformat()
+    finally:
+        cf.close()
+
+
 def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -25052,6 +25100,51 @@ def test_jobs_for_campaign_filters_by_status(tmp_path: Path) -> None:
         rows = cf.jobs_for_campaign("may", statuses=["failed"])
 
         assert [row["id"] for row in rows] == [failed["id"]]
+    finally:
+        cf.close()
+
+
+def test_jobs_can_scan_all_campaigns_and_mark_stuck_jobs(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        may = cf.upsert_campaign("may", "model")
+        june = cf.upsert_campaign("june", "model")
+        old_job = cf.create_pipeline_job("threadsdash_export", may["id"], {})
+        fresh_job = cf.create_pipeline_job("threadsdash_export", june["id"], {})
+        old_ts = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (old_ts, old_ts, old_job["id"]),
+        )
+        cf.conn.commit()
+
+        rows = cf.jobs_for_campaign(None, statuses=["queued"], limit=10, stuck_hours=24)
+
+        by_id = {row["id"]: row for row in rows}
+        assert by_id[old_job["id"]]["campaignSlug"] == "may"
+        assert by_id[fresh_job["id"]]["campaignSlug"] == "june"
+        assert by_id[old_job["id"]]["stuck"] is True
+        assert by_id[fresh_job["id"]]["stuck"] is False
+    finally:
+        cf.close()
+
+
+def test_jobs_stuck_hours_threshold_is_respected(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        cf.upsert_model("model", "Model")
+        campaign = cf.upsert_campaign("may", "model")
+        job = cf.create_pipeline_job("threadsdash_export", campaign["id"], {})
+        ts = (datetime.now(UTC) - timedelta(hours=6)).isoformat()
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            (ts, ts, job["id"]),
+        )
+        cf.conn.commit()
+
+        assert cf.jobs_for_campaign(None, stuck_hours=5)[0]["stuck"] is True
+        assert cf.jobs_for_campaign(None, stuck_hours=7)[0]["stuck"] is False
     finally:
         cf.close()
 

@@ -79,6 +79,8 @@ from reference_factory.public_metrics import (
 from reference_factory.reference_intake import (
     _grok_prompt_builder,
     _json_from_model_text,
+    _store_pattern_and_analysis,
+    _validate_prompt_contract,
     analyze_reference_local,
     compile_prompts_with_grok_api,
     export_video_analyses,
@@ -99,6 +101,8 @@ from reference_factory.review import (
 from reference_factory.scan import classify_file, scan_source
 from reference_factory.server import create_app
 from reference_factory.tiktok_archive import import_tiktok_archive
+
+from pipeline_contracts import ContractValidationError
 
 GOOD_IMAGE_PROMPT_JSON = {
     "promptMode": "structured_json",
@@ -355,6 +359,112 @@ def test_scan_indexes_account_structure_and_marks_other(tmp_path: Path) -> None:
     ).fetchone()
     assert row["account"] == "account_a"
     assert classify_file(account / "notes.txt") == "other"
+
+
+def test_scan_imports_source_metrics_from_info_json(tmp_path: Path) -> None:
+    source = tmp_path / "examples"
+    account = source / "account_a"
+    account.mkdir(parents=True)
+    video = account / "a.mp4"
+    video.write_bytes(b"not a real video")
+    (account / "a.info.json").write_text(
+        json.dumps(
+            {
+                "view_count": 1200,
+                "like_count": 140,
+                "comment_count": 12,
+                "timestamp": 1_783_036_800,
+            }
+        ),
+        encoding="utf-8",
+    )
+    conn = make_conn(tmp_path)
+
+    scan_source(conn, source)
+
+    row = conn.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE file_name = 'a.mp4'
+        """
+    ).fetchone()
+    assert row["source_views"] == 1200
+    assert row["source_likes"] == 140
+    assert row["source_comments"] == 12
+    assert row["source_posted_at"] == "2026-07-03T00:00:00+00:00"
+
+
+def test_connect_backfills_source_metrics_from_existing_sidecar(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "reference_factory.sqlite"
+    source = tmp_path / "examples"
+    source.mkdir()
+    video = source / "legacy.mp4"
+    video.write_bytes(b"not a real video")
+    conn = connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, account, file_name, extension, kind, size_bytes,
+          mtime, path_hash, content_hash, created_at, updated_at
+        ) VALUES ('ref_legacy', ?, 'account_a', 'legacy.mp4', 'mp4', 'video', 16,
+          '2026-07-01T00:00:00+00:00', 'hash', NULL,
+          '2026-07-01T00:00:00+00:00', '2026-07-01T00:00:00+00:00')
+        """,
+        (str(video),),
+    )
+    conn.commit()
+    conn.close()
+    (source / "legacy.info.json").write_text(
+        json.dumps(
+            {
+                "views": 800,
+                "likes": 88,
+                "comments": 7,
+                "upload_date": "20260701",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    backfilled = connect(db_path)
+
+    row = backfilled.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE reference_id = 'ref_legacy'
+        """
+    ).fetchone()
+    assert row["source_views"] == 800
+    assert row["source_likes"] == 88
+    assert row["source_comments"] == 7
+    assert row["source_posted_at"] == "2026-07-01T00:00:00+00:00"
+
+
+def test_scan_leaves_missing_source_metrics_null(tmp_path: Path) -> None:
+    source = tmp_path / "examples"
+    source.mkdir()
+    (source / "plain.mp4").write_bytes(b"not a real video")
+    conn = make_conn(tmp_path)
+
+    scan_source(conn, source)
+
+    row = conn.execute(
+        """
+        SELECT source_views, source_likes, source_comments, source_posted_at
+        FROM source_files
+        WHERE file_name = 'plain.mp4'
+        """
+    ).fetchone()
+    assert dict(row) == {
+        "source_views": None,
+        "source_likes": None,
+        "source_comments": None,
+        "source_posted_at": None,
+    }
 
 
 def test_scan_dedupes_references_by_content_hash(tmp_path: Path) -> None:
@@ -618,6 +728,100 @@ def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     )
     assert json.loads(higgsfield_line)["creativePlanId"] == "cplan_1"
     assert "prompt" not in json.loads(higgsfield_line)
+
+
+def test_prompt_contract_validation_blocks_missing_required_field() -> None:
+    image_prompt = {
+        "schema": "reference_factory.higgsfield_soul_image_prompt.v1",
+        "tool": "higgsfield_soul_image",
+        "status": "prompt_ready",
+        "sourceReferenceId": "ref_1",
+        "sourcePatternId": "pattern_1",
+        "modelProfile": "model_a",
+        "mainPrompt": "Create a safe first frame.",
+        "negativePrompt": "watermark",
+        "closenessControls": {"identity_copy_risk": "blocked"},
+    }
+    kling_prompt = {
+        "schema": "reference_factory.kling_3_video_prompt.v1",
+        "tool": "kling_3_video",
+        "status": "prompt_ready",
+        "sourceReferenceId": "ref_1",
+        "sourcePatternId": "pattern_1",
+        "modelProfile": "model_a",
+        "firstFrameInstruction": "Use generated image.",
+        "mainPrompt": "Subtle motion.",
+        "negativePrompt": "watermark",
+        "closenessControls": {"identity_copy_risk": "blocked"},
+    }
+
+    _validate_prompt_contract("higgsfield_soul_image", image_prompt)
+    _validate_prompt_contract("kling_3_video", kling_prompt)
+    invalid = dict(image_prompt)
+    invalid.pop("mainPrompt")
+
+    with pytest.raises(ContractValidationError):
+        _validate_prompt_contract("higgsfield_soul_image", invalid)
+
+
+def test_pattern_and_video_analysis_contract_validation_blocks_write(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    pattern = {
+        "schema": "reference_factory.pattern_card.v1",
+        "id": "pattern_1",
+        "platform": "instagram",
+        "source": {"referenceId": "ref_1"},
+        "formatType": "mirror_selfie",
+        "hookType": "pov",
+        "visualPattern": "mirror selfie opening beat",
+        "shotSequence": ["open on mirror selfie"],
+        "cameraStyle": {"framing": "vertical"},
+        "subjectAction": "poses naturally",
+        "textOverlayStyle": {},
+        "pacing": {},
+        "audioVibe": {},
+        "reuseRisk": "medium",
+        "copyRiskNotes": ["replace identity"],
+        "transformationInstructions": ["change scene details"],
+    }
+    analysis = {
+        "schema": "reference_factory.video_analysis.v1",
+        "id": "analysis_1",
+        "referenceId": "ref_1",
+        "provider": "local",
+        "status": "pattern_ready",
+        "media": {},
+        "signals": {},
+        "patternCard": pattern,
+    }
+    job = {
+        "id": "job_1",
+        "reference_id": "ref_1",
+        "source_platform": "instagram",
+    }
+
+    _store_pattern_and_analysis(
+        conn,
+        job=job,
+        analysis=analysis,
+        provider="local",
+        timestamp="2026-07-02T00:00:00Z",
+    )
+    invalid = dict(analysis)
+    invalid_pattern = dict(pattern)
+    invalid_pattern.pop("visualPattern")
+    invalid["patternCard"] = invalid_pattern
+
+    with pytest.raises(ContractValidationError):
+        _store_pattern_and_analysis(
+            conn,
+            job=job,
+            analysis=invalid,
+            provider="local",
+            timestamp="2026-07-02T00:00:01Z",
+        )
 
 
 def test_reference_intake_imports_analysis_before_prompt_generation(
@@ -2059,6 +2263,61 @@ def test_higgsfield_runner_records_cost_events(
     assert rows[0][2] == "daily"
     assert json.loads(rows[0][3])["actualCredits"] == 0.12
     assert rows[1][0] == "kling"
+
+
+def test_higgsfield_runner_records_image_cost_when_video_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root, "ref_video_fail")
+    image_file = tmp_path / "image.png"
+    image_file.write_bytes(b"png")
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        if "text2image_soul_v2" in cmd:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {
+                        "id": "img_before_video_fail",
+                        "path": str(image_file),
+                        "credits": 0.12,
+                    }
+                ),
+                "",
+            )
+        if "kling3_0" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "video failed")
+        raise AssertionError(cmd)
+
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        campaign="daily",
+        runner=fake_runner,
+        max_credits=20,
+    )
+
+    assert result["status"] == "partial"
+    assert result["runs"][0]["status"] == "video_failed"
+    lineage = json.loads(
+        Path(result["runs"][0]["lineagePath"]).read_text(encoding="utf-8")
+    )
+    assert [
+        event["operation"] for event in lineage["generation"]["costLedger"]["events"]
+    ] == ["image_create"]
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT provider, operation, campaign_id, metadata_json FROM ai_cost_events"
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "higgsfield"
+    assert rows[0][1] == "image_create"
+    assert rows[0][2] == "daily"
+    assert json.loads(rows[0][3])["actualCredits"] == 0.12
 
 
 def test_higgsfield_failed_image_prevents_video_generation(tmp_path: Path) -> None:

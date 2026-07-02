@@ -605,8 +605,9 @@ class DistributionRepository:
     ) -> None:
         if not slots:
             return
-        window_start = min(slots) - timedelta(hours=4)
-        window_end = max(slots) + timedelta(hours=4)
+        hydration_hours = self.distribution_hydration_window_hours()
+        window_start = min(slots) - timedelta(hours=hydration_hours)
+        window_end = max(slots) + timedelta(hours=hydration_hours)
         rows = self.conn.execute(
             """
             SELECT COALESCE(NULLIF(instagram_account_id, ''), account_id) AS account_id,
@@ -632,6 +633,20 @@ class DistributionRepository:
                 account_day_counts.get((account_id, day_key), 0) + 1
             )
             account_slot_times.setdefault(account_id, []).append(planned_at)
+
+    def distribution_hydration_window_hours(self) -> int:
+        row = self.conn.execute(
+            """
+            SELECT MAX(COALESCE(min_gap_hours, 0)) AS max_gap
+            FROM account_content_requirements
+            WHERE active = 1
+            """
+        ).fetchone()
+        try:
+            max_gap = int(row["max_gap"] or 0) if row else 0
+        except (TypeError, ValueError):
+            max_gap = 0
+        return max(4, max_gap)
 
     def account_distribution_cadence(
         self, account_id: str, content_surface: str | None = "reel"

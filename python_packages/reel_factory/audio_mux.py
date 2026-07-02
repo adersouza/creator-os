@@ -212,6 +212,7 @@ def mux_root(
     )
     videos = [v for v in videos if "_audio_" not in v.stem]
     created: list[str] = []
+    tracks: list[dict[str, str]] = []
     skipped: list[str] = []
     failed: dict[str, str] = {}
     for video in videos:
@@ -226,21 +227,26 @@ def mux_root(
                 audio_tag=audio_tag,
                 seed=seed,
             )
-            created.append(
-                str(
-                    mux_audio(
-                        video,
-                        track,
-                        audio_volume=audio_volume,
-                        fade_seconds=fade_seconds,
-                        overwrite=overwrite,
-                    )
-                )
+            out = mux_audio(
+                video,
+                track,
+                audio_volume=audio_volume,
+                fade_seconds=fade_seconds,
+                overwrite=overwrite,
+            )
+            created.append(str(out))
+            tracks.append(
+                {
+                    "output": str(out),
+                    "audio_path": str(track),
+                    "track_id": audio_id(track),
+                }
             )
         except Exception as e:
             failed[str(video)] = str(e)
     return {
         "created": created,
+        "tracks": tracks,
         "skipped": skipped,
         "failed": failed,
         "count": len(created),
@@ -255,12 +261,12 @@ def _selected_audio_path_for_video(
     audio_tag: str | None,
     seed: int,
 ) -> Path:
-    sidecar_track = _audio_intent_track_path(root, video)
-    if sidecar_track:
-        return sidecar_track
     if selected_audio_path:
         path = Path(selected_audio_path)
         return path if path.is_absolute() else root / path
+    sidecar_track = _audio_intent_track_path(root, video)
+    if sidecar_track:
+        return sidecar_track
     return select_audio(
         root, tag=audio_tag, seed=seed, target_duration=duration_seconds(video)
     )

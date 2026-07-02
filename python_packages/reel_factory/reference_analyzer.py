@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import re
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,7 @@ from generate_prompts import (
 )
 from intelligence_store import ensure_intelligence_schema
 from pipeline_contracts.llm_resilience import decode_json_object
+from sqlite_utils import connect_sqlite
 
 ANALYSIS_FIELDS = {
     "baseVisualFormula": {},
@@ -320,8 +320,7 @@ def analyze_reference(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     db = root / "manifest.sqlite"
-    conn = sqlite3.connect(db)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db)
     ensure_intelligence_schema(conn)
     conn.execute(
         """
@@ -359,8 +358,7 @@ def latest_analysis_record(root: Path, reference: Path) -> dict[str, Any] | None
     db = Path(root).resolve() / "manifest.sqlite"
     if not db.exists():
         return None
-    conn = sqlite3.connect(db)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db)
     ensure_intelligence_schema(conn)
     row = conn.execute(
         "SELECT * FROM reference_analysis WHERE reference_hash=? ORDER BY created_at DESC LIMIT 1",

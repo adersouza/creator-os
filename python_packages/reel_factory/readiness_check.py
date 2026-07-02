@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import sqlite3
 import subprocess
 import time
 from pathlib import Path
@@ -15,6 +14,7 @@ from typing import Any
 from audio_intent import read_audio_intent
 from post_render_acceptance import acceptance_from_readiness
 from safe_zone import score_safe_zone
+from sqlite_utils import connect_sqlite
 from virality_qc import evaluate_output_virality
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
@@ -148,8 +148,7 @@ def _manifest_rows(root: Path) -> dict[str, dict[str, Any]]:
     db = root / "manifest.sqlite"
     if not db.exists():
         return {}
-    conn = sqlite3.connect(db)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(db)
     try:
         rows = conn.execute(
             "SELECT output_path, review_state, recipe_params_json, status FROM variations"

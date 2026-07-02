@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -3606,6 +3607,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     "_render_queue_health",
                     return_value={"counts": {"queued": 3}},
                 ),
+                patch.object(
+                    reel_gui,
+                    "_campaign_factory_job_health",
+                    return_value={"failed": 4, "stuck": 1, "stuckHours": 24.0},
+                ),
                 patch.object(reel_gui, "cost_analytics", return_value={"assets": []}),
             ):
                 summary = reel_gui.dashboard_summary_api()
@@ -3616,8 +3622,44 @@ class AdvancedRoadmapTests(unittest.TestCase):
         command = summary["command_center"]
         self.assertEqual(command["in_flight_generations"], 1)
         self.assertEqual(command["failed_generations"], 2)
+        self.assertEqual(command["failed_campaign_jobs"], 4)
+        self.assertEqual(command["stuck_campaign_jobs"], 1)
         self.assertEqual(command["render_queue_depth"], 3)
         self.assertIn("pipeline_health", summary)
+        self.assertEqual(summary["pipeline_health"]["campaign_jobs"]["stuck"], 1)
+
+    def test_campaign_factory_job_health_counts_failed_and_stuck_jobs(self):
+        import reel_gui
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "campaign_factory.sqlite"
+            old = datetime.now(UTC) - timedelta(hours=30)
+            fresh = datetime.now(UTC)
+            with sqlite3.connect(db) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE pipeline_jobs (
+                        status TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.executemany(
+                    "INSERT INTO pipeline_jobs VALUES (?, ?, ?)",
+                    [
+                        ("failed", fresh.isoformat(), fresh.isoformat()),
+                        ("queued", old.isoformat(), old.isoformat()),
+                        ("running", fresh.isoformat(), fresh.isoformat()),
+                    ],
+                )
+            with patch.dict(os.environ, {"CAMPAIGN_FACTORY_DB": str(db)}):
+                health = reel_gui._campaign_factory_job_health(
+                    Path(tmp), stuck_hours=24
+                )
+
+        self.assertEqual(health["failed"], 1)
+        self.assertEqual(health["stuck"], 1)
 
     def test_gui_paid_asset_idempotency_dedupes_in_flight_job(self):
         import reel_gui
@@ -3680,6 +3722,76 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(first["job_id"], second["job_id"])
             self.assertTrue(second["deduped"])
             self.assertEqual(calls["count"], 1)
+
+    def test_render_pack_defaults_to_async_job_and_dedupes(self):
+        import reel_gui
+
+        previous_jobs = dict(reel_gui.ASSET_JOBS)
+        previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
+        calls = {"count": 0}
+
+        def fake_run(args, *, timeout_seconds):
+            calls["count"] += 1
+            return reel_gui.subprocess.CompletedProcess(args, 0, stdout="render ok")
+
+        try:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
+                body = {
+                    "stem": "clip_001",
+                    "recipes": ["v01_original"],
+                    "max_hooks": 1,
+                    "target_ratios": ["9:16"],
+                }
+                first = reel_gui.campaign_render_pack_api("clip_999", dict(body))
+                second = reel_gui.campaign_render_pack_api("clip_999", dict(body))
+                for _ in range(20):
+                    status = reel_gui.asset_job_status_api(first["job_id"])
+                    if status["status"] == "done":
+                        break
+                    time.sleep(0.05)
+        finally:
+            reel_gui.ASSET_JOBS.clear()
+            reel_gui.ASSET_JOBS.update(previous_jobs)
+            reel_gui.ASSET_IDEMPOTENCY.clear()
+            reel_gui.ASSET_IDEMPOTENCY.update(previous_idempotency)
+
+        self.assertEqual(first["kind"], "render_pack")
+        self.assertEqual(first["job_id"], second["job_id"])
+        self.assertTrue(second["deduped"])
+        self.assertEqual(calls["count"], 1)
+        self.assertEqual(status["status"], "done")
+        self.assertEqual(status["result"]["log"], "render ok")
+
+    def test_render_pack_sync_fallback_keeps_blocking_contract(self):
+        import reel_gui
+
+        def fake_run(args, *, timeout_seconds):
+            return reel_gui.subprocess.CompletedProcess(
+                args, 0, stdout="sync render ok"
+            )
+
+        with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
+            result = reel_gui.campaign_render_pack_api(
+                "clip_999",
+                {
+                    "stem": "clip_001",
+                    "recipes": ["v01_original"],
+                    "max_hooks": 1,
+                    "target_ratios": ["9:16"],
+                },
+                sync=1,
+            )
+
+        self.assertEqual(result, {"ok": True, "log": "sync render ok"})
+
+    def test_launch_command_exports_loopback_dev_auth(self):
+        text = (REEL_ROOT / "Launch reel factory.command").read_text(encoding="utf-8")
+
+        self.assertIn("export ALLOW_INSECURE_LOCAL=1", text)
+        self.assertIn("loopback-only bypass enabled", text)
+        self.assertIn("CREATOR_OS_API_TOKEN", text)
 
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
         import reel_gui

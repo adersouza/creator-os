@@ -8,6 +8,7 @@ from pathlib import Path
 from campaign_store import ensure_campaign_schema
 from manifest import Manifest
 from metrics_store import (
+    _variation_for_filename,
     connect_metrics_db,
     ensure_metrics_schema,
     import_metrics_csv,
@@ -49,6 +50,50 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
             )
 
             self.assertIn("idx_campaign_outputs_metrics_filename", plan)
+
+    def test_legacy_variations_filename_column_migrates_and_uses_exact_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect_metrics_db(Path(tmp) / "manifest.sqlite")
+            conn.execute(
+                """
+                CREATE TABLE variations (
+                    job_key TEXT PRIMARY KEY,
+                    output_path TEXT NOT NULL,
+                    caption_text TEXT NOT NULL,
+                    recipe TEXT NOT NULL,
+                    review_state TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO variations VALUES (?, ?, ?, ?, ?)",
+                (
+                    "job_1",
+                    "/tmp/rendered/clip_exact.mp4",
+                    "hook",
+                    "v01_original",
+                    "approved",
+                ),
+            )
+
+            ensure_metrics_schema(conn)
+
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(variations)").fetchall()
+            }
+            plan = "\n".join(
+                row[3]
+                for row in conn.execute(
+                    "EXPLAIN QUERY PLAN SELECT * FROM variations WHERE filename=?",
+                    ("clip_exact.mp4",),
+                ).fetchall()
+            )
+            row = _variation_for_filename(conn, "clip_exact.mp4")
+
+            self.assertIn("filename", columns)
+            self.assertIn("idx_variations_filename", plan)
+            self.assertEqual(row["job_key"], "job_1")
 
     def _variation(
         self,

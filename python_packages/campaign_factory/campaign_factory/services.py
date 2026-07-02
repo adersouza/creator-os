@@ -1270,12 +1270,13 @@ class CoreServices:
 
     def jobs_for_campaign(
         self,
-        campaign_slug: str,
+        campaign_slug: str | None = None,
         limit: int = 100,
         statuses: list[str] | None = None,
+        stuck_hours: float | None = None,
     ) -> list[dict[str, Any]]:
         return self.events.jobs_for_campaign(
-            campaign_slug, limit=limit, statuses=statuses
+            campaign_slug, limit=limit, statuses=statuses, stuck_hours=stuck_hours
         )
 
     def campaign_readiness(self, campaign_slug: str, **kwargs: Any) -> dict[str, Any]:
