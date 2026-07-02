@@ -12,9 +12,36 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      js: ${{ steps.filter.outputs.js }}
+      py: ${{ steps.filter.outputs.py }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            js:
+              - 'apps/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/monorepo-ci.yml'
+            py:
+              - 'python_packages/**'
+              - 'packages/pipeline_contracts/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/monorepo-ci.yml'
+
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -54,7 +81,8 @@ jobs:
       - run: pnpm check:arch:fixtures
 
   javascript:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.js == 'true'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -73,7 +101,8 @@ jobs:
       - run: pnpm --filter contentforge test
 
   python:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.py == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -95,6 +124,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: git diff --check
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+      - name: Run gitleaks
+        run: /tmp/gitleaks detect --no-git --redact --config .gitleaks.toml --source .
       - run: bash scripts/check-runtime-artifacts.sh
 
   sbom:
