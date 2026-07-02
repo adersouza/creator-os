@@ -225,7 +225,7 @@ subjectCount, motionBeats, firstFrameGeometry), populate from 2.1's VLM pass, an
 per-reference blueprint instead of the shared enum→string tables. Depends on 2.1.
 **Status:** Implemented in PR #332.
 
-### 2.4 Capture the human approve/reject decision (ContentForge)  ·  HIGH · M · [ ]
+### 2.4 Capture the human approve/reject decision (ContentForge)  ·  HIGH · M · [x]
 **Branch:** `codex/contentforge-capture-decision`
 **Why:** `apps/contentforge` `VariationLabPanel.jsx` / `ResultsGrid.jsx` only display + download variants — no
 approve/reject/pick control. `app/api/similarity/route.js:449` computes `recommendedAction` but nothing records
@@ -235,6 +235,7 @@ system — is thrown away.
 **Do:** capture each review decision (approved/rejected + chosen variant + override-of-recommendation) as durable
 structured records, and emit an "approved variants" **manifest** for ThreadsDashboard to consume. **Manifest only —
 do NOT publish or schedule** (per AGENTS.md + standing constraints).
+**Status:** Implemented in PR #333.
 
 ---
 
@@ -348,7 +349,7 @@ bandit (1.5) or soul reporting (3.1) before the rate-reward fix (1.2), or they o
 - [x] 2.1 reference vision DNA — PR #330
 - [x] 2.2 un-silo vision analyses — PR #331
 - [x] 2.3 enrich winnerDNA schema — PR #332
-- [ ] 2.4 contentforge capture decision
+- [x] 2.4 contentforge capture decision — PR #333
 - [x] 3.1 per-soul metrics — PR #323 merged 2026-07-01
 - [ ] 3.2 orchestrator
 - [ ] 3.3 contentforge job queue
