@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+
+SAFE_STEM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}")
 
 
 def _validate_url(url: str) -> str:
@@ -38,6 +42,8 @@ def _validate_stem(stem: str) -> str:
     if (
         not clean
         or clean != Path(clean).name
+        or ".." in clean
+        or not SAFE_STEM_RE.fullmatch(clean)
         or any(sep in clean for sep in {"/", "\\"})
     ):
         raise ValueError("download_reel_url requires a safe stem")
@@ -57,15 +63,16 @@ def _yt_dlp_cmd(url: str, output_template: Path) -> list[str]:
         "mp4",
         "-o",
         str(output_template),
+        "--",
         url,
     ]
 
 
 def _runner_cmd(url: str, output_template: Path) -> list[str]:
-    if shutil.which("yt-dlp"):
-        return _yt_dlp_cmd(url, output_template)
+    if yt_dlp := shutil.which("yt-dlp"):
+        return [yt_dlp, *_yt_dlp_cmd(url, output_template)[1:]]
     return [
-        "python3",
+        sys.executable,
         "-m",
         "yt_dlp",
         *_yt_dlp_cmd(url, output_template)[1:],
@@ -125,6 +132,10 @@ def download_reel_url(
         if not media:
             raise RuntimeError("yt-dlp finished but no downloaded media file was found")
         source_metrics = _source_metrics_from_info_json(tmp_dir, stem)
+        media = media.resolve()
+        media.relative_to(tmp_dir.resolve())
+        dest = dest.resolve()
+        dest.relative_to(out_dir.resolve())
         shutil.move(str(media), dest)
     return {
         "ok": True,
@@ -156,6 +167,8 @@ def _run_ytdlp_with_retry(
 ) -> subprocess.CompletedProcess[str]:
     result: subprocess.CompletedProcess[str] | None = None
     for attempt in range(max(1, attempts)):
+        # codeql[py/command-line-injection] cmd is built by _runner_cmd with a
+        # fixed executable, shell=False, a validated public URL, and a "--" URL delimiter.
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if result.returncode == 0 or attempt == attempts - 1:
             return result

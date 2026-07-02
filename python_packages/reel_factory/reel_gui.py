@@ -262,7 +262,13 @@ def _run_request_subprocess(
     *,
     timeout_seconds: int,
 ) -> subprocess.CompletedProcess[str]:
+    if not cmd or Path(cmd[0]).resolve() != Path(sys.executable).resolve():
+        raise HTTPException(400, "unsupported subprocess command")
+    if len(cmd) < 2 or cmd[1] != "reel_pipeline.py":
+        raise HTTPException(400, "unsupported subprocess target")
     try:
+        # codeql[py/command-line-injection] The executable and script target are
+        # fixed above; request values are validated before becoming arguments.
         return subprocess.run(
             cmd,
             cwd=str(ROOT),
@@ -1200,7 +1206,8 @@ def _higgsfield_cli_error(exc: Exception) -> dict[str, Any]:
     )
     return {
         "ok": False,
-        "error": message,
+        "error": "higgsfield command failed",
+        "failure_kind": getattr(exc, "failure_kind", "command_failed"),
         "action": action,
     }
 
@@ -1287,8 +1294,8 @@ def dashboard_summary_api(campaign: str | None = None, account: str | None = Non
     failed_generations = list_failed_generations(ROOT, limit=20)
     try:
         costs = cost_analytics(ROOT)
-    except Exception as exc:
-        costs = {"error": str(exc)}
+    except Exception:
+        costs = {"error": "cost analytics unavailable"}
     return {
         "schema": "reel_factory.dashboard_summary.v1",
         "command_center": {
@@ -2646,6 +2653,7 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
     stem = body.get("stem")
     if not stem:
         raise HTTPException(400, "stem is required")
+    campaign = _safe_stem(str(campaign))
     cmd = [
         sys.executable,
         "reel_pipeline.py",
@@ -2659,26 +2667,33 @@ def campaign_render_pack_api(campaign: str, body: dict = Body(...)):
         "--readiness",
     ]
     if body.get("asset_generation_id"):
-        cmd += ["--asset-generation-id", str(body["asset_generation_id"])]
+        cmd += ["--asset-generation-id", _safe_stem(str(body["asset_generation_id"]))]
     if body.get("asset_prompt_json"):
-        cmd += [
-            "--asset-prompt-json",
-            str(Path(body["asset_prompt_json"]).expanduser().resolve()),
-        ]
+        prompt_path = _safe_in_root(Path(str(body["asset_prompt_json"])))
+        cmd += ["--asset-prompt-json", str(prompt_path)]
     if body.get("recipes"):
         recipes = body["recipes"]
         if isinstance(recipes, str):
             recipes = [recipes]
-        cmd += ["--recipes", *[str(r) for r in recipes]]
+        cmd += ["--recipes", *[_safe_stem(str(r)) for r in recipes]]
     if body.get("max_hooks"):
-        cmd += ["--max-hooks", str(int(body["max_hooks"]))]
+        max_hooks = int(body["max_hooks"])
+        if max_hooks < 1 or max_hooks > 50:
+            raise HTTPException(400, "max_hooks must be between 1 and 50")
+        cmd += ["--max-hooks", str(max_hooks)]
     if body.get("target_ratios"):
         ratios = body["target_ratios"]
         if isinstance(ratios, str):
             ratios = [ratios]
-        cmd += ["--target-ratios", *[str(r) for r in ratios]]
+        clean_ratios = [str(r) for r in ratios]
+        if any(ratio not in {"9:16", "4:5", "1:1"} for ratio in clean_ratios):
+            raise HTTPException(400, "target_ratios contains an unsupported ratio")
+        cmd += ["--target-ratios", *clean_ratios]
     if body.get("workers"):
-        cmd += ["--workers", str(int(body["workers"]))]
+        workers = int(body["workers"])
+        if workers < 1 or workers > 8:
+            raise HTTPException(400, "workers must be between 1 and 8")
+        cmd += ["--workers", str(workers)]
     proc = _run_request_subprocess(cmd, timeout_seconds=900)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-2000:])
@@ -3035,7 +3050,10 @@ def preview_clip(stem: str, body: dict = Body(default={})):
         body.get("placement_mode") or "source",
     ]
     if body.get("target_ratio"):
-        cmd += ["--target-ratios", body["target_ratio"]]
+        target_ratio = str(body["target_ratio"])
+        if target_ratio not in {"9:16", "4:5", "1:1"}:
+            raise HTTPException(400, "target_ratio contains an unsupported ratio")
+        cmd += ["--target-ratios", target_ratio]
     proc = _run_request_subprocess(cmd, timeout_seconds=180)
     if proc.returncode != 0:
         raise HTTPException(500, proc.stdout[-1500:])
