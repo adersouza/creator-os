@@ -15,6 +15,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from audio_intent import read_audio_intent
 from intelligence_store import winner_score
@@ -32,6 +33,7 @@ POST_STATUSES = (
 )
 TERMINAL_STATUSES = {"metrics_imported", "skipped", "failed"}
 DEFAULT_SLOT_TIMES = {"main": "10:00", "trial_1": "15:00", "trial_2": "20:00"}
+DEFAULT_TIMEZONE = "America/New_York"
 SCHEMA = "campaign_factory.account_posting_ledger.v1"
 DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS = 14
 
@@ -49,8 +51,10 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
         soul_id TEXT,
         accepted_soul_ids_json TEXT NOT NULL DEFAULT '[]',
         date TEXT NOT NULL,
-        slot_type TEXT NOT NULL CHECK(slot_type IN ('main', 'trial_1', 'trial_2')),
+        slot_type TEXT NOT NULL,
         planned_slot_time TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'America/New_York',
+        planned_at TEXT,
         source_reference_id TEXT,
         source_reference_path TEXT,
         source_family_id TEXT,
@@ -108,6 +112,8 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_posting_slots_campaign ON posting_slots(campaign_id, date, account_id);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_status ON posting_slots(post_status, review_status);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_fingerprint ON posting_slots(account_id, content_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_rendered_output ON posting_slots(rendered_output_path);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_content_fingerprint ON posting_slots(content_fingerprint);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_cluster ON posting_slots(campaign_id, perceptual_cluster_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source_family ON posting_slots(campaign_id, source_family_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source ON posting_slots(account_id, source_reference_id, date);
@@ -130,6 +136,8 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
         "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
         "soul_id": "TEXT",
         "accepted_soul_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+        "timezone": "TEXT NOT NULL DEFAULT 'America/New_York'",
+        "planned_at": "TEXT",
     }
     for name, ddl in columns.items():
         if name not in existing:
@@ -157,6 +165,57 @@ def content_fingerprint(path: Path) -> str:
 
 def account_id_for(handle: str) -> str:
     return _slug(handle)
+
+
+def _account_slot_plan(
+    account: str | dict[str, Any], slot_times: dict[str, str]
+) -> list[tuple[str, str]]:
+    max_per_day = (
+        int(account.get("max_per_day") or account.get("maxPerDay") or len(SLOT_TYPES))
+        if isinstance(account, dict)
+        else len(SLOT_TYPES)
+    )
+    max_per_day = max(1, max_per_day)
+    if max_per_day <= len(SLOT_TYPES):
+        return [
+            (slot_type, slot_times[slot_type]) for slot_type in SLOT_TYPES[:max_per_day]
+        ]
+    gap_hours = (
+        int(account.get("min_gap_hours") or account.get("minGapHours") or 1)
+        if isinstance(account, dict)
+        else 1
+    )
+    gap_hours = max(1, gap_hours)
+    start_hour, start_minute = (int(part) for part in slot_times["main"].split(":", 1))
+    start_minutes = start_hour * 60 + start_minute
+    slots = []
+    for index in range(max_per_day):
+        slot_type = "main" if index == 0 else f"trial_{index}"
+        minutes = (start_minutes + index * gap_hours * 60) % (24 * 60)
+        slots.append((slot_type, f"{minutes // 60:02d}:{minutes % 60:02d}"))
+    return slots
+
+
+def _account_timezone(account: str | dict[str, Any]) -> str:
+    tz = (
+        account.get("timezone") or account.get("timeZone")
+        if isinstance(account, dict)
+        else None
+    )
+    tz = str(tz or DEFAULT_TIMEZONE)
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"unknown account timezone: {tz}") from exc
+    return tz
+
+
+def _planned_at(slot_date: str, planned_slot_time: str, timezone: str) -> str:
+    hour, minute = (int(part) for part in planned_slot_time.split(":", 1))
+    local = datetime.fromisoformat(slot_date).replace(
+        hour=hour, minute=minute, tzinfo=ZoneInfo(timezone)
+    )
+    return local.isoformat()
 
 
 def create_posting_plan(
@@ -217,9 +276,11 @@ def create_posting_plan(
         )
         if final_soul_id and final_soul_id not in final_accepted:
             final_accepted.insert(0, final_soul_id)
+        account_slots = _account_slot_plan(account, slot_times)
+        account_timezone = _account_timezone(account)
         for day_offset in range(days):
             slot_date = (start + timedelta(days=day_offset)).isoformat()
-            for slot_type in SLOT_TYPES:
+            for slot_type, planned_slot_time in account_slots:
                 slot_id = _slot_id(account_id, slot_date, slot_type)
                 row = {
                     "posting_slot_id": slot_id,
@@ -233,7 +294,11 @@ def create_posting_plan(
                     "accepted_soul_ids_json": json.dumps(final_accepted),
                     "date": slot_date,
                     "slot_type": slot_type,
-                    "planned_slot_time": slot_times[slot_type],
+                    "planned_slot_time": planned_slot_time,
+                    "timezone": account_timezone,
+                    "planned_at": _planned_at(
+                        slot_date, planned_slot_time, account_timezone
+                    ),
                     "post_status": "planned",
                     "review_status": "pending",
                     "created_at": now,
@@ -247,12 +312,12 @@ def create_posting_plan(
                     INSERT OR IGNORE INTO posting_slots (
                         posting_slot_id, account_id, account_handle, platform, campaign_id,
                         creator, soul_name, soul_id, accepted_soul_ids_json, date,
-                        slot_type, planned_slot_time, post_status, review_status,
+                        slot_type, planned_slot_time, timezone, planned_at, post_status, review_status,
                         created_at, updated_at
                     ) VALUES (
                         :posting_slot_id, :account_id, :account_handle, :platform, :campaign_id,
                         :creator, :soul_name, :soul_id, :accepted_soul_ids_json, :date,
-                        :slot_type, :planned_slot_time, :post_status, :review_status,
+                        :slot_type, :planned_slot_time, :timezone, :planned_at, :post_status, :review_status,
                         :created_at, :updated_at
                     )
                     """,
@@ -306,7 +371,7 @@ def assign_approved_reels(
     ]
     assigned: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
-    slot_idx = 0
+    available_slots = list(slots)
     now = int(time.time())
     for item in items:
         output_path = Path(
@@ -335,15 +400,15 @@ def assign_approved_reels(
         candidate_uniqueness = _uniqueness_values(
             item, lineage=item_lineage, fingerprint=fp
         )
-        if slot_idx < len(slots):
+        if available_slots:
             identity_reason = _creator_identity_conflict(
-                conn, item=item, lineage=item_lineage, slot=slots[slot_idx]
+                conn, item=item, lineage=item_lineage, slot=available_slots[0]
             )
             if identity_reason:
                 conflicts.append(
                     {
-                        "posting_slot_id": slots[slot_idx]["posting_slot_id"],
-                        "account_handle": slots[slot_idx]["account_handle"],
+                        "posting_slot_id": available_slots[0]["posting_slot_id"],
+                        "account_handle": available_slots[0]["account_handle"],
                         "output_path": str(output_path.resolve()),
                         "content_fingerprint": fp,
                         "reasons": [identity_reason],
@@ -353,9 +418,8 @@ def assign_approved_reels(
         slot_result: tuple[dict[str, Any], list[str]] | None = None
         conflict_accounts_seen: set[str] = set()
         terminal_conflict = False
-        while slot_idx < len(slots):
-            slot = slots[slot_idx]
-            slot_idx += 1
+        assigned_slot_index: int | None = None
+        for idx, slot in enumerate(available_slots):
             reasons = _assignment_conflicts(
                 conn,
                 slot=slot,
@@ -367,6 +431,7 @@ def assign_approved_reels(
             )
             if not reasons:
                 slot_result = (slot, reasons)
+                assigned_slot_index = idx
                 break
             if "duplicate_content_fingerprint_for_campaign" in reasons:
                 conflicts.append(
@@ -391,9 +456,11 @@ def assign_approved_reels(
                     }
                 )
                 conflict_accounts_seen.add(slot["account_id"])
+        if assigned_slot_index is not None:
+            available_slots.pop(assigned_slot_index)
         if not slot_result:
             if (
-                slot_idx >= len(slots)
+                not available_slots
                 and not conflict_accounts_seen
                 and not terminal_conflict
             ):
@@ -556,7 +623,7 @@ def review_queue(root: Path, *, campaign_id: str | None = None) -> dict[str, Any
         f"""
         SELECT posting_slot_id, account_id, account_handle, campaign_id, creator,
             soul_name, soul_id, accepted_soul_ids_json, date, slot_type,
-            planned_slot_time, rendered_output_path, content_fingerprint, caption,
+            planned_slot_time, timezone, planned_at, rendered_output_path, content_fingerprint, caption,
             audio_track_id, audio_source, audio_selected_reason, manual_audio_needed,
             lineage_path, review_status, post_status
         FROM posting_slots
@@ -1075,6 +1142,8 @@ def _schedule_item(row: dict[str, Any], audio: dict[str, Any]) -> dict[str, Any]
         "date": row["date"],
         "slot_type": row["slot_type"],
         "planned_slot_time": row["planned_slot_time"],
+        "timezone": row["timezone"],
+        "planned_at": row["planned_at"],
         "scheduled_at": row["scheduled_at"],
         "rendered_output_path": row["rendered_output_path"],
         "content_fingerprint": row["content_fingerprint"],

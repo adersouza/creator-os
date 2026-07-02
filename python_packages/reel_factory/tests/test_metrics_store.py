@@ -5,8 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from campaign_store import ensure_campaign_schema
 from manifest import Manifest
 from metrics_store import (
+    connect_metrics_db,
     ensure_metrics_schema,
     import_metrics_csv,
     import_outcomes_csv,
@@ -21,6 +23,33 @@ STACEY1_SOUL = "5828d958-91dd-4d6d-8909-934503f47644"
 
 
 class MetricsStoreSoulAttributionTests(unittest.TestCase):
+    def test_metrics_connection_uses_wal_and_busy_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "manifest.sqlite"
+            conn = connect_metrics_db(db_path)
+
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+            self.assertEqual(journal_mode, "wal")
+            self.assertEqual(busy_timeout, 30000)
+
+    def test_campaign_output_metrics_filename_lookup_uses_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect_metrics_db(Path(tmp) / "manifest.sqlite")
+            ensure_campaign_schema(conn)
+            ensure_metrics_schema(conn)
+
+            plan = "\n".join(
+                row[3]
+                for row in conn.execute(
+                    "EXPLAIN QUERY PLAN SELECT * FROM campaign_outputs WHERE metrics_filename=?",
+                    ("posted.mp4",),
+                ).fetchall()
+            )
+
+            self.assertIn("idx_campaign_outputs_metrics_filename", plan)
+
     def _variation(
         self,
         root: Path,
@@ -161,6 +190,50 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
             )
 
             self.assertEqual(row[0], STACEY_SOUL)
+
+    def test_import_metrics_writes_stable_campaign_output_key_for_renamed_post(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = self._variation(root)
+            manifest = Manifest(root / "manifest.json")
+            now = 1
+            manifest.conn.execute(
+                """
+                INSERT INTO campaign_outputs (
+                    campaign_output_id, output_path, job_key, caption_text, recipe,
+                    review_state, metrics_filename, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "co_renamed_metric",
+                    str(out),
+                    "job_renamed_metric",
+                    "hook",
+                    "v01_original",
+                    "approved",
+                    "posted_metric_name.mp4",
+                    now,
+                    now,
+                ),
+            )
+            manifest.conn.commit()
+
+            import_metrics_csv(root, self._metrics_csv(root, "posted_metric_name.mp4"))
+            row = (
+                sqlite3.connect(root / "manifest.sqlite")
+                .execute(
+                    """
+                    SELECT campaign_output_id, job_key
+                    FROM publish_metrics
+                    WHERE filename=?
+                    """,
+                    ("posted_metric_name.mp4",),
+                )
+                .fetchone()
+            )
+
+            self.assertEqual(row[0], "co_renamed_metric")
+            self.assertEqual(row[1], "job_renamed_metric")
 
     def test_unresolvable_soul_id_imports_as_unattributed(self):
         with tempfile.TemporaryDirectory() as tmp:

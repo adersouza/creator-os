@@ -34,18 +34,24 @@ def campaign_factory_next_batch(campaign: str, *, count: int) -> dict | None:
     return None
 
 
+def select_next_batch(
+    root: Path, *, campaign: str, count: int, persist: bool = False
+) -> dict:
+    plan = campaign_factory_next_batch(campaign, count=count)
+    if plan is not None:
+        return plan
+    plan = next_batch_plan(root, campaign=campaign, count=count, persist=persist)
+    plan["source"] = "reel_factory.local_next_batch"
+    return plan
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
     ap.add_argument("--campaign", required=True)
     ap.add_argument("--count", type=int, default=20)
     args = ap.parse_args()
-    plan = campaign_factory_next_batch(args.campaign, count=args.count)
-    if plan is None:
-        plan = next_batch_plan(
-            Path(args.root), campaign=args.campaign, count=args.count
-        )
-        plan["source"] = "reel_factory.local_next_batch"
+    plan = select_next_batch(Path(args.root), campaign=args.campaign, count=args.count)
     print(
         json.dumps(
             plan,

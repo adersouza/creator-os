@@ -21,6 +21,17 @@ LARISSA_SOUL_ID = "44326567-b12c-410c-95b7-31891bb0629b"
 
 
 class PostingLedgerTests(unittest.TestCase):
+    def test_posting_slots_have_hot_path_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect_campaign_store(Path(tmp))
+            indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(posting_slots)").fetchall()
+            }
+
+            self.assertIn("idx_posting_slots_rendered_output", indexes)
+            self.assertIn("idx_posting_slots_content_fingerprint", indexes)
+
     def test_pilot_plan_creates_105_slots_and_enforces_quota(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -48,6 +59,55 @@ class PostingLedgerTests(unittest.TestCase):
             )
             self.assertEqual(second["created"], 0)
             self.assertEqual(second["existing"], 105)
+
+    def test_posting_plan_uses_account_cap_and_spacing_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+
+            result = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[{"handle": "stacey_a", "max_per_day": 5, "min_gap_hours": 2}],
+                start_date="2026-06-03",
+                days=1,
+            )
+
+            self.assertEqual(result["created"], 5)
+            self.assertEqual(result["slot_count"], 5)
+            self.assertEqual(
+                [slot["slot_type"] for slot in result["slots"]],
+                ["main", "trial_1", "trial_2", "trial_3", "trial_4"],
+            )
+            self.assertEqual(
+                [slot["planned_slot_time"] for slot in result["slots"]],
+                ["10:00", "12:00", "14:00", "16:00", "18:00"],
+            )
+
+    def test_posting_plan_uses_per_account_timezone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+
+            result = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=[
+                    {"handle": "stacey_la", "timezone": "America/Los_Angeles"},
+                    {"handle": "stacey_ny"},
+                ],
+                start_date="2026-06-03",
+                days=1,
+                dry_run=True,
+            )
+            by_handle = {slot["account_handle"]: slot for slot in result["slots"]}
+
+            self.assertEqual(by_handle["stacey_la"]["timezone"], "America/Los_Angeles")
+            self.assertEqual(by_handle["stacey_ny"]["timezone"], "America/New_York")
+            self.assertTrue(by_handle["stacey_la"]["planned_at"].endswith("-07:00"))
+            self.assertTrue(by_handle["stacey_ny"]["planned_at"].endswith("-04:00"))
 
     def test_assignment_blocks_same_content_even_when_filename_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -421,6 +481,76 @@ class PostingLedgerTests(unittest.TestCase):
             self.assertEqual(
                 assigned["conflicts"][0]["reasons"],
                 ["creator_identity_mismatch_for_slot"],
+            )
+
+    def test_non_terminal_conflict_does_not_consume_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            plan = create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            first = root / "first.mp4"
+            duplicate = first
+            correct = root / "correct.mp4"
+            first.write_bytes(b"first reel")
+            correct.write_bytes(b"correct reel")
+            lineage = {"source": {"soulId": STACEY_SOUL_ID, "soulName": "Stacey"}}
+
+            first_export = root / "first_export.json"
+            first_export.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(first),
+                                "generated_asset_lineage": lineage,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=first_export
+            )
+
+            second_export = root / "second_export.json"
+            second_export.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(duplicate),
+                                "generated_asset_lineage": lineage,
+                            },
+                            {
+                                "output_path": str(correct),
+                                "generated_asset_lineage": lineage,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            assigned = assign_approved_reels(
+                root, campaign_id="camp_stacey", approved_export=second_export
+            )
+
+            self.assertEqual(assigned["assigned"], 1)
+            self.assertEqual(
+                assigned["assignments"][0]["posting_slot_id"],
+                plan["slots"][1]["posting_slot_id"],
+            )
+            self.assertIn(
+                "duplicate_rendered_output_for_account",
+                assigned["conflicts"][0]["reasons"],
             )
 
     def test_name_only_identity_matches_case_insensitively_and_rejects_mismatch(self):

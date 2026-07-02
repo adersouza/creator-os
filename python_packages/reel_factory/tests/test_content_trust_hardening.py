@@ -1,14 +1,31 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ai_visual_qc import record_from_scores
+from asset_prompt_contract import AssetPromptSet
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
-from generate_assets import generated_image_qc, generated_image_qc_failure_reason
+from generate_assets import (
+    AssetGenerationPlan,
+    _record_cost_preflight_block,
+    _record_generation_costs,
+    generated_image_qc,
+    generated_image_qc_failure_reason,
+    generated_video_qc,
+    generated_video_qc_failure_reason,
+    list_failed_generations,
+)
 from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
 from hook_ai import hook_similarity_mode
-from identity_verification import build_reference_set, identity_health, verify_identity
+from identity_verification import (
+    build_reference_set,
+    delete_reference_set,
+    identity_health,
+    verify_identity,
+)
 from media_metadata import normalize_media_metadata
 from PIL import Image
 
@@ -25,6 +42,15 @@ class FakeIdentityProvider:
 
     def embedding(self, image_path: Path) -> list[float] | None:
         return self._embedding
+
+
+class PathIdentityProvider(FakeIdentityProvider):
+    def __init__(self, embeddings_by_name: dict[str, list[float]]):
+        super().__init__([1.0, 0.0])
+        self._embeddings_by_name = embeddings_by_name
+
+    def embedding(self, image_path: Path) -> list[float] | None:
+        return self._embeddings_by_name.get(image_path.name, [1.0, 0.0])
 
 
 def _write_reference_set(
@@ -73,6 +99,55 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
     assert failed["failureReason"] == "identity_similarity_below_threshold"
     assert unavailable["status"] == "unavailable"
     assert unavailable["failureReason"] == "fake_unavailable"
+    assert passed["frameCount"] == 1
+
+
+def test_video_identity_uses_worst_sampled_frame(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    early = tmp_path / "early.png"
+    late = tmp_path / "late.png"
+    _write_image(early)
+    _write_image(late)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=PathIdentityProvider(
+            {"early.png": [1.0, 0.0], "late.png": [0.0, 1.0]}
+        ),
+        frame_extractor=lambda _path: [early, late],
+    )
+
+    assert result["status"] == "failed"
+    assert result["score"] == 0.0
+    assert result["frameScores"] == [1.0, 0.0]
+
+
+def test_video_identity_passes_when_all_sampled_frames_match(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    early = tmp_path / "early.png"
+    late = tmp_path / "late.png"
+    _write_image(early)
+    _write_image(late)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=PathIdentityProvider(
+            {"early.png": [1.0, 0.0], "late.png": [0.9, 0.1]}
+        ),
+        frame_extractor=lambda _path: [early, late],
+    )
+
+    assert result["status"] == "passed"
+    assert result["score"] == 0.9
+    assert result["frameCount"] == 2
 
 
 def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -> None:
@@ -97,6 +172,81 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
     assert all(item["status"] == "embedded" for item in built["sourceImages"])
     assert health["status"] == "ready"
     assert health["referenceEmbeddings"] == 2
+
+
+def test_identity_reference_build_rejects_output_outside_reference_root(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+
+    result = build_reference_set(
+        creator="Stacey",
+        input_dir=input_dir,
+        root=tmp_path,
+        output=tmp_path / "tracked.json",
+        provider=FakeIdentityProvider(),
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "output_must_be_under_identity_references"
+    assert not (tmp_path / "tracked.json").exists()
+
+
+def test_identity_reference_build_writes_private_file_and_delete_removes_it(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+
+    result = build_reference_set(
+        creator="Stacey",
+        input_dir=input_dir,
+        root=tmp_path,
+        provider=FakeIdentityProvider(),
+    )
+    target = Path(result["outputPath"])
+
+    assert result["status"] == "ready"
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert target.parent.stat().st_mode & 0o777 == 0o700
+    deleted = delete_reference_set(creator="Stacey", root=tmp_path)
+    assert deleted["deleted"] is True
+    assert not target.exists()
+
+
+def test_identity_reference_cli_redacts_embeddings_by_default(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    import identity_verification
+
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    _write_image(input_dir / "ref_a.png")
+    monkeypatch.setattr(
+        identity_verification,
+        "get_identity_provider",
+        lambda: FakeIdentityProvider(),
+    )
+
+    exit_code = identity_verification.main(
+        [
+            "identity-reference-build",
+            "--creator",
+            "Stacey",
+            "--input-dir",
+            str(input_dir),
+            "--root",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert '"referenceSetId"' in output
+    assert '"embeddings"' not in output
 
 
 def test_identity_reference_build_fails_closed_when_provider_missing(
@@ -189,6 +339,79 @@ def test_generated_image_qc_names_identity_reference_seeding_remedy(
         "generated image failed identity QC: "
         "no identity reference set for Stacey - run identity-reference-build"
     )
+
+
+def test_generated_video_qc_passes_clean_sampled_frames(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_ok.png"
+    _write_image(frame)
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=lambda _frames, _prompt: json.dumps(
+            {
+                "anatomy": {"plausible": True, "severity": "none", "defects": []},
+                "exposure": {"safe": True, "severity": "none", "issues": []},
+            }
+        ),
+    )
+
+    assert result["status"] == "passed"
+    assert result["results"][0]["frames"][0]["postable"] is True
+
+
+def test_generated_video_qc_rejects_bad_sampled_frame(tmp_path: Path) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_bad.png"
+    _write_image(frame)
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=lambda _frames, _prompt: json.dumps(
+            {
+                "anatomy": {
+                    "plausible": False,
+                    "severity": "severe",
+                    "defects": ["warped hand"],
+                },
+                "exposure": {"safe": True, "severity": "none", "issues": []},
+            }
+        ),
+    )
+
+    assert result["status"] == "failed"
+    assert "warped hand" in generated_video_qc_failure_reason(result)
+
+
+def test_generated_video_qc_fails_closed_when_provider_unavailable(
+    tmp_path: Path,
+) -> None:
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame_unknown.png"
+    _write_image(frame)
+
+    def unavailable(_frames, _prompt):
+        raise RuntimeError("provider missing")
+
+    result = generated_video_qc(
+        {"video": str(video)},
+        root=tmp_path,
+        required=True,
+        frame_sampler=lambda _path: [frame],
+        vision_call=unavailable,
+    )
+
+    assert result["status"] == "failed"
+    assert result["results"][0]["frames"][0]["available"] is False
 
 
 def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:
@@ -291,6 +514,31 @@ def test_higgsfield_cost_preflight_env_policy_overrides_config(monkeypatch) -> N
     assert result["blockingReasons"] == []
 
 
+def test_documented_env_names_match_active_code() -> None:
+    root = Path(__file__).resolve().parents[3]
+    env_template = (root / ".env.example").read_text(encoding="utf-8")
+    sscd_code = (root / "python_packages/reel_factory/sscd_video.py").read_text(
+        encoding="utf-8"
+    )
+    smoke_script = (root / "apps/contentforge/scripts/e2e-smoke.mjs").read_text(
+        encoding="utf-8"
+    )
+
+    for name in (
+        "CONTENTFORGE_BASE_URL",
+        "CONTENTFORGE_SSCD_MODEL_PATH",
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+        "CREATOR_OS_PROACTIVE_CYCLE_DISABLED",
+    ):
+        assert name in env_template
+    assert "CONTENTFORGE_URL=" not in env_template
+    assert "CONTENTFORGE_SSCD_MODEL_PATH" in sscd_code
+    assert "CONTENTFORGE_BASE_URL" in smoke_script
+    assert "CONTENTFORGE_URL" not in smoke_script
+
+
 def test_higgsfield_cost_preflight_blocks_over_default_budget(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -310,6 +558,44 @@ def test_higgsfield_cost_preflight_blocks_over_default_budget(
 
     assert result["allowed"] is False
     assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
+
+
+def test_higgsfield_cost_preflight_sums_existing_daily_spend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    for key in (
+        "HIGGSFIELD_DAILY_BUDGET_USD",
+        "HIGGSFIELD_RUN_MAX_ASSETS",
+        "HIGGSFIELD_MIN_BALANCE_USD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE ai_cost_events (
+                estimated_cost_usd REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO ai_cost_events VALUES (?, ?)",
+            (7.25, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")),
+        )
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=3.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "estimated_cost_exceeds_daily_budget" in result["blockingReasons"]
+    assert result["budgetPolicy"]["spentTodayUsd"] == 7.25
+    assert result["budgetPolicy"]["projectedDailySpendUsd"] == 10.25
 
 
 def test_higgsfield_cost_preflight_blocks_over_asset_limit(
@@ -374,6 +660,102 @@ def test_higgsfield_cost_preflight_blocks_when_balance_unreadable(
     assert result["allowed"] is False
     assert result["balanceChecked"] is False
     assert "higgsfield_balance_unavailable" in result["blockingReasons"]
+
+
+def test_reel_generation_costs_record_completed_provider_events(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="clip_001",
+        reference=None,
+        soul_id="soul_1",
+        soul_name="Stacey",
+        start_image=None,
+        out_dir=tmp_path / "out",
+        source_dir=tmp_path / "sources",
+        campaign="daily",
+        creator="Stacey",
+    )
+    records = [
+        {
+            "provider": "higgsfield",
+            "operation": "image_create",
+            "model": "text2image_soul_v2",
+            "raw": {"id": "img_1", "status": "completed", "credits": 0.12},
+        },
+        {
+            "provider": "kling",
+            "operation": "video_create",
+            "model": "kling3_0",
+            "raw": {"id": "vid_1", "status": "completed", "credits": 7.5},
+        },
+        {
+            "provider": "kling",
+            "operation": "video_create",
+            "model": "kling3_0",
+            "raw": {"id": "vid_failed", "status": "failed", "credits": 7.5},
+        },
+    ]
+
+    first = _record_generation_costs(
+        plan, lineage_path_text=str(tmp_path / "lineage.json"), records=records
+    )
+    second = _record_generation_costs(
+        plan, lineage_path_text=str(tmp_path / "lineage.json"), records=records
+    )
+
+    assert [event["provider"] for event in first["events"]] == ["higgsfield", "kling"]
+    assert second["events"][0]["eventId"] == first["events"][0]["eventId"]
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT provider, operation, campaign_id, metadata_json FROM ai_cost_events ORDER BY provider"
+        ).fetchall()
+    assert len(rows) == 2
+    assert rows[0][0] == "higgsfield"
+    assert rows[0][2] == "daily"
+    assert json.loads(rows[0][3])["actualCredits"] == 0.12
+    assert rows[1][0] == "kling"
+
+
+def test_cost_preflight_block_appends_failed_generation_dead_letter(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "00_source_videos"
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="blocked_clip",
+        reference=None,
+        soul_id="soul_1",
+        soul_name="Stacey",
+        start_image=None,
+        out_dir=tmp_path / "out",
+        source_dir=source_dir,
+        campaign="daily",
+        creator="Stacey",
+    )
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt="grid",
+        klingMotionPrompt="motion",
+        notes="test",
+    )
+
+    result = _record_cost_preflight_block(
+        plan,
+        prompt=prompt,
+        cost_preflight={"blockingReason": "estimated_cost_exceeds_daily_budget"},
+    )
+    failures = list_failed_generations(tmp_path)
+
+    assert result["ok"] is False
+    assert failures["count"] == 1
+    assert failures["items"][0]["stem"] == "blocked_clip"
+    assert (
+        failures["items"][0]["failure"]["reason"]
+        == "estimated_cost_exceeds_daily_budget"
+    )
 
 
 def test_metadata_normalization_reports_missing_exiftool_without_spoofing(

@@ -50,7 +50,18 @@ def export_approved(
         LEFT JOIN campaign_outputs co
             ON co.output_path = v.output_path
         LEFT JOIN publish_metrics m
-            ON substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+            ON m.campaign_output_id = co.campaign_output_id
+            OR (
+                m.campaign_output_id IS NULL
+                AND m.job_key IS NOT NULL
+                AND v.job_key IS NOT NULL
+                AND m.job_key = v.job_key
+            )
+            OR (
+                m.campaign_output_id IS NULL
+                AND (m.job_key IS NULL OR v.job_key IS NULL)
+                AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+            )
         WHERE v.status = 'ok' AND v.review_state = 'approved'
         ORDER BY v.encoded_at, v.output_path
     """).fetchall()

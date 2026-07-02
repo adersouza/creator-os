@@ -73,6 +73,17 @@ def _audio_meta(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _hook_offset(meta: dict[str, Any]) -> float | None:
+    value = meta.get("hook_offset")
+    if value is None:
+        value = meta.get("hookOffset")
+    try:
+        offset = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, offset)
+
+
 def discover_audio(root: Path, *, tag: str | None = None) -> list[Path]:
     audio_dir = root / "03_audio_library"
     audio_dir.mkdir(parents=True, exist_ok=True)
@@ -119,22 +130,49 @@ def mux_audio(
     if out.exists() and not overwrite:
         return out
     dur = max(0.1, duration_seconds(video))
-    fade_out_start = max(0.0, dur - fade_seconds)
+    cmd = build_mux_cmd(
+        video,
+        audio,
+        out=out,
+        duration=dur,
+        audio_volume=audio_volume,
+        fade_seconds=fade_seconds,
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-2000:] or "ffmpeg audio mux failed")
+    return out
+
+
+def build_mux_cmd(
+    video: Path,
+    audio: Path,
+    *,
+    out: Path,
+    duration: float,
+    audio_volume: float = 0.82,
+    fade_seconds: float = 0.15,
+) -> list[str]:
+    fade_out_start = max(0.0, duration - fade_seconds)
+    hook_offset = _hook_offset(_audio_meta(audio))
     af = (
         f"volume={audio_volume:.3f},"
         f"afade=t=in:st=0:d={fade_seconds:.3f},"
-        f"afade=t=out:st={fade_out_start:.3f}:d={fade_seconds:.3f}"
+        f"afade=t=out:st={fade_out_start:.3f}:d={fade_seconds:.3f},"
+        "loudnorm=I=-14:TP=-1.5:LRA=11"
     )
     out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
+    audio_input = ["-stream_loop", "-1"]
+    if hook_offset is not None:
+        audio_input += ["-ss", f"{hook_offset:.3f}"]
+    return [
         FFMPEG,
         "-hide_banner",
         "-y",
         "-nostdin",
         "-i",
         str(video),
-        "-stream_loop",
-        "-1",
+        *audio_input,
         "-i",
         str(audio),
         "-map",
@@ -154,10 +192,6 @@ def mux_audio(
         "+faststart",
         str(out),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr[-2000:] or "ffmpeg audio mux failed")
-    return out
 
 
 def mux_root(
@@ -168,6 +202,7 @@ def mux_root(
     seed: int = 42,
     audio_volume: float = 0.82,
     fade_seconds: float = 0.15,
+    selected_audio_path: str | Path | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
@@ -184,8 +219,12 @@ def mux_root(
             skipped.append(str(video))
             continue
         try:
-            track = select_audio(
-                root, tag=audio_tag, seed=seed, target_duration=duration_seconds(video)
+            track = _selected_audio_path_for_video(
+                root,
+                video,
+                selected_audio_path=selected_audio_path,
+                audio_tag=audio_tag,
+                seed=seed,
             )
             created.append(
                 str(
@@ -208,11 +247,54 @@ def mux_root(
     }
 
 
+def _selected_audio_path_for_video(
+    root: Path,
+    video: Path,
+    *,
+    selected_audio_path: str | Path | None,
+    audio_tag: str | None,
+    seed: int,
+) -> Path:
+    sidecar_track = _audio_intent_track_path(root, video)
+    if sidecar_track:
+        return sidecar_track
+    if selected_audio_path:
+        path = Path(selected_audio_path)
+        return path if path.is_absolute() else root / path
+    return select_audio(
+        root, tag=audio_tag, seed=seed, target_duration=duration_seconds(video)
+    )
+
+
+def _audio_intent_track_path(root: Path, video: Path) -> Path | None:
+    sidecar = video.with_suffix(video.suffix + ".audio_intent.json")
+    if not sidecar.exists():
+        return None
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if not data:
+        return None
+    selection = data.get("audio_selection")
+    if not isinstance(selection, dict):
+        return None
+    for key in ("local_path", "localPath", "path", "file_path", "filePath"):
+        value = selection.get(key)
+        if value:
+            path = Path(str(value))
+            return path if path.is_absolute() else root / path
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".")
     ap.add_argument("--clip", default=None)
     ap.add_argument("--audio-tag", default=None)
+    ap.add_argument("--audio-path", default=None)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--audio-volume", type=float, default=0.82)
     ap.add_argument("--fade-seconds", type=float, default=0.15)
@@ -227,6 +309,7 @@ def main() -> int:
                 seed=args.seed,
                 audio_volume=args.audio_volume,
                 fade_seconds=args.fade_seconds,
+                selected_audio_path=args.audio_path,
                 overwrite=args.overwrite,
             ),
             indent=2,

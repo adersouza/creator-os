@@ -616,7 +616,7 @@ def test_campaign_factory_delegates_account_planning_methods_to_services() -> No
 
         def generated_asset_lineage(self, *args, **kwargs):
             calls.append(("generated_asset_lineage", args, kwargs))
-            return {"schema": "campaign_factory.generated_asset_lineage.v1"}
+            return {"schema": "reel_factory.generated_asset_lineage.v1"}
 
         def audio_recommendations_for_asset(self, *args, **kwargs):
             calls.append(("audio_recommendations_for_asset", args, kwargs))
@@ -640,7 +640,7 @@ def test_campaign_factory_delegates_account_planning_methods_to_services() -> No
         "enriched": True,
     }
     assert factory._generated_asset_lineage(source_prompt, reference_pattern) == {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
     }
     assert factory._audio_recommendations_for_asset(
         caption_generation={},
@@ -683,7 +683,7 @@ def test_campaign_factory_delegates_jobs_for_campaign_to_services() -> None:
     factory.services = FakeServices()
 
     assert factory.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
-    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
+    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5, "statuses": None})]
 
 
 def test_campaign_factory_delegates_surface_summary_methods_to_services() -> None:
@@ -6659,7 +6659,7 @@ def test_core_services_delegates_jobs_for_campaign_to_event_repository() -> None
     services.events = FakeEvents()
 
     assert services.jobs_for_campaign("may", limit=5) == [{"id": "job_1"}]
-    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5})]
+    assert calls == [("jobs_for_campaign", ("may",), {"limit": 5, "statuses": None})]
 
 
 def test_core_services_delegates_surface_summary_methods_to_surface_summary_repository() -> (
@@ -10131,7 +10131,7 @@ def test_core_services_delegates_account_planning_methods_to_account_planning_re
 
         def generated_asset_lineage(self, *args, **kwargs):
             calls.append(("generated_asset_lineage", args, kwargs))
-            return {"schema": "campaign_factory.generated_asset_lineage.v1"}
+            return {"schema": "reel_factory.generated_asset_lineage.v1"}
 
         def audio_recommendations_for_asset(self, *args, **kwargs):
             calls.append(("audio_recommendations_for_asset", args, kwargs))
@@ -10155,7 +10155,7 @@ def test_core_services_delegates_account_planning_methods_to_account_planning_re
         "enriched": True,
     }
     assert services.generated_asset_lineage(source_prompt, reference_pattern) == {
-        "schema": "campaign_factory.generated_asset_lineage.v1",
+        "schema": "reel_factory.generated_asset_lineage.v1",
     }
     assert services.audio_recommendations_for_asset(
         caption_generation={},

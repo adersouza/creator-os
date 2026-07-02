@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from audio_intent import read_audio_intent
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
 
@@ -29,6 +30,14 @@ METRIC_COLUMNS = (
 )
 
 
+def connect_metrics_db(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(Path(db_path), timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
 def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS publish_metrics (
@@ -44,19 +53,21 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
             manual_score REAL,
             notes TEXT,
             soul_id TEXT,
-            job_key TEXT,
             campaign_output_id TEXT,
+            job_key TEXT,
             imported_at INTEGER NOT NULL
         )
     """)
     _ensure_columns(
         conn,
         "publish_metrics",
-        {
-            "soul_id": "TEXT",
-            "job_key": "TEXT",
-            "campaign_output_id": "TEXT",
-        },
+        {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key)"
     )
     ensure_intelligence_schema(conn)
 
@@ -65,8 +76,7 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
 
@@ -76,6 +86,13 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
             "SELECT output_path FROM variations WHERE status = 'ok'"
         )
     }
+    known.update(
+        row["metrics_filename"]
+        for row in conn.execute(
+            "SELECT metrics_filename FROM campaign_outputs WHERE metrics_filename IS NOT NULL"
+        )
+        if row["metrics_filename"]
+    )
     imported = 0
     ignored: list[str] = []
     with Path(csv_path).open(newline="", encoding="utf-8") as f:
@@ -92,12 +109,28 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 "SELECT output_path, job_key, caption_text, recipe, review_state FROM variations WHERE output_path LIKE ? LIMIT 1",
                 (f"%/{filename}",),
             ).fetchone()
+            campaign_output_row = conn.execute(
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
+            ).fetchone()
+            if not campaign_output_row:
+                campaign_output_row = conn.execute(
+                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+                    (f"%/{filename}",),
+                ).fetchone()
             output_path = output_row["output_path"] if output_row else None
-            campaign_output_id = (
-                f"out_{slugify(Path(output_row['output_path']).stem)}"
-                if output_row
-                else None
+            if not output_path and campaign_output_row:
+                output_path = campaign_output_row["output_path"]
+            job_key = (output_row["job_key"] if output_row else None) or (
+                campaign_output_row["job_key"] if campaign_output_row else None
             )
+            campaign_output_id = None
+            if output_path:
+                campaign_output_id = (
+                    campaign_output_row["campaign_output_id"]
+                    if campaign_output_row
+                    else f"out_{slugify(Path(output_path).stem)}"
+                )
             soul_id = _resolve_metrics_soul_id(
                 Path(root), conn, filename, output_path=output_path
             )
@@ -105,8 +138,8 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 """
                 INSERT INTO publish_metrics (
                     filename, platform, account, uploaded_at, views, likes,
-                    comments, shares, saves, manual_score, notes, soul_id, job_key,
-                    campaign_output_id, imported_at
+                    comments, shares, saves, manual_score, notes, soul_id,
+                    campaign_output_id, job_key, imported_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET
                     platform = excluded.platform,
@@ -120,8 +153,8 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     manual_score = excluded.manual_score,
                     notes = excluded.notes,
                     soul_id = excluded.soul_id,
-                    job_key = excluded.job_key,
                     campaign_output_id = excluded.campaign_output_id,
+                    job_key = excluded.job_key,
                     imported_at = excluded.imported_at
                 """,
                 (
@@ -137,12 +170,12 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     _float(row.get("manual_score") or row.get("score")),
                     _text(row.get("notes")),
                     soul_id,
-                    output_row["job_key"] if output_row else None,
                     campaign_output_id,
+                    job_key,
                     int(time.time()),
                 ),
             )
-            if output_row:
+            if output_row or campaign_output_row:
                 now = int(time.time())
                 conn.execute(
                     """
@@ -160,11 +193,26 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     """,
                     (
                         campaign_output_id,
-                        output_row["output_path"],
-                        output_row["job_key"],
-                        output_row["caption_text"],
-                        output_row["recipe"],
-                        output_row["review_state"],
+                        output_path,
+                        job_key,
+                        (output_row["caption_text"] if output_row else None)
+                        or (
+                            campaign_output_row["caption_text"]
+                            if campaign_output_row
+                            else None
+                        ),
+                        (output_row["recipe"] if output_row else None)
+                        or (
+                            campaign_output_row["recipe"]
+                            if campaign_output_row
+                            else None
+                        ),
+                        (output_row["review_state"] if output_row else None)
+                        or (
+                            campaign_output_row["review_state"]
+                            if campaign_output_row
+                            else None
+                        ),
                         filename,
                         now,
                         now,
@@ -179,8 +227,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
@@ -200,9 +247,14 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 (f"%/{filename}",),
             ).fetchone()
             campaign_output = conn.execute(
-                "SELECT * FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
-                (f"%/{filename}", filename),
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
             ).fetchone()
+            if not campaign_output:
+                campaign_output = conn.execute(
+                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+                    (f"%/{filename}",),
+                ).fetchone()
             if not variation and not campaign_output:
                 ignored.append(filename)
             if variation and not campaign_output:
@@ -242,6 +294,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 if variation
                 else (campaign_output["output_path"] if campaign_output else None)
             )
+            audio_track_id = _audio_track_id_for_output(output_path)
             source_reference_id = None
             prompt_run_id = (
                 campaign_output["prompt_run_id"] if campaign_output else None
@@ -268,12 +321,14 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 filename,
                 output_path,
                 soul_id,
-                variation["job_key"] if variation else None,
+                (campaign_output["job_key"] if campaign_output else None)
+                or (variation["job_key"] if variation else None),
                 campaign_output["campaign_output_id"] if campaign_output else None,
                 campaign_output["campaign_id"] if campaign_output else None,
                 campaign_output["asset_generation_id"] if campaign_output else None,
                 prompt_run_id,
                 source_reference_id,
+                audio_track_id,
                 platform,
                 account,
                 posted_at,
@@ -296,10 +351,10 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 INSERT INTO reel_outcomes (
                     outcome_id, filename, output_path, soul_id, job_key, campaign_output_id,
                     campaign_id, asset_generation_id, prompt_run_id, source_reference_id,
-                    platform, account, posted_at, views, likes, comments, shares, saves,
+                    audio_track_id, platform, account, posted_at, views, likes, comments, shares, saves,
                     watch_time, retention_rate, profile_visits, follows, manual_score,
                     source_url, notes, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(outcome_id) DO UPDATE SET
                     filename=excluded.filename,
                     output_path=excluded.output_path,
@@ -310,6 +365,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     asset_generation_id=excluded.asset_generation_id,
                     prompt_run_id=excluded.prompt_run_id,
                     source_reference_id=excluded.source_reference_id,
+                    audio_track_id=excluded.audio_track_id,
                     platform=excluded.platform,
                     account=excluded.account,
                     posted_at=excluded.posted_at,
@@ -334,8 +390,9 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 """
                 INSERT INTO publish_metrics (
                     filename, platform, account, uploaded_at, views, likes,
-                    comments, shares, saves, manual_score, notes, soul_id, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    comments, shares, saves, manual_score, notes, soul_id,
+                    campaign_output_id, job_key, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET
                     platform=excluded.platform,
                     account=excluded.account,
@@ -348,6 +405,8 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     manual_score=excluded.manual_score,
                     notes=excluded.notes,
                     soul_id=excluded.soul_id,
+                    campaign_output_id=excluded.campaign_output_id,
+                    job_key=excluded.job_key,
                     imported_at=excluded.imported_at
                 """,
                 (
@@ -363,6 +422,9 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     _float(row.get("manual_score") or row.get("score")),
                     _text(row.get("notes")),
                     soul_id,
+                    campaign_output["campaign_output_id"] if campaign_output else None,
+                    (campaign_output["job_key"] if campaign_output else None)
+                    or (variation["job_key"] if variation else None),
                     int(time.time()),
                 ),
             )
@@ -387,13 +449,12 @@ def refresh_outcomes_from_performance_sync(
     source_db = Path(campaign_factory_db)
     if not source_db.exists():
         raise FileNotFoundError(f"campaign factory DB not found: {source_db}")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     ensure_campaign_schema(conn)
     ensure_intelligence_schema(conn)
 
-    source = sqlite3.connect(source_db)
+    source = sqlite3.connect(source_db, timeout=30.0)
     source.row_factory = sqlite3.Row
     where = ["p.metrics_eligible = 1"]
     params: list[Any] = []
@@ -442,9 +503,14 @@ def refresh_outcomes_from_performance_sync(
             continue
         output_path = str(_project_path(Path(root), output_path).resolve())
         campaign_output = conn.execute(
-            "SELECT * FROM campaign_outputs WHERE output_path=? OR metrics_filename=? LIMIT 1",
-            (output_path, filename),
+            "SELECT * FROM campaign_outputs WHERE output_path=? LIMIT 1",
+            (output_path,),
         ).fetchone()
+        if not campaign_output:
+            campaign_output = conn.execute(
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
+            ).fetchone()
         conn.execute(
             """
             INSERT INTO campaign_outputs (
@@ -478,6 +544,7 @@ def refresh_outcomes_from_performance_sync(
         soul_id = _resolve_metrics_soul_id(
             Path(root), conn, filename, output_path=output_path
         )
+        audio_track_id = _audio_track_id_for_output(output_path)
         platform = _text(row["platform"]) or "instagram_reels"
         account = _outcome_dimension(row["instagram_account_id"]) or _outcome_dimension(
             row["account_id"]
@@ -490,15 +557,16 @@ def refresh_outcomes_from_performance_sync(
             """
             INSERT INTO reel_outcomes (
                 outcome_id, filename, output_path, soul_id, campaign_output_id,
-                campaign_id, platform, account, posted_at, views, likes, comments,
+                campaign_id, audio_track_id, platform, account, posted_at, views, likes, comments,
                 shares, saves, watch_time, source_url, notes, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(outcome_id) DO UPDATE SET
                 filename=excluded.filename,
                 output_path=excluded.output_path,
                 soul_id=excluded.soul_id,
                 campaign_output_id=excluded.campaign_output_id,
                 campaign_id=excluded.campaign_id,
+                audio_track_id=excluded.audio_track_id,
                 platform=excluded.platform,
                 account=excluded.account,
                 posted_at=excluded.posted_at,
@@ -519,6 +587,7 @@ def refresh_outcomes_from_performance_sync(
                 soul_id,
                 campaign_output["campaign_output_id"] if campaign_output else None,
                 row["campaign_id"],
+                audio_track_id,
                 platform,
                 account,
                 posted_at,
@@ -537,8 +606,8 @@ def refresh_outcomes_from_performance_sync(
             """
             INSERT INTO publish_metrics (
                 filename, platform, account, uploaded_at, views, likes, comments,
-                shares, saves, notes, soul_id, campaign_output_id, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                shares, saves, notes, soul_id, campaign_output_id, job_key, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(filename) DO UPDATE SET
                 platform=excluded.platform,
                 account=excluded.account,
@@ -551,6 +620,7 @@ def refresh_outcomes_from_performance_sync(
                 notes=excluded.notes,
                 soul_id=excluded.soul_id,
                 campaign_output_id=excluded.campaign_output_id,
+                job_key=excluded.job_key,
                 imported_at=excluded.imported_at
             """,
             (
@@ -566,6 +636,7 @@ def refresh_outcomes_from_performance_sync(
                 f"threadsdash performance snapshot {row['id']}",
                 soul_id,
                 campaign_output["campaign_output_id"] if campaign_output else None,
+                campaign_output["job_key"] if campaign_output else None,
                 now,
             ),
         )
@@ -590,8 +661,7 @@ def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"count": 0, "top": [], "totals": {}}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_intelligence_schema(conn)
     rows = conn.execute("SELECT * FROM reel_outcomes").fetchall()
     totals = {
@@ -610,8 +680,7 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     rows = conn.execute("""
         SELECT
@@ -623,8 +692,21 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
             m.shares,
             m.saves,
             m.manual_score
-        FROM publish_metrics m
-        JOIN variations v ON substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+        FROM variations v
+        LEFT JOIN campaign_outputs co ON co.output_path = v.output_path
+        JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND v.job_key IS NOT NULL
+              AND m.job_key = v.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR v.job_key IS NULL)
+              AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+          )
         WHERE v.status = 'ok'
     """).fetchall()
     groups: dict[tuple[str, int], dict[str, Any]] = {}
@@ -681,8 +763,7 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"hooks": [], "recipes": [], "combos": []}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     rows = conn.execute("""
         SELECT
@@ -695,8 +776,21 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
             m.shares,
             m.saves,
             m.manual_score
-        FROM publish_metrics m
-        JOIN variations v ON substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+        FROM variations v
+        LEFT JOIN campaign_outputs co ON co.output_path = v.output_path
+        JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND v.job_key IS NOT NULL
+              AND m.job_key = v.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR v.job_key IS NULL)
+              AND substr(v.output_path, length(v.output_path) - length(m.filename) + 1) = m.filename
+          )
         WHERE v.status = 'ok'
     """).fetchall()
 
@@ -793,8 +887,7 @@ def soul_metrics_report(root: Path, *, by_account: bool = False) -> dict[str, An
     db_path = Path(root) / "manifest.sqlite"
     if not db_path.exists():
         return {"rows": [], "unattributed_count": 0}
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
     select_account = "account, " if by_account else ""
     group_account = ", account" if by_account else ""
@@ -880,6 +973,18 @@ def _resolve_metrics_soul_id(
     return _soul_id_from_posting_slot(conn, rendered)
 
 
+def _audio_track_id_for_output(output_path: str | None) -> str | None:
+    if not output_path:
+        return None
+    intent = read_audio_intent(Path(output_path))
+    if not isinstance(intent, dict):
+        return None
+    selection = intent.get("audio_selection")
+    if isinstance(selection, dict) and selection.get("track_id"):
+        return str(selection["track_id"])
+    return None
+
+
 def _resolve_rendered_path(
     root: Path,
     conn: sqlite3.Connection,
@@ -896,9 +1001,14 @@ def _resolve_rendered_path(
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
     row = conn.execute(
-        "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
-        (f"%/{filename}", filename),
+        "SELECT output_path FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+        (filename,),
     ).fetchone()
+    if not row:
+        row = conn.execute(
+            "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+            (f"%/{filename}",),
+        ).fetchone()
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
     direct = _project_path(root, filename)

@@ -1269,9 +1269,14 @@ class CoreServices:
         return self.events.events_for_asset(rendered_asset_id, limit=limit)
 
     def jobs_for_campaign(
-        self, campaign_slug: str, limit: int = 100
+        self,
+        campaign_slug: str,
+        limit: int = 100,
+        statuses: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        return self.events.jobs_for_campaign(campaign_slug, limit=limit)
+        return self.events.jobs_for_campaign(
+            campaign_slug, limit=limit, statuses=statuses
+        )
 
     def campaign_readiness(self, campaign_slug: str, **kwargs: Any) -> dict[str, Any]:
         return self.lifecycle_reporting.campaign_readiness(campaign_slug, **kwargs)

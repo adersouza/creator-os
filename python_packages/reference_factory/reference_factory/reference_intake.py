@@ -13,6 +13,8 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from pipeline_contracts.llm_resilience import urlopen_json_with_retry
+
 from .db import json_dump, json_load
 from .identity import stable_id
 from .prompt_records import (
@@ -668,7 +670,10 @@ def analyze_reference_with_gemini_api(
         limit=limit,
         prompt_style=prompt_style,
     )
-    client = genai.Client(api_key=resolved_key)
+    try:
+        client = genai.Client(api_key=resolved_key, http_options={"timeout": 120_000})
+    except TypeError:
+        client = genai.Client(api_key=resolved_key)
     analyzed = 0
     errors: list[dict[str, object]] = []
     imported_items: list[dict[str, Any]] = []
@@ -3472,18 +3477,7 @@ def _xai_chat_completion(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        if exc.code in {401, 403}:
-            raise RuntimeError(
-                f"xAI API request failed: HTTP {exc.code}. "
-                "Check the local xAI key and fix billing/credits/monthly spend limits before Grok automation can run. "
-                f"Provider message: {body[:500]}"
-            ) from exc
-        raise RuntimeError(f"xAI API request failed: HTTP {exc.code}: {body}") from exc
+    data = urlopen_json_with_retry(request, timeout=120)
     choices = data.get("choices") if isinstance(data, dict) else None
     if not choices:
         raise RuntimeError(f"xAI API response did not include choices: {data}")

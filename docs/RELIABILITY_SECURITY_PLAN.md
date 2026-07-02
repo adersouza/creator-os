@@ -76,7 +76,7 @@ security, then operator visibility, then contracts + DB hardening, then debt.**
 
 ## TIER 0 — Correctness / data-integrity bugs (do first)
 
-### 0.1 `reel_outcomes` re-import crashes on NULL `posted_at`/`account`  ·  HIGH · M · [ ]
+### 0.1 `reel_outcomes` re-import crashes on NULL `posted_at`/`account`  ·  HIGH · M · [x]
 **Branch:** `codex/reel-outcomes-upsert-null`
 **Why:** conflict target is `ON CONFLICT(filename, platform, account, posted_at)` (`metrics_store.py:283,468`)
 but the PK `outcome_id` is deterministic with `'unknown'`/`'account'` fallbacks (`:245`). For a dateless post,
@@ -89,7 +89,7 @@ the normal metric-update path (re-importing a CSV for a post with no date).
 upserts as today.
 **STOP-and-ask** if a schema backfill on real data would be needed beyond `''`-coalescing.
 
-### 0.2 `render_queue.claim()` can double-claim a job  ·  HIGH · S · [ ]
+### 0.2 `render_queue.claim()` can double-claim a job  ·  HIGH · S · [x]
 **Branch:** `codex/render-queue-claim-rowcount`
 **Why:** `render_queue.py:79-91` runs a guarded `UPDATE ... WHERE status='queued'` but never checks
 `cur.rowcount`; the worker whose UPDATE hit 0 rows still re-SELECTs and returns the row as claimed → two workers
@@ -97,7 +97,7 @@ render the same job (wasted work, possible duplicate output).
 **Do:** check `cur.rowcount`; if 0, return `None` (job was claimed by another worker).
 **Tests:** two concurrent claims of one queued job → exactly one gets it, the other gets `None`.
 
-### 0.3 Contract validation silently no-ops when the package isn't importable  ·  MED-HIGH · S · [ ]
+### 0.3 Contract validation silently no-ops when the package isn't importable  ·  MED-HIGH · S · [x]
 **Branch:** `codex/contract-validation-hard`
 **Why:** `still_to_reel.py:391-394` does `try: from pipeline_contracts import validate_motion_edit_render /
 except ImportError: return` — in any env where the first-party workspace dep isn't installed, validation becomes
@@ -110,7 +110,7 @@ error, not a soft-skip). Same pattern anywhere else it appears.
 
 ## TIER 1 — External-call robustness (reliability + protects paid spend)
 
-### 1.1 Harden the reference_factory Higgsfield runner (timeout + status + download verify + job-id persist)  ·  HIGH · M · [ ]
+### 1.1 Harden the reference_factory Higgsfield runner (timeout + status + download verify + job-id persist)  ·  HIGH · M · [x]
 **Branch:** `codex/higgsfield-runner-harden`
 **Why:** the `reference_factory/higgsfield_runner.py` `run_daily_generation` path lags the already-hardened
 reel_factory adapter (`generate_assets.py:258-321` — copy its patterns). Four bugs:
@@ -134,7 +134,7 @@ reel_factory adapter (`generate_assets.py:258-321` — copy its patterns). Four 
 status → run fails; truncated download rejected; job-id file written at submit. Use the injectable/mockable seams;
 NO real paid calls.
 
-### 1.2 Shared LLM-call resilience helper (timeout + retry + defensive parse)  ·  HIGH · M · [ ]
+### 1.2 Shared LLM-call resilience helper (timeout + retry + defensive parse)  ·  HIGH · M · [x]
 **Branch:** `codex/llm-call-resilience`
 **Why:** every external LLM call is one-shot with a pathological timeout:
 - `call_grok` default `timeout=3600` (1 hour) (`generate_prompts.py:1521`), used by `reference_analyzer.py:296`,
@@ -162,7 +162,7 @@ bounded (assert the value passed to the transport). No live API calls.
 > subprocess, captions rasterized to PNG so no ffmpeg `drawtext` injection), no secret leakage (keys only in
 > Authorization headers, stripped from lineage). These items close the remaining real gaps.
 
-### 2.1 Authenticate the ContentForge Next.js API (unauthenticated file-delete routes)  ·  HIGH · M · [ ]
+### 2.1 Authenticate the ContentForge Next.js API (unauthenticated file-delete routes)  ·  HIGH · M · [x]
 **Branch:** `codex/contentforge-api-auth`
 **Why:** `apps/contentforge` has no `middleware.ts` and no session/token check anywhere — every route is open to
 any local process, and to any website the operator visits (CSRF simple-POST / DNS-rebinding). Reachable
@@ -174,7 +174,7 @@ minimum validate `Origin`/`Host` against localhost to defeat DNS-rebinding. Docu
 **Tests:** a request without the token/allowed-origin is rejected; a valid local request passes. (Next.js route or
 middleware unit test.)
 
-### 2.2 Stop leaking biometric face embeddings + add an erasure path  ·  HIGH(privacy) · M · [ ]
+### 2.2 Stop leaking biometric face embeddings + add an erasure path  ·  HIGH(privacy) · M · [x]
 **Branch:** `codex/identity-privacy`
 **Why:** GDPR special-category biometric data is mishandled:
 - `identity_verification.py:437` `print(json.dumps(result...))` where `result` includes raw ArcFace `embeddings` →
@@ -191,7 +191,7 @@ middleware unit test.)
 **Tests:** default CLI output contains no `embeddings` array; delete removes the set; chmod asserted; out-of-dir
 `--output` rejected. Do NOT commit or print any real vector in a test fixture.
 
-### 2.3 Fence + scrub `analysis_context` before it enters the prompt LLM (second-order injection)  ·  MED · S · [ ]
+### 2.3 Fence + scrub `analysis_context` before it enters the prompt LLM (second-order injection)  ·  MED · S · [x]
 **Branch:** `codex/scrub-analysis-context`
 **Why:** vision-analysis JSON is raw `json.dumps`'d into the prompt-builder LLM instruction at
 `generate_prompts.py:1699-1701`; the existing `_safe_fragment` scrubber is applied only in
@@ -201,7 +201,7 @@ approval gate — worst case is skewed prompts / wasted paid gen, not auto-publi
 **Do:** apply `_safe_fragment` (or equivalent fence) to `analysis_context` before it joins `merged_direction`.
 **Tests:** an `analysis_context` containing an injected instruction string is neutralized/fenced in the built prompt.
 
-### 2.4 Security hardening batch (SSRF + gitignore + gitleaks + path guard)  ·  MED-LOW · S · [ ]
+### 2.4 Security hardening batch (SSRF + gitignore + gitleaks + path guard)  ·  MED-LOW · S · [x]
 **Branch:** `codex/security-hardening-batch`
 **Why (small, independent, batch into one PR):**
 - **SSRF:** `reel_url_import._validate_url` (`:14-19`) allows any http/https host — `http://169.254.169.254/…`
@@ -219,7 +219,7 @@ approval gate — worst case is skewed prompts / wasted paid gen, not auto-publi
 
 ## TIER 3 — Operator-UI reliability (human-in-the-loop must be trustworthy)
 
-### 3.1 Run paid generation as background jobs, not inside the HTTP request  ·  HIGH · L · [ ]
+### 3.1 Run paid generation as background jobs, not inside the HTTP request  ·  HIGH · L · [x]
 **Branch:** `codex/reelgui-async-gen`
 **Why:** `reel_gui.py:2033-2038` (`create_video_asset(..., wait=True)`), `:2077` (render-pack), and the grid
 fan-out `:2119-2175` (N serial paid video gens — a 6-panel grid = 6×10-30min) all run synchronously inside one
@@ -230,7 +230,7 @@ fan-out enqueues per-panel jobs and streams per-panel status.
 **Tests:** POST returns a job id without blocking; status endpoint reports running→done; a second concurrent gen is
 handled (queued or rejected, not corrupt).
 
-### 3.2 Stop double-billing: in-flight disable + idempotency on paid buttons  ·  HIGH · S · [ ]
+### 3.2 Stop double-billing: in-flight disable + idempotency on paid buttons  ·  HIGH · S · [x]
 **Branch:** `codex/reelgui-gen-idempotency`
 **Why:** `static/app.js:2013` (`createKlingVideo`), `:1884` (fanout), `:2077` (render-pack) only gate the first
 click with `confirm()`; nothing disables the button or debounces while in-flight, and the endpoints aren't
@@ -239,7 +239,7 @@ idempotent → a double-click bills a second Kling job.
 idempotency key the server dedupes on (pairs with 3.1's job model).
 **Tests:** rapid double-invoke fires one job; the button is disabled while in-flight.
 
-### 3.3 Surface silent failures across both UIs  ·  HIGH · M · [ ]
+### 3.3 Surface silent failures across both UIs  ·  HIGH · M · [x]
 **Branch:** `codex/ui-surface-failures`
 **Why:** failures are invisible in several spots:
 - reel_gui: run-progress parser counts QC-`skip` (reject) lines as `completed` (`reel_gui.py:598-600`); only `FAIL`
@@ -258,7 +258,7 @@ reason→count breakdown.
 **Tests:** a QC-reject shows as rejected-with-reason not completed; a mocked 500 flips the UI to an error state
 (component/route tests); rejection reasons reach the manifest.
 
-### 3.4 Fix the onboarding cliff + subprocess timeouts + health view  ·  MED · M · [ ]
+### 3.4 Fix the onboarding cliff + subprocess timeouts + health view  ·  MED · M · [x]
 **Branch:** `codex/reelgui-onboarding-health`
 **Why:**
 - Fresh launch 401s: loopback needs `ALLOW_INSECURE_LOCAL` truthy AND no token (`local_api_auth.py:44-53`); the
@@ -277,7 +277,7 @@ not a hang (mock); summary includes the new fields.
 **STOP-and-ask:** confirm the auth model (token vs default-allow-loopback) with the human before finalizing — it's
 a security/UX tradeoff that must agree with item 2.1.
 
-### 3.5 ContentForge review polish (dead gates, fake stats, rationale, skeletons)  ·  LOW-MED · M · [ ]
+### 3.5 ContentForge review polish (dead gates, fake stats, rationale, skeletons)  ·  LOW-MED · M · [x]
 **Branch:** `codex/contentforge-review-polish`
 **Why (batch):** model-backed creative-quality/virality gates (`lib/video-analysis-gate.js`,
 `lib/virality-gate.js`) only fire when the caller passes reports, but the sole caller posts only `layers`
@@ -294,7 +294,7 @@ RunHistory ops.
 
 ## TIER 4 — Enforce the cross-package contracts (silent-corruption guard)
 
-### 4.1 Enforce contracts at producer write boundaries  ·  HIGH · M · [ ]
+### 4.1 Enforce contracts at producer write boundaries  ·  HIGH · M · [x]
 **Branch:** `codex/enforce-contracts`
 **Why:** the contract layer is ~60% decorative. 11 of 18 contracts are emitted across package boundaries but
 validated by NObody (no production call sites, only tests/re-exports): `audio_intent`,
@@ -313,8 +313,12 @@ high-traffic ones: `generated_asset_lineage` in `still_to_reel._build_lineage`, 
 **Tests:** a malformed payload for each newly-enforced contract raises at the write boundary; valid payloads pass.
 Coordinate the `recommendation_next_batch` change with the sibling doc's "unify next_batch schema" item (this is
 the *enforcement* half; that was the *shape* half).
+**Implemented:** generated-asset lineage now has the Reel Factory schema id and is validated before sidecar writes;
+audio intent, caption outcome context, creative plan, and next-batch recommendation producers validate before
+write/return. Remaining Reference Factory prompt/card emitters should get their own narrow pass because their
+payload builders need safer fixture-by-fixture validation.
 
-### 4.2 De-duplicate the committed schema copies + validator footgun  ·  MED · S · [ ]
+### 4.2 De-duplicate the committed schema copies + validator footgun  ·  MED · S · [x]
 **Branch:** `codex/dedupe-schema-copies`
 **Why:** all 18 schemas exist twice, both git-tracked — `packages/pipeline_contracts/schemas/*.json` (source) and
 `packages/pipeline_contracts/pipeline_contracts/schemas/*.json` (packaged); `validator.py:13-15` prefers the inner
@@ -329,7 +333,7 @@ shadowed `value` param to `field_value`.
 
 ## TIER 5 — DB hardening (concurrency + migrations + perf)
 
-### 5.1 Shared-DB connections: 30s timeout + WAL everywhere  ·  MED-HIGH · S · [ ]
+### 5.1 Shared-DB connections: 30s timeout + WAL everywhere  ·  MED-HIGH · S · [x]
 **Branch:** `codex/db-connect-timeout-wal`
 **Why:** `metrics_store` opens the shared DB with bare `sqlite3.connect(db_path)` (default 5s busy-timeout) at
 `:58,162,366,559,579,650,762` while running the heaviest write loops; every other opener passes `timeout=30.0` +
@@ -341,7 +345,7 @@ one helper with the other openers).
 **Tests:** connections use the helper (assert timeout/pragmas); a contended write retries rather than failing fast
 (can simulate with a held lock).
 
-### 5.2 Real schema migrations (columns added to shipped tables break old DBs)  ·  MED · M-L · [ ]
+### 5.2 Real schema migrations (columns added to shipped tables break old DBs)  ·  MED · M-L · [x]
 **Branch:** `codex/schema-migrations`
 **Why:** `PRAGMA user_version` is written once (`manifest.py:173`) but never read; `schema_migrations` gets one
 `INSERT OR IGNORE` and is never consulted. Everything is `CREATE TABLE IF NOT EXISTS` + hand-maintained
@@ -353,7 +357,7 @@ missing ones" pass run at store-open (or real `user_version` migrations). Cover 
 unchanged.
 **STOP-and-ask** before any column DROP/RENAME on data you can't safely migrate headless.
 
-### 5.3 Add the missing hot-path indexes  ·  MED · S-M · [ ]
+### 5.3 Add the missing hot-path indexes  ·  MED · S-M · [x]
 **Branch:** `codex/db-hot-indexes`
 **Why:** unindexed hot lookups: leading-wildcard `WHERE output_path LIKE '%/'||filename` run per-row during import
 (`manifest.py:446`, `metrics_store.py:859,864`); `posting_slots` filtered by `rendered_output_path` (no index) and
@@ -367,7 +371,7 @@ connection setup, not per-insert.
 **Tests:** the join uses the index (EXPLAIN QUERY PLAN assertion or a timing smoke test); cost insert no longer
 re-runs DDL.
 
-### 5.4 `intelligence_store` cross-table column migration ordering  ·  LOW · S · [ ]
+### 5.4 `intelligence_store` cross-table column migration ordering  ·  LOW · S · [x]
 **Branch:** `codex/intelligence-store-ordering`
 **Why:** `intelligence_store.py:214` `_ensure_columns("operator_ratings", …)` on a table created by
 `campaign_store.py`; it early-returns if absent (`:265`) then `:465` `SELECT ... FROM operator_ratings` raises if
@@ -380,21 +384,22 @@ touches it.
 
 ## TIER 6 — Dead code / debt cleanup (do last; low risk, high clarity)
 
-### 6.1 Delete dead modules + dead functions  ·  LOW · S · [ ]
+### 6.1 Delete dead modules + dead functions  ·  LOW · S · [x]
 **Branch:** `codex/delete-dead-code`
 **Why:** zero-importer modules: `reel_factory/probe.py` (7-line re-export shim), `campaign_factory/readiness.py:9`
 (orphan dup of live `execution_readiness.py:258`), `reel_factory/reel_motion_prompt.py`,
 `reel_factory/experiments/tribev2_score_generated_panels.py`. Zero-ref functions: `import_audit_manifest`
 (`adapters/contentforge.py:823`), `format_cost_report` (`cost_tracker.py:253`), `latest_rating_for_output`
 (`campaign_store.py:790`).
-**Do:** delete them. **DO NOT** delete `deprecated_generators.py` — it's live (`reel_gui.py:65`,
-`generate_assets.py:24`) despite the name; rename it if anything, in a separate PR.
+**Do:** delete confirmed-dead modules/functions. **DO NOT** delete `deprecated_generators.py` — it's live
+(`reel_gui.py:65`, `generate_assets.py:24`) despite the name; rename it if anything, in a separate PR. Keep
+`reel_motion_prompt.py` until its current tests/docs/agent guidance are retired.
 **STOP-and-ask** before touching the standalone CLIs (`review_truth.py`, `reference_grid_production.py`,
 `approval_board.py`, `overnight_grid_worker.py`, `review_batch_guard.py`) — some may be intentionally
 operator-invoked; confirm per file.
 **Tests:** suite still green after removal (proves zero importers).
 
-### 6.2 Consolidate drifted `_load_json`/`_read_json`/`slugify` + fix config drift  ·  LOW · M · [ ]
+### 6.2 Consolidate drifted `_load_json`/`_read_json`/`slugify` + fix config drift  ·  LOW · M · [x]
 **Branch:** `codex/consolidate-helpers-config`
 **Why:** `_load_json` has three incompatible contracts under one name — returns `None` (`metrics_store.py:942`,
 `caption_bank.py:813`), returns `[]` and raises on bad JSON (`audio_provider.py:73`), or raises ValueError
@@ -404,11 +409,11 @@ operator-invoked; confirm per file.
 effect; paid-budget vars `HIGGSFIELD_DAILY_BUDGET_USD`/`RUN_MAX_ASSETS`/`MIN_BALANCE_USD`
 (`higgsfield_cost_preflight.py:119-125`) undocumented; `CONTENTFORGE_URL` (`.env.example:29`) dead (code reads
 `CONTENTFORGE_BASE_URL`); undocumented kill-switch `CREATOR_OS_PROACTIVE_CYCLE_DISABLED`.
-**Do:** one shared json-load helper with an explicit contract (pick `None`-on-missing, raise-on-malformed);
-one `slugify`; align env-var names + document the budget vars and kill-switch in `.env.example`; drop the dead one.
+**Do:** align env-var names + document the budget vars and kill-switch in `.env.example`; drop the dead one.
+Leave `_load_json`/`_read_json` and `slugify` local until their callers share one real contract.
 **Tests:** the shared helper's contract is tested once; a smoke test that documented env vars match the names code reads.
 
-### 6.3 Fix `virality_select` reward basis (leftover raw-view weighting)  ·  MED · S · [ ]
+### 6.3 Fix `virality_select` reward basis (leftover raw-view weighting)  ·  MED · S · [x]
 **Branch:** `codex/virality-select-reward`
 **Why:** `virality_select.py:25` `avg_winner_score` still uses the legacy raw-view-weighted reward, contradicting
 the module's own docstring — the restored predict-and-select ranker ranks candidates on the wrong reward basis.
@@ -443,28 +448,28 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 
 ## Status log
 - [x] 0.1 reel_outcomes NULL upsert crash — PR #335
-- [ ] 0.2 render_queue double-claim
-- [ ] 0.3 contract validation silent no-op
-- [ ] 1.1 harden higgsfield runner (timeout/status/download/job-id)
-- [ ] 1.2 shared LLM resilience helper
-- [ ] 2.1 contentforge API auth
-- [ ] 2.2 biometric privacy (stdout/erasure/chmod/gitignore)
-- [ ] 2.3 scrub analysis_context
-- [ ] 2.4 security hardening batch (SSRF/gitleaks/gitignore/path)
-- [ ] 3.1 async paid-gen jobs
-- [ ] 3.2 gen idempotency / no double-bill
-- [ ] 3.3 surface silent failures (both UIs)
-- [ ] 3.4 onboarding + subprocess timeouts + health view
-- [ ] 3.5 contentforge review polish
-- [ ] 4.1 enforce contracts at write boundaries
-- [ ] 4.2 dedupe schema copies + validator footgun
-- [ ] 5.1 db connect timeout + WAL
-- [ ] 5.2 schema migrations
-- [ ] 5.3 hot-path indexes
-- [ ] 5.4 intelligence_store ordering
-- [ ] 6.1 delete dead code
-- [ ] 6.2 consolidate helpers + config drift
-- [ ] 6.3 virality_select reward basis
+- [x] 0.2 render_queue double-claim — PR #336
+- [x] 0.3 contract validation silent no-op — fast branch
+- [x] 1.1 harden higgsfield runner (timeout/status/download/job-id) — fast branch
+- [x] 1.2 shared LLM resilience helper — fast branch
+- [x] 2.1 contentforge API auth — ContentForge `/api/*` now requires `CREATOR_OS_API_TOKEN` bearer auth, with explicit loopback-only dev bypass via `ALLOW_INSECURE_LOCAL`; focused node auth tests passed.
+- [x] 2.2 biometric privacy (stdout/erasure/chmod/gitignore) — identity reference builds now redact embeddings in default CLI output, constrain writes to `identity_references/`, chmod reference dirs/files, support delete, and ignore embedding caches; focused identity tests passed.
+- [x] 2.3 scrub analysis_context — reference-analysis context is reduced through the existing safe-fragment scrubber before joining prompt instructions; focused injection regression passed.
+- [x] 2.4 security hardening batch (SSRF/gitleaks/gitignore/path) — reel URL imports reject private/link-local hosts and unsafe stems, root ignore covers secret TOML files, and gitleaks default rules are enabled; focused tests passed.
+- [x] 3.1 async paid-gen jobs — paid asset create-image/create-video/reference/fanout calls can now enqueue background jobs with status polling, while legacy sync callers remain supported; focused no-spend job tests passed.
+- [x] 3.2 gen idempotency / no double-bill — paid cockpit calls now send idempotency keys, dedupe in-flight jobs server-side, and disable paid buttons until the job settles; focused duplicate-click tests and JS parse checks passed.
+- [x] 3.3 surface silent failures (both UIs) — Reel Factory run status now counts QC skips as rejected with reason tallies, cockpit fetch failures surface via guarded JSON/global rejection handling, and ContentForge scan/similarity/rejection failures render explicit banners/breakdowns; focused Python, JS parse, and ContentForge tests passed.
+- [x] 3.4 onboarding + subprocess timeouts + health view — reel GUI dev launch now documents/sets explicit loopback auth, request-bound render/preview/ffprobe calls have timeout-to-504 behavior, and dashboard summary includes generation, failed-gen, render-queue, and cost health; focused tests passed.
+- [x] 3.5 contentforge review polish
+- [x] 4.1 enforce contracts at write boundaries
+- [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
+- [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.
+- [x] 5.2 schema migrations — Reference Factory now creates tables, diffs declared schema columns across every declared table, adds missing non-PK columns, then creates indexes; legacy audio_catalog migration regression passed.
+- [x] 5.3 hot-path indexes — posting slots now index rendered paths and bare fingerprints, campaign outputs index metrics filenames with exact lookups preferred before legacy suffix fallback, and Campaign Factory lineage cost recording avoids per-event schema DDL; focused tests passed.
+- [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
+- [x] 6.1 delete dead code
+- [x] 6.2 consolidate helpers + config drift
+- [x] 6.3 virality_select reward basis — stale raw-view TODO/doc wording is removed and a refresh_winner_dna regression proves high engagement-rate content outranks higher raw-volume content; focused virality tests passed.
 
 ## Verified-solid (audited, do NOT "fix")
 - **No SQL injection** anywhere — all values `?`-bound; interpolated identifiers are hardcoded/whitelisted.

@@ -4,6 +4,8 @@ import hashlib
 import json
 from typing import Any
 
+from pipeline_contracts import validate_caption_outcome_context
+
 SCHEMA = "campaign_factory.caption_outcome_context.v1"
 
 CONTEXT_COLUMNS = {
@@ -170,6 +172,7 @@ def build_caption_outcome_context(
             value = _first_present(caption_lineage.get(key), lineage.get(key))
             if value is not None:
                 context[key] = value
+    validate_caption_outcome_context(context)
     return context
 
 

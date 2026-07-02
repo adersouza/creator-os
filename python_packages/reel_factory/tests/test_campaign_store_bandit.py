@@ -7,6 +7,8 @@ from pathlib import Path
 
 from campaign_store import campaign_by_name, connect, create_campaign, next_batch_plan
 
+from pipeline_contracts import validate_recommendation_next_batch
+
 
 class CampaignStoreBanditTests(unittest.TestCase):
     def _root(self) -> Path:
@@ -97,7 +99,14 @@ class CampaignStoreBanditTests(unittest.TestCase):
             [idea["recipe_hint"] for idea in first["ideas"]],
             [idea["recipe_hint"] for idea in second["ideas"]],
         )
-        self.assertEqual(first["schema"], "campaign_factory.next_batch.v2")
+        self.assertEqual(
+            first["schema"], "campaign_factory.recommendations.next_batch.v1"
+        )
+        validate_recommendation_next_batch(first)
+        self.assertEqual(first["items"], first["ideas"])
+        self.assertEqual(
+            first["items"][0]["suggestedRecipe"], first["ideas"][0]["recipe_hint"]
+        )
         self.assertTrue(first["recipe_bandit"]["active"])
 
     def test_next_batch_bandit_cold_start_preserves_round_robin(self):

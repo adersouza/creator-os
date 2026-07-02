@@ -96,7 +96,7 @@ throughput.
 
 ## TIER 0 — Correctness bug (do first)
 
-### 0.1 Distribution planner double-books accounts across runs  ·  CRITICAL · M · [ ]
+### 0.1 Distribution planner double-books accounts across runs  ·  CRITICAL · M · [x]
 **Branch:** `codex/distribution-cadence-hydrate`
 **Why:** `distribution.py:392-393` initialises `account_day_counts = {}` and `account_last_time = {}`
 fresh every planner run. The ≥1/day cap (`:604`) and the <4h spacing gate (`:608-609`) therefore only
@@ -113,7 +113,7 @@ existing scheduled post at T forces the next slot ≥ min-gap after T; empty his
 
 ## TIER 1 — Video output quality (highest quality-per-post levers)
 
-### 1.1 Render Kling at `pro` (or `4k` for hero), not the default `std`  ·  HIGH · S · [ ]
+### 1.1 Render Kling at `pro` (or `4k` for hero), not the default `std`  ·  HIGH · S · [x]
 **Branch:** `codex/kling-quality-mode`
 **Why:** `build_video_cmd` (`generate_assets.py:150-182`) never emits `--mode`, so every animated reel
 uses Kling's lowest `std` mode. `higgsfield model get kling3_0` shows `mode {std,pro,4k}` default `std`.
@@ -125,7 +125,7 @@ construction only.
 **Tests:** `build_video_cmd` emits `--mode pro` by default; `4k`/`std` override honored; no `--mode` when
 explicitly disabled (back-comfort).
 
-### 1.2 QC the animated VIDEO, not just the still  ·  HIGH · M · [ ]
+### 1.2 QC the animated VIDEO, not just the still  ·  HIGH · M · [x]
 **Branch:** `codex/video-output-qc`
 **Why:** `run_generated_image_qc` (`generate_assets.py:1098-1102`) filters to `image`/`variation_*` keys;
 the downloaded `video` (`:1023-1024`) is never anatomy/exposure/identity checked. Defects Kling introduces
@@ -136,7 +136,7 @@ frame-extraction helper used by copy-detection (`sscd_video.py` already samples 
 **Tests:** a clip whose sampled frame fails anatomy/exposure is rejected; a clean clip passes; no-provider →
 fail-closed reject (same contract as the still gate). Use the injectable `vision_call` for no-spend tests.
 
-### 1.3 Multi-frame identity check on video (not one frame at t=0.5s)  ·  HIGH · S-M · [ ]
+### 1.3 Multi-frame identity check on video (not one frame at t=0.5s)  ·  HIGH · S-M · [x]
 **Branch:** `codex/identity-multiframe-video`
 **Why:** `identity_verification._media_frame_for_embedding` (`identity_verification.py:149-156`) extracts a
 single frame at `-ss 0.500` and embeds only that. Identity drift later in the clip (face rotating off the
@@ -147,7 +147,7 @@ unchanged.
 **Tests:** a clip that drifts on a late frame fails on the min even though t=0.5s passes; a consistent clip
 passes; still-image path unchanged; threshold stays 0.42.
 
-### 1.4 Audio mux quality: hook offset + loudness + use the ranked track  ·  MED · S-M · [ ]
+### 1.4 Audio mux quality: hook offset + loudness + use the ranked track  ·  MED · S-M · [x]
 **Branch:** `codex/audio-mux-quality`
 **Why (three small, related bugs in the mux path):**
 - `audio_mux.mux_audio` (`audio_mux.py:129-156`) feeds the track from 0:00 (`-stream_loop -1 … -shortest`),
@@ -163,7 +163,7 @@ resolved local path into `mux_root` so the ranked track is what actually gets mu
 **Tests:** offset present → `-ss` in cmd; absent → no `-ss`; `loudnorm` always in `-af`; `mux_root` uses the
 provider-selected path when given, falls back to random only when none supplied.
 
-### 1.5 Optional: `--end-image` bookend + reference-matched duration  ·  MED · M · [ ]
+### 1.5 Optional: `--end-image` bookend + reference-matched duration  ·  MED · M · [x]
 **Branch:** `codex/kling-endframe-duration`
 **Why:** `build_video_cmd` only ever passes `--start-image` (`:169-172`); `--end-image` is supported and
 bookending the motion sharply cuts identity/pose drift and enables controlled camera moves. Separately,
@@ -178,7 +178,7 @@ neither supplied.
 
 ## TIER 2 — Cost accounting (spend is currently blind)
 
-### 2.1 Record paid Higgsfield/Kling spend to the cost ledger  ·  HIGH · M · [ ]
+### 2.1 Record paid Higgsfield/Kling spend to the cost ledger  ·  HIGH · M · [x]
 **Branch:** `codex/wire-ai-cost-ledger`
 **Why:** `campaign_factory/cost_tracker.py` has an `ai_cost_events` table + `record_ai_cost` with
 `higgsfield`/`kling` pricing slots, but neither `reel_factory/generate_assets.py` nor
@@ -193,7 +193,7 @@ zero-cost failed row, your call — test whichever you implement).
 **Note:** `PROVIDER_PRICING` is a hardcoded June-2026 estimate and `actualCredits`→USD conversion doesn't exist
 — leave a `TODO` to reconcile credits→USD from the Higgsfield API; don't block this PR on it.
 
-### 2.2 Make the "daily budget" an actual daily sum, not a per-run cap  ·  HIGH · S-M · [ ]
+### 2.2 Make the "daily budget" an actual daily sum, not a per-run cap  ·  HIGH · S-M · [x]
 **Branch:** `codex/preflight-daily-sum`
 **Why:** `higgsfield_cost_preflight.py:147-152` compares a single run's `estimated_cost_usd` against
 `HIGGSFIELD_DAILY_BUDGET_USD` with no persisted daily total — so N runs each under budget never trip the cap.
@@ -208,7 +208,7 @@ day passes; empty ledger behaves as today.
 
 ## TIER 3 — Publish reliability + operator visibility (prior-incident class)
 
-### 3.1 Surface stuck/failed exports (no more "publishing died, nobody noticed")  ·  HIGH · M · [ ]
+### 3.1 Surface stuck/failed exports (no more "publishing died, nobody noticed")  ·  HIGH · M · [x]
 **Branch:** `codex/export-failure-visibility`
 **Why:** three blind spots let a dead export go unnoticed:
 - Nothing ever SELECTs jobs in `'running'`/`'queued'` — a killed export sticks forever (`events.py:172` writes
@@ -224,7 +224,7 @@ day passes; empty ledger behaves as today.
 **Tests:** a failed export leaves a `failed` row + shows in `jobs --status failed`; a later unrelated success
 does NOT resolve it; a running job that never completes is listable.
 
-### 3.2 Fail loud on silent live→dry-run / mode downgrade  ·  HIGH · S · [ ]
+### 3.2 Fail loud on silent live→dry-run / mode downgrade  ·  HIGH · S · [x]
 **Branch:** `codex/publish-no-silent-downgrade`
 **Why:** `cli.py:1568-1569`: `dry_run = args.dry_run or not (supabase_url and service_role_key)` — a
 misconfigured/absent credential silently coerces a live export to dry-run, exit 0, no warning. And
@@ -238,7 +238,7 @@ default; valid live path unchanged.
 **Constraint reminder:** this changes the CODE that runs when the human triggers a live export — you still never
 trigger one.
 
-### 3.3 Make the reel_factory ThreadsDashboard queue endpoint idempotent + guarded  ·  HIGH · M · [ ]
+### 3.3 Make the reel_factory ThreadsDashboard queue endpoint idempotent + guarded  ·  HIGH · M · [x]
 **Branch:** `codex/reelgui-queue-idempotent`
 **Why:** `reel_gui.py:741` sets `post_id = sha256(f"{dest}:{time.time()}")` (time-seeded) and `:761` appends to
 `queue.jsonl` on every call — re-queuing the same output makes a fresh id + duplicate line, with no dedup on
@@ -250,7 +250,7 @@ has the same guarantees as `assign_approved_reels`.
 **Tests:** enqueuing the same output twice yields one entry (idempotent); different content → distinct ids; an
 identity-mismatched item is rejected the same way the ledger rejects it.
 
-### 3.4 Slot assignment: no global one-way cursor  ·  MED-HIGH · M · [ ]
+### 3.4 Slot assignment: no global one-way cursor  ·  MED-HIGH · M · [x]
 **Branch:** `codex/ledger-slot-matching`
 **Why:** `posting_ledger.py:309/356-358` use a single monotonic `slot_idx` across all items; a conflict advances
 the cursor and those slots are never revisited for later items, and the terminal-conflict branch (`:371-382`)
@@ -262,7 +262,7 @@ in the other doc; this PR is only the cursor-correctness fix.)
 **Tests:** an early-item conflict doesn't burn a slot the next item could use; terminal conflict leaves all slots
 available; happy path assigns identically to today.
 
-### 3.5 Retry Supabase media upload like the ingest POST already does  ·  MED · M · [ ]
+### 3.5 Retry Supabase media upload like the ingest POST already does  ·  MED · M · [x]
 **Branch:** `codex/supabase-upload-retry`
 **Why:** the only retry loop is the ingest POST (`threadsdash.py:1875-1917`); `SupabaseRestClient._open_json_or_empty`
 (`:5505-5511`) has no retry and raises on any HTTP error, and `_upload_media_for_dashboard_ingest` re-raises as a
@@ -278,7 +278,7 @@ raises; media row upsert doesn't duplicate on re-run.
 
 ## TIER 4 — Ingestion + data integrity
 
-### 4.1 Quarantined captions must stay out on re-scan  ·  HIGH · S · [ ]
+### 4.1 Quarantined captions must stay out on re-scan  ·  HIGH · S · [x]
 **Branch:** `codex/quarantine-blocks-reentry`
 **Why:** `bad_caption_quarantine.json` is written by `build_inventory` (`caption_intake.py:412-424`) but
 `_add_candidate` (`:681-729`) only checks live-bank `existing` keys — never the quarantined hashes. A caption
@@ -289,7 +289,7 @@ quarantined caption is never re-admitted.
 **Tests:** a quarantined caption is not re-added on re-scan; a normal new caption still adds; un-quarantining
 (removing from the file) re-admits.
 
-### 4.2 Content-hash reference dedup + capture source metrics at import  ·  MED · S-M · [ ]
+### 4.2 Content-hash reference dedup + capture source metrics at import  ·  MED · S-M · [x]
 **Branch:** `codex/reference-dedup-and-metrics`
 **Why:** `scan.py:39` keys references on `sha1(path|size)` and `:58` leaves `content_hash = NULL`, though
 `identity.py:19` has a working `content_hash()` that's never used — byte-identical reels at two paths become two
@@ -302,7 +302,7 @@ reference record.
 **Tests:** two paths, same bytes → one reference; info-json parsed into the sidecar; missing metrics degrade
 gracefully (nulls, no crash).
 
-### 4.3 yt-dlp import resilience: retry + duplicate-URL guard  ·  MED · M · [ ]
+### 4.3 yt-dlp import resilience: retry + duplicate-URL guard  ·  MED · M · [x]
 **Branch:** `codex/ytdlp-retry-dedup`
 **Why:** `reel_url_import.py:66-71` runs yt-dlp once — any transient failure or IG/TikTok 429/block raises
 immediately, no backoff. No duplicate-URL detection (dedup is only by dest filename/`stem`, `:60-61`), so the same
@@ -314,7 +314,7 @@ while you're here.
 **Tests:** transient failure then success → retried; already-imported URL → skipped, no re-download; distinct URL →
 downloads.
 
-### 4.4 Aggregated failure / dead-letter view for failed gens  ·  MED · M · [ ]
+### 4.4 Aggregated failure / dead-letter view for failed gens  ·  MED · M · [x]
 **Branch:** `codex/gen-dead-letter`
 **Why:** cost-preflight blocks (`generate_assets.py:832-848`) and gen failures (`_record_generation_failure`,
 `:866-925`) each write a single lineage JSON with `status: *_blocked/failed`; there's no aggregated surface
@@ -324,7 +324,7 @@ modules import `logging`.
 `queue_admin`/CLI view that lists them for retry/resume. Read-only reporting — no auto-retry of paid gen.
 **Tests:** a blocked gen appends one dead-letter record; the view lists it; a successful gen appends nothing.
 
-### 4.5 Decide policy on generated inventory/quarantine files  ·  LOW · S · [ ]
+### 4.5 Decide policy on generated inventory/quarantine files  ·  LOW · S · [x]
 **Branch:** `codex/caption-artifact-policy`
 **Why:** `caption_source_inventory_20260629.{json,csv,md}`, `stacey_caption_adaptations.json`,
 `bad_caption_quarantine.json` are untracked and not gitignored — dated inventory scratch accumulates per run with
@@ -338,7 +338,7 @@ to the DB — pick one, note which).
 
 ## TIER 5 — Throughput knobs (volume bottleneck)
 
-### 5.1 Per-account cap + spacing from config, not hardcoded literals  ·  MED · M · [ ]
+### 5.1 Per-account cap + spacing from config, not hardcoded literals  ·  MED · M · [x]
 **Branch:** `codex/per-account-cadence-config`
 **Why:** `distribution.py:604/608-609` hardcode ≥1/day and a 4h gap, ignoring DB
 `account_content_requirements.max_per_day`/`min_gap_hours` (`db.py:733-734`) and `account_health.py:832-873`'s
@@ -350,7 +350,7 @@ computed `maxPostsPerDay`/`minimumGapHours` (used only for a health gate, never 
 **Tests:** an account configured for 5/day gets 5 slots; a 2h-gap account spaces at 2h; missing config → current
 defaults.
 
-### 5.2 Per-account timezone (stop assuming America/New_York)  ·  MED · M · [ ]
+### 5.2 Per-account timezone (stop assuming America/New_York)  ·  MED · M · [x]
 **Branch:** `codex/per-account-timezone`
 **Why:** `distribution.py:557-558` posts at fixed hours `[10,14,18]` in a fixed `ZoneInfo("America/New_York")` for
 every creator (datetimes are correctly tz-aware — no naive bug, just one zone); ledger `DEFAULT_SLOT_TIMES` is
@@ -360,7 +360,7 @@ times to it.
 **Tests:** an account in `America/Los_Angeles` gets slots in PT; unset → NY default; tz-aware output preserved.
 **STOP-and-ask:** where the per-account timezone should be stored if there's no obvious existing field.
 
-### 5.3 Best-time-to-post (design item — scope before building)  ·  LOW · L/design · [ ]
+### 5.3 Best-time-to-post (design item — scope before building)  ·  LOW · L/design · [x]
 **Branch:** `codex/best-time-to-post`
 **Why:** no `best_time`/`peak_hour`/`by_hour` logic exists; slot hours are hardcoded despite retention/views being
 tracked per post. Honest caveat: dispatch timing is delegated to ThreadsDashboard by design
@@ -369,6 +369,10 @@ tracked per post. Honest caveat: dispatch timing is delegated to ThreadsDashboar
 planner: derive peak hours per account from historical `reel_outcomes` by hour-of-day (engagement-rate weighted,
 reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the top buckets with a sane floor.
 **STOP-and-ask:** confirm ownership (planner vs ThreadsDashboard) before implementing.
+**Decision:** best-time execution belongs in ThreadsDashboard because it owns actual dispatch timing and schedule
+state. Campaign/Reel Factory should not mutate slot times beyond configured caps/timezones; a later read-only
+planner hint can aggregate historical `reel_outcomes` by account/hour and send suggested peak windows to
+ThreadsDashboard for operator approval.
 
 ---
 
@@ -389,27 +393,27 @@ reuse the learning doc's 1.2 rate helper if merged) and pick slot hours from the
 3.x (reliability) → 4.x (integrity) → 5.x (throughput). Only 2.2→2.1 and 5.1→0.1 are hard-ordered.
 
 ## Status log
-- [ ] 0.1 distribution cadence hydrate (double-book fix)
-- [ ] 1.1 Kling pro/4k mode
-- [ ] 1.2 video output QC
-- [ ] 1.3 multi-frame identity on video
-- [ ] 1.4 audio mux quality (hook offset + loudnorm + ranked track)
-- [ ] 1.5 end-image bookend + reference duration
-- [ ] 2.1 record AI spend to ledger
-- [ ] 2.2 daily-sum budget cap
-- [ ] 3.1 export failure/stuck visibility
-- [ ] 3.2 no silent live→dry-run downgrade
-- [ ] 3.3 idempotent + guarded reel_gui queue
-- [ ] 3.4 slot assignment cursor fix
-- [ ] 3.5 supabase upload retry + media upsert
-- [ ] 4.1 quarantine blocks re-entry
-- [ ] 4.2 content-hash dedup + import metrics
-- [ ] 4.3 ytdlp retry + duplicate-URL guard
-- [ ] 4.4 failed-gen dead-letter view
-- [ ] 4.5 caption artifact git policy
-- [ ] 5.1 per-account cap/spacing from config
-- [ ] 5.2 per-account timezone
-- [ ] 5.3 best-time-to-post (design first)
+- [x] 0.1 distribution cadence hydrate (double-book fix) — fast branch
+- [x] 1.1 Kling pro/4k mode — `build_video_cmd` now emits `--mode pro` by default, honors `4k`, and supports explicit disabled mode; video dry-run tests passed.
+- [x] 1.2 video output QC — downloaded videos now sample frames and run anatomy/exposure QC fail-closed; focused content-trust tests passed.
+- [x] 1.3 multi-frame identity on video — video identity now checks multiple sampled frames and gates on the minimum similarity; content-trust tests passed.
+- [x] 1.4 audio mux quality (hook offset + loudnorm + ranked track) — mux command now honors hook offsets, applies loudnorm, and accepts provider-selected local audio paths; focused audio mux tests passed.
+- [x] 1.5 end-image bookend + reference duration — Kling commands now support `--end-image`; CLI derives duration from video references with a configurable cap and keeps default fallback; video dry-run tests passed.
+- [x] 2.1 record AI spend to ledger — Reel Factory and Reference Factory successful Higgsfield/Kling calls now write idempotent cost ledger events with raw credit metadata; focused tests passed.
+- [x] 2.2 daily-sum budget cap — Higgsfield preflight now sums today's `ai_cost_events` before applying the daily cap; focused tests passed.
+- [x] 3.1 export failure/stuck visibility — jobs can be filtered by status, failed export attempts write failure manifests/rows, and failed-job resolution is scoped by asset identity; focused tests passed.
+- [x] 3.2 no silent live→dry-run downgrade — live CLI export without credentials now fails loud and unknown schedule modes raise; focused tests passed.
+- [x] 3.3 idempotent + guarded reel_gui queue — queue IDs are stable/upserted by fingerprint and configured campaign accounts now reuse the posting-ledger creator identity guard before writing handoff files; focused queue tests passed.
+- [x] 3.4 slot assignment cursor fix — assignment now scans open slots without consuming them on non-assignment conflicts; posting-ledger regression tests passed.
+- [x] 3.5 supabase upload retry + media upsert — Supabase REST calls now retry transient failures and media rows upsert by storage path; focused tests passed.
+- [x] 4.1 quarantine blocks re-entry — caption intake now treats bad-caption quarantine hashes/text as blocked existing keys; focused tests passed.
+- [x] 4.2 content-hash dedup + import metrics — reference scan dedupes by SHA-256 content hash and reel URL import captures yt-dlp info-json metrics; focused tests passed.
+- [x] 4.3 ytdlp retry + duplicate-URL guard — URL imports retry transient failures and skip URLs already recorded by import sidecars; focused tests passed.
+- [x] 4.4 failed-gen dead-letter view — blocked/failed generation paths append `failed_generations.jsonl`, with a read-only `failed-generations` CLI mode; focused tests passed.
+- [x] 4.5 caption artifact git policy — dated inventory scratch is gitignored/untracked; quarantine and Stacey adaptation decision records remain tracked.
+- [x] 5.1 per-account cap/spacing from config — distribution slot selection now reads active `account_content_requirements`, and posting-ledger account configs can expand same-day slots from max/day + min-gap while preserving current defaults; focused cadence tests passed.
+- [x] 5.2 per-account timezone — posting-ledger account configs now accept `timezone`/`timeZone`, default to America/New_York, and persist offset-aware `planned_at` values; focused posting-ledger tests passed.
+- [x] 5.3 best-time-to-post (design first)
 
 ## Verified-fine (do NOT "fix" — audited and correct)
 - Aspect ratio: pipeline forces `9:16` + 1080×1920 (`generate_assets.py:80,156`, `still_to_reel.py:23-24`) despite Kling's 16:9 default. No bug.

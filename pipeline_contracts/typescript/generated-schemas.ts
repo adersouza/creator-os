@@ -1415,8 +1415,8 @@ export const generatedPipelineContractSchemas = {
 	} as const,
 	generatedAssetLineage: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
-	  "$id": "campaign_factory.generated_asset_lineage.v1",
-	  "title": "Campaign Factory Generated Asset Lineage",
+	  "$id": "reel_factory.generated_asset_lineage.v1",
+	  "title": "Reel Factory Generated Asset Lineage",
 	  "type": "object",
 	  "required": [
 	    "schema",
@@ -1427,7 +1427,7 @@ export const generatedPipelineContractSchemas = {
 	  ],
 	  "properties": {
 	    "schema": {
-	      "const": "campaign_factory.generated_asset_lineage.v1"
+	      "const": "reel_factory.generated_asset_lineage.v1"
 	    },
 	    "source": {
 	      "type": "object"
@@ -2642,7 +2642,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
-	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "campaign_factory.generated_asset_lineage.v1" },
+	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },
 	{ key: "higgsfieldSoulImagePrompt", filename: "higgsfield_soul_image_prompt.v1.schema.json", id: "reference_factory.higgsfield_soul_image_prompt.v1" },
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -19,6 +20,8 @@ from intelligence_store import (
     low_data_warning,
     validate_review,
 )
+
+from pipeline_contracts import validate_recommendation_next_batch
 
 DEFAULT_CREATORS = {
     "Stacey": {
@@ -132,6 +135,12 @@ def slugify(value: str) -> str:
 def _ensure_columns(
     conn: sqlite3.Connection, table: str, columns: dict[str, str]
 ) -> None:
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if not exists:
+        return
     existing = {
         row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
     }
@@ -273,11 +282,14 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         manual_score REAL,
         notes TEXT,
         soul_id TEXT,
-        job_key TEXT,
         campaign_output_id TEXT,
+        job_key TEXT,
         imported_at INTEGER
     );
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id);
+    CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key);
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_campaign_outputs_metrics_filename ON campaign_outputs(metrics_filename);
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)
@@ -288,11 +300,13 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     _ensure_columns(
         conn,
         "publish_metrics",
-        {
-            "soul_id": "TEXT",
-            "job_key": "TEXT",
-            "campaign_output_id": "TEXT",
-        },
+        {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key)"
     )
     now = int(time.time())
     for name, cfg in DEFAULT_CREATORS.items():
@@ -809,48 +823,6 @@ def rate_output(
     return {"ok": True, "rating_id": rating_id}
 
 
-def latest_rating_for_output(root: Path, output_path: Path) -> dict[str, Any] | None:
-    conn = connect(root)
-    row = conn.execute(
-        "SELECT * FROM operator_ratings WHERE output_path=? ORDER BY created_at DESC LIMIT 1",
-        (str(Path(output_path).resolve()),),
-    ).fetchone()
-    if not row:
-        return None
-    return {
-        "identity": row["identity_score"],
-        "pose": row["pose_score"],
-        "taste": row["taste_score"],
-        "artifacts": row["artifact_score"],
-        "motion": row["motion_score"],
-        "caption": row["caption_score"],
-        "face": row["face_score"] if "face_score" in row.keys() else None,
-        "eyes": row["eyes_score"] if "eyes_score" in row.keys() else None,
-        "hands": row["hands_score"] if "hands_score" in row.keys() else None,
-        "pose_accuracy": row["pose_accuracy_score"]
-        if "pose_accuracy_score" in row.keys()
-        else None,
-        "body_taste": row["body_taste_score"]
-        if "body_taste_score" in row.keys()
-        else None,
-        "background": row["background_score"]
-        if "background_score" in row.keys()
-        else None,
-        "crop": row["crop_score"] if "crop_score" in row.keys() else None,
-        "labels": json.loads(row["labels_json"] or "[]"),
-        "retry_helper": row["retry_helper"],
-        "reason": row["approve_reject_reason"],
-        "decision": row["decision"] if "decision" in row.keys() else "unreviewed",
-        "primary_reason": row["primary_reason"]
-        if "primary_reason" in row.keys()
-        else None,
-        "secondary_reasons": json.loads(row["secondary_reasons_json"] or "[]")
-        if "secondary_reasons_json" in row.keys()
-        else [],
-        "notes": row["notes"],
-    }
-
-
 def list_campaigns(root: Path) -> list[dict[str, Any]]:
     conn = connect(root)
     rows = conn.execute(
@@ -1156,7 +1128,7 @@ def next_batch_plan(
         conn, matched_sample_size=int(recommendation["sample_size"] or 0)
     )
     recommendation["data_quality"] = data_quality
-    ideas = []
+    items = []
     for idx in range(count):
         retry_focus = "more_reference_fidelity"
         if "hands_bad" in reject_labels or "hand_bad" in reject_labels:
@@ -1177,7 +1149,35 @@ def next_batch_plan(
                 "arms": bandit_state["arms"],
                 "metric_posts": bandit_state["metric_posts"],
             }
-        ideas.append(
+        recommendation_id = f"local_next_batch_{campaign_row['campaign_id']}_{idx + 1}"
+        item = {
+            "recommendationId": recommendation_id,
+            "recommendationGraphId": None,
+            "status": "proposed",
+            "campaignGraphId": None,
+            "rank": idx + 1,
+            "score": int(recommendation.get("score") or 0),
+            "confidence": recommendation["confidence"],
+            "confidenceReason": recommendation.get("reason") or "",
+            "targetAccount": None,
+            "suggestedRecipe": recipe_hint,
+            "hookGuidance": retry_focus,
+            "captionGuidance": _next_batch_brief(winner_dna_focus),
+            "reasons": [str(recommendation.get("reason") or "local winner DNA")],
+            "risks": [low_data_warning(total_outcomes)]
+            if low_data_warning(total_outcomes)
+            else [],
+            "scoreBreakdown": {
+                "winnerDnaScore": int(recommendation.get("score") or 0),
+                "sampleSize": int(recommendation.get("sample_size") or 0),
+            },
+            "graphEvidence": {
+                "source": "reel_factory.local_next_batch",
+                "recipeBandit": recipe_bandit,
+                "winnerDnaFocus": winner_dna_focus,
+            },
+        }
+        item.update(
             {
                 "index": idx,
                 "campaign": campaign,
@@ -1193,14 +1193,26 @@ def next_batch_plan(
                 "brief": _next_batch_brief(winner_dna_focus),
             }
         )
+        items.append(item)
+    input_hash = hashlib.sha256(
+        json.dumps(items, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
     plan = {
-        "schema": "campaign_factory.next_batch.v2",
+        "schema": "campaign_factory.recommendations.next_batch.v1",
         "campaign": campaign,
-        "count": count,
+        "campaignGraphId": None,
+        "persisted": bool(persist),
+        "scoringVersion": "reel_factory.local_next_batch.v3",
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "count": len(items),
+        "requestedCount": count,
+        "inputHash": input_hash,
+        "items": items,
+        "ideas": items,
         "recipe_bandit": bandit_state
         | {"active": use_bandit, "fallback_recipes": best_recipes},
-        "ideas": ideas,
     }
+    validate_recommendation_next_batch(plan)
     if persist:
         from winner_dna import persist_recommendation_decision
 
@@ -1212,7 +1224,7 @@ def next_batch_plan(
         )
         if decision_id:
             plan["decision_id"] = decision_id
-            for idea in ideas:
+            for idea in items:
                 idea["decision_id"] = decision_id
                 idea["recommendation"]["decision_id"] = decision_id
     return plan

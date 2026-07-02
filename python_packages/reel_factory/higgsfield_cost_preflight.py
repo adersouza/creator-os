@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +108,42 @@ def _parse_int(value: Any) -> int | None:
         return None
 
 
+def _campaign_cost_db_path(root: Path) -> Path:
+    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
+    if env_path:
+        return Path(env_path).expanduser()
+    root = Path(root).expanduser().resolve()
+    candidates = [
+        root / "campaign_factory.sqlite",
+        root.parent / "campaign_factory" / "campaign_factory.sqlite",
+        Path(__file__).resolve().parent.parent
+        / "campaign_factory"
+        / "campaign_factory.sqlite",
+    ]
+    return candidates[0] if candidates[0].exists() else candidates[-1]
+
+
+def _spent_today_usd(root: Path, *, now: datetime.datetime | None = None) -> float:
+    db_path = _campaign_cost_db_path(root)
+    if not db_path.exists():
+        return 0.0
+    now = now or datetime.datetime.now(datetime.UTC)
+    day = now.date().isoformat()
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(estimated_cost_usd), 0)
+                FROM ai_cost_events
+                WHERE substr(created_at, 1, 10) = ?
+                """,
+                (day,),
+            ).fetchone()
+    except sqlite3.Error:
+        return 0.0
+    return float(row[0] or 0.0)
+
+
 def check_higgsfield_cost_preflight(
     *,
     asset_count: int,
@@ -115,7 +153,8 @@ def check_higgsfield_cost_preflight(
     root: str | Path = ".",
 ) -> dict[str, Any]:
     provider = provider or CliBalanceProvider()
-    config = load_config(Path(root))
+    root_path = Path(root)
+    config = load_config(root_path)
     daily_budget = _env_float("HIGGSFIELD_DAILY_BUDGET_USD")
     if daily_budget is None:
         daily_budget = _parse_float(config.get("dailyBudgetUsd"))
@@ -144,10 +183,12 @@ def check_higgsfield_cost_preflight(
         blocking_reasons.append(balance_error or "balance_unavailable")
     elif minimum_balance is not None and balance < minimum_balance:
         blocking_reasons.append("minimum_balance_not_met")
+    spent_today = _spent_today_usd(root_path)
+    projected_daily_spend = spent_today + (estimated_cost_usd or 0.0)
     if (
         estimated_cost_usd is not None
         and daily_budget is not None
-        and estimated_cost_usd > daily_budget
+        and projected_daily_spend > daily_budget
     ):
         blocking_reasons.append("estimated_cost_exceeds_daily_budget")
     if allow_unbudgeted_local_test:
@@ -163,6 +204,8 @@ def check_higgsfield_cost_preflight(
             "perRunMaxAssets": max_assets,
             "minimumBalanceUsd": minimum_balance,
             "estimatedCostUsd": estimated_cost_usd,
+            "spentTodayUsd": round(spent_today, 4),
+            "projectedDailySpendUsd": round(projected_daily_spend, 4),
             "assetCount": asset_count,
         },
         "allowed": allowed,

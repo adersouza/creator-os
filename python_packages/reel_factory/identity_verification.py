@@ -117,6 +117,18 @@ def _reference_set_path(root: Path, creator: str) -> Path:
     return root / "identity_references" / f"{slug}.json"
 
 
+def _identity_reference_root(root: Path) -> Path:
+    return (root / "identity_references").resolve()
+
+
+def _output_allowed(root: Path, output_path: Path) -> bool:
+    try:
+        output_path.resolve().relative_to(_identity_reference_root(root))
+    except ValueError:
+        return False
+    return True
+
+
 def _identity_reference_failure_reason(error: str, creator: str) -> str:
     if error == "reference_set_missing":
         return f"no identity reference set for {creator} - run identity-reference-build"
@@ -131,36 +143,67 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _media_frame_for_embedding(media_path: Path) -> Path:
+def _media_frames_for_embedding(media_path: Path, *, samples: int = 5) -> list[Path]:
     if media_path.suffix.lower() in IMAGE_EXTS:
-        return media_path
+        return [media_path]
     if media_path.suffix.lower() not in VIDEO_EXTS:
-        return media_path
+        return [media_path]
     ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
     tmp = Path(tempfile.mkdtemp(prefix="identity_verify_"))
-    frame = tmp / "frame.jpg"
-    subprocess.run(
-        [
-            ffmpeg,
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-ss",
-            "0.500",
-            "-i",
-            str(media_path),
-            "-frames:v",
-            "1",
-            "-y",
-            str(frame),
-        ],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=60,
-    )
-    return frame
+    duration = _probe_duration(media_path)
+    pcts = [0.15, 0.35, 0.55, 0.75, 0.90][: max(1, samples)]
+    frames: list[Path] = []
+    for idx, pct in enumerate(pcts):
+        frame = tmp / f"frame_{idx}.jpg"
+        timestamp = max(0.05, duration * pct) if duration else 0.5 + idx
+        subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{timestamp:.3f}",
+                "-i",
+                str(media_path),
+                "-frames:v",
+                "1",
+                "-y",
+                str(frame),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+        )
+        frames.append(frame)
+    return frames
+
+
+def _probe_duration(media_path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        raw = subprocess.check_output(
+            [
+                ffprobe,
+                "-v",
+                "0",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(media_path),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        return float(raw.decode().strip())
+    except ValueError:
+        return None
 
 
 def _load_reference_embeddings(path: Path) -> tuple[str, list[list[float]], str | None]:
@@ -226,6 +269,8 @@ def build_reference_set(
         "embeddings": [],
         "failureReason": "",
     }
+    if not _output_allowed(root_path, output_path):
+        return {**base, "failureReason": "output_must_be_under_identity_references"}
     if not input_path.exists() or not input_path.is_dir():
         return {**base, "failureReason": "input_dir_missing"}
     ok, reason = provider.available()
@@ -277,10 +322,25 @@ def build_reference_set(
         "failureReason": "",
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(output_path.parent, 0o700)
     output_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    os.chmod(output_path, 0o600)
     return payload
+
+
+def delete_reference_set(*, creator: str, root: str | Path = ".") -> dict[str, Any]:
+    path = _reference_set_path(Path(root).resolve(), creator)
+    existed = path.exists()
+    if existed:
+        path.unlink()
+    return {
+        "schema": REFERENCE_SET_SCHEMA,
+        "creator": creator,
+        "referenceSetPath": str(path),
+        "deleted": existed,
+    }
 
 
 def identity_health(
@@ -323,6 +383,7 @@ def verify_identity(
     root: str | Path = ".",
     threshold: float = DEFAULT_THRESHOLD,
     provider: IdentityProvider | None = None,
+    frame_extractor=None,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     path = Path(media_path)
@@ -352,18 +413,29 @@ def verify_identity(
                 reference_error, creator
             ),
         }
-    frame = _media_frame_for_embedding(path)
-    if not frame.exists():
+    frames = (
+        [Path(frame) for frame in frame_extractor(path)]
+        if frame_extractor
+        else _media_frames_for_embedding(path)
+    )
+    if not frames or any(not frame.exists() for frame in frames):
         return {**base, "failureReason": "frame_extract_failed"}
-    embedding = provider.embedding(frame)
-    if not embedding:
-        return {**base, "failureReason": "face_embedding_missing"}
-    score = max((cosine_similarity(embedding, ref) for ref in references), default=0.0)
+    frame_scores = []
+    for frame in frames:
+        embedding = provider.embedding(frame)
+        if not embedding:
+            return {**base, "failureReason": "face_embedding_missing"}
+        frame_scores.append(
+            max((cosine_similarity(embedding, ref) for ref in references), default=0.0)
+        )
+    score = min(frame_scores) if frame_scores else 0.0
     status = "passed" if score >= threshold else "failed"
     return {
         **base,
         "status": status,
         "score": round(score, 6),
+        "frameCount": len(frame_scores),
+        "frameScores": [round(value, 6) for value in frame_scores],
         "failureReason": ""
         if status == "passed"
         else "identity_similarity_below_threshold",
@@ -396,6 +468,14 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--root", default=".")
     build.add_argument("--output")
     build.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    build.add_argument("--json-embeddings", action="store_true")
+
+    delete = sub.add_parser(
+        "identity-reference-delete",
+        help="delete a local identity reference embedding set",
+    )
+    delete.add_argument("--creator", required=True)
+    delete.add_argument("--root", default=".")
 
     health = sub.add_parser(
         "identity-health",
@@ -408,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     if raw_args and raw_args[0] not in {
         "verify",
         "identity-reference-build",
+        "identity-reference-delete",
         "identity-health",
         "-h",
         "--help",
@@ -422,6 +503,12 @@ def main(argv: list[str] | None = None) -> int:
             output=args.output,
             threshold=args.threshold,
         )
+        if not args.json_embeddings:
+            result = {
+                key: value for key, value in result.items() if key != "embeddings"
+            }
+    elif args.command == "identity-reference-delete":
+        result = delete_reference_set(creator=args.creator, root=args.root)
     elif args.command == "identity-health":
         result = identity_health(creator=args.creator, root=args.root)
     elif args.command == "verify":

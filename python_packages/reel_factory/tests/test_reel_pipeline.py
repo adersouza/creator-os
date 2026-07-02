@@ -51,6 +51,8 @@ from reel_pipeline import (
 )
 from render_plan import RenderPlan
 
+from pipeline_contracts import ContractValidationError, validate_generated_asset_lineage
+
 
 class ReelPipelineTests(unittest.TestCase):
     def test_recipe_default_font_is_instagram_sans_condensed(self):
@@ -1646,9 +1648,21 @@ class ReelPipelineTests(unittest.TestCase):
                 source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid"
             )
             self.assertEqual(data["source"]["sourceLineagePath"], str(source_lineage))
+            self.assertEqual(data["schema"], "reel_factory.generated_asset_lineage.v1")
             self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
             self.assertEqual(data["render"]["renderJobKey"], "job")
             self.assertTrue(data["review"]["humanReviewRequired"])
+
+    def test_generated_asset_lineage_contract_rejects_malformed_payload(self):
+        with self.assertRaises(ContractValidationError):
+            validate_generated_asset_lineage(
+                {
+                    "schema": "reel_factory.generated_asset_lineage.v1",
+                    "source": {},
+                    "generation": {},
+                    "review": {},
+                }
+            )
 
     def test_required_similarity_audit_writes_sidecar_and_blocks_failures(self):
         with tempfile.TemporaryDirectory() as tmp:

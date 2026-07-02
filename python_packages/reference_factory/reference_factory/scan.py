@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlite3 import Connection
 
 from .config import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
-from .identity import stable_reference_id
+from .identity import content_hash, stable_reference_id
 from .timeutil import now_iso
 
 
@@ -37,16 +37,30 @@ def scan_source(conn: Connection, source_root: Path) -> dict[str, object]:
         kind = classify_file(path)
         account = path.parent.name if path.parent != source_root else None
         reference_id = stable_reference_id(path, stat.st_size)
+        try:
+            file_content_hash = content_hash(path)
+        except OSError:
+            continue
         ext = path.suffix.lower().lstrip(".") or "_none"
         existing = conn.execute(
             """
             SELECT reference_id
             FROM source_files
-            WHERE reference_id = ? OR path = ?
-            ORDER BY CASE WHEN reference_id = ? THEN 0 ELSE 1 END
+            WHERE content_hash = ? OR reference_id = ? OR path = ?
+            ORDER BY CASE
+                WHEN content_hash = ? THEN 0
+                WHEN reference_id = ? THEN 1
+                ELSE 2
+            END
             LIMIT 1
             """,
-            (reference_id, str(path), reference_id),
+            (
+                file_content_hash,
+                reference_id,
+                str(path),
+                file_content_hash,
+                reference_id,
+            ),
         ).fetchone()
         stored_reference_id = existing["reference_id"] if existing else reference_id
         conn.execute(
@@ -55,7 +69,7 @@ def scan_source(conn: Connection, source_root: Path) -> dict[str, object]:
               reference_id, path, account, file_name, extension, kind,
               size_bytes, mtime, path_hash, content_hash, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(reference_id) DO UPDATE SET
               path = excluded.path,
               account = excluded.account,
@@ -64,6 +78,7 @@ def scan_source(conn: Connection, source_root: Path) -> dict[str, object]:
               kind = excluded.kind,
               size_bytes = excluded.size_bytes,
               mtime = excluded.mtime,
+              content_hash = excluded.content_hash,
               updated_at = excluded.updated_at
             """,
             (
@@ -76,6 +91,7 @@ def scan_source(conn: Connection, source_root: Path) -> dict[str, object]:
                 stat.st_size,
                 timestamp_from_stat(stat.st_mtime),
                 stored_reference_id.removeprefix("ref_"),
+                file_content_hash,
                 timestamp,
                 timestamp,
             ),

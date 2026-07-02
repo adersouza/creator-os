@@ -77,6 +77,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         prompt_run_id TEXT,
         source_reference_id TEXT,
         soul_id TEXT,
+        audio_track_id TEXT,
         platform TEXT,
         account TEXT,
         posted_at TEXT,
@@ -139,6 +140,7 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         grid_source INTEGER NOT NULL DEFAULT 0,
         caption_style TEXT,
         hook_type TEXT,
+        audio_track_id TEXT,
         body_style TEXT,
         features_json TEXT NOT NULL DEFAULT '{}',
         created_at INTEGER NOT NULL,
@@ -247,24 +249,36 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         "reel_outcomes",
         {
             "campaign_id": "TEXT",
+            "campaign_output_id": "TEXT",
+            "job_key": "TEXT",
             "prompt_run_id": "TEXT",
             "source_reference_id": "TEXT",
             "soul_id": "TEXT",
+            "audio_track_id": "TEXT",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "reel_features",
+        {
+            "audio_track_id": "TEXT",
         },
     )
     conn.execute("UPDATE reel_outcomes SET account = '' WHERE account IS NULL")
     conn.execute("UPDATE reel_outcomes SET posted_at = '' WHERE posted_at IS NULL")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_campaign_output ON reel_outcomes(campaign_output_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_job_key ON reel_outcomes(job_key)"
+    )
     conn.commit()
 
 
 def _ensure_columns(
     conn: sqlite3.Connection, table: str, columns: dict[str, str]
 ) -> None:
-    exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    if not exists:
+    if not _table_exists(conn, table):
         return
     existing = {
         row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -272,6 +286,15 @@ def _ensure_columns(
     for name, ddl in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+    )
 
 
 def validate_review(
@@ -464,16 +487,18 @@ def data_quality_from_connection(
         FROM reel_outcomes
         """
     ).fetchone()
-    review_row = conn.execute(
-        """
-        SELECT
-          COUNT(*) AS reviewed,
-          SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
-          COUNT(DISTINCT primary_reason) AS distinct_labels
-        FROM operator_ratings
-        WHERE decision IN ('approve','reject','maybe')
-        """
-    ).fetchone()
+    review_row = None
+    if _table_exists(conn, "operator_ratings"):
+        review_row = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS reviewed,
+              SUM(CASE WHEN decision IN ('approve','reject','maybe') AND primary_reason IS NOT NULL THEN 1 ELSE 0 END) AS with_reasons,
+              COUNT(DISTINCT primary_reason) AS distinct_labels
+            FROM operator_ratings
+            WHERE decision IN ('approve','reject','maybe')
+            """
+        ).fetchone()
     outcome_total = outcome_row["total"] if outcome_row else 0
     outcome_with_metrics = outcome_row["with_metrics"] if outcome_row else 0
     reviewed = review_row["reviewed"] if review_row else 0

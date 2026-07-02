@@ -25,7 +25,14 @@ from torchvision import transforms
 
 MODEL_PATH = os.environ.get(
     "SSCD_MODEL_PATH",
-    str(Path(__file__).resolve().parent / "models" / "sscd_disc_mixup.torchscript.pt"),
+    os.environ.get(
+        "CONTENTFORGE_SSCD_MODEL_PATH",
+        str(
+            Path(__file__).resolve().parent
+            / "models"
+            / "sscd_disc_mixup.torchscript.pt"
+        ),
+    ),
 )
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
 FFMPEG = (
@@ -69,7 +76,7 @@ def model():
     if _model is None:
         if not Path(MODEL_PATH).exists():
             raise FileNotFoundError(
-                f"SSCD model not found at {MODEL_PATH}. Set SSCD_MODEL_PATH to the torchscript model."
+                f"SSCD model not found at {MODEL_PATH}. Set SSCD_MODEL_PATH or CONTENTFORGE_SSCD_MODEL_PATH to the torchscript model."
             )
         _model = torch.jit.load(MODEL_PATH)
         _model.eval()

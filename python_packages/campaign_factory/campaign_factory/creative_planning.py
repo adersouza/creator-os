@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import validate_creative_plan
+
 from .persistence import json_load
 
 CREATIVE_PLAN_STATUSES = {
@@ -300,7 +302,7 @@ class CreativePlanningRepository:
             row, linked_campaign=linked_campaign, dashboard=dashboard
         )
         next_actions = self.creative_plan_next_actions(row, counts)
-        return {
+        payload = {
             "schema": "campaign_factory.creative_plan.v1",
             "id": row["id"],
             "name": row["name"],
@@ -318,6 +320,8 @@ class CreativePlanningRepository:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        validate_creative_plan(payload)
+        return payload
 
     def creative_plan_counts(
         self,

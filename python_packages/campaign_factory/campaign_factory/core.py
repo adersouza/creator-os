@@ -597,8 +597,14 @@ def _normalize_distribution_surface(value: str | None) -> str:
 
 
 def _normalize_schedule_mode(value: str | None) -> str:
-    normalized = (value or "draft").strip().lower().replace("-", "_")
-    return normalized if normalized in {"draft", "preview", "live"} else "draft"
+    if value is None or not str(value).strip():
+        return "draft"
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized not in {"draft", "preview", "live"}:
+        raise ValueError(
+            f"unknown schedule mode {value!r}; expected draft, preview, or live"
+        )
+    return normalized
 
 
 SECRET_KEY_PARTS = (
@@ -1346,9 +1352,14 @@ class CampaignFactory:
         return self.services.exception_payload(row)
 
     def jobs_for_campaign(
-        self, campaign_slug: str, limit: int = 100
+        self,
+        campaign_slug: str,
+        limit: int = 100,
+        statuses: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        return self.services.jobs_for_campaign(campaign_slug, limit=limit)
+        return self.services.jobs_for_campaign(
+            campaign_slug, limit=limit, statuses=statuses
+        )
 
     def import_reference_bank(
         self, bank_path: Path, prompt_pack_path: Path | None = None

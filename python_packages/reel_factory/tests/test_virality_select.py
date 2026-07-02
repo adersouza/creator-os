@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from campaign_store import ensure_campaign_schema
 from virality_select import predict_engagement, rank_candidates, select_best
-from winner_dna import connect
+from winner_dna import connect, refresh_winner_dna
 
 
 def _seed(root: Path) -> None:
@@ -50,6 +51,77 @@ def test_higher_engagement_candidate_wins(tmp_path: Path) -> None:
     ranked = rank_candidates(candidates, tmp_path)
     assert [c["id"] for c in ranked] == ["beach_one", "office_one"]
     assert ranked[0]["score"] > ranked[1]["score"]
+
+
+def test_rate_reward_beats_higher_raw_view_volume(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    ensure_campaign_schema(conn)
+    for output_path, scene, views, likes in [
+        ("high_rate.mp4", "high_rate", 10, 10),
+        ("high_volume.mp4", "high_volume", 100000, 100),
+    ]:
+        conn.execute(
+            """
+            INSERT INTO campaign_outputs (
+                campaign_output_id, output_path, job_key, caption_text, recipe,
+                review_state, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"co_{scene}",
+                output_path,
+                f"job_{scene}",
+                "hook",
+                "recipe",
+                "approved",
+                0,
+                0,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO reel_features (
+                feature_id, output_path, scene, features_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (f"feature_{scene}", output_path, scene, "{}", 0, 0),
+        )
+        conn.execute(
+            """
+            INSERT INTO reel_outcomes (
+                outcome_id, filename, output_path, campaign_output_id, platform,
+                account, posted_at, views, likes, comments, shares, saves, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"outcome_{scene}",
+                output_path,
+                output_path,
+                f"co_{scene}",
+                "ig",
+                "acct",
+                "2026-07-01",
+                views,
+                likes,
+                0,
+                0,
+                0,
+                0,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    refresh_winner_dna(tmp_path)
+
+    ranked = rank_candidates(
+        [
+            {"id": "raw_volume", "features": {"scene": "high_volume"}},
+            {"id": "rate", "features": {"scene": "high_rate"}},
+        ],
+        tmp_path,
+    )
+
+    assert [candidate["id"] for candidate in ranked] == ["rate", "raw_volume"]
 
 
 def test_scorer_hook_blends_external_signal(tmp_path: Path) -> None:
