@@ -117,9 +117,11 @@ def record_ai_cost(
     estimated_cost_usd: float | None = None,
     metadata: dict[str, Any] | None = None,
     source_event_key: str | None = None,
+    ensure_schema: bool = True,
 ) -> str:
     """Record an AI cost event and return the event ID."""
-    ensure_cost_table(conn)
+    if ensure_schema:
+        ensure_cost_table(conn)
     if source_event_key:
         existing = conn.execute(
             "SELECT id FROM ai_cost_events WHERE source_event_key = ?",

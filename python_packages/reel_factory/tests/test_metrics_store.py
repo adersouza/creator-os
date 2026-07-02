@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from campaign_store import ensure_campaign_schema
 from manifest import Manifest
 from metrics_store import (
     connect_metrics_db,
@@ -32,6 +33,22 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
 
             self.assertEqual(journal_mode, "wal")
             self.assertEqual(busy_timeout, 30000)
+
+    def test_campaign_output_metrics_filename_lookup_uses_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect_metrics_db(Path(tmp) / "manifest.sqlite")
+            ensure_campaign_schema(conn)
+            ensure_metrics_schema(conn)
+
+            plan = "\n".join(
+                row[3]
+                for row in conn.execute(
+                    "EXPLAIN QUERY PLAN SELECT * FROM campaign_outputs WHERE metrics_filename=?",
+                    ("posted.mp4",),
+                ).fetchall()
+            )
+
+            self.assertIn("idx_campaign_outputs_metrics_filename", plan)
 
     def _variation(
         self,

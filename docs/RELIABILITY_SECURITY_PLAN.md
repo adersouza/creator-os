@@ -353,7 +353,7 @@ missing ones" pass run at store-open (or real `user_version` migrations). Cover 
 unchanged.
 **STOP-and-ask** before any column DROP/RENAME on data you can't safely migrate headless.
 
-### 5.3 Add the missing hot-path indexes  ·  MED · S-M · [ ]
+### 5.3 Add the missing hot-path indexes  ·  MED · S-M · [x]
 **Branch:** `codex/db-hot-indexes`
 **Why:** unindexed hot lookups: leading-wildcard `WHERE output_path LIKE '%/'||filename` run per-row during import
 (`manifest.py:446`, `metrics_store.py:859,864`); `posting_slots` filtered by `rendered_output_path` (no index) and
@@ -460,7 +460,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 4.2 dedupe schema copies + validator footgun — validator no longer shadows its input naming, and contract tests assert canonical/package schema copies stay byte-identical; focused contract tests passed.
 - [x] 5.1 db connect timeout + WAL — metrics_store manifest DB openers now share a 30s/WAL/busy-timeout helper, with source imports retaining a 30s source timeout; focused metrics tests passed.
 - [ ] 5.2 schema migrations
-- [ ] 5.3 hot-path indexes
+- [x] 5.3 hot-path indexes — posting slots now index rendered paths and bare fingerprints, campaign outputs index metrics filenames with exact lookups preferred before legacy suffix fallback, and Campaign Factory lineage cost recording avoids per-event schema DDL; focused tests passed.
 - [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
 - [ ] 6.1 delete dead code
 - [ ] 6.2 consolidate helpers + config drift

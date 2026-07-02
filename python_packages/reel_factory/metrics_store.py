@@ -110,9 +110,14 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 (f"%/{filename}",),
             ).fetchone()
             campaign_output_row = conn.execute(
-                "SELECT * FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
-                (f"%/{filename}", filename),
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
             ).fetchone()
+            if not campaign_output_row:
+                campaign_output_row = conn.execute(
+                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+                    (f"%/{filename}",),
+                ).fetchone()
             output_path = output_row["output_path"] if output_row else None
             if not output_path and campaign_output_row:
                 output_path = campaign_output_row["output_path"]
@@ -242,9 +247,14 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 (f"%/{filename}",),
             ).fetchone()
             campaign_output = conn.execute(
-                "SELECT * FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
-                (f"%/{filename}", filename),
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
             ).fetchone()
+            if not campaign_output:
+                campaign_output = conn.execute(
+                    "SELECT * FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+                    (f"%/{filename}",),
+                ).fetchone()
             if not variation and not campaign_output:
                 ignored.append(filename)
             if variation and not campaign_output:
@@ -493,9 +503,14 @@ def refresh_outcomes_from_performance_sync(
             continue
         output_path = str(_project_path(Path(root), output_path).resolve())
         campaign_output = conn.execute(
-            "SELECT * FROM campaign_outputs WHERE output_path=? OR metrics_filename=? LIMIT 1",
-            (output_path, filename),
+            "SELECT * FROM campaign_outputs WHERE output_path=? LIMIT 1",
+            (output_path,),
         ).fetchone()
+        if not campaign_output:
+            campaign_output = conn.execute(
+                "SELECT * FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+                (filename,),
+            ).fetchone()
         conn.execute(
             """
             INSERT INTO campaign_outputs (
@@ -986,9 +1001,14 @@ def _resolve_rendered_path(
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
     row = conn.execute(
-        "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? OR metrics_filename=? LIMIT 1",
-        (f"%/{filename}", filename),
+        "SELECT output_path FROM campaign_outputs WHERE metrics_filename=? LIMIT 1",
+        (filename,),
     ).fetchone()
+    if not row:
+        row = conn.execute(
+            "SELECT output_path FROM campaign_outputs WHERE output_path LIKE ? LIMIT 1",
+            (f"%/{filename}",),
+        ).fetchone()
     if row and row["output_path"]:
         return _project_path(root, row["output_path"])
     direct = _project_path(root, filename)

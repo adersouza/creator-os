@@ -300,6 +300,7 @@ class FinishedVideoRepository:
                         "model": lineage.get("model"),
                     },
                     source_event_key=f"lineage:{lineage_hash}:grok:image_prompt",
+                    ensure_schema=False,
                 )
             generation = lineage.get("generation")
             if isinstance(generation, dict):
@@ -316,6 +317,7 @@ class FinishedVideoRepository:
                             "modelProfile": generation.get("modelProfile"),
                         },
                         source_event_key=f"lineage:{lineage_hash}:higgsfield:soul_grid",
+                        ensure_schema=False,
                     )
                 if "kling" in tool:
                     self._record_ai_cost(
@@ -329,6 +331,7 @@ class FinishedVideoRepository:
                             "modelProfile": generation.get("modelProfile"),
                         },
                         source_event_key=f"lineage:{lineage_hash}:kling:video_animate",
+                        ensure_schema=False,
                     )
         except Exception:
             pass  # Cost tracking is best-effort; never block the import pipeline

@@ -287,6 +287,7 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id);
     CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key);
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_campaign_outputs_metrics_filename ON campaign_outputs(metrics_filename);
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)

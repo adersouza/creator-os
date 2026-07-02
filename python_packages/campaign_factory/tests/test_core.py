@@ -240,6 +240,39 @@ def test_finished_video_lineage_cost_recorder_records_generation_costs_once(
     ]
 
 
+def test_finished_video_lineage_cost_recorder_ensures_table_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    factory = make_factory(tmp_path)
+    ensure_calls = []
+    record_kwargs = []
+
+    def fake_ensure(conn: sqlite3.Connection) -> None:
+        ensure_calls.append(conn)
+
+    def fake_record(conn: sqlite3.Connection, **kwargs: Any) -> str:
+        record_kwargs.append(kwargs)
+        return str(kwargs["source_event_key"])
+
+    repo = factory.services.finished_video
+    monkeypatch.setattr(repo, "_ensure_cost_table", fake_ensure)
+    monkeypatch.setattr(repo, "_record_ai_cost", fake_record)
+    try:
+        factory._record_lineage_costs(
+            {
+                "campaign": "camp_1",
+                "usage": {"input_tokens": 100, "output_tokens": 25},
+                "generation": {"tool": "higgsfield_kling_cli"},
+            }
+        )
+    finally:
+        factory.conn.close()
+
+    assert len(ensure_calls) == 1
+    assert len(record_kwargs) == 3
+    assert {item["ensure_schema"] for item in record_kwargs} == {False}
+
+
 def test_caption_outcome_context_preserves_additive_scene_fields():
     existing = {
         "schema": "campaign_factory.caption_outcome_context.v1",

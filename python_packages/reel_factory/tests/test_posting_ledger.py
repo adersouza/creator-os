@@ -21,6 +21,17 @@ LARISSA_SOUL_ID = "44326567-b12c-410c-95b7-31891bb0629b"
 
 
 class PostingLedgerTests(unittest.TestCase):
+    def test_posting_slots_have_hot_path_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = connect_campaign_store(Path(tmp))
+            indexes = {
+                row["name"]
+                for row in conn.execute("PRAGMA index_list(posting_slots)").fetchall()
+            }
+
+            self.assertIn("idx_posting_slots_rendered_output", indexes)
+            self.assertIn("idx_posting_slots_content_fingerprint", indexes)
+
     def test_pilot_plan_creates_105_slots_and_enforces_quota(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

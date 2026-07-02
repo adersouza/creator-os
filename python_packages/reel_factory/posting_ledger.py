@@ -112,6 +112,8 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_posting_slots_campaign ON posting_slots(campaign_id, date, account_id);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_status ON posting_slots(post_status, review_status);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_fingerprint ON posting_slots(account_id, content_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_rendered_output ON posting_slots(rendered_output_path);
+    CREATE INDEX IF NOT EXISTS idx_posting_slots_content_fingerprint ON posting_slots(content_fingerprint);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_cluster ON posting_slots(campaign_id, perceptual_cluster_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source_family ON posting_slots(campaign_id, source_family_id, date);
     CREATE INDEX IF NOT EXISTS idx_posting_slots_source ON posting_slots(account_id, source_reference_id, date);
