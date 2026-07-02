@@ -28,6 +28,7 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from campaign_store import link_campaign_output
@@ -71,6 +72,8 @@ from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 
 from pipeline_contracts import validate_generated_asset_lineage
+
+AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -2771,12 +2774,16 @@ async def amain(args):
             try:
                 from audio_mux import mux_root
 
+                selected_audio_path, audio_selection = _selected_audio_for_mux(
+                    root, seed=args.seed, explicit_audio_path=args.audio_path
+                )
                 mux_summary = mux_root(
                     root,
                     audio_tag=args.audio_tag,
                     seed=args.seed,
-                    selected_audio_path=args.audio_path,
+                    selected_audio_path=selected_audio_path,
                 )
+                _write_mux_audio_intents(mux_summary, audio_selection)
                 log.info(f"audio mux: {json.dumps(mux_summary)}")
             except Exception as e:
                 log.error(f"audio mux failed: {e}")
@@ -2828,6 +2835,101 @@ async def amain(args):
             log.info(f"qc: {json.dumps(qc_summary)}")
         except Exception as e:
             log.error(f"qc pass failed: {e}")
+
+
+def _resolve_audio_path(root: Path, value: object) -> Path | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    path = Path(text)
+    return path if path.is_absolute() else root / path
+
+
+def _audio_selection_local_path(
+    root: Path, selection: dict[str, Any] | None
+) -> Path | None:
+    if not isinstance(selection, dict):
+        return None
+    containers: list[dict[str, Any]] = [selection]
+    metadata = selection.get("metadata")
+    if isinstance(metadata, dict):
+        containers.append(metadata)
+    for container in containers:
+        for key in AUDIO_SELECTION_PATH_KEYS:
+            path = _resolve_audio_path(root, container.get(key))
+            if path:
+                return path
+    return None
+
+
+def _manual_audio_selection(audio_path: str | Path) -> dict[str, Any]:
+    path = Path(audio_path)
+    return {
+        "schema": "reel_factory.audio_provider.v1.selection",
+        "track_id": f"manual_{path.stem}",
+        "track_name": path.stem,
+        "source": "manual_audio_path",
+        "selected_reason": "manual_audio_path_override",
+        "local_path": str(path),
+    }
+
+
+def _selected_audio_for_mux(
+    root: Path, *, seed: int, explicit_audio_path: str | None
+) -> tuple[str | None, dict[str, Any] | None]:
+    if explicit_audio_path:
+        return explicit_audio_path, _manual_audio_selection(explicit_audio_path)
+    try:
+        from audio_provider import select_audio as select_ranked_audio
+    except ImportError:
+        return None, None
+    try:
+        selection = select_ranked_audio(root, mode="AUTO_TRENDING", seed=seed)
+    except FileNotFoundError:
+        return None, None
+    path = _audio_selection_local_path(root, selection)
+    if not path or not path.exists():
+        return None, selection
+    selection.setdefault("local_path", str(path))
+    return str(path), selection
+
+
+def _write_mux_audio_intents(
+    mux_summary: dict[str, Any], ranked_selection: dict[str, Any] | None
+) -> None:
+    try:
+        from audio_intent import write_audio_intent
+    except ImportError:
+        return
+    for track in mux_summary.get("tracks") or []:
+        if not isinstance(track, dict):
+            continue
+        output = track.get("output")
+        if not output:
+            continue
+        selection = dict(ranked_selection or {})
+        if not selection:
+            audio_path = str(track.get("audio_path") or "")
+            selection = {
+                "schema": "reel_factory.audio_provider.v1.selection",
+                "track_id": str(track.get("track_id") or Path(audio_path).stem),
+                "track_name": Path(audio_path).stem,
+                "source": "local_audio_library",
+                "selected_reason": "audio_mux_random_fallback",
+                "local_path": audio_path,
+            }
+        try:
+            write_audio_intent(
+                Path(str(output)),
+                mode="native_trending_audio",
+                platform="instagram_reels",
+                notes="Audio selected during local mux; live schedule remains blocked.",
+                audio_selection=selection,
+            )
+        except Exception as exc:
+            log.warning(f"audio intent write failed for {output}: {exc}")
 
 
 def main():

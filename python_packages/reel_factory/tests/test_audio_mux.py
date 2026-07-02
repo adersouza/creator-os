@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import audio_mux
+from audio_intent import write_audio_intent
 from audio_mux import build_mux_cmd, mux_root
 
 
@@ -53,3 +54,37 @@ def test_mux_root_uses_selected_audio_path(monkeypatch, tmp_path: Path) -> None:
 
     assert result["count"] == 1
     assert used == [audio]
+    assert result["tracks"][0]["audio_path"] == str(audio)
+
+
+def test_mux_root_selected_audio_path_overrides_sidecar(
+    monkeypatch, tmp_path: Path
+) -> None:
+    root = tmp_path
+    video = root / "02_processed" / "clip" / "render.mp4"
+    manual = root / "manual.m4a"
+    sidecar = root / "sidecar.m4a"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    manual.write_bytes(b"manual")
+    sidecar.write_bytes(b"sidecar")
+    write_audio_intent(
+        video,
+        mode="native_trending_audio",
+        audio_selection={"track_id": "sidecar", "local_path": str(sidecar)},
+    )
+    used: list[Path] = []
+
+    monkeypatch.setattr(audio_mux, "audio_stream_count", lambda _path: 0)
+    monkeypatch.setattr(audio_mux, "duration_seconds", lambda _path: 5.0)
+
+    def fake_mux(video_path, audio_path, **_kwargs):
+        used.append(Path(audio_path))
+        return video_path.with_name("render_audio_manual.mp4")
+
+    monkeypatch.setattr(audio_mux, "mux_audio", fake_mux)
+
+    result = mux_root(root, selected_audio_path=manual)
+
+    assert result["count"] == 1
+    assert used == [manual]

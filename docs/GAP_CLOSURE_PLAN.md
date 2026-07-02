@@ -52,7 +52,9 @@ Explicitly **out of scope** (known, deliberate):
 
 ## Tier 0 — paid-spend path (do first)
 
-### 0.1 Harden reel_factory `download_result` (timeout + size + verify)  ·  HIGH · S-M · [ ]
+### 0.1 Harden reel_factory `download_result` (timeout + size + verify)  ·  HIGH · S-M · [x]
+
+**Status:** `download_result` now streams with timeout, minimum-size/type checks, temp-file cleanup, and atomic replace; focused truncated/timeout tests pass.
 
 **Branch:** `codex/reel-download-verify`
 
@@ -75,7 +77,9 @@ Kling/Soul call = money spent, corrupt/absent asset reported as success.
 `urlopen`; assert failure raises and no asset file persists. Extend
 `tests/test_content_trust_hardening.py`.
 
-### 0.2 Render-pack: async job + idempotency (finish RELIABILITY 3.1/3.2)  ·  HIGH · M · [ ]
+### 0.2 Render-pack: async job + idempotency (finish RELIABILITY 3.1/3.2)  ·  HIGH · M · [x]
+
+**Status:** Render-pack defaults to queued idempotent jobs with sync fallback; focused async dedupe and sync tests pass.
 
 **Branch:** `codex/render-pack-async`
 
@@ -96,7 +100,9 @@ Browser timeout mid-render = work lost, no status; double-click = double work.
 **Tests:** duplicate render-pack click → one job; poll reaches terminal state; sync fallback still
 works. Extend the existing no-spend job tests.
 
-### 0.3 Ranked audio track actually reaches the mux by default  ·  HIGH · M · [ ]
+### 0.3 Ranked audio track actually reaches the mux by default  ·  HIGH · M · [x]
+
+**Status:** Mux selection now honors manual override, ranked local provider tracks, then random fallback, with chosen track sidecars; focused audio tests pass.
 
 **Branch:** `codex/ranked-audio-to-mux`
 
