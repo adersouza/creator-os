@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from audio_intent import read_audio_intent
 from intelligence_store import winner_score
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (

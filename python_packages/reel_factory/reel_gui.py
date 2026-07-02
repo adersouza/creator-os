@@ -64,7 +64,7 @@ from audio_mux import audio_stream_count, mux_root  # noqa
 from audio_intent import AUDIO_INTENT_MODES, read_audio_intent, write_audio_intent  # noqa
 from local_api_auth import install_local_api_auth_middleware, require_local_api_auth  # noqa
 from readiness_check import load_readiness_by_name, run_readiness  # noqa
-from sqlite_utils import connect_sqlite  # noqa
+from reel_factory.sqlite_utils import connect_sqlite  # noqa
 from deprecated_generators import DeprecatedGeneratorError, guard_deprecated_generator  # noqa
 from generate_assets import (  # noqa
     AssetGenerationPlan,

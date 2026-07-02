@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 REVIEW_LABELS = {
     "eyes_bad",

@@ -12,7 +12,7 @@ from typing import Any
 
 from embedding_provider import HASH_MODEL, cosine_similarity, get_embedding_provider
 from intelligence_store import ensure_intelligence_schema
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 
 def connect(root: Path) -> sqlite3.Connection:

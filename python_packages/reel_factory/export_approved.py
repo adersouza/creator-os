@@ -11,7 +11,7 @@ from typing import Any
 from campaign_store import ensure_campaign_schema
 from posting_ledger import content_fingerprint
 from readiness_check import load_readiness_for_output, normalize_platform
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 
 def export_approved(

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from intelligence_store import winner_score
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 ACTIVE_BANKS = [
     "shared_girl_next_door",

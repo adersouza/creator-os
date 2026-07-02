@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 QUEUE_STATES = {"queued", "claimed", "running", "succeeded", "failed", "interrupted"}
 

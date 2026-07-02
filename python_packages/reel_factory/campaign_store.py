@@ -21,7 +21,7 @@ from intelligence_store import (
     low_data_warning,
     validate_review,
 )
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 from pipeline_contracts import validate_recommendation_next_batch
 

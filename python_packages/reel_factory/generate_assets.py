@@ -29,7 +29,7 @@ from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from identity_verification import verify_identity
 from PIL import Image
-from sqlite_utils import connect_sqlite
+from reel_factory.sqlite_utils import connect_sqlite
 
 IMAGE_MODEL = "text2image_soul_v2"
 VIDEO_MODEL = "kling3_0"
