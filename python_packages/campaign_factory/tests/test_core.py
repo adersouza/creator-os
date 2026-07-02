@@ -8956,6 +8956,54 @@ def test_plan_distribution_hydrates_min_gap_from_existing_plan(
         cf.close()
 
 
+def test_plan_distribution_hydrates_window_from_max_min_gap_hours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        model = cf.upsert_model("model", name="Model")
+        account = cf.upsert_account(
+            "ig_1",
+            platform="instagram",
+            external_id="ig_1",
+            model_id=model["id"],
+        )
+        cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
+        cf.conn.execute(
+            """
+            INSERT INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, allowed_days, active, created_at, updated_at)
+            VALUES ('req_ig_1_gap_6', ?, 'Model', 'reel', 'daily', 3, 6,
+                    '[]', 1, '2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00')
+            """,
+            (account["id"],),
+        )
+        existing = datetime(2026, 1, 1, 23, tzinfo=UTC)
+        too_close = existing + timedelta(hours=5)
+        valid = existing + timedelta(hours=7)
+        cf.create_distribution_plan(
+            "asset_1",
+            instagram_account_id="ig_1",
+            planned_window_start=existing.isoformat(),
+        )
+        monkeypatch.setattr(
+            cf.services.distribution,
+            "distribution_slots",
+            lambda _hours, _count: [too_close, valid],
+        )
+
+        result = cf.plan_distribution("may", user_id="user_1", replace=False)
+
+        assert result["planned"][0]["plannedWindowStart"] == valid.isoformat()
+    finally:
+        cf.close()
+
+
 def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

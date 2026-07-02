@@ -292,7 +292,9 @@ item specced.
 **Tests:** tile shows ledger-derived value / hides when absent; skeleton renders during pending
 fetch. Extend the contentforge node tests.
 
-### 2.3 Cadence hydration window honors `min_gap_hours` (edge from HARDENING 0.1)  ·  LOW-MED · S · [ ]
+### 2.3 Cadence hydration window honors `min_gap_hours` (edge from HARDENING 0.1)  ·  LOW-MED · S · [x]
+
+**Status:** Distribution cadence hydration now uses the max active `min_gap_hours` with a 4h floor, so persisted slots inside longer account gaps are loaded and skipped.
 
 **Branch:** `codex/hydration-window`
 
@@ -334,7 +336,7 @@ everything goes on `codex/gap-closure-fast`. Use them as commit-message prefixes
 - [x] 1.5 import metrics to reference record — source metrics columns are migrated, populated from info-json/archive metadata, and backfilled from existing sidecars.
 - [x] 2.1 launcher onboarding fix — the `.command` launcher exports loopback-only dev auth, prints the bypass/token hint, and keeps auth enforcement unchanged.
 - [x] 2.2 CF cost tile from ledger + loading skeleton — review summary uses dashboard spend, omits unavailable cost, and shows skeleton tiles during scan load.
-- [ ] 2.3 hydration window honors max `min_gap_hours`
+- [x] 2.3 hydration window honors max `min_gap_hours` — persisted-slot hydration uses max active account gap, and the 6h-gap/5h-away regression rejects correctly.
 
 ## Verified-fine in the 2026-07-02 pass (do not re-litigate)
 
