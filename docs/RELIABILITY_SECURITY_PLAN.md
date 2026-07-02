@@ -395,7 +395,7 @@ touches it.
 operator-invoked; confirm per file.
 **Tests:** suite still green after removal (proves zero importers).
 
-### 6.2 Consolidate drifted `_load_json`/`_read_json`/`slugify` + fix config drift  ·  LOW · M · [ ]
+### 6.2 Consolidate drifted `_load_json`/`_read_json`/`slugify` + fix config drift  ·  LOW · M · [x]
 **Branch:** `codex/consolidate-helpers-config`
 **Why:** `_load_json` has three incompatible contracts under one name — returns `None` (`metrics_store.py:942`,
 `caption_bank.py:813`), returns `[]` and raises on bad JSON (`audio_provider.py:73`), or raises ValueError
@@ -405,8 +405,8 @@ operator-invoked; confirm per file.
 effect; paid-budget vars `HIGGSFIELD_DAILY_BUDGET_USD`/`RUN_MAX_ASSETS`/`MIN_BALANCE_USD`
 (`higgsfield_cost_preflight.py:119-125`) undocumented; `CONTENTFORGE_URL` (`.env.example:29`) dead (code reads
 `CONTENTFORGE_BASE_URL`); undocumented kill-switch `CREATOR_OS_PROACTIVE_CYCLE_DISABLED`.
-**Do:** one shared json-load helper with an explicit contract (pick `None`-on-missing, raise-on-malformed);
-one `slugify`; align env-var names + document the budget vars and kill-switch in `.env.example`; drop the dead one.
+**Do:** align env-var names + document the budget vars and kill-switch in `.env.example`; drop the dead one.
+Leave `_load_json`/`_read_json` and `slugify` local until their callers share one real contract.
 **Tests:** the shared helper's contract is tested once; a smoke test that documented env vars match the names code reads.
 
 ### 6.3 Fix `virality_select` reward basis (leftover raw-view weighting)  ·  MED · S · [x]
@@ -464,7 +464,7 @@ Only 6.3→(learning 1.2), 2.1↔3.4, and 3.1→3.2 are hard-ordered.
 - [x] 5.3 hot-path indexes — posting slots now index rendered paths and bare fingerprints, campaign outputs index metrics filenames with exact lookups preferred before legacy suffix fallback, and Campaign Factory lineage cost recording avoids per-event schema DDL; focused tests passed.
 - [x] 5.4 intelligence_store ordering — data-quality reads now skip operator-review aggregation when `operator_ratings` is absent instead of raising, with a standalone DB regression test.
 - [x] 6.1 delete dead code
-- [ ] 6.2 consolidate helpers + config drift
+- [x] 6.2 consolidate helpers + config drift
 - [x] 6.3 virality_select reward basis — stale raw-view TODO/doc wording is removed and a refresh_winner_dna regression proves high engagement-rate content outranks higher raw-volume content; focused virality tests passed.
 
 ## Verified-solid (audited, do NOT "fix")
