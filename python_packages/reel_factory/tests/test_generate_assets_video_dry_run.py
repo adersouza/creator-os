@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from asset_prompt_contract import AssetPromptSet
 from generate_assets import (
     AssetGenerationPlan,
+    build_source_lineage,
     dry_run_video_asset,
     reference_matched_video_duration,
 )
@@ -56,6 +58,38 @@ def test_video_dry_run_builds_single_kling_command(tmp_path: Path) -> None:
     assert "--start-image" in command
     assert str(start_image) in command
     assert command[command.index("--mode") + 1] == "pro"
+
+
+def test_source_lineage_includes_aligned_winner_dna_features(tmp_path: Path) -> None:
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt="Stacey standing in a bathroom mirror selfie wearing a black bikini with curvy hourglass styling.",
+        klingMotionPrompt="Slow hip sway, stable phone camera.",
+        notes="",
+    )
+
+    lineage = build_source_lineage(
+        AssetGenerationPlan(
+            prompt_json=tmp_path / "prompt.json",
+            stem="clip",
+            reference=str(tmp_path / "ref.png"),
+            soul_id="soul_1",
+            soul_name="Stacey",
+            start_image=None,
+            out_dir=tmp_path,
+            source_dir=tmp_path,
+            campaign="Test Campaign",
+            creator="Stacey",
+            estimated_cost_usd=0.10,
+        ),
+        prompt=prompt,
+        commands=[],
+    )
+
+    assert lineage["features"]["creator"] == "stacey"
+    assert lineage["features"]["scene"] == "bathroom_mirror"
+    assert lineage["features"]["camera"] == "mirror_selfie"
+    assert lineage["features"]["outfit"] == "bikini"
+    assert lineage["features"]["motion"] == "hip_sway"
 
 
 def test_video_dry_run_honors_kling_mode_override(tmp_path: Path) -> None:

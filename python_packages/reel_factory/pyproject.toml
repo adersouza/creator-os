@@ -60,6 +60,7 @@ py-modules = [
   "embedding_index",
   "embedding_provider",
   "export_approved",
+  "feature_extract",
   "fetch_models",
   "generate_assets",
   "generate_prompts",

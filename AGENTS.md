@@ -160,9 +160,9 @@ the original.
 Stacey `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`, Stacey1
 `5828d958-91dd-4d6d-8909-934503f47644`, Larissa
 `44326567-b12c-410c-95b7-31891bb0629b`, Lola
-`4c86c548-7aa5-4ad1-bc03-b94aa4ce8385`. NOTE: `campaign_store.py`
-`DEFAULT_CREATORS` maps "Stacey" → `5828d958`, which is Higgsfield's *Stacey1* —
-the repo config and Higgsfield naming disagree; confirm the soul_id before a run.
+`4c86c548-7aa5-4ad1-bc03-b94aa4ce8385`. `campaign_store.py`
+`DEFAULT_CREATORS` now maps "Stacey" to `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`;
+still confirm the soul_id against Higgsfield before a paid run.
 
 ## Reel Captions, Overlay Text, And Fonts (Source Of Truth)
 
