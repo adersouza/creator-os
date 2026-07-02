@@ -44,10 +44,20 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
             manual_score REAL,
             notes TEXT,
             soul_id TEXT,
+            job_key TEXT,
+            campaign_output_id TEXT,
             imported_at INTEGER NOT NULL
         )
     """)
-    _ensure_columns(conn, "publish_metrics", {"soul_id": "TEXT"})
+    _ensure_columns(
+        conn,
+        "publish_metrics",
+        {
+            "soul_id": "TEXT",
+            "job_key": "TEXT",
+            "campaign_output_id": "TEXT",
+        },
+    )
     ensure_intelligence_schema(conn)
 
 
@@ -83,6 +93,11 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 (f"%/{filename}",),
             ).fetchone()
             output_path = output_row["output_path"] if output_row else None
+            campaign_output_id = (
+                f"out_{slugify(Path(output_row['output_path']).stem)}"
+                if output_row
+                else None
+            )
             soul_id = _resolve_metrics_soul_id(
                 Path(root), conn, filename, output_path=output_path
             )
@@ -90,8 +105,9 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 """
                 INSERT INTO publish_metrics (
                     filename, platform, account, uploaded_at, views, likes,
-                    comments, shares, saves, manual_score, notes, soul_id, imported_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    comments, shares, saves, manual_score, notes, soul_id, job_key,
+                    campaign_output_id, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(filename) DO UPDATE SET
                     platform = excluded.platform,
                     account = excluded.account,
@@ -104,6 +120,8 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     manual_score = excluded.manual_score,
                     notes = excluded.notes,
                     soul_id = excluded.soul_id,
+                    job_key = excluded.job_key,
+                    campaign_output_id = excluded.campaign_output_id,
                     imported_at = excluded.imported_at
                 """,
                 (
@@ -119,6 +137,8 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     _float(row.get("manual_score") or row.get("score")),
                     _text(row.get("notes")),
                     soul_id,
+                    output_row["job_key"] if output_row else None,
+                    campaign_output_id,
                     int(time.time()),
                 ),
             )
@@ -139,7 +159,7 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                         updated_at = excluded.updated_at
                     """,
                     (
-                        f"out_{slugify(Path(output_row['output_path']).stem)}",
+                        campaign_output_id,
                         output_row["output_path"],
                         output_row["job_key"],
                         output_row["caption_text"],
@@ -517,8 +537,8 @@ def refresh_outcomes_from_performance_sync(
             """
             INSERT INTO publish_metrics (
                 filename, platform, account, uploaded_at, views, likes, comments,
-                shares, saves, notes, soul_id, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                shares, saves, notes, soul_id, campaign_output_id, imported_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(filename) DO UPDATE SET
                 platform=excluded.platform,
                 account=excluded.account,
@@ -530,6 +550,7 @@ def refresh_outcomes_from_performance_sync(
                 saves=excluded.saves,
                 notes=excluded.notes,
                 soul_id=excluded.soul_id,
+                campaign_output_id=excluded.campaign_output_id,
                 imported_at=excluded.imported_at
             """,
             (
@@ -544,6 +565,7 @@ def refresh_outcomes_from_performance_sync(
                 _int_from_any(row["saves"]),
                 f"threadsdash performance snapshot {row['id']}",
                 soul_id,
+                campaign_output["campaign_output_id"] if campaign_output else None,
                 now,
             ),
         )

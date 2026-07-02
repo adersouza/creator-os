@@ -129,6 +129,17 @@ def slugify(value: str) -> str:
     return slug or f"campaign_{int(time.time())}"
 
 
+def _ensure_columns(
+    conn: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    existing = {
+        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS creators (
@@ -262,6 +273,8 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
         manual_score REAL,
         notes TEXT,
         soul_id TEXT,
+        job_key TEXT,
+        campaign_output_id TEXT,
         imported_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_campaign ON campaign_outputs(campaign_id);
@@ -272,6 +285,15 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
 
     ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
+    _ensure_columns(
+        conn,
+        "publish_metrics",
+        {
+            "soul_id": "TEXT",
+            "job_key": "TEXT",
+            "campaign_output_id": "TEXT",
+        },
+    )
     now = int(time.time())
     for name, cfg in DEFAULT_CREATORS.items():
         conn.execute(
@@ -894,7 +916,22 @@ def campaign_leaderboard(root: Path, *, campaign: str) -> dict[str, Any]:
                m.shares, m.saves, m.manual_score
         FROM campaign_outputs co
         LEFT JOIN operator_ratings r ON r.output_path = co.output_path
-        LEFT JOIN publish_metrics m ON substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+        LEFT JOIN publish_metrics m
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
         WHERE co.campaign_id=?
         """,
         (campaign_row["campaign_id"],),
@@ -994,8 +1031,21 @@ def _recipe_bandit_state(
         SELECT co.recipe, m.views, m.likes, m.comments, m.shares, m.saves
         FROM campaign_outputs co
         JOIN publish_metrics m
-          ON m.filename = co.metrics_filename
-          OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+          ON m.campaign_output_id = co.campaign_output_id
+          OR (
+              m.campaign_output_id IS NULL
+              AND m.job_key IS NOT NULL
+              AND co.job_key IS NOT NULL
+              AND m.job_key = co.job_key
+          )
+          OR (
+              m.campaign_output_id IS NULL
+              AND (m.job_key IS NULL OR co.job_key IS NULL)
+              AND (
+                  m.filename = co.metrics_filename
+                  OR substr(co.output_path, length(co.output_path) - length(m.filename) + 1) = m.filename
+              )
+          )
         WHERE co.campaign_id=? AND co.recipe IS NOT NULL
         """,
         (campaign_id,),
