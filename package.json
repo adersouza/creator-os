@@ -20,11 +20,13 @@
     "check:arch:ts": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
     "graphify:update": "bash scripts/graphify-update.sh",
     "lint": "turbo run lint",
+    "audit:js-dead": "knip --workspace apps/contentforge --no-exit-code",
     "security:codeql-note": "node scripts/security/codeql-note.mjs",
     "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
     "dependency-cruiser": "^17.4.3",
+    "knip": "^6.23.0",
     "turbo": "^2.3.0"
   }
 }
