@@ -6,7 +6,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "sync_threadsdash_performance.py"
-WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "threadsdash-performance-sync.yml"
+OPERATIONS_DOC_PATH = (
+    REPO_ROOT / "docs" / "operations" / "threadsdash_performance_sync.md"
+)
 
 
 def load_sync_module():
@@ -19,13 +21,16 @@ def load_sync_module():
     return module
 
 
-def test_threadsdash_performance_sync_workflow_is_scheduled():
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+def test_threadsdash_performance_sync_local_schedule_is_documented():
+    operations_doc = OPERATIONS_DOC_PATH.read_text(encoding="utf-8")
 
-    assert 'cron: "37 * * * *"' in workflow
-    assert "python3 scripts/sync_threadsdash_performance.py" in workflow
-    assert "THREADSDASH_SUPABASE_URL" in workflow
-    assert "THREADSDASH_SUPABASE_SERVICE_ROLE_KEY" in workflow
+    assert "Run performance sync locally, not from GitHub Actions" in operations_doc
+    assert "python3 scripts/sync_threadsdash_performance.py" in operations_doc
+    assert "com.creator-os.threadsdash-performance-sync" in operations_doc
+    assert "StartInterval" in operations_doc
+    assert "SUPABASE_URL" in operations_doc
+    assert "SUPABASE_SERVICE_ROLE_KEY" in operations_doc
+    assert "mode `0600`" in operations_doc
 
 
 def test_sync_threadsdash_performance_requires_configured_env():

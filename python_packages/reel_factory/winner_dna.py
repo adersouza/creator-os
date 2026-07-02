@@ -13,6 +13,7 @@ from typing import Any
 
 from audio_intent import read_audio_intent
 from caption_bank import caption_static_metadata
+from feature_extract import FEATURE_KEYS, extract_features, features_from_lineage
 from intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
@@ -23,18 +24,6 @@ from intelligence_store import (
 )
 from reel_factory.sqlite_utils import connect_sqlite
 
-FEATURE_KEYS = (
-    "scene",
-    "camera",
-    "pose",
-    "motion",
-    "outfit",
-    "creator",
-    "body_style",
-    "caption_style",
-    "hook_type",
-    "audio_track_id",
-)
 _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 
 
@@ -45,47 +34,10 @@ def connect(root: Path) -> sqlite3.Connection:
 
 
 def infer_features_from_text(text: str) -> dict[str, Any]:
+    features = extract_features(text)
     low = text.lower()
-    scene = "unknown"
-    if "bathroom" in low or "mirror" in low:
-        scene = "bathroom_mirror"
-    elif "beach" in low or "ocean" in low:
-        scene = "beach"
-    elif "living room" in low or "fireplace" in low:
-        scene = "living_room"
-    camera = "mirror_selfie" if "mirror" in low or "selfie" in low else "unknown"
-    pose = (
-        "seated_side"
-        if "seated" in low or "sitting" in low
-        else ("standing" if "standing" in low else "unknown")
-    )
-    motion = "hip_sway" if "hip" in low or "sway" in low else "unknown"
-    outfit = (
-        "crop_top"
-        if "crop top" in low
-        else (
-            "dress" if "dress" in low else ("bikini" if "bikini" in low else "unknown")
-        )
-    )
-    body_style = (
-        "thick_hourglass"
-        if "hourglass" in low or "thick" in low or "curves" in low
-        else "unknown"
-    )
-    return {
-        "scene": scene,
-        "camera": camera,
-        "pose": pose,
-        "motion": motion,
-        "outfit": outfit,
-        "creator": _creator_from_text(low),
-        "grid_source": 1 if "grid" in low or "panel" in low else 0,
-        "caption_style": "short_direct",
-        "hook_type": "curiosity"
-        if "?" in text or "wait" in low or "which" in low
-        else "unknown",
-        "body_style": body_style,
-    }
+    features["grid_source"] = 1 if "grid" in low or "panel" in low else 0
+    return features
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -336,11 +288,11 @@ def feature_text_for_output(root: Path, output_path: Path) -> str:
     )
     if lineage.exists():
         try:
-            parts.append(
-                json.dumps(
-                    json.loads(lineage.read_text(encoding="utf-8")), ensure_ascii=False
-                )
-            )
+            payload = json.loads(lineage.read_text(encoding="utf-8"))
+            features = features_from_lineage(payload)
+            if features:
+                parts.append(json.dumps({"features": features}, ensure_ascii=False))
+            parts.append(json.dumps(payload, ensure_ascii=False))
         except Exception:
             pass
     source_lineage = (
@@ -348,12 +300,11 @@ def feature_text_for_output(root: Path, output_path: Path) -> str:
     )
     if source_lineage.exists():
         try:
-            parts.append(
-                json.dumps(
-                    json.loads(source_lineage.read_text(encoding="utf-8")),
-                    ensure_ascii=False,
-                )
-            )
+            payload = json.loads(source_lineage.read_text(encoding="utf-8"))
+            features = features_from_lineage(payload)
+            if features:
+                parts.append(json.dumps({"features": features}, ensure_ascii=False))
+            parts.append(json.dumps(payload, ensure_ascii=False))
         except Exception:
             pass
     return "\n".join(parts)

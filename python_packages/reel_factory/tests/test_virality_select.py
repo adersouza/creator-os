@@ -152,6 +152,26 @@ def test_virality_blend_breaks_cold_start_ties(tmp_path: Path) -> None:
     assert ranked[0]["score"] > ranked[1]["score"]
 
 
+def test_virality_blend_does_not_punish_missing_predictor_scores(
+    tmp_path: Path,
+) -> None:
+    _seed(tmp_path)
+    candidates = [
+        {"id": "known_good", "features": {"scene": "beach"}},
+        {
+            "id": "known_weaker_with_predictor",
+            "features": {"scene": "office", "hook_type": "curiosity"},
+            "virality": 1.0,
+        },
+    ]
+
+    ranked = rank_candidates(candidates, tmp_path)
+
+    assert ranked[0]["id"] == "known_good"
+    assert ranked[0]["predictedEngagement"]["matched"] == 1
+    assert "virality" not in ranked[0]
+
+
 def test_cold_start_candidate_scores_zero_not_crash(tmp_path: Path) -> None:
     _seed(tmp_path)
     conn = connect(tmp_path)

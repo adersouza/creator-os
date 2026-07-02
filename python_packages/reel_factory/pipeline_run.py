@@ -21,6 +21,7 @@ from typing import Any
 from campaign_store import campaign_by_name, connect, next_batch_plan
 from export_approved import _load_generated_asset_lineage_sidecar
 from posting_ledger import assign_approved_reels
+from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 from virality_select import rank_candidates
 
 PIPELINE_SCHEMA = "reel_factory.pipeline_run.v1"
@@ -48,6 +49,8 @@ class PipelineRunConfig:
     caption_mix: str | None = None
     prompt_mode: str = "compiled"
     execute_commands: bool = False
+    allow_paid_generation: bool = False
+    download_assets: bool = False
     write_ledger: bool = False
     force_stages: set[str] = field(default_factory=set)
 
@@ -148,10 +151,11 @@ def _prompt_command(
 def _asset_command(
     config: PipelineRunConfig, prompt_path: Path, stem: str, reference: Path
 ) -> dict[str, Any]:
-    return _command(
+    mode = "create" if config.allow_paid_generation else "dry-run"
+    args: list[str | Path] = [
         config.root,
         "generate_assets",
-        "dry-run",
+        mode,
         "--root",
         config.root,
         "--prompt-json",
@@ -166,6 +170,11 @@ def _asset_command(
         config.creator,
         "--out-dir",
         "00_source_videos",
+    ]
+    if config.allow_paid_generation and config.download_assets:
+        args.append("--download")
+    return _command(
+        *args,
     )
 
 
@@ -195,24 +204,40 @@ def _caption_render_command(
 def _candidate_features(lineage: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(lineage, dict):
         return {}
+    return {
+        key: value
+        for key, value in features_from_lineage(lineage).items()
+        if key in FEATURE_KEYS
+    }
+
+
+def _lineage_matches_run(
+    lineage: dict[str, Any], *, campaign: str | None, run_id: str | None
+) -> bool:
     source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
     generation = (
         lineage.get("generation") if isinstance(lineage.get("generation"), dict) else {}
     )
-    return {
-        "creator": source.get("soulName") or generation.get("soulName") or "unknown",
-        "scene": source.get("scene") or generation.get("scene") or "unknown",
-        "pose": source.get("pose") or generation.get("pose") or "unknown",
-        "motion": source.get("motion") or generation.get("motion") or "unknown",
-        "outfit": source.get("outfit") or generation.get("outfit") or "unknown",
-        "caption_style": generation.get("captionStyle") or "unknown",
-    }
+    if campaign and generation.get("campaign") not in (None, "", campaign):
+        return False
+    if run_id:
+        stem = str(source.get("stem") or "")
+        if run_id not in stem:
+            return False
+    status = str(generation.get("status") or "").lower()
+    if "reject" in status or "fail" in status or "error" in status:
+        return False
+    return True
 
 
-def discover_candidates(root: Path) -> list[dict[str, Any]]:
+def discover_candidates(
+    root: Path, *, campaign: str | None = None, run_id: str | None = None
+) -> list[dict[str, Any]]:
     candidates = []
     for output_path in sorted((root / "02_processed").glob("*.mp4")):
         lineage = _load_generated_asset_lineage_sidecar(output_path) or {}
+        if not _lineage_matches_run(lineage, campaign=campaign, run_id=run_id):
+            continue
         candidates.append(
             {
                 "output_path": str(output_path),
@@ -240,7 +265,7 @@ def write_approved_export(
             {
                 "index": idx,
                 "output_path": row["output_path"],
-                "review_state": "approved",
+                "review_state": "ranked_candidate",
                 "generated_asset_lineage": row.get("generated_asset_lineage") or {},
                 "pipeline_rank": {
                     "score": row.get("score"),
@@ -284,6 +309,10 @@ def run_pipeline(
     }
     state["run_dir"] = str(run_dir)
     state["dry_run"] = not config.execute_commands
+    state["paid_generation"] = {
+        "allowed": bool(config.allow_paid_generation),
+        "download_assets": bool(config.download_assets),
+    }
     state["publishing"] = {"publish": False, "schedule": False}
     runner = command_runner or _run_command
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -362,7 +391,7 @@ def run_pipeline(
 
     ranked: list[dict[str, Any]] = []
     if not _stage_done(state, "rank", config.force_stages):
-        candidates = discover_candidates(root)
+        candidates = discover_candidates(root, campaign=config.campaign, run_id=run_id)
         ranked = rank_candidates(candidates, root) if candidates else []
         state["stages"]["rank"] = {
             "status": "completed" if ranked else "waiting",
@@ -431,6 +460,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--caption-mix")
     parser.add_argument("--prompt-mode", default="compiled")
     parser.add_argument("--execute-commands", action="store_true")
+    parser.add_argument(
+        "--allow-paid-generation",
+        action="store_true",
+        help="Allow the asset stage to run generate_assets create instead of dry-run.",
+    )
+    parser.add_argument(
+        "--download-assets",
+        action="store_true",
+        help="Pass --download to paid asset generation; ignored without --allow-paid-generation.",
+    )
     parser.add_argument("--write-ledger", action="store_true")
     parser.add_argument("--force-stage", action="append", default=[])
     args = parser.parse_args(argv)
@@ -447,6 +486,8 @@ def main(argv: list[str] | None = None) -> int:
         caption_mix=args.caption_mix,
         prompt_mode=args.prompt_mode,
         execute_commands=args.execute_commands,
+        allow_paid_generation=args.allow_paid_generation,
+        download_assets=args.download_assets,
         write_ledger=args.write_ledger,
         force_stages=set(args.force_stage or []),
     )

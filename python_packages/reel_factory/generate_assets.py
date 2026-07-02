@@ -29,6 +29,7 @@ from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from identity_verification import verify_identity
 from PIL import Image
+from reel_factory.feature_extract import extract_features
 from reel_factory.sqlite_utils import connect_sqlite
 
 IMAGE_MODEL = "text2image_soul_v2"
@@ -1964,6 +1965,10 @@ def _direct_reference_lineage(
     captured_prompt: str | None = None,
     failure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    features = extract_features(captured_prompt or prompt.higgsfieldGridPrompt)
+    creator = (plan.creator or plan.soul_name or "").strip().lower()
+    if creator:
+        features["creator"] = creator
     return {
         "schema": "reel_factory.direct_reference_image_lineage.v1",
         "createdAt": int(time.time()),
@@ -1974,6 +1979,7 @@ def _direct_reference_lineage(
             "soulName": plan.soul_name,
             "creator": plan.creator,
         },
+        "features": features,
         "generation": {
             "tool": "higgsfield_cli",
             "workflow": "higgsfield_direct_reference_image",
@@ -2180,6 +2186,19 @@ def build_source_lineage(
     actual_models: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     actual_models = actual_models or {}
+    prompt_text = "\n".join(
+        value
+        for value in (
+            prompt.higgsfieldGridPrompt,
+            prompt.klingMotionPrompt,
+            prompt.notes,
+        )
+        if value
+    )
+    features = extract_features(prompt_text)
+    creator = (plan.creator or plan.soul_name or "").strip().lower()
+    if creator:
+        features["creator"] = creator
     return {
         "schema": "campaign_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
@@ -2194,6 +2213,7 @@ def build_source_lineage(
             "endImage": plan.end_image,
             "videoReference": plan.video_reference,
         },
+        "features": features,
         "generation": {
             "tool": "higgsfield_cli",
             "workflow": "higgsfield_soul_v2_to_kling3_0",

@@ -125,11 +125,20 @@ def rank_candidates(
             )
     elif any(c.get(_VIRALITY_KEY) is not None for c in ranked):
         data_norm = _minmax([c["predictedEngagement"]["score"] for c in ranked])
-        # missing predictor score = predictor said nothing = worst case.
-        vir_norm = _minmax([float(c.get(_VIRALITY_KEY) or 0.0) for c in ranked])
-        for candidate, d, v in zip(ranked, data_norm, vir_norm):
+        scored = [c for c in ranked if c.get(_VIRALITY_KEY) is not None]
+        vir_values = [float(c[_VIRALITY_KEY]) for c in scored]
+        vir_norm_by_id = {
+            id(candidate): score
+            for candidate, score in zip(scored, _minmax(vir_values))
+        }
+        for candidate, d in zip(ranked, data_norm):
+            if candidate.get(_VIRALITY_KEY) is None:
+                candidate["score"] = round(d, 4)
+                continue
             candidate["score"] = round(
-                (1 - _VIRALITY_WEIGHT) * d + _VIRALITY_WEIGHT * v, 4
+                (1 - _VIRALITY_WEIGHT) * d
+                + _VIRALITY_WEIGHT * vir_norm_by_id[id(candidate)],
+                4,
             )
     # Tie-break on number of matched features: more evidence wins.
     ranked.sort(
