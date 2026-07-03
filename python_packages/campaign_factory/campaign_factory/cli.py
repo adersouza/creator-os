@@ -364,6 +364,12 @@ def main() -> int:
     export.add_argument(
         "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
     )
+    export.add_argument(
+        "--publish-mode",
+        choices=["auto", "notify"],
+        default=None,
+        help="Override per-draft publish mode; default is notify for reels, auto otherwise",
+    )
     export.add_argument("--enable-variation", action="store_true")
     export.add_argument("--variation-preset", default="ig_subtle")
 
@@ -1589,6 +1595,7 @@ def main() -> int:
                     schedule_mode=args.schedule_mode,
                     enable_variation=args.enable_variation,
                     variation_preset=args.variation_preset,
+                    publish_mode=args.publish_mode,
                 )
             )
         elif args.cmd == "supabase-preflight":
