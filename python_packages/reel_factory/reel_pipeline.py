@@ -953,15 +953,63 @@ def ensure_source_asset_lineage(
     return path
 
 
+SELF_SOURCE_SCHEMA = "reel_factory.self_source.v1"
+
+
+def self_generated_source_lineage(source_video: Path) -> dict | None:
+    """Return generation lineage when the source clip is our own generated asset.
+
+    A source qualifies only when a `<stem>.self_source.json` sidecar points at
+    a generation lineage file that records a completed Higgsfield image job.
+    Imported/external reference clips never carry this sidecar, so they keep
+    the hard SSCD copy failure.
+    """
+    sidecar = source_video.parent / f"{source_video.stem}.self_source.json"
+    if not sidecar.exists():
+        return None
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("schema") != SELF_SOURCE_SCHEMA:
+        return None
+    lineage_path = Path(str(payload.get("generationLineagePath") or ""))
+    if not lineage_path.is_absolute():
+        lineage_path = source_video.parent / lineage_path
+    try:
+        lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    generation = lineage.get("generation") or {}
+    if not (generation.get("imageJobId") or generation.get("imageResultUrl")):
+        return None
+    return lineage
+
+
 def write_required_similarity_audit(
     source_video: Path, clip_out: Path, audit_func=None
 ):
-    """Run real SSCD similarity and fail loud on copy-detection failures."""
+    """Run real SSCD similarity and fail loud on copy-detection failures.
+
+    Self-generated sources (see self_generated_source_lineage) are exempt from
+    the hard failure: a locked-still reel of our own generated image matches
+    its source by design, and the copy gate exists to catch near-copies of
+    external content, not of our own assets. Similarity rows are still written
+    for audit, downgraded to informational.
+    """
     if audit_func is None:
         from sscd_video import audit_video_dir
 
         audit_func = audit_video_dir
     rows = audit_func(source_video, clip_out)
+    if self_generated_source_lineage(source_video):
+        for row in rows:
+            if row.get("status") == "fail" or str(row.get("verdict", "")).startswith(
+                "FAIL"
+            ):
+                row["status"] = "info"
+                row["verdict"] = "INFO (self-generated source)"
+                row["selfSourceExempt"] = True
     if rows:
         (clip_out / "_similarity.json").write_text(
             json.dumps(rows, indent=2, ensure_ascii=False),

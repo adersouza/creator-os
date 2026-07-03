@@ -1794,6 +1794,58 @@ class ReelPipelineTests(unittest.TestCase):
                     ],
                 )
 
+    def test_required_similarity_audit_exempts_self_generated_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "stacey_static.mp4"
+            out_dir = root / "02_processed" / "stacey_static"
+            out_dir.mkdir(parents=True)
+            source.write_bytes(b"source")
+            fail_rows = lambda _s, _o: [  # noqa: E731
+                {
+                    "filename": "still.mp4",
+                    "status": "fail",
+                    "verdict": "FAIL (copy detected)",
+                }
+            ]
+
+            lineage = root / "stacey_static.generated_lineage.json"
+            lineage.write_text(
+                json.dumps({"generation": {"imageJobId": "job-123"}}),
+                encoding="utf-8",
+            )
+            sidecar = root / "stacey_static.self_source.json"
+
+            # Sidecar missing -> hard fail preserved (external sources).
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(source, out_dir, audit_func=fail_rows)
+
+            # Sidecar with wrong schema -> still hard fail.
+            sidecar.write_text(
+                json.dumps({"schema": "other", "generationLineagePath": lineage.name}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(source, out_dir, audit_func=fail_rows)
+
+            # Valid sidecar pointing at a real generation lineage -> informational.
+            sidecar.write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.self_source.v1",
+                        "generationLineagePath": lineage.name,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = write_required_similarity_audit(
+                source, out_dir, audit_func=fail_rows
+            )
+            self.assertEqual(rows[0]["status"], "info")
+            self.assertTrue(rows[0]["selfSourceExempt"])
+            written = json.loads((out_dir / "_similarity.json").read_text())
+            self.assertEqual(written[0]["verdict"], "INFO (self-generated source)")
+
     def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             legacy = Path(tmp) / "legacy.json"
