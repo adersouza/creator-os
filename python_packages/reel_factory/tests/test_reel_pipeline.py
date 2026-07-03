@@ -30,6 +30,7 @@ from reel_pipeline import (
     _write_mux_audio_intents,
     apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
+    approve_operator_band,
     build_avconvert_finalize_cmd,
     build_caption_outcome_context,
     build_caption_placement_qc_row,
@@ -1130,6 +1131,54 @@ class ReelPipelineTests(unittest.TestCase):
         first = vary_band_within_lane("center", summary, diversity_key="stable")
         again = vary_band_within_lane("center", summary, diversity_key="stable")
         self.assertEqual(first, again)
+
+    def _override_summary(self, components):
+        return PlacementSummary(
+            "bottom",
+            {"top": 5.0, "center": 8.0, "bottom": 6.0},
+            3,
+            "bottom lowest",
+            {"captionPlacementDecision": {"components": components}},
+        )
+
+    def test_operator_band_honored_when_face_clear(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 0.0, "head": 57.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertEqual(approve_operator_band("center", summary), "center")
+
+    def test_operator_band_refused_on_face_hit(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 180.0, "head": 0.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertIsNone(approve_operator_band("center", summary))
+
+    def test_operator_band_refused_on_full_head_hit(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 0.0, "head": 110.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertIsNone(approve_operator_band("center", summary))
+
+    def test_operator_band_refused_without_components(self):
+        summary = PlacementSummary("bottom", {}, 0, "no probe", {})
+        self.assertIsNone(approve_operator_band("center", summary))
+        self.assertIsNone(approve_operator_band("sideways", summary))
+
+    def test_job_key_changes_with_requested_band(self):
+        base = compute_job_key("video", "caption", Recipe("v01_original"))
+        banded = compute_job_key(
+            "video", "caption", Recipe("v01_original"), requested_band="center"
+        )
+        self.assertNotEqual(base, banded)
 
     def test_job_key_changes_when_recipe_changes(self):
         a = compute_job_key("video", "caption", Recipe("v01_original"))

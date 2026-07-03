@@ -261,6 +261,7 @@ class CaptionSet:
     )
     notes: str = ""
     hook_lineage: dict[int, dict] = field(default_factory=dict)
+    band: str | None = None  # operator band request; honored only if face-clear
 
     @classmethod
     def from_path(cls, path: Path) -> CaptionSet:
@@ -311,12 +312,18 @@ class CaptionSet:
                 raise ValueError(
                     f"caption_color must be light, dark, or auto in {path}"
                 )
+            band = data.get("band")
+            if band is not None and band not in CAPTION_BAND_OVERRIDES:
+                raise ValueError(
+                    f"band must be one of {sorted(CAPTION_BAND_OVERRIDES)} in {path}"
+                )
             return cls(
                 hooks=hooks,
                 recipe_names=data.get("recipes"),
                 caption_color=caption_color,
                 notes=data.get("notes", ""),
                 hook_lineage=lineage,
+                band=band,
             )
         raise ValueError(f"unknown caption format: {path}")
 
@@ -540,6 +547,7 @@ def compute_job_key(
     target_ratio: str = "9:16",
     caption_placement_policy: str = "focal-safe",
     account_scope: str = "local_review",
+    requested_band: str | None = None,
 ) -> str:
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
     cap_str = (
@@ -562,6 +570,8 @@ def compute_job_key(
     scope = (account_scope or "local_review").strip() or "local_review"
     if scope != "local_review":
         rec_params["_account_scope"] = scope
+    if requested_band:
+        rec_params["_requested_band"] = requested_band
     rec_h = sha256_str(json.dumps(rec_params, sort_keys=True))
     return hashlib.sha256(f"{video_hash}|{cap_h}|{rec_h}".encode()).hexdigest()
 
@@ -640,6 +650,42 @@ _LANE_SUBBANDS = {
     "center": ("center", "lower_center"),
     "bottom": ("bottom", "lower_center_alt"),
 }
+
+
+CAPTION_BAND_OVERRIDES = {"top", "center", "lower_center", "lower_center_alt", "bottom"}
+
+_FACE_CLEAR_HEAD_CEILING = 110.0  # full head-blocker weight; partial hits allowed
+
+
+def approve_operator_band(
+    requested: str | None, summary: PlacementSummary
+) -> str | None:
+    """Approve an operator's per-clip band request only when it is face-clear.
+
+    The scorer stays authoritative for faces: any face penalty (or a full
+    head-blocker hit) in a lane supporting the requested band vetoes the
+    request. Operators can move text off the scorer's pick — e.g. accept a
+    focal/body overlap on their own judgement — but never onto the face.
+    """
+    if requested not in CAPTION_BAND_OVERRIDES:
+        return None
+    decision = (
+        summary.metadata.get("captionPlacementDecision")
+        if isinstance(summary.metadata, dict)
+        else None
+    )
+    components = (decision or {}).get("components")
+    if not isinstance(components, dict):
+        return None
+    for lane in _SUBBAND_SUPPORT.get(requested, ()):
+        lane_scores = components.get(lane)
+        if not isinstance(lane_scores, dict):
+            return None
+        if float(lane_scores.get("face") or 0.0) > 0.0:
+            return None
+        if float(lane_scores.get("head") or 0.0) >= _FACE_CLEAR_HEAD_CEILING:
+            return None
+    return requested
 
 
 def vary_band_within_lane(
@@ -1131,6 +1177,7 @@ async def process_one(
     asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
     caption_lineage: dict | None = None,
     account_scope: str = "local_review",
+    requested_band: str | None = None,
 ) -> dict:
     """Render one (video, caption_variant, recipe) combo."""
     placement_mode = effective_placement_mode_for_caption(caption, placement_mode)
@@ -1142,6 +1189,7 @@ async def process_one(
         target_ratio=target_ratio,
         caption_placement_policy=caption_placement_policy,
         account_scope=account_scope,
+        requested_band=requested_band,
     )
 
     if not preview and not rerender_all and manifest.has_job(key):
@@ -1200,13 +1248,23 @@ async def process_one(
             opposite = "bottom" if auto_band == "top" else "top"
             band = [auto_band, "center", opposite][recipe_idx % 3]
     if not is_timed_caption:
-        diversity_key = f"{src_hash}|{hook_idx}|{recipe.name}|{caption}"
-        band = centered_static_caption_band(
-            band, _placement_summary, diversity_key=diversity_key
-        )
-        band = vary_band_within_lane(
-            band, _placement_summary, diversity_key=diversity_key
-        )
+        operator_band = approve_operator_band(requested_band, _placement_summary)
+        if operator_band:
+            log.info(f"operator band override for {src.stem}: {band} → {operator_band}")
+            band = operator_band
+        else:
+            if requested_band:
+                log.info(
+                    f"operator band request '{requested_band}' refused for "
+                    f"{src.stem}: not face-clear"
+                )
+            diversity_key = f"{src_hash}|{hook_idx}|{recipe.name}|{caption}"
+            band = centered_static_caption_band(
+                band, _placement_summary, diversity_key=diversity_key
+            )
+            band = vary_band_within_lane(
+                band, _placement_summary, diversity_key=diversity_key
+            )
     style = recipe.caption_style if recipe.caption_style != "auto" else auto_style
 
     requested_font = recipe.font if recipe.font != "auto" else auto_font
@@ -2281,6 +2339,7 @@ def apply_caption_fit_to_caption_set(
         notes=f"{cap_set.notes}; caption_fit={fit_mode}; frame_type={frame_type}"
         + (f"; caption_topic={caption_topic}" if caption_topic else ""),
         hook_lineage=lineage,
+        band=cap_set.band,
     ), diagnostics
 
 
@@ -2697,6 +2756,7 @@ async def amain(args):
                         target_ratio=target_ratio,
                         caption_placement_policy=args.caption_placement_policy,
                         account_scope=account_scope,
+                        requested_band=video_cap_set.band,
                     )
                     if key in queued_keys:
                         duplicate_jobs += 1
@@ -2756,6 +2816,7 @@ async def amain(args):
                             asset_prompt_info=asset_prompt_info,
                             caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
                             account_scope=account_scope,
+                            requested_band=video_cap_set.band,
                         )
                     )
 
