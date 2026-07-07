@@ -62,6 +62,7 @@ py-modules = [
   "export_approved",
   "feature_extract",
   "fetch_models",
+  "frame_hash_check",
   "generate_assets",
   "generate_prompts",
   "generate_variants",

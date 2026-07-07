@@ -1,39 +1,13 @@
-"""Compatibility shim for the pHash/dHash variation audit.
+"""Compatibility shim for the packaged Reel Factory sscd_check module."""
 
-Use perceptual_hash_check.py for the implementation. This name remains so old
-commands keep working, but it is not Meta SSCD.
-"""
+from __future__ import annotations
 
-from perceptual_hash_check import (
-    HASHES,
-    SAMPLE_TIMES,
-    audit_clip_dir,
-    main,
-    mean_hamming,
-    probe_duration,
-    recipe_from_name,
-    sample_hashes,
-)
+import runpy
+import sys
 
-__all__ = [
-    "HASHES",
-    "SAMPLE_TIMES",
-    "audit_clip_dir",
-    "main",
-    "mean_hamming",
-    "probe_duration",
-    "recipe_from_name",
-    "sample_hashes",
-]
-
+from reel_factory import sscd_check as _module
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print(
-            "usage: python3 perceptual_hash_check.py /path/to/02_processed/clip_001",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    main(sys.argv[1])
+    runpy.run_module("reel_factory.sscd_check", run_name="__main__")
+else:
+    sys.modules[__name__] = _module

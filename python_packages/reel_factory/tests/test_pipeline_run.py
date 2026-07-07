@@ -105,6 +105,7 @@ class PipelineRunTests(unittest.TestCase):
                     execute_commands=True,
                     allow_paid_generation=True,
                     download_assets=True,
+                    estimated_cost_per_asset_usd=0.5,
                 ),
                 command_runner=lambda command: {"ok": True, "command": command},
             )
@@ -112,6 +113,8 @@ class PipelineRunTests(unittest.TestCase):
             self.assertIn("create", live_argv)
             self.assertNotIn("dry-run", live_argv)
             self.assertIn("--download", live_argv)
+            self.assertIn("--estimated-cost-usd", live_argv)
+            self.assertIn("0.5", live_argv)
 
     def test_pipeline_run_resume_ranks_candidates_and_dry_assigns(self):
         with self._root() as tmp:

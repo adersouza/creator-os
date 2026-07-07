@@ -1,15 +1,13 @@
-"""Compatibility module for the packaged Reel Factory local API auth helpers."""
+"""Compatibility shim for the packaged Reel Factory local_api_auth module."""
 
 from __future__ import annotations
 
-from reel_factory.local_api_auth import (
-    authorize_local_api_request,
-    install_local_api_auth_middleware,
-    require_local_api_auth,
-)
+import runpy
+import sys
 
-__all__ = [
-    "authorize_local_api_request",
-    "install_local_api_auth_middleware",
-    "require_local_api_auth",
-]
+from reel_factory import local_api_auth as _module
+
+if __name__ == "__main__":
+    runpy.run_module("reel_factory.local_api_auth", run_name="__main__")
+else:
+    sys.modules[__name__] = _module

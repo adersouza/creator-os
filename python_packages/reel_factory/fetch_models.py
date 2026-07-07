@@ -1,15 +1,13 @@
-"""Compatibility shim for the packaged Reel Factory model-fetch module."""
+"""Compatibility shim for the packaged Reel Factory fetch_models module."""
 
 from __future__ import annotations
 
+import runpy
+import sys
+
 from reel_factory import fetch_models as _module
 
-__all__ = []
-for _name in dir(_module):
-    if not _name.startswith("__"):
-        globals()[_name] = getattr(_module, _name)
-        __all__.append(_name)
-
-
 if __name__ == "__main__":
-    raise SystemExit(_module.main())
+    runpy.run_module("reel_factory.fetch_models", run_name="__main__")
+else:
+    sys.modules[__name__] = _module
