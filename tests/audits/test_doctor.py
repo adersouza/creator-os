@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,3 +201,26 @@ def test_ui_proof_can_turn_ui_consistency_pass(tmp_path: Path) -> None:
     result = next(row for row in results if row.name == "ui-consistency")
 
     assert result.status == "PASS"
+
+
+def test_release_mode_fails_missing_proofs_and_scale_threshold() -> None:
+    results = doctor.run_doctor(quick=True, business_only=True, release=True)
+    by_name = {result.name: result for result in results}
+
+    assert by_name["cross-system-consistency"].status == "FAIL"
+    assert "snapshot" in by_name["cross-system-consistency"].reason.lower()
+    assert by_name["ui-consistency"].status == "FAIL"
+    assert "browser proof" in by_name["ui-consistency"].reason.lower()
+    assert by_name["scaling"].status == "FAIL"
+    assert "utilization" in by_name["scaling"].reason.lower()
+
+
+def test_release_mode_fails_missing_commercial_owner() -> None:
+    fixture = deepcopy(doctor.load_fixture())
+    fixture["_release"] = True
+    fixture["commercial_readiness"]["operator_checklist"][0]["owner"] = ""
+
+    result = doctor.commercial_readiness_audit(fixture, True)
+
+    assert result.status == "FAIL"
+    assert "missing owners" in result.reason

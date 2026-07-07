@@ -6,12 +6,14 @@ Run this before claiming a Creator OS audit/release branch is ready:
 
 1. `git status --short --branch`
 2. `pnpm doctor`
-3. `pnpm doctor --json`
-4. `uv run pytest tests/audits/test_doctor.py`
-5. `git diff --check`
-6. Confirm unrelated untracked files are not staged.
-7. Confirm local work branches are merged, intentionally retained, or deleted.
-8. Confirm push, PR, and merge state from GitHub before saying "merged".
+3. `pnpm doctor --release`
+4. `pnpm doctor --json`
+5. `uv run pytest tests/audits/test_doctor.py`
+6. `git diff --check`
+7. Confirm unrelated untracked files are not staged.
+8. Confirm local work branches are merged, intentionally retained, or deleted.
+9. Confirm push, PR, and merge state from GitHub before saying "merged".
 
-`repository-health` stays WARN-first. A dirty tree or local non-main branch is
-not a runtime failure, but it blocks clean release confidence until reviewed.
+Default `repository-health` stays WARN-first. In `--release`, a dirty tree is a
+hard failure; local non-main branches remain a review warning unless the owner
+decides they block the tag.

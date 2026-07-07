@@ -77,6 +77,11 @@ def main() -> int:
         "--business", action="store_true", help="run only business/product audits"
     )
     parser.add_argument(
+        "--release",
+        action="store_true",
+        help="fail release-blocking maturity gates instead of reporting WARN-only gaps",
+    )
+    parser.add_argument(
         "--td-snapshot",
         default=os.environ.get("CREATOR_OS_TD_SNAPSHOT"),
         help="read-only ThreadsDashboard draft snapshot JSON",
@@ -98,6 +103,7 @@ def main() -> int:
         business_only=args.business,
         td_snapshot=args.td_snapshot,
         ui_proof=args.ui_proof,
+        release=args.release,
     )
     if args.json:
         print(
@@ -114,9 +120,12 @@ def run_doctor(
     business_only: bool = False,
     td_snapshot: str | Path | None = None,
     ui_proof: str | Path | None = None,
+    release: bool = False,
 ) -> list[Result]:
     fixture = load_fixture()
     business_fixture = load_business_fixture()
+    fixture["_release"] = release
+    business_fixture["_release"] = release
     business_fixture["_proofs"] = {
         "td_snapshot": load_optional_json(td_snapshot),
         "ui_proof": load_optional_json(ui_proof),
@@ -846,18 +855,30 @@ def observability_audit(fixture: dict[str, Any], _quick: bool) -> Result:
 
 def commercial_readiness_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     journey = fixture["commercial_readiness"]
+    release = bool(fixture.get("_release"))
     failures = [step["name"] for step in journey["steps"] if step["status"] == "fail"]
     checklist = journey.get("operator_checklist", [])
+    missing_owners = [
+        str(item.get("id", "unknown"))
+        for item in checklist
+        if not str(item.get("owner", "")).strip()
+    ]
     open_items = [
         f"{item['id']}:{item['owner']}"
         for item in checklist
         if item.get("status") != "closed"
     ]
     manual = journey.get("manual_actions", [])
-    status = "FAIL" if failures else ("WARN" if manual or open_items else "PASS")
+    status = (
+        "FAIL"
+        if failures or (release and missing_owners)
+        else ("WARN" if manual or open_items else "PASS")
+    )
     reason = (
         "fixture customer journey has failing steps"
         if failures
+        else f"commercial-readiness checklist items are missing owners: {', '.join(missing_owners)}"
+        if missing_owners and release
         else (
             f"fixture journey passes, but checklist items remain open: {', '.join(open_items)}"
             if open_items
@@ -876,9 +897,9 @@ def commercial_readiness_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             {"steps": journey["steps"], "operator_checklist": checklist},
             sort_keys=True,
         ),
-        affected=failures + open_items + manual,
+        affected=failures + missing_owners + open_items + manual,
         next_action="Resolve listed manual actions before claiming customer self-serve readiness."
-        if manual or failures or open_items
+        if manual or failures or open_items or missing_owners
         else "None.",
     )
 
@@ -918,6 +939,7 @@ def business_logic_audit(fixture: dict[str, Any], _quick: bool) -> Result:
 def cross_system_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     fields = ("status", "caption", "media_hash", "lineage_hash", "account", "schedule")
     failures = []
+    release = bool(fixture.get("_release"))
     proof = fixture.get("_proofs", {}).get("td_snapshot", {})
     if proof.get("error"):
         return Result(
@@ -970,10 +992,16 @@ def cross_system_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Res
         if mismatched:
             failures.append(f"{pair['draft_id']}: mismatch {', '.join(mismatched)}")
     threadsdash_root = Path("/Users/aderdesouza/Developer/ThreadsDashboard")
-    status = "FAIL" if failures else ("WARN" if threadsdash_root.exists() else "SKIP")
+    status = (
+        "FAIL"
+        if failures or release
+        else ("WARN" if threadsdash_root.exists() else "SKIP")
+    )
     reason = (
         "\n".join(failures)
         if failures
+        else "release mode requires a live read-only ThreadsDashboard snapshot"
+        if release
         else "sanitized Creator OS and ThreadsDashboard draft fixtures agree; live TD runtime was not mutated"
     )
     return Result(
@@ -987,8 +1015,8 @@ def cross_system_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Res
             row["draft_id"]
             for row in fixture["cross_system_consistency"]["draft_pairs"]
         ],
-        next_action="Replace fixture pair with read-only TD export snapshot when available."
-        if status == "WARN"
+        next_action="Provide `--td-snapshot PATH` from the read-only ThreadsDashboard exporter."
+        if status != "PASS"
         else "None.",
     )
 
@@ -1026,6 +1054,7 @@ def analytics_integrity_audit(fixture: dict[str, Any], _quick: bool) -> Result:
 
 
 def ui_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    release = bool(fixture.get("_release"))
     fields = (
         "asset_status",
         "draft_state",
@@ -1068,14 +1097,16 @@ def ui_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     return Result(
         "ui-consistency",
         "UI Consistency Audit",
-        "FAIL" if failures else "WARN",
+        "FAIL" if failures or release else "WARN",
         "\n".join(failures)
         if failures
+        else "release mode requires ThreadsDashboard browser proof"
+        if release
         else "static fixture states agree; browser/runtime UI proof still requires a safe preview session",
         "pnpm doctor --business",
         evidence=json.dumps(fixture["ui_consistency"]["snapshots"], sort_keys=True),
         affected=[row["asset_id"] for row in fixture["ui_consistency"]["snapshots"]],
-        next_action="Add Playwright preview proof when a safe fixture route exists.",
+        next_action="Provide `--ui-proof PATH` from the ThreadsDashboard Playwright proof.",
     )
 
 
@@ -1341,6 +1372,7 @@ def campaign_health_audit(fixture: dict[str, Any], _quick: bool) -> Result:
 
 
 def repository_health_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    release = bool(fixture.get("_release"))
     status_output = command_check(
         ["git", "status", "--short", "--branch"], timeout=30
     ).output
@@ -1373,10 +1405,11 @@ def repository_health_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         warnings.append(
             f"local non-main branches need merge/delete review: {', '.join(stale_branches[:6])}"
         )
+    status = "FAIL" if release and dirty_lines else ("WARN" if warnings else "PASS")
     return Result(
         "repository-health",
         "Repository Health Audit",
-        "WARN" if warnings else "PASS",
+        status,
         "\n".join(warnings)
         if warnings
         else "repository health fixture and local git state are clean",
@@ -1440,15 +1473,17 @@ def chaos_audit(fixture: dict[str, Any], _quick: bool) -> Result:
 
 
 def scaling_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    release = bool(fixture.get("_release"))
     warnings = []
+    blockers = []
     projections = []
     for scenario in fixture["scaling"]:
         projection = scale_projection(scenario)
         projections.append(projection)
         if projection["max_utilization"] > scenario["warn_utilization"]:
-            warnings.append(
-                f"{scenario['creators']} creators: utilization {projection['max_utilization']:.2f} above {scenario['warn_utilization']:.2f}"
-            )
+            message = f"{scenario['creators']} creators: utilization {projection['max_utilization']:.2f} above {scenario['warn_utilization']:.2f}"
+            warnings.append(message)
+            blockers.append(message)
         if scenario["analytics_lag_minutes"] > scenario["max_analytics_lag_minutes"]:
             warnings.append(
                 f"{scenario['creators']} creators: analytics lag above threshold"
@@ -1457,10 +1492,11 @@ def scaling_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             "measured_inputs"
         ):
             warnings.append(f"{scenario['creators']} creators: weak assumptions")
+    status = "FAIL" if release and blockers else ("WARN" if warnings else "PASS")
     return Result(
         "scaling",
         "Scaling Audit",
-        "WARN" if warnings else "PASS",
+        status,
         "\n".join(warnings)
         if warnings
         else "fixture scale model is within thresholds for 1000/5000/10000 creators",

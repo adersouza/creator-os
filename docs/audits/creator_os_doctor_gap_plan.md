@@ -42,6 +42,11 @@ path for `/calendar`, `/composer`, `/links`, `/analytics`, and `/reliability`.
 `docs/audits/creator_os_release_hygiene_checklist.md` is the release hygiene
 source for the repository-health WARN.
 
+`pnpm doctor --release` promotes specific maturity gaps to FAIL:
+missing TD snapshot, missing UI proof, dirty tree, missing commercial-readiness
+owners, severe/missing-owner technical debt, and scale utilization above the
+configured threshold.
+
 ## Deferred hard audits
 
 ### Replay audit scale-up

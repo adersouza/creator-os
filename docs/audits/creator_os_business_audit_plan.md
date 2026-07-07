@@ -8,6 +8,10 @@ Use `--td-snapshot PATH` or `CREATOR_OS_TD_SNAPSHOT` for read-only
 ThreadsDashboard draft proof, and `--ui-proof PATH` or `CREATOR_OS_UI_PROOF`
 for browser proof.
 
+Use `pnpm doctor --release` for release gating. Release mode keeps ordinary
+inventory as WARN, but fails missing TD/UI proof, dirty release trees, missing
+commercial-readiness owners, and over-threshold scale utilization.
+
 The business suite uses safe sanitized fixtures in
 `tests/fixtures/doctor/creator_os_business_audit_fixture.json`. It does not
 mutate production scheduling, publishing, account health, metrics sync, QStash,
