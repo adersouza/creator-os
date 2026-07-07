@@ -23,8 +23,8 @@ This is the durable operator map. Keep this file aligned with `AGENTS.md`,
   quality gates, draft export, learning, execution proof.
 - ContentForge judges and blocks: Campaign Factory uses it for PDQ/SSCD
   collisions, sibling distinctness, OCR safe zones, readability, watchability,
-  and quality-floor evidence. Do not use safety work to strengthen spoofing or
-  evasion behavior.
+  and quality-floor evidence. Do not use safety work to add platform-avoidance
+  behavior.
 - Pipeline Contracts validate: shared JSON schemas and Python/TypeScript
   validators for cross-repo payloads.
 - ThreadsDashboard publishes: operator UI, native audio proof, schedule,

@@ -22,7 +22,7 @@ this repo without an explicit deployment instruction.
 - `contentforge`: repurposing/distinctness + quality gate. It has legacy/advanced
   FFmpeg variant and capture-metadata tooling, but Campaign Factory's default use
   is detect-and-block: PDQ/SSCD collision checks, sibling distinctness,
-  readability, safe-zone, and watchability gates. Do not strengthen spoof/evasion
+  readability, safe-zone, and watchability gates. Do not add platform-avoidance
   behavior during safety, docs, or pipeline work.
 - `ThreadsDashboard`: product UI, Supabase data, drafts, scheduling, publishing infrastructure, analytics.
 - `pipeline_contracts`: shared schemas and validators.
