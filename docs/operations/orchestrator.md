@@ -34,10 +34,20 @@ daily_candidate_target = 10
 top_k_for_approval = 3
 campaign = "stacey"
 creator = "Stacey"
+reference_image = "/absolute/path/to/reference.jpg"
+estimated_cost_per_asset_usd = 0.50
+caption_mix = "Stacey"
 ```
 
 `enabled = false` is the default. In that mode the tick writes a JSON status
 report but does not create or mutate the database.
+
+When enabled, the tick refuses to start paid generation unless `campaign`,
+`creator`, one reference path, and `estimated_cost_per_asset_usd` are set and
+the existing Higgsfield cost preflight allows the run. It then calls the existing
+`pipeline_run` flow for the daily shortfall, ingests `pipeline_run.json` evidence
+into `asset_pipeline_state`, and promotes the top ranked export-ready assets into
+the approval inbox. It does not schedule or publish.
 
 The emergency kill switch disables all writes, including tick reports:
 
@@ -122,5 +132,5 @@ Install only after the operator explicitly wants the dark tick scheduled:
 </plist>
 ```
 
-Do not add generation stage wiring, approval inbox UI, scheduling, or publishing
+Do not add scheduling or publishing
 to this launchd job.

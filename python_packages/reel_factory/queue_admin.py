@@ -1,34 +1,13 @@
-#!/usr/bin/env python3
-"""Inspect and recover the local render queue."""
+"""Compatibility shim for the packaged Reel Factory queue_admin module."""
 
 from __future__ import annotations
 
-import argparse
-import json
-from pathlib import Path
+import runpy
+import sys
 
-from render_queue import get_queue
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", default=".")
-    ap.add_argument("--status", action="store_true")
-    ap.add_argument("--recover-stale", action="store_true")
-    ap.add_argument("--stale-after-sec", type=int, default=300)
-    ap.add_argument(
-        "--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite"
-    )
-    args = ap.parse_args()
-    queue = get_queue(Path(args.root), args.queue_backend)
-    result = {}
-    if args.recover_stale:
-        result["recovered"] = queue.recover_stale(args.stale_after_sec)
-    if args.status or not result:
-        result.update(queue.status())
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0
-
+from reel_factory import queue_admin as _module
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    runpy.run_module("reel_factory.queue_admin", run_name="__main__")
+else:
+    sys.modules[__name__] = _module

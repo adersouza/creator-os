@@ -1,7 +1,13 @@
-"""Compatibility module for the packaged Reel Factory SQLite helpers."""
+"""Compatibility shim for the packaged Reel Factory sqlite_utils module."""
 
 from __future__ import annotations
 
-from reel_factory.sqlite_utils import connect_sqlite
+import runpy
+import sys
 
-__all__ = ["connect_sqlite"]
+from reel_factory import sqlite_utils as _module
+
+if __name__ == "__main__":
+    runpy.run_module("reel_factory.sqlite_utils", run_name="__main__")
+else:
+    sys.modules[__name__] = _module
