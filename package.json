@@ -26,7 +26,7 @@
     "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
-    "dependency-cruiser": "^17.4.3",
+    "dependency-cruiser": "^18.0.0",
     "knip": "^6.23.0",
     "turbo": "^2.3.0"
   }
