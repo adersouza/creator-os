@@ -172,6 +172,18 @@ def run_doctor(
         scaling_audit,
         product_quality_audit,
         ceo_dashboard_audit,
+        release_readiness_audit,
+        deployment_audit,
+        backup_disaster_recovery_audit,
+        secret_rotation_audit,
+        oauth_authentication_audit,
+        incident_response_audit,
+        release_hygiene_audit,
+        operational_ownership_audit,
+        production_proof_audit,
+        live_snapshot_audit,
+        browser_runtime_proof_audit,
+        release_gate_audit,
     ]
     if not business_only:
         audits.extend((audit, fixture) for _, audit in technical_audits)
@@ -1561,6 +1573,250 @@ def ceo_dashboard_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     )
 
 
+def release_readiness_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    release = bool(fixture.get("_release"))
+    blockers = release_blockers(fixture, include_missing_proofs=release)
+    status = "FAIL" if release and blockers else ("WARN" if blockers else "PASS")
+    return Result(
+        "release-readiness",
+        "Release Readiness Audit",
+        status,
+        "\n".join(blockers)
+        if blockers
+        else "release gates are available and no local release blockers were detected",
+        "pnpm doctor --release",
+        evidence="release mode checks TD snapshot, UI proof, dirty tree, scaling, and severe/unowned debt",
+        affected=blockers,
+        next_action="Clear listed blockers before tagging or merging a release branch."
+        if blockers
+        else "None.",
+    )
+
+
+def deployment_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    docs = [
+        ROOT / "docs/architecture/monorepo_deployment_promotion.md",
+        ROOT / "docs/architecture/build_provenance.md",
+        ROOT / "docs/architecture/github_protection_settings.md",
+    ]
+    missing = [str(path.relative_to(ROOT)) for path in docs if not path.exists()]
+    status = "FAIL" if missing else "WARN"
+    reason = (
+        f"missing deployment governance docs: {', '.join(missing)}"
+        if missing
+        else "deployment controls are documented; live deployment/package proof remains external"
+    )
+    return Result(
+        "deployment",
+        "Deployment Audit",
+        status,
+        reason,
+        "pnpm doctor",
+        evidence=", ".join(
+            str(path.relative_to(ROOT)) for path in docs if path.exists()
+        ),
+        affected=missing,
+        next_action="Attach production deployment, migration, env-parity, and rollback evidence before commercial release.",
+    )
+
+
+def backup_disaster_recovery_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    item = checklist_item("time-machine-backup")
+    open_item = item and item.get("status") != "closed"
+    return Result(
+        "backup-disaster-recovery",
+        "Backup & Disaster Recovery Audit",
+        "WARN" if open_item else "PASS",
+        "Time Machine/local runtime backup remains open"
+        if open_item
+        else "backup checklist item is closed",
+        "pnpm doctor",
+        evidence=json.dumps(item or {}, sort_keys=True),
+        affected=[item["id"]] if open_item else [],
+        next_action="Configure and test local backup/restore, then close the checklist item."
+        if open_item
+        else "None.",
+    )
+
+
+def secret_rotation_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    docs = [
+        ROOT / "docs/runbooks/threadsdash_ingest_secret_rotation.md",
+        ROOT / "docs/runbooks/security_incident_closure.md",
+    ]
+    missing = [str(path.relative_to(ROOT)) for path in docs if not path.exists()]
+    return Result(
+        "secret-rotation",
+        "Secret Rotation Audit",
+        "FAIL" if missing else "PASS",
+        f"missing secret rotation docs: {', '.join(missing)}"
+        if missing
+        else "secret rotation and incident credential rotation runbooks are present",
+        "pnpm doctor",
+        evidence=", ".join(
+            str(path.relative_to(ROOT)) for path in docs if path.exists()
+        ),
+        affected=missing,
+        next_action="Add missing rotation runbook coverage." if missing else "None.",
+    )
+
+
+def oauth_authentication_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    item = checklist_item("provider-account-auth")
+    open_item = item and item.get("status") != "closed"
+    return Result(
+        "oauth-authentication",
+        "OAuth / Authentication Audit",
+        "WARN" if open_item else "PASS",
+        "provider/account auth remains owner-controlled and open"
+        if open_item
+        else "provider/account auth checklist item is closed",
+        "pnpm doctor",
+        evidence=json.dumps(item or {}, sort_keys=True),
+        affected=[item["id"]] if open_item else [],
+        next_action="Verify provider auth, token expiry, and account permissions outside Creator OS."
+        if open_item
+        else "None.",
+    )
+
+
+def incident_response_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    docs = [
+        ROOT / "docs/runbooks/operator_failure_runbooks.md",
+        ROOT / "docs/runbooks/security_incident_closure.md",
+    ]
+    missing = [str(path.relative_to(ROOT)) for path in docs if not path.exists()]
+    return Result(
+        "incident-response",
+        "Incident Response Audit",
+        "FAIL" if missing else "PASS",
+        f"missing incident response docs: {', '.join(missing)}"
+        if missing
+        else "operator failure and security incident runbooks are present",
+        "pnpm doctor",
+        evidence=", ".join(
+            str(path.relative_to(ROOT)) for path in docs if path.exists()
+        ),
+        affected=missing,
+        next_action="Add missing runbooks before release." if missing else "None.",
+    )
+
+
+def release_hygiene_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    release = bool(fixture.get("_release"))
+    warnings = repo_hygiene_warnings()
+    status = (
+        "FAIL"
+        if release and any("working tree" in row for row in warnings)
+        else ("WARN" if warnings else "PASS")
+    )
+    return Result(
+        "release-hygiene",
+        "Release Hygiene Audit",
+        status,
+        "\n".join(warnings)
+        if warnings
+        else "working tree and local release branch hygiene are clean",
+        "git status --short --branch && git branch --format=%(refname:short)",
+        evidence="docs/audits/creator_os_release_hygiene_checklist.md",
+        affected=warnings,
+        next_action="Resolve dirty tree and branch cleanup before tagging/merging."
+        if warnings
+        else "None.",
+    )
+
+
+def operational_ownership_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
+    fixture = load_fixture()
+    checklist = fixture["commercial_readiness"].get("operator_checklist", [])
+    missing = [
+        item["id"] for item in checklist if not str(item.get("owner", "")).strip()
+    ]
+    open_items = [
+        f"{item['id']}:{item['owner']}"
+        for item in checklist
+        if item.get("status") != "closed"
+    ]
+    status = "FAIL" if missing else ("WARN" if open_items else "PASS")
+    return Result(
+        "operational-ownership",
+        "Operational Ownership Audit",
+        status,
+        f"checklist items missing owners: {', '.join(missing)}"
+        if missing
+        else f"all items have owners, but remain open: {', '.join(open_items)}"
+        if open_items
+        else "all operator checklist items are owned and closed",
+        "pnpm doctor",
+        evidence=json.dumps(checklist, sort_keys=True),
+        affected=missing or open_items,
+        next_action="Close or explicitly defer owned checklist items before commercial readiness."
+        if missing or open_items
+        else "None.",
+    )
+
+
+def production_proof_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    proofs = fixture.get("_proofs", {})
+    missing = []
+    if not normalize_td_snapshot(proofs.get("td_snapshot", {}).get("data")):
+        missing.append("live TD snapshot")
+    if not proofs.get("ui_proof", {}).get("data"):
+        missing.append("browser UI proof")
+    status = "WARN" if missing else "PASS"
+    return Result(
+        "production-proof",
+        "Production Proof Audit",
+        status,
+        f"missing live production proof: {', '.join(missing)}"
+        if missing
+        else "live snapshot and browser proof artifacts were provided",
+        "pnpm doctor --td-snapshot PATH --ui-proof PATH",
+        evidence=json.dumps(
+            {key: value.get("path") for key, value in proofs.items()}, sort_keys=True
+        ),
+        affected=missing,
+        next_action="Provide current read-only TD snapshot and UI proof artifacts."
+        if missing
+        else "None.",
+    )
+
+
+def live_snapshot_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    result = cross_system_consistency_audit(fixture, _quick)
+    result.name = "live-snapshot"
+    result.category = "Live Snapshot Audit"
+    result.command = "pnpm doctor --td-snapshot PATH"
+    return result
+
+
+def browser_runtime_proof_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    result = ui_consistency_audit(fixture, _quick)
+    result.name = "browser-runtime-proof"
+    result.category = "Browser Runtime Proof Audit"
+    result.command = "pnpm doctor --ui-proof PATH"
+    return result
+
+
+def release_gate_audit(fixture: dict[str, Any], _quick: bool) -> Result:
+    blockers = release_blockers(fixture, include_missing_proofs=True)
+    status = "FAIL" if bool(fixture.get("_release")) and blockers else "PASS"
+    return Result(
+        "release-gate",
+        "Release Gate Audit",
+        status,
+        "\n".join(blockers)
+        if status == "FAIL"
+        else "release gate is wired; run with --release to enforce blockers",
+        "pnpm doctor --release",
+        evidence="cross-system, UI proof, repository, debt, commercial ownership, and scaling gates",
+        affected=blockers if status == "FAIL" else [],
+        next_action="Run `pnpm doctor --release` before release and clear FAIL rows."
+        if status == "FAIL"
+        else "None.",
+    )
+
+
 @dataclass
 class CommandResult:
     returncode: int
@@ -1628,6 +1884,85 @@ def load_optional_json(path_value: str | Path | None) -> dict[str, Any]:
         return {"path": str(path), "data": read_json(path), "error": None}
     except (OSError, json.JSONDecodeError) as exc:
         return {"path": str(path), "data": None, "error": str(exc)}
+
+
+def checklist_item(item_id: str) -> dict[str, Any] | None:
+    fixture = load_fixture()
+    for item in fixture["commercial_readiness"].get("operator_checklist", []):
+        if item.get("id") == item_id:
+            return item
+    return None
+
+
+def repo_hygiene_warnings() -> list[str]:
+    status_output = command_check(
+        ["git", "status", "--short", "--branch"], timeout=30
+    ).output
+    branch_output = command_check(
+        ["git", "branch", "--format=%(refname:short)"], timeout=30
+    ).output
+    warnings = []
+    dirty_lines = [
+        line
+        for line in status_output.splitlines()
+        if line and not line.startswith("##")
+    ]
+    if dirty_lines:
+        warnings.append(
+            f"working tree has {len(dirty_lines)} uncommitted/untracked path(s)"
+        )
+    stale_branches = [
+        branch.strip()
+        for branch in branch_output.splitlines()
+        if branch.strip() and branch.strip() not in {"main"}
+    ]
+    if stale_branches:
+        warnings.append(
+            f"local non-main branches need merge/delete review: {', '.join(stale_branches[:6])}"
+        )
+    return warnings
+
+
+def release_blockers(
+    fixture: dict[str, Any], *, include_missing_proofs: bool
+) -> list[str]:
+    blockers = []
+    proofs = fixture.get("_proofs", {})
+    if include_missing_proofs:
+        if not normalize_td_snapshot(proofs.get("td_snapshot", {}).get("data")):
+            blockers.append("missing live TD snapshot")
+        if not proofs.get("ui_proof", {}).get("data"):
+            blockers.append("missing browser UI proof")
+    blockers.extend(row for row in repo_hygiene_warnings() if "working tree" in row)
+    for scenario in fixture.get("scaling", []):
+        projection = scale_projection(scenario)
+        if projection["max_utilization"] > scenario["warn_utilization"]:
+            blockers.append(
+                f"{scenario['creators']} creators utilization {projection['max_utilization']:.2f}"
+            )
+    debt = grep_repo(
+        ("TODO", "FIXME", "deprecated", "compatibility shim", "legacy", "shim"),
+        suffixes=(".py", ".js", ".ts", ".tsx", ".md", ".mjs"),
+    )
+    severe = [line for line in debt if "P0" in line or "SECURITY" in line]
+    missing_debt_owners = sorted(
+        set(categorize_debt_findings(debt)) - set(load_debt_ownership())
+    )
+    if severe:
+        blockers.append(f"severe technical debt markers: {len(severe)}")
+    if missing_debt_owners:
+        blockers.append(
+            f"unowned technical debt categories: {', '.join(missing_debt_owners)}"
+        )
+    commercial = load_fixture()["commercial_readiness"].get("operator_checklist", [])
+    missing_owners = [
+        item["id"] for item in commercial if not str(item.get("owner", "")).strip()
+    ]
+    if missing_owners:
+        blockers.append(
+            f"commercial checklist missing owners: {', '.join(missing_owners)}"
+        )
+    return blockers
 
 
 def normalize_td_snapshot(data: Any) -> dict[str, dict[str, Any]]:
@@ -1953,9 +2288,9 @@ def self_check() -> int:
     assert fixture["replay_campaigns"]
     assert business_fixture["business_logic"]["decisions"]
     results = run_doctor(quick=True)
-    assert len(results) == 38
+    assert len(results) == 50
     business_results = run_doctor(quick=True, business_only=True)
-    assert len(business_results) == 18
+    assert len(business_results) == 30
     assert {result.name for result in results} >= {
         "architecture",
         "commercial-readiness",

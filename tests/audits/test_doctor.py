@@ -17,10 +17,10 @@ sys.modules[spec.name] = doctor
 spec.loader.exec_module(doctor)
 
 
-def test_doctor_runs_all_thirty_eight_audits_in_quick_mode() -> None:
+def test_doctor_runs_all_fifty_audits_in_quick_mode() -> None:
     results = doctor.run_doctor(quick=True)
 
-    assert len(results) == 38
+    assert len(results) == 50
     assert {result.name for result in results} == {
         "architecture",
         "pipeline-determinism",
@@ -60,6 +60,18 @@ def test_doctor_runs_all_thirty_eight_audits_in_quick_mode() -> None:
         "scaling",
         "product-quality",
         "ceo-dashboard",
+        "release-readiness",
+        "deployment",
+        "backup-disaster-recovery",
+        "secret-rotation",
+        "oauth-authentication",
+        "incident-response",
+        "release-hygiene",
+        "operational-ownership",
+        "production-proof",
+        "live-snapshot",
+        "browser-runtime-proof",
+        "release-gate",
     }
     assert all(result.category for result in results)
     assert all(result.command for result in results)
@@ -70,7 +82,7 @@ def test_doctor_runs_all_thirty_eight_audits_in_quick_mode() -> None:
 def test_business_only_runs_all_second_layer_audits() -> None:
     results = doctor.run_doctor(quick=True, business_only=True)
 
-    assert len(results) == 18
+    assert len(results) == 30
     assert {result.name for result in results} == {
         "business-logic",
         "cross-system-consistency",
@@ -90,6 +102,18 @@ def test_business_only_runs_all_second_layer_audits() -> None:
         "scaling",
         "product-quality",
         "ceo-dashboard",
+        "release-readiness",
+        "deployment",
+        "backup-disaster-recovery",
+        "secret-rotation",
+        "oauth-authentication",
+        "incident-response",
+        "release-hygiene",
+        "operational-ownership",
+        "production-proof",
+        "live-snapshot",
+        "browser-runtime-proof",
+        "release-gate",
     }
     assert all(result.category for result in results)
 
