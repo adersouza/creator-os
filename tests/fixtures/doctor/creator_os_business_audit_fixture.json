@@ -1,0 +1,438 @@
+{
+  "schema": "creator_os.business_doctor_fixture.v1",
+  "business_logic": {
+    "summary": {
+      "decisions": 2,
+      "blockedAssets": 1,
+      "manualApprovalHonored": true
+    },
+    "decisions": [
+      {
+        "decision_id": "decision_001",
+        "creator_match": true,
+        "campaign_match": true,
+        "account_match": true,
+        "time_window_match": true,
+        "cooldown_applied": true,
+        "priority_applied": true,
+        "manual_approval_honored": true,
+        "blocked_asset_not_promoted": true,
+        "explanation": "Stacey priority campaign selected after cooldown and manual approval gate."
+      },
+      {
+        "decision_id": "decision_002",
+        "creator_match": true,
+        "campaign_match": true,
+        "account_match": true,
+        "time_window_match": true,
+        "cooldown_applied": true,
+        "priority_applied": true,
+        "manual_approval_honored": true,
+        "blocked_asset_not_promoted": true,
+        "explanation": "Blocked duplicate asset remained in review and was not promoted."
+      }
+    ]
+  },
+  "cross_system_consistency": {
+    "draft_pairs": [
+      {
+        "draft_id": "draft_482",
+        "creator_os": {
+          "status": "validated",
+          "caption": "Hard launch energy.",
+          "media_hash": "sha256:media482",
+          "lineage_hash": "sha256:lineage482",
+          "account": "stacey_main",
+          "schedule": "2026-07-08T18:00:00-04:00"
+        },
+        "threadsdashboard": {
+          "status": "validated",
+          "caption": "Hard launch energy.",
+          "media_hash": "sha256:media482",
+          "lineage_hash": "sha256:lineage482",
+          "account": "stacey_main",
+          "schedule": "2026-07-08T18:00:00-04:00"
+        }
+      }
+    ]
+  },
+  "analytics_integrity": {
+    "valid_accounts": [
+      "stacey_main"
+    ],
+    "source_posts": [
+      {
+        "post_id": "post_001",
+        "account": "stacey_main"
+      },
+      {
+        "post_id": "post_002",
+        "account": "stacey_main"
+      }
+    ],
+    "normalized_metrics": [
+      {
+        "post_id": "post_001",
+        "account": "stacey_main",
+        "views": 1000,
+        "engagements": 134,
+        "clicks": 12,
+        "revenue_per_click": 0.5,
+        "revenue": 6.0,
+        "timezone_checked": true
+      },
+      {
+        "post_id": "post_002",
+        "account": "stacey_main",
+        "views": 750,
+        "engagements": 81,
+        "clicks": 7,
+        "revenue_per_click": 0.5,
+        "revenue": 3.5,
+        "timezone_checked": true
+      }
+    ],
+    "dashboard_output": {
+      "posts": 2,
+      "views": 1750,
+      "engagements": 215,
+      "revenue": 9.5
+    }
+  },
+  "ui_consistency": {
+    "snapshots": [
+      {
+        "asset_id": "asset_fixture_001",
+        "asset_status": "Validated",
+        "draft_state": "Validated",
+        "queue_state": "Validated",
+        "validation_state": "Validated",
+        "analytics_state": "Validated"
+      }
+    ]
+  },
+  "business_state_machine": {
+    "flows": [
+      {
+        "asset_id": "asset_fixture_001",
+        "states": [
+          "Generated",
+          "Audited",
+          "Validated",
+          "Draft",
+          "Scheduled",
+          "Published"
+        ]
+      }
+    ]
+  },
+  "data_drift": {
+    "metrics": {
+      "caption_length": {
+        "baseline": 42,
+        "current": 44,
+        "warn_threshold": 8,
+        "fail_threshold": 16
+      },
+      "hook_strength": {
+        "baseline": 0.78,
+        "current": 0.76,
+        "warn_threshold": 0.08,
+        "fail_threshold": 0.16
+      },
+      "pacing": {
+        "baseline": 0.71,
+        "current": 0.74,
+        "warn_threshold": 0.1,
+        "fail_threshold": 0.2
+      },
+      "ocr_density": {
+        "baseline": 0.18,
+        "current": 0.2,
+        "warn_threshold": 0.08,
+        "fail_threshold": 0.16
+      },
+      "quality_score": {
+        "baseline": 0.86,
+        "current": 0.84,
+        "warn_threshold": 0.08,
+        "fail_threshold": 0.16
+      },
+      "approval_rate": {
+        "baseline": 0.72,
+        "current": 0.7,
+        "warn_threshold": 0.1,
+        "fail_threshold": 0.2
+      }
+    }
+  },
+  "recommendations": [
+    {
+      "recommendation_id": "rec_001",
+      "outcome": "accepted",
+      "quality_score": 0.82
+    },
+    {
+      "recommendation_id": "rec_002",
+      "outcome": "rejected",
+      "quality_score": 0.42
+    },
+    {
+      "recommendation_id": "rec_003",
+      "outcome": "regenerated",
+      "quality_score": 0.55
+    },
+    {
+      "recommendation_id": "rec_004",
+      "outcome": "manually_overridden",
+      "quality_score": 0.61
+    }
+  ],
+  "regression": {
+    "metrics": {
+      "replay_score": {
+        "baseline": 0.98,
+        "current": 0.98,
+        "direction": "higher_is_better",
+        "warn_threshold": 0.02,
+        "fail_threshold": 0.05
+      },
+      "approval_rate": {
+        "baseline": 0.72,
+        "current": 0.71,
+        "direction": "higher_is_better",
+        "warn_threshold": 0.04,
+        "fail_threshold": 0.08
+      },
+      "qc_pass_rate": {
+        "baseline": 0.93,
+        "current": 0.94,
+        "direction": "higher_is_better",
+        "warn_threshold": 0.03,
+        "fail_threshold": 0.06
+      },
+      "generation_time": {
+        "baseline": 200,
+        "current": 205,
+        "direction": "lower_is_better",
+        "warn_threshold": 20,
+        "fail_threshold": 40
+      },
+      "export_failures": {
+        "baseline": 2,
+        "current": 1,
+        "direction": "lower_is_better",
+        "warn_threshold": 2,
+        "fail_threshold": 4
+      },
+      "campaign_success": {
+        "baseline": 0.64,
+        "current": 0.66,
+        "direction": "higher_is_better",
+        "warn_threshold": 0.05,
+        "fail_threshold": 0.1
+      }
+    }
+  },
+  "costs": {
+    "warn_cost_per_publishable": 0.75,
+    "assets": [
+      {
+        "asset_id": "asset_fixture_001",
+        "costs": {
+          "api": 0.31,
+          "gpu": 0.0,
+          "storage": 0.01,
+          "ocr": 0.02,
+          "embedding_analysis": 0.05
+        },
+        "total_cost": 0.39,
+        "cost_per_publishable": 0.41
+      }
+    ]
+  },
+  "human_overrides": {
+    "total_assets": 20,
+    "warn_rate": 0.3,
+    "events": [
+      {
+        "event_id": "override_001",
+        "type": "edited_caption",
+        "reason": "tone adjustment"
+      },
+      {
+        "event_id": "override_002",
+        "type": "regenerated_asset",
+        "reason": "visual polish"
+      }
+    ]
+  },
+  "accounts": [
+    {
+      "account_id": "stacey_main",
+      "posting_frequency_7d": 5,
+      "min_posting_frequency_7d": 3,
+      "campaign_diversity": 4,
+      "min_campaign_diversity": 2,
+      "duplicate_risk": 0.08,
+      "max_duplicate_risk": 0.2,
+      "approval_rate": 0.74,
+      "min_approval_rate": 0.6,
+      "engagement_trend": 0.12,
+      "inactive_days": 1,
+      "max_inactive_days": 3,
+      "content_mix": {
+        "mirror": 0.4,
+        "lifestyle": 0.35,
+        "reaction": 0.25
+      }
+    }
+  ],
+  "campaign_health": [
+    {
+      "campaign_id": "campaign_stacey_001",
+      "variety": 0.72,
+      "min_variety": 0.5,
+      "hook_diversity": 0.68,
+      "min_hook_diversity": 0.5,
+      "format_diversity": 0.64,
+      "min_format_diversity": 0.45,
+      "duplicate_load": 0.1,
+      "max_duplicate_load": 0.25,
+      "schedule_balance": 0.7,
+      "min_schedule_balance": 0.55,
+      "winning_theme_reuse": 0.32,
+      "max_winning_theme_reuse": 0.5
+    }
+  ],
+  "repository_health": {
+    "ci_duration_minutes": 11,
+    "max_ci_duration_minutes": 20,
+    "flaky_tests": 0,
+    "migration_debt": 2,
+    "max_migration_debt": 5
+  },
+  "operator_experience": {
+    "clicks": 6,
+    "max_clicks": 8,
+    "confusing_states": [],
+    "recovery_path_present": true,
+    "onboarding_complete": true,
+    "discoverability_present": true
+  },
+  "chaos": [
+    {
+      "scenario": "provider_outage",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "corrupt_media",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "invalid_ocr",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "contract_mismatch",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "duplicate_exports",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "partial_publish",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    },
+    {
+      "scenario": "database_restart",
+      "graceful_recovery": true,
+      "corrupts_state": false
+    }
+  ],
+  "scaling": [
+    {
+      "creators": 1000,
+      "posts_per_creator_per_day": 1.2,
+      "generation_seconds_per_asset": 210,
+      "generation_workers": 12,
+      "available_generation_hours_per_day": 24,
+      "approval_capacity_per_day": 1800,
+      "export_throughput_per_hour": 180,
+      "export_hours_per_day": 12,
+      "analytics_lag_minutes": 90,
+      "max_analytics_lag_minutes": 240,
+      "failure_retry_rate": 0.08,
+      "warn_utilization": 0.85,
+      "assumption_confidence": 0.82,
+      "measured_inputs": true
+    },
+    {
+      "creators": 5000,
+      "posts_per_creator_per_day": 1.0,
+      "generation_seconds_per_asset": 210,
+      "generation_workers": 52,
+      "available_generation_hours_per_day": 24,
+      "approval_capacity_per_day": 6400,
+      "export_throughput_per_hour": 720,
+      "export_hours_per_day": 12,
+      "analytics_lag_minutes": 180,
+      "max_analytics_lag_minutes": 240,
+      "failure_retry_rate": 0.1,
+      "warn_utilization": 0.85,
+      "assumption_confidence": 0.78,
+      "measured_inputs": true
+    },
+    {
+      "creators": 10000,
+      "posts_per_creator_per_day": 1.0,
+      "generation_seconds_per_asset": 210,
+      "generation_workers": 80,
+      "available_generation_hours_per_day": 24,
+      "approval_capacity_per_day": 10000,
+      "export_throughput_per_hour": 900,
+      "export_hours_per_day": 12,
+      "analytics_lag_minutes": 240,
+      "max_analytics_lag_minutes": 240,
+      "failure_retry_rate": 0.12,
+      "warn_utilization": 0.85,
+      "assumption_confidence": 0.62,
+      "measured_inputs": false
+    }
+  ],
+  "product_quality": [
+    {
+      "asset_id": "asset_fixture_001",
+      "reviewer_scores": {
+        "hook_strength": 0.82,
+        "visual_quality": 0.86,
+        "originality": 0.76,
+        "readability": 0.9,
+        "brand_fit": 0.84,
+        "likelihood_of_posting": 0.78
+      },
+      "automated_qc_score": 0.83,
+      "warn_delta": 0.12
+    }
+  ],
+  "ceo_dashboard": {
+    "pipeline_health": "PASS",
+    "contract_health": "PASS",
+    "assets_generated_today": 12,
+    "qc_pass_rate": 0.94,
+    "average_generation_time_seconds": 205,
+    "replay_determinism": 0.98,
+    "analytics_freshness_minutes": 28,
+    "duplicate_rate": 0.02,
+    "human_override_rate": 0.1,
+    "publish_success": 0.99,
+    "cost_per_published_asset": 0.41
+  }
+}

@@ -7,6 +7,7 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "doctor": "python3 scripts/doctor.py",
     "sync:contracts": "node scripts/sync-pipeline-contracts.mjs",
     "lint:py": "uv run ruff check python_packages packages && uv run ruff format --check python_packages packages",
     "typecheck:py": "uv run mypy packages/pipeline_contracts/pipeline_contracts",

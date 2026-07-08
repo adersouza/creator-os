@@ -55,7 +55,7 @@ Reference Media (reels, images, TikTok archives)
 | [reference_factory](https://github.com/adersouza/reference_factory) | Python | Intelligence — analyze reference media, build learning systems, audio catalog | 69 |
 | [reel_factory](https://github.com/adersouza/reel_factory) | Python | Creation — prompt generation, image/video generation, grid crop, caption render | 247 |
 | [campaign_factory](https://github.com/adersouza/campaign_factory) | Python | Orchestration — control brain, batch management, audit coordination, draft export | 359 |
-| [contentforge](https://github.com/adersouza/contentforge) | JavaScript (Next.js) | Spoofing — FFmpeg variant generation that defeats perceptual-hash duplicate detection (PDQ/SSCD) and rewrites capture metadata so re-used content reads as an original device capture; readiness/forensics checks score how convincing the spoof is | 79 |
+| [contentforge](https://github.com/adersouza/contentforge) | JavaScript (Next.js) | Quality and distinctness — readiness audits, PDQ/SSCD collision checks, sibling distinctness, OCR safe zones, readability, watchability, and blocking evidence | 79 |
 | [ThreadsDashboard](https://github.com/adersouza/ThreadsDashboard) | TypeScript | Product — dashboard, scheduling, auto-posting, analytics, multi-account management | 4,557 |
 | [pipeline_contracts](https://github.com/adersouza/pipeline_contracts) | Python + TS | Schemas — shared JSON schemas and validators for cross-repo payloads | ✓ |
 
@@ -90,11 +90,11 @@ Reference Media (reels, images, TikTok archives)
 
 Grok/Qwen/Ollama/Florence visual-schema extraction, grids, cropped panels, and `_grok.json` prompt files are legacy/experimental only.
 
-### 3. Orchestration → Spoof & Verify
+### 3. Orchestration → Audit & Verify
 **Campaign Factory** acts as the control brain:
 - Imports finished videos with full lineage
-- Sends them to **ContentForge**, which generates FFmpeg variants engineered to defeat perceptual-hash duplicate detection (PDQ/SSCD) and rewrites capture metadata (`creation_time`, `handler_name`, device-matched x264 params) so re-used content reads as an original device capture
-- Two check families: **spoof meters** (`sourceSimilarity`, `variantToVariantSimilarity`, `variationScore`) score how well a variant evades duplicate detection; **quality guards** (`creativeQualityScore`, `readabilityScore`, `safeZoneScore`) enforce a quality floor so spoofing never visibly degrades the output
+- Sends them to **ContentForge** for readiness, distinctness, and quality evidence: FFmpeg probing, PDQ/SSCD collision checks, sibling distinctness, OCR safe-zone review, readability, watchability, and compression/provenance review
+- Two check families: **distinctness/readiness signals** (`sourceSimilarity`, `variantToVariantSimilarity`, `variationScore`) identify reuse or collision risk; **quality guards** (`creativeQualityScore`, `readabilityScore`, `safeZoneScore`) enforce a quality floor before promotion
 - Only `overallVerdict: pass` maps to `approved_candidate`; warnings require human review
 - Maintains local SQLite campaign database (48 tables), activity logs, and durable job records
 
