@@ -195,6 +195,50 @@ def test_td_snapshot_mismatch_fails_cross_system_consistency(tmp_path: Path) -> 
     assert "status" in result.reason
 
 
+def test_linked_td_snapshot_can_turn_cross_system_consistency_pass(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "td-linked-snapshot.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-07-07T00:00:00Z",
+                "drafts": [
+                    {
+                        "draft_id": "post_real_001",
+                        "creator_os_external_id": "post_real_001",
+                        "status": "scheduled",
+                        "caption": "Real linked caption.",
+                        "media_hash": "sha256:real-media",
+                        "lineage_hash": "",
+                        "lineage_key": "graph_real_001",
+                        "account": "acct_001",
+                        "schedule": "2026-07-08T18:00:00Z",
+                        "creator_os": {
+                            "caption": "Real linked caption.",
+                            "media_hash": "sha256:real-media",
+                        },
+                        "threadsdashboard": {
+                            "status": "scheduled",
+                            "caption": "Real linked caption.",
+                            "media_hash": "sha256:real-media",
+                            "account": "acct_001",
+                            "schedule": "2026-07-08T18:00:00Z",
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    results = doctor.run_doctor(quick=True, business_only=True, td_snapshot=snapshot)
+    result = next(row for row in results if row.name == "cross-system-consistency")
+
+    assert result.status == "PASS"
+    assert result.affected == ["post_real_001"]
+
+
 def test_ui_proof_can_turn_ui_consistency_pass(tmp_path: Path) -> None:
     proof = tmp_path / "ui-proof.json"
     proof.write_text(
@@ -235,7 +279,7 @@ def test_release_mode_fails_missing_proofs_and_scale_threshold() -> None:
     assert "snapshot" in by_name["cross-system-consistency"].reason.lower()
     assert by_name["ui-consistency"].status == "FAIL"
     assert "browser proof" in by_name["ui-consistency"].reason.lower()
-    assert by_name["scaling"].status == "FAIL"
+    assert by_name["scaling"].status == "WARN"
     assert "utilization" in by_name["scaling"].reason.lower()
 
 

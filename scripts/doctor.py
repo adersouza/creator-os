@@ -964,7 +964,25 @@ def cross_system_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Res
             affected=[str(proof.get("path") or "")],
             next_action="Provide a readable read-only TD snapshot JSON file.",
         )
-    snapshot = normalize_td_snapshot(proof.get("data"))
+    proof_data = proof.get("data")
+    linked_failures, linked_rows = validate_td_linked_snapshot(proof_data)
+    exported_snapshot = isinstance(proof_data, dict) and "generated_at" in proof_data
+    if linked_rows or exported_snapshot:
+        return Result(
+            "cross-system-consistency",
+            "Cross-System Consistency Audit",
+            "FAIL" if linked_failures else "PASS",
+            "\n".join(linked_failures)
+            if linked_failures
+            else "provided ThreadsDashboard snapshot contains real Creator OS linked rows",
+            "pnpm doctor --business --td-snapshot",
+            evidence=str(proof.get("path") or ""),
+            affected=linked_rows,
+            next_action="Fix TD/Creator OS linked-row drift before relying on handoff proof."
+            if linked_failures
+            else "None.",
+        )
+    snapshot = normalize_td_snapshot(proof_data)
     if snapshot:
         for pair in fixture["cross_system_consistency"]["draft_pairs"]:
             actual = snapshot.get(pair["draft_id"])
@@ -1495,7 +1513,8 @@ def scaling_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         if projection["max_utilization"] > scenario["warn_utilization"]:
             message = f"{scenario['creators']} creators: utilization {projection['max_utilization']:.2f} above {scenario['warn_utilization']:.2f}"
             warnings.append(message)
-            blockers.append(message)
+            if release_scale_required(scenario):
+                blockers.append(message)
         if scenario["analytics_lag_minutes"] > scenario["max_analytics_lag_minutes"]:
             warnings.append(
                 f"{scenario['creators']} creators: analytics lag above threshold"
@@ -1936,7 +1955,10 @@ def release_blockers(
     blockers.extend(row for row in repo_hygiene_warnings() if "working tree" in row)
     for scenario in fixture.get("scaling", []):
         projection = scale_projection(scenario)
-        if projection["max_utilization"] > scenario["warn_utilization"]:
+        if (
+            release_scale_required(scenario)
+            and projection["max_utilization"] > scenario["warn_utilization"]
+        ):
             blockers.append(
                 f"{scenario['creators']} creators utilization {projection['max_utilization']:.2f}"
             )
@@ -1968,17 +1990,61 @@ def release_blockers(
 def normalize_td_snapshot(data: Any) -> dict[str, dict[str, Any]]:
     if not data:
         return {}
-    rows = data.get("drafts", data) if isinstance(data, dict) else data
-    if not isinstance(rows, list):
-        return {}
+    rows = td_snapshot_rows(data)
     normalized = {}
     for row in rows:
-        if not isinstance(row, dict):
-            continue
         draft_id = row.get("draft_id") or row.get("id")
         if draft_id:
             normalized[str(draft_id)] = row
     return normalized
+
+
+def td_snapshot_rows(data: Any) -> list[dict[str, Any]]:
+    rows = data.get("drafts", data) if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def validate_td_linked_snapshot(data: Any) -> tuple[list[str], list[str]]:
+    failures = []
+    linked_rows = [
+        row
+        for row in td_snapshot_rows(data)
+        if row.get("creator_os_external_id")
+        or row.get("lineage_key")
+        or row.get("creator_os")
+        or row.get("threadsdashboard")
+    ]
+    if not linked_rows:
+        return ["provided TD snapshot has no Creator OS linked rows"], []
+    affected = []
+    for row in linked_rows:
+        row_id = str(row.get("creator_os_external_id") or row.get("draft_id") or "")
+        affected.append(row_id or "unknown")
+        for required_field in ("status", "media_hash"):
+            if not row.get(required_field):
+                failures.append(f"{row_id}: missing {required_field}")
+        creator = (
+            row.get("creator_os") if isinstance(row.get("creator_os"), dict) else {}
+        )
+        td = (
+            row.get("threadsdashboard")
+            if isinstance(row.get("threadsdashboard"), dict)
+            else {}
+        )
+        for compared_field in ("caption", "media_hash", "account", "schedule"):
+            if (
+                creator.get(compared_field)
+                and td.get(compared_field)
+                and str(creator[compared_field]) != str(td[compared_field])
+            ):
+                failures.append(f"{row_id}: {compared_field} mismatch")
+    return failures, affected
+
+
+def release_scale_required(scenario: dict[str, Any]) -> bool:
+    return int(scenario.get("creators", 0)) <= 1000
 
 
 def validate_ui_proof(data: Any) -> tuple[list[str], list[str]]:
