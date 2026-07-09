@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "dependency-cruiser": "^17.4.3",
-    "knip": "^6.23.0",
-    "turbo": "^2.3.0"
+    "knip": "^6.25.0",
+    "turbo": "^2.10.4"
   }
 }
