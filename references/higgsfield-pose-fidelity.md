@@ -163,6 +163,12 @@ avatar, music note, "..." / X, garbled caption text).
   there, top-crop it (autocrop removes only DARK bars; overlaid chrome on a lit wall needs
   a manual top crop).
 
+### EXPRESSION (owner preference 2026-07-09)
+Minimize smiling. Best-performing faces, in order: **smirk**, **serious / neutral sultry**,
+**duck face / pout**. Use `soft smirk`, `serious sultry expression, lips slightly parted`,
+or `duck-face pout` in the prompt. Bright open-mouth / teeth-out smiles look worst — avoid
+except an occasional playful shot. Keep gaze direct or over-shoulder.
+
 ### HAND-SAFE POSING (mangled fingers are the #1 defect — verified fix 2026-07-09)
 Hands break when fingers are open/splayed/visible. Fix = occlude or occupy BOTH hands:
 - Phone-holding hand held up in front of/covering face (fingers hide behind the phone)
