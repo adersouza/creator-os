@@ -30,6 +30,7 @@ from reel_pipeline import (
     _write_mux_audio_intents,
     apply_caption_fit_to_caption_set,
     apply_creator_style_preset,
+    approve_operator_band,
     build_avconvert_finalize_cmd,
     build_caption_outcome_context,
     build_caption_placement_qc_row,
@@ -1131,6 +1132,54 @@ class ReelPipelineTests(unittest.TestCase):
         again = vary_band_within_lane("center", summary, diversity_key="stable")
         self.assertEqual(first, again)
 
+    def _override_summary(self, components):
+        return PlacementSummary(
+            "bottom",
+            {"top": 5.0, "center": 8.0, "bottom": 6.0},
+            3,
+            "bottom lowest",
+            {"captionPlacementDecision": {"components": components}},
+        )
+
+    def test_operator_band_honored_when_face_clear(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 0.0, "head": 57.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertEqual(approve_operator_band("center", summary), "center")
+
+    def test_operator_band_refused_on_face_hit(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 180.0, "head": 0.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertIsNone(approve_operator_band("center", summary))
+
+    def test_operator_band_refused_on_full_head_hit(self):
+        summary = self._override_summary(
+            {
+                "center": {"face": 0.0, "head": 110.0},
+                "bottom": {"face": 0.0, "head": 0.0},
+            }
+        )
+        self.assertIsNone(approve_operator_band("center", summary))
+
+    def test_operator_band_refused_without_components(self):
+        summary = PlacementSummary("bottom", {}, 0, "no probe", {})
+        self.assertIsNone(approve_operator_band("center", summary))
+        self.assertIsNone(approve_operator_band("sideways", summary))
+
+    def test_job_key_changes_with_requested_band(self):
+        base = compute_job_key("video", "caption", Recipe("v01_original"))
+        banded = compute_job_key(
+            "video", "caption", Recipe("v01_original"), requested_band="center"
+        )
+        self.assertNotEqual(base, banded)
+
     def test_job_key_changes_when_recipe_changes(self):
         a = compute_job_key("video", "caption", Recipe("v01_original"))
         b = compute_job_key("video", "caption", Recipe("v01_original", zoom=1.01))
@@ -1793,6 +1842,58 @@ class ReelPipelineTests(unittest.TestCase):
                         }
                     ],
                 )
+
+    def test_required_similarity_audit_exempts_self_generated_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "stacey_static.mp4"
+            out_dir = root / "02_processed" / "stacey_static"
+            out_dir.mkdir(parents=True)
+            source.write_bytes(b"source")
+            fail_rows = lambda _s, _o: [  # noqa: E731
+                {
+                    "filename": "still.mp4",
+                    "status": "fail",
+                    "verdict": "FAIL (copy detected)",
+                }
+            ]
+
+            lineage = root / "stacey_static.generated_lineage.json"
+            lineage.write_text(
+                json.dumps({"generation": {"imageJobId": "job-123"}}),
+                encoding="utf-8",
+            )
+            sidecar = root / "stacey_static.self_source.json"
+
+            # Sidecar missing -> hard fail preserved (external sources).
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(source, out_dir, audit_func=fail_rows)
+
+            # Sidecar with wrong schema -> still hard fail.
+            sidecar.write_text(
+                json.dumps({"schema": "other", "generationLineagePath": lineage.name}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(source, out_dir, audit_func=fail_rows)
+
+            # Valid sidecar pointing at a real generation lineage -> informational.
+            sidecar.write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.self_source.v1",
+                        "generationLineagePath": lineage.name,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = write_required_similarity_audit(
+                source, out_dir, audit_func=fail_rows
+            )
+            self.assertEqual(rows[0]["status"], "info")
+            self.assertTrue(rows[0]["selfSourceExempt"])
+            written = json.loads((out_dir / "_similarity.json").read_text())
+            self.assertEqual(written[0]["verdict"], "INFO (self-generated source)")
 
     def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
         with tempfile.TemporaryDirectory() as tmp:
