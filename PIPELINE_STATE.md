@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last updated:** 2026-07-07. This is the single source of truth for the current state of the Creator OS pipeline. It supersedes the old one-shot planning/runbook/audit docs (removed). Operational details live in `ARCHITECTURE.md`, `AGENTS.md`, and `docs/`.
+**Last updated:** 2026-07-09. This is the single source of truth for the current state of the Creator OS pipeline. It supersedes the old one-shot planning/runbook/audit docs (removed). Operational details live in `ARCHITECTURE.md`, `AGENTS.md`, and `docs/`.
 
 ## Architecture (two active product repos)
 
@@ -25,6 +25,7 @@ ThreadsDashboard (separate repo) ──deploys──▶ juno33.com   (the standa
 - **Instagram is the reel outlet (owner decision 2026-07-02), and the IG publish pipeline is BUILT and PROVEN** (35 reels published 2026-06-05..09; TD campaign scheduler is Instagram-only by design; licensed-embedded-audio path shipped CF #284 + TD #224). Do not re-declare IG "unbuilt".
 - **Orchestrator + approval inbox wiring is merged** (PR #370 and prerequisites): the gated tick can run `pipeline_run`, require an estimated cost before paid generation, ingest pipeline evidence, promote top-ranked assets into `awaiting_approval`, and export approved sidecars. It remains disabled until the operator sets local config with `enabled = true`.
 - **Recipe bandit reads `reel_outcomes`** (`campaign_store.py` `_recipe_bandit_state`): the legacy `publish_metrics` table remains only in compatibility/write/export/test paths and must not be deleted until those references are retired.
+- **Dependency sweep complete (2026-07-09)**: PRs #364 (SSCD self-generated exemption), #366 (dorny/paths-filter 4), #367 (production deps), #368 (Tailwind 4 major migration, lockfile regenerated), #369 (dependency-cruiser 18) all merged with green CI; merged branches and worktrees pruned. Tailwind 4 config now lives in CSS-first format (`apps/command-center` + `apps/contentforge` globals.css).
 - **ThreadsDashboard autoposter is OFF deliberately** (owner, 2026-06-30). Separate system from the reel pipeline; do not treat as an incident or restart unasked.
 
 ## Open work
