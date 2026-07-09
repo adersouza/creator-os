@@ -9,8 +9,12 @@ export {
 } from "./generated-schemas.js";
 
 export const AUDIO_INTENT_SCHEMA_ID = "pipeline.audio_intent.v1" as const;
-export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
+export const CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID =
 	"campaign_factory.threadsdash_drafts.v1" as const;
+export const CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID =
+	"campaign_factory.threadsdash_drafts.v2" as const;
+export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
+	CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID;
 export const AUDIO_CATALOG_EXPORT_SCHEMA_ID =
 	"reference_factory.audio_catalog_export.v1" as const;
 export const PERFORMANCE_SYNC_SCHEMA_ID =
@@ -25,8 +29,12 @@ export const HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID =
 	"reference_factory.higgsfield_soul_image_prompt.v1" as const;
 export const KLING_3_VIDEO_PROMPT_SCHEMA_ID =
 	"reference_factory.kling_3_video_prompt.v1" as const;
-export const GENERATED_ASSET_LINEAGE_SCHEMA_ID =
+export const GENERATED_ASSET_LINEAGE_V1_SCHEMA_ID =
 	"reel_factory.generated_asset_lineage.v1" as const;
+export const GENERATED_ASSET_LINEAGE_V2_SCHEMA_ID =
+	"reel_factory.generated_asset_lineage.v2" as const;
+export const GENERATED_ASSET_LINEAGE_SCHEMA_ID =
+	GENERATED_ASSET_LINEAGE_V1_SCHEMA_ID;
 export const CREATIVE_PLAN_SCHEMA_ID =
 	"campaign_factory.creative_plan.v1" as const;
 export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =
@@ -157,6 +165,19 @@ export const campaignDraftPayloadSchema = {
 	required: ["schema", "campaign", "drafts"],
 	properties: {
 		schema: { const: CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID },
+		campaign: { type: "string" },
+		drafts: { type: "array" },
+	},
+} as const;
+
+export const campaignDraftPayloadV2Schema = {
+	$schema: "https://json-schema.org/draft/2020-12/schema",
+	$id: CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID,
+	title: "Campaign Factory ThreadsDashboard Draft Payload v2",
+	type: "object",
+	required: ["schema", "campaign", "drafts"],
+	properties: {
+		schema: { const: CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID },
 		campaign: { type: "string" },
 		drafts: { type: "array" },
 	},
@@ -421,7 +442,6 @@ export const postMetricHistoryReadSchema = {
 					"saves_count",
 					"reach",
 					"engagement_rate",
-					"created_at",
 				],
 			},
 		},
@@ -462,6 +482,7 @@ export const captionOutcomeContextSchema = {
 export const pipelineContractSchemas = {
 	audioIntent: audioIntentSchema,
 	campaignDraftPayload: campaignDraftPayloadSchema,
+	campaignDraftPayloadV2: campaignDraftPayloadV2Schema,
 	audioCatalogExport: audioCatalogExportSchema,
 	performanceSync: performanceSyncSchema,
 	captionOutcomeContext: captionOutcomeContextSchema,
@@ -1250,9 +1271,17 @@ export function validateCampaignFactoryDraftPayload(
 	value: unknown,
 	options: { strictGraphIds?: boolean } = {},
 ): string[] {
-	const errors = schemaErrors(generatedPipelineContractSchemas.campaignDraftPayload, value, "draft payload");
 	if (!isRecord(value)) return ["draft payload must be an object"];
-	if (value.schema !== CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID) {
+	const contractSchema =
+		value.schema === CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID
+			? generatedPipelineContractSchemas.campaignDraftPayload
+			: value.schema === CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID
+				? generatedPipelineContractSchemas.campaignDraftPayloadV2
+				: null;
+	const errors = contractSchema
+		? schemaErrors(contractSchema, value, "draft payload")
+		: [];
+	if (!contractSchema) {
 		errors.push("draft payload schema mismatch");
 	}
 	if (typeof value.campaign !== "string") {
@@ -1443,9 +1472,17 @@ export function validateFrontGenerationPlan(value: unknown): string[] {
 }
 
 export function validateGeneratedAssetLineage(value: unknown): string[] {
-	const errors = schemaErrors(generatedPipelineContractSchemas.generatedAssetLineage, value, "generated asset lineage");
 	if (!isRecord(value)) return ["generated asset lineage must be an object"];
-	if (value.schema !== GENERATED_ASSET_LINEAGE_SCHEMA_ID) {
+	const contractSchema =
+		value.schema === GENERATED_ASSET_LINEAGE_V1_SCHEMA_ID
+			? generatedPipelineContractSchemas.generatedAssetLineage
+			: value.schema === GENERATED_ASSET_LINEAGE_V2_SCHEMA_ID
+				? generatedPipelineContractSchemas.generatedAssetLineageV2
+				: null;
+	const errors = contractSchema
+		? schemaErrors(contractSchema, value, "generated asset lineage")
+		: [];
+	if (!contractSchema) {
 		errors.push("generated asset lineage schema mismatch");
 	}
 	if (typeof value.pipelineTraceId !== "string" || value.pipelineTraceId.trim() === "") {
@@ -1520,7 +1557,6 @@ export function validatePostMetricHistoryRead(value: unknown): string[] {
 		"saves_count",
 		"reach",
 		"engagement_rate",
-		"created_at",
 	] as const;
 	for (const [index, row] of value.rows.entries()) {
 		if (!isRecord(row)) {

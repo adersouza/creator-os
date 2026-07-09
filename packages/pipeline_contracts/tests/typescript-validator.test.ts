@@ -24,6 +24,12 @@ function example(name: string) {
 	);
 }
 
+function versionedExample(name: string, version: number) {
+	return JSON.parse(
+		readFileSync(resolve(schemaRoot, `${name}.v${version}.example.json`), "utf-8"),
+	);
+}
+
 describe("TypeScript pipeline contract validators", () => {
 	it("uses emitted JavaScript specifiers for generated schema imports", () => {
 		const source = readFileSync(resolve(__dirname, "../typescript/index.ts"), "utf-8");
@@ -36,7 +42,10 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"campaign_draft_payload.v1.schema.json",
 		);
-		expect(generatedPipelineContractSchemaManifest).toHaveLength(18);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"campaign_draft_payload.v2.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(20);
 	});
 
 	it("rejects missing required fields through AJV", () => {
@@ -58,6 +67,20 @@ describe("TypeScript pipeline contract validators", () => {
 			expect.arrayContaining([
 				expect.stringContaining("distributionSurface"),
 			]),
+		);
+	});
+
+	it("dual-accepts v1 and v2 draft payloads", () => {
+		expect(validateCampaignFactoryDraftPayload(versionedExample("campaign_draft_payload", 1))).toEqual([]);
+		expect(validateCampaignFactoryDraftPayload(versionedExample("campaign_draft_payload", 2))).toEqual([]);
+	});
+
+	it("requires promptId in v2 lineage", () => {
+		const payload = versionedExample("campaign_draft_payload", 2);
+		delete payload.drafts[0].metadata.campaign_factory.generated_asset_lineage.source.promptId;
+
+		expect(validateCampaignFactoryDraftPayload(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("promptId")]),
 		);
 	});
 

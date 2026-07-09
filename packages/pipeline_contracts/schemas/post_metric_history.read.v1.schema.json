@@ -29,8 +29,7 @@
           "shares_count",
           "saves_count",
           "reach",
-          "engagement_rate",
-          "created_at"
+          "engagement_rate"
         ],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
@@ -47,8 +46,7 @@
           "shares_count": { "type": ["integer", "null"] },
           "saves_count": { "type": ["integer", "null"] },
           "reach": { "type": ["integer", "null"] },
-          "engagement_rate": { "type": ["number", "integer", "null"] },
-          "created_at": { "type": ["string", "null"] }
+          "engagement_rate": { "type": ["number", "integer", "null"] }
         }
       }
     }

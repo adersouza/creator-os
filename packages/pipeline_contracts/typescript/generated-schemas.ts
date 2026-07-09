@@ -950,6 +950,369 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	campaignDraftPayloadV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "campaign_factory.threadsdash_drafts.v2",
+	  "title": "Campaign Factory ThreadsDashboard Draft Payload v2",
+	  "type": "object",
+	  "additionalProperties": true,
+	  "required": [
+	    "schema",
+	    "campaign",
+	    "drafts"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.threadsdash_drafts.v2"
+	    },
+	    "campaign": {
+	      "type": "string"
+	    },
+	    "userId": {
+	      "type": "string"
+	    },
+	    "drafts": {
+	      "type": "array",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": true,
+	        "required": [
+	          "platform",
+	          "status",
+	          "metadata"
+	        ],
+	        "properties": {
+	          "platform": {
+	            "type": "string"
+	          },
+	          "status": {
+	            "type": "string"
+	          },
+	          "distributionSurface": {
+	            "type": [
+	              "string",
+	              "null"
+	            ]
+	          },
+	          "metadata": {
+	            "type": "object",
+	            "required": [
+	              "campaign_factory"
+	            ],
+	            "properties": {
+	              "campaign_factory": {
+	                "type": "object",
+	                "required": [
+	                  "asset_state",
+	                  "approved",
+	                  "captioned_render_present",
+	                  "visible_caption_verification",
+	                  "expected_visual_verification",
+	                  "content_fingerprint",
+	                  "generated_asset_lineage",
+	                  "captionOutcomeContext",
+	                  "audio_intent",
+	                  "handoff_manifest",
+	                  "readiness_checks_pass",
+	                  "visualQcStatus",
+	                  "identityVerificationStatus"
+	                ],
+	                "properties": {
+	                  "asset_state": {
+	                    "type": "string",
+	                    "enum": [
+	                      "approved_but_not_publishable",
+	                      "publishable_candidate",
+	                      "exportable"
+	                    ]
+	                  },
+	                  "approved": {
+	                    "type": "boolean"
+	                  },
+	                  "captioned_render_present": {
+	                    "type": "boolean"
+	                  },
+	                  "visible_caption_verification": {
+	                    "type": "string",
+	                    "enum": [
+	                      "pass",
+	                      "fail"
+	                    ]
+	                  },
+	                  "expected_visual_verification": {
+	                    "type": "string",
+	                    "enum": [
+	                      "pass",
+	                      "fail"
+	                    ]
+	                  },
+	                  "content_fingerprint": {
+	                    "type": "string"
+	                  },
+	                  "publishability_failure_reasons": {
+	                    "type": "array",
+	                    "items": {
+	                      "type": "string",
+	                      "enum": [
+	                        "missing_burned_captions",
+	                        "wrong_visual",
+	                        "missing_caption_hash",
+	                        "missing_caption_outcome_context",
+	                        "missing_content_fingerprint",
+	                        "missing_audio",
+	                        "embedded_audio_missing",
+	                        "readiness_failed",
+	                        "not_approved",
+	                        "caption_placement_qc_failed",
+	                        "missing_instagram_post_caption",
+	                        "instagram_post_caption_quality_failed",
+	                        "visual_qc_unavailable",
+	                        "visual_qc_failed",
+	                        "identity_verification_unavailable",
+	                        "identity_verification_failed"
+	                      ]
+	                    }
+	                  },
+	                  "blockingReason": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "rootCause": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "handoff_manifest": {
+	                    "type": [
+	                      "object",
+	                      "null"
+	                    ],
+	                    "required": [
+	                      "manifest_version",
+	                      "asset_id",
+	                      "render_file_id",
+	                      "content_fingerprint",
+	                      "caption_hash",
+	                      "captionOutcomeContext",
+	                      "visual_verification_id",
+	                      "caption_verification_id",
+	                      "audio_id",
+	                      "distribution_plan_id",
+	                      "exported_by_system",
+	                      "exported_at"
+	                    ],
+	                    "properties": {
+	                      "manifest_version": {
+	                        "enum": [
+	                          1,
+	                          2
+	                        ]
+	                      },
+	                      "asset_id": {
+	                        "type": "string"
+	                      },
+	                      "render_file_id": {
+	                        "type": "string"
+	                      },
+	                      "content_fingerprint": {
+	                        "type": "string"
+	                      },
+	                      "caption_hash": {
+	                        "type": "string"
+	                      },
+	                      "captionOutcomeContext": {
+	                        "$ref": "caption_outcome_context.v1.schema.json"
+	                      },
+	                      "visual_verification_id": {
+	                        "type": "string"
+	                      },
+	                      "caption_verification_id": {
+	                        "type": "string"
+	                      },
+	                      "audio_id": {
+	                        "type": "string"
+	                      },
+	                      "distribution_plan_id": {
+	                        "type": "string"
+	                      },
+	                      "exported_by_system": {
+	                        "const": "campaign_factory"
+	                      },
+	                      "exported_at": {
+	                        "type": "string"
+	                      },
+	                      "concept_id": {
+	                        "type": "string"
+	                      },
+	                      "parent_asset_id": {
+	                        "type": "string"
+	                      },
+	                      "parent_reel_id": {
+	                        "type": "string"
+	                      },
+	                      "variant_family_id": {
+	                        "type": "string"
+	                      },
+	                      "variant_id": {
+	                        "type": "string"
+	                      },
+	                      "variant_index": {
+	                        "type": "integer"
+	                      },
+	                      "variant_operations": {
+	                        "type": "array"
+	                      },
+	                      "visualQcStatus": {
+	                        "type": "string",
+	                        "enum": [
+	                          "passed",
+	                          "failed",
+	                          "unavailable"
+	                        ]
+	                      },
+	                      "identityVerificationStatus": {
+	                        "type": "string",
+	                        "enum": [
+	                          "passed",
+	                          "failed",
+	                          "unavailable"
+	                        ]
+	                      },
+	                      "visualQc": {
+	                        "type": "object",
+	                        "additionalProperties": true
+	                      },
+	                      "identityVerification": {
+	                        "type": "object",
+	                        "additionalProperties": true
+	                      }
+	                    },
+	                    "additionalProperties": true
+	                  },
+	                  "concept_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "parent_asset_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "parent_reel_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "variant_family_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "variant_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "variant_index": {
+	                    "type": [
+	                      "integer",
+	                      "null"
+	                    ]
+	                  },
+	                  "variant_operations": {
+	                    "type": [
+	                      "array",
+	                      "null"
+	                    ]
+	                  },
+	                  "readiness_checks_pass": {
+	                    "type": "boolean"
+	                  },
+	                  "graph_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "campaign_graph_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "source_asset_graph_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "rendered_asset_graph_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "audit_graph_id": {
+	                    "type": [
+	                      "string",
+	                      "null"
+	                    ]
+	                  },
+	                  "captionOutcomeContext": {
+	                    "$ref": "caption_outcome_context.v1.schema.json"
+	                  },
+	                  "caption_outcome_context": {
+	                    "$ref": "caption_outcome_context.v1.schema.json"
+	                  },
+	                  "generated_asset_lineage": {
+	                    "$ref": "generated_asset_lineage.v2.schema.json"
+	                  },
+	                  "audio_intent": {
+	                    "$ref": "audio_intent.v1.schema.json"
+	                  },
+	                  "visualQcStatus": {
+	                    "type": "string",
+	                    "enum": [
+	                      "passed",
+	                      "failed",
+	                      "unavailable"
+	                    ]
+	                  },
+	                  "identityVerificationStatus": {
+	                    "type": "string",
+	                    "enum": [
+	                      "passed",
+	                      "failed",
+	                      "unavailable"
+	                    ]
+	                  }
+	                },
+	                "additionalProperties": true
+	              }
+	            },
+	            "additionalProperties": true
+	          }
+	        }
+	      }
+	    },
+	    "pipelineTraceId": {
+	      "type": [
+	        "string",
+	        "null"
+	      ],
+	      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+	    }
+	  }
+	} as const,
 	captionOutcomeContext: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.caption_outcome_context.v1",
@@ -1475,6 +1838,168 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	generatedAssetLineageV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.generated_asset_lineage.v2",
+	  "title": "Reel Factory Generated Asset Lineage v2",
+	  "description": "Complete forward-learning lineage for a Campaign Factory draft. The audio intent fingerprint is SHA-256 over the UTF-8 canonical JSON of the final audio_intent payload using recursively sorted object keys, separators ',' and ':', and no insignificant whitespace.",
+	  "type": "object",
+	  "additionalProperties": true,
+	  "required": [
+	    "schema",
+	    "pipelineTraceId",
+	    "source",
+	    "generation",
+	    "review",
+	    "campaignId",
+	    "recipeId",
+	    "captionHash",
+	    "renderedAssetId",
+	    "variationApplied",
+	    "variantId",
+	    "audioIntentFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.generated_asset_lineage.v2"
+	    },
+	    "pipelineTraceId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "source": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "promptId"
+	      ],
+	      "properties": {
+	        "promptId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "referenceId": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "generation": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "tool"
+	      ],
+	      "properties": {
+	        "tool": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "review": {
+	      "type": "object",
+	      "additionalProperties": true
+	    },
+	    "quality": {
+	      "type": "object"
+	    },
+	    "campaignId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "recipeId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "captionHash": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "renderedAssetId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "variationApplied": {
+	      "type": "boolean"
+	    },
+	    "variantId": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "audioIntentFingerprint": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$",
+	      "description": "Lowercase SHA-256 over UTF-8 canonical JSON (lexicographically sorted object keys, comma/colon separators, no insignificant whitespace) of the final pipeline.audio_intent.v1 semantic payload. The recursive canonical input excludes pipelineTraceId, assignee, selected_by, attached_by, verified_by, and timestamp keys ending in _at or At."
+	    },
+	    "audioId": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "asset_state": {
+	      "type": "string",
+	      "enum": [
+	        "approved_but_not_publishable",
+	        "publishable_candidate",
+	        "exportable",
+	        "invalid_retired_draft"
+	      ]
+	    },
+	    "publishability_failure_reasons": {
+	      "type": "array"
+	    },
+	    "blockingReason": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "rootCause": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "captionOutcomeContext": {
+	      "$ref": "caption_outcome_context.v1.schema.json"
+	    }
+	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "variationApplied": {
+	            "const": true
+	          }
+	        },
+	        "required": [
+	          "variationApplied"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "variantId": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        }
+	      },
+	      "else": {
+	        "properties": {
+	          "variantId": {
+	            "type": "null"
+	          }
+	        }
+	      }
+	    }
+	  ]
+	} as const,
 	higgsfieldSoulImagePrompt: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reference_factory.higgsfield_soul_image_prompt.v1",
@@ -1827,12 +2352,51 @@ export const generatedPipelineContractSchemas = {
 	    "postsScanned": {
 	      "type": "integer"
 	    },
+	    "postsImported": {
+	      "type": "integer"
+	    },
 	    "campaignFactoryPostsScanned": {
 	      "type": "integer"
 	    },
 	    "metricHistoryRowsScanned": {
 	      "type": "integer",
 	      "description": "Rows read from ThreadsDashboard post_metric_history for time-series performance learning"
+	    },
+	    "metricHistoryError": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "historySources": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "type": "integer"
+	      }
+	    },
+	    "fallbackRows": {
+	      "type": "integer"
+	    },
+	    "learningIneligiblePosts": {
+	      "type": "integer"
+	    },
+	    "learningIneligibleSnapshots": {
+	      "type": "integer"
+	    },
+	    "learningIneligibleReasons": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "type": "integer"
+	      }
+	    },
+	    "learningLoopCutover": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "learningReadiness": {
+	      "type": "object"
 	    },
 	    "campaignFactorySnapshotsScanned": {
 	      "type": "integer",
@@ -1892,8 +2456,7 @@ export const generatedPipelineContractSchemas = {
 	          "shares_count",
 	          "saves_count",
 	          "reach",
-	          "engagement_rate",
-	          "created_at"
+	          "engagement_rate"
 	        ],
 	        "properties": {
 	          "id": {
@@ -1981,12 +2544,6 @@ export const generatedPipelineContractSchemas = {
 	            "type": [
 	              "number",
 	              "integer",
-	              "null"
-	            ]
-	          },
-	          "created_at": {
-	            "type": [
-	              "string",
 	              "null"
 	            ]
 	          }
@@ -2639,10 +3196,12 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "audioCatalogExport", filename: "audio_catalog_export.v1.schema.json", id: "reference_factory.audio_catalog_export.v1" },
 	{ key: "audioIntent", filename: "audio_intent.v1.schema.json", id: "pipeline.audio_intent.v1" },
 	{ key: "campaignDraftPayload", filename: "campaign_draft_payload.v1.schema.json", id: "campaign_factory.threadsdash_drafts.v1" },
+	{ key: "campaignDraftPayloadV2", filename: "campaign_draft_payload.v2.schema.json", id: "campaign_factory.threadsdash_drafts.v2" },
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
 	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },
+	{ key: "generatedAssetLineageV2", filename: "generated_asset_lineage.v2.schema.json", id: "reel_factory.generated_asset_lineage.v2" },
 	{ key: "higgsfieldSoulImagePrompt", filename: "higgsfield_soul_image_prompt.v1.schema.json", id: "reference_factory.higgsfield_soul_image_prompt.v1" },
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },
