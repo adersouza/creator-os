@@ -7,6 +7,7 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "doctor": "python3 scripts/doctor.py",
     "sync:contracts": "node scripts/sync-pipeline-contracts.mjs",
     "lint:py": "uv run ruff check python_packages packages && uv run ruff format --check python_packages packages",
     "typecheck:py": "uv run mypy packages/pipeline_contracts/pipeline_contracts",
@@ -25,8 +26,8 @@
     "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
-    "dependency-cruiser": "^17.4.3",
-    "knip": "^6.23.0",
-    "turbo": "^2.3.0"
+    "dependency-cruiser": "^18.0.0",
+    "knip": "^6.25.0",
+    "turbo": "^2.10.4"
   }
 }

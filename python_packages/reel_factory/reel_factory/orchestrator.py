@@ -1,8 +1,9 @@
-"""Dormant Reel Factory asset pipeline orchestrator state.
+"""Reel Factory asset pipeline orchestrator state.
 
 This module tracks where an asset is in the local creative pipeline. It does
-not start paid generation, scheduling, publishing, or ThreadsDashboard runtime
-paths; stage wiring is intentionally left disabled until later PRs.
+not schedule, publish, or touch ThreadsDashboard runtime paths. Paid generation
+only starts when the local dark config is explicitly enabled and cost preflight
+passes.
 """
 
 from __future__ import annotations
@@ -16,6 +17,9 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
 from .sqlite_utils import connect_sqlite
 
@@ -139,6 +143,30 @@ def create_asset(
     return get_asset(conn, asset_id)
 
 
+def maybe_create_asset(
+    conn: sqlite3.Connection,
+    *,
+    asset_id: str,
+    campaign: str,
+    run_id: str,
+    lineage_path: str | None = None,
+    output_path: str | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    try:
+        return get_asset(conn, asset_id)
+    except ValueError:
+        return create_asset(
+            conn,
+            asset_id=asset_id,
+            campaign=campaign,
+            run_id=run_id,
+            lineage_path=lineage_path,
+            output_path=output_path,
+            now=now,
+        )
+
+
 def get_asset(conn: sqlite3.Connection, asset_id: str) -> dict[str, Any]:
     row = conn.execute(
         "SELECT * FROM asset_pipeline_state WHERE asset_id = ?",
@@ -236,6 +264,73 @@ def advance(
     return get_asset(conn, asset_id)
 
 
+CHAIN = (
+    "planned",
+    "prompted",
+    "generated",
+    "qc_passed",
+    "ranked",
+    "captioned",
+    "export_ready",
+    "awaiting_approval",
+    "approved",
+    "exported",
+)
+
+
+def advance_through(
+    conn: sqlite3.Connection,
+    asset_id: str,
+    target_state: str,
+    *,
+    now: int | None = None,
+) -> dict[str, Any]:
+    row = get_asset(conn, asset_id)
+    current = str(row["state"])
+    if current == target_state:
+        return row
+    if current not in CHAIN or target_state not in CHAIN:
+        return row
+    current_idx = CHAIN.index(current)
+    target_idx = CHAIN.index(target_state)
+    if current_idx > target_idx:
+        return row
+    for state in CHAIN[current_idx + 1 : target_idx + 1]:
+        row = advance(conn, asset_id, state, now=now)
+    return row
+
+
+def update_asset_evidence(
+    conn: sqlite3.Connection,
+    asset_id: str,
+    *,
+    lineage_path: str | None = None,
+    output_path: str | None = None,
+    rank_score: float | None = None,
+    predicted_engagement: Any = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE asset_pipeline_state
+        SET lineage_path = COALESCE(?, lineage_path),
+            output_path = COALESCE(?, output_path),
+            rank_score = COALESCE(?, rank_score),
+            predicted_engagement_json = COALESCE(?, predicted_engagement_json)
+        WHERE asset_id = ?
+        """,
+        (
+            lineage_path,
+            output_path,
+            rank_score,
+            json.dumps(predicted_engagement, sort_keys=True)
+            if predicted_engagement is not None
+            else None,
+            asset_id,
+        ),
+    )
+    conn.commit()
+
+
 def counts_by_state(conn: sqlite3.Connection) -> dict[str, int]:
     if not table_exists(conn, "asset_pipeline_state"):
         return {}
@@ -248,6 +343,16 @@ def counts_by_state(conn: sqlite3.Connection) -> dict[str, int]:
         """
     ).fetchall()
     return {str(row["state"]): int(row["count"]) for row in rows}
+
+
+def count_assets_created_since(conn: sqlite3.Connection, since: int) -> int:
+    if not table_exists(conn, "asset_pipeline_state"):
+        return 0
+    row = conn.execute(
+        "SELECT COUNT(*) FROM asset_pipeline_state WHERE created_at >= ?",
+        (since,),
+    ).fetchone()
+    return int(row[0] or 0)
 
 
 def recover_stalled(
@@ -395,6 +500,217 @@ def decide(
     }
 
 
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _resolve_config_path(root: Path, value: Any) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value)).expanduser()
+    return path if path.is_absolute() else root / path
+
+
+def _qc_state_from_lineage(lineage: dict[str, Any] | None) -> str | None:
+    if not isinstance(lineage, dict):
+        return None
+    generation = (
+        lineage.get("generation") if isinstance(lineage.get("generation"), dict) else {}
+    )
+    status = str(generation.get("status") or "").lower()
+    if "qc_rejected" in status or "reject" in status or "fail" in status:
+        return "qc_failed"
+    review = lineage.get("review") if isinstance(lineage.get("review"), dict) else {}
+    qc_blocks = [
+        review.get("generatedImageQc"),
+        review.get("generatedVideoQc"),
+    ]
+    if any(isinstance(qc, dict) and qc.get("status") == "failed" for qc in qc_blocks):
+        return "qc_failed"
+    if any(isinstance(qc, dict) and qc.get("status") == "passed" for qc in qc_blocks):
+        return "qc_passed"
+    return None
+
+
+def _rank_stem(row: dict[str, Any]) -> str:
+    lineage = row.get("generated_asset_lineage")
+    if isinstance(lineage, dict):
+        source = (
+            lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+        )
+        stem = str(source.get("stem") or "")
+        if stem:
+            return stem
+    return Path(str(row.get("output_path") or "")).stem
+
+
+def _ranked_for_stem(state: dict[str, Any], stem: str) -> dict[str, Any] | None:
+    rows = ((state.get("stages") or {}).get("rank") or {}).get("ranked") or []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _rank_stem(row) == stem or stem in str(row.get("output_path") or ""):
+            return row
+    return None
+
+
+def ingest_pipeline_state(
+    conn: sqlite3.Connection,
+    state: dict[str, Any],
+    *,
+    now: int | None = None,
+) -> int:
+    campaign = str(state.get("campaign") or "")
+    run_id = str(state.get("run_id") or "")
+    jobs = (((state.get("stages") or {}).get("assets") or {}).get("jobs")) or []
+    changed = 0
+    for job in jobs:
+        if not isinstance(job, dict) or not job.get("stem"):
+            continue
+        stem = str(job["stem"])
+        lineage_path = str(job.get("lineage_path") or "")
+        maybe_create_asset(
+            conn,
+            asset_id=stem,
+            campaign=campaign,
+            run_id=run_id,
+            lineage_path=lineage_path or None,
+            now=now,
+        )
+        if lineage_path and Path(lineage_path).exists():
+            advance_through(conn, stem, "generated", now=now)
+            lineage = _read_json(Path(lineage_path))
+            qc_state = _qc_state_from_lineage(lineage)
+            if qc_state == "qc_failed":
+                advance(conn, stem, "qc_failed", reason="generated_qc_failed", now=now)
+                changed += 1
+                continue
+            if qc_state == "qc_passed":
+                advance_through(conn, stem, "qc_passed", now=now)
+        ranked = _ranked_for_stem(state, stem)
+        if ranked:
+            output_path = str(ranked.get("output_path") or "")
+            score = ranked.get("score")
+            update_asset_evidence(
+                conn,
+                stem,
+                lineage_path=lineage_path or None,
+                output_path=output_path or None,
+                rank_score=float(score) if isinstance(score, (int, float)) else None,
+                predicted_engagement=ranked.get("predictedEngagement"),
+            )
+            advance_through(conn, stem, "ranked", now=now)
+            if output_path and Path(output_path).exists():
+                advance_through(conn, stem, "export_ready", now=now)
+        changed += 1
+    return changed
+
+
+def ingest_pipeline_runs(root: Path, *, now: int | None = None) -> int:
+    runs_dir = root / "project_data" / "pipeline_runs"
+    if not runs_dir.exists():
+        return 0
+    conn = open_manifest(root)
+    try:
+        count = 0
+        for state_path in sorted(runs_dir.glob("*/*/pipeline_run.json")):
+            state = _read_json(state_path)
+            if state:
+                count += ingest_pipeline_state(conn, state, now=now)
+        return count
+    finally:
+        conn.close()
+
+
+def promote_top_k(
+    conn: sqlite3.Connection,
+    *,
+    campaign: str,
+    top_k: int,
+    now: int | None = None,
+) -> int:
+    if top_k <= 0:
+        return 0
+    waiting = conn.execute(
+        """
+        SELECT COUNT(*) FROM asset_pipeline_state
+        WHERE campaign = ? AND state = 'awaiting_approval'
+        """,
+        (campaign,),
+    ).fetchone()
+    slots = max(0, top_k - int(waiting[0] or 0))
+    if slots <= 0:
+        return 0
+    rows = conn.execute(
+        """
+        SELECT asset_id FROM asset_pipeline_state
+        WHERE campaign = ? AND state = 'export_ready'
+        ORDER BY rank_score IS NULL, rank_score DESC, state_updated_at ASC
+        LIMIT ?
+        """,
+        (campaign, slots),
+    ).fetchall()
+    for row in rows:
+        advance(conn, str(row["asset_id"]), "awaiting_approval", now=now)
+    return len(rows)
+
+
+def export_approved_assets(root: Path, *, now: int | None = None) -> int:
+    ts = now_epoch() if now is None else now
+    conn = open_manifest(root)
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM asset_pipeline_state
+            WHERE state = 'approved' AND output_path IS NOT NULL
+            ORDER BY approved_at, asset_id
+            """
+        ).fetchall()
+        if not rows:
+            return 0
+        export_dir = root / "project_data" / "orchestrator_exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "reel_factory.approved_export.v1",
+            "exported_at": ts,
+            "source": "orchestrator",
+            "count": len(rows),
+            "items": [],
+        }
+        for idx, row in enumerate(rows):
+            lineage = (
+                _read_json(Path(row["lineage_path"])) if row["lineage_path"] else {}
+            )
+            predicted = json.loads(row["predicted_engagement_json"] or "null")
+            payload["items"].append(
+                {
+                    "index": idx,
+                    "output_path": row["output_path"],
+                    "review_state": "operator_approved",
+                    "generated_asset_lineage": lineage or {},
+                    "pipeline_rank": {
+                        "score": row["rank_score"],
+                        "predictedEngagement": predicted,
+                    },
+                }
+            )
+        path = export_dir / (
+            datetime.fromtimestamp(ts, UTC).strftime("%Y%m%dT%H%M%SZ")
+            + ".approved_export.json"
+        )
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        for row in rows:
+            advance(conn, str(row["asset_id"]), "exported", now=ts)
+        return len(rows)
+    finally:
+        conn.close()
+
+
 def load_config(root: Path) -> dict[str, Any]:
     config_path = (
         Path(root).expanduser().resolve() / "project_data" / "orchestrator.toml"
@@ -405,6 +721,10 @@ def load_config(root: Path) -> dict[str, Any]:
         "top_k_for_approval": 3,
         "campaign": "",
         "creator": "",
+        "caption_mix": "",
+        "reference_image": "",
+        "reference_reel": "",
+        "estimated_cost_per_asset_usd": None,
     }
     if not config_path.exists():
         return defaults
@@ -472,11 +792,110 @@ def tick(
 
     config = load_config(root)
     enabled = bool(config.get("enabled", False))
+    generation: dict[str, Any] = {"started": False, "reason": "disabled"}
+    ingested = 0
+    promoted = 0
+    exported = 0
     if enabled:
         conn = open_manifest(root)
-        with conn:
+        try:
             recovered = recover_stalled(conn, now=ts)
+            start_of_day = int(
+                datetime.fromtimestamp(ts, UTC)
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .timestamp()
+            )
+            target = int(config.get("daily_candidate_target", 10))
+            shortfall = max(0, target - count_assets_created_since(conn, start_of_day))
+        finally:
+            conn.close()
+
+        estimate = config.get("estimated_cost_per_asset_usd")
+        reference_image = _resolve_config_path(root, config.get("reference_image"))
+        reference_reel = _resolve_config_path(root, config.get("reference_reel"))
+        if shortfall <= 0:
+            generation = {"started": False, "reason": "daily_target_met"}
+        elif not config.get("campaign") or not config.get("creator"):
+            generation = {"started": False, "reason": "campaign_or_creator_missing"}
+        elif not reference_image and not reference_reel:
+            generation = {"started": False, "reason": "reference_missing"}
+        elif estimate is None:
+            preflight = check_higgsfield_cost_preflight(
+                asset_count=shortfall,
+                estimated_cost_usd=None,
+                root=root,
+            )
+            generation = {
+                "started": False,
+                "reason": "cost_estimate_missing",
+                "preflight": preflight,
+            }
+        else:
+            total_estimate = float(estimate) * shortfall
+            preflight = check_higgsfield_cost_preflight(
+                asset_count=shortfall,
+                estimated_cost_usd=total_estimate,
+                root=root,
+            )
+            if preflight.get("allowed"):
+                run_id = datetime.fromtimestamp(ts, UTC).strftime(
+                    "orchestrator_%Y%m%d_%H%M%S"
+                )
+                state = run_pipeline(
+                    PipelineRunConfig(
+                        root=root,
+                        campaign=str(config.get("campaign") or ""),
+                        creator=str(config.get("creator") or ""),
+                        count=shortfall,
+                        run_id=run_id,
+                        reference_image=reference_image,
+                        reference_reel=reference_reel,
+                        caption_mix=str(config.get("caption_mix") or "") or None,
+                        execute_commands=True,
+                        allow_paid_generation=True,
+                        download_assets=True,
+                        estimated_cost_per_asset_usd=float(estimate),
+                    )
+                )
+                generation = {
+                    "started": True,
+                    "runId": run_id,
+                    "count": shortfall,
+                    "statePath": str(
+                        pipeline_run_dir(
+                            root, str(config.get("campaign") or ""), run_id
+                        )
+                        / "pipeline_run.json"
+                    ),
+                    "preflight": preflight,
+                    "stageStatuses": {
+                        key: value.get("status")
+                        for key, value in (state.get("stages") or {}).items()
+                        if isinstance(value, dict)
+                    },
+                }
+            else:
+                generation = {
+                    "started": False,
+                    "reason": preflight.get("blockingReason")
+                    or "cost_preflight_blocked",
+                    "preflight": preflight,
+                }
+
+        ingested = ingest_pipeline_runs(root, now=ts)
+        conn = open_manifest(root)
+        try:
+            promoted = promote_top_k(
+                conn,
+                campaign=str(config.get("campaign") or ""),
+                top_k=int(config.get("top_k_for_approval", 3)),
+                now=ts,
+            )
             state_counts = counts_by_state(conn)
+        finally:
+            conn.close()
+        exported = export_approved_assets(root, now=ts)
+        state_counts = read_counts_if_present(root)
     else:
         recovered = 0
         state_counts = read_counts_if_present(root)
@@ -493,17 +912,19 @@ def tick(
         },
         "stateCounts": state_counts,
         "recoveredStalled": recovered,
-        "generation": {
-            "started": False,
-            "reason": "stage_wiring_not_enabled",
-        },
+        "ingested": ingested,
+        "promotedToApproval": promoted,
+        "exportedApproved": exported,
+        "generation": generation,
     }
     report_path = write_tick_report(root, report)
     report["reportPath"] = str(report_path)
     if notify_user:
         notify(
             "info" if enabled else "warn",
-            f"enabled={enabled} states={state_counts} generation=not_started",
+            "enabled="
+            f"{enabled} states={state_counts} "
+            f"generation={generation.get('reason') or generation.get('started')}",
         )
     return report
 

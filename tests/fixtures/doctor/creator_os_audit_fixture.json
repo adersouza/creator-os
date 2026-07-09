@@ -1,0 +1,277 @@
+{
+  "schema": "creator_os.doctor_fixture.v1",
+  "replay_campaigns": [
+    {
+      "campaign_id": "audit_campaign_001",
+      "seed": 7301,
+      "input_hash": "input_6f8c9e",
+      "first_run": {
+        "lineage_hash": "lin_3a3a",
+        "contracts_hash": "contracts_71d2",
+        "promotion_decision": "awaiting_approval",
+        "export_manifest_hash": "export_c91b"
+      },
+      "second_run": {
+        "lineage_hash": "lin_3a3a",
+        "contracts_hash": "contracts_71d2",
+        "promotion_decision": "awaiting_approval",
+        "export_manifest_hash": "export_c91b"
+      },
+      "expected": {
+        "contract_schema": "campaign_factory.campaign_draft_payload.v1",
+        "qc_decision": "pass",
+        "promotion_decision": "awaiting_approval",
+        "export_manifest_hash": "export_c91b"
+      },
+      "actual": {
+        "contract_schema": "campaign_factory.campaign_draft_payload.v1",
+        "qc_decision": "pass",
+        "promotion_decision": "awaiting_approval",
+        "export_manifest_hash": "export_c91b"
+      },
+      "randomness_explained": [
+        "seeded_recipe_selection",
+        "fixture_provider_outputs"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "asset_fixture_001",
+      "requires_paid_generation": true,
+      "estimated_cost_usd": 0.5,
+      "lineage": {
+        "reference": "ref_stacey_001",
+        "winner_dna": "dna_mirror_selfie_001",
+        "recipe": "v01_original",
+        "generated_image": "image_fixture_001",
+        "video": "video_fixture_001",
+        "qc": "qc_fixture_001",
+        "draft": "draft_fixture_001",
+        "published_post": "post_fixture_001",
+        "metrics": "metrics_fixture_001"
+      },
+      "quality_gates": {
+        "ocr": "PASS",
+        "compression": "PASS",
+        "readability": "PASS",
+        "safe_zone": "PASS",
+        "watchability": "PASS",
+        "distinctness": "PASS",
+        "pdq": "PASS",
+        "sibling_uniqueness": "PASS"
+      },
+      "provenance": {
+        "generated_by": "fixture_provider",
+        "prompt": "prompt_fixture_001",
+        "reference_ids": [
+          "ref_stacey_001"
+        ],
+        "timestamp": "2026-07-07T00:00:00Z",
+        "recipe_version": "v01_original",
+        "model_profile": "soul_id_primary",
+        "trace_id": "trace_fixture_001"
+      },
+      "observability": {
+        "current_stage": "awaiting_approval",
+        "failure_reason": null,
+        "approver": "operator_fixture",
+        "contract_schema": "campaign_factory.campaign_draft_payload.v1",
+        "model_profile": "soul_id_primary",
+        "reference_ids": [
+          "ref_stacey_001"
+        ],
+        "metrics": {
+          "views": 1000,
+          "likes": 120,
+          "comments": 12
+        }
+      }
+    }
+  ],
+  "quality_failures": [
+    {
+      "asset_id": "asset_fixture_reject_001",
+      "failure_reason": "safe_zone_score_below_threshold",
+      "failed_stage": "safe_zone"
+    }
+  ],
+  "promotion_histories": [
+    {
+      "asset_id": "asset_fixture_001",
+      "states": [
+        "planned",
+        "prompted",
+        "generated",
+        "qc_passed",
+        "ranked",
+        "captioned",
+        "export_ready",
+        "awaiting_approval",
+        "approved",
+        "exported"
+      ]
+    }
+  ],
+  "learning": {
+    "before": {
+      "winner_score": 0.42
+    },
+    "after": {
+      "winner_score": 0.58
+    },
+    "new_references": 3,
+    "winner_patterns": 2,
+    "new_caption_styles": 2,
+    "new_hooks": 4,
+    "new_audio": 1,
+    "duplicates": 1,
+    "rejected_references": 1,
+    "silent_degradation_detected": false
+  },
+  "duplicate_intelligence": {
+    "hooks": [
+      "hard launch energy",
+      "save this before tonight",
+      "hard launch energy"
+    ],
+    "caption_hashes": [
+      "cap_a",
+      "cap_b",
+      "cap_a"
+    ],
+    "semantic_pairs": [
+      {
+        "pair_id": "asset_fixture_001::asset_fixture_002",
+        "visual_structure_match": true,
+        "storyline_match": true,
+        "pacing_match": true
+      }
+    ],
+    "expected_exact_hook_duplicates": [
+      "hard launch energy"
+    ],
+    "expected_repeated_caption_hashes": [
+      "cap_a"
+    ],
+    "expected_semantic_duplicates": [
+      "asset_fixture_001::asset_fixture_002"
+    ]
+  },
+  "performance": {
+    "warn_threshold_ms": 5000,
+    "stage_timings_ms": {
+      "reference": 18,
+      "generation": 1920,
+      "qc": 260,
+      "export": 40
+    }
+  },
+  "resources": {
+    "disk_bytes": 524288,
+    "api_calls": 3,
+    "gpu_seconds": 0,
+    "cost_usd": 0.5
+  },
+  "failure_recovery": [
+    {
+      "component": "Higgsfield",
+      "corrupts_state": false,
+      "recovery_action": "mark_generation_failed_with_lineage"
+    },
+    {
+      "component": "Kling",
+      "corrupts_state": false,
+      "recovery_action": "mark_motion_failed_with_lineage"
+    },
+    {
+      "component": "OCR",
+      "corrupts_state": false,
+      "recovery_action": "block_quality_gate_with_reason"
+    },
+    {
+      "component": "SQLite",
+      "corrupts_state": false,
+      "recovery_action": "rollback_transaction"
+    },
+    {
+      "component": "export",
+      "corrupts_state": false,
+      "recovery_action": "keep_asset_export_ready"
+    },
+    {
+      "component": "contract_validation",
+      "corrupts_state": false,
+      "recovery_action": "reject_payload_before_promotion"
+    }
+  ],
+  "commercial_readiness": {
+    "steps": [
+      {
+        "name": "onboard",
+        "status": "pass"
+      },
+      {
+        "name": "upload_references",
+        "status": "pass"
+      },
+      {
+        "name": "generate_fixture_asset",
+        "status": "pass"
+      },
+      {
+        "name": "approve_draft",
+        "status": "pass"
+      },
+      {
+        "name": "export_publish_handoff",
+        "status": "pass"
+      },
+      {
+        "name": "analytics_outcome_visibility",
+        "status": "pass"
+      }
+    ],
+    "manual_actions": [
+      "operator must set enabled=true for orchestrator",
+      "provider-console and account authorization remain owner controlled"
+    ],
+    "operator_checklist": [
+      {
+        "id": "orchestrator-enabled",
+        "description": "Operator sets enabled=true in local orchestrator config.",
+        "owner": "operator",
+        "status": "open",
+        "target_date": "2026-07-15"
+      },
+      {
+        "id": "provider-account-auth",
+        "description": "Provider consoles and publishing accounts are authorized outside Creator OS.",
+        "owner": "owner",
+        "status": "open",
+        "target_date": "2026-07-15"
+      },
+      {
+        "id": "time-machine-backup",
+        "description": "Time Machine backup is configured for local runtime state.",
+        "owner": "owner",
+        "status": "open",
+        "target_date": "2026-07-15"
+      },
+      {
+        "id": "reference-gold-labels",
+        "description": "Reference Factory gold labels are reviewed and current.",
+        "owner": "operator",
+        "status": "open",
+        "target_date": "2026-07-22"
+      },
+      {
+        "id": "threadsdashboard-owner-decision",
+        "description": "ThreadsDashboard autoposter/reauth decision is explicitly owned outside IG Reels flow.",
+        "owner": "td-owner",
+        "status": "open",
+        "target_date": "2026-07-22"
+      }
+    ]
+  }
+}
