@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .contracts import validate_motion_edit_render
+from .contracts import validate_generated_asset_lineage, validate_motion_edit_render
 from .core import (
     new_id,
     reel_factory_python,
@@ -168,6 +168,7 @@ def _register_rendered_asset(
         rendered_asset_id=rendered_id,
         creator_model=model_slug,
     )
+    generated_lineage = _load_motion_lineage(render=render, source_asset=source_asset)
     caption_generation = {
         "schema": "campaign_factory.caption_generation.v1",
         "workflow": "motion_edit_still_to_reel",
@@ -179,12 +180,14 @@ def _register_rendered_asset(
         "motionEditRender": render,
         "audioIntentPath": render.get("audioIntentPath"),
         "generatedAssetLineagePath": render.get("lineagePath"),
+        "generatedAssetLineage": generated_lineage,
     }
     metadata = {
         "motionEditRender": render,
         "humanReviewRequired": True,
         "audioIntentPath": render.get("audioIntentPath"),
         "generatedAssetLineagePath": render.get("lineagePath"),
+        "generatedAssetLineage": generated_lineage,
     }
     factory.conn.execute(
         """
@@ -239,6 +242,45 @@ def _register_rendered_asset(
             "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
         ).fetchone()
     )
+
+
+def _load_motion_lineage(
+    *, render: dict[str, Any], source_asset: dict[str, Any]
+) -> dict[str, Any]:
+    lineage_path = Path(str(render.get("lineagePath") or ""))
+    if not lineage_path.is_file():
+        raise FileNotFoundError(f"motion-edit lineage sidecar missing: {lineage_path}")
+    try:
+        lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"motion-edit lineage sidecar is invalid: {lineage_path}"
+        ) from exc
+    if not isinstance(lineage, dict):
+        raise ValueError("motion-edit lineage sidecar must contain a JSON object")
+    raw_source_prompt = source_asset.get("source_prompt")
+    try:
+        source_prompt = (
+            json.loads(raw_source_prompt)
+            if isinstance(raw_source_prompt, str) and raw_source_prompt
+            else raw_source_prompt or {}
+        )
+    except json.JSONDecodeError:
+        source_prompt = {}
+    if not isinstance(source_prompt, dict):
+        source_prompt = {}
+    source = lineage.setdefault("source", {})
+    if isinstance(source, dict):
+        prompt_id = source_prompt.get("promptId") or source_prompt.get("prompt_id")
+        reference_id = source_prompt.get("referenceId") or source_prompt.get(
+            "reference_id"
+        )
+        if prompt_id:
+            source.setdefault("promptId", prompt_id)
+        if reference_id:
+            source.setdefault("referenceId", reference_id)
+    validate_generated_asset_lineage(lineage)
+    return lineage
 
 
 def _caption_context(

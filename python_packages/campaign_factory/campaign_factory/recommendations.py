@@ -6,6 +6,10 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
 from pipeline_contracts import validate_recommendation_next_batch
 
 from .persistence import json_load
@@ -397,14 +401,18 @@ class RecommendationRepository:
                 if key:
                     pattern_by_key[str(key)] = pattern
                     pattern_by_key[self._slugify(str(key))] = pattern
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ? AND metrics_eligible = 1
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign_id,),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                f"""
+                SELECT * FROM performance_snapshots
+                WHERE campaign_id = ? AND {learning_eligible_sql()}
+                ORDER BY snapshot_at DESC, created_at DESC
+                """,
+                (campaign_id, cutover_iso),
+            ).fetchall()
         all_snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
         account_baselines = self._account_reward_baselines(all_snapshots)
         buckets: dict[str, dict[str, Any]] = {}
@@ -471,14 +479,18 @@ class RecommendationRepository:
     def ranked_variation_presets_for_campaign(
         self, campaign_id: str, *, account: str | None = None
     ) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ? AND metrics_eligible = 1
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign_id,),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                f"""
+                SELECT * FROM performance_snapshots
+                WHERE campaign_id = ? AND {learning_eligible_sql()}
+                ORDER BY snapshot_at DESC, created_at DESC
+                """,
+                (campaign_id, cutover_iso),
+            ).fetchall()
         all_snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
         account_baselines = self._account_reward_baselines(all_snapshots)
         buckets: dict[str, list[dict[str, Any]]] = {}
@@ -2115,14 +2127,24 @@ class RecommendationRepository:
         snapshots = [
             self._performance_snapshot_payload(dict(perf)) for perf in perf_rows
         ]
-        baseline_rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ? AND (rendered_asset_id IS NULL OR rendered_asset_id != ?)
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign["id"], row.get("rendered_asset_id") or ""),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            baseline_rows = []
+        else:
+            baseline_rows = self.conn.execute(
+                f"""
+                SELECT * FROM performance_snapshots
+                WHERE campaign_id = ?
+                  AND {learning_eligible_sql()}
+                  AND (rendered_asset_id IS NULL OR rendered_asset_id != ?)
+                ORDER BY snapshot_at DESC, created_at DESC
+                """,
+                (
+                    campaign["id"],
+                    cutover_iso,
+                    row.get("rendered_asset_id") or "",
+                ),
+            ).fetchall()
         baseline_snapshots = [
             self._performance_snapshot_payload(dict(perf)) for perf in baseline_rows
         ]
@@ -2773,6 +2795,10 @@ class RecommendationRepository:
         }
 
     def recommendation_performance_rows(self, row: dict[str, Any]) -> list[sqlite3.Row]:
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            return []
+        predicate = learning_eligible_sql()
         evidence = json_load(row.get("evidence_json"), {})
         links = evidence.get("links") if isinstance(evidence, dict) else {}
         snapshot_id = (
@@ -2780,14 +2806,17 @@ class RecommendationRepository:
         )
         if snapshot_id:
             rows = self.conn.execute(
-                "SELECT * FROM performance_snapshots WHERE id = ?", (snapshot_id,)
+                "SELECT * FROM performance_snapshots WHERE id = ? AND " + predicate,
+                (snapshot_id, cutover_iso),
             ).fetchall()
             if rows:
                 return rows
         if row.get("rendered_asset_id"):
             return self.conn.execute(
-                "SELECT * FROM performance_snapshots WHERE rendered_asset_id = ? ORDER BY snapshot_at DESC, created_at DESC",
-                (row["rendered_asset_id"],),
+                "SELECT * FROM performance_snapshots WHERE rendered_asset_id = ? AND "
+                + predicate
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (row["rendered_asset_id"], cutover_iso),
             ).fetchall()
         return []
 

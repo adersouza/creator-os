@@ -53,13 +53,21 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
             soul_id TEXT,
             campaign_output_id TEXT,
             job_key TEXT,
+            source_outcome_id TEXT,
+            source_snapshot_at TEXT,
             imported_at INTEGER NOT NULL
         )
     """)
     _ensure_columns(
         conn,
         "publish_metrics",
-        {"soul_id": "TEXT", "campaign_output_id": "TEXT", "job_key": "TEXT"},
+        {
+            "soul_id": "TEXT",
+            "campaign_output_id": "TEXT",
+            "job_key": "TEXT",
+            "source_outcome_id": "TEXT",
+            "source_snapshot_at": "TEXT",
+        },
     )
     _ensure_variations_filename(conn)
     conn.execute(
@@ -753,6 +761,231 @@ def refresh_outcomes_from_performance_sync(
         "winnerDna": winner_dna,
         "captionWeights": caption_weights,
     }
+
+
+def upsert_bridge_outcome(
+    root: Path,
+    conn: sqlite3.Connection,
+    snapshot: dict[str, Any],
+    *,
+    previous_identity: dict[str, Any] | None = None,
+    commit: bool = True,
+) -> dict[str, Any]:
+    """Ledger-controlled single-snapshot Reel outcome write with monotonic guards."""
+    ensure_metrics_schema(conn)
+    ensure_campaign_schema(conn)
+    output_path = _text(snapshot.get("rendered_output_path"))
+    filename = _text(snapshot.get("rendered_filename")) or (
+        Path(output_path).name if output_path else None
+    )
+    if not output_path or not filename:
+        return {"status": "skipped", "reason": "missing_rendered_output_path"}
+    source_snapshot_at = _text(snapshot.get("snapshot_at"))
+    post_id = _text(snapshot.get("post_id"))
+    if not source_snapshot_at or not post_id:
+        return {"status": "skipped", "reason": "missing_snapshot_identity"}
+    output_path = str(_project_path(Path(root), output_path).resolve())
+    platform = _text(snapshot.get("platform")) or "instagram_reels"
+    account = _outcome_dimension(
+        snapshot.get("instagram_account_id")
+    ) or _outcome_dimension(snapshot.get("account_id"))
+    posted_at = _outcome_dimension(snapshot.get("published_at")) or _outcome_dimension(
+        source_snapshot_at
+    )
+    outcome_id = (
+        f"outcome_{slugify(filename)}_{slugify(platform or 'platform')}_"
+        f"{slugify(account or 'account')}_{slugify(posted_at or 'unknown')}"
+    )
+    existing = conn.execute(
+        "SELECT * FROM reel_outcomes WHERE outcome_id = ?", (outcome_id,)
+    ).fetchone()
+    if existing and _sqlite_time_is_older(
+        conn, source_snapshot_at, existing["source_snapshot_at"]
+    ):
+        return {
+            "status": "superseded",
+            "outcomeId": outcome_id,
+            "filename": filename,
+            "sourceSnapshotAt": source_snapshot_at,
+        }
+    campaign_output = conn.execute(
+        "SELECT * FROM campaign_outputs WHERE output_path = ? LIMIT 1",
+        (output_path,),
+    ).fetchone()
+    soul_id = _resolve_metrics_soul_id(
+        Path(root), conn, filename, output_path=output_path
+    )
+    audio_track_id = _audio_track_id_for_output(output_path)
+    now = int(time.time())
+    conn.execute(
+        """
+        INSERT INTO reel_outcomes (
+          outcome_id, filename, output_path, soul_id, campaign_output_id,
+          campaign_id, audio_track_id, platform, account, posted_at, views, likes,
+          comments, shares, saves, watch_time, source_url, notes, source_post_id,
+          source_snapshot_at, imported_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(outcome_id) DO UPDATE SET
+          filename = excluded.filename,
+          output_path = excluded.output_path,
+          soul_id = excluded.soul_id,
+          campaign_output_id = excluded.campaign_output_id,
+          campaign_id = excluded.campaign_id,
+          audio_track_id = excluded.audio_track_id,
+          platform = excluded.platform,
+          account = excluded.account,
+          posted_at = excluded.posted_at,
+          views = excluded.views,
+          likes = excluded.likes,
+          comments = excluded.comments,
+          shares = excluded.shares,
+          saves = excluded.saves,
+          watch_time = excluded.watch_time,
+          source_url = excluded.source_url,
+          notes = excluded.notes,
+          source_post_id = excluded.source_post_id,
+          source_snapshot_at = excluded.source_snapshot_at,
+          imported_at = excluded.imported_at
+        """,
+        (
+            outcome_id,
+            filename,
+            output_path,
+            soul_id,
+            campaign_output["campaign_output_id"] if campaign_output else None,
+            snapshot.get("campaign_id"),
+            audio_track_id,
+            platform,
+            account,
+            posted_at,
+            _int_from_any(snapshot.get("views")),
+            _int_from_any(snapshot.get("likes")),
+            _int_from_any(snapshot.get("comments")),
+            _int_from_any(snapshot.get("shares")),
+            _int_from_any(snapshot.get("saves")),
+            _float_from_any(snapshot.get("watch_time_seconds")),
+            _text(snapshot.get("permalink")),
+            f"threadsdash performance snapshot {snapshot.get('id')}",
+            post_id,
+            source_snapshot_at,
+            now,
+        ),
+    )
+    previous_outcome_id = _text((previous_identity or {}).get("outcomeId"))
+    previous_filename = _text((previous_identity or {}).get("filename"))
+    if previous_outcome_id and previous_outcome_id != outcome_id:
+        conn.execute(
+            "DELETE FROM reel_outcomes WHERE outcome_id = ?", (previous_outcome_id,)
+        )
+    recompute_publish_metrics_for_filename(conn, filename)
+    if previous_filename and previous_filename != filename:
+        recompute_publish_metrics_for_filename(conn, previous_filename)
+    if commit:
+        conn.commit()
+    return {
+        "status": "updated" if existing else "written",
+        "outcomeId": outcome_id,
+        "filename": filename,
+        "sourceSnapshotAt": source_snapshot_at,
+    }
+
+
+def retract_bridge_outcome(
+    conn: sqlite3.Connection,
+    *,
+    outcome_id: str,
+    filename: str,
+    commit: bool = True,
+) -> dict[str, Any]:
+    cursor = conn.execute(
+        "DELETE FROM reel_outcomes WHERE outcome_id = ?", (outcome_id,)
+    )
+    recompute_publish_metrics_for_filename(conn, filename)
+    if commit:
+        conn.commit()
+    return {
+        "status": "retracted" if cursor.rowcount else "missing",
+        "outcomeId": outcome_id,
+        "filename": filename,
+    }
+
+
+def recompute_publish_metrics_for_filename(
+    conn: sqlite3.Connection, filename: str
+) -> dict[str, Any]:
+    """Rebuild the filename-collapsed row from the newest remaining outcome."""
+    row = conn.execute(
+        """
+        SELECT * FROM reel_outcomes
+        WHERE filename = ?
+        ORDER BY julianday(source_snapshot_at) DESC, imported_at DESC, outcome_id DESC
+        LIMIT 1
+        """,
+        (filename,),
+    ).fetchone()
+    if not row:
+        conn.execute("DELETE FROM publish_metrics WHERE filename = ?", (filename,))
+        return {"status": "deleted", "filename": filename}
+    conn.execute(
+        """
+        INSERT INTO publish_metrics (
+          filename, platform, account, uploaded_at, views, likes, comments,
+          shares, saves, notes, soul_id, campaign_output_id, job_key,
+          source_outcome_id, source_snapshot_at, imported_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(filename) DO UPDATE SET
+          platform = excluded.platform,
+          account = excluded.account,
+          uploaded_at = excluded.uploaded_at,
+          views = excluded.views,
+          likes = excluded.likes,
+          comments = excluded.comments,
+          shares = excluded.shares,
+          saves = excluded.saves,
+          notes = excluded.notes,
+          soul_id = excluded.soul_id,
+          campaign_output_id = excluded.campaign_output_id,
+          job_key = excluded.job_key,
+          source_outcome_id = excluded.source_outcome_id,
+          source_snapshot_at = excluded.source_snapshot_at,
+          imported_at = excluded.imported_at
+        """,
+        (
+            filename,
+            row["platform"],
+            row["account"],
+            row["posted_at"],
+            row["views"],
+            row["likes"],
+            row["comments"],
+            row["shares"],
+            row["saves"],
+            row["notes"],
+            row["soul_id"],
+            row["campaign_output_id"],
+            row["job_key"],
+            row["outcome_id"],
+            row["source_snapshot_at"],
+            row["imported_at"],
+        ),
+    )
+    return {
+        "status": "written",
+        "filename": filename,
+        "outcomeId": row["outcome_id"],
+        "sourceSnapshotAt": row["source_snapshot_at"],
+    }
+
+
+def _sqlite_time_is_older(
+    conn: sqlite3.Connection, incoming: str, stored: str | None
+) -> bool:
+    if not stored:
+        return False
+    row = conn.execute(
+        "SELECT julianday(?) < julianday(?) AS older", (incoming, stored)
+    ).fetchone()
+    return bool(row["older"])
 
 
 def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:

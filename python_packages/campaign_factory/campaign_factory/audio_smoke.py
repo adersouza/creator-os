@@ -171,10 +171,25 @@ def _run_pipeline_audio_smoke(
             (
                 json.dumps(
                     {
+                        "promptId": "prompt_audio_smoke_001",
                         "creativePlanId": creative_plan["id"],
                         "creativePlanName": creative_plan["name"],
                         "styleLane": "amateur_native",
                         "referenceId": "smoke_reference",
+                        "generationTool": "audio_smoke_fixture",
+                        "generatedAssetLineage": {
+                            "schema": "reel_factory.generated_asset_lineage.v1",
+                            "pipelineTraceId": "trace_audio_smoke_001",
+                            "source": {
+                                "promptId": "prompt_audio_smoke_001",
+                                "referenceId": "smoke_reference",
+                            },
+                            "generation": {"tool": "audio_smoke_fixture"},
+                            "review": {
+                                "humanReviewRequired": True,
+                                "status": "draft",
+                            },
+                        },
                         "higgsfield_soul_image_prompt": "Smoke model mirror selfie, native IG style.",
                         "kling_3_video_prompt": "Use the generated image as the first frame; subtle handheld selfie motion.",
                     }
@@ -309,6 +324,35 @@ def create_smoke_campaign_asset(
     source = factory.assets_for_campaign(factory.campaign_by_slug("audio_smoke")["id"])[
         0
     ]
+    factory.conn.execute(
+        "UPDATE source_assets SET source_prompt = ?, updated_at = ? WHERE id = ?",
+        (
+            json.dumps(
+                {
+                    "promptId": "prompt_audio_smoke_001",
+                    "referenceId": "smoke_reference",
+                    "generationTool": "audio_smoke_fixture",
+                    "generatedAssetLineage": {
+                        "schema": "reel_factory.generated_asset_lineage.v1",
+                        "pipelineTraceId": "trace_audio_smoke_001",
+                        "source": {
+                            "promptId": "prompt_audio_smoke_001",
+                            "referenceId": "smoke_reference",
+                        },
+                        "generation": {"tool": "audio_smoke_fixture"},
+                        "review": {
+                            "humanReviewRequired": True,
+                            "status": "draft",
+                        },
+                    },
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            utc_now(),
+            source["id"],
+        ),
+    )
     rendered_path = workspace / "rendered_smoke.mp4"
     rendered_path.write_bytes(b"smoke rendered")
     now = "2026-05-22T00:00:00+00:00"
@@ -536,11 +580,11 @@ def sync_smoke_performance(
         (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
          caption_hash, recipe, post_id, platform, status, account_id, instagram_account_id,
          permalink, published_at, snapshot_at, views, likes, comments, shares, saves, reach,
-         watch_time_seconds, metrics_eligible, raw_json, created_at)
+         watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid, raw_json, created_at)
         VALUES
         ('perf_smoke_1', ?, ?, ?, ?, ?, ?, ?, 'post_smoke_perf_1', 'instagram', 'published',
          NULL, ?, 'https://instagram.test/p/smoke', '2026-05-22T12:00:00+00:00', ?,
-         2400, 190, 22, 31, 44, 1800, 420.0, 1, ?, ?)
+         2400, 190, 22, 31, 44, 1800, 420.0, 1, 'metric_history', 1, ?, ?)
         """,
         (
             campaign["id"],

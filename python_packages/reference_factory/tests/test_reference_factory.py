@@ -3270,16 +3270,24 @@ def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) ->
         conn,
         [
             {
+                "promptId": "prompt_1",
                 "referenceId": "ref_1",
+                "postId": "post_1",
                 "rewardScore": 1.8,
                 "confidence": 0.82,
-                "sampleCount": 4,
+                "sourceSnapshotAt": "2026-01-02T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {"account": "small_account"},
             },
             {
+                "promptId": "prompt_2",
                 "referenceId": "ref_2",
+                "postId": "post_2",
                 "rewardScore": 0.4,
                 "confidence": 0.76,
-                "sampleCount": 8,
+                "sourceSnapshotAt": "2026-01-02T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {"account": "huge_account"},
             },
         ],
     )
@@ -3289,6 +3297,126 @@ def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) ->
     assert top["items"][0]["shortCode"] == "LOWRAW"
     assert top["items"][0]["measuredOutcome"]["rewardScore"] == 1.8
     assert top["items"][0]["publicRateScore"] > top["items"][1]["publicRateScore"]
+
+
+def test_prompt_outcomes_retain_distinct_posts_and_recompute_aggregate(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, created_at, updated_at
+        ) VALUES ('ref_multi', '/ref_multi.mp4', 'ref_multi.mp4', '.mp4',
+                  'video', 1, 'now', 'hash_multi', 'now', 'now')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO generated_video_prompts (
+          id, reference_id, target_tool, model_profile, prompt_json, status,
+          created_at, updated_at
+        ) VALUES ('prompt_multi', 'ref_multi', 'higgsfield', 'default', '{}',
+                  'approved', 'now', 'now')
+        """
+    )
+    records = [
+        {
+            "promptId": "prompt_multi",
+            "referenceId": "ref_multi",
+            "postId": "post_1",
+            "rewardScore": 0.8,
+            "sourceSnapshotAt": "2026-01-02T00:00:00+00:00",
+            "scoringVersion": "account_normalized_decay_shrinkage.v1",
+            "baselineProvenance": {"account": "ig_1", "medianValue": 0.35},
+        },
+        {
+            "promptId": "prompt_multi",
+            "referenceId": "ref_multi",
+            "postId": "post_2",
+            "rewardScore": 1.4,
+            "sourceSnapshotAt": "2026-01-03T00:00:00+00:00",
+            "scoringVersion": "account_normalized_decay_shrinkage.v1",
+            "baselineProvenance": {"account": "ig_1", "medianValue": 0.35},
+        },
+    ]
+
+    imported = import_prompt_outcomes(conn, records)
+
+    facts = conn.execute(
+        "SELECT post_id, reward_score FROM prompt_post_outcomes ORDER BY post_id"
+    ).fetchall()
+    prompt = conn.execute(
+        "SELECT * FROM generated_video_prompts WHERE id = 'prompt_multi'"
+    ).fetchone()
+    assert imported["updated"] == 2
+    assert [tuple(row) for row in facts] == [("post_1", 0.8), ("post_2", 1.4)]
+    assert prompt["outcome_sample_count"] == 2
+    assert 0.8 < prompt["outcome_reward_score"] < 1.4
+
+
+def test_reference_only_outcome_never_broadcasts_and_stale_snapshot_is_superseded(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, created_at, updated_at
+        ) VALUES ('ref_guard', '/ref_guard.mp4', 'ref_guard.mp4', '.mp4',
+                  'video', 1, 'now', 'hash_guard', 'now', 'now')
+        """
+    )
+    for prompt_id in ("prompt_guard_1", "prompt_guard_2"):
+        conn.execute(
+            """
+            INSERT INTO generated_video_prompts (
+              id, reference_id, target_tool, model_profile, prompt_json, status,
+              created_at, updated_at
+            ) VALUES (?, 'ref_guard', 'higgsfield', ?, '{}', 'approved', 'now', 'now')
+            """,
+            (prompt_id, prompt_id),
+        )
+    reference_only = import_prompt_outcomes(
+        conn,
+        [
+            {
+                "referenceId": "ref_guard",
+                "postId": "post_guard",
+                "rewardScore": 2.0,
+                "sourceSnapshotAt": "2026-01-04T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {},
+            }
+        ],
+    )
+    newer = {
+        "promptId": "prompt_guard_1",
+        "referenceId": "ref_guard",
+        "postId": "post_guard",
+        "rewardScore": 1.5,
+        "sourceSnapshotAt": "2026-01-04T00:00:00+00:00",
+        "scoringVersion": "account_normalized_decay_shrinkage.v1",
+        "baselineProvenance": {"account": "ig_1"},
+    }
+    older = {
+        **newer,
+        "rewardScore": 0.2,
+        "sourceSnapshotAt": "2026-01-03T00:00:00+00:00",
+    }
+    import_prompt_outcomes(conn, [newer])
+    stale = import_prompt_outcomes(conn, [older])
+
+    assert reference_only["updated"] == 0
+    assert reference_only["skipReasons"] == {"missing_prompt_id": 1}
+    assert stale["superseded"] == 1
+    assert conn.execute("SELECT COUNT(*) FROM prompt_post_outcomes").fetchone()[0] == 1
+    assert (
+        conn.execute("SELECT reward_score FROM prompt_post_outcomes").fetchone()[0]
+        == 1.5
+    )
 
 
 def test_pattern_analyzer_embeds_measured_outcome_signals(tmp_path: Path) -> None:
@@ -3337,11 +3465,16 @@ def test_pattern_analyzer_embeds_measured_outcome_signals(tmp_path: Path) -> Non
         conn,
         [
             {
+                "promptId": "prompt_1",
                 "referenceId": "ref_local",
+                "postId": f"post_{index}",
                 "rewardScore": 1.35,
                 "confidence": 0.7,
-                "sampleCount": 3,
+                "sourceSnapshotAt": f"2026-01-0{index + 1}T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {"account": "account_a"},
             }
+            for index in range(3)
         ],
     )
 
@@ -3416,10 +3549,14 @@ def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(
         conn,
         [
             {
+                "promptId": "prompt_winner",
                 "referenceId": "ref_winner",
+                "postId": "post_winner",
                 "rewardScore": 1.8,
                 "confidence": 0.86,
-                "sampleCount": 5,
+                "sourceSnapshotAt": "2026-01-02T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {"account": "account_a"},
             }
         ],
     )
@@ -3457,6 +3594,71 @@ def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(
         cluster["audioRecommendations"]["recommendations"][0]["measuredOutcomeSamples"]
         == 1
     )
+
+
+def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    for reference_id, visual_format in (
+        ("ref_gold", "mirror_selfie"),
+        ("ref_ignore", "bedroom_pose"),
+    ):
+        conn.execute(
+            """
+            INSERT INTO source_files (
+              reference_id, path, file_name, extension, kind, size_bytes, mtime,
+              path_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, '.mp4', 'video', 1, 'now', ?, 'now', 'now')
+            """,
+            (
+                reference_id,
+                f"/{reference_id}.mp4",
+                f"{reference_id}.mp4",
+                f"hash_{reference_id}",
+            ),
+        )
+        pattern = {
+            "visualFormat": visual_format,
+            "hookType": "viewer_insert",
+            "metrics": {"measuredOutcome": {"rewardScore": 1.2, "sampleCount": 1}},
+            "performanceClass": "performed_well",
+            "winnerDna": {"performanceClass": "performed_well"},
+        }
+        conn.execute(
+            """
+            INSERT INTO reference_patterns (
+              id, reference_id, rank, provider, analyzer_version, suggested_label,
+              visual_format, hook_type, caption_archetype, quality_score,
+              pattern_json, created_at, updated_at
+            ) VALUES (?, ?, 1, 'heuristic', 'test', 'maybe', ?, 'viewer_insert',
+                      'question_hook', 70, ?, 'now', 'now')
+            """,
+            (
+                f"pattern_{reference_id}",
+                reference_id,
+                visual_format,
+                json.dumps(pattern),
+            ),
+        )
+    label_reference(conn, "ref_gold", "gold", ["visual_style"], "keeper")
+    label_reference(conn, "ref_ignore", "ignore", ["visual_style"], "weak")
+
+    first = learning_summary(conn, limit=10)
+    assert first["topClusters"][0]["topReferenceId"] == "ref_gold"
+    assert first["topClusters"][0]["winnerDna"]["performanceClassCounts"] == {
+        "performed_well": 1
+    }
+
+    conn.execute("DELETE FROM review_labels")
+    label_reference(conn, "ref_gold", "ignore", ["visual_style"], "weak")
+    label_reference(conn, "ref_ignore", "gold", ["visual_style"], "keeper")
+    second = learning_summary(conn, limit=10)
+
+    assert second["topClusters"][0]["topReferenceId"] == "ref_ignore"
+    assert second["topClusters"][0]["winnerDna"]["performanceClassCounts"] == {
+        "performed_well": 1
+    }
 
 
 def test_learning_cluster_keeps_account_winners_ahead_of_unproven_references() -> None:

@@ -5,6 +5,11 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
+
 
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
@@ -36,8 +41,13 @@ def closed_loop_learning_status(
     campaign_slug: str | None = None,
     min_posts_with_1h_and_24h: int = 50,
 ) -> dict[str, Any]:
+    cutover_iso = learning_loop_cutover_iso()
     params: list[Any] = []
-    where = "p.metrics_eligible = 1 AND p.post_id IS NOT NULL"
+    if cutover_iso is None:
+        where = "0"
+    else:
+        where = learning_eligible_sql(prefix="p.") + " AND p.post_id IS NOT NULL"
+        params.append(cutover_iso)
     if campaign_slug:
         where += " AND c.slug = ?"
         params.append(campaign_slug)

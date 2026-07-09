@@ -418,6 +418,9 @@ def _upsert_source_asset(
         "schema": "campaign_factory.reel_ledger_promoted_source.v1",
         "promotedFrom": REEL_SLOT_EXTERNAL_SYSTEM,
         "postingSlotId": action["postingSlotId"],
+        "promptId": f"prompt_reel_ledger_{action['postingSlotId']}",
+        "referenceId": source_key,
+        "generationTool": "reel_factory_posting_ledger",
         "generatedAssetLineage": lineage,
         "contentFingerprint": action["renderedAsset"]["contentHash"],
     }

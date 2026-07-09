@@ -11,6 +11,8 @@ from .caption_outcome import load_context_json
 from .learning_score import (
     account_reward_baselines,
     aggregate_performance,
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
     performance_planning_score,
     performance_score,
 )
@@ -31,10 +33,16 @@ class PerformanceSummaryRepository:
 
     def performance_summary(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND metrics_eligible = 1 ORDER BY snapshot_at DESC, created_at DESC",
-            (campaign["id"],),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND "
+                + learning_eligible_sql()
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (campaign["id"], cutover_iso),
+            ).fetchall()
         snapshots = [self.performance_snapshot_payload(dict(row)) for row in rows]
         account_baselines = account_reward_baselines(snapshots)
         return {
@@ -77,10 +85,16 @@ class PerformanceSummaryRepository:
 
     def reference_outcome_report(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND metrics_eligible = 1 ORDER BY snapshot_at DESC, created_at DESC",
-            (campaign["id"],),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND "
+                + learning_eligible_sql()
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (campaign["id"], cutover_iso),
+            ).fetchall()
         groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         for row_obj in rows:
             row = dict(row_obj)
@@ -183,26 +197,42 @@ class PerformanceSummaryRepository:
                 "utf-8"
             )
         ).hexdigest()
-        latest = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE rendered_asset_id = ? ORDER BY snapshot_at DESC, created_at DESC LIMIT 1",
-            (asset["id"],),
-        ).fetchone()
-        source_rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE source_asset_id = ? ORDER BY snapshot_at DESC, created_at DESC",
-            (asset["source_asset_id"],),
-        ).fetchall()
-        caption_rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE caption_hash = ? ORDER BY snapshot_at DESC, created_at DESC",
-            (caption_hash,),
-        ).fetchall()
-        recipe_rows = (
-            self.conn.execute(
-                "SELECT * FROM performance_snapshots WHERE recipe = ? ORDER BY snapshot_at DESC, created_at DESC",
-                (asset.get("recipe"),),
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            latest = None
+            source_rows = []
+            caption_rows = []
+            recipe_rows = []
+        else:
+            predicate = learning_eligible_sql()
+            latest = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE rendered_asset_id = ? AND "
+                + predicate
+                + " ORDER BY snapshot_at DESC, created_at DESC LIMIT 1",
+                (asset["id"], cutover_iso),
+            ).fetchone()
+            source_rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE source_asset_id = ? AND "
+                + predicate
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (asset["source_asset_id"], cutover_iso),
             ).fetchall()
-            if asset.get("recipe")
-            else []
-        )
+            caption_rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE caption_hash = ? AND "
+                + predicate
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (caption_hash, cutover_iso),
+            ).fetchall()
+            recipe_rows = (
+                self.conn.execute(
+                    "SELECT * FROM performance_snapshots WHERE recipe = ? AND "
+                    + predicate
+                    + " ORDER BY snapshot_at DESC, created_at DESC",
+                    (asset.get("recipe"), cutover_iso),
+                ).fetchall()
+                if asset.get("recipe")
+                else []
+            )
         source_snapshots = [
             self.performance_snapshot_payload(dict(row)) for row in source_rows
         ]
@@ -322,6 +352,9 @@ class PerformanceSummaryRepository:
             "permalink": row["permalink"],
             "publishedAt": row["published_at"],
             "snapshotAt": row["snapshot_at"],
+            "metricsEligible": bool(row.get("metrics_eligible")),
+            "historySource": row.get("history_source"),
+            "lineageV2Valid": bool(row.get("lineage_v2_valid")),
             "metrics": {
                 "views": row["views"],
                 "likes": row["likes"],

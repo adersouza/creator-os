@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -39,14 +40,28 @@ def test_sync_threadsdash_performance_requires_configured_env():
     assert module.main(env={}) == 2
 
 
-def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch):
+def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
     module = load_sync_module()
     calls: list[list[str]] = []
 
-    def fake_run(command, check):
+    reports = iter(
+        [
+            {"schema": "campaign_factory.performance_sync.v1", "postsScanned": 2},
+            {
+                "schema": "creator_os.learning_fanout.v1",
+                "fanout": {"reference": {"done": 1}},
+            },
+        ]
+    )
+
+    def fake_run(command, check, capture_output, text):
         calls.append(list(command))
         assert check is False
-        return subprocess.CompletedProcess(command, 0)
+        assert capture_output is True
+        assert text is True
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(next(reports)), stderr=""
+        )
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
 
@@ -57,10 +72,15 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch):
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role",
             "CAMPAIGN_FACTORY_SYNC_LIMIT": "250",
+            "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
         }
     )
 
     assert result == 0
+    combined = json.loads(capsys.readouterr().out)
+    assert combined["schema"] == "creator_os.hourly_learning_sync.v1"
+    assert combined["performanceSync"]["postsScanned"] == 2
+    assert combined["learningFanout"]["fanout"]["reference"]["done"] == 1
     assert calls == [
         [
             "uv",
@@ -81,15 +101,14 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch):
         [
             "uv",
             "run",
-            "--directory",
-            str(module.DEFAULT_REEL_FACTORY_ROOT),
             "python",
-            "metrics_store.py",
-            "--root",
-            str(module.DEFAULT_REEL_FACTORY_ROOT),
-            "refresh-outcomes",
+            str(module.REPO_ROOT / "scripts" / "learning_fanout.py"),
             "--campaign-factory-db",
             str(module.DEFAULT_CAMPAIGN_FACTORY_DB),
+            "--reel-factory-root",
+            str(module.DEFAULT_REEL_FACTORY_ROOT),
+            "--reference-factory-db",
+            str(module.DEFAULT_REFERENCE_FACTORY_DB),
             "--campaign",
             "may",
         ],
@@ -100,10 +119,12 @@ def test_sync_threadsdash_performance_skips_bridge_when_sync_fails(monkeypatch):
     module = load_sync_module()
     calls: list[list[str]] = []
 
-    def fake_run(command, check):
+    def fake_run(command, check, capture_output, text):
         calls.append(list(command))
         assert check is False
-        return subprocess.CompletedProcess(command, 1)
+        assert capture_output is True
+        assert text is True
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="failed")
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
 
@@ -113,8 +134,26 @@ def test_sync_threadsdash_performance_skips_bridge_when_sync_fails(monkeypatch):
             "THREADSDASH_USER_ID": "user_1",
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+            "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
         }
     )
 
     assert result == 1
     assert len(calls) == 1
+
+
+def test_hourly_sync_never_invokes_standalone_reel_refresh():
+    module = load_sync_module()
+    command = module.build_fanout_command(
+        {
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGN": "may",
+            "CAMPAIGN_FACTORY_DB": "/tmp/campaign.sqlite",
+            "REEL_FACTORY_ROOT": "/tmp/reel",
+            "REFERENCE_FACTORY_DB": "/tmp/reference.sqlite",
+        }
+    )
+
+    joined = " ".join(command)
+    assert "learning_fanout.py" in joined
+    assert "metrics_store.py" not in joined
+    assert "refresh-outcomes" not in joined
