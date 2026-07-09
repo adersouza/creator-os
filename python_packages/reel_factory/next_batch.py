@@ -1,17 +1,13 @@
-#!/usr/bin/env python3
-"""Compatibility entrypoint for the packaged Reel Factory next-batch module."""
+"""Compatibility shim for the packaged Reel Factory next_batch module."""
 
 from __future__ import annotations
 
-from reel_factory import next_batch as _next_batch
+import runpy
+import sys
 
-CAMPAIGN_FACTORY_REQUEST_ENV = _next_batch.CAMPAIGN_FACTORY_REQUEST_ENV
-CAMPAIGN_FACTORY_TIMEOUT_ENV = _next_batch.CAMPAIGN_FACTORY_TIMEOUT_ENV
-_campaign_factory_command = _next_batch._campaign_factory_command
-campaign_factory_next_batch = _next_batch.campaign_factory_next_batch
-main = _next_batch.main
-select_next_batch = _next_batch.select_next_batch
-
+from reel_factory import next_batch as _module
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    runpy.run_module("reel_factory.next_batch", run_name="__main__")
+else:
+    sys.modules[__name__] = _module

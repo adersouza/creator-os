@@ -7,6 +7,7 @@ MIGRATED_SHIM_CRITICAL_EXPORTS = {
     "caption_bank": ("caption_hash", "refresh_caption_weights"),
     "export_approved": ("export_approved", "_load_generated_asset_lineage_sidecar"),
     "fetch_models": ("DEST", "fetch", "main"),
+    "frame_hash_check": ("audit_clip_dir", "main"),
     "manifest": ("Manifest", "sha256_str"),
     "metrics_store": ("ensure_metrics_schema", "import_metrics_csv"),
     "review_batch_guard": ("validate_review_batch", "main"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -288,3 +289,195 @@ def test_counts_ignore_missing_state_table(tmp_path: Path) -> None:
         conn.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
 
     assert orchestrator.read_counts_if_present(tmp_path) == {}
+
+
+def test_ingest_pipeline_state_advances_from_lineage_rank_and_output(
+    tmp_path: Path,
+) -> None:
+    conn = orchestrator.open_manifest(tmp_path)
+    lineage_path = (
+        tmp_path / "00_source_videos" / "asset_1.generated_asset_lineage.json"
+    )
+    output_path = tmp_path / "02_processed" / "asset_1.mp4"
+    lineage_path.parent.mkdir()
+    output_path.parent.mkdir()
+    output_path.write_bytes(b"mp4")
+    lineage = {
+        "source": {"stem": "asset_1"},
+        "generation": {"campaign": "campaign_a", "status": "ok"},
+        "review": {"generatedImageQc": {"status": "passed"}},
+    }
+    lineage_path.write_text(json.dumps(lineage), encoding="utf-8")
+    state = {
+        "campaign": "campaign_a",
+        "run_id": "run_1",
+        "stages": {
+            "assets": {
+                "jobs": [{"stem": "asset_1", "lineage_path": str(lineage_path)}]
+            },
+            "rank": {
+                "ranked": [
+                    {
+                        "output_path": str(output_path),
+                        "score": 0.9,
+                        "predictedEngagement": {"views": 100},
+                        "generated_asset_lineage": lineage,
+                    }
+                ]
+            },
+        },
+    }
+
+    assert orchestrator.ingest_pipeline_state(conn, state, now=200) == 1
+
+    asset = orchestrator.get_asset(conn, "asset_1")
+    assert asset["state"] == "export_ready"
+    assert asset["output_path"] == str(output_path)
+    assert asset["rank_score"] == 0.9
+    assert '"views": 100' in asset["predicted_engagement_json"]
+
+
+def test_promote_top_k_uses_rank_and_preserves_replacements(tmp_path: Path) -> None:
+    conn = orchestrator.open_manifest(tmp_path)
+    for asset_id, score in (("asset_low", 0.2), ("asset_high", 0.8)):
+        orchestrator.create_asset(
+            conn,
+            asset_id=asset_id,
+            campaign="campaign_a",
+            run_id="run_1",
+            now=100,
+        )
+        for state in (
+            "prompted",
+            "generated",
+            "qc_passed",
+            "ranked",
+            "captioned",
+            "export_ready",
+        ):
+            orchestrator.advance(conn, asset_id, state, now=101)
+        orchestrator.update_asset_evidence(conn, asset_id, rank_score=score)
+
+    promoted = orchestrator.promote_top_k(conn, campaign="campaign_a", top_k=1, now=200)
+
+    assert promoted == 1
+    assert orchestrator.get_asset(conn, "asset_high")["state"] == "awaiting_approval"
+    assert orchestrator.get_asset(conn, "asset_low")["state"] == "export_ready"
+
+
+def test_enabled_tick_blocks_generation_without_cost_estimate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_data = tmp_path / "project_data"
+    project_data.mkdir()
+    reference = tmp_path / "reference.jpg"
+    reference.write_bytes(b"reference")
+    (project_data / "orchestrator.toml").write_text(
+        "\n".join(
+            [
+                "enabled = true",
+                "daily_candidate_target = 1",
+                'campaign = "campaign_a"',
+                'creator = "Stacey"',
+                f'reference_image = "{reference}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_preflight(**kwargs):
+        assert kwargs["estimated_cost_usd"] is None
+        return {"allowed": False, "blockingReason": "cost_estimate_missing"}
+
+    monkeypatch.setattr(orchestrator, "check_higgsfield_cost_preflight", fake_preflight)
+    monkeypatch.setattr(
+        orchestrator,
+        "run_pipeline",
+        lambda *args, **kwargs: pytest.fail("run_pipeline should not start"),
+    )
+
+    report = orchestrator.tick(tmp_path, now=200, notify_user=False)
+
+    assert report["generation"]["reason"] == "cost_estimate_missing"
+    assert report["stateCounts"] == {}
+
+
+def test_enabled_tick_runs_pipeline_and_ingests_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_data = tmp_path / "project_data"
+    project_data.mkdir()
+    reference = tmp_path / "reference.jpg"
+    reference.write_bytes(b"reference")
+    (project_data / "orchestrator.toml").write_text(
+        "\n".join(
+            [
+                "enabled = true",
+                "daily_candidate_target = 1",
+                "top_k_for_approval = 1",
+                'campaign = "Campaign A"',
+                'creator = "Stacey"',
+                f'reference_image = "{reference}"',
+                "estimated_cost_per_asset_usd = 0.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_preflight(**kwargs):
+        assert kwargs["estimated_cost_usd"] == 0.5
+        return {"allowed": True, "blockingReason": "", "blockingReasons": []}
+
+    def fake_run_pipeline(config):
+        lineage_path = (
+            tmp_path
+            / "00_source_videos"
+            / f"campaign_a_{config.run_id}_000.generated_asset_lineage.json"
+        )
+        output_path = tmp_path / "02_processed" / f"campaign_a_{config.run_id}_000.mp4"
+        lineage_path.parent.mkdir()
+        output_path.parent.mkdir()
+        output_path.write_bytes(b"mp4")
+        lineage = {
+            "source": {"stem": f"campaign_a_{config.run_id}_000"},
+            "generation": {"campaign": "Campaign A", "status": "ok"},
+            "review": {"generatedImageQc": {"status": "passed"}},
+        }
+        lineage_path.write_text(json.dumps(lineage), encoding="utf-8")
+        state = {
+            "campaign": "Campaign A",
+            "run_id": config.run_id,
+            "stages": {
+                "assets": {
+                    "jobs": [
+                        {
+                            "stem": f"campaign_a_{config.run_id}_000",
+                            "lineage_path": str(lineage_path),
+                        }
+                    ]
+                },
+                "rank": {
+                    "ranked": [
+                        {
+                            "output_path": str(output_path),
+                            "score": 0.7,
+                            "predictedEngagement": {"views": 50},
+                            "generated_asset_lineage": lineage,
+                        }
+                    ]
+                },
+            },
+        }
+        run_dir = orchestrator.pipeline_run_dir(tmp_path, "Campaign A", config.run_id)
+        run_dir.mkdir(parents=True)
+        (run_dir / "pipeline_run.json").write_text(json.dumps(state), encoding="utf-8")
+        return state
+
+    monkeypatch.setattr(orchestrator, "check_higgsfield_cost_preflight", fake_preflight)
+    monkeypatch.setattr(orchestrator, "run_pipeline", fake_run_pipeline)
+
+    report = orchestrator.tick(tmp_path, now=200, notify_user=False)
+
+    assert report["generation"]["started"] is True
+    assert report["promotedToApproval"] == 1
+    assert report["stateCounts"] == {"awaiting_approval": 1}

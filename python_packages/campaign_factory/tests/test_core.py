@@ -6271,10 +6271,23 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert payload["drafts"][0]["sourceContentHash"] == source["content_hash"]
         assert payload["drafts"][0]["captionHash"]
         assert payload["drafts"][0]["recipe"] == "v01_original"
+        assert payload["drafts"][0]["publishMode"] == "notify"
         assert (
             payload["drafts"][0]["audioRecommendations"]["primaryStrategy"]
             == "current_native_trending_sound"
         )
+        auto_payload = build_draft_payloads(
+            cf, campaign_slug="may", user_id="user_1", publish_mode="auto"
+        )
+        assert auto_payload["drafts"][0]["publishMode"] == "auto"
+        assert (
+            auto_payload["drafts"][0]["metadata"]["campaign_factory"]["publish_mode"]
+            == "auto"
+        )
+        with pytest.raises(ValueError, match="invalid publish_mode"):
+            build_draft_payloads(
+                cf, campaign_slug="may", user_id="user_1", publish_mode="bogus"
+            )
         metadata = payload["drafts"][0]["metadata"]["campaign_factory"]
         assert metadata["campaign_id"] == "may"
         assert metadata["graph_id"].startswith("cg_rendered_asset_")
@@ -6299,6 +6312,7 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert metadata["audio_intent"]["task"]["proof_required"] is False
         assert metadata["audio_intent"]["gates"]["allow_draft_export"] is True
         assert metadata["audio_intent"]["gates"]["allow_publish"] is False
+        assert metadata["publish_mode"] == "notify"
         assert metadata["audio_strategy"] == "current_native_trending_sound"
         assert metadata["native_audio_preferred"] is True
         result = export_threadsdash(

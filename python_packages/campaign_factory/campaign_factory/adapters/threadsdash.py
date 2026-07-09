@@ -34,6 +34,7 @@ from ..core import (
     utc_now,
 )
 
+VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
 UNRESOLVED_NATIVE_AUDIO_STATUSES = {
     "recommended",
@@ -60,8 +61,10 @@ def build_draft_payloads(
     rendered_asset_ids: list[str] | None = None,
     schedule_mode: str = "draft",
     enable_variation: bool = False,
+    publish_mode: str | None = None,
 ) -> dict[str, Any]:
     manifest = factory.export_manifest(campaign_slug=campaign_slug)
+    normalized_publish_mode = _normalize_publish_mode(publish_mode)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     variation_index: dict[str, dict[str, Any]] = {}
     if enable_variation:
@@ -235,6 +238,9 @@ def build_draft_payloads(
                 "distributionPlanId": destination.get("distributionPlanId"),
                 "distributionSurface": distribution_surface,
                 "contentSurface": content_surface,
+                "publishMode": _resolve_publish_mode(
+                    normalized_publish_mode, content_surface
+                ),
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
                 "pairedRenderedAssetId": destination.get("pairedRenderedAssetId"),
@@ -291,6 +297,28 @@ def build_draft_payloads(
         "manifest": manifest,
         "drafts": drafts,
     }
+
+
+def _normalize_publish_mode(publish_mode: str | None) -> str | None:
+    if publish_mode is None or not str(publish_mode).strip():
+        return None
+    normalized = str(publish_mode).strip().lower()
+    if normalized not in VALID_PUBLISH_MODES:
+        raise ValueError(
+            f"invalid publish_mode {publish_mode!r}; expected one of {sorted(VALID_PUBLISH_MODES)}"
+        )
+    return normalized
+
+
+def _resolve_publish_mode(
+    normalized_publish_mode: str | None, content_surface: str | None
+) -> str:
+    if normalized_publish_mode is not None:
+        return normalized_publish_mode
+    # Reels default to notify/handoff publishing: IG's trending-audio picker is
+    # app-only, so a human attaches real audio at post time. API publish would
+    # ship silent/muxed audio.
+    return "notify" if content_surface == "reel" else "auto"
 
 
 def _draft_status_for_schedule_mode(
@@ -688,9 +716,11 @@ def export_threadsdash(
     threadsdash_ingest_secret: str | None = None,
     enable_variation: bool = False,
     variation_preset: str = "ig_subtle",
+    publish_mode: str | None = None,
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
+    normalized_publish_mode = _normalize_publish_mode(publish_mode)
     pipeline_job = factory.create_pipeline_job(
         "threadsdash_export",
         campaign["id"],
@@ -708,6 +738,7 @@ def export_threadsdash(
             "maxDrafts": max_drafts,
             "renderedAssetIds": rendered_asset_ids or [],
             "scheduleMode": normalized_schedule_mode,
+            "publishMode": normalized_publish_mode,
             "hasThreadsdashIngestUrl": bool(
                 threadsdash_ingest_url
                 or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
@@ -744,6 +775,7 @@ def export_threadsdash(
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
             enable_variation=enable_variation,
+            publish_mode=normalized_publish_mode,
         )
         if max_drafts is not None:
             payload["drafts"] = payload["drafts"][: max(0, max_drafts)]
@@ -758,6 +790,7 @@ def export_threadsdash(
             language=language,
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
+            publish_mode=normalized_publish_mode,
         )
         writes_non_draft_rows = normalized_schedule_mode in {"preview", "live"}
         publishability_blockers = [
@@ -1275,9 +1308,11 @@ def evaluate_export_readiness(
     language: str | None = None,
     rendered_asset_ids: list[str] | None = None,
     schedule_mode: str = "draft",
+    publish_mode: str | None = None,
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
+    normalized_publish_mode = _normalize_publish_mode(publish_mode)
     pipeline_job = factory.create_pipeline_job(
         "export_readiness",
         campaign["id"],
@@ -1306,6 +1341,7 @@ def evaluate_export_readiness(
             language=language,
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
+            publish_mode=normalized_publish_mode,
         )
         draft_asset_ids = {draft["renderedAssetId"] for draft in payload["drafts"]}
         drafts_by_asset: dict[str, list[dict[str, Any]]] = {}
@@ -3173,6 +3209,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "media_key": draft.get("campaignFactoryMediaKey"),
             "post_key": draft.get("campaignFactoryPostKey"),
             "audit_status": draft.get("auditStatus"),
+            "publish_mode": draft.get("publishMode"),
             "asset_state": asset_state,
             "lifecycle_state": publishability.get("lifecycle_state")
             or (
