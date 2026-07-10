@@ -13,6 +13,18 @@ if (!process.env.CONTENTFORGE_OCR_ENGINE) {
 
 var MEDIA_TOOLS = ["ffmpeg", "ffprobe", "tesseract"];
 
+function auditDiagnostics(body) {
+  return JSON.stringify({
+    overallVerdict: body.overallVerdict,
+    blockingCodes: body.readinessSummary?.blockingCodes,
+    warningCodes: body.readinessSummary?.warningCodes,
+    ocr: body.ocr,
+    safeZone: body.safeZone,
+    readability: body.readability,
+    hookVisibility: body.hookVisibility,
+  });
+}
+
 async function seedCampaignFactoryFiles() {
   await mkdir(UPLOADS_DIR, { recursive: true });
   await mkdir(LEGACY_FINAL_DIR, { recursive: true });
@@ -216,8 +228,8 @@ test("/api/similarity warns but does not fail an upload-ready Campaign Factory F
     assert.equal(typeof body.creativeQuality.score, "number");
     assert.equal(body.creativeQuality.semanticEngine, "heuristic_v1");
     assert.equal(typeof body.timings.totalMs, "number");
-    assert.notEqual(body.overallVerdict, "fail");
-    assert.equal(body.readinessSummary.uploadReady, true);
+    assert.notEqual(body.overallVerdict, "fail", auditDiagnostics(body));
+    assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
     assert.equal(body.readinessSummary.blockingReasons.length, 0);
     assert.equal(body.readinessSummary.warningCodes.includes("forensics_ffmpeg_signature"), true);
     assert.equal(body.readinessSummary.warningCodes.includes("forensics_binary_signature"), true);
@@ -426,8 +438,8 @@ test("/api/similarity reports explicit reference matches as a non-blocking varia
     assert.equal(body.multiAccountOriginalityAudit.blocking, false);
     assert.equal(body.multiAccountOriginalityAudit.referenceMatchLevel, "high");
     assert.equal(body.multiAccountOriginalityAudit.duplicateRisk, "high");
-    assert.equal(body.referenceMatch.referenceMatchScore >= 78, true);
-    assert.equal(body.referenceMatch.variationScore <= 22, true);
+    assert.equal(body.referenceMatch.referenceMatchScore >= 78, true, auditDiagnostics(body));
+    assert.equal(body.referenceMatch.variationScore <= 22, true, auditDiagnostics(body));
     assert.equal(body.multiAccountOriginalityAudit.nearestMatches[0].file, prior.variantName);
     assert.equal(body.multiAccountOriginalityAudit.nearestMatches[0].score >= 78, true);
     assert.equal(body.multiAccountOriginalityAudit.sameOpeningRisk, "high");
@@ -435,12 +447,12 @@ test("/api/similarity reports explicit reference matches as a non-blocking varia
     assert.equal(body.multiAccountOriginalityAudit.variationNotes.length > 0, true);
     assert.equal(body.multiAccountOriginalityAudit.referenceMatchSignals.some(function (signal) {
       return signal.code === "reference_match_close";
-    }), true);
+    }), true, auditDiagnostics(body));
     assert.equal(body.multiAccountOriginalityAudit.referenceMatchSignals.some(function (signal) {
       return signal.code === "reference_match_same_opening";
-    }), true);
-    assert.equal(body.readinessSummary.uploadReady, true);
-    assert.notEqual(body.overallVerdict, "fail");
+    }), true, auditDiagnostics(body));
+    assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
+    assert.notEqual(body.overallVerdict, "fail", auditDiagnostics(body));
     assert.equal(body.readinessSummary.warningCodes.includes("originality_duplicate_risk"), false);
     assert.equal(body.readinessSummary.warningCodes.includes("originality_same_opening"), false);
     assert.equal(body.readinessSummary.warningCodes.includes("reference_match_close"), false);
@@ -503,10 +515,10 @@ test("/api/similarity keeps unavailable forced OCR engine advisory-only", async 
     }));
     var body = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(body.ocr.available, false);
-    assert.equal(body.readinessSummary.uploadReady, true);
+    assert.equal(body.ocr.available, false, auditDiagnostics(body));
+    assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
     assert.equal(body.readinessSummary.warningCodes.includes("ocr_unavailable"), true);
-    assert.notEqual(body.overallVerdict, "fail");
+    assert.notEqual(body.overallVerdict, "fail", auditDiagnostics(body));
   } finally {
     if (originalEngine === undefined) delete process.env.CONTENTFORGE_OCR_ENGINE;
     else process.env.CONTENTFORGE_OCR_ENGINE = originalEngine;
@@ -536,12 +548,12 @@ test("/api/similarity auto OCR falls back from Apple Vision to Tesseract", async
     }));
     var body = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(body.ocr.available, true);
-    assert.equal(body.ocr.engine, "tesseract");
-    assert.equal(body.ocr.fallbackUsed, true);
+    assert.equal(body.ocr.available, true, auditDiagnostics(body));
+    assert.equal(body.ocr.engine, "tesseract", auditDiagnostics(body));
+    assert.equal(body.ocr.fallbackUsed, true, auditDiagnostics(body));
     assert.match(body.ocr.fallbackReason, /apple_vision/i);
     assert.equal(body.readinessSummary.warningCodes.includes("ocr_unavailable"), false);
-    assert.notEqual(body.overallVerdict, "fail");
+    assert.notEqual(body.overallVerdict, "fail", auditDiagnostics(body));
   } finally {
     if (originalEngine === undefined) delete process.env.CONTENTFORGE_OCR_ENGINE;
     else process.env.CONTENTFORGE_OCR_ENGINE = originalEngine;
@@ -570,8 +582,8 @@ test("/api/similarity warns on legacy FFmpeg metadata when the media is otherwis
     assert.equal(response.status, 200);
     assert.equal(report.score, "warn");
     assert.equal(report.uploadReady, true);
-    assert.equal(body.overallVerdict, "warn");
-    assert.equal(body.readinessSummary.uploadReady, true);
+    assert.equal(body.overallVerdict, "warn", auditDiagnostics(body));
+    assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
     assert.equal(body.readinessSummary.recommendedAction, "review");
     assert.equal(body.readinessSummary.blockingReasons.length, 0);
     assert.equal(body.readinessSummary.warningCodes.includes("forensics_missing_creation_time"), true);
@@ -700,8 +712,8 @@ test("/api/similarity keeps compression review findings as warnings when layer v
       var warningText = body.readinessSummary.warnings.join("\n");
       var warningCodes = body.readinessSummary.warningCodes;
       var compressionSummary = body.layers.compression?.summary || {};
-      assert.equal(body.overallVerdict, "warn");
-      assert.equal(body.readinessSummary.uploadReady, true);
+      assert.equal(body.overallVerdict, "warn", auditDiagnostics(body));
+      assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
       assert.equal(body.readinessSummary.blockingReasons.length, 0);
       assert.equal(warningCodes.some(function (code) { return /^compression_/.test(code); }), true);
       assert.match(warningText, /compression/i);

@@ -116,7 +116,18 @@ test("Campaign Factory fixture manifest calibrates /api/similarity response cont
       assertContract(body);
       assert.equal(body.targetFile, staged.targetName);
       assert.equal(body.filesAnalyzed, 1);
-      assert.equal(body.overallVerdict, expected.overallVerdict, fixture.file + " overallVerdict");
+      assert.equal(
+        body.overallVerdict,
+        expected.overallVerdict,
+        fixture.file + " overallVerdict: " + JSON.stringify({
+          blockingCodes: body.readinessSummary.blockingCodes,
+          warningCodes: body.readinessSummary.warningCodes,
+          ocr: body.ocr,
+          safeZone: body.safeZone,
+          readability: body.readability,
+          hookVisibility: body.hookVisibility,
+        })
+      );
       assert.equal(body.readinessSummary.uploadReady, expected.uploadReady, fixture.file + " uploadReady");
       assertCodes(body.readinessSummary.warningCodes, expected.mustIncludeWarningCodes, fixture.file + " warningCodes");
       assertCodes(body.readinessSummary.blockingCodes, expected.mustIncludeBlockingCodes, fixture.file + " blockingCodes");
