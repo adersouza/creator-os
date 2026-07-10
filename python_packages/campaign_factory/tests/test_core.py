@@ -16708,6 +16708,38 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
     assert captured["post_id"] == "in.(post_1)"
 
 
+@pytest.mark.parametrize("snapshot_at", [None, "not-a-date"])
+def test_metric_history_read_rejects_invalid_snapshot_at_without_created_at_fallback(
+    snapshot_at,
+):
+    row = {
+        "id": "hist_invalid_snapshot_at",
+        "post_id": "post_1",
+        "account_id": "acct_1",
+        "platform": "instagram",
+        "snapshot_at": snapshot_at,
+        "hours_since_publish": 24,
+        "views_count": 1200,
+        "likes_count": 80,
+        "replies_count": 9,
+        "reposts_count": 0,
+        "quotes_count": 0,
+        "shares_count": 14,
+        "saves_count": 22,
+        "reach": 1100,
+        "engagement_rate": 0.113,
+        # This used to be a tempting fallback. Metric-history rows must reject
+        # invalid snapshot_at instead of silently relabeling created_at.
+        "created_at": "2026-01-03T01:00:00+00:00",
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="post_metric_history.read.v1 validation failed.*snapshot_at",
+    ):
+        threadsdash_adapter._validate_threadsdash_post_metric_history_read([row])
+
+
 def test_metric_history_read_batches_the_captured_1000_post_request_shape():
     captured_filters: list[str] = []
 

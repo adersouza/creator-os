@@ -2704,10 +2704,8 @@ export const generatedPipelineContractSchemas = {
 	            ]
 	          },
 	          "snapshot_at": {
-	            "type": [
-	              "string",
-	              "null"
-	            ]
+	            "type": "string",
+	            "format": "date-time"
 	          },
 	          "hours_since_publish": {
 	            "type": [

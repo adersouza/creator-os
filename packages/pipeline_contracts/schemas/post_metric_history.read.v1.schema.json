@@ -36,7 +36,7 @@
           "post_id": { "type": "string", "minLength": 1 },
           "account_id": { "type": ["string", "null"] },
           "platform": { "type": ["string", "null"] },
-          "snapshot_at": { "type": ["string", "null"] },
+          "snapshot_at": { "type": "string", "format": "date-time" },
           "hours_since_publish": { "type": ["number", "integer", "null"] },
           "views_count": { "type": ["integer", "null"] },
           "likes_count": { "type": ["integer", "null"] },

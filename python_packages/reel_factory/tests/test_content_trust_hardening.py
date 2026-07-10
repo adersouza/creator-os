@@ -619,11 +619,20 @@ def test_documented_env_names_match_active_code() -> None:
 
     for name in (
         "CONTENTFORGE_BASE_URL",
+        "CONTENTFORGE_REAL_SAMPLE_MANIFEST",
         "CONTENTFORGE_SSCD_MODEL_PATH",
         "HIGGSFIELD_DAILY_BUDGET_USD",
         "HIGGSFIELD_RUN_MAX_ASSETS",
         "HIGGSFIELD_MIN_BALANCE_USD",
         "CREATOR_OS_PROACTIVE_CYCLE_DISABLED",
+        "REEL_GUI_URL",
+        "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS",
+        "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS",
+        "REEL_FACTORY_ENV",
+        "APP_ENV",
+        "ENV",
+        "NODE_ENV",
+        "VERCEL_ENV",
     ):
         assert name in env_template
     assert "CONTENTFORGE_URL=" not in env_template

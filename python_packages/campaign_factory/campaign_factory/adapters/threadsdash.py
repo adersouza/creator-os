@@ -4847,11 +4847,7 @@ def _group_metric_history_by_post(
             continue
         grouped.setdefault(post_id, []).append(row)
     for post_rows in grouped.values():
-        post_rows.sort(
-            key=lambda item: str(
-                item.get("snapshot_at") or item.get("created_at") or ""
-            )
-        )
+        post_rows.sort(key=lambda item: str(item.get("snapshot_at") or ""))
     return grouped
 
 
@@ -4871,9 +4867,7 @@ def _threadsdash_post_with_metric_history(
 ) -> dict[str, Any]:
     merged = dict(post_row)
     merged["history_source"] = "metric_history"
-    merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get(
-        "created_at"
-    )
+    merged["metrics_updated_at"] = history_row["snapshot_at"]
     merged["views"] = history_row.get("views_count")
     merged["views_count"] = history_row.get("views_count")
     merged["likes"] = history_row.get("likes_count")
@@ -4959,15 +4953,22 @@ def _performance_snapshot_from_row(
     *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
 ) -> dict[str, Any]:
     metrics_meta = _merged_metric_metadata(row.get("metadata"))
-    snapshot_at = (
-        row.get("metrics_updated_at")
-        or row.get("insights_updated_at")
-        or row.get("updated_at")
-        or row.get("published_at")
-        or row.get("publishedAt")
-        or row.get("created_at")
-        or utc_now()
-    )
+    if row.get("history_source") == "metric_history":
+        snapshot_at = row.get("metrics_updated_at")
+        if not snapshot_at:
+            raise RuntimeError(
+                "metric_history row missing validated snapshot_at; refusing post timestamp fallback"
+            )
+    else:
+        snapshot_at = (
+            row.get("metrics_updated_at")
+            or row.get("insights_updated_at")
+            or row.get("updated_at")
+            or row.get("published_at")
+            or row.get("publishedAt")
+            or row.get("created_at")
+            or utc_now()
+        )
     post_id = str(row.get("id") or new_id("post"))
     caption_hash = meta.get("caption_hash") or _text_hash(row.get("content") or "")
     caption_lineage = (
