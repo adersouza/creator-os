@@ -1185,9 +1185,14 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    # timeout + busy_timeout let overlapping cron writers wait instead of
+    # failing with "database is locked"; WAL lets readers proceed during
+    # writes. Matches reel_factory.sqlite_utils.connect_sqlite defaults.
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
