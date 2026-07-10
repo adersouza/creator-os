@@ -7,6 +7,11 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
+
 
 class AccountMemoryRepository:
     def __init__(
@@ -40,10 +45,16 @@ class AccountMemoryRepository:
 
     def rebuild_account_memory(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND metrics_eligible = 1 ORDER BY snapshot_at DESC, created_at DESC",
-            (campaign["id"],),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND "
+                + learning_eligible_sql()
+                + " ORDER BY snapshot_at DESC, created_at DESC",
+                (campaign["id"], cutover_iso),
+            ).fetchall()
         snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
         by_account: dict[str, list[dict[str, Any]]] = {}
         for snapshot in snapshots:
@@ -56,6 +67,18 @@ class AccountMemoryRepository:
         accounts = sorted(by_account)
         account_baselines = self._account_reward_baselines(snapshots)
         now = self._utc_now()
+        # This is a rebuild, not an incremental refresh. Remove memories and
+        # derived pattern rows that no longer have learning-eligible evidence;
+        # otherwise pre-cutover or fallback-only accounts would remain visible
+        # after the shared predicate correctly excludes their source snapshots.
+        self.conn.execute(
+            "DELETE FROM account_pattern_stats WHERE campaign_id = ?",
+            (campaign["id"],),
+        )
+        self.conn.execute(
+            "DELETE FROM account_memory WHERE campaign_id = ?",
+            (campaign["id"],),
+        )
         for account_id in accounts:
             account_snapshots = by_account[account_id]
             aggregate = self._aggregate_performance(

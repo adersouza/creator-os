@@ -5,6 +5,11 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
+
 from .caption_outcome import load_context_json
 from .persistence import json_load, utc_now
 
@@ -1208,8 +1213,11 @@ class CreativeKnowledgeRepository:
     def creative_knowledge_rows(
         self, *, creator: str, campaign_slug: str | None = None
     ) -> list[dict[str, Any]]:
-        clauses = ["p.metrics_eligible = 1"]
-        params: list[Any] = []
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            return []
+        clauses = [learning_eligible_sql(prefix="p.")]
+        params: list[Any] = [cutover_iso]
         if campaign_slug:
             campaign = self._campaign_by_slug(campaign_slug)
             clauses.append("p.campaign_id = ?")

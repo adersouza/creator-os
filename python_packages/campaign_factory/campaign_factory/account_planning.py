@@ -358,7 +358,10 @@ class AccountPlanningRepository:
             if isinstance(source_prompt.get("generatedAssetLineage"), dict)
             else {}
         )
-        if existing.get("schema") == "reel_factory.generated_asset_lineage.v1":
+        if existing.get("schema") in {
+            "reel_factory.generated_asset_lineage.v1",
+            "reel_factory.generated_asset_lineage.v2",
+        }:
             lineage = dict(existing)
         else:
             lineage = {
@@ -387,6 +390,11 @@ class AccountPlanningRepository:
                 or reference_pattern.get("patternCardId"),
             )
             source.setdefault("promptId", source_prompt.get("promptId"))
+            source.setdefault(
+                "referenceId",
+                source_prompt.get("referenceId")
+                or reference_pattern.get("referenceId"),
+            )
         generation = lineage.setdefault("generation", {})
         if isinstance(generation, dict):
             generation.setdefault(

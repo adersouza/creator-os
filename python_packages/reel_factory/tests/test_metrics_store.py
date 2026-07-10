@@ -16,7 +16,9 @@ from metrics_store import (
     metrics_leaderboard,
     metrics_summary,
     refresh_outcomes_from_performance_sync,
+    retract_bridge_outcome,
     soul_metrics_report,
+    upsert_bridge_outcome,
 )
 from reel_pipeline import Recipe
 from winner_dna import upsert_reel_feature
@@ -26,6 +28,77 @@ STACEY1_SOUL = "5828d958-91dd-4d6d-8909-934503f47644"
 
 
 class MetricsStoreSoulAttributionTests(unittest.TestCase):
+    def test_bridge_monotonic_guard_and_publish_metrics_recompute(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "shared.mp4"
+            output.write_bytes(b"video")
+            conn = connect_metrics_db(root / "manifest.sqlite")
+            ensure_metrics_schema(conn)
+            base = {
+                "id": "snap_new",
+                "campaign_id": "campaign_1",
+                "rendered_output_path": str(output),
+                "rendered_filename": output.name,
+                "post_id": "post_1",
+                "platform": "instagram",
+                "instagram_account_id": "ig_1",
+                "published_at": "2026-01-02T00:00:00+00:00",
+                "snapshot_at": "2026-01-03T00:00:00+00:00",
+                "views": 500,
+                "likes": 50,
+                "comments": 5,
+                "shares": 4,
+                "saves": 3,
+            }
+            newest = upsert_bridge_outcome(root, conn, base)
+            older = upsert_bridge_outcome(
+                root,
+                conn,
+                {
+                    **base,
+                    "id": "snap_old",
+                    "snapshot_at": "2026-01-02T12:00:00+00:00",
+                    "views": 10,
+                },
+            )
+
+            self.assertEqual(newest["status"], "written")
+            self.assertEqual(older["status"], "superseded")
+            self.assertEqual(
+                conn.execute("SELECT views FROM reel_outcomes").fetchone()[0], 500
+            )
+            self.assertEqual(
+                conn.execute("SELECT views FROM publish_metrics").fetchone()[0], 500
+            )
+
+            second = upsert_bridge_outcome(
+                root,
+                conn,
+                {
+                    **base,
+                    "id": "snap_second",
+                    "post_id": "post_2",
+                    "instagram_account_id": "ig_2",
+                    "published_at": "2026-01-04T00:00:00+00:00",
+                    "snapshot_at": "2026-01-05T00:00:00+00:00",
+                    "views": 900,
+                },
+            )
+            metric = conn.execute("SELECT * FROM publish_metrics").fetchone()
+            self.assertEqual(metric["source_outcome_id"], second["outcomeId"])
+            self.assertEqual(metric["views"], 900)
+
+            retract_bridge_outcome(
+                conn,
+                outcome_id=second["outcomeId"],
+                filename=second["filename"],
+            )
+            restored = conn.execute("SELECT * FROM publish_metrics").fetchone()
+            self.assertEqual(restored["source_outcome_id"], newest["outcomeId"])
+            self.assertEqual(restored["views"], 500)
+            conn.close()
+
     def test_metrics_connection_uses_wal_and_busy_timeout(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "manifest.sqlite"

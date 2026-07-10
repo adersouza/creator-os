@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -28,6 +29,12 @@ from .patterns import (
 from .timeutil import now_iso
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
+DEFAULT_LABEL_WEIGHTS = {
+    "gold": 1.5,
+    "maybe": 0.9,
+    "ignore": 0.3,
+    "unlabeled": 1.0,
+}
 
 
 def build_learning_system(
@@ -157,7 +164,8 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                vpc.pattern_json AS vision_pattern_json,
                rva.provider AS vision_provider,
                rva.signals_json AS vision_signals_json,
-               rva.analysis_json AS vision_analysis_json
+               rva.analysis_json AS vision_analysis_json,
+               rl.label AS review_label
         FROM reference_patterns rp
         LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
         LEFT JOIN source_files sf ON sf.reference_id = rp.reference_id
@@ -174,6 +182,13 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
           WHERE reference_id = rp.reference_id
           ORDER BY CASE status WHEN 'pattern_ready' THEN 0 WHEN 'analyzed' THEN 1 ELSE 2 END,
                    updated_at DESC
+          LIMIT 1
+        )
+        LEFT JOIN review_labels rl ON rl.id = (
+          SELECT id
+          FROM review_labels
+          WHERE reference_id = rp.reference_id
+          ORDER BY updated_at DESC
           LIMIT 1
         )
         ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
@@ -218,6 +233,8 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 ),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
+                "reviewLabel": row["review_label"],
+                "tasteWeight": _review_label_weight(row["review_label"]),
                 "visualFormat": pattern.get("visualFormat") or row["visual_format"],
                 "hookType": pattern.get("hookType") or row["hook_type"],
                 "captionArchetype": row["caption_archetype"],
@@ -368,6 +385,14 @@ def _cluster_from_items(
             "performanceClassCounts": dict(performance_classes.most_common()),
             "topAccounts": accounts[:10],
         },
+        "tasteWeights": {
+            "labels": dict(
+                Counter(str(item.get("reviewLabel") or "unlabeled") for item in items)
+            ),
+            "effectiveItemWeight": round(
+                sum(float(item.get("tasteWeight") or 1.0) for item in items), 4
+            ),
+        },
         "promptTemplate": prompt_template,
         "higgsfieldJsonTemplate": _higgsfield_json_template(
             visual, hook, caption, top_dna, prompt_template
@@ -485,14 +510,36 @@ def _cluster_score(
     accounts: list[str],
     measured_scores: list[float] | None = None,
 ) -> float:
-    avg_quality = sum(quality) / max(1, len(quality))
-    total_plays = sum(plays)
+    weights = [max(0.0, float(item.get("tasteWeight") or 1.0)) for item in items]
+    weight_total = max(0.000001, sum(weights))
+    avg_quality = (
+        sum(value * weight for value, weight in zip(quality, weights, strict=True))
+        / weight_total
+    )
+    total_plays = sum(
+        value * weight for value, weight in zip(plays, weights, strict=True)
+    )
     play_score = min(25.0, math.log10(max(total_plays, 1)) * 3.2)
-    count_score = min(16.0, len(items) * 1.5)
+    count_score = min(16.0, weight_total * 1.5)
     diversity_score = min(12.0, len(accounts) * 1.4)
     outcome_score = 0.0
     if measured_scores:
-        avg_measured = sum(measured_scores) / len(measured_scores)
+        measured_pairs = [
+            (
+                float((item.get("measuredOutcome") or {}).get("rewardScore")),
+                max(0.0, float(item.get("tasteWeight") or 1.0)),
+            )
+            for item in items
+            if isinstance(item.get("measuredOutcome"), dict)
+            and isinstance(
+                (item.get("measuredOutcome") or {}).get("rewardScore"),
+                (int, float),
+            )
+        ]
+        measured_weight = max(0.000001, sum(weight for _, weight in measured_pairs))
+        avg_measured = (
+            sum(value * weight for value, weight in measured_pairs) / measured_weight
+        )
         outcome_score = max(-8.0, min(18.0, (avg_measured - 1.0) * 20.0))
     return round(
         (avg_quality * 0.47)
@@ -502,6 +549,21 @@ def _cluster_score(
         + outcome_score,
         2,
     )
+
+
+def _review_label_weight(label: Any) -> float:
+    normalized = str(label or "unlabeled").strip().lower()
+    defaults = DEFAULT_LABEL_WEIGHTS
+    env_name = {
+        "gold": "REFERENCE_LABEL_WEIGHT_GOLD",
+        "maybe": "REFERENCE_LABEL_WEIGHT_MAYBE",
+        "ignore": "REFERENCE_LABEL_WEIGHT_IGNORE",
+        "unlabeled": "REFERENCE_LABEL_WEIGHT_UNLABELED",
+    }.get(normalized, "REFERENCE_LABEL_WEIGHT_UNLABELED")
+    try:
+        return max(0.0, float(os.environ.get(env_name, defaults.get(normalized, 1.0))))
+    except ValueError:
+        return defaults.get(normalized, 1.0)
 
 
 def _cluster_label(visual: str, hook: str, caption: str) -> str:

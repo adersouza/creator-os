@@ -13,6 +13,11 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
+
 from .caption_outcome import load_context_json
 from .config import Settings
 from .persistence import json_load
@@ -1128,10 +1133,16 @@ class VariantLineageRepository:
 
     def variant_metrics_rollup(self, campaign_slug: str) -> dict[str, Any]:
         campaign = self.campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND metrics_eligible = 1 ORDER BY snapshot_at DESC",
-            (campaign["id"],),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM performance_snapshots WHERE campaign_id = ? AND "
+                + learning_eligible_sql()
+                + " ORDER BY snapshot_at DESC",
+                (campaign["id"], cutover_iso),
+            ).fetchall()
         snapshots = [self._performance_snapshot_payload(dict(row)) for row in rows]
         return {
             "schema": "campaign_factory.variant_metrics_rollup.v1",

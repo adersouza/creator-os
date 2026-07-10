@@ -463,6 +463,8 @@ CREATE TABLE IF NOT EXISTS performance_snapshots (
   reach INTEGER,
   watch_time_seconds REAL,
   metrics_eligible INTEGER NOT NULL DEFAULT 0,
+  history_source TEXT,
+  lineage_v2_valid INTEGER NOT NULL DEFAULT 0,
   raw_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   UNIQUE(post_id, snapshot_at),
@@ -473,6 +475,29 @@ CREATE INDEX IF NOT EXISTS idx_performance_rendered_asset ON performance_snapsho
 CREATE INDEX IF NOT EXISTS idx_performance_source_asset ON performance_snapshots(source_asset_id);
 CREATE INDEX IF NOT EXISTS idx_performance_caption_hash ON performance_snapshots(caption_hash);
 CREATE INDEX IF NOT EXISTS idx_performance_recipe ON performance_snapshots(recipe);
+
+CREATE TABLE IF NOT EXISTS learning_fanout_ledger (
+  post_id TEXT NOT NULL,
+  snapshot_at TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  snapshot_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'done', 'superseded', 'failed_capped', 'retracted')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  source_hash TEXT NOT NULL,
+  destination_record_id TEXT,
+  scoring_version TEXT,
+  baseline_provenance TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(post_id, snapshot_at, destination)
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_fanout_status
+  ON learning_fanout_ledger(destination, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_learning_fanout_post
+  ON learning_fanout_ledger(post_id, destination, snapshot_at);
 
 CREATE TABLE IF NOT EXISTS tribev2_reel_scores (
   id TEXT PRIMARY KEY,
@@ -1237,6 +1262,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             "variant_operations_json": "TEXT NOT NULL DEFAULT '[]'",
             "audio_id": "TEXT",
             "content_surface": "TEXT NOT NULL DEFAULT 'reel'",
+            "history_source": "TEXT",
+            "lineage_v2_valid": "INTEGER NOT NULL DEFAULT 0",
         },
     )
     _ensure_columns(
@@ -1332,6 +1359,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             "variant_operations_json": "TEXT NOT NULL DEFAULT '[]'",
             "audio_id": "TEXT",
             "content_surface": "TEXT NOT NULL DEFAULT 'reel'",
+            "history_source": "TEXT",
+            "lineage_v2_valid": "INTEGER NOT NULL DEFAULT 0",
         },
     )
     _ensure_columns(
@@ -1488,6 +1517,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_performance_caption_fit ON performance_snapshots(frame_type, length_class, format_class, caption_fit_version)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_performance_learning_eligible "
+        "ON performance_snapshots(campaign_id, metrics_eligible, history_source, lineage_v2_valid, published_at)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_distribution_plans_caption_hash ON distribution_plans(caption_hash)"

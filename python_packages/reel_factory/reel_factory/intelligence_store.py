@@ -94,6 +94,8 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         manual_score REAL,
         source_url TEXT,
         notes TEXT,
+        source_post_id TEXT,
+        source_snapshot_at TEXT,
         imported_at INTEGER NOT NULL,
         UNIQUE(filename, platform, account, posted_at)
     );
@@ -256,6 +258,8 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
             "source_reference_id": "TEXT",
             "soul_id": "TEXT",
             "audio_track_id": "TEXT",
+            "source_post_id": "TEXT",
+            "source_snapshot_at": "TEXT",
         },
     )
     _ensure_columns(
@@ -272,6 +276,9 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_job_key ON reel_outcomes(job_key)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reel_outcomes_source_post ON reel_outcomes(source_post_id)"
     )
     conn.commit()
 

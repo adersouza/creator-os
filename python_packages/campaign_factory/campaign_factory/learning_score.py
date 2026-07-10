@@ -1,9 +1,112 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import UTC, datetime
 from statistics import median
 from typing import Any
+
+LEARNING_LOOP_CUTOVER_ENV = "LEARNING_LOOP_CUTOVER"
+
+# Shared SQL fragment for the learning-eligibility predicate. MUST stay in
+# lockstep with learning_eligible() below (parity enforced by tests). Bind
+# :learning_loop_cutover to learning_loop_cutover_iso(); when the cutover is
+# unset the loop is not cut over and NOTHING is eligible (fail closed) —
+# callers must short-circuit on learning_loop_cutover() is None before using
+# this fragment, or bind an impossible sentinel.
+LEARNING_ELIGIBLE_SQL = (
+    "metrics_eligible = 1"
+    " AND history_source = 'metric_history'"
+    " AND published_at IS NOT NULL"
+    " AND julianday(published_at) >= julianday(:learning_loop_cutover)"
+    " AND lineage_v2_valid = 1"
+)
+
+
+def learning_eligible_sql(prefix: str = "") -> str:
+    """Positional-parameter (?) form of LEARNING_ELIGIBLE_SQL.
+
+    Append learning_loop_cutover_iso() to the query params for the single
+    placeholder. Callers MUST fail closed (return no rows) when
+    learning_loop_cutover_iso() is None instead of using this fragment.
+    """
+    return (
+        f"{prefix}metrics_eligible = 1"
+        f" AND {prefix}history_source = 'metric_history'"
+        f" AND {prefix}published_at IS NOT NULL"
+        f" AND julianday({prefix}published_at) >= julianday(?)"
+        f" AND {prefix}lineage_v2_valid = 1"
+    )
+
+
+def learning_loop_cutover() -> datetime | None:
+    """Parse LEARNING_LOOP_CUTOVER (ISO timestamp, set at deploy)."""
+    raw = (os.environ.get(LEARNING_LOOP_CUTOVER_ENV) or "").strip()
+    if not raw:
+        return None
+    return _parse_time(raw)
+
+
+def learning_loop_cutover_iso() -> str | None:
+    cutover = learning_loop_cutover()
+    if cutover is None:
+        return None
+    return cutover.isoformat()
+
+
+def learning_eligible(
+    snapshot: dict[str, Any], *, cutover: datetime | None = None
+) -> bool:
+    """THE eligibility predicate for ALL learning readers.
+
+    Forward-only counting via explicit cutover: metrics_eligible=1 AND
+    history_source='metric_history' AND published_at non-null AND
+    published_at >= LEARNING_LOOP_CUTOVER AND lineage_v2_valid=1.
+    Fail closed: unset/unparseable cutover or published_at => ineligible.
+    Keep in lockstep with LEARNING_ELIGIBLE_SQL.
+    """
+    return not learning_ineligibility_reasons(snapshot, cutover=cutover)
+
+
+def learning_ineligibility_reasons(
+    snapshot: dict[str, Any], *, cutover: datetime | None = None
+) -> list[str]:
+    """Explain the shared predicate without creating a second eligibility rule."""
+    reasons: list[str] = []
+    if _flag_int(_snapshot_value(snapshot, "metrics_eligible", "metricsEligible")) != 1:
+        reasons.append("metrics_not_eligible")
+    if (
+        _snapshot_value(snapshot, "history_source", "historySource") or ""
+    ) != "metric_history":
+        reasons.append("fallback_history_source")
+    published_at = _parse_time(_snapshot_value(snapshot, "published_at", "publishedAt"))
+    if published_at is None:
+        reasons.append("null_published_at")
+    if cutover is None:
+        cutover = learning_loop_cutover()
+    if cutover is None:
+        reasons.append("cutover_unset")
+    elif published_at is not None and published_at < cutover:
+        reasons.append("pre_cutover")
+    if _flag_int(_snapshot_value(snapshot, "lineage_v2_valid", "lineageV2Valid")) != 1:
+        reasons.append("manual_or_invalid_lineage_v2")
+    return reasons
+
+
+def _snapshot_value(snapshot: dict[str, Any], snake: str, camel: str) -> Any:
+    return snapshot[snake] if snake in snapshot else snapshot.get(camel)
+
+
+def _flag_int(value: Any) -> int:
+    if value is True:
+        return 1
+    if value is False or value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
 
 PRIOR_RELATIVE_REWARD = 1.0
 PRIOR_STRENGTH = 5.0
@@ -12,6 +115,7 @@ DEFAULT_REWARD_BASELINE = 0.35
 MIN_ACCOUNT_BASELINE_SAMPLES = 2
 EXPLORATION_FLOOR = 0.15
 EXPLORATION_MIN_EFFECTIVE_TRIALS = 5.0
+SCORING_VERSION = "account_normalized_decay_shrinkage.v1"
 
 
 def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float]:
@@ -31,6 +135,48 @@ def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float
         for account, values in rewards.items()
         if len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES
     }
+
+
+def snapshot_normalized_reward(
+    snapshot: dict[str, Any], baselines: dict[str, float]
+) -> float:
+    """Return the unshrunk per-snapshot reward relative to its account baseline."""
+    reward = snapshot_reward(snapshot)
+    if reward is None:
+        raise ValueError("snapshot has no measurable exposure")
+    account = str(
+        snapshot.get("instagramAccountId") or snapshot.get("accountId") or ""
+    ).strip()
+    baseline = baselines.get(account, DEFAULT_REWARD_BASELINE)
+    return reward / max(0.000001, baseline)
+
+
+def account_reward_baseline_provenance(
+    snapshots: list[dict[str, Any]], *, computed_at: str
+) -> dict[str, dict[str, Any]]:
+    """Describe the exact baseline a new Reference outcome stamp will freeze."""
+    rewards: dict[str, list[float]] = {}
+    for snapshot in latest_snapshots_by_post(snapshots):
+        account = str(
+            snapshot.get("instagramAccountId") or snapshot.get("accountId") or ""
+        ).strip()
+        if not account:
+            continue
+        reward = snapshot_reward(snapshot)
+        if reward is not None:
+            rewards.setdefault(account, []).append(reward)
+    result: dict[str, dict[str, Any]] = {}
+    for account, values in rewards.items():
+        uses_account_median = len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES
+        baseline = median(values) if uses_account_median else DEFAULT_REWARD_BASELINE
+        result[account] = {
+            "account": account,
+            "medianValue": max(0.000001, float(baseline)),
+            "sampleN": len(values),
+            "computedAt": computed_at,
+            "source": "account_median" if uses_account_median else "default_prior",
+        }
+    return result
 
 
 def aggregate_performance(
@@ -121,7 +267,7 @@ def learning_summary(
     if not snapshots:
         return {
             "status": "unmeasured",
-            "scoringVersion": "account_normalized_decay_shrinkage.v1",
+            "scoringVersion": SCORING_VERSION,
             "score": None,
             "effectiveSampleSize": 0.0,
             "priorRelativeReward": PRIOR_RELATIVE_REWARD,
@@ -158,7 +304,7 @@ def learning_summary(
             baseline_source_counts["default_prior"] += 1
         else:
             baseline_source_counts["account_median"] += 1
-        relative_reward = reward / max(0.000001, baseline)
+        relative_reward = snapshot_normalized_reward(snapshot, account_baselines)
         weight = recency_weight(snapshot.get("snapshotAt"), now=now)
         weighted_total += relative_reward * weight
         weight_total += weight
@@ -170,7 +316,7 @@ def learning_summary(
     if measured == 0 or weight_total <= 0:
         return {
             "status": "unmeasured",
-            "scoringVersion": "account_normalized_decay_shrinkage.v1",
+            "scoringVersion": SCORING_VERSION,
             "score": None,
             "measuredCount": 0,
             "unmeasuredCount": unmeasured,
@@ -191,7 +337,7 @@ def learning_summary(
     )
     return {
         "status": "measured",
-        "scoringVersion": "account_normalized_decay_shrinkage.v1",
+        "scoringVersion": SCORING_VERSION,
         "score": int(max(0, min(100, round(score)))),
         "measuredCount": measured,
         "unmeasuredCount": unmeasured,
