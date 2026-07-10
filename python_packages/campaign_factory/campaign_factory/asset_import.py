@@ -638,6 +638,10 @@ class AssetImportRepository:
                         if lineage_path.exists()
                         else None,
                         "contentForgeAuditProfile": audit_payload.get("auditProfile"),
+                        "sourceFamilyId": lineage.get("sourceFamilyId"),
+                        "perceptualFingerprint": lineage.get("perceptualFingerprint"),
+                        "perceptualClusterId": lineage.get("perceptualClusterId"),
+                        "perceptualAlgorithm": lineage.get("perceptualAlgorithm"),
                     }
                     self.conn.execute(
                         """

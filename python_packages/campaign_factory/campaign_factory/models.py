@@ -174,6 +174,7 @@ class ModelRepository:
         platform: str = "instagram",
         external_id: str | None = None,
         model_id: str | None = None,
+        account_group_id: str | None = None,
     ) -> dict[str, Any]:
         handle = handle.strip().lstrip("@")
         now = self._utc_now()
@@ -183,8 +184,8 @@ class ModelRepository:
         ).fetchone()
         if row:
             self.conn.execute(
-                "UPDATE accounts SET external_id = COALESCE(?, external_id), model_id = COALESCE(?, model_id), updated_at = ? WHERE id = ?",
-                (external_id, model_id, now, row["id"]),
+                "UPDATE accounts SET external_id = COALESCE(?, external_id), model_id = COALESCE(?, model_id), account_group_id = COALESCE(?, account_group_id), updated_at = ? WHERE id = ?",
+                (external_id, model_id, account_group_id, now, row["id"]),
             )
             self._ensure_graph_node(
                 "account",
@@ -200,8 +201,17 @@ class ModelRepository:
             )
         account_id = self._new_id("acct")
         self.conn.execute(
-            "INSERT INTO accounts (id, handle, platform, external_id, model_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (account_id, handle, platform, external_id, model_id, now, now),
+            "INSERT INTO accounts (id, handle, platform, external_id, model_id, account_group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                account_id,
+                handle,
+                platform,
+                external_id,
+                model_id,
+                account_group_id,
+                now,
+                now,
+            ),
         )
         self._ensure_graph_node(
             "account",

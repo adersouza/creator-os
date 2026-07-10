@@ -2202,10 +2202,16 @@ class CoreServices:
         platform: str = "instagram",
         external_id: str | None = None,
         model_id: str | None = None,
+        account_group_id: str | None = None,
     ) -> dict[str, Any]:
-        return self.models.upsert_account(
-            handle, platform=platform, external_id=external_id, model_id=model_id
-        )
+        kwargs = {
+            "platform": platform,
+            "external_id": external_id,
+            "model_id": model_id,
+        }
+        if account_group_id is not None:
+            kwargs["account_group_id"] = account_group_id
+        return self.models.upsert_account(handle, **kwargs)
 
     def upsert_model_account_profile(
         self,
@@ -4125,21 +4131,24 @@ class CoreServices:
         cta_text: str | None = None,
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
+        trial_group_id: str | None = None,
     ) -> dict[str, Any]:
-        return self.distribution.create_distribution_plan(
-            rendered_asset_id,
-            surface=surface,
-            account_id=account_id,
-            instagram_account_id=instagram_account_id,
-            planned_window_start=planned_window_start,
-            planned_window_end=planned_window_end,
-            paired_rendered_asset_id=paired_rendered_asset_id,
-            reason_code=reason_code,
-            smart_link=smart_link,
-            cta_text=cta_text,
-            instagram_trial_reels=instagram_trial_reels,
-            trial_graduation_strategy=trial_graduation_strategy,
-        )
+        kwargs = {
+            "surface": surface,
+            "account_id": account_id,
+            "instagram_account_id": instagram_account_id,
+            "planned_window_start": planned_window_start,
+            "planned_window_end": planned_window_end,
+            "paired_rendered_asset_id": paired_rendered_asset_id,
+            "reason_code": reason_code,
+            "smart_link": smart_link,
+            "cta_text": cta_text,
+            "instagram_trial_reels": instagram_trial_reels,
+            "trial_graduation_strategy": trial_graduation_strategy,
+        }
+        if trial_group_id is not None:
+            kwargs["trial_group_id"] = trial_group_id
+        return self.distribution.create_distribution_plan(rendered_asset_id, **kwargs)
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
         return self.distribution.distribution_plan(plan_id)

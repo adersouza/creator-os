@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .assignment_eligibility import asset_identity
 from .caption_outcome import context_has_signal, load_context_json
 from .persistence import json_load, utc_now
 
@@ -359,6 +360,16 @@ def build_mass_production_readiness_report(
         audio_status_counts[audio_status] += 1
         content_fingerprint = _content_fingerprint(asset, source_prompt, lineage)
         source_family = _source_family(asset, source, source_prompt, lineage)
+        uniqueness_identity = asset_identity(asset)
+        assignment_identity_blocked = bool(
+            asset.get("origin_account_id")
+            and not (
+                uniqueness_identity["sourceFamilyId"]
+                or uniqueness_identity["perceptualFingerprint"]
+            )
+        )
+        if assignment_identity_blocked:
+            missing["assignmentIdentity"] += 1
         content_fingerprint_groups[content_fingerprint].append(asset["id"])
         source_family_groups[source_family].append(asset["id"])
 
@@ -421,6 +432,7 @@ def build_mass_production_readiness_report(
                 "postedStatus": _posted_status(asset_usage),
                 "contentFingerprint": content_fingerprint,
                 "sourceFamily": source_family,
+                "assignmentIdentityBlocked": assignment_identity_blocked,
             }
         )
 
@@ -515,6 +527,7 @@ def build_mass_production_readiness_report(
             "missingCaptionOutcomeContext": missing["captionOutcomeContext"],
             "missingAudioStatus": missing["audioStatus"],
             "missingAccountAssignment": missing["accountAssignment"],
+            "assignmentIdentityBlocked": missing["assignmentIdentity"],
             "performanceSnapshotsMissingCaptionOutcomeContext": snapshots_missing_caption_context,
             "blockedByUnresolvedNativeAudio": len(unresolved_audio_assets),
             "threadDashExportRuns": len(exports),
@@ -807,6 +820,7 @@ def _readiness_score(
         approved_count <= 0
         or missing["canonicalIds"]
         or missing["renderedOutputPath"]
+        or missing["assignmentIdentity"]
         or unresolved_audio_count
         or posting_ledger_audit.get("matchingSlotCount")
         or (threadsdash_readiness and threadsdash_readiness.get("blockingReasons"))
@@ -858,6 +872,13 @@ def _blocker_ranking(
             _blocker(
                 "missing_account_assignment",
                 f"{missing['accountAssignment']} assets have no account assignment or distribution plan.",
+            )
+        )
+    if missing["assignmentIdentity"]:
+        blockers["preventsProduction"].append(
+            _blocker(
+                "missing_identity_metadata",
+                f"{missing['assignmentIdentity']} assigned assets are origin-account-only because source-family and perceptual identity are missing.",
             )
         )
     if unresolved_audio_assets:
@@ -1069,6 +1090,10 @@ def _common_scale_blockers(
     if missing["accountAssignment"]:
         reasons.append(
             f"{missing['accountAssignment']} assets missing account assignment or distribution plan"
+        )
+    if missing["assignmentIdentity"]:
+        reasons.append(
+            f"{missing['assignmentIdentity']} assets blocked from cross-account reuse by missing identity metadata"
         )
     if unresolved_audio_count:
         reasons.append(

@@ -226,6 +226,7 @@ def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
             caption_hash=caption_outcome_context.get("caption_hash")
             or row.get("caption_hash"),
             rendered_asset_id=row["id"],
+            content_fingerprint=row["content_hash"],
             prompt_id=source_prompt.get("promptId") or source_prompt.get("prompt_id"),
             reference_id=source_prompt.get("referenceId")
             or source_prompt.get("reference_id")

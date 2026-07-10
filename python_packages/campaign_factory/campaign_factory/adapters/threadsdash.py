@@ -263,6 +263,7 @@ def build_draft_payloads(
                 ),
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
+                "trialGroupId": destination.get("trialGroupId"),
                 "pairedRenderedAssetId": destination.get("pairedRenderedAssetId"),
                 "distributionReasonCode": destination.get("reasonCode"),
                 "smartLink": destination.get("smartLink"),
@@ -632,6 +633,7 @@ def _draft_destinations_for_asset(
                 or plan.get("content_surface"),
                 "instagramTrialReels": plan.get("instagramTrialReels"),
                 "trialGraduationStrategy": plan.get("trialGraduationStrategy"),
+                "trialGroupId": plan.get("trialGroupId"),
                 "pairedRenderedAssetId": plan.get("pairedRenderedAssetId"),
                 "reasonCode": plan.get("reasonCode"),
                 "smartLink": plan.get("smartLink"),
@@ -3277,6 +3279,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             if instagram_trial_reels
             else None,
             "trial_reel": draft.get("distributionSurface") == "trial_reel",
+            "trial_group_id": draft.get("trialGroupId"),
             "planned_window_start": draft.get("plannedWindowStart"),
             "planned_window_end": draft.get("plannedWindowEnd"),
             "preview_schedule_only": bool(draft.get("previewScheduleOnly")),
@@ -3292,6 +3295,8 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
         metadata["trialGraduationStrategy"] = (
             draft.get("trialGraduationStrategy") or "MANUAL"
         )
+        if draft.get("trialGroupId"):
+            metadata["trialGroupId"] = draft.get("trialGroupId")
     if isinstance(cover_frame, dict):
         if (
             isinstance(cover_frame.get("image_url"), str)

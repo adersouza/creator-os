@@ -427,6 +427,7 @@ def test_contract_schema_examples_validate():
     checks = validate_schema_examples()
     assert {check["name"] for check in checks} == {
         "audio_intent.v1.example.json",
+        "assignment_eligibility.v1.example.json",
         "audio_catalog_export.v1.example.json",
         "campaign_draft_payload.v1.example.json",
         "campaign_draft_payload.v2.example.json",
@@ -1513,6 +1514,7 @@ def test_threadsdash_audio_intent_uses_destination_account_fit(tmp_path: Path):
         cf.conn.commit()
         cf.review_rendered_asset("asset_1", decision="approved")
         add_audit_report(cf)
+        isolate_account_groups(cf, ["ig_a", "ig_b"])
         cf.create_distribution_plan(
             "asset_1", surface="regular_reel", instagram_account_id="ig_a"
         )
@@ -3693,6 +3695,9 @@ def add_rendered_asset(
         },
     }
     content_trust_metadata = {
+        "sourceFamilyId": f"fixture-family:{campaign_slug}:{filename}",
+        "perceptualFingerprint": f"phash64:fixture:{campaign_slug}:{filename}",
+        "perceptualClusterId": f"phash64:fixture:{campaign_slug}:{filename}",
         "visualQc": {"visualQcStatus": "passed", "status": "passed"},
         "identityVerification": {
             "schema": "reel_factory.identity_verification.v1",
@@ -3733,6 +3738,17 @@ def add_rendered_asset(
     )
     cf.conn.commit()
     return source, rendered_path
+
+
+def isolate_account_groups(
+    cf: CampaignFactory, instagram_account_ids: list[str]
+) -> None:
+    for instagram_account_id in instagram_account_ids:
+        cf.upsert_account(
+            instagram_account_id,
+            external_id=instagram_account_id,
+            account_group_id=f"isolated:{instagram_account_id}",
+        )
 
 
 def add_source_asset(
@@ -4754,6 +4770,7 @@ def threadsdash_campaign_factory_metadata(
             "recipeId": recipe,
             "captionHash": caption_hash,
             "renderedAssetId": rendered_asset_id,
+            "contentFingerprint": content_hash,
             "variationApplied": False,
             "variantId": None,
             "audioIntentFingerprint": threadsdash_adapter._text_hash("audio_intent"),
@@ -4812,6 +4829,7 @@ def test_variation_stage_dry_run_creates_valid_assignment_manifest(tmp_path: Pat
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
+        isolate_account_groups(cf, ["ig_1", "ig_2"])
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_3")
@@ -4900,6 +4918,7 @@ def test_variation_stage_apply_writes_manifest_only_after_perceptual_pass(
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
+        isolate_account_groups(cf, ["ig_1", "ig_2"])
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
         monkeypatch.setattr(
@@ -4958,6 +4977,7 @@ def test_variation_stage_apply_deletes_batch_when_perceptual_gate_blocks(
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
+        isolate_account_groups(cf, ["ig_1", "ig_2"])
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
         monkeypatch.setattr(
@@ -5036,6 +5056,7 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
     try:
         _, rendered_path = add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
+        isolate_account_groups(cf, ["ig_1", "ig_2"])
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
 
         payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
@@ -5062,6 +5083,7 @@ def test_threadsdash_export_enabled_variation_maps_account_media(
     try:
         _, rendered_path = add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
+        isolate_account_groups(cf, ["ig_1", "ig_2"])
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
         cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
         monkeypatch.setattr(
@@ -5213,6 +5235,7 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
         start = (datetime.now(UTC) + timedelta(hours=1)).replace(
             second=0, microsecond=0
         )
+        isolate_account_groups(cf, [f"stacey_{index}" for index in range(1, 6)])
         for day in range(7):
             for account_idx in range(5):
                 account = f"stacey_{account_idx + 1}"
@@ -5854,6 +5877,8 @@ def _write_reel_posting_slot(
     date: str = "2026-06-05",
     manual_audio_needed: bool = False,
 ) -> None:
+    if lineage:
+        lineage = {**lineage, "contentFingerprint": content_fingerprint}
     db_path = cf.settings.reel_factory_root / "manifest.sqlite"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
@@ -18691,12 +18716,13 @@ def test_account_plan_warns_on_batch_volume_and_api_assigns(
             "instagramAccountId": "ig_extra",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert "reuse_window" in response.json()["detail"]
     account_plan = client.get(
         "/api/account-plan", params={"campaign": "may", "userId": "user_1"}
     )
     assert account_plan.status_code == 200
-    assert any(
+    assert not any(
         row["instagramAccountId"] == "ig_extra" for row in account_plan.json()["rows"]
     )
 

@@ -45,7 +45,7 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"campaign_draft_payload.v2.schema.json",
 		);
-		expect(generatedPipelineContractSchemaManifest).toHaveLength(20);
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(21);
 	});
 
 	it("rejects missing required fields through AJV", () => {

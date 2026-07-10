@@ -8,6 +8,7 @@ from pipeline_contracts import (
     ContractValidationError,
     example_names,
     load_example,
+    validate_assignment_eligibility,
     validate_audio_catalog_export,
     validate_audio_intent,
     validate_campaign_draft_payload,
@@ -54,6 +55,7 @@ def test_packaged_schema_copy_matches_canonical_source():
 
 def test_named_validators_accept_examples():
     validate_audio_intent(load_example("audio_intent"))
+    validate_assignment_eligibility(load_example("assignment_eligibility"))
     validate_campaign_draft_payload(load_example("campaign_draft_payload"))
     validate_caption_outcome_context(load_example("caption_outcome_context"))
     validate_audio_catalog_export(load_example("audio_catalog_export"))

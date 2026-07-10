@@ -1776,12 +1776,23 @@ class ReelPipelineTests(unittest.TestCase):
                 prompt_set=prompt_set,
                 prompt_source_path=prompt_path,
             )
-            sidecar = write_generated_asset_lineage_sidecar(
-                out,
-                source_lineage_path=source_lineage,
-                render_job_key="job",
-                source_hash="src-hash",
-            )
+            with patch(
+                "reel_factory.reel_pipeline.enrich_lineage_identity",
+                side_effect=lambda payload, *_args, **_kwargs: {
+                    **payload,
+                    "contentFingerprint": "a" * 64,
+                    "perceptualFingerprint": "phash64:0000000000000000",
+                    "perceptualClusterId": "phash64:0000000000000000",
+                    "perceptualAlgorithm": "frame_sampled_phash_v1",
+                    "sourceFamilyId": "reference_1",
+                },
+            ):
+                sidecar = write_generated_asset_lineage_sidecar(
+                    out,
+                    source_lineage_path=source_lineage,
+                    render_job_key="job",
+                    source_hash="src-hash",
+                )
             source_data = json.loads(source_lineage.read_text(encoding="utf-8"))
             data = json.loads(sidecar.read_text(encoding="utf-8"))
             self.assertEqual(source_lineage, source_lineage_path_for(src))

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.assignment_eligibility.v1",
+  "title": "Campaign Factory Assignment Eligibility",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "allowed",
+    "reasonCodes",
+    "inputs",
+    "matches",
+    "policy",
+    "auto_posting"
+  ],
+  "properties": {
+    "schema": {"const": "campaign_factory.assignment_eligibility.v1"},
+    "allowed": {"type": "boolean"},
+    "reasonCodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "missing_identity_metadata",
+          "exact_content_reuse_window",
+          "source_family_reuse_window",
+          "perceptual_reuse_window"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "renderedAssetId",
+        "campaignId",
+        "accountId",
+        "instagramAccountId",
+        "accountGroupId",
+        "surface",
+        "plannedAt",
+        "reuseWindowDays",
+        "contentFingerprint",
+        "sourceFamilyId",
+        "perceptualFingerprint",
+        "perceptualClusterId",
+        "originAccountId"
+      ],
+      "properties": {
+        "renderedAssetId": {"type": "string", "minLength": 1},
+        "campaignId": {"type": "string", "minLength": 1},
+        "accountId": {"type": ["string", "null"]},
+        "instagramAccountId": {"type": ["string", "null"]},
+        "accountGroupId": {"type": "string"},
+        "surface": {"type": ["string", "null"]},
+        "plannedAt": {"type": "string", "format": "date-time"},
+        "reuseWindowDays": {"type": "integer", "minimum": 0},
+        "contentFingerprint": {"type": "string"},
+        "sourceFamilyId": {"type": "string"},
+        "perceptualFingerprint": {"type": "string"},
+        "perceptualClusterId": {"type": "string"},
+        "originAccountId": {"type": ["string", "null"]}
+      }
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "source",
+          "recordId",
+          "renderedAssetId",
+          "accountId",
+          "eventAt"
+        ],
+        "properties": {
+          "reason": {"type": "string"},
+          "source": {"type": "string"},
+          "recordId": {"type": "string"},
+          "renderedAssetId": {"type": "string"},
+          "accountId": {"type": "string"},
+          "eventAt": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["missingIdentity", "crossAccountReuseWindowDays"],
+      "properties": {
+        "missingIdentity": {"const": "origin_account_only"},
+        "crossAccountReuseWindowDays": {"type": "integer", "minimum": 0}
+      }
+    },
+    "auto_posting": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"allowed": {"const": true}}},
+      "then": {"properties": {"reasonCodes": {"maxItems": 0}}},
+      "else": {"properties": {"reasonCodes": {"minItems": 1}}}
+    }
+  ]
+}

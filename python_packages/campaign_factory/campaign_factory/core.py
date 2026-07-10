@@ -1793,9 +1793,14 @@ class CampaignFactory:
         platform: str = "instagram",
         external_id: str | None = None,
         model_id: str | None = None,
+        account_group_id: str | None = None,
     ) -> dict[str, Any]:
         return self.services.upsert_account(
-            handle, platform=platform, external_id=external_id, model_id=model_id
+            handle,
+            platform=platform,
+            external_id=external_id,
+            model_id=model_id,
+            account_group_id=account_group_id,
         )
 
     def upsert_model_account_profile(
@@ -1855,6 +1860,7 @@ class CampaignFactory:
         cta_text: str | None = None,
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
+        trial_group_id: str | None = None,
     ) -> dict[str, Any]:
         return self.services.create_distribution_plan(
             rendered_asset_id,
@@ -1869,6 +1875,7 @@ class CampaignFactory:
             cta_text=cta_text,
             instagram_trial_reels=instagram_trial_reels,
             trial_graduation_strategy=trial_graduation_strategy,
+            trial_group_id=trial_group_id,
         )
 
     def _validate_instagram_trial_reel_intent(
