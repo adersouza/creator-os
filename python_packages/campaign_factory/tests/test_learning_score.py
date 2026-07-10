@@ -16,6 +16,7 @@ from campaign_factory.learning_score import (
     performance_planning_score,
     performance_score,
     snapshot_normalized_reward,
+    snapshot_reward,
 )
 
 
@@ -226,6 +227,138 @@ def test_snapshot_normalized_reward_matches_learning_summary_relative_reward():
     )
 
     assert summary["weightedRelativeReward"] == round(scalar, 4)
+
+
+def test_zero_engagement_account_median_falls_back_to_default_prior():
+    dead_history = [
+        _snapshot(
+            post_id=f"dead_{index}",
+            account="dead",
+            views=1000,
+            likes=0,
+            comments=0,
+            shares=0,
+            saves=0,
+        )
+        for index in range(2)
+    ]
+    baselines = account_reward_baselines(dead_history)
+    target = _snapshot(
+        post_id="revival",
+        account="dead",
+        views=1000,
+        likes=10,
+        comments=0,
+        shares=0,
+        saves=0,
+    )
+
+    summary = aggregate_performance([target], account_baselines=baselines)
+
+    assert "dead" not in baselines
+    assert summary["learning"]["baselineSourceCounts"] == {
+        "account_median": 0,
+        "default_prior": 1,
+    }
+    assert performance_score(summary) < 100
+
+
+def test_mixed_invalid_timestamps_do_not_crash_or_get_full_weight():
+    summary = aggregate_performance(
+        [
+            _snapshot(post_id="valid", snapshot_at="2026-06-01T00:00:00+00:00"),
+            _snapshot(post_id="invalid", snapshot_at="not-a-timestamp"),
+        ]
+    )
+
+    assert summary["learning"]["status"] == "measured"
+    assert summary["learning"]["measuredCount"] == 1
+    assert summary["learning"]["unmeasuredCount"] == 1
+    assert summary["learning"]["effectiveSampleSize"] == 1.0
+
+
+def test_missing_timestamp_fails_closed_instead_of_full_freshness():
+    summary = aggregate_performance(
+        [
+            _snapshot(post_id="missing_time", snapshot_at=""),
+        ]
+    )
+
+    assert summary["learning"]["status"] == "unmeasured"
+    assert summary["learning"]["effectiveSampleSize"] == 0.0
+    assert performance_score(summary) is None
+
+
+def test_negative_reach_falls_through_to_positive_impressions():
+    snapshot = _snapshot(
+        post_id="negative_reach",
+        views=1000,
+        likes=50,
+        comments=0,
+        shares=0,
+        saves=0,
+    )
+    snapshot["metrics"]["reach"] = -1
+    snapshot["metrics"]["impressions"] = 500
+
+    assert snapshot_reward(snapshot) == pytest.approx(0.621661, abs=0.000001)
+
+
+def test_real_account_winner_outranks_zero_baseline_revival():
+    baseline_rows = [
+        _snapshot(
+            post_id=f"dead_{index}",
+            account="dead",
+            views=1000,
+            likes=0,
+            comments=0,
+            shares=0,
+            saves=0,
+        )
+        for index in range(2)
+    ] + [
+        _snapshot(
+            post_id=f"real_{index}",
+            account="real",
+            views=1000,
+            likes=50,
+            comments=0,
+            shares=0,
+            saves=0,
+        )
+        for index in range(2)
+    ]
+    baselines = account_reward_baselines(baseline_rows)
+    zero_baseline_revival = aggregate_performance(
+        [
+            _snapshot(
+                post_id="revival",
+                account="dead",
+                views=1000,
+                likes=10,
+                comments=0,
+                shares=0,
+                saves=0,
+            )
+        ],
+        account_baselines=baselines,
+    )
+    real_winner = aggregate_performance(
+        [
+            _snapshot(
+                post_id="real_winner",
+                account="real",
+                views=1000,
+                likes=100,
+                comments=0,
+                shares=0,
+                saves=0,
+            )
+        ],
+        account_baselines=baselines,
+    )
+
+    assert performance_score(real_winner) > performance_score(zero_baseline_revival)
 
 
 # ---------------------------------------------------------------------------

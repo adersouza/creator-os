@@ -130,11 +130,14 @@ def account_reward_baselines(snapshots: list[dict[str, Any]]) -> dict[str, float
         if reward is None:
             continue
         rewards.setdefault(account, []).append(reward)
-    return {
-        account: max(0.000001, median(values))
-        for account, values in rewards.items()
-        if len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES
-    }
+    baselines: dict[str, float] = {}
+    for account, values in rewards.items():
+        if len(values) < MIN_ACCOUNT_BASELINE_SAMPLES:
+            continue
+        baseline = median(values)
+        if _positive_finite(baseline):
+            baselines[account] = float(baseline)
+    return baselines
 
 
 def snapshot_normalized_reward(
@@ -147,8 +150,10 @@ def snapshot_normalized_reward(
     account = str(
         snapshot.get("instagramAccountId") or snapshot.get("accountId") or ""
     ).strip()
-    baseline = baselines.get(account, DEFAULT_REWARD_BASELINE)
-    return reward / max(0.000001, baseline)
+    baseline = baselines.get(account)
+    if not _positive_finite(baseline):
+        baseline = DEFAULT_REWARD_BASELINE
+    return reward / baseline
 
 
 def account_reward_baseline_provenance(
@@ -167,15 +172,24 @@ def account_reward_baseline_provenance(
             rewards.setdefault(account, []).append(reward)
     result: dict[str, dict[str, Any]] = {}
     for account, values in rewards.items():
-        uses_account_median = len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES
-        baseline = median(values) if uses_account_median else DEFAULT_REWARD_BASELINE
+        raw_median = median(values) if values else None
+        uses_account_median = (
+            len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES
+            and raw_median is not None
+            and _positive_finite(raw_median)
+        )
+        baseline = raw_median if uses_account_median else DEFAULT_REWARD_BASELINE
         result[account] = {
             "account": account,
-            "medianValue": max(0.000001, float(baseline)),
+            "medianValue": float(baseline),
             "sampleN": len(values),
             "computedAt": computed_at,
             "source": "account_median" if uses_account_median else "default_prior",
         }
+        if len(values) >= MIN_ACCOUNT_BASELINE_SAMPLES and not uses_account_median:
+            result[account]["baselineMissingReason"] = (
+                "zero_or_nonfinite_account_median"
+            )
     return result
 
 
@@ -275,14 +289,14 @@ def learning_summary(
             "recencyHalfLifeDays": RECENCY_HALF_LIFE_DAYS,
             "defaultRewardBaseline": DEFAULT_REWARD_BASELINE,
         }
-    now = (
-        reference_now
-        or max(
-            (_parse_time(snapshot.get("snapshotAt")) for snapshot in snapshots),
-            default=None,
+    parsed_times = [
+        parsed
+        for parsed in (
+            _parse_time(snapshot.get("snapshotAt")) for snapshot in snapshots
         )
-        or datetime.now(UTC)
-    )
+        if parsed is not None
+    ]
+    now = reference_now or (max(parsed_times) if parsed_times else datetime.now(UTC))
     weighted_total = 0.0
     weight_total = 0.0
     measured = 0
@@ -304,8 +318,11 @@ def learning_summary(
             baseline_source_counts["default_prior"] += 1
         else:
             baseline_source_counts["account_median"] += 1
-        relative_reward = snapshot_normalized_reward(snapshot, account_baselines)
         weight = recency_weight(snapshot.get("snapshotAt"), now=now)
+        if weight <= 0:
+            unmeasured += 1
+            continue
+        relative_reward = snapshot_normalized_reward(snapshot, account_baselines)
         weighted_total += relative_reward * weight
         weight_total += weight
         if relative_reward >= PRIOR_RELATIVE_REWARD:
@@ -395,15 +412,15 @@ def latest_snapshots_by_post(snapshots: list[dict[str, Any]]) -> list[dict[str, 
 
 def snapshot_reward(snapshot: dict[str, Any]) -> float | None:
     metrics = snapshot.get("metrics") or {}
-    exposure = (
-        _number(metrics.get("reach"))
-        or _number(metrics.get("impressions"))
-        or _number(metrics.get("views"))
+    exposure = _first_positive_number(
+        metrics.get("reach"),
+        metrics.get("impressions"),
+        metrics.get("views"),
     )
     if not exposure or exposure <= 0:
         return None
     engagement = sum(
-        _number(metrics.get(key)) or 0.0
+        max(0.0, _number(metrics.get(key)) or 0.0)
         for key in ("likes", "comments", "shares", "saves")
     )
     engagement_rate = engagement / exposure
@@ -413,7 +430,7 @@ def snapshot_reward(snapshot: dict[str, Any]) -> float | None:
 def recency_weight(value: Any, *, now: datetime) -> float:
     parsed = _parse_time(value)
     if parsed is None:
-        return 1.0
+        return 0.0
     age_days = max(0.0, (now - parsed).total_seconds() / 86400.0)
     return 0.5 ** (age_days / RECENCY_HALF_LIFE_DAYS)
 
@@ -437,6 +454,22 @@ def _parse_time(value: Any) -> datetime | None:
 
 
 def _number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return float(value)
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else None
+    return None
+
+
+def _positive_finite(value: Any) -> bool:
+    number = _number(value)
+    return number is not None and number > 0
+
+
+def _first_positive_number(*values: Any) -> float | None:
+    for value in values:
+        parsed = _number(value)
+        if parsed is not None and parsed > 0:
+            return parsed
     return None
