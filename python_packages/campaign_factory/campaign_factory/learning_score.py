@@ -454,6 +454,9 @@ def _parse_time(value: Any) -> datetime | None:
 
 
 def _number(value: Any) -> float | None:
+    # Garbage-in guard: bools are not counts, and NaN/inf would propagate
+    # through rewards into weighted means and scores (NaN poisons every
+    # comparison downstream). Treat all of them as "not a number".
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):

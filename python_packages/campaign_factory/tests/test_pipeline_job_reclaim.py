@@ -100,6 +100,39 @@ def test_reclaim_also_covers_stale_queued_jobs(tmp_path: Path):
         cf.close()
 
 
+def test_reclaim_recovers_jobs_with_corrupted_timestamps(tmp_path: Path):
+    """A running job with unparseable timestamps must not be stranded forever.
+
+    Before the fix, _job_is_stuck() returned (False, None) for corrupted
+    updated_at/created_at, so the job could never age past the threshold and
+    stayed 'running' silently — a permanent invisible wedge. Reclaim must fail
+    it loudly with an explicit unknown-age message.
+    """
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("may", "model")
+        corrupted = cf.create_pipeline_job("render", campaign["id"])
+        cf.start_pipeline_job(corrupted["id"])
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET updated_at = 'not-a-timestamp', created_at = 'garbage' WHERE id = ?",
+            (corrupted["id"],),
+        )
+        cf.conn.commit()
+
+        summary = cf.reclaim_stale_pipeline_jobs(2.0)
+        assert summary["reclaimedCount"] == 1
+        entry = summary["reclaimed"][0]
+        assert entry["id"] == corrupted["id"]
+        assert entry["outcome"] == "failed"
+        assert entry["ageHours"] is None
+
+        reloaded = cf.pipeline_job(corrupted["id"])
+        assert reloaded["status"] == "failed"
+        assert "unparseable" in reloaded["error"]
+    finally:
+        cf.close()
+
+
 def test_reclaim_validates_arguments(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

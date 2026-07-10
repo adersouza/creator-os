@@ -2372,7 +2372,14 @@ def _select_existing_campaign_factory_post(
                 "limit": "1",
             },
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        # A transient failure here must NOT read as "post does not exist":
+        # the caller would insert a duplicate post, defeating the post_key
+        # dedup that makes export reruns safe (audit A6 companion). Only a
+        # schema mismatch (table/column missing on older dashboards) may
+        # fall through to the metadata lookup.
+        if not _is_missing_column_error(exc):
+            raise
         links = []
     if links:
         post_id = links[0].get("post_id")
@@ -2395,7 +2402,11 @@ def _select_existing_campaign_factory_post(
                 "limit": "1",
             },
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        # Same dedup-safety rule as above: transient failures must propagate,
+        # otherwise a rerun inserts a duplicate post.
+        if not _is_missing_column_error(exc):
+            raise
         posts = []
     return posts[0] if posts else None
 
@@ -2414,7 +2425,11 @@ def _select_post_by_id(
                 "limit": "1",
             },
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        # Transient failure must not read as "post missing" — the caller
+        # treats a miss as permission to create a new post (dedup safety).
+        if not _is_missing_column_error(exc):
+            raise
         rows = []
     return rows[0] if rows else None
 
@@ -4783,8 +4798,14 @@ def _select_paged(
             {**params, "limit": str(page_limit), "offset": str(offset)},
         )
         rows.extend(page)
-        if len(page) < page_limit:
+        if not page:
+            # Empty page: definitive end of data.
             return rows, False
+        # A short-but-non-empty page is NOT proof of end-of-data: PostgREST
+        # `max-rows` (or any server-side cap) can silently clamp a page below
+        # the requested limit. Keep paging from the real offset until an empty
+        # page or `limit` is reached, so a server cap can never silently
+        # truncate a sync (audit: partial-sync failure injection).
         offset += len(page)
     probe = client.select(
         table,
@@ -4823,7 +4844,14 @@ def _select_threadsdash_posts_paged(
             limit=limit,
             page_size=page_size,
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        # Only fall back to the narrow column set when the error is a
+        # missing-column/schema mismatch. Transient failures (5xx, network)
+        # must propagate: silently retrying them with a narrower select would
+        # sync rows without published_at/metric columns and quietly make every
+        # post learning-ineligible (audit: partial-sync failure injection).
+        if not _is_missing_column_error(exc):
+            raise
         return _select_paged(
             client,
             "posts",
@@ -4834,6 +4862,18 @@ def _select_threadsdash_posts_paged(
             limit=limit,
             page_size=page_size,
         )
+
+
+def _is_missing_column_error(exc: Exception) -> bool:
+    """True when a Supabase/PostgREST error indicates a schema/column mismatch
+    (safe to retry with a narrower select), as opposed to a transient failure."""
+    message = str(exc)
+    return (
+        "does not exist" in message
+        or "42703" in message
+        or "Could not find" in message
+        or "schema cache" in message
+    )
 
 
 def _select_threadsdash_posts(
