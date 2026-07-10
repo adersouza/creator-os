@@ -14,7 +14,7 @@ from .adapters.threadsdash import (
     evaluate_export_readiness,
     export_threadsdash,
 )
-from .config import Settings
+from .config import Settings, resolve_repo_roots
 from .contracts import (
     validate_audio_catalog_export,
     validate_performance_sync,
@@ -69,18 +69,16 @@ def run_pipeline_audio_smoke(
     run_threadsdash_validator: bool = True,
 ) -> dict[str, Any]:
     projects_root = Path(projects_root).expanduser().resolve()
-    reference_root = projects_root / "reference_factory"
-    threadsdash_root = projects_root / "ThreadsDashboard"
-    reel_root = projects_root / "reel_factory"
-    contentforge_root = projects_root / "contentforge"
-    for name, path in {
-        "reference_factory": reference_root,
-        "ThreadsDashboard": threadsdash_root,
-        "reel_factory": reel_root,
-        "contentforge": contentforge_root,
-    }.items():
+    roots = resolve_repo_roots(projects_root)
+    reference_root = roots["reference_factory"]
+    threadsdash_root = roots["ThreadsDashboard"]
+    reel_root = roots["reel_factory"]
+    contentforge_root = roots["contentforge"]
+    for name, path in roots.items():
         if not path.exists():
-            raise FileNotFoundError(f"{name} not found under {projects_root}")
+            raise FileNotFoundError(
+                f"{name} not found (resolved to {path}; projects_root={projects_root})"
+            )
 
     if workspace is None:
         with tempfile.TemporaryDirectory(prefix="campaign-audio-smoke-") as tmp:

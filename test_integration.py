@@ -84,7 +84,7 @@ try:
 
     # Verify all schemas load
     schema_names = example_names()
-    check(f"14 schemas registered ({len(schema_names)})", len(schema_names) == 14)
+    check(f"20 schemas registered ({len(schema_names)})", len(schema_names) == 20)
 
     # Verify all examples validate
     try:

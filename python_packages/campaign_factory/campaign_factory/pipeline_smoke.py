@@ -7,7 +7,7 @@ from types import MethodType
 from typing import Any
 
 from .audio_smoke import run_pipeline_audio_smoke
-from .config import Settings
+from .config import Settings, resolve_repo_roots
 from .core import CampaignFactory
 from .fileops import atomic_write_text
 
@@ -90,13 +90,14 @@ def _run_mocked_generation_intake_smoke(
         json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
+    roots = resolve_repo_roots(projects_root)
     settings = Settings(
         root=workspace / "campaign_factory",
         db_path=workspace / "campaign_factory" / "campaign_factory.sqlite",
-        reel_factory_root=projects_root / "reel_factory",
-        contentforge_root=projects_root / "contentforge",
-        reference_factory_root=projects_root / "reference_factory",
-        threadsdash_root=projects_root / "ThreadsDashboard",
+        reel_factory_root=roots["reel_factory"],
+        contentforge_root=roots["contentforge"],
+        reference_factory_root=roots["reference_factory"],
+        threadsdash_root=roots["ThreadsDashboard"],
         campaigns_dir=workspace / "campaign_factory" / "campaigns",
     )
     factory = CampaignFactory(settings)
