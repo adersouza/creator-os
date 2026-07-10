@@ -124,6 +124,53 @@ this monorepo was fixed in-session; the items below cannot be completed here.
   pipeline-contracts-ts (21 passed). Only the item-6 contentforge failures
   remain red.
 
+## 8. Audit-coverage gaps (unfixed, no plan section — need owner/decision)
+
+Cross-check of the three audit reports (operational robustness, monorepo,
+deletion) against session commits + PLAN-SCHEDULER: ~85% covered. These 7
+findings have **no fix, no handoff line, and no plan section** yet:
+
+1. **Performance-sync truncation (audit A4)** — `sync_performance_snapshots`
+   fetches one `posts` page with `limit=1000` and no offset/`Content-Range`/
+   truncation check (`adapters/threadsdash.py:1318` in current tree; audit
+   refs 4157/4674–4699/4702–4730). If more rows exist, the run reports
+   success and advances `content_graph_sync_state` on the truncated set —
+   silent incomplete learning data. Needs pagination + truncation detection.
+2. **Crash recovery / kill -9 (audit A5)** — pipeline jobs commit `running`
+   before work (`events.py:199`); hard crash leaves the row running
+   permanently (no lease/reclaim/auto-fail). Multiple file-first/DB-second
+   sagas orphan files (`threadsdash.py:825/933`, `contentforge.py:314`,
+   `reel_execution.py:167`, `asset_import.py:288`). Audit recommended one
+   operational-hardening plan section covering crash recovery + API
+   pagination + CI gaps — never created.
+3. **Legacy Supabase ambiguous POST retry (audit A6)** — check-then-insert
+   with plain POST, no idempotency key, 3x retry on timeout/429/5xx
+   (`threadsdash.py:1667`, `5628–5641`, `5692–5709`). Gated behind
+   `CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1`, so low likelihood;
+   either add an idempotency key or document the flag as unsafe/deprecated.
+4. **Assignment/distribution-plan idempotency (audit A1, partial)** —
+   Phase 5 constrains *promotion* uniqueness (PLAN-SCHEDULER.md:77), but it
+   is unverified that it extends to `asset_account_assignments` and
+   `distribution_plans` (no unique asset/account/slot constraint;
+   `db.py:621/709`, `campaign_overview.py:292`, `distribution.py:123`;
+   `plan_distribution(replace=True)` commits delete separately at
+   `distribution.py:382`). Audit proved duplicate rows under rerun. Verify
+   Phase 5 scope covers these tables or extend it.
+5. **Intersection-masking consumer-contract test (audit B5)** —
+   `test_threadsdash_consumer_contracts.py` compared only the schema-set
+   intersection, so schemas *missing* from ThreadsDashboard pass silently.
+   Session grep was inconclusive on whether this was since fixed — verify,
+   and if not, assert required v2 schemas exist in the consumer.
+6. **Dead contracts (audit B12)** — `repurposing_plan.v1` has no production
+   producer or consumer; `front_generation_plan.v1` has no machine consumer.
+   No keep/remove decision recorded. Decide and log in PLAN-SCHEDULER audit
+   log.
+7. **`local_api_auth.py` triplication (deletion audit #6)** — three
+   identical 70-LOC copies (campaign/reel/reference), actively imported by
+   all three FastAPI apps. Audit: consolidate only with a packaged shared
+   owner + app-level auth tests. Deferral was decided but not documented
+   anywhere until now.
+
 ## Intentional non-issues (checked, do not "fix")
 - `apps/dashboard` mention in `CREATOR_OS_SYSTEM_MAP.md` is a deliberate
   negative reference.
