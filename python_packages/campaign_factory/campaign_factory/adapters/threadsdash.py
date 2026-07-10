@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import json
 import mimetypes
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from ..caption_outcome import (
     build_caption_outcome_context,
@@ -54,6 +55,20 @@ DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
+CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION = "v1"
+
+
+class _RejectDashboardIngestRedirects(HTTPRedirectHandler):
+    """Never forward authenticated ingest requests to a redirect target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_threadsdash_ingest_request(request: Request, *, timeout: float):
+    return build_opener(_RejectDashboardIngestRedirects()).open(
+        request, timeout=timeout
+    )
 
 
 def build_draft_payloads(
@@ -1928,6 +1943,16 @@ def _validate_threadsdash_ingest_url(url: str) -> str:
     return urlunparse((parsed.scheme, netloc, THREADSDASH_INGEST_PATH, "", "", ""))
 
 
+def _threadsdash_ingest_signature(
+    body: bytes, *, secret: str, timestamp: str, nonce: str
+) -> str:
+    signing_input = (
+        timestamp.encode("ascii") + b"." + nonce.encode("ascii") + b"." + body
+    )
+    digest = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).hexdigest()
+    return f"{CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION}={digest}"
+
+
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
@@ -1952,22 +1977,38 @@ def _post_threadsdash_draft_ingest(
     body = dict(payload)
     body["dryRun"] = False
     idempotency_key = _threadsdash_ingest_idempotency_key(body)
+    body_bytes = json.dumps(
+        body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     last_error: str | None = None
     last_empty_response: dict[str, Any] | None = None
     for attempt in range(1, DASHBOARD_INGEST_MAX_ATTEMPTS + 1):
+        signature_timestamp = str(int(time.time()))
+        signature_nonce = uuid.uuid4().hex
+        signature = _threadsdash_ingest_signature(
+            body_bytes,
+            secret=secret,
+            timestamp=signature_timestamp,
+            nonce=signature_nonce,
+        )
         request = Request(
             safe_url,
-            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            data=body_bytes,
             method="POST",
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "X-Campaign-Factory-Ingest-Secret": secret,
+                "X-Campaign-Factory-Signature": signature,
+                "X-Campaign-Factory-Timestamp": signature_timestamp,
+                "X-Campaign-Factory-Nonce": signature_nonce,
                 "X-Idempotency-Key": idempotency_key,
             },
         )
         try:
-            with urlopen(request, timeout=30) as response:
+            with _open_threadsdash_ingest_request(request, timeout=30) as response:
                 response_body = response.read().decode("utf-8")
                 parsed = json.loads(response_body) if response_body else {}
                 result = {
