@@ -94,3 +94,26 @@ Phase 0.2 (perceptual computation) ∥ PLAN.md S1/S6 → Phase 1 → 2 → 3 →
 - Audit 2 — broad-except triage, campaign_factory core (commit `ee7afe52`): narrowed subprocess/zlib handlers, added debug logging to previously silent report fallbacks; remaining sites deferred to audit 3.
 - Audit 3 — broad-except triage, `app.py` + adapters (no code change): all 70 `app.py` sites are uniform API-boundary translation `except Exception as exc: raise HTTPException(400/404, str(exc)) from exc`, with `except HTTPException: raise` guards where internal 404s pass through; the two `record_event` sites also `fail_pipeline_job` and re-raise. All 16 adapter sites (contentforge 3, threadsdash 13) capture errors into failure events, result error lists, or blocker fields. No silent swallows. Open design note (deferred, API-semantics decision): internal server bugs surface as 400 with `str(exc)` in the body instead of sanitized 500.
 - Audit follow-up — dead code/deps (commits `ffce2f76`…`cdcce152`): removed stray root `test_repurposer.py` runner, unused root `httpx` dep and `reel_factory` `einops` extra, stale `caption_banks` swipe-decision/intake-archive snapshots (recoverable via git history); repo-wide ruff I001 import-sort autofix. Deferred item RESOLVED (no action): root `pipeline_contracts/` is an intentional generated compatibility mirror, not a duplicate — `__init__.py` is a shim loading the canonical `packages/pipeline_contracts` package; `schemas/` + `typescript/` are written by `scripts/sync-pipeline-contracts.mjs` and verified by `scripts/check-pipeline-contracts-sync.mjs` (checked: currently in sync) and `scripts/doctor.py` `GENERATED_CONTRACT_PATHS`. Edit only canonical, then `pnpm sync:contracts`. Do NOT delete the root mirror.
+## Implemented boundary summary
+
+Campaign Factory owns distribution, assignment eligibility, trial intent, and promotion history. ThreadsDashboard owns exact scheduled times and publishing. Reel Factory's posting ledger remains noncanonical operator UX.
+
+Safety invariants:
+
+- `auto_posting` remains `false`; no implementation in this plan queues or publishes automatically.
+- Missing source-family and real perceptual identity is fail-closed to the first persisted `origin_account_id`.
+- Cross-account reuse policy is evaluated by Campaign Factory and exported as `campaign_factory.assignment_eligibility.v1`.
+- Trial graduation is manual, same-account, idempotent, and creates an unscheduled regular-reel plan.
+- Exact schedule times are account-local ThreadsDashboard decisions; Campaign Factory times are preferences.
+- Promotion identity comes from generated lineage. Campaign Factory promotion never computes a fallback fingerprint.
+
+Implementation phases:
+
+1. Reel Factory render/export identity: exact SHA-256 plus frame-sampled pHash and source-family lineage.
+2. Fail-closed gate at distribution, assignment, reservation, promotion, CLI, and ledger UX boundaries.
+3. Shared eligibility contract artifact and parity consumption without cross-package imports.
+4. Trial intent, captured ingest proof, manual graduation, 1h/24h ranking, and 1-main/2-trial cadence defaults.
+5. ThreadsDashboard per-account timezone/base slots, deterministic plus-or-minus 20 minute jitter, minimum gaps, and DST proof.
+6. Constrained promotion store, typed append-only events, idempotent backfill, reconciliation, and read flip.
+
+Production deployment, scheduling activation, publishing, QStash, account health, and autoposter activation are outside this implementation.

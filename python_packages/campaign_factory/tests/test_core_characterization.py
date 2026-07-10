@@ -339,6 +339,7 @@ def test_tier1_graph_events_models_and_asset_import_characterization(
                 "platform": "instagram",
                 "external_id": "ig_1",
                 "model_id": "<model_id>",
+                "account_group_id": None,
             },
             "profile": {
                 "modelId": "<model_id>",

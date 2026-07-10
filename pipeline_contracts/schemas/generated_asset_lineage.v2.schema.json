@@ -15,6 +15,7 @@
     "recipeId",
     "captionHash",
     "renderedAssetId",
+    "contentFingerprint",
     "variationApplied",
     "variantId",
     "audioIntentFingerprint"
@@ -74,6 +75,23 @@
     "renderedAssetId": {
       "type": "string",
       "minLength": 1
+    },
+    "contentFingerprint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SHA-256 of the exact rendered bytes, computed by Reel Factory at render or export time."
+    },
+    "sourceFamilyId": {
+      "type": ["string", "null"]
+    },
+    "perceptualFingerprint": {
+      "type": ["string", "null"]
+    },
+    "perceptualClusterId": {
+      "type": ["string", "null"]
+    },
+    "perceptualAlgorithm": {
+      "type": ["string", "null"]
     },
     "variationApplied": {
       "type": "boolean"

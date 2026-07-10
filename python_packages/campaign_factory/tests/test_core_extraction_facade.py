@@ -5789,7 +5789,12 @@ def test_core_service_facade_methods_delegate_to_services() -> None:
         (
             "upsert_account",
             ("@creator",),
-            {"platform": "instagram", "external_id": "ig_1", "model_id": "model_1"},
+            {
+                "platform": "instagram",
+                "external_id": "ig_1",
+                "model_id": "model_1",
+                "account_group_id": None,
+            },
         ),
         (
             "upsert_model_account_profile",
@@ -10678,6 +10683,7 @@ def test_distribution_facade_delegates_to_core_services() -> None:
                 "cta_text": "new post",
                 "instagram_trial_reels": True,
                 "trial_graduation_strategy": "MANUAL",
+                "trial_group_id": None,
             },
         ),
         ("distribution_plan", ("dist_1",), {}),

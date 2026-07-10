@@ -8,6 +8,7 @@ from pipeline_contracts import (
     ContractValidationError,
     example_names,
     load_example,
+    validate_assignment_eligibility,
     validate_audio_catalog_export,
     validate_audio_intent,
     validate_campaign_draft_payload,
@@ -16,6 +17,7 @@ from pipeline_contracts import (
     validate_creative_plan,
     validate_front_generation_plan,
     validate_generated_asset_lineage,
+    validate_generated_asset_lineage_v2,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
     validate_motion_edit_render,
@@ -53,6 +55,7 @@ def test_packaged_schema_copy_matches_canonical_source():
 
 def test_named_validators_accept_examples():
     validate_audio_intent(load_example("audio_intent"))
+    validate_assignment_eligibility(load_example("assignment_eligibility"))
     validate_campaign_draft_payload(load_example("campaign_draft_payload"))
     validate_caption_outcome_context(load_example("caption_outcome_context"))
     validate_audio_catalog_export(load_example("audio_catalog_export"))
@@ -65,6 +68,12 @@ def test_named_validators_accept_examples():
     validate_higgsfield_soul_image_prompt(load_example("higgsfield_soul_image_prompt"))
     validate_kling_3_video_prompt(load_example("kling_3_video_prompt"))
     validate_generated_asset_lineage(load_example("generated_asset_lineage"))
+    validate_generated_asset_lineage_v2(
+        load_example("generated_asset_lineage.v2.example.json")
+    )
+    validate_campaign_draft_payload(
+        load_example("campaign_draft_payload.v2.example.json")
+    )
     validate_creative_plan(load_example("creative_plan"))
     validate_variant_assignment(load_example("variant_assignment"))
     validate_motion_edit_render(load_example("motion_edit_render"))
@@ -90,6 +99,14 @@ def test_generated_asset_lineage_requires_pipeline_trace_id():
 
     with pytest.raises(ContractValidationError, match="pipelineTraceId"):
         validate_generated_asset_lineage(payload)
+
+
+def test_v2_lineage_requires_prompt_id():
+    payload = load_example("generated_asset_lineage.v2.example.json")
+    del payload["source"]["promptId"]
+
+    with pytest.raises(ContractValidationError, match="promptId"):
+        validate_generated_asset_lineage_v2(payload)
 
 
 def test_campaign_draft_payload_requires_generated_asset_lineage():

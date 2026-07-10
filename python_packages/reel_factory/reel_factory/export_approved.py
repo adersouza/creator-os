@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
 from typing import Any
 
 from campaign_store import ensure_campaign_schema
-from posting_ledger import content_fingerprint
 from readiness_check import load_readiness_for_output, normalize_platform
 
+from reel_factory.perceptual import enrich_lineage_identity
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .fileops import atomic_write_text
@@ -78,12 +79,9 @@ def export_approved(
     for idx, row in enumerate(rows):
         output_path = Path(row["output_path"])
         recipe_params = json.loads(row["recipe_params_json"])
-        try:
-            fingerprint = content_fingerprint(output_path)
-        except OSError:
-            fingerprint = None
         audio_intent = _load_audio_intent_sidecar(output_path)
-        generated_asset_lineage = _load_generated_asset_lineage_sidecar(output_path)
+        generated_asset_lineage = _ensure_generated_asset_lineage(output_path)
+        fingerprint = generated_asset_lineage["contentFingerprint"]
         try:
             platform_readiness = load_readiness_for_output(
                 output_path, platform=normalize_platform(platform)
@@ -189,6 +187,26 @@ def _load_audio_intent_sidecar(output_path: Path) -> dict[str, Any] | None:
 
 def _load_generated_asset_lineage_sidecar(output_path: Path) -> dict[str, Any] | None:
     return _load_json_sidecar(output_path, "generated_asset_lineage")
+
+
+def _ensure_generated_asset_lineage(output_path: Path) -> dict[str, Any]:
+    existing = _load_generated_asset_lineage_sidecar(output_path) or {
+        "schema": "reel_factory.generated_asset_lineage.v1",
+        "pipelineTraceId": "trace_reel_export_"
+        + hashlib.sha256(str(output_path.resolve()).encode()).hexdigest()[:16],
+        "source": {},
+        "generation": {"tool": "reel_factory.export_approved"},
+        "review": {"humanReviewRequired": True},
+    }
+    enriched = enrich_lineage_identity(existing, output_path)
+    sidecar = output_path.with_suffix(
+        output_path.suffix + ".generated_asset_lineage.json"
+    )
+    sidecar.write_text(
+        json.dumps(enriched, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return enriched
 
 
 def _load_json_sidecar(output_path: Path, suffix: str) -> dict[str, Any] | None:

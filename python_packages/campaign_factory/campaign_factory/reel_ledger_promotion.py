@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import sqlite3
 from collections import Counter, defaultdict
@@ -10,12 +12,15 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .assignment_eligibility import (
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 from .caption_outcome import build_caption_outcome_context, column_values
 from .core import (
     CampaignFactory,
     media_type_for_path,
     new_id,
-    sha256_file,
     slugify,
     utc_now,
 )
@@ -42,6 +47,240 @@ PLATFORM_PROOF_KEYS = {
     "ig_media_id",
     "instagram_media_id",
 }
+
+
+def backfill_promotions(
+    factory: CampaignFactory, *, report_path: Path | None = None
+) -> dict[str, Any]:
+    rows = factory.conn.execute(
+        """
+        SELECT d.id distribution_plan_id, d.campaign_id, d.rendered_asset_id,
+               d.account_id, d.instagram_account_id, d.account_group_id,
+               d.reason_code, d.created_at,
+               r.content_hash
+        FROM distribution_plans d
+        JOIN rendered_assets r ON r.id = d.rendered_asset_id
+        WHERE d.reason_code LIKE 'reel_ledger:%'
+        ORDER BY d.created_at, d.id
+        """
+    ).fetchall()
+    created = 0
+    existing = 0
+    report_rows: list[dict[str, str]] = []
+    for raw in rows:
+        row = dict(raw)
+        posting_slot_id = str(row["reason_code"]).split(":", 1)[1]
+        account_id = str(row.get("account_id") or row.get("instagram_account_id") or "")
+        if not account_id:
+            report_rows.append(
+                {
+                    "posting_slot_id": posting_slot_id,
+                    "status": "blocked",
+                    "reason": "missing_account_id",
+                    "promotion_id": "",
+                }
+            )
+            continue
+        prior = factory.conn.execute(
+            "SELECT id FROM promotions WHERE posting_slot_id = ?", (posting_slot_id,)
+        ).fetchone()
+        if prior:
+            existing += 1
+            promotion_id = str(prior["id"])
+            status = "existing"
+        else:
+            duplicate = factory.conn.execute(
+                """
+                SELECT id FROM promotions
+                WHERE content_fingerprint = ? AND account_id = ?
+                """,
+                (row["content_hash"], account_id),
+            ).fetchone()
+            if duplicate:
+                promotion_id = str(duplicate["id"])
+                reason = "duplicate_content_fingerprint_for_account"
+                prior_rejection = factory.conn.execute(
+                    """
+                    SELECT id FROM promotion_events
+                    WHERE rendered_asset_id = ? AND content_fingerprint = ?
+                      AND account_id = ? AND posting_slot_id = ?
+                      AND action = 'rejected' AND reason = ?
+                    """,
+                    (
+                        row["rendered_asset_id"],
+                        row["content_hash"],
+                        account_id,
+                        posting_slot_id,
+                        reason,
+                    ),
+                ).fetchone()
+                if not prior_rejection:
+                    factory.conn.execute(
+                        """
+                        INSERT INTO promotion_events
+                        (id, promotion_id, rendered_asset_id, content_fingerprint,
+                         account_id, posting_slot_id, action, reason, actor,
+                         payload_json, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'rejected', ?,
+                                'campaign_factory_migration', ?, ?)
+                        """,
+                        (
+                            new_id("promotion_event"),
+                            promotion_id,
+                            row["rendered_asset_id"],
+                            row["content_hash"],
+                            account_id,
+                            posting_slot_id,
+                            reason,
+                            json.dumps(
+                                {"distributionPlanId": row["distribution_plan_id"]},
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            ),
+                            row["created_at"],
+                        ),
+                    )
+                report_rows.append(
+                    {
+                        "posting_slot_id": posting_slot_id,
+                        "status": "blocked",
+                        "reason": reason,
+                        "promotion_id": promotion_id,
+                    }
+                )
+                continue
+            promotion_id = (
+                "promotion_backfill_"
+                + hashlib.sha256(posting_slot_id.encode()).hexdigest()[:20]
+            )
+            factory.conn.execute(
+                """
+                INSERT INTO promotions
+                (id, promotion_type, campaign_id, rendered_asset_id, account_id, account_group_id,
+                 posting_slot_id, content_fingerprint, source_system, created_at, updated_at)
+                VALUES (?, 'reel_ledger', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    promotion_id,
+                    row["campaign_id"],
+                    row["rendered_asset_id"],
+                    account_id,
+                    str(row.get("account_group_id") or row["campaign_id"]),
+                    posting_slot_id,
+                    row["content_hash"],
+                    REEL_SLOT_EXTERNAL_SYSTEM,
+                    row["created_at"],
+                    row["created_at"],
+                ),
+            )
+            factory.conn.execute(
+                """
+                INSERT INTO promotion_events
+                (id, promotion_id, rendered_asset_id, content_fingerprint,
+                 account_id, posting_slot_id, action, reason, actor,
+                 payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'backfilled',
+                        'legacy_distribution_plan_backfill',
+                        'campaign_factory_migration', ?, ?)
+                """,
+                (
+                    new_id("promotion_event"),
+                    promotion_id,
+                    row["rendered_asset_id"],
+                    row["content_hash"],
+                    account_id,
+                    posting_slot_id,
+                    json.dumps(
+                        {"distributionPlanId": row["distribution_plan_id"]},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    row["created_at"],
+                ),
+            )
+            created += 1
+            status = "created"
+        report_rows.append(
+            {
+                "posting_slot_id": posting_slot_id,
+                "status": status,
+                "reason": "",
+                "promotion_id": promotion_id,
+            }
+        )
+    factory.conn.commit()
+    csv_payload = _stable_backfill_csv(report_rows)
+    if report_path:
+        target = Path(report_path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(csv_payload, encoding="utf-8")
+    return {
+        "schema": "campaign_factory.promotion_backfill.v1",
+        "created": created,
+        "existing": existing,
+        "rows": report_rows,
+        "csv": csv_payload,
+        "reportPath": str(Path(report_path).expanduser().resolve())
+        if report_path
+        else None,
+    }
+
+
+def promotion_reconciliation_report(factory: CampaignFactory) -> dict[str, Any]:
+    rows = factory.conn.execute(
+        """
+        SELECT p.id promotion_id, p.posting_slot_id,
+               p.content_fingerprint promotion_fingerprint,
+               r.content_hash rendered_fingerprint, r.caption_generation_json
+        FROM promotions p
+        JOIN rendered_assets r ON r.id = p.rendered_asset_id
+        ORDER BY p.posting_slot_id, p.id
+        """
+    ).fetchall()
+    mismatches: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        generation = _json_dict(row["caption_generation_json"])
+        lineage = generation.get("generatedAssetLineage")
+        lineage = lineage if isinstance(lineage, dict) else {}
+        lineage_fingerprint = str(lineage.get("contentFingerprint") or "")
+        values = {
+            str(row["promotion_fingerprint"]),
+            str(row["rendered_fingerprint"]),
+            lineage_fingerprint,
+        }
+        values.discard("")
+        if len(values) > 1 or not lineage_fingerprint:
+            mismatches.append(
+                {
+                    "promotionId": row["promotion_id"],
+                    "postingSlotId": row["posting_slot_id"],
+                    "promotionFingerprint": row["promotion_fingerprint"],
+                    "renderedFingerprint": row["rendered_fingerprint"],
+                    "lineageFingerprint": lineage_fingerprint or None,
+                    "reason": "fingerprint_mismatch"
+                    if len(values) > 1
+                    else "missing_lineage_content_fingerprint",
+                }
+            )
+    return {
+        "schema": "campaign_factory.promotion_reconciliation.v1",
+        "checked": len(rows),
+        "mismatchCount": len(mismatches),
+        "mismatches": mismatches,
+    }
+
+
+def _stable_backfill_csv(rows: list[dict[str, str]]) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["posting_slot_id", "status", "reason", "promotion_id"],
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(sorted(rows, key=lambda row: row["posting_slot_id"]))
+    return output.getvalue()
 
 
 def promote_reel_ledger(
@@ -76,8 +315,14 @@ def promote_reel_ledger(
                 | {item["reason"] for item in preview["conflicts"]}
             ),
         }
-    _apply_preview(factory, campaign=campaign, preview=preview)
-    return {**preview, "applied": True, "applyBlocked": False}
+    apply_result = _apply_preview(factory, campaign=campaign, preview=preview)
+    return {
+        **preview,
+        "applied": True,
+        "applyBlocked": False,
+        "appliedPromotionCount": apply_result["appliedPromotionCount"],
+        "typedSkips": apply_result["typedSkips"],
+    }
 
 
 def _campaign_by_id_or_slug(factory: CampaignFactory, value: str) -> dict[str, Any]:
@@ -143,10 +388,10 @@ def _build_preview(
     )
     fingerprint_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in promotable_rows:
-        fp = _row_fingerprint(row)
+        fp = _lineage_content_fingerprint(row)
         if fp:
             # Backfill so downstream checks and _promotion_action reuse the
-            # computed hash instead of silently skipping dedup (fail-closed).
+            # lineage fingerprint instead of silently skipping dedup (fail-closed).
             row["content_fingerprint"] = fp
             fingerprint_rows[fp].append(row)
 
@@ -176,7 +421,17 @@ def _build_preview(
         ):
             conflicts.append(_row_note(row, "account_day_quota_exceeded"))
             continue
-        fp = str(row.get("content_fingerprint") or "").strip()
+        fp = _lineage_content_fingerprint(row)
+        ledger_fp = str(row.get("content_fingerprint") or "").strip()
+        if fp and ledger_fp and fp != ledger_fp:
+            conflicts.append(
+                _row_note(
+                    row,
+                    "lineage_content_fingerprint_mismatch",
+                    {"lineageFingerprint": fp, "ledgerFingerprint": ledger_fp},
+                )
+            )
+            continue
         duplicate_rows = fingerprint_rows.get(fp, []) if fp else []
         if len(duplicate_rows) > 1 and not existing:
             conflicts.append(
@@ -262,24 +517,6 @@ def _build_preview(
     }
 
 
-def _row_fingerprint(row: dict[str, Any]) -> str:
-    """Stored content fingerprint, or sha256 of the rendered output as fallback.
-
-    Returns "" when neither is available so callers fail closed instead of
-    skipping duplicate detection.
-    """
-    fp = str(row.get("content_fingerprint") or "").strip()
-    if fp:
-        return fp
-    raw_path = str(row.get("rendered_output_path") or "").strip()
-    if not raw_path:
-        return ""
-    output = Path(raw_path).expanduser()
-    if output.is_file():
-        return sha256_file(output)
-    return ""
-
-
 def _row_blockers(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     output = Path(str(row.get("rendered_output_path") or "")).expanduser()
@@ -287,10 +524,10 @@ def _row_blockers(row: dict[str, Any]) -> list[str]:
         reasons.append("missing_rendered_output_path")
     elif not output.exists():
         reasons.append("missing_rendered_output_file")
-    if not _row_fingerprint(row):
-        reasons.append("missing_content_fingerprint")
     if not _lineage(row):
         reasons.append("missing_lineage")
+    elif not _lineage_content_fingerprint(row):
+        reasons.append("missing_lineage_content_fingerprint")
     if not str(row.get("caption") or "").strip():
         reasons.append("missing_caption")
     if (
@@ -309,9 +546,9 @@ def _promotion_action(
 ) -> dict[str, Any]:
     lineage = _lineage(row)
     output_path = Path(str(row["rendered_output_path"])).expanduser().resolve()
-    fingerprint = str(row.get("content_fingerprint") or "").strip() or sha256_file(
-        output_path
-    )
+    fingerprint = _lineage_content_fingerprint(row)
+    if not fingerprint:
+        raise ValueError("generated asset lineage missing contentFingerprint")
     account_handle = str(
         row.get("account_handle") or row.get("account_id") or "unassigned"
     ).lstrip("@")
@@ -365,38 +602,96 @@ def _promotion_action(
 
 def _apply_preview(
     factory: CampaignFactory, *, campaign: dict[str, Any], preview: dict[str, Any]
-) -> None:
-    for action in [*preview["creates"], *preview["updates"]]:
-        _apply_action(factory, campaign, action)
+) -> dict[str, Any]:
+    actions = [*preview["creates"], *preview["updates"]]
+    accounts: dict[str, dict[str, Any]] = {}
+    for action in actions:
+        key = str(action["account"]["id"])
+        accounts[key] = factory.upsert_account(
+            action["account"]["handle"],
+            platform=action["account"]["platform"],
+            external_id=action["account"]["id"],
+        )
+    model_id = _model_id_for_campaign(factory, campaign["id"])
+    applied_slot_ids: list[str] = []
+    typed_skips: list[dict[str, Any]] = []
+    factory.conn.execute("BEGIN IMMEDIATE")
+    try:
+        for action in actions:
+            factory.conn.execute("SAVEPOINT promotion_action")
+            try:
+                rendered, account = _apply_action(
+                    factory,
+                    campaign,
+                    action,
+                    account=accounts[str(action["account"]["id"])],
+                    model_id=model_id,
+                )
+                action["renderedAsset"]["campaignFactoryId"] = rendered["id"]
+                _upsert_promotion(factory, campaign, rendered, account, action)
+            except sqlite3.IntegrityError:
+                factory.conn.execute("ROLLBACK TO promotion_action")
+                factory.conn.execute("RELEASE promotion_action")
+                conflict = _promotion_constraint_conflict(factory, action)
+                if not conflict:
+                    raise
+                _record_rejected_promotion_event(factory, action, conflict)
+                typed_skips.append(
+                    {
+                        "postingSlotId": action["postingSlotId"],
+                        "action": "rejected",
+                        "reason": conflict["reason"],
+                        "winningPromotionId": conflict["promotionId"],
+                    }
+                )
+                continue
+            factory.conn.execute("RELEASE promotion_action")
+            applied_slot_ids.append(str(action["postingSlotId"]))
+        factory.conn.commit()
+    except Exception:
+        factory.conn.rollback()
+        raise
     factory.record_event(
         PROMOTED_EVENT,
         campaign_id=campaign["id"],
         status="success",
-        message=f"Promoted {len(preview['creates']) + len(preview['updates'])} Reel Factory ledger slots",
+        message=f"Promoted {len(applied_slot_ids)} Reel Factory ledger slots",
         metadata={
             "schema": SCHEMA,
             "source": preview["source"],
             "summary": preview["summary"],
-            "postingSlotIds": [
-                item["postingSlotId"]
-                for item in [*preview["creates"], *preview["updates"]]
-            ],
+            "postingSlotIds": applied_slot_ids,
+            "typedSkips": typed_skips,
         },
     )
+    return {
+        "appliedPromotionCount": len(applied_slot_ids),
+        "typedSkips": typed_skips,
+    }
 
 
 def _apply_action(
-    factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]
-) -> None:
-    account = factory.upsert_account(
-        action["account"]["handle"],
-        platform=action["account"]["platform"],
-        external_id=action["account"]["id"],
-    )
-    source = _upsert_source_asset(factory, campaign, action)
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    action: dict[str, Any],
+    *,
+    account: dict[str, Any],
+    model_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    source = _upsert_source_asset(factory, campaign, action, model_id=model_id)
     rendered = _upsert_rendered_asset(factory, campaign, source, action)
+    eligibility = enforce_assignment_eligibility(
+        factory.conn,
+        rendered_asset_id=rendered["id"],
+        account_id=account["id"],
+        instagram_account_id=action["account"]["id"],
+        planned_at=action["distributionPlan"]["plannedWindowStart"],
+        surface=action["distributionPlan"]["surface"],
+    )
+    action["assignmentEligibility"] = eligibility
     _upsert_assignment(factory, campaign, rendered["id"], account, action)
     _upsert_distribution_plan(factory, campaign, rendered["id"], account, action)
+    persist_assignment_origin(factory.conn, eligibility)
     slot_graph = factory.ensure_graph_node(
         "reel_ledger_slot",
         external_system=REEL_SLOT_EXTERNAL_SYSTEM,
@@ -415,13 +710,16 @@ def _apply_action(
     factory.ensure_graph_edge(
         slot_graph, rendered_graph, "reel_ledger_slot_promoted_to_rendered_asset"
     )
-    factory.conn.commit()
+    return rendered, account
 
 
 def _upsert_source_asset(
-    factory: CampaignFactory, campaign: dict[str, Any], action: dict[str, Any]
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    action: dict[str, Any],
+    *,
+    model_id: str,
 ) -> dict[str, Any]:
-    model_id = _model_id_for_campaign(factory, campaign["id"])
     lineage = action["lineage"]
     lineage_source = (
         lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
@@ -524,6 +822,12 @@ def _upsert_rendered_asset(
             "status": action["status"],
         },
     }
+    metadata = {
+        "sourceFamilyId": action["lineage"].get("sourceFamilyId"),
+        "perceptualFingerprint": action["lineage"].get("perceptualFingerprint"),
+        "perceptualClusterId": action["lineage"].get("perceptualClusterId"),
+        "perceptualAlgorithm": action["lineage"].get("perceptualAlgorithm"),
+    }
     now = utc_now()
     values = (
         source["id"],
@@ -545,6 +849,7 @@ def _upsert_rendered_asset(
         caption_columns["source_clip"],
         caption_columns["caption_outcome_context_json"],
         json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
         render_recipe,
         _review_state_from_status(action["status"]["campaignFactoryReviewState"]),
         now,
@@ -558,7 +863,7 @@ def _upsert_rendered_asset(
                 creator_model = ?, frame_type = ?, length_class = ?, format_class = ?,
                 caption_fit_version = ?, suitability_decision = ?, suitability_reason = ?,
                 source_clip = ?, caption_outcome_context_json = ?, caption_generation_json = ?,
-                recipe = ?, review_state = ?, updated_at = ?
+                metadata_json = ?, recipe = ?, review_state = ?, updated_at = ?
             WHERE id = ?
             """,
             (*values, row["id"]),
@@ -575,9 +880,9 @@ def _upsert_rendered_asset(
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption,
          caption_hash, caption_bank, caption_banks_json, creator_mix, creator_model, frame_type,
          length_class, format_class, caption_fit_version, suitability_decision, suitability_reason,
-         source_clip, caption_outcome_context_json, caption_generation_json, recipe, audit_status,
+         source_clip, caption_outcome_context_json, caption_generation_json, metadata_json, recipe, audit_status,
          review_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
         """,
         (
             rendered_id,
@@ -602,6 +907,7 @@ def _upsert_rendered_asset(
             caption_columns["source_clip"],
             caption_columns["caption_outcome_context_json"],
             json.dumps(caption_generation, ensure_ascii=False, sort_keys=True),
+            json.dumps(metadata, ensure_ascii=False, sort_keys=True),
             render_recipe,
             _review_state_from_status(action["status"]["campaignFactoryReviewState"]),
             now,
@@ -631,11 +937,15 @@ def _upsert_assignment(
     ).fetchone()
     now = utc_now()
     caption_columns = column_values(action.get("captionOutcomeContext") or {})
+    eligibility = action["assignmentEligibility"]
+    identity = eligibility["inputs"]
     if existing:
         factory.conn.execute(
             """
             UPDATE asset_account_assignments
-            SET planned_window_start = ?, caption_hash = ?, caption_text = ?, caption_bank = ?,
+            SET source_family_id = ?, perceptual_fingerprint = ?, perceptual_cluster_id = ?,
+                account_group_id = ?, assignment_eligibility_json = ?, planned_window_start = ?,
+                caption_hash = ?, caption_text = ?, caption_bank = ?,
                 caption_banks_json = ?, creator_mix = ?, creator_model = ?, frame_type = ?,
                 length_class = ?, format_class = ?, caption_fit_version = ?, suitability_decision = ?,
                 suitability_reason = ?, source_clip = ?, caption_outcome_context_json = ?,
@@ -643,6 +953,11 @@ def _upsert_assignment(
             WHERE id = ?
             """,
             (
+                identity["sourceFamilyId"],
+                identity["perceptualFingerprint"],
+                identity["perceptualClusterId"],
+                identity["accountGroupId"],
+                json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 action["distributionPlan"]["plannedWindowStart"],
                 caption_columns["caption_hash"],
                 caption_columns["caption_text"],
@@ -667,11 +982,13 @@ def _upsert_assignment(
     factory.conn.execute(
         """
         INSERT INTO asset_account_assignments
-        (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, planned_window_start,
+        (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
+         source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+         assignment_eligibility_json, planned_window_start,
          caption_hash, caption_text, caption_bank, caption_banks_json, creator_mix, creator_model,
          frame_type, length_class, format_class, caption_fit_version, suitability_decision,
          suitability_reason, source_clip, caption_outcome_context_json, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             new_id("assign"),
@@ -679,6 +996,11 @@ def _upsert_assignment(
             rendered_asset_id,
             account["id"],
             action["account"]["id"],
+            identity["sourceFamilyId"],
+            identity["perceptualFingerprint"],
+            identity["perceptualClusterId"],
+            identity["accountGroupId"],
+            json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
             action["distributionPlan"]["plannedWindowStart"],
             caption_columns["caption_hash"],
             caption_columns["caption_text"],
@@ -715,10 +1037,17 @@ def _upsert_distribution_plan(
     ).fetchone()
     now = utc_now()
     caption_columns = column_values(action.get("captionOutcomeContext") or {})
+    eligibility = action["assignmentEligibility"]
+    identity = eligibility["inputs"]
     payload = (
         rendered_asset_id,
         account["id"],
         action["account"]["id"],
+        identity["sourceFamilyId"],
+        identity["perceptualFingerprint"],
+        identity["perceptualClusterId"],
+        identity["accountGroupId"],
+        json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
         action["distributionPlan"]["surface"],
         action["distributionPlan"]["plannedWindowStart"],
         reason_code,
@@ -742,7 +1071,9 @@ def _upsert_distribution_plan(
         factory.conn.execute(
             """
             UPDATE distribution_plans
-            SET rendered_asset_id = ?, account_id = ?, instagram_account_id = ?, surface = ?,
+            SET rendered_asset_id = ?, account_id = ?, instagram_account_id = ?,
+                source_family_id = ?, perceptual_fingerprint = ?, perceptual_cluster_id = ?,
+                account_group_id = ?, assignment_eligibility_json = ?, surface = ?,
                 planned_window_start = ?, reason_code = ?, caption_hash = ?, caption_text = ?,
                 caption_bank = ?, caption_banks_json = ?, creator_mix = ?, creator_model = ?,
                 frame_type = ?, length_class = ?, format_class = ?, caption_fit_version = ?,
@@ -756,36 +1087,19 @@ def _upsert_distribution_plan(
     factory.conn.execute(
         """
         INSERT INTO distribution_plans
-        (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, surface,
+        (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
+         source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+         assignment_eligibility_json, surface,
          planned_window_start, reason_code, caption_hash, caption_text, caption_bank,
          caption_banks_json, creator_mix, creator_model, frame_type, length_class,
          format_class, caption_fit_version, suitability_decision, suitability_reason,
          source_clip, caption_outcome_context_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             new_id("dist"),
             campaign["id"],
-            rendered_asset_id,
-            account["id"],
-            action["account"]["id"],
-            action["distributionPlan"]["surface"],
-            action["distributionPlan"]["plannedWindowStart"],
-            reason_code,
-            caption_columns["caption_hash"],
-            caption_columns["caption_text"],
-            caption_columns["caption_bank"],
-            caption_columns["caption_banks_json"],
-            caption_columns["creator_mix"],
-            caption_columns["creator_model"],
-            caption_columns["frame_type"],
-            caption_columns["length_class"],
-            caption_columns["format_class"],
-            caption_columns["caption_fit_version"],
-            caption_columns["suitability_decision"],
-            caption_columns["suitability_reason"],
-            caption_columns["source_clip"],
-            caption_columns["caption_outcome_context_json"],
+            *payload[:-1],
             now,
             now,
         ),
@@ -795,6 +1109,11 @@ def _upsert_distribution_plan(
 def _existing_promotion(
     factory: CampaignFactory, slot_id: str
 ) -> dict[str, Any] | None:
+    promotion = factory.conn.execute(
+        "SELECT * FROM promotions WHERE posting_slot_id = ?", (slot_id,)
+    ).fetchone()
+    if not promotion:
+        return None
     dist = factory.conn.execute(
         "SELECT * FROM distribution_plans WHERE reason_code = ?",
         (_reason_code({"posting_slot_id": slot_id}),),
@@ -803,13 +1122,192 @@ def _existing_promotion(
         "SELECT global_id FROM content_graph_nodes WHERE external_system = ? AND external_id = ?",
         (REEL_SLOT_EXTERNAL_SYSTEM, slot_id),
     ).fetchone()
-    if not dist and not graph:
-        return None
+    state = promotion_current_state(
+        factory,
+        content_fingerprint=str(promotion["content_fingerprint"]),
+        account_id=str(promotion["account_id"]),
+        posting_slot_id=str(promotion["posting_slot_id"]),
+    )
     return {
+        "promotionId": promotion["id"],
         "distributionPlanId": dist["id"] if dist else None,
         "renderedAssetId": dist["rendered_asset_id"] if dist else None,
         "graphId": graph["global_id"] if graph else None,
+        "stateAction": state["action"] if state else None,
+        "stateReason": state["reason"] if state else None,
     }
+
+
+def promotion_current_state(
+    factory: CampaignFactory,
+    *,
+    content_fingerprint: str,
+    account_id: str,
+    posting_slot_id: str,
+) -> dict[str, Any] | None:
+    """Return the latest typed event for one promotion identity key."""
+    row = factory.conn.execute(
+        """
+        SELECT * FROM promotion_events
+        WHERE content_fingerprint = ?
+          AND account_id = ?
+          AND posting_slot_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1
+        """,
+        (content_fingerprint, account_id, posting_slot_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _upsert_promotion(
+    factory: CampaignFactory,
+    campaign: dict[str, Any],
+    rendered: dict[str, Any],
+    account: dict[str, Any],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    now = utc_now()
+    account_group_id = str(
+        action["assignmentEligibility"]["inputs"].get("accountGroupId")
+        or campaign["id"]
+    )
+    existing = factory.conn.execute(
+        "SELECT * FROM promotions WHERE posting_slot_id = ?",
+        (action["postingSlotId"],),
+    ).fetchone()
+    if existing:
+        factory.conn.execute(
+            """
+            UPDATE promotions
+            SET rendered_asset_id = ?, account_group_id = ?,
+                content_fingerprint = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                rendered["id"],
+                account_group_id,
+                action["renderedAsset"]["contentHash"],
+                now,
+                existing["id"],
+            ),
+        )
+        promotion_id = str(existing["id"])
+        event_action = "updated"
+    else:
+        promotion_id = new_id("promotion")
+        factory.conn.execute(
+            """
+            INSERT INTO promotions
+            (id, promotion_type, campaign_id, rendered_asset_id, account_id, account_group_id,
+             posting_slot_id, content_fingerprint, trial_post_id, source_system,
+             created_at, updated_at)
+            VALUES (?, 'reel_ledger', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+            """,
+            (
+                promotion_id,
+                campaign["id"],
+                rendered["id"],
+                account["id"],
+                account_group_id,
+                action["postingSlotId"],
+                action["renderedAsset"]["contentHash"],
+                REEL_SLOT_EXTERNAL_SYSTEM,
+                now,
+                now,
+            ),
+        )
+        event_action = "created"
+    factory.conn.execute(
+        """
+        INSERT INTO promotion_events
+        (id, promotion_id, rendered_asset_id, content_fingerprint,
+         account_id, posting_slot_id, action, reason, actor,
+         payload_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'campaign_factory', ?, ?)
+        """,
+        (
+            new_id("promotion_event"),
+            promotion_id,
+            rendered["id"],
+            action["renderedAsset"]["contentHash"],
+            account["id"],
+            action["postingSlotId"],
+            event_action,
+            f"reel_ledger_{event_action}",
+            json.dumps(action, ensure_ascii=False, sort_keys=True),
+            now,
+        ),
+    )
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM promotions WHERE id = ?", (promotion_id,)
+        ).fetchone()
+    )
+
+
+def _promotion_constraint_conflict(
+    factory: CampaignFactory, action: dict[str, Any]
+) -> dict[str, str] | None:
+    fingerprint = str(action["renderedAsset"]["contentHash"])
+    account_id = str(action["account"]["id"])
+    posting_slot_id = str(action["postingSlotId"])
+    row = factory.conn.execute(
+        """
+        SELECT id FROM promotions
+        WHERE content_fingerprint = ? AND account_id = ?
+        """,
+        (fingerprint, account_id),
+    ).fetchone()
+    if row:
+        return {
+            "promotionId": str(row["id"]),
+            "reason": "duplicate_content_fingerprint_for_account",
+        }
+    row = factory.conn.execute(
+        """
+        SELECT id FROM promotions
+        WHERE account_id = ? AND posting_slot_id = ?
+        """,
+        (account_id, posting_slot_id),
+    ).fetchone()
+    if row:
+        return {
+            "promotionId": str(row["id"]),
+            "reason": "duplicate_posting_slot_for_account",
+        }
+    return None
+
+
+def _record_rejected_promotion_event(
+    factory: CampaignFactory,
+    action: dict[str, Any],
+    conflict: dict[str, str],
+) -> None:
+    factory.conn.execute(
+        """
+        INSERT INTO promotion_events
+        (id, promotion_id, rendered_asset_id, content_fingerprint,
+         account_id, posting_slot_id, action, reason, actor,
+         payload_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'rejected', ?, 'campaign_factory', ?, ?)
+        """,
+        (
+            new_id("promotion_event"),
+            conflict["promotionId"],
+            str(
+                action["renderedAsset"].get("campaignFactoryId")
+                or action.get("existing", {}).get("renderedAssetId")
+                or "attempted"
+            ),
+            str(action["renderedAsset"]["contentHash"]),
+            str(action["account"]["id"]),
+            str(action["postingSlotId"]),
+            conflict["reason"],
+            json.dumps(action, ensure_ascii=False, sort_keys=True),
+            utc_now(),
+        ),
+    )
 
 
 def _model_id_for_campaign(factory: CampaignFactory, campaign_id: str) -> str:
@@ -862,6 +1360,13 @@ def _lineage(row: dict[str, Any]) -> dict[str, Any]:
             else {}
         )
     return {}
+
+
+def _lineage_content_fingerprint(row: dict[str, Any]) -> str:
+    lineage = _lineage(row)
+    return str(
+        lineage.get("contentFingerprint") or lineage.get("content_fingerprint") or ""
+    ).strip()
 
 
 def _merge_caption_lineage_sidecar(

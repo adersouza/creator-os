@@ -1,0 +1,26 @@
+{
+  "schema": "campaign_factory.assignment_eligibility.v1",
+  "allowed": true,
+  "reasonCodes": [],
+  "inputs": {
+    "renderedAssetId": "asset_001",
+    "campaignId": "campaign_001",
+    "accountId": "account_001",
+    "instagramAccountId": "17841400000000000",
+    "accountGroupId": "stacey",
+    "surface": "regular_reel",
+    "plannedAt": "2026-07-10T14:00:00+00:00",
+    "reuseWindowDays": 14,
+    "contentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "sourceFamilyId": "gold-family-001",
+    "perceptualFingerprint": "phash64:0123456789abcdef",
+    "perceptualClusterId": "phash64:0123456789abcdef",
+    "originAccountId": "account_001"
+  },
+  "matches": [],
+  "policy": {
+    "missingIdentity": "origin_account_only",
+    "crossAccountReuseWindowDays": 14
+  },
+  "auto_posting": false
+}

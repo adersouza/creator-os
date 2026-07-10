@@ -6,6 +6,11 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from .assignment_eligibility import (
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
+
 
 class InventoryReservationRepository:
     def __init__(
@@ -71,6 +76,14 @@ class InventoryReservationRepository:
             ).fetchone()
             if not account:
                 raise ValueError(f"account not found: {account_id}")
+        eligibility = enforce_assignment_eligibility(
+            self.conn,
+            rendered_asset_id=asset_id,
+            account_id=account_id,
+            planned_at=now,
+            surface=normalized_surface,
+            reuse_window_days=reuse_cooldown_days,
+        )
         reservation_id = self._new_id("invres")
         row_id = self._new_id("invresrow")
         try:
@@ -110,8 +123,9 @@ class InventoryReservationRepository:
             (id, asset_id, campaign_id, account_id, surface, reservation_id, reserved_by,
              reserved_at, expires_at, status, idempotency_key, source_family_id,
              perceptual_fingerprint, perceptual_cluster_id, account_group_id,
-             reuse_cooldown_days, override_reason, metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             reuse_cooldown_days, override_reason, assignment_eligibility_json,
+             metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row_id,
@@ -130,11 +144,13 @@ class InventoryReservationRepository:
                 uniqueness["accountGroupId"],
                 reuse_cooldown_days,
                 override_reason,
+                json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
                 now,
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self.conn.commit()
         return dict(
             self.conn.execute(

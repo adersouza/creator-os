@@ -21,6 +21,10 @@ from .adapters.threadsdash import (
     sync_threadsdash_account_assignments,
     verify_threadsdash_export,
 )
+from .assignment_eligibility import (
+    evaluate_assignment_eligibility,
+    write_assignment_eligibility_artifact,
+)
 from .closed_loop_proof import (
     DEFAULT_STACEY_PROMPT_PATH,
     build_account_routing_audit,
@@ -35,7 +39,16 @@ from .motion_edit_stage import run_motion_edit_stage
 from .proactive_cycle_stage import run_proactive_cycle_stage
 from .quality_calibration import track_q_calibration_status
 from .readiness_report import build_mass_production_readiness_report
-from .reel_ledger_promotion import promote_reel_ledger
+from .reel_ledger_promotion import (
+    backfill_promotions,
+    promote_reel_ledger,
+    promotion_reconciliation_report,
+)
+from .trial_reels import (
+    graduate_trial_reel,
+    record_trial_observation,
+    trial_reel_ranking_report,
+)
 from .variation_stage import run_variation_stage
 
 
@@ -341,6 +354,24 @@ def main() -> int:
     promote_reel.add_argument("--days", type=int, default=7)
     promote_reel.add_argument("--apply", action="store_true")
     promote_reel.add_argument("--format", choices=["json"], default="json")
+    promotion_backfill = sub.add_parser("backfill-promotions")
+    promotion_backfill.add_argument("--report-path")
+    sub.add_parser("reconcile-promotions")
+    graduate_trial = sub.add_parser("graduate-trial-reel")
+    graduate_trial.add_argument("--trial-post-id", required=True)
+    graduate_trial.add_argument("--distribution-plan-id", required=True)
+    graduate_trial.add_argument("--approved-by", required=True)
+    observe_trial = sub.add_parser("record-trial-observation")
+    observe_trial.add_argument("--trial-post-id", required=True)
+    observe_trial.add_argument("--distribution-plan-id", required=True)
+    observe_trial.add_argument("--account-id", required=True)
+    observe_trial.add_argument(
+        "--observed-hours", type=int, choices=[1, 24], required=True
+    )
+    observe_trial.add_argument("--views", type=int, required=True)
+    observe_trial.add_argument("--engagement", type=int, required=True)
+    observe_trial.add_argument("--metrics-json")
+    sub.add_parser("trial-reel-ranking-report")
 
     export = sub.add_parser("export-threadsdash")
     export.add_argument("--campaign", required=True)
@@ -922,6 +953,16 @@ def main() -> int:
     dist.add_argument(
         "--trial-graduation-strategy", choices=["MANUAL", "SS_PERFORMANCE"]
     )
+    dist.add_argument("--trial-group-id")
+
+    eligibility = sub.add_parser("assignment-eligibility")
+    eligibility.add_argument("--rendered-asset-id", required=True)
+    eligibility.add_argument("--account-id")
+    eligibility.add_argument("--instagram-account-id")
+    eligibility.add_argument("--planned-at")
+    eligibility.add_argument("--surface", default="regular_reel")
+    eligibility.add_argument("--reuse-window-days", type=int, default=14)
+    eligibility.add_argument("--output")
 
     plan_dist = sub.add_parser("plan-distribution")
     plan_dist.add_argument("--campaign", required=True)
@@ -1570,6 +1611,39 @@ def main() -> int:
                     apply=args.apply,
                 )
             )
+        elif args.cmd == "backfill-promotions":
+            print_json(
+                backfill_promotions(
+                    cf,
+                    report_path=Path(args.report_path) if args.report_path else None,
+                )
+            )
+        elif args.cmd == "reconcile-promotions":
+            print_json(promotion_reconciliation_report(cf))
+        elif args.cmd == "graduate-trial-reel":
+            print_json(
+                graduate_trial_reel(
+                    cf,
+                    trial_post_id=args.trial_post_id,
+                    distribution_plan_id=args.distribution_plan_id,
+                    approved_by=args.approved_by,
+                )
+            )
+        elif args.cmd == "record-trial-observation":
+            print_json(
+                record_trial_observation(
+                    cf,
+                    trial_post_id=args.trial_post_id,
+                    distribution_plan_id=args.distribution_plan_id,
+                    account_id=args.account_id,
+                    observed_hours=args.observed_hours,
+                    views=args.views,
+                    engagement=args.engagement,
+                    metrics=load_json_object(args.metrics_json),
+                )
+            )
+        elif args.cmd == "trial-reel-ranking-report":
+            print_json(trial_reel_ranking_report(cf))
         elif args.cmd == "export-threadsdash":
             if not args.dry_run and not (
                 args.supabase_url and args.supabase_service_role_key
@@ -2635,8 +2709,24 @@ def main() -> int:
                     cta_text=args.cta_text,
                     instagram_trial_reels=args.instagram_trial_reels,
                     trial_graduation_strategy=args.trial_graduation_strategy,
+                    trial_group_id=args.trial_group_id,
                 )
             )
+        elif args.cmd == "assignment-eligibility":
+            decision = evaluate_assignment_eligibility(
+                cf.conn,
+                rendered_asset_id=args.rendered_asset_id,
+                account_id=args.account_id,
+                instagram_account_id=args.instagram_account_id,
+                planned_at=args.planned_at,
+                surface=args.surface,
+                reuse_window_days=args.reuse_window_days,
+            )
+            if args.output:
+                decision["artifactPath"] = str(
+                    write_assignment_eligibility_artifact(decision, Path(args.output))
+                )
+            print_json(decision)
         elif args.cmd == "plan-distribution":
             print_json(
                 cf.plan_distribution(

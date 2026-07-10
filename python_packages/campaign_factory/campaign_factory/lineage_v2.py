@@ -54,6 +54,7 @@ def build_lineage_v2_core(
     recipe_id: str,
     caption_hash: str,
     rendered_asset_id: str,
+    content_fingerprint: str | None = None,
     prompt_id: str | None = None,
     reference_id: str | None = None,
 ) -> dict[str, Any]:
@@ -84,6 +85,10 @@ def build_lineage_v2_core(
             "recipeId": _required_text(recipe_id, "recipeId"),
             "captionHash": _required_text(caption_hash, "captionHash"),
             "renderedAssetId": _required_text(rendered_asset_id, "renderedAssetId"),
+            "contentFingerprint": _required_text(
+                content_fingerprint or lineage.get("contentFingerprint"),
+                "contentFingerprint",
+            ),
             "variationApplied": False,
             "variantId": None,
         }
@@ -100,6 +105,13 @@ def build_lineage_v2_core(
             )[:16]
         )
     lineage.pop("audioIntentFingerprint", None)
+    for field in (
+        "sourceFamilyId",
+        "perceptualFingerprint",
+        "perceptualClusterId",
+        "perceptualAlgorithm",
+    ):
+        lineage[field] = _optional_text(lineage.get(field))
     lineage["audioId"] = _optional_text(lineage.get("audioId"))
     return lineage
 

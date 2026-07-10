@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,6 +19,17 @@ from reel_pipeline import (
     compute_job_key,
     resolve_segment_bands,
 )
+
+
+def _fixture_lineage_identity(lineage, *_args, **_kwargs):
+    return {
+        **lineage,
+        "contentFingerprint": "a" * 64,
+        "perceptualFingerprint": "phash64:0000000000000000",
+        "perceptualClusterId": "phash64:0000000000000000",
+        "perceptualAlgorithm": "frame_sampled_phash_v1",
+        "sourceFamilyId": "fixture-family",
+    }
 
 
 class NextSliceTests(unittest.TestCase):
@@ -415,9 +427,13 @@ class NextSliceTests(unittest.TestCase):
             manifest.set_review_state(out.name, "approved")
             manifest.save()
 
-            result = export_approved(
-                root, account="acct", platform="ig", date="2026-05-13"
-            )
+            with patch(
+                "reel_factory.export_approved.enrich_lineage_identity",
+                side_effect=_fixture_lineage_identity,
+            ):
+                result = export_approved(
+                    root, account="acct", platform="ig", date="2026-05-13"
+                )
 
             self.assertEqual(result["count"], 1)
             self.assertEqual(result["items"][0]["target_ratio"], "4:5")
@@ -466,9 +482,13 @@ class NextSliceTests(unittest.TestCase):
             manifest.set_review_state(out.name, "approved")
             manifest.save()
 
-            result = export_approved(
-                root, account="acct", platform="ig", date="2026-05-13"
-            )
+            with patch(
+                "reel_factory.export_approved.enrich_lineage_identity",
+                side_effect=_fixture_lineage_identity,
+            ):
+                result = export_approved(
+                    root, account="acct", platform="ig", date="2026-05-13"
+                )
 
             self.assertEqual(
                 result["items"][0]["audio_intent"]["status"], "recommended"

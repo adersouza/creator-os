@@ -1176,6 +1176,9 @@ class PublishabilityRepository:
         trial_graduation_strategy = (distribution_plan or {}).get(
             "trialGraduationStrategy"
         ) or (distribution_plan or {}).get("trial_graduation_strategy")
+        trial_group_id = (distribution_plan or {}).get("trialGroupId") or (
+            distribution_plan or {}
+        ).get("trial_group_id")
         if not failures and distribution_plan is not None:
             manifest = {
                 "manifest_version": 2 if distribution_content_surface != "reel" else 1,
@@ -1230,6 +1233,7 @@ class PublishabilityRepository:
                 "trial_graduation_strategy": trial_graduation_strategy
                 if instagram_trial_reels
                 else None,
+                "trial_group_id": trial_group_id if instagram_trial_reels else None,
                 "exported_by_system": "campaign_factory",
                 "exported_at": self._utc_now(),
             }
@@ -1375,5 +1379,7 @@ class PublishabilityRepository:
             "trial_graduation_strategy": trial_graduation_strategy
             if instagram_trial_reels
             else None,
+            "trialGroupId": trial_group_id if instagram_trial_reels else None,
+            "trial_group_id": trial_group_id if instagram_trial_reels else None,
             "warnings": sorted(set(warnings)),
         }
