@@ -14,8 +14,8 @@ provider credentials, and `pipeline_smoke.py --real-providers` explicitly exits
 because the real-provider path is not implemented. No scheduling, publishing,
 or paid-provider action was performed.
 
-Final verification: Creator OS passes 187 JavaScript/TypeScript tests and 1,469
-Python tests (including 153/153 ContentForge tests), plus both production builds
+Final verification: Creator OS passes 188 JavaScript/TypeScript tests and 1,484
+Python tests (including 154/154 ContentForge tests), plus both production builds
 and every static/contract/architecture gate. ThreadsDashboard passes 5,195 tests
 (1 skipped, 3 todo), typecheck, compatibility/contract parity, Biome lint,
 migration lint, production build, and bundle budgets.
