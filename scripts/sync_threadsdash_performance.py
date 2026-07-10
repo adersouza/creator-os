@@ -16,6 +16,8 @@ REQUIRED_ENV = (
     "LEARNING_LOOP_CUTOVER",
 )
 
+DEFAULT_SYNC_LIMIT = 10_000
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CAMPAIGN_FACTORY_DB = (
     REPO_ROOT / "python_packages" / "campaign_factory" / "campaign_factory.sqlite"
@@ -54,7 +56,14 @@ def build_sync_command(
     missing = [name for name in REQUIRED_ENV if not env.get(name)]
     if missing:
         raise ValueError(f"missing required performance sync env: {', '.join(missing)}")
-    limit = env.get("CAMPAIGN_FACTORY_SYNC_LIMIT", "1000")
+    try:
+        limit = int(env.get("CAMPAIGN_FACTORY_SYNC_LIMIT", str(DEFAULT_SYNC_LIMIT)))
+    except ValueError as exc:
+        raise ValueError(
+            "CAMPAIGN_FACTORY_SYNC_LIMIT must be a positive integer"
+        ) from exc
+    if limit <= 0:
+        raise ValueError("CAMPAIGN_FACTORY_SYNC_LIMIT must be a positive integer")
     return [
         "uv",
         "run",
@@ -69,7 +78,7 @@ def build_sync_command(
         "--supabase-service-role-key",
         env["SUPABASE_SERVICE_ROLE_KEY"],
         "--limit",
-        limit,
+        str(limit),
     ]
 
 
