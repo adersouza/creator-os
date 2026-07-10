@@ -5,7 +5,11 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from .assignment_eligibility import asset_identity, enforce_assignment_eligibility
+from .assignment_eligibility import (
+    asset_identity,
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 
 
 def _job_resolution_scope(job: dict[str, Any]) -> tuple[str, str]:
@@ -355,6 +359,7 @@ class CampaignOverviewRepository:
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self._record_event(
             "asset_account_assigned",
             campaign_id=asset["campaign_id"],

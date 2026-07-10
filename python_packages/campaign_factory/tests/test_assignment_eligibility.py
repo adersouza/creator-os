@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from campaign_factory.assignment_eligibility import (
     AssignmentEligibilityError,
+    enforce_assignment_eligibility,
     evaluate_assignment_eligibility,
     write_assignment_eligibility_artifact,
 )
@@ -78,8 +79,9 @@ def add_asset(
         """
         INSERT INTO rendered_assets
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path,
-         filename, metadata_json, review_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?)
+         filename, metadata_json, caption_generation_json, review_state,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?)
         """,
         (
             asset_id,
@@ -90,6 +92,13 @@ def add_asset(
             str(output),
             output.name,
             json.dumps(metadata),
+            json.dumps(
+                {
+                    "generatedAssetLineage": {
+                        "contentFingerprint": content_hash,
+                    }
+                }
+            ),
             now,
             now,
         ),
@@ -108,6 +117,14 @@ def test_missing_identity_is_fail_closed_to_first_persisted_origin(tmp_path: Pat
         asset = add_asset(cf, tmp_path, asset_id="asset_missing", content_hash="hash-a")
         first = cf.upsert_account("first", account_group_id="stacey")
         second = cf.upsert_account("second", account_group_id="stacey")
+
+        decision = enforce_assignment_eligibility(
+            cf.conn,
+            rendered_asset_id=asset["id"],
+            account_id=first["id"],
+        )
+        assert decision["allowed"] is True
+        assert cf.rendered_asset(asset["id"])["origin_account_id"] is None
 
         cf.assign_asset_account(asset["id"], account_id=first["id"])
         persisted = cf.rendered_asset(asset["id"])
@@ -161,6 +178,61 @@ def test_source_family_reuse_gate_is_shared_by_plan_and_reservation(tmp_path: Pa
                 account_id=second["id"],
                 reuse_cooldown_days=14,
             )
+    finally:
+        cf.close()
+
+
+def test_promotion_window_query_is_indexed_and_scoped_to_account_group(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        asset = add_asset(
+            cf,
+            tmp_path,
+            asset_id="asset_promotion_scope",
+            content_hash="f" * 64,
+            source_family_id="family-promotion-scope",
+            perceptual_fingerprint="phash64:ffff",
+        )
+        first = cf.upsert_account("scope-first", account_group_id="group-a")
+        same_group = cf.upsert_account("scope-same", account_group_id="group-a")
+        other_group = cf.upsert_account("scope-other", account_group_id="group-b")
+        campaign_id = asset["campaign_id"]
+        now = "2026-07-09T12:00:00+00:00"
+        cf.conn.execute(
+            """
+            INSERT INTO promotions
+            (id, promotion_type, campaign_id, rendered_asset_id, account_id,
+             account_group_id, posting_slot_id, content_fingerprint,
+             source_system, created_at, updated_at)
+            VALUES ('promotion_scope', 'reel_ledger', ?, ?, ?, 'group-a',
+                    'slot_scope', ?, 'test', ?, ?)
+            """,
+            (campaign_id, asset["id"], first["id"], asset["content_hash"], now, now),
+        )
+        cf.conn.commit()
+
+        blocked = evaluate_assignment_eligibility(
+            cf.conn,
+            rendered_asset_id=asset["id"],
+            account_id=same_group["id"],
+            planned_at="2026-07-10T12:00:00+00:00",
+        )
+        allowed = evaluate_assignment_eligibility(
+            cf.conn,
+            rendered_asset_id=asset["id"],
+            account_id=other_group["id"],
+            planned_at="2026-07-10T12:00:00+00:00",
+        )
+        indexes = {
+            row["name"]
+            for row in cf.conn.execute("PRAGMA index_list(promotions)").fetchall()
+        }
+
+        assert "exact_content_reuse_window" in blocked["reasonCodes"]
+        assert allowed["allowed"] is True
+        assert "idx_promotions_identity_window_v2" in indexes
     finally:
         cf.close()
 
@@ -245,6 +317,66 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
         assert regular["accountId"] == account["id"]
         assert regular["surface"] == "regular_reel"
         assert regular["plannedWindowStart"] is None
+        event = cf.conn.execute(
+            "SELECT * FROM promotion_events WHERE promotion_id = ?",
+            (first["promotionId"],),
+        ).fetchone()
+        assert event["rendered_asset_id"] == asset["id"]
+        assert event["content_fingerprint"] == asset["content_hash"]
+        assert event["account_id"] == account["id"]
+        assert event["posting_slot_id"] == "trial_graduation:instagram-trial-post-1"
+        assert event["reason"] == "manual_trial_graduation"
+    finally:
+        cf.close()
+
+
+def test_trial_graduation_hard_fails_without_lineage_fingerprint(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        asset = add_asset(
+            cf,
+            tmp_path,
+            asset_id="asset_trial_missing_fingerprint",
+            content_hash="e" * 64,
+            source_family_id="family-trial-missing",
+            perceptual_fingerprint="phash64:eeee",
+        )
+        account = cf.upsert_account("trial-missing", account_group_id="stacey")
+        trial = cf.create_distribution_plan(
+            asset["id"],
+            surface="trial_reel",
+            account_id=account["id"],
+            instagram_trial_reels=True,
+            trial_graduation_strategy="MANUAL",
+        )
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = '{}' WHERE id = ?",
+            (asset["id"],),
+        )
+        cf.conn.commit()
+
+        with pytest.raises(ValueError, match="missing contentFingerprint"):
+            graduate_trial_reel(
+                cf,
+                trial_post_id="instagram-trial-missing",
+                distribution_plan_id=trial["id"],
+                approved_by="operator@example.com",
+            )
+
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM promotions WHERE trial_post_id = ?",
+                ("instagram-trial-missing",),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM distribution_plans WHERE reason_code = ?",
+                ("trial_graduation:instagram-trial-missing",),
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 

@@ -50,13 +50,27 @@ def asset_identity(asset: dict[str, Any]) -> dict[str, str]:
     )
     return {
         "contentFingerprint": _first(
-            _recursive_value(lineage, "contentFingerprint", "content_fingerprint"),
+            lineage_content_fingerprint(asset),
             asset.get("content_hash"),
         ),
         "sourceFamilyId": source_family,
         "perceptualFingerprint": perceptual,
         "perceptualClusterId": cluster,
     }
+
+
+def lineage_content_fingerprint(asset: dict[str, Any]) -> str:
+    """Return only the fingerprint persisted in generated-asset lineage.
+
+    Promotion paths use this strict accessor so rendered_assets.content_hash can
+    never become a silent fallback identity.
+    """
+    generation = _json_object(asset.get("caption_generation_json"))
+    lineage = generation.get("generatedAssetLineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    return _first(
+        _recursive_value(lineage, "contentFingerprint", "content_fingerprint")
+    )
 
 
 def evaluate_assignment_eligibility(
@@ -144,6 +158,13 @@ def enforce_assignment_eligibility(
     decision = evaluate_assignment_eligibility(conn, **kwargs)
     if not decision["allowed"]:
         raise AssignmentEligibilityError(decision)
+    return decision
+
+
+def persist_assignment_origin(
+    conn: sqlite3.Connection, decision: dict[str, Any]
+) -> None:
+    """Stamp origin only after the caller has persisted the assignment write."""
     destination = str(decision["inputs"].get("accountId") or "")
     rendered_asset_id = str(decision["inputs"]["renderedAssetId"])
     if destination:
@@ -155,7 +176,6 @@ def enforce_assignment_eligibility(
             """,
             (destination, rendered_asset_id),
         )
-    return decision
 
 
 def write_assignment_eligibility_artifact(
@@ -214,20 +234,46 @@ def _reuse_matches(
               AND r.status IN ('pending', 'committed')
             """,
         ),
-        (
-            "promotions",
-            """
-            SELECT p.id record_id, p.rendered_asset_id, p.account_id,
-                   NULL instagram_account_id, NULL account_group_id, p.created_at event_at
-            FROM promotions p
-            WHERE p.campaign_id = ?
-            """,
-        ),
     )
     for source, query in table_queries:
         for row in conn.execute(query, (asset["campaign_id"],)).fetchall():
             item = dict(row)
             item["source"] = source
+            candidates.append(item)
+
+    # Promotion exact-reuse checks query the constrained store by its indexed
+    # identity/window fields. Source-family and perceptual matches are already
+    # represented by each promotion's canonical distribution/assignment rows.
+    if identity["contentFingerprint"]:
+        promotion_rows = conn.execute(
+            """
+            SELECT p.id record_id, p.rendered_asset_id, p.account_id,
+                   NULL instagram_account_id, p.account_group_id,
+                   p.created_at event_at
+            FROM promotions p
+            WHERE p.campaign_id = ?
+              AND p.content_fingerprint = ?
+              AND p.account_id != ?
+              AND p.created_at >= ?
+              AND p.created_at <= ?
+              AND (
+                    p.account_group_id = ?
+                    OR p.account_group_id IS NULL
+                    OR p.account_group_id = ''
+                  )
+            """,
+            (
+                asset["campaign_id"],
+                identity["contentFingerprint"],
+                destination_account_id,
+                cutoff_start.replace(microsecond=0).isoformat(),
+                cutoff_end.replace(microsecond=0).isoformat(),
+                account_group_id,
+            ),
+        ).fetchall()
+        for row in promotion_rows:
+            item = dict(row)
+            item["source"] = "promotions"
             candidates.append(item)
 
     matches: list[dict[str, Any]] = []

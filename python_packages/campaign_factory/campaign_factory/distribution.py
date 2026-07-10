@@ -9,7 +9,10 @@ from datetime import time as datetime_time
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .assignment_eligibility import enforce_assignment_eligibility
+from .assignment_eligibility import (
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 from .caption_outcome import column_values, load_context_json
 from .persistence import json_load
 
@@ -243,6 +246,7 @@ class DistributionRepository:
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self._record_event(
             "distribution_plan_created",
             campaign_id=asset["campaign_id"],

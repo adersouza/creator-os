@@ -38,13 +38,23 @@
 
 - Added constrained `promotions` and typed append-only `promotion_events` tables.
 - Promotion validates lineage fingerprint and removed file-hash fallback computation.
-- Added idempotent legacy backfill, fingerprint reconciliation, stable CSV output, and promotion-table read authority.
+- Added idempotent legacy backfill, fingerprint reconciliation, stable CSV output, constrained identity authority, and latest-event status reads.
 - Added concurrent unique-constraint proof with exactly one winner.
+
+## Second audit — locked-plan closure
+
+- Removed the remaining trial-graduation fallback to `rendered_assets.content_hash`; graduation now requires the lineage-v2 `contentFingerprint` before creating a regular plan or promotion.
+- Made assignment eligibility evaluation side-effect-free and persist `origin_account_id` only after the assignment, reservation, distribution plan, or promotion bridge write succeeds.
+- Made the Campaign Factory eligibility artifact authoritative when Reel Factory receives it; the local rule mirror is now compatibility fallback only. Added allowed and blocked parity tests.
+- Added `account_group_id` to promotion state, indexed the exact identity/window lookup on the promotion store, and stopped rescanning campaign ledger rows for cross-account reuse.
+- Expanded typed promotion events with rendered asset, fingerprint, account, slot, and reason identity columns. Current status is the latest event for the exact identity key.
+- Converted live uniqueness races into savepoint-backed typed skips and typed rejection events instead of transaction-wide failures.
+- Made legacy backfill quarantine duplicate identities with a typed rejection and stable report row instead of raising `IntegrityError`.
 
 ## Verification and landing
 
-- Creator OS `make verify` passes against the isolated ThreadsDashboard consumer: contracts, Ruff, formatting, mypy, architecture, artifact checks, both Next builds, 185 JavaScript/TypeScript tests, and 1,452 Python tests. The existing ContentForge lint baseline remains 23 warnings and 0 errors; 17 media-tool tests remain intentionally skipped when Tesseract is unavailable.
-- Campaign Factory passes 699 tests, including fail-closed eligibility, promotion idempotency, reconciliation, and the exactly-one-winner concurrency proof. Reel Factory passes all 572 tests with the optional vision/AI dependencies installed.
+- Creator OS `make verify` passes against the isolated ThreadsDashboard consumer: contracts, Ruff, formatting, mypy, architecture, artifact checks, both Next builds, 185 JavaScript/TypeScript tests, and 1,457 Python tests. The existing ContentForge lint baseline remains 23 warnings and 0 errors; 17 media-tool tests remain intentionally skipped when Tesseract is unavailable.
+- Campaign Factory passes 702 tests, including fail-closed eligibility, promotion idempotency, migration quarantine, reconciliation, and the exactly-one-winner concurrency proof. Reel Factory passes all 574 tests with the optional vision/AI dependencies installed.
 - ThreadsDashboard passes 5,195 tests (1 skipped, 3 todo), typecheck, Biome lint, compatibility checks, contract parity, migration replay lint, and its production build/bundle budgets.
 - Unblocked the existing Tailwind 4 build mismatch in both Creator OS Next apps by switching their PostCSS integration to `@tailwindcss/postcss`.
 - Landing is isolated to `codex/plan-scheduler-v3`; no merge or deployment is performed by this plan.

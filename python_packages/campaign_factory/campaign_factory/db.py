@@ -769,6 +769,7 @@ CREATE TABLE IF NOT EXISTS promotions (
   campaign_id TEXT NOT NULL,
   rendered_asset_id TEXT NOT NULL,
   account_id TEXT NOT NULL,
+  account_group_id TEXT NOT NULL,
   posting_slot_id TEXT NOT NULL,
   content_fingerprint TEXT NOT NULL,
   trial_post_id TEXT,
@@ -788,7 +789,12 @@ CREATE INDEX IF NOT EXISTS idx_promotions_cross_account_window
 CREATE TABLE IF NOT EXISTS promotion_events (
   id TEXT PRIMARY KEY,
   promotion_id TEXT NOT NULL,
+  rendered_asset_id TEXT NOT NULL,
+  content_fingerprint TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  posting_slot_id TEXT NOT NULL,
   action TEXT NOT NULL CHECK(action IN ('previewed', 'created', 'updated', 'backfilled', 'reconciled', 'rejected')),
+  reason TEXT,
   actor TEXT NOT NULL,
   payload_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
@@ -1512,6 +1518,58 @@ def init_db(conn: sqlite3.Connection) -> None:
         "asset_inventory_reservations",
         {"assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'"},
     )
+    _ensure_columns(conn, "promotions", {"account_group_id": "TEXT"})
+    _ensure_columns(
+        conn,
+        "promotion_events",
+        {
+            "rendered_asset_id": "TEXT",
+            "content_fingerprint": "TEXT",
+            "account_id": "TEXT",
+            "posting_slot_id": "TEXT",
+            "reason": "TEXT",
+        },
+    )
+    conn.execute(
+        """
+        UPDATE promotions
+        SET account_group_id = COALESCE(
+            NULLIF(account_group_id, ''),
+            (
+                SELECT COALESCE(NULLIF(a.account_group_id, ''), NULLIF(a.model_id, ''))
+                FROM accounts a
+                WHERE a.id = promotions.account_id
+            ),
+            campaign_id
+        )
+        WHERE account_group_id IS NULL OR account_group_id = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE promotion_events
+        SET rendered_asset_id = COALESCE(
+                NULLIF(rendered_asset_id, ''),
+                (SELECT p.rendered_asset_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            content_fingerprint = COALESCE(
+                NULLIF(content_fingerprint, ''),
+                (SELECT p.content_fingerprint FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            account_id = COALESCE(
+                NULLIF(account_id, ''),
+                (SELECT p.account_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            posting_slot_id = COALESCE(
+                NULLIF(posting_slot_id, ''),
+                (SELECT p.posting_slot_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            )
+        WHERE rendered_asset_id IS NULL OR rendered_asset_id = ''
+           OR content_fingerprint IS NULL OR content_fingerprint = ''
+           OR account_id IS NULL OR account_id = ''
+           OR posting_slot_id IS NULL OR posting_slot_id = ''
+        """
+    )
     _ensure_columns(
         conn,
         "account_content_requirements",
@@ -1615,6 +1673,14 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_distribution_plans_caption_hash ON distribution_plans(caption_hash)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_promotions_identity_window_v2 "
+        "ON promotions(content_fingerprint, account_group_id, created_at, account_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_promotion_events_identity "
+        "ON promotion_events(content_fingerprint, account_id, posting_slot_id, created_at)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_assignment_identity_window "

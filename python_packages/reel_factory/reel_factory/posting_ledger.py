@@ -457,6 +457,7 @@ def assign_approved_reels(
                 lineage=item_lineage,
                 uniqueness=candidate_uniqueness,
                 source_reuse_window_days=source_reuse_window_days,
+                include_policy_rules=not artifact_decisions,
             )
             artifact_reason = _artifact_assignment_conflict(
                 artifact_decisions,
@@ -985,6 +986,7 @@ def _assignment_conflicts(
     lineage: dict[str, Any],
     uniqueness: dict[str, Any],
     source_reuse_window_days: int,
+    include_policy_rules: bool = True,
 ) -> list[str]:
     reasons = []
     existing_output = conn.execute(
@@ -1015,39 +1017,41 @@ def _assignment_conflicts(
     ).fetchone()
     if existing_campaign_fp:
         reasons.append("duplicate_content_fingerprint_for_campaign")
-    has_identity = bool(
-        uniqueness.get("source_family_id") or uniqueness.get("perceptual_fingerprint")
-    )
-    declared_origin = str(
-        _lineage_value(lineage, "originAccountId", "origin_account_id") or ""
-    )
-    if not has_identity:
-        prior = conn.execute(
-            """
-            SELECT account_id, origin_account_id FROM posting_slots
-            WHERE content_fingerprint=?
-              AND post_status NOT IN ('planned', 'skipped', 'failed')
-            ORDER BY created_at LIMIT 1
-            """,
-            (fingerprint,),
-        ).fetchone()
-        origin = declared_origin or (
-            str(prior["origin_account_id"] or prior["account_id"]) if prior else ""
+    if include_policy_rules:
+        has_identity = bool(
+            uniqueness.get("source_family_id")
+            or uniqueness.get("perceptual_fingerprint")
         )
-        if origin and origin != slot["account_id"]:
-            reasons.append("missing_identity_metadata")
-    source_reference_id = _lineage_value(
-        lineage, "sourceReferenceId", "reference_id", "source_reference_id"
-    )
-    if source_reference_id:
-        probe = dict(slot)
-        probe["source_reference_id"] = source_reference_id
-        if _nearby_source_rows(conn, probe, source_reuse_window_days):
-            reasons.append("nearby_source_reuse_for_account")
-    if _nearby_cross_account_uniqueness_rows(
-        conn, slot, uniqueness, source_reuse_window_days
-    ):
-        reasons.append("cross_account_source_or_perceptual_reuse")
+        declared_origin = str(
+            _lineage_value(lineage, "originAccountId", "origin_account_id") or ""
+        )
+        if not has_identity:
+            prior = conn.execute(
+                """
+                SELECT account_id, origin_account_id FROM posting_slots
+                WHERE content_fingerprint=?
+                  AND post_status NOT IN ('planned', 'skipped', 'failed')
+                ORDER BY created_at LIMIT 1
+                """,
+                (fingerprint,),
+            ).fetchone()
+            origin = declared_origin or (
+                str(prior["origin_account_id"] or prior["account_id"]) if prior else ""
+            )
+            if origin and origin != slot["account_id"]:
+                reasons.append("missing_identity_metadata")
+        source_reference_id = _lineage_value(
+            lineage, "sourceReferenceId", "reference_id", "source_reference_id"
+        )
+        if source_reference_id:
+            probe = dict(slot)
+            probe["source_reference_id"] = source_reference_id
+            if _nearby_source_rows(conn, probe, source_reuse_window_days):
+                reasons.append("nearby_source_reuse_for_account")
+        if _nearby_cross_account_uniqueness_rows(
+            conn, slot, uniqueness, source_reuse_window_days
+        ):
+            reasons.append("cross_account_source_or_perceptual_reuse")
     return reasons
 
 

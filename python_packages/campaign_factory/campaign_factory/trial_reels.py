@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .assignment_eligibility import lineage_content_fingerprint
 from .core import CampaignFactory, new_id, utc_now
 
 
@@ -45,6 +46,30 @@ def graduate_trial_reel(
     instagram_account_id = str(trial.get("instagram_account_id") or "")
     if not (account_id or instagram_account_id):
         raise ValueError("trial plan is missing its origin account")
+    asset_row = factory.conn.execute(
+        "SELECT * FROM rendered_assets WHERE id = ?",
+        (trial["rendered_asset_id"],),
+    ).fetchone()
+    if not asset_row:
+        raise ValueError(f"rendered asset not found: {trial['rendered_asset_id']}")
+    asset = dict(asset_row)
+    fingerprint = lineage_content_fingerprint(asset)
+    if not fingerprint:
+        raise ValueError("generated asset lineage missing contentFingerprint")
+    if asset.get("content_hash") and asset["content_hash"] != fingerprint:
+        raise ValueError("generated asset lineage contentFingerprint mismatch")
+    canonical_account = account_id or instagram_account_id
+    account_group_id = str(trial.get("account_group_id") or "")
+    if not account_group_id and account_id:
+        account = factory.conn.execute(
+            "SELECT account_group_id, model_id FROM accounts WHERE id = ?",
+            (account_id,),
+        ).fetchone()
+        if account:
+            account_group_id = str(
+                account["account_group_id"] or account["model_id"] or ""
+            )
+    account_group_id = account_group_id or str(trial["campaign_id"])
     regular_row = factory.conn.execute(
         "SELECT id FROM distribution_plans WHERE reason_code = ?",
         (f"trial_graduation:{trial_post_id}",),
@@ -63,17 +88,12 @@ def graduate_trial_reel(
             trial_group_id=trial.get("trial_group_id"),
         )
     )
-    asset = factory.conn.execute(
-        "SELECT content_hash FROM rendered_assets WHERE id = ?",
-        (trial["rendered_asset_id"],),
-    ).fetchone()
-    canonical_account = account_id or instagram_account_id
     prior = factory.conn.execute(
         """
         SELECT * FROM promotions
         WHERE content_fingerprint = ? AND account_id = ?
         """,
-        (asset["content_hash"], canonical_account),
+        (fingerprint, canonical_account),
     ).fetchone()
     now = utc_now()
     if prior:
@@ -81,8 +101,12 @@ def graduate_trial_reel(
             raise ValueError("content/account promotion already has another trial post")
         promotion_id = str(prior["id"])
         factory.conn.execute(
-            "UPDATE promotions SET trial_post_id = ?, updated_at = ? WHERE id = ?",
-            (trial_post_id, now, promotion_id),
+            """
+            UPDATE promotions
+            SET trial_post_id = ?, account_group_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (trial_post_id, account_group_id, now, promotion_id),
         )
         event_action = "updated"
     else:
@@ -90,18 +114,19 @@ def graduate_trial_reel(
         factory.conn.execute(
             """
             INSERT INTO promotions
-            (id, promotion_type, campaign_id, rendered_asset_id, account_id,
+            (id, promotion_type, campaign_id, rendered_asset_id, account_id, account_group_id,
              posting_slot_id, content_fingerprint, trial_post_id, source_system,
              created_at, updated_at)
-            VALUES (?, 'trial_graduation', ?, ?, ?, ?, ?, ?, 'instagram_trial_reels', ?, ?)
+            VALUES (?, 'trial_graduation', ?, ?, ?, ?, ?, ?, ?, 'instagram_trial_reels', ?, ?)
             """,
             (
                 promotion_id,
                 trial["campaign_id"],
                 trial["rendered_asset_id"],
                 canonical_account,
+                account_group_id,
                 f"trial_graduation:{trial_post_id}",
-                asset["content_hash"],
+                fingerprint,
                 trial_post_id,
                 now,
                 now,
@@ -119,12 +144,18 @@ def graduate_trial_reel(
     factory.conn.execute(
         """
         INSERT INTO promotion_events
-        (id, promotion_id, action, actor, payload_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (id, promotion_id, rendered_asset_id, content_fingerprint,
+         account_id, posting_slot_id, action, reason, actor,
+         payload_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'manual_trial_graduation', ?, ?, ?)
         """,
         (
             new_id("promotion_event"),
             promotion_id,
+            trial["rendered_asset_id"],
+            fingerprint,
+            canonical_account,
+            f"trial_graduation:{trial_post_id}",
             event_action,
             approved_by,
             json.dumps(event_payload, ensure_ascii=False, sort_keys=True),

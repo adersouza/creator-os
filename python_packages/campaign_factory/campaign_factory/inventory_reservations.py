@@ -6,7 +6,10 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from .assignment_eligibility import enforce_assignment_eligibility
+from .assignment_eligibility import (
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 
 
 class InventoryReservationRepository:
@@ -147,6 +150,7 @@ class InventoryReservationRepository:
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self.conn.commit()
         return dict(
             self.conn.execute(
