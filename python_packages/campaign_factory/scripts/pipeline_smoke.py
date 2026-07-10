@@ -9,6 +9,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from campaign_factory.pipeline_smoke import run_pipeline_smoke
+from campaign_factory.real_provider_acceptance import (
+    JsonCommandAcceptanceSeams,
+    run_real_provider_acceptance,
+)
 
 DEFAULT_PROJECTS_ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,24 +31,45 @@ def main() -> None:
     parser.add_argument(
         "--real-providers",
         action="store_true",
-        help="Reserved for a future paid-provider acceptance smoke; current default is mocked/no credits.",
+        help="Run the paid, draft-only real-provider acceptance path.",
+    )
+    parser.add_argument(
+        "--paid-confirmation",
+        action="store_true",
+        help="Explicitly confirm that this run may consume provider credits.",
+    )
+    parser.add_argument("--target-environment", choices=["preview", "production"])
+    parser.add_argument(
+        "--driver-command",
+        help="Operator-reviewed local JSON phase driver; secrets stay in its environment.",
     )
     parser.add_argument(
         "--max-credits",
         type=float,
         default=0.0,
-        help="Credit cap for future real-provider smoke runs.",
+        help="Hard credit cap for the real-provider smoke run.",
     )
     args = parser.parse_args()
     if args.real_providers:
-        raise SystemExit(
-            "--real-providers is not implemented yet; run the mocked no-credit smoke first."
+        if not args.workspace:
+            raise SystemExit(
+                "--workspace is required for a real-provider acceptance run"
+            )
+        if not args.target_environment:
+            raise SystemExit("--target-environment is required with --real-providers")
+        result = run_real_provider_acceptance(
+            workspace=Path(args.workspace),
+            target_environment=args.target_environment,
+            paid_confirmation=args.paid_confirmation,
+            max_credits=args.max_credits,
+            seams=JsonCommandAcceptanceSeams(args.driver_command),
         )
-    result = run_pipeline_smoke(
-        projects_root=Path(args.projects_root),
-        workspace=Path(args.workspace) if args.workspace else None,
-        run_threadsdash_validator=not args.skip_threadsdash_validator,
-    )
+    else:
+        result = run_pipeline_smoke(
+            projects_root=Path(args.projects_root),
+            workspace=Path(args.workspace) if args.workspace else None,
+            run_threadsdash_validator=not args.skip_threadsdash_validator,
+        )
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
