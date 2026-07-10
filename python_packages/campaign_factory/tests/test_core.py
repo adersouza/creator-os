@@ -6494,8 +6494,11 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
 
     def fake_urlopen(request, timeout):
         captured["url"] = request.full_url
-        captured["headers"] = dict(request.header_items())
+        captured["headers"] = {
+            key.lower(): value for key, value in request.header_items()
+        }
         captured["timeout"] = timeout
+        captured["raw_body"] = request.data
         captured["body"] = json.loads(request.data.decode("utf-8"))
         return FakeResponse()
 
@@ -6518,7 +6521,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
                 }
             ]
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+    )
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
 
@@ -6576,11 +6581,19 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
         assert result["supabase"]["attempted"] is False
         assert result["supabase"]["disabled"] is True
         assert captured["url"].endswith("/api/campaign-factory/drafts/ingest")
-        assert (
-            captured["headers"]["X-campaign-factory-ingest-secret"] == "ingest-secret"
+        assert "x-campaign-factory-ingest-secret" not in captured["headers"]
+        timestamp = captured["headers"]["x-campaign-factory-timestamp"]
+        nonce = captured["headers"]["x-campaign-factory-nonce"]
+        assert captured["headers"]["x-campaign-factory-signature"] == (
+            threadsdash_adapter._threadsdash_ingest_signature(
+                captured["raw_body"],
+                secret="ingest-secret",
+                timestamp=timestamp,
+                nonce=nonce,
+            )
         )
         assert (
-            captured["headers"]["X-idempotency-key"]
+            captured["headers"]["x-idempotency-key"]
             == captured["body"]["drafts"][0]["metadata"]["campaign_factory"]["post_key"]
         )
         assert captured["body"]["dryRun"] is False
@@ -6615,7 +6628,9 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
     def fake_urlopen(request, timeout):
         calls.append(
             {
-                "headers": dict(request.header_items()),
+                "headers": {
+                    key.lower(): value for key, value in request.header_items()
+                },
                 "timeout": timeout,
                 "body": json.loads(request.data.decode("utf-8")),
             }
@@ -6631,7 +6646,9 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             assert table == "posts"
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+    )
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda _seconds: None)
     original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
@@ -6689,6 +6706,12 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             )
 
         assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
+        assert len(
+            {call["headers"]["x-campaign-factory-nonce"] for call in calls}
+        ) == len(calls)
+        assert all(
+            "x-campaign-factory-ingest-secret" not in call["headers"] for call in calls
+        )
         export_row = cf.conn.execute(
             "SELECT status FROM threadsdash_exports"
         ).fetchone()
@@ -6712,7 +6735,9 @@ def test_threadsdash_dashboard_ingest_rejects_unallowed_url_before_request(monke
         calls += 1
         raise AssertionError("urlopen should not be called for an unsafe ingest URL")
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+    )
 
     with pytest.raises(ValueError, match="private or reserved IP"):
         threadsdash_adapter._post_threadsdash_draft_ingest(
@@ -6733,6 +6758,67 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
             ingest_url="https://dashboard.example.com/api/internal/proxy",
             ingest_secret="ingest-secret",
         )
+
+
+def test_threadsdash_ingest_hmac_is_bound_to_body_timestamp_and_nonce() -> None:
+    body = b'{"dryRun":false,"drafts":[]}'
+    assert (
+        threadsdash_adapter._threadsdash_ingest_signature(
+            body,
+            secret="current-secret",
+            timestamp="1783675000",
+            nonce="nonce_1234567890",
+        )
+        == "v1=622cfc0c74fb7c5fa11878402496c28f671ef2b291d0cef5584e767c24d92e60"
+    )
+    signature = threadsdash_adapter._threadsdash_ingest_signature(
+        body,
+        secret="ingest-secret",
+        timestamp="1783675000",
+        nonce="nonce_1234567890",
+    )
+
+    assert signature.startswith("v1=")
+    assert len(signature) == 67
+    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+        body + b" ",
+        secret="ingest-secret",
+        timestamp="1783675000",
+        nonce="nonce_1234567890",
+    )
+    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+        body,
+        secret="ingest-secret",
+        timestamp="1783675001",
+        nonce="nonce_1234567890",
+    )
+    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+        body,
+        secret="ingest-secret",
+        timestamp="1783675000",
+        nonce="nonce_0987654321",
+    )
+
+
+def test_threadsdash_ingest_redirect_handler_never_forwards_authenticated_request():
+    request = threadsdash_adapter.Request(
+        "https://dashboard.example.com/api/campaign-factory/drafts/ingest",
+        data=b"{}",
+        method="POST",
+        headers={"X-Campaign-Factory-Signature": "v1=" + "a" * 64},
+    )
+    handler = threadsdash_adapter._RejectDashboardIngestRedirects()
+
+    redirected = handler.redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {"Location": "https://evil.example/steal"},
+        "https://evil.example/steal",
+    )
+
+    assert redirected is None
 
 
 def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
@@ -16706,6 +16792,38 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
     assert len(rows) == 1
     assert "created_at" not in captured["select"].split(",")
     assert captured["post_id"] == "in.(post_1)"
+
+
+@pytest.mark.parametrize("snapshot_at", [None, "not-a-date"])
+def test_metric_history_read_rejects_invalid_snapshot_at_without_created_at_fallback(
+    snapshot_at,
+):
+    row = {
+        "id": "hist_invalid_snapshot_at",
+        "post_id": "post_1",
+        "account_id": "acct_1",
+        "platform": "instagram",
+        "snapshot_at": snapshot_at,
+        "hours_since_publish": 24,
+        "views_count": 1200,
+        "likes_count": 80,
+        "replies_count": 9,
+        "reposts_count": 0,
+        "quotes_count": 0,
+        "shares_count": 14,
+        "saves_count": 22,
+        "reach": 1100,
+        "engagement_rate": 0.113,
+        # This used to be a tempting fallback. Metric-history rows must reject
+        # invalid snapshot_at instead of silently relabeling created_at.
+        "created_at": "2026-01-03T01:00:00+00:00",
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="post_metric_history.read.v1 validation failed.*snapshot_at",
+    ):
+        threadsdash_adapter._validate_threadsdash_post_metric_history_read([row])
 
 
 def test_metric_history_read_batches_the_captured_1000_post_request_shape():

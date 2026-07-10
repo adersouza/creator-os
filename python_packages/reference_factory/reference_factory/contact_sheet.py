@@ -18,7 +18,7 @@ from .timeutil import now_iso
 def select_references(
     conn: Connection,
     mode: str,
-    count: int = 100,
+    count: int = 25,
     per_account: int = 25,
 ) -> list[dict[str, object]]:
     base_query = """

@@ -252,6 +252,11 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
 def _cluster_cards(
     cards: list[dict[str, Any]], embedding_report: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
+    cards = [
+        card
+        for card in cards
+        if str(card.get("reviewLabel") or "").strip().lower() != "ignore"
+    ]
     assignments = (
         embedding_report.get("assignments")
         if isinstance(embedding_report, dict)
@@ -399,6 +404,26 @@ def _cluster_from_items(
             visual, hook, caption, top_dna, prompt_template
         ),
         "operatorUse": _operator_use(label, len(items), cluster_score),
+        "guidanceEligibility": {
+            "searchable": True,
+            "candidatePattern": len(items) >= 3 and len(accounts) >= 2,
+            "primaryPattern": len(items) >= 3
+            and len(accounts) >= 2
+            and bool(measured_scores),
+            "reason": (
+                "singleton_search_only"
+                if len(items) == 1
+                else (
+                    "needs_three_references_across_two_accounts"
+                    if len(items) < 3 or len(accounts) < 2
+                    else (
+                        "candidate_needs_measured_cohort_outcomes"
+                        if not measured_scores
+                        else "primary_pattern_evidence_complete"
+                    )
+                )
+            ),
+        },
     }
     if embedding_meta:
         cluster.update(

@@ -34,6 +34,12 @@ from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
 from .front_generation_stage import run_front_generation_stage
+from .learning_cohort import (
+    audit_learning_cohort,
+    learning_cohort_status,
+    prepare_learning_cohort,
+    run_learning_cohort_day,
+)
 from .learning_readiness import closed_loop_learning_status
 from .motion_edit_stage import run_motion_edit_stage
 from .proactive_cycle_stage import run_proactive_cycle_stage
@@ -311,6 +317,18 @@ def main() -> int:
     closed_loop_status = sub.add_parser("closed-loop-learning-status")
     closed_loop_status.add_argument("--campaign")
     closed_loop_status.add_argument("--min-posts-with-1h-and-24h", type=int, default=50)
+
+    learning_cohort = sub.add_parser("learning-cohort")
+    learning_cohort_sub = learning_cohort.add_subparsers(
+        dest="learning_cohort_cmd", required=True
+    )
+    cohort_prepare = learning_cohort_sub.add_parser("prepare")
+    cohort_prepare.add_argument("--start-date", required=True)
+    cohort_prepare.add_argument("--seed", default="stacey_learning_cohort_v1")
+    cohort_run_day = learning_cohort_sub.add_parser("run-day")
+    cohort_run_day.add_argument("--day", type=int, required=True)
+    learning_cohort_sub.add_parser("status")
+    learning_cohort_sub.add_parser("audit")
 
     routing_audit = sub.add_parser("account-routing-audit")
     routing_audit.add_argument("--creator", required=True)
@@ -1365,6 +1383,19 @@ def main() -> int:
                     check_http=args.check_http,
                 )
             )
+        elif args.cmd == "learning-cohort":
+            if args.learning_cohort_cmd == "prepare":
+                print_json(
+                    prepare_learning_cohort(
+                        cf.conn, start_date=args.start_date, seed=args.seed
+                    )
+                )
+            elif args.learning_cohort_cmd == "run-day":
+                print_json(run_learning_cohort_day(cf.conn, day_index=args.day))
+            elif args.learning_cohort_cmd == "status":
+                print_json(learning_cohort_status(cf.conn))
+            elif args.learning_cohort_cmd == "audit":
+                print_json(audit_learning_cohort(cf.conn))
         elif args.cmd == "import-folder":
             print_json(
                 cf.import_folder(

@@ -143,6 +143,15 @@ def test_post_metric_history_read_requires_selected_source_columns():
         validate_post_metric_history_read(payload)
 
 
+@pytest.mark.parametrize("snapshot_at", [None, "not-a-date"])
+def test_post_metric_history_read_requires_valid_snapshot_at(snapshot_at):
+    payload = load_example("post_metric_history.read")
+    payload["rows"][0]["snapshot_at"] = snapshot_at
+
+    with pytest.raises(ContractValidationError, match="snapshot_at"):
+        validate_post_metric_history_read(payload)
+
+
 def test_campaign_draft_payload_keeps_graph_ids_optional_for_legacy_metadata():
     payload = load_example("campaign_draft_payload")
     meta = payload["drafts"][0]["metadata"]["campaign_factory"]

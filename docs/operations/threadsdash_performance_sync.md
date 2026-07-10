@@ -7,7 +7,7 @@ the Reel Factory learning loop.
 Required environment:
 
 ```sh
-export CAMPAIGN_FACTORY_SYNC_CAMPAIGN="..."
+export CAMPAIGN_FACTORY_SYNC_CAMPAIGNS='["stacey_learning_cohort_v1"]'
 export THREADSDASH_USER_ID="..."
 export SUPABASE_URL="..."
 export SUPABASE_SERVICE_ROLE_KEY="..."
@@ -98,3 +98,8 @@ Example `launchd` job, saved outside the repo as
 ```
 
 Keep `~/.creator-os/performance-sync.env` local-only and mode `0600`.
+
+`CAMPAIGN_FACTORY_SYNC_CAMPAIGNS` is an explicit JSON list. For this rollout it
+must contain only `stacey_learning_cohort_v1`; the old single-campaign setting is
+not accepted, preventing stale LaunchAgent configuration from syncing unrelated
+campaigns.

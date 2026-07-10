@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 REQUIRED_ENV = (
-    "CAMPAIGN_FACTORY_SYNC_CAMPAIGN",
+    "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS",
     "THREADSDASH_USER_ID",
     "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
@@ -26,7 +26,31 @@ DEFAULT_REFERENCE_FACTORY_DB = (
 )
 
 
-def build_sync_command(env: Mapping[str, str]) -> list[str]:
+def configured_campaigns(env: Mapping[str, str]) -> list[str]:
+    raw = env.get("CAMPAIGN_FACTORY_SYNC_CAMPAIGNS")
+    try:
+        value = json.loads(raw or "")
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS must be a JSON array"
+        ) from exc
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(item, str) and item.strip() for item in value)
+    ):
+        raise ValueError(
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS must be a non-empty JSON string array"
+        )
+    campaigns = [item.strip() for item in value]
+    if len(campaigns) != len(set(campaigns)):
+        raise ValueError("CAMPAIGN_FACTORY_SYNC_CAMPAIGNS contains duplicates")
+    return campaigns
+
+
+def build_sync_command(
+    env: Mapping[str, str], campaign: str | None = None
+) -> list[str]:
     missing = [name for name in REQUIRED_ENV if not env.get(name)]
     if missing:
         raise ValueError(f"missing required performance sync env: {', '.join(missing)}")
@@ -37,7 +61,7 @@ def build_sync_command(env: Mapping[str, str]) -> list[str]:
         "campaign-factory",
         "sync-performance",
         "--campaign",
-        env["CAMPAIGN_FACTORY_SYNC_CAMPAIGN"],
+        campaign or configured_campaigns(env)[0],
         "--user-id",
         env["THREADSDASH_USER_ID"],
         "--supabase-url",
@@ -49,7 +73,9 @@ def build_sync_command(env: Mapping[str, str]) -> list[str]:
     ]
 
 
-def build_fanout_command(env: Mapping[str, str]) -> list[str]:
+def build_fanout_command(
+    env: Mapping[str, str], campaign: str | None = None
+) -> list[str]:
     reel_factory_root = Path(env.get("REEL_FACTORY_ROOT") or DEFAULT_REEL_FACTORY_ROOT)
     campaign_factory_db = Path(
         env.get("CAMPAIGN_FACTORY_DB") or DEFAULT_CAMPAIGN_FACTORY_DB
@@ -69,7 +95,7 @@ def build_fanout_command(env: Mapping[str, str]) -> list[str]:
         "--reference-factory-db",
         str(reference_factory_db),
         "--campaign",
-        env["CAMPAIGN_FACTORY_SYNC_CAMPAIGN"],
+        campaign or configured_campaigns(env)[0],
     ]
 
 
@@ -79,49 +105,61 @@ def main(
     args = list(argv or [])
     environment = dict(env or os.environ)
     try:
-        command = build_sync_command(environment)
+        campaigns = configured_campaigns(environment)
+        commands = [build_sync_command(environment, campaign) for campaign in campaigns]
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     if "--dry-run" in args:
-        for cmd in (command, build_fanout_command(environment)):
-            safe = [
-                "<redacted>"
-                if value == environment["SUPABASE_SERVICE_ROLE_KEY"]
-                else value
-                for value in cmd
-            ]
-            print(" ".join(safe))
+        for campaign, command in zip(campaigns, commands, strict=True):
+            for cmd in (command, build_fanout_command(environment, campaign)):
+                safe = [
+                    "<redacted>"
+                    if value == environment["SUPABASE_SERVICE_ROLE_KEY"]
+                    else value
+                    for value in cmd
+                ]
+                print(" ".join(safe))
         return 0
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
-    if completed.returncode != 0:
-        _forward_phase_output(completed)
-        return completed.returncode
-    try:
-        performance_report = _json_report(completed, phase="performance sync")
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    fanout = subprocess.run(
-        build_fanout_command(environment),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if fanout.returncode != 0:
-        _forward_phase_output(fanout)
-        return fanout.returncode
-    try:
-        fanout_report = _json_report(fanout, phase="learning fan-out")
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+    reports: list[dict[str, object]] = []
+    for campaign, command in zip(campaigns, commands, strict=True):
+        completed = subprocess.run(command, check=False, capture_output=True, text=True)
+        if completed.returncode != 0:
+            _forward_phase_output(completed)
+            return completed.returncode
+        try:
+            performance_report = _json_report(completed, phase="performance sync")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        fanout = subprocess.run(
+            build_fanout_command(environment, campaign),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if fanout.returncode != 0:
+            _forward_phase_output(fanout)
+            return fanout.returncode
+        try:
+            fanout_report = _json_report(fanout, phase="learning fan-out")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        reports.append(
+            {
+                "campaign": campaign,
+                "performanceSync": performance_report,
+                "learningFanout": fanout_report,
+            }
+        )
     print(
         json.dumps(
             {
                 "schema": "creator_os.hourly_learning_sync.v1",
-                "performanceSync": performance_report,
-                "learningFanout": fanout_report,
+                "campaigns": reports,
+                "performanceSync": reports[0]["performanceSync"],
+                "learningFanout": reports[0]["learningFanout"],
             },
             ensure_ascii=False,
             sort_keys=True,

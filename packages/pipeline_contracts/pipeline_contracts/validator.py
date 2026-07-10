@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,27 @@ def validate_performance_sync(value: Any) -> None:
 
 def validate_post_metric_history_read(value: Any) -> None:
     validate_contract(value, POST_METRIC_HISTORY_READ_SCHEMA)
+    rows = value.get("rows") if isinstance(value, dict) else None
+    if not isinstance(rows, list):
+        return
+    errors = []
+    for index, row in enumerate(rows):
+        snapshot_at = row.get("snapshot_at") if isinstance(row, dict) else None
+        if not _valid_rfc3339_datetime(snapshot_at):
+            errors.append(f"$.rows[{index}].snapshot_at: must be a non-null date-time")
+    if errors:
+        raise ContractValidationError("; ".join(errors))
+
+
+def _valid_rfc3339_datetime(value: Any) -> bool:
+    if not isinstance(value, str) or "T" not in value:
+        return False
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
 
 
 def validate_caption_outcome_context(value: Any) -> None:

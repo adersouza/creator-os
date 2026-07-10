@@ -9,6 +9,29 @@ Current Creator OS note:
 
 Copy these commands into separate terminals. Replace the values in `<>` before running.
 
+## Paid real-provider acceptance
+
+The paid smoke is draft-only and requires every safety flag explicitly. Its
+local JSON phase driver performs Soul verification, native credit quoting and
+reservation, one generation, static MP4 rendering, Reel Factory and
+ContentForge QC, HMAC ingest, and draft-lineage verification. Credentials stay
+in the driver's environment and are never sent in argv or the phase JSON.
+
+```bash
+uv run python python_packages/campaign_factory/scripts/pipeline_smoke.py \
+  --real-providers \
+  --paid-confirmation \
+  --target-environment preview \
+  --max-credits 1 \
+  --workspace /absolute/path/to/acceptance-artifacts \
+  --driver-command /absolute/path/to/operator-reviewed-driver
+```
+
+The command never schedules or publishes. On success it writes
+`real_provider_acceptance.redacted.json`; on a failure before the paid call it
+cancels the unused reservation, and after consumption it never double-consumes
+or pretends the credit was refunded.
+
 ## 1. Start services
 
 Terminal A: ContentForge.

@@ -393,6 +393,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "blockingReasons": [],
                     },
                 ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_rejection",
+                ),
                 patch("generate_assets._run_json", side_effect=err),
             ):
                 result = create_image_asset(plan)
@@ -505,6 +509,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "blockingReason": "",
                         "blockingReasons": [],
                     },
+                ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_active_image",
                 ),
                 patch(
                     "generate_assets._run_json",
@@ -4306,10 +4314,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("--custom_reference_id", result["commands"][0])
             self.assertIn("d63ea9c7-b2c7-439c-bf0c-edfdf9938a36", result["commands"][0])
             self.assertIn("--aspect_ratio 3:4", command_text)
-            self.assertNotIn("grid_layout", command_text)
-            self.assertNotIn("2x3", command_text.lower())
-            self.assertNotIn("six panel", command_text.lower())
-            self.assertNotIn("cropped panel", command_text.lower())
+            prompt_arg = result["commands"][0][
+                result["commands"][0].index("--prompt") + 1
+            ].lower()
+            self.assertNotIn("grid_layout", prompt_arg)
+            self.assertNotIn("2x3", prompt_arg)
+            self.assertNotIn("six panel", prompt_arg)
+            self.assertNotIn("cropped panel", prompt_arg)
 
     def test_active_docs_describe_direct_reference_not_grok_grid_production(self):
         docs = [

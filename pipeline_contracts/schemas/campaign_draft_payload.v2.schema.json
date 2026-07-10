@@ -324,6 +324,9 @@
                   "generated_asset_lineage": {
                     "$ref": "generated_asset_lineage.v2.schema.json"
                   },
+                  "learning_cohort": {
+                    "$ref": "learning_cohort.v1.schema.json"
+                  },
                   "audio_intent": {
                     "$ref": "audio_intent.v1.schema.json"
                   },

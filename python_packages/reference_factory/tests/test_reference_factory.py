@@ -32,6 +32,7 @@ from reference_factory.caption_adaptation import (
     adapt_caption_library,
     adapt_caption_text,
 )
+from reference_factory.cli import build_parser
 from reference_factory.contact_sheet import generate_contact_sheet
 from reference_factory.db import connect
 from reference_factory.embeddings import build_embedding_clusters
@@ -103,6 +104,22 @@ from reference_factory.server import create_app
 from reference_factory.tiktok_archive import import_tiktok_archive
 
 from pipeline_contracts import ContractValidationError
+
+
+@pytest.fixture(autouse=True)
+def _isolated_higgsfield_spend_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep mocked provider tests on an isolated, fully explicit USD policy."""
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(tmp_path / "ai_costs.sqlite"))
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "1000")
+    monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "100")
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "0")
+    monkeypatch.setattr(
+        "higgsfield_cost_preflight.CliBalanceProvider.balance",
+        lambda _self: (1000.0, None),
+    )
+
 
 GOOD_IMAGE_PROMPT_JSON = {
     "promptMode": "structured_json",
@@ -1228,6 +1245,61 @@ def test_generate_video_prompts_uses_latest_analysis_per_reference(
     )
 
 
+@pytest.mark.parametrize(
+    ("command", "flag", "value"),
+    [
+        ("generate-with-higgsfield", "--estimated-cost-usd", "nan"),
+        ("generate-with-higgsfield", "--estimated-cost-usd", "inf"),
+        ("generate-with-higgsfield", "--estimated-cost-usd", "-1"),
+        ("generate-with-higgsfield", "--max-credits", "nan"),
+        ("generate-with-higgsfield", "--max-credits", "-1"),
+        ("generate-with-higgsfield", "--limit", "0"),
+        ("generate-with-higgsfield", "--image-candidates", "-1"),
+        ("run-daily-generation", "--limit", "0"),
+        ("run-daily-generation", "--max-credits", "inf"),
+    ],
+)
+def test_higgsfield_cli_rejects_invalid_money_and_asset_counts(
+    command: str, flag: str, value: str
+) -> None:
+    required = (
+        [
+            "--creative-plan",
+            "plan.json",
+            "--campaign",
+            "campaign",
+            "--model",
+            "model",
+            "--campaign-factory-root",
+            "/tmp/campaign",
+        ]
+        if command == "run-daily-generation"
+        else []
+    )
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([command, *required, flag, value])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"limit": 0},
+        {"limit": True},
+        {"image_candidates": 0},
+        {"max_credits": float("nan")},
+        {"max_credits": float("inf")},
+        {"max_credits": -1.0},
+        {"estimated_cost_usd": float("nan")},
+        {"estimated_cost_usd": -1.0},
+    ],
+)
+def test_higgsfield_programmatic_api_rejects_invalid_budget_inputs(
+    tmp_path: Path, kwargs: dict
+) -> None:
+    with pytest.raises(ValueError):
+        generate_with_higgsfield(data_root=tmp_path, dry_run=True, **kwargs)
+
+
 def test_higgsfield_prompt_pair_matching_and_dry_run(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     write_higgsfield_prompt_pair(data_root)
@@ -1586,6 +1658,7 @@ def test_higgsfield_variation_moderation_status_is_blocked(tmp_path: Path) -> No
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         variation_grid=True,
         variation_strategy="grid",
         selected_image=selected_image,
@@ -1632,6 +1705,7 @@ def test_higgsfield_variation_reruns_blocked_cached_result(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         variation_grid=True,
         variation_strategy="grid",
         selected_image=selected_image,
@@ -1679,6 +1753,7 @@ def test_higgsfield_individual_variations_assemble_local_grid(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         variation_grid=True,
         variation_strategy="individual",
         selected_image=selected_image,
@@ -1745,6 +1820,7 @@ def test_higgsfield_can_animate_individual_variation_panels(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         variation_grid=True,
         variation_strategy="individual",
         animate_variation_panels=True,
@@ -1806,6 +1882,7 @@ def test_higgsfield_reuses_existing_panels_before_kling_animation(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         variation_grid=True,
         variation_strategy="individual",
         animate_variation_panels=True,
@@ -1982,6 +2059,30 @@ def test_higgsfield_generation_blocks_over_credit_cap(tmp_path: Path) -> None:
     assert result["reason"] == "max_credits_exceeded"
 
 
+def test_reference_factory_paid_higgsfield_requires_usd_reservation(
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "data"
+    write_higgsfield_prompt_pair(data_root)
+    calls: list[list[str]] = []
+
+    def fake_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        raise AssertionError("provider must not run without a USD estimate")
+
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        runner=fake_runner,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "cost_preflight_blocked"
+    assert result["costPreflight"]["blockingReasons"] == ["cost_estimate_missing"]
+    assert result["runs"] == []
+    assert calls == []
+
+
 def test_higgsfield_generation_blocks_low_prompt_score(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     prompt_dir = data_root / "reference_intake"
@@ -2044,7 +2145,11 @@ def test_higgsfield_mocked_success_writes_lineage(tmp_path: Path) -> None:
         raise AssertionError(cmd)
 
     result = generate_with_higgsfield(
-        data_root=data_root, limit=1, wait=True, runner=fake_runner
+        data_root=data_root,
+        limit=1,
+        wait=True,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
     )
 
     run = result["runs"][0]
@@ -2157,6 +2262,7 @@ def test_higgsfield_campaign_intake_uses_campaign_pythonpath(tmp_path: Path) -> 
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         campaign_factory_root=campaign_root,
         campaign="daily",
         model="stacey",
@@ -2199,8 +2305,18 @@ def test_higgsfield_result_list_shape_and_resume_image(tmp_path: Path) -> None:
             )
         raise AssertionError(cmd)
 
-    first = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
-    second = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
+    first = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
+    )
+    second = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
+    )
 
     assert first["status"] == "ok"
     assert second["status"] == "ok"
@@ -2243,6 +2359,7 @@ def test_higgsfield_runner_records_cost_events(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         campaign="daily",
         runner=fake_runner,
         max_credits=20,
@@ -2256,13 +2373,18 @@ def test_higgsfield_runner_records_cost_events(
     ] == ["higgsfield", "kling"]
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT provider, operation, campaign_id, metadata_json FROM ai_cost_events ORDER BY provider"
+            "SELECT provider, operation, campaign_id, metadata_json, reservation_id FROM ai_cost_events ORDER BY provider"
         ).fetchall()
+        reservation = conn.execute(
+            "SELECT id, status, estimated_cost_usd FROM higgsfield_spend_reservations"
+        ).fetchone()
     assert len(rows) == 2
     assert rows[0][0] == "higgsfield"
     assert rows[0][2] == "daily"
     assert json.loads(rows[0][3])["actualCredits"] == 0.12
     assert rows[1][0] == "kling"
+    assert reservation[1:] == ("consumed", 1.0)
+    assert {row[4] for row in rows} == {reservation[0]}
 
 
 def test_higgsfield_runner_records_image_cost_when_video_fails(
@@ -2296,6 +2418,7 @@ def test_higgsfield_runner_records_image_cost_when_video_fails(
     result = generate_with_higgsfield(
         data_root=data_root,
         limit=1,
+        estimated_cost_usd=1.0,
         campaign="daily",
         runner=fake_runner,
         max_credits=20,
@@ -2329,7 +2452,12 @@ def test_higgsfield_failed_image_prevents_video_generation(tmp_path: Path) -> No
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 1, "", "image failed")
 
-    result = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
+    )
 
     assert result["status"] == "partial"
     assert result["runs"][0]["status"] == "generation_failed"
@@ -2361,7 +2489,12 @@ def test_higgsfield_nowait_without_asset_is_submitted(tmp_path: Path) -> None:
             )
         raise AssertionError(cmd)
 
-    result = generate_with_higgsfield(data_root=data_root, limit=1, runner=fake_runner)
+    result = generate_with_higgsfield(
+        data_root=data_root,
+        limit=1,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
+    )
 
     run = result["runs"][0]
     run_dir = Path(run["lineagePath"]).parent
@@ -2386,7 +2519,11 @@ def test_higgsfield_primary_moderation_status_fails_run(tmp_path: Path) -> None:
         )
 
     result = generate_with_higgsfield(
-        data_root=data_root, limit=1, wait=True, runner=fake_runner
+        data_root=data_root,
+        limit=1,
+        wait=True,
+        estimated_cost_usd=1.0,
+        runner=fake_runner,
     )
 
     assert result["status"] == "partial"
@@ -2428,6 +2565,7 @@ def test_higgsfield_empty_download_is_rejected(
         data_root=data_root,
         limit=1,
         wait=True,
+        estimated_cost_usd=1.0,
         no_video=True,
         runner=fake_runner,
     )
@@ -2761,7 +2899,7 @@ def test_review_api_lists_labels_and_stats(tmp_path: Path) -> None:
     assert batch_response.status_code == 200
     assert batch_response.json()["schema"] == "reference_factory.review_batch.v1"
     assert stats_response.json()["counts"]["gold"] == 1
-    assert stats_response.json()["goldProgress"]["target"] == 300
+    assert stats_response.json()["goldProgress"]["target"] == 240
     assert review_stats(connect(db_path))["counts"]["validVideos"] == 1
 
 

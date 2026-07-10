@@ -5,6 +5,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from reel_factory.higgsfield_cost_preflight import (
+    nonnegative_float_arg,
+    positive_int_arg,
+)
+
 from .audio import (
     analyze_audio_patterns,
     audio_catalog_health,
@@ -128,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="random",
         choices=["random", "top-accounts", "captioned", "visual", "best", "unreviewed"],
     )
-    sheet.add_argument("--count", type=int, default=100)
+    sheet.add_argument("--count", type=int, default=25)
     sheet.add_argument("--per-account", type=int, default=25)
 
     shortlist = sub.add_parser("shortlist", help="Print ranked candidate shortlist")
@@ -137,9 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     review_batch_parser = sub.add_parser(
         "review-batch", help="Print a balanced guided review batch"
     )
-    review_batch_parser.add_argument("--target", type=int, default=300)
+    review_batch_parser.add_argument("--target", type=int, default=240)
     review_batch_parser.add_argument("--mode", default="balanced", choices=["balanced"])
-    review_batch_parser.add_argument("--account-cap", type=int, default=30)
+    review_batch_parser.add_argument("--account-cap", type=int, default=60)
 
     label = sub.add_parser("label", help="Persist a manual review label")
     label.add_argument("--reference-id", required=True)
@@ -548,7 +553,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Derived data root; accepted here for command-local ergonomics",
     )
-    higgsfield.add_argument("--limit", type=int, default=1)
+    higgsfield.add_argument("--limit", type=positive_int_arg, default=1)
     higgsfield.add_argument(
         "--reference-id",
         default=None,
@@ -558,14 +563,20 @@ def build_parser() -> argparse.ArgumentParser:
     higgsfield.add_argument("--kling-mode", default="std", choices=["std", "pro", "4k"])
     higgsfield.add_argument("--wait", action="store_true")
     higgsfield.add_argument("--dry-run", action="store_true")
-    higgsfield.add_argument("--max-credits", type=float, default=8.0)
+    higgsfield.add_argument("--max-credits", type=nonnegative_float_arg, default=8.0)
+    higgsfield.add_argument(
+        "--estimated-cost-usd",
+        type=nonnegative_float_arg,
+        default=None,
+        help="Required positive USD estimate for any non-dry-run paid generation",
+    )
     higgsfield.add_argument(
         "--min-prompt-score",
         type=int,
         default=72,
         help="Block Higgsfield generation below this prompt quality score; use 0 to disable",
     )
-    higgsfield.add_argument("--image-candidates", type=int, default=1)
+    higgsfield.add_argument("--image-candidates", type=positive_int_arg, default=1)
     higgsfield.add_argument("--variation-grid", action="store_true")
     higgsfield.add_argument("--variation-model", default="grok_image")
     higgsfield.add_argument("--variation-layout", default="2x3", choices=["2x3", "3x3"])
@@ -602,7 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Derived data root; accepted here for command-local ergonomics",
     )
     daily_generation.add_argument("--creative-plan", required=True)
-    daily_generation.add_argument("--limit", type=int, default=10)
+    daily_generation.add_argument("--limit", type=positive_int_arg, default=10)
     daily_generation.add_argument("--campaign", required=True)
     daily_generation.add_argument("--model", required=True)
     daily_generation.add_argument("--campaign-factory-root", required=True)
@@ -612,7 +623,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     daily_generation.add_argument("--wait", action="store_true")
     daily_generation.add_argument("--dry-run", action="store_true")
-    daily_generation.add_argument("--max-credits", type=float, default=80.0)
+    daily_generation.add_argument(
+        "--max-credits", type=nonnegative_float_arg, default=80.0
+    )
+    daily_generation.add_argument(
+        "--estimated-cost-usd",
+        type=nonnegative_float_arg,
+        default=None,
+        help="Required positive USD estimate for any non-dry-run paid generation",
+    )
 
     verify_proof = sub.add_parser(
         "verify-proof-bundle",
@@ -1112,6 +1131,7 @@ def main(argv: list[str] | None = None) -> int:
                     wait=args.wait,
                     dry_run=args.dry_run,
                     max_credits=args.max_credits,
+                    estimated_cost_usd=args.estimated_cost_usd,
                     min_prompt_score=None
                     if args.min_prompt_score <= 0
                     else args.min_prompt_score,
@@ -1151,6 +1171,7 @@ def main(argv: list[str] | None = None) -> int:
                     wait=args.wait,
                     dry_run=args.dry_run,
                     max_credits=args.max_credits,
+                    estimated_cost_usd=args.estimated_cost_usd,
                 )
             )
         elif args.command == "verify-proof-bundle":

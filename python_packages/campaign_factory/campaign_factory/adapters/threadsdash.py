@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import json
 import mimetypes
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from ..caption_outcome import (
     build_caption_outcome_context,
@@ -54,6 +55,25 @@ DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
+CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION = "v1"
+_STDLIB_URLOPEN = urlopen
+
+
+class _RejectDashboardIngestRedirects(HTTPRedirectHandler):
+    """Never forward authenticated ingest requests to a redirect target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_threadsdash_ingest_request(request: Request, *, timeout: float):
+    # Preserve the existing injected transport seam used by deterministic E2E
+    # fakes. Runtime traffic keeps the no-redirect opener below.
+    if urlopen is not _STDLIB_URLOPEN:
+        return urlopen(request, timeout=timeout)
+    return build_opener(_RejectDashboardIngestRedirects()).open(
+        request, timeout=timeout
+    )
 
 
 def build_draft_payloads(
@@ -158,6 +178,7 @@ def build_draft_payloads(
                 audio_intent=audio_intent,
                 variant_assignment=variation_assignment,
             )
+            learning_cohort = _learning_cohort_metadata(asset)
             publishability = factory.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
@@ -275,6 +296,7 @@ def build_draft_payloads(
                 "referencePattern": asset.get("referencePattern") or {},
                 "sourcePrompt": asset.get("sourcePrompt") or {},
                 "generatedAssetLineage": generated_asset_lineage,
+                "learningCohort": learning_cohort,
                 "audioRecommendations": audio_recommendations,
                 "audioIntent": audio_intent,
                 "auditSummary": asset.get("auditSummary") or {},
@@ -1928,6 +1950,16 @@ def _validate_threadsdash_ingest_url(url: str) -> str:
     return urlunparse((parsed.scheme, netloc, THREADSDASH_INGEST_PATH, "", "", ""))
 
 
+def _threadsdash_ingest_signature(
+    body: bytes, *, secret: str, timestamp: str, nonce: str
+) -> str:
+    signing_input = (
+        timestamp.encode("ascii") + b"." + nonce.encode("ascii") + b"." + body
+    )
+    digest = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).hexdigest()
+    return f"{CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION}={digest}"
+
+
 def _post_threadsdash_draft_ingest(
     payload: dict[str, Any],
     *,
@@ -1952,22 +1984,38 @@ def _post_threadsdash_draft_ingest(
     body = dict(payload)
     body["dryRun"] = False
     idempotency_key = _threadsdash_ingest_idempotency_key(body)
+    body_bytes = json.dumps(
+        body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     last_error: str | None = None
     last_empty_response: dict[str, Any] | None = None
     for attempt in range(1, DASHBOARD_INGEST_MAX_ATTEMPTS + 1):
+        signature_timestamp = str(int(time.time()))
+        signature_nonce = uuid.uuid4().hex
+        signature = _threadsdash_ingest_signature(
+            body_bytes,
+            secret=secret,
+            timestamp=signature_timestamp,
+            nonce=signature_nonce,
+        )
         request = Request(
             safe_url,
-            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            data=body_bytes,
             method="POST",
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "X-Campaign-Factory-Ingest-Secret": secret,
+                "X-Campaign-Factory-Signature": signature,
+                "X-Campaign-Factory-Timestamp": signature_timestamp,
+                "X-Campaign-Factory-Nonce": signature_nonce,
                 "X-Idempotency-Key": idempotency_key,
             },
         )
         try:
-            with urlopen(request, timeout=30) as response:
+            with _open_threadsdash_ingest_request(request, timeout=30) as response:
                 response_body = response.read().decode("utf-8")
                 parsed = json.loads(response_body) if response_body else {}
                 result = {
@@ -2701,6 +2749,23 @@ def _caption_context_for_export(
     )
 
 
+def _learning_cohort_metadata(asset: dict[str, Any]) -> dict[str, Any] | None:
+    candidates = (
+        asset.get("learningCohort"),
+        asset.get("learning_cohort"),
+        (asset.get("sourcePrompt") or {}).get("learning_cohort")
+        if isinstance(asset.get("sourcePrompt"), dict)
+        else None,
+        (asset.get("generatedAssetLineage") or {}).get("learning_cohort")
+        if isinstance(asset.get("generatedAssetLineage"), dict)
+        else None,
+    )
+    for candidate in candidates:
+        if isinstance(candidate, dict) and candidate.get("cohort_id"):
+            return dict(candidate)
+    return None
+
+
 def _build_audio_intent(
     existing: Any,
     *,
@@ -3204,6 +3269,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "reference_pattern": draft.get("referencePattern") or {},
             "source_prompt": draft.get("sourcePrompt") or {},
             "generated_asset_lineage": draft.get("generatedAssetLineage") or {},
+            "learning_cohort": draft.get("learningCohort"),
             "lineage_v2_valid": lineage_v2_is_valid(draft.get("generatedAssetLineage")),
             "creative_plan": draft.get("creativePlan") or {},
             "audio_recommendations": audio_recommendations,
@@ -3307,6 +3373,8 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             metadata["thumbOffset"] = cover_frame.get("seconds")
     if draft.get("smartLink"):
         metadata["campaign_factory_smart_link"] = draft.get("smartLink")
+    if metadata["campaign_factory"].get("learning_cohort") is None:
+        metadata["campaign_factory"].pop("learning_cohort", None)
     return metadata
 
 
@@ -4161,7 +4229,7 @@ def sync_performance_snapshots(
     try:
         client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
         rows, posts_truncated = _select_threadsdash_posts_paged(
-            client, user_id=user_id, limit=limit
+            client, user_id=user_id, campaign_id=campaign["id"], limit=limit
         )
         tracked_rows = []
         tracked_snapshot_count = 0
@@ -4172,14 +4240,8 @@ def sync_performance_snapshots(
         skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         if posts_truncated:
-            warnings.append(
-                {
-                    "reason": "posts_truncated",
-                    "message": (
-                        f"posts read hit the limit of {limit}; additional rows exist "
-                        "and were not synced. Re-run with a higher limit."
-                    ),
-                }
+            raise RuntimeError(
+                f"campaign-filtered posts read exceeded limit {limit}; refusing truncated sync"
             )
         metric_history_error: str | None = None
         history_source_counts: dict[str, int] = {}
@@ -4199,7 +4261,7 @@ def sync_performance_snapshots(
             if not isinstance(campaign_metadata, dict) or not campaign_metadata:
                 continue
             metadata_campaign = campaign_metadata.get("campaign_id")
-            if metadata_campaign and metadata_campaign != campaign_slug:
+            if metadata_campaign not in {campaign["id"], campaign_slug}:
                 continue
             if row.get("id"):
                 metric_history_post_ids.append(str(row["id"]))
@@ -4212,15 +4274,8 @@ def sync_performance_snapshots(
                 )
             )
             if metric_history_truncated:
-                warnings.append(
-                    {
-                        "reason": "metric_history_truncated",
-                        "message": (
-                            "post_metric_history read hit its per-batch limit; "
-                            "additional snapshot rows exist and were not synced. "
-                            "Re-run with a higher limit."
-                        ),
-                    }
+                raise RuntimeError(
+                    "campaign metric history read was truncated; refusing partial sync"
                 )
         except RuntimeError as exc:
             metric_history_rows = []
@@ -4741,6 +4796,7 @@ def _select_threadsdash_posts_paged(
     client: SupabaseRestClient,
     *,
     user_id: str,
+    campaign_id: str | None = None,
     limit: int,
     page_size: int = THREADSDASH_POSTS_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -4748,6 +4804,8 @@ def _select_threadsdash_posts_paged(
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
     }
+    if campaign_id:
+        base_params["metadata->campaign_factory->>campaign_id"] = f"eq.{campaign_id}"
     rich_select = (
         "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,updated_at,scheduled_for,"
         "published_at,permalink,instagram_post_id,content,metadata,views_count,ig_views,"
@@ -4847,11 +4905,7 @@ def _group_metric_history_by_post(
             continue
         grouped.setdefault(post_id, []).append(row)
     for post_rows in grouped.values():
-        post_rows.sort(
-            key=lambda item: str(
-                item.get("snapshot_at") or item.get("created_at") or ""
-            )
-        )
+        post_rows.sort(key=lambda item: str(item.get("snapshot_at") or ""))
     return grouped
 
 
@@ -4871,9 +4925,7 @@ def _threadsdash_post_with_metric_history(
 ) -> dict[str, Any]:
     merged = dict(post_row)
     merged["history_source"] = "metric_history"
-    merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get(
-        "created_at"
-    )
+    merged["metrics_updated_at"] = history_row["snapshot_at"]
     merged["views"] = history_row.get("views_count")
     merged["views_count"] = history_row.get("views_count")
     merged["likes"] = history_row.get("likes_count")
@@ -4959,15 +5011,22 @@ def _performance_snapshot_from_row(
     *, campaign_id: str, row: dict[str, Any], meta: dict[str, Any]
 ) -> dict[str, Any]:
     metrics_meta = _merged_metric_metadata(row.get("metadata"))
-    snapshot_at = (
-        row.get("metrics_updated_at")
-        or row.get("insights_updated_at")
-        or row.get("updated_at")
-        or row.get("published_at")
-        or row.get("publishedAt")
-        or row.get("created_at")
-        or utc_now()
-    )
+    if row.get("history_source") == "metric_history":
+        snapshot_at = row.get("metrics_updated_at")
+        if not snapshot_at:
+            raise RuntimeError(
+                "metric_history row missing validated snapshot_at; refusing post timestamp fallback"
+            )
+    else:
+        snapshot_at = (
+            row.get("metrics_updated_at")
+            or row.get("insights_updated_at")
+            or row.get("updated_at")
+            or row.get("published_at")
+            or row.get("publishedAt")
+            or row.get("created_at")
+            or utc_now()
+        )
     post_id = str(row.get("id") or new_id("post"))
     caption_hash = meta.get("caption_hash") or _text_hash(row.get("content") or "")
     caption_lineage = (

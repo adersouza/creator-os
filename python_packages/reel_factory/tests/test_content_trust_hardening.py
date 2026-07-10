@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from argparse import ArgumentTypeError
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 
+import pytest
 from ai_visual_qc import record_from_scores
 from asset_prompt_contract import AssetPromptSet
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
@@ -12,6 +16,7 @@ from generate_assets import (
     AssetGenerationPlan,
     _record_cost_preflight_block,
     _record_generation_costs,
+    create_image_asset,
     download_result,
     generated_image_qc,
     generated_image_qc_failure_reason,
@@ -19,7 +24,16 @@ from generate_assets import (
     generated_video_qc_failure_reason,
     list_failed_generations,
 )
-from higgsfield_cost_preflight import _parse_balance, check_higgsfield_cost_preflight
+from higgsfield_cost_preflight import (
+    _parse_balance,
+    cancel_higgsfield_spend_reservation,
+    check_higgsfield_cost_preflight,
+    consume_higgsfield_spend_reservation,
+    nonnegative_float_arg,
+    positive_int_arg,
+    reserve_higgsfield_credits,
+    reserve_higgsfield_spend,
+)
 from hook_ai import hook_similarity_mode
 from identity_verification import (
     build_reference_set,
@@ -29,6 +43,11 @@ from identity_verification import (
 )
 from media_metadata import normalize_media_metadata
 from PIL import Image
+
+
+@pytest.fixture(autouse=True)
+def _isolate_campaign_cost_db(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(tmp_path / "campaign_factory.sqlite"))
 
 
 class FakeIdentityProvider:
@@ -594,6 +613,94 @@ def test_higgsfield_balance_parser_accepts_account_status_credits() -> None:
     assert _parse_balance({"email": "hidden@example.test", "credits": 506.53}) == 506.53
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), -0.01])
+def test_higgsfield_cost_preflight_rejects_invalid_cost_estimates(
+    tmp_path: Path, value: float
+) -> None:
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=value,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "invalid_cost_estimate" in result["blockingReasons"]
+    assert result["budgetPolicy"]["estimatedCostUsd"] is None
+    json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1.0])
+def test_higgsfield_cost_preflight_rejects_invalid_balances(
+    tmp_path: Path, value: float
+) -> None:
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(value),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "balance_invalid" in result["blockingReasons"]
+    assert result["balanceUsd"] is None
+
+
+@pytest.mark.parametrize("asset_count", [0, -1, 1.5, float("nan"), True])
+def test_higgsfield_cost_preflight_requires_positive_integer_asset_count(
+    tmp_path: Path, asset_count
+) -> None:
+    result = check_higgsfield_cost_preflight(
+        asset_count=asset_count,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert "invalid_asset_count" in result["blockingReasons"]
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("HIGGSFIELD_DAILY_BUDGET_USD", "nan"),
+        ("HIGGSFIELD_DAILY_BUDGET_USD", "-1"),
+        ("HIGGSFIELD_MIN_BALANCE_USD", "inf"),
+        ("HIGGSFIELD_MIN_BALANCE_USD", "-1"),
+        ("HIGGSFIELD_RUN_MAX_ASSETS", "0"),
+        ("HIGGSFIELD_RUN_MAX_ASSETS", "1.5"),
+    ],
+)
+def test_higgsfield_cost_preflight_rejects_invalid_env_policy_without_fallback(
+    tmp_path: Path, monkeypatch, name: str, value: str
+) -> None:
+    monkeypatch.setenv(name, value)
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["blockingReason"] == "budget_policy_invalid"
+    assert name in result["budgetPolicy"]["invalidPolicyFields"]
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-1"])
+def test_higgsfield_cli_money_parser_rejects_nonfinite_or_negative(value: str) -> None:
+    with pytest.raises(ArgumentTypeError, match="finite, non-negative"):
+        nonnegative_float_arg(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "nan"])
+def test_higgsfield_cli_asset_parser_rejects_non_positive_integer(value: str) -> None:
+    with pytest.raises(ArgumentTypeError, match="positive integer"):
+        positive_int_arg(value)
+
+
 def test_higgsfield_cost_preflight_env_policy_overrides_config(monkeypatch) -> None:
     monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "100")
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "3")
@@ -619,11 +726,20 @@ def test_documented_env_names_match_active_code() -> None:
 
     for name in (
         "CONTENTFORGE_BASE_URL",
+        "CONTENTFORGE_REAL_SAMPLE_MANIFEST",
         "CONTENTFORGE_SSCD_MODEL_PATH",
         "HIGGSFIELD_DAILY_BUDGET_USD",
         "HIGGSFIELD_RUN_MAX_ASSETS",
         "HIGGSFIELD_MIN_BALANCE_USD",
         "CREATOR_OS_PROACTIVE_CYCLE_DISABLED",
+        "REEL_GUI_URL",
+        "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS",
+        "REEL_FACTORY_RAISE_ON_DEPRECATED_GENERATORS",
+        "REEL_FACTORY_ENV",
+        "APP_ENV",
+        "ENV",
+        "NODE_ENV",
+        "VERCEL_ENV",
     ):
         assert name in env_template
     assert "CONTENTFORGE_URL=" not in env_template
@@ -691,6 +807,398 @@ def test_higgsfield_cost_preflight_sums_existing_daily_spend(
     assert result["budgetPolicy"]["projectedDailySpendUsd"] == 10.25
 
 
+def _set_higgsfield_guardrail_env(monkeypatch, db_path: Path) -> None:
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "10")
+    monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "5")
+
+
+def _set_higgsfield_credit_guardrail_env(monkeypatch, db_path: Path) -> None:
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_CREDITS", "8")
+    monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
+    monkeypatch.setenv("HIGGSFIELD_COHORT_MAX_CREDITS", "150")
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "25")
+
+
+def test_higgsfield_native_credit_reservation_tracks_cohort_and_quote(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    quote = {
+        "schema": "reel_factory.higgsfield_provider_quote.v1",
+        "amount": 1.5,
+        "unit": "higgsfield_credits",
+        "model": "soul_2",
+    }
+
+    result = reserve_higgsfield_credits(
+        provider_quote=quote,
+        asset_count=1,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is True
+    assert result["budgetPolicy"]["projectedBalanceCredits"] == 48.5
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """SELECT amount, unit, cohort_id, estimated_cost_usd
+            FROM higgsfield_spend_reservations"""
+        ).fetchone()
+    assert row == (1.5, "higgsfield_credits", "stacey_learning_cohort_v1", 0.0)
+
+
+def test_higgsfield_native_credit_reservation_fails_closed_on_caps(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    quote = {"amount": 7.0, "unit": "higgsfield_credits"}
+    first = reserve_higgsfield_credits(
+        provider_quote=quote,
+        asset_count=2,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+    assert first["allowed"] is True
+
+    retry = reserve_higgsfield_credits(
+        provider_quote={"amount": 2.0, "unit": "higgsfield_credits"},
+        asset_count=1,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+    assert retry["allowed"] is False
+    assert "projected_daily_credits_exceeded" in retry["blockingReasons"]
+
+    low_balance = reserve_higgsfield_credits(
+        provider_quote={"amount": 1.0, "unit": "higgsfield_credits"},
+        asset_count=1,
+        cohort_id="other_cohort",
+        provider=FakeBalanceProvider(25.5),
+        root=tmp_path,
+    )
+    assert low_balance["allowed"] is False
+    assert "projected_balance_below_minimum" in low_balance["blockingReasons"]
+
+
+def test_higgsfield_atomic_reservation_prevents_concurrent_overspend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    barrier = Barrier(2)
+
+    class BarrierBalanceProvider(FakeBalanceProvider):
+        def balance(self) -> tuple[float | None, str | None]:
+            barrier.wait(timeout=5)
+            return super().balance()
+
+    provider = BarrierBalanceProvider(25.0)
+
+    def reserve(index: int) -> dict:
+        return reserve_higgsfield_spend(
+            asset_count=1,
+            estimated_cost_usd=6.0,
+            provider=provider,
+            source=f"concurrent_{index}",
+            root=tmp_path,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(reserve, range(2)))
+
+    allowed = [result for result in results if result["allowed"]]
+    blocked = [result for result in results if not result["allowed"]]
+    assert len(allowed) == 1
+    assert len(blocked) == 1
+    assert blocked[0]["blockingReasons"] == ["estimated_cost_exceeds_daily_budget"]
+    assert blocked[0]["budgetPolicy"]["spentTodayUsd"] == 6.0
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT status, estimated_cost_usd FROM higgsfield_spend_reservations"
+        ).fetchall()
+    assert rows == [("reserved", 6.0)]
+
+
+def test_higgsfield_consumed_reservation_blocks_retry_overspend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    provider = FakeBalanceProvider(25.0)
+    first = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=6.0,
+        provider=provider,
+        source="first_attempt",
+        root=tmp_path,
+    )
+    reservation_id = first["reservation"]["id"]
+
+    assert first["allowed"] is True
+    assert reservation_id
+    assert consume_higgsfield_spend_reservation(reservation_id, root=tmp_path)
+
+    retry = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=6.0,
+        provider=provider,
+        source="retry_attempt",
+        root=tmp_path,
+    )
+
+    assert retry["allowed"] is False
+    assert retry["blockingReasons"] == ["estimated_cost_exceeds_daily_budget"]
+    assert retry["budgetPolicy"]["reservedOrConsumedTodayUsd"] == 6.0
+
+
+def test_higgsfield_reservation_uses_explicit_shared_cost_database(
+    tmp_path: Path, monkeypatch
+) -> None:
+    shared_db = tmp_path / "shared" / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, tmp_path / "wrong.sqlite")
+    first = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=6.0,
+        provider=FakeBalanceProvider(25.0),
+        source="reference_factory",
+        root=tmp_path / "reference_factory",
+        cost_db_path=shared_db,
+    )
+    reservation_id = first["reservation"]["id"]
+
+    assert reservation_id
+    assert consume_higgsfield_spend_reservation(
+        reservation_id,
+        root=tmp_path / "reel_factory",
+        cost_db_path=shared_db,
+    )
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=5.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path / "different_root",
+        cost_db_path=shared_db,
+    )
+
+    assert result["allowed"] is False
+    assert result["budgetPolicy"]["spentTodayUsd"] == 6.0
+    assert result["blockingReasons"] == ["estimated_cost_exceeds_daily_budget"]
+    assert not (tmp_path / "wrong.sqlite").exists()
+
+
+def test_higgsfield_unconsumed_reservation_can_be_cancelled(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    provider = FakeBalanceProvider(25.0)
+    first = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=6.0,
+        provider=provider,
+        source="setup_only",
+        root=tmp_path,
+    )
+    reservation_id = first["reservation"]["id"]
+
+    assert reservation_id
+    assert cancel_higgsfield_spend_reservation(reservation_id, root=tmp_path)
+    second = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=6.0,
+        provider=provider,
+        source="after_cancel",
+        root=tmp_path,
+    )
+    assert second["allowed"] is True
+
+
+def test_higgsfield_fabricated_reservation_id_cannot_hide_ledger_spend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    setup = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(25.0),
+        source="setup_schema",
+        root=tmp_path,
+    )
+    assert cancel_higgsfield_spend_reservation(
+        setup["reservation"]["id"], root=tmp_path
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE ai_cost_events (
+                estimated_cost_usd REAL NOT NULL,
+                reservation_id TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO ai_cost_events VALUES (?, ?, ?)",
+            (
+                9.0,
+                "hfr_not_a_real_reservation",
+                datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            ),
+        )
+
+    result = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=2.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["budgetPolicy"]["spentTodayUsd"] == 9.0
+    assert result["budgetPolicy"]["legacyEventSpendTodayUsd"] == 9.0
+    assert result["blockingReasons"] == ["estimated_cost_exceeds_daily_budget"]
+
+
+@pytest.mark.parametrize(
+    "override_kwargs",
+    [
+        {"allow_unbudgeted_local_test": True},
+        {"budget_override_ledger_error": True},
+    ],
+)
+def test_higgsfield_paid_reservation_rejects_unsafe_overrides(
+    tmp_path: Path, monkeypatch, override_kwargs: dict
+) -> None:
+    _set_higgsfield_guardrail_env(monkeypatch, tmp_path / "campaign_factory.sqlite")
+
+    result = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+        **override_kwargs,
+    )
+
+    assert result["allowed"] is False
+    assert (
+        "unsafe_cost_override_not_allowed_for_paid_generation"
+        in result["blockingReasons"]
+    )
+    assert result["reservation"]["id"] is None
+
+
+def test_higgsfield_paid_reservation_rejects_zero_cost_estimate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _set_higgsfield_guardrail_env(monkeypatch, tmp_path / "campaign_factory.sqlite")
+
+    result = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=0.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["blockingReasons"] == [
+        "cost_estimate_must_be_positive_for_paid_generation"
+    ]
+
+
+def test_reel_paid_generation_consumes_reservation_before_provider_call(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    monkeypatch.setattr(
+        "higgsfield_cost_preflight.CliBalanceProvider.balance",
+        lambda _self: (25.0, None),
+    )
+    prompt = tmp_path / "prompt.json"
+    prompt.write_text(
+        json.dumps(
+            {
+                "higgsfieldGridPrompt": "reference image still",
+                "klingMotionPrompt": "motion",
+            }
+        ),
+        encoding="utf-8",
+    )
+    capabilities = {
+        "schema": "cap",
+        "createdAt": 1,
+        "imageModels": [
+            {"job_set_type": "soul_2", "parameters": [{"name": "soul_id"}]}
+        ],
+        "videoModels": [{"job_set_type": "kling3_0"}],
+    }
+    monkeypatch.setattr(
+        "generate_assets.ensure_required_capabilities", lambda *_args: capabilities
+    )
+    monkeypatch.setattr(
+        "generate_assets.validate_generation_soul", lambda *_args: {"status": "valid"}
+    )
+    calls: list[list[str]] = []
+
+    def fake_provider_call(cmd):
+        calls.append(cmd)
+        return {"id": f"img_{len(calls)}", "status": "completed"}
+
+    monkeypatch.setattr("generate_assets._run_json", fake_provider_call)
+
+    def plan(stem: str) -> AssetGenerationPlan:
+        return AssetGenerationPlan(
+            prompt_json=prompt,
+            stem=stem,
+            reference=None,
+            soul_id="soul_1",
+            soul_name="Stacey",
+            start_image=None,
+            out_dir=tmp_path / "out",
+            source_dir=tmp_path / "sources",
+            estimated_cost_usd=6.0,
+        )
+
+    first = create_image_asset(plan("first"), download=False)
+    second = create_image_asset(plan("second"), download=False)
+
+    assert first["ok"] is True
+    assert second["ok"] is False
+    assert second["lineage"]["generation"]["status"] == "cost_preflight_blocked"
+    assert second["lineage"]["generation"]["costPreflight"]["blockingReasons"] == [
+        "estimated_cost_exceeds_daily_budget"
+    ]
+    assert len(calls) == 1
+    with sqlite3.connect(db_path) as conn:
+        reservation = conn.execute(
+            "SELECT id, status, estimated_cost_usd FROM higgsfield_spend_reservations"
+        ).fetchone()
+        cost_event_reservation = conn.execute(
+            "SELECT reservation_id FROM ai_cost_events"
+        ).fetchone()[0]
+    assert reservation[1:] == ("consumed", 6.0)
+    assert cost_event_reservation == reservation[0]
+
+    after = check_higgsfield_cost_preflight(
+        asset_count=1,
+        estimated_cost_usd=1.0,
+        provider=FakeBalanceProvider(25.0),
+        root=tmp_path,
+    )
+    assert after["budgetPolicy"]["spentTodayUsd"] == 6.0
+    assert after["budgetPolicy"]["legacyEventSpendTodayUsd"] == 0.0
+
+
 def test_higgsfield_cost_preflight_blocks_over_budget_without_estimate(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -752,7 +1260,7 @@ def test_higgsfield_cost_preflight_blocks_when_cost_ledger_unreadable(
     assert result["budgetPolicy"]["costLedgerReadable"] is False
 
 
-def test_higgsfield_cost_preflight_ledger_override_unblocks_ledger_error_only(
+def test_higgsfield_cost_preflight_ledger_override_alone_cannot_bypass_error(
     tmp_path: Path, monkeypatch
 ) -> None:
     for key in (
@@ -773,8 +1281,8 @@ def test_higgsfield_cost_preflight_ledger_override_unblocks_ledger_error_only(
         budget_override_ledger_error=True,
     )
 
-    assert result["allowed"] is True
-    assert result["blockingReasons"] == []
+    assert result["allowed"] is False
+    assert result["blockingReasons"] == ["cost_ledger_unreadable"]
     assert result["budgetPolicy"]["costLedgerReadable"] is False
     assert result["budgetOverrideLedgerError"] is True
 
