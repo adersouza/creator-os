@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 from datetime import UTC, datetime
 
 import pytest
 from campaign_factory.learning_score import (
+    DEFAULT_REWARD_BASELINE,
     LEARNING_ELIGIBLE_SQL,
+    PRIOR_RELATIVE_REWARD,
+    PRIOR_STRENGTH,
     account_reward_baselines,
     aggregate_performance,
     learning_eligible,
@@ -260,7 +264,21 @@ def test_zero_engagement_account_median_falls_back_to_default_prior():
         "account_median": 0,
         "default_prior": 1,
     }
-    assert performance_score(summary) < 100
+    expected_reward = math.log1p(1000) * (10 / 1000)
+    expected_relative_reward = expected_reward / DEFAULT_REWARD_BASELINE
+    expected_shrunk_reward = (
+        PRIOR_STRENGTH * PRIOR_RELATIVE_REWARD + expected_relative_reward
+    ) / (PRIOR_STRENGTH + 1)
+    expected_score = round(50 + ((expected_shrunk_reward - 1.0) * 30))
+
+    assert summary["learning"]["weightedRelativeReward"] == round(
+        expected_relative_reward, 4
+    )
+    assert summary["learning"]["shrunkRelativeReward"] == round(
+        expected_shrunk_reward, 4
+    )
+    assert summary["learning"]["score"] == expected_score == 46
+    assert performance_score(summary) == expected_score
 
 
 def test_mixed_invalid_timestamps_do_not_crash_or_get_full_weight():

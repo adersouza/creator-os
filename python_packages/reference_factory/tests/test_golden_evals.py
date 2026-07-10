@@ -68,9 +68,9 @@ class TestHeuristicPatternGolden:
             _make_item(caption="Is this the best outfit ever? 🔥")
         )
         assert result["caption"]["usesQuestion"] is True
-        # hookType is determined by the full heuristic — just verify it's a string
-        assert isinstance(result["hookType"], str)
-        assert len(result["hookType"]) > 0
+        assert result["visualFormat"] == "fit_check"
+        assert result["hookType"] == "direct_response"
+        assert result["captionArchetype"] == "question_hook"
 
     def test_emoji_detected(self):
         """Captions with emoji should flag usesEmoji."""
@@ -108,8 +108,7 @@ class TestHeuristicPatternGolden:
     def test_high_rank_has_performance_tier(self):
         """A rank-1 item should get a valid performance tier."""
         result = _heuristic_pattern(_make_item(rank=1))
-        assert isinstance(result["metrics"]["performanceTier"], str)
-        assert len(result["metrics"]["performanceTier"]) > 0
+        assert result["metrics"]["performanceTier"] == "top_50"
 
     def test_quality_score_is_numeric(self):
         """Quality score should always be a number."""
@@ -119,17 +118,16 @@ class TestHeuristicPatternGolden:
     def test_suggested_label_is_valid(self):
         """Suggested label should be one of the known categories."""
         result = _heuristic_pattern(_make_item())
-        # Allow any string — just verify it's not empty
-        assert isinstance(result["suggestedLabel"], str)
-        assert len(result["suggestedLabel"]) > 0
+        assert result["suggestedLabel"] == "maybe"
 
     def test_prompt_pattern_has_structure(self):
         """Prompt pattern should include expected guidance fields."""
         result = _heuristic_pattern(_make_item(caption="POV: you're my mirror 🪞"))
-        pp = result["promptPattern"]
-        assert isinstance(pp, dict)
-        # Should have some form of prompt guidance
-        assert len(pp) > 0
+        assert result["promptPattern"] == {
+            "visualBrief": "vertical mirror-shot reel, phone visible or implied, immediate body/outfit framing",
+            "hookBrief": "caption frames viewer inside the scenario",
+            "captionBrief": "POV-style original scenario",
+        }
 
     def test_reference_use_populated(self):
         """referenceUse section should include recommendation fields."""
