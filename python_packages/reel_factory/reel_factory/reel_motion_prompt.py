@@ -9,7 +9,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SceneType = Literal[
     "mirror_selfie",

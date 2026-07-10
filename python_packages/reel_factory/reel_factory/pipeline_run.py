@@ -25,7 +25,10 @@ from virality_select import rank_candidates
 
 from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 PIPELINE_SCHEMA = "reel_factory.pipeline_run.v1"
 STAGES = (

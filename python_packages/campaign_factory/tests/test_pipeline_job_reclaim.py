@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.test_core import make_factory
+from test_core import make_factory
 
 
 def _backdate_job(cf, job_id: str, hours: float) -> None:

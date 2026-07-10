@@ -28,7 +28,10 @@ from generate_prompts import (
 from grid_crop import crop_image_grid_panels
 from PIL import Image, ImageDraw
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 DEFAULT_REFERENCE_ROOT = Path("/tmp/creator_os_reference_accounts")
 DEFAULT_OUTPUT_ROOT = Path("output/reference_grok_grids_20260611")

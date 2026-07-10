@@ -36,7 +36,10 @@ from pipeline_contracts.llm_resilience import (
 )
 from project_config import config_path
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 GEMINI_GENERATE_URL = (

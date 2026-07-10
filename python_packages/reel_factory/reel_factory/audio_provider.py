@@ -12,7 +12,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.audio_provider.v1"
 AUDIO_PROVIDER_MODES = {"AUTO_TRENDING", "SAFE_LIBRARY", "CUSTOM"}

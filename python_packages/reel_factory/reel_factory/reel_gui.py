@@ -141,7 +141,11 @@ from posting_ledger import (
     review_queue as ledger_review_queue,
     transition_slot as ledger_transition_slot,
 )  # noqa
-from .fileops import atomic_write_text
+
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 RAW_DIR = ROOT / "00_source_videos"
 CAP_DIR = ROOT / "01_captions"

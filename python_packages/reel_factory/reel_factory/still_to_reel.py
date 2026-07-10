@@ -21,7 +21,10 @@ from PIL import Image
 
 from pipeline_contracts import validate_generated_asset_lineage
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.motion_edit_render.v1"
 CANVAS_W = 1080

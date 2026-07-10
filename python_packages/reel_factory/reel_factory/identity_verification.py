@@ -22,7 +22,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.identity_verification.v1"
 REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v1"

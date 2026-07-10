@@ -47,7 +47,6 @@ export async function createTextOverlayPng(options = {}) {
   var width = Math.max(320, Math.min(1280, Math.round((parseInt(options.width, 10) || 1080) * 0.84)));
   var lines = wrapText(text.slice(0, 120), Math.max(14, Math.floor(width / (fontSize * 0.58))));
   var lineHeight = Math.round(fontSize * 1.22);
-  var paddingX = Math.round(fontSize * 0.58);
   var paddingY = Math.round(fontSize * 0.45);
   var height = Math.max(fontSize + paddingY * 2, lines.length * lineHeight + paddingY * 2);
   var startY = paddingY + Math.round(fontSize * 0.82);

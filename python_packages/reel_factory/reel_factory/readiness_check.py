@@ -18,7 +18,10 @@ from virality_qc import evaluate_output_virality
 
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
     "instagram_reels": {

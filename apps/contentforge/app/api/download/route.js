@@ -90,7 +90,7 @@ async function downloadAll(runId, selectedFiles) {
         else resolve();
       });
     });
-  } catch (e) {
+  } catch {
     return new NextResponse("Failed to create ZIP", { status: 500 });
   }
 

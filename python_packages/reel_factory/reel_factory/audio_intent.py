@@ -9,7 +9,10 @@ from typing import Any
 
 from pipeline_contracts import validate_audio_intent
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 AUDIO_INTENT_MODES = {
     "native_trending_audio",

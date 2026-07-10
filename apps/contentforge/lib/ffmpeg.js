@@ -215,7 +215,7 @@ var DEVICE_PROFILES = {
     profile: "high",
     level: "4.1",
     colorFlags: true,
-    x264Params: function(br, gop, bf, refs) {
+    x264Params: function(br, gop, _bf, _refs) {
       return "keyint=" + gop + ":min-keyint=" + gop + ":scenecut=0" +
         ":bframes=0:ref=1" +
         ":weightp=0:no-mbtree:aq-mode=0" +
@@ -343,7 +343,6 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   // Pick a random device profile per variant
   var { profile: dev } = pickDeviceProfile();
   var bitrate = parseInt(reelProfile.videoBitrate, 10) || dev.bitrate();
-  var maxrate = parseInt(reelProfile.maxrate, 10) || dev.maxrate();
   var gop = dev.gop();
   var bframes = dev.bframes();
   var refs = dev.refs();
@@ -585,13 +584,6 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
 // 3-5% crop shifts content on grid → Hamming 30-83 bits (over threshold)
 // Combined: PSNR >40 dB (visually lossless) but unique hash per variant
 
-var DEVICE_MODELS_IMG = [
-  "iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 15 Pro Max", "iPhone 15 Pro",
-  "iPhone 14 Pro", "iPhone 13",
-  "Samsung SM-S928B", "Samsung SM-S911B", "Samsung SM-G991B",
-  "Pixel 9 Pro", "Pixel 8 Pro", "Pixel 7a",
-];
-
 export function buildImageArgs(inputPath, outputPath, index, opts) {
   var level = opts.level || "clean";
   var variantPreset = getVariantPreset(opts.variantPreset, opts.variantOptions || {}, level);
@@ -709,7 +701,6 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
 
   // Spoofed metadata matching real device
   var fakeDate = new Date(Date.now() - randInt(86400000, 86400000 * 60));
-  var fakeDevice = pick(DEVICE_MODELS_IMG);
   args.push("-metadata", "creation_time=" + fakeDate.toISOString());
 
   // NOTE: Do NOT add encoder= metadata. Real device photos don't have Lavf/Lavc strings.

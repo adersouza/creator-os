@@ -19,9 +19,12 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import torch
 from PIL import Image
-from torchvision import transforms
+
+# torch / torchvision are imported lazily inside model() / _transform().
+# A top-level `import torch` aborts the whole process on this machine
+# (duplicate libomp runtimes -> OMP Error #15 fatal abort), which killed
+# pytest during *collection* of any test that merely imports this module.
 
 MODEL_PATH = os.environ.get(
     "SSCD_MODEL_PATH",
@@ -47,16 +50,27 @@ FFPROBE = (
 )
 SAMPLE_PCTS = [0.10, 0.30, 0.50, 0.70, 0.90]  # 5 frames per video
 
-TRANSFORM = transforms.Compose(
-    [
-        transforms.Resize(288),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
-)
-
+_transform_obj = None
 _model = None
+
+
+def _transform():
+    """Lazily build the torchvision preprocessing pipeline (see note above)."""
+    global _transform_obj
+    if _transform_obj is None:
+        from torchvision import transforms
+
+        _transform_obj = transforms.Compose(
+            [
+                transforms.Resize(288),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
+    return _transform_obj
 
 
 def recipe_from_name(name: str) -> str:
@@ -74,6 +88,8 @@ def recipe_from_name(name: str) -> str:
 def model():
     global _model
     if _model is None:
+        import torch
+
         if not Path(MODEL_PATH).exists():
             raise FileNotFoundError(
                 f"SSCD model not found at {MODEL_PATH}. Set SSCD_MODEL_PATH or CONTENTFORGE_SSCD_MODEL_PATH to the torchscript model."
@@ -134,10 +150,13 @@ def extract_frames(video: Path, td: Path) -> list[Path]:
 
 def embed_many(paths: list[Path]) -> np.ndarray:
     """Stack-batch all images, return (N, 512) embeddings."""
+    import torch
+
+    transform = _transform()
     tensors = []
     for p in paths:
         with Image.open(p) as im:
-            tensors.append(TRANSFORM(im.convert("RGB")))
+            tensors.append(transform(im.convert("RGB")))
     batch = torch.stack(tensors)
     with torch.no_grad():
         emb = model()(batch).numpy()  # (N, 512), L2-normalized

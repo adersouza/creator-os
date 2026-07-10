@@ -32,7 +32,7 @@ export function createForgePostHandler(deps = {}) {
     var config;
     try {
       config = await request.json();
-    } catch (e) {
+    } catch {
       await lock.release();
       return new Response("Invalid JSON", { status: 400 });
     }
@@ -152,7 +152,7 @@ function streamPipeline(lock, runFn) {
         if (aborted) return;
         try {
           controller.enqueue(encoder.encode("data: " + JSON.stringify(data) + "\n\n"));
-        } catch (e) {
+        } catch {
           aborted = true;
         }
       };
@@ -163,7 +163,7 @@ function streamPipeline(lock, runFn) {
         sendEvent({ type: "error", message: err.message });
       } finally {
         await lock.release();
-        try { controller.close(); } catch (e) { /* already closed */ }
+        try { controller.close(); } catch { /* already closed */ }
       }
     },
     async cancel() {
