@@ -56,6 +56,7 @@ THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
 CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION = "v1"
+_STDLIB_URLOPEN = urlopen
 
 
 class _RejectDashboardIngestRedirects(HTTPRedirectHandler):
@@ -66,6 +67,10 @@ class _RejectDashboardIngestRedirects(HTTPRedirectHandler):
 
 
 def _open_threadsdash_ingest_request(request: Request, *, timeout: float):
+    # Preserve the existing injected transport seam used by deterministic E2E
+    # fakes. Runtime traffic keeps the no-redirect opener below.
+    if urlopen is not _STDLIB_URLOPEN:
+        return urlopen(request, timeout=timeout)
     return build_opener(_RejectDashboardIngestRedirects()).open(
         request, timeout=timeout
     )
