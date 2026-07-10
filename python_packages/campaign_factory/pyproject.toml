@@ -15,7 +15,6 @@ dev = ["pytest>=8,<9"]
 
 [project.scripts]
 campaign-factory = "campaign_factory.cli:main"
-creator-os = "campaign_factory.creator_os_cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

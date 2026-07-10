@@ -95,7 +95,6 @@ class CoreComplexityRepository:
         candidates = [
             root / "campaign_factory" / "core.py",
             root / "campaign_factory" / "cli.py",
-            root / "campaign_factory" / "creator_os_cli.py",
             root / "campaign_factory" / "adapters" / "threadsdash.py",
             root / "campaign_factory" / "adapters" / "contentforge.py",
         ]
