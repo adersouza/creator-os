@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 from campaign_factory.db import init_db
-
 from test_core import add_rendered_asset, isolate_account_groups, make_factory
 
 

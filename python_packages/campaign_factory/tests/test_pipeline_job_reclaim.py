@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tests.test_core import make_factory
 
 
@@ -67,9 +66,7 @@ def test_reclaim_requeue_respects_max_attempts(tmp_path: Path):
             cf.start_pipeline_job(exhausted["id"])  # attempt_count = 3
         _backdate_job(cf, exhausted["id"], 5)
 
-        summary = cf.reclaim_stale_pipeline_jobs(
-            2.0, action="requeue", max_attempts=3
-        )
+        summary = cf.reclaim_stale_pipeline_jobs(2.0, action="requeue", max_attempts=3)
         outcomes = {item["id"]: item["outcome"] for item in summary["reclaimed"]}
         assert outcomes[retryable["id"]] == "requeued"
         assert outcomes[exhausted["id"]] == "failed"

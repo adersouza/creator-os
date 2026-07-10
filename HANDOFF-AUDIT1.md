@@ -170,25 +170,27 @@ report, and similarity route cases now pass.
   pipeline-contracts-ts (21 passed). Only the item-6 contentforge failures
   remain red.
 
-## 8. Audit-coverage gaps (unfixed, no plan section — need owner/decision)
+## 8. Audit-coverage gaps — ALL RESOLVED (commit `9091cfb3`)
 
 Cross-check of the three audit reports (operational robustness, monorepo,
-deletion) against session commits + PLAN-SCHEDULER: ~85% covered. These 7
-findings have **no fix, no handoff line, and no plan section** yet:
+deletion) against session commits + PLAN-SCHEDULER: all 7 findings now have
+a fix or a recorded decision:
 
-1. **Performance-sync truncation (audit A4)** — `sync_performance_snapshots`
-   fetches one `posts` page with `limit=1000` and no offset/`Content-Range`/
-   truncation check (`adapters/threadsdash.py:1318` in current tree; audit
-   refs 4157/4674–4699/4702–4730). If more rows exist, the run reports
-   success and advances `content_graph_sync_state` on the truncated set —
-   silent incomplete learning data. Needs pagination + truncation detection.
-2. **Crash recovery / kill -9 (audit A5)** — pipeline jobs commit `running`
-   before work (`events.py:199`); hard crash leaves the row running
-   permanently (no lease/reclaim/auto-fail). Multiple file-first/DB-second
-   sagas orphan files (`threadsdash.py:825/933`, `contentforge.py:314`,
-   `reel_execution.py:167`, `asset_import.py:288`). Audit recommended one
-   operational-hardening plan section covering crash recovery + API
-   pagination + CI gaps — never created.
+1. **Performance-sync truncation (audit A4)** — RESOLVED. Threadsdash
+   adapter post/metric reads are now paginated in
+   `POST_METRIC_HISTORY_POST_ID_BATCH_SIZE` batches with explicit
+   truncation detection: `_select_threadsdash_posts_paged` walks
+   offset/limit pages until a short page, and truncated reads are surfaced
+   (never silently advance `content_graph_sync_state`). Covered by new
+   pagination/truncation tests in `tests/test_core.py`.
+2. **Crash recovery / kill -9 (audit A5)** — RESOLVED for pipeline jobs.
+   `reclaim_stale_pipeline_jobs(threshold_hours, action=fail|requeue,
+   max_attempts)` in `events.py` auto-fails or requeues stale
+   `queued`/`running` rows (attempt-capped; requeue resets status/error/
+   `startedAt`). New `tests/test_pipeline_job_reclaim.py` covers fail,
+   requeue, attempt exhaustion, and threshold boundaries. File-first/
+   DB-second saga orphans remain acceptable (orphan files are inert and
+   re-derivable; no DB row ever references a missing file).
 3. **Legacy Supabase ambiguous POST retry (audit A6)** — RESOLVED.
    `SupabaseRestClient.insert` no longer retries ambiguous failures:
    `_open_json_or_empty(retry_ambiguous=False)` retries only statuses that
@@ -206,13 +208,15 @@ findings have **no fix, no handoff line, and no plan section** yet:
    `CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1` (legacy/deprecated;
    default-off).
 4. **Assignment/distribution-plan idempotency (audit A1, partial)** —
-   Phase 5 constrains *promotion* uniqueness (PLAN-SCHEDULER.md:77), but it
-   is unverified that it extends to `asset_account_assignments` and
-   `distribution_plans` (no unique asset/account/slot constraint;
-   `db.py:621/709`, `campaign_overview.py:292`, `distribution.py:123`;
-   `plan_distribution(replace=True)` commits delete separately at
-   `distribution.py:382`). Audit proved duplicate rows under rerun. Verify
-   Phase 5 scope covers these tables or extend it.
+   RESOLVED. `init_db` now creates unique indexes
+   `idx_distribution_plans_uniqueness` and
+   `idx_asset_account_assignments_uniqueness` (asset/account/window),
+   with a dedupe migration that keeps the oldest row for legacy DBs;
+   `create_distribution_plan` is idempotent for the same logical target
+   (returns the existing plan). Covered by new
+   `tests/test_distribution_uniqueness.py` (idempotent create, distinct
+   targets, raw duplicate INSERT rejected via `sqlite3.IntegrityError`,
+   legacy-duplicate migration dedupe).
 5. **Intersection-masking consumer-contract test (audit B5)** — RESOLVED.
    `packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py`
    now pins an explicit `REQUIRED_THREADSDASH_SCHEMAS` list (all canonical
@@ -229,15 +233,20 @@ findings have **no fix, no handoff line, and no plan section** yet:
    `THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard`.
    NOTE: the ThreadsDashboard repo has 3 uncommitted synced files that need
    a commit there.
-6. **Dead contracts (audit B12)** — `repurposing_plan.v1` has no production
-   producer or consumer; `front_generation_plan.v1` has no machine consumer.
-   No keep/remove decision recorded. Decide and log in PLAN-SCHEDULER audit
-   log.
-7. **`local_api_auth.py` triplication (deletion audit #6)** — three
-   identical 70-LOC copies (campaign/reel/reference), actively imported by
-   all three FastAPI apps. Audit: consolidate only with a packaged shared
-   owner + app-level auth tests. Deferral was decided but not documented
-   anywhere until now.
+6. **Dead contracts (audit B12)** — RESOLVED (decision recorded in
+   PLAN-SCHEDULER audit log): `front_generation_plan.v1` KEEP — active
+   production producer (`front_generation_stage.py` via `cli.py`,
+   validated at write); consumer is intentionally human/operator review,
+   so "no machine consumer" is by design. `repurposing_plan.v1`
+   DEPRECATE (spec-only) — no production producer/consumer, tests only;
+   no new dependencies allowed; batch removal in the next contracts-sync
+   major pass if still unused (removal touches canonical, root mirror,
+   generated TS, ThreadsDashboard mirror).
+7. **`local_api_auth.py` triplication (deletion audit #6)** — RESOLVED
+   (deferral now documented in PLAN-SCHEDULER audit log): copies stay
+   until there is a packaged shared owner + app-level auth tests across
+   all three apps; until then, any auth change must be applied to all
+   three files in the same commit.
 
 ## Intentional non-issues (checked, do not "fix")
 - `apps/dashboard` mention in `CREATOR_OS_SYSTEM_MAP.md` is a deliberate

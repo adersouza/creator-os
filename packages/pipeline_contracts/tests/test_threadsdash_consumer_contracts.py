@@ -9,7 +9,6 @@ from pipeline_contracts.validator import SCHEMA_DIR
 
 from pipeline_contracts import validate_contract
 
-
 # Schemas ThreadsDashboard is required to mirror. If a schema is added to
 # the canonical set that the dashboard must consume, add it here — the
 # intersection-based comparison below intentionally no longer decides
@@ -67,8 +66,7 @@ def test_threadsdashboard_common_schemas_match_canonical(
         if not (dashboard_schema_dir / filename).exists()
     ]
     assert not missing, (
-        "ThreadsDashboard is missing required contract schemas: "
-        f"{missing}"
+        f"ThreadsDashboard is missing required contract schemas: {missing}"
     )
 
     unknown_required = [
@@ -107,8 +105,7 @@ def test_threadsdashboard_example_payloads_validate_against_canonical(
         schema_name
         for schema_name in REQUIRED_THREADSDASH_SCHEMAS
         if not (
-            dashboard_schema_dir
-            / schema_name.replace(".schema.json", ".example.json")
+            dashboard_schema_dir / schema_name.replace(".schema.json", ".example.json")
         ).exists()
     ]
     assert not missing_examples, (
@@ -120,9 +117,7 @@ def test_threadsdashboard_example_payloads_validate_against_canonical(
         example = dashboard_schema_dir / schema_name.replace(
             ".schema.json", ".example.json"
         )
-        validate_contract(
-            json.loads(example.read_text(encoding="utf-8")), schema_name
-        )
+        validate_contract(json.loads(example.read_text(encoding="utf-8")), schema_name)
 
 
 def test_threadsdashboard_ingest_imports_pipeline_contracts(
