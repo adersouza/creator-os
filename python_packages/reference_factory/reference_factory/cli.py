@@ -34,6 +34,7 @@ from .config import (
 from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
+from .fileops import atomic_write_text
 from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
@@ -69,7 +70,6 @@ from .reference_intake import (
 from .review import build_shortlist, export_gold, label_reference, review_batch
 from .scan import scan_source
 from .tiktok_archive import import_tiktok_archive
-from .fileops import atomic_write_text
 
 
 def parse_limit(value: str | int | None) -> int | None:

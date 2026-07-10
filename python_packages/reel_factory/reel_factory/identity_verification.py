@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+
 from .fileops import atomic_write_text
 
 SCHEMA = "reel_factory.identity_verification.v1"

@@ -8,11 +8,11 @@ from sqlite3 import Connection
 
 from .config import DEFAULT_DATA_ROOT
 from .db import json_dump
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .media import extract_frame
 from .scoring import score_reference
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 
 def select_references(

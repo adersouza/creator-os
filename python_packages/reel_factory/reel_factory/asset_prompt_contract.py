@@ -14,6 +14,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
 from .fileops import atomic_write_text
 
 REQUIRED_PROMPT_FIELDS = ("higgsfieldGridPrompt", "klingMotionPrompt")

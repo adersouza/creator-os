@@ -23,6 +23,7 @@ from pipeline_contracts import (
 )
 
 from .db import json_dump, json_load
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .prompt_records import (
     find_prompt_record as _find_prompt_record,
@@ -38,7 +39,6 @@ from .prompt_records import (
 )
 from .scan import scan_source
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 ANALYSIS_SCHEMA = "reference_factory.video_analysis.v1"
 PATTERN_CARD_SCHEMA = "reference_factory.pattern_card.v1"

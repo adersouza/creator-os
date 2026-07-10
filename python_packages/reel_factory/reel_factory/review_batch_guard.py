@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_intent import read_audio_intent
+
 from .fileops import atomic_write_text
 
 FOCAL_SAFE = {"focal-safe", "focal_safe_v1"}

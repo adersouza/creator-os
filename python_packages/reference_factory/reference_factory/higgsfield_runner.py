@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
 from .fileops import atomic_write_text
 
 DEFAULT_STACEY_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"

@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
-from .persistence import json_load, utc_now
 from .fileops import atomic_write_text
+from .persistence import json_load, utc_now
 
 
 class TribeV2Repository:

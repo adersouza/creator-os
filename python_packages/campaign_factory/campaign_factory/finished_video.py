@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
 from .fileops import atomic_write_text
 
 

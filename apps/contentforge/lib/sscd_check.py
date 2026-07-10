@@ -13,12 +13,12 @@ Research-calibrated thresholds:
 This is the same model deployed on Facebook and Instagram via SimSearchNet++.
 """
 
-import sys
 import json
 import os
 import subprocess
-import numpy as np
+import sys
 
+import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms

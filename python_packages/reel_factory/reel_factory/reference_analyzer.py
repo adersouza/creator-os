@@ -26,6 +26,7 @@ from intelligence_store import ensure_intelligence_schema
 from pipeline_contracts.llm_resilience import decode_json_object
 
 from reel_factory.sqlite_utils import connect_sqlite
+
 from .fileops import atomic_write_text
 
 ANALYSIS_FIELDS = {

@@ -20,8 +20,8 @@ from campaign_factory.learning_score import (
 
 from .caption_outcome import load_context_json
 from .config import Settings
-from .persistence import json_load
 from .fileops import atomic_write_text
+from .persistence import json_load
 
 CONTENTFORGE_VARIANT_PRESETS = {
     "caption_safe",

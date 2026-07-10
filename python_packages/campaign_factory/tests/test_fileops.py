@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from campaign_factory.fileops import atomic_write_json, atomic_write_text, file_lock
 
 

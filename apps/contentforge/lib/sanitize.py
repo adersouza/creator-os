@@ -10,10 +10,10 @@ Strips forensic tells from MP4/MOV files:
 Works by binary patching — no re-encoding needed, so zero quality loss.
 """
 
-import sys
 import os
-import struct
 import re
+import struct
+import sys
 
 # x264 UUID SEI: dc45e9bd-e6d9-48b7-962c-d820d923eeef
 X264_UUID = bytes([

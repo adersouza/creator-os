@@ -22,6 +22,7 @@ from caption_bank import (
     classify_caption,
 )
 from discoverability_safety import discoverability_safe_content_contract
+
 from .fileops import atomic_write_text
 
 CANDIDATE_SCHEMA = "reel_factory.caption_candidate_intake.v1"

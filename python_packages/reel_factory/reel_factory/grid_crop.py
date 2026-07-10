@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 from caption_render import render_caption_png
 from PIL import Image, ImageChops
+
 from .fileops import atomic_write_text
 
 

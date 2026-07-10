@@ -7,10 +7,10 @@ from sqlite3 import Connection
 
 from .config import DEFAULT_DATA_ROOT
 from .db import json_dump, json_load
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .scoring import shortlist
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 VALID_LABELS = {"gold", "maybe", "ignore"}
 DEFAULT_GOLD_TARGET = 300

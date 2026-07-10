@@ -16,6 +16,7 @@ from typing import Any
 from intelligence_store import winner_score
 
 from reel_factory.sqlite_utils import connect_sqlite
+
 from .fileops import atomic_write_text
 
 ACTIVE_BANKS = [

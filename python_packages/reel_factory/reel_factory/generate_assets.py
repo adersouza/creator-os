@@ -32,6 +32,7 @@ from PIL import Image
 
 from reel_factory.feature_extract import extract_features
 from reel_factory.sqlite_utils import connect_sqlite
+
 from .fileops import atomic_write_text
 
 IMAGE_MODEL = "text2image_soul_v2"

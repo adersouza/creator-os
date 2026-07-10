@@ -11,12 +11,13 @@ Usage:
   reference_db.py clear                       — Clear the reference index
 """
 
-import sys
 import json
 import os
-import numpy as np
-import subprocess
 import shutil
+import subprocess
+import sys
+
+import numpy as np
 
 try:
     import faiss

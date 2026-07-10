@@ -8,6 +8,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
+
 from .fileops import atomic_write_text
 
 SceneType = Literal[

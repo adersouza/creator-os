@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
+
 from .fileops import atomic_write_text
 
 DEFAULT_REPORTS = ("virality", "video_analysis")

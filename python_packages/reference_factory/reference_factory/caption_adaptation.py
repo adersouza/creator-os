@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import DEFAULT_DATA_ROOT
-from .identity import text_hash
 from .fileops import atomic_write_text
+from .identity import text_hash
 
 DEFAULT_PROFILE: dict[str, object] = {
     "schema": "reference_factory.caption_adaptation_profile.v1",

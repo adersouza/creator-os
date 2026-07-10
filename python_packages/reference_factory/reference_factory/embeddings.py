@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
+
 from .fileops import atomic_write_text
 
 DEFAULT_EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"

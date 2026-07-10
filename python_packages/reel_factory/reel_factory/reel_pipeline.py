@@ -72,6 +72,7 @@ from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 
 from pipeline_contracts import validate_generated_asset_lineage
+
 from .fileops import atomic_write_text
 
 AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")

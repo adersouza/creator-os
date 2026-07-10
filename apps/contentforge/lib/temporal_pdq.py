@@ -12,13 +12,14 @@ We extract N frames at 1fps, compute PDQ per frame, then compare:
 Research: TMK Level 1 threshold >= 0.7 for filtering, >= 0.9 for exact match.
 """
 
-import sys
 import json
 import os
-import subprocess
-import numpy as np
-import tempfile
 import shutil
+import subprocess
+import sys
+import tempfile
+
+import numpy as np
 
 try:
     import pdqhash

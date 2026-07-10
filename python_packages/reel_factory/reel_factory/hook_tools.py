@@ -15,6 +15,7 @@ from embedding_provider import (
     cosine_similarity,
     get_embedding_provider,
 )
+
 from .fileops import atomic_write_text
 
 try:

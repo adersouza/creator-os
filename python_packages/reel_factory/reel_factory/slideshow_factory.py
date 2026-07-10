@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+
 from .fileops import atomic_write_text
 
 CANVAS_W = 1080

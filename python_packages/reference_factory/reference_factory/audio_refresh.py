@@ -13,8 +13,8 @@ from .audio import (
     import_audio_csv,
     recommend_audio,
 )
-from .tiktok_archive import import_tiktok_archive
 from .fileops import atomic_write_text
+from .tiktok_archive import import_tiktok_archive
 
 CATALOG_FIELDS = [
     "title",

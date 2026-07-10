@@ -14,10 +14,10 @@ from typing import Any
 from .audio import extract_audio_signal
 from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .db import json_dump, json_load
+from .fileops import atomic_write_text
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 ANALYZER_VERSION = "reference_factory.patterns.v1"
 

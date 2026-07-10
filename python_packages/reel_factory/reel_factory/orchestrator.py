@@ -21,8 +21,8 @@ from typing import Any
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
-from .sqlite_utils import connect_sqlite
 from .fileops import atomic_write_text
+from .sqlite_utils import connect_sqlite
 
 STATES = {
     "planned",

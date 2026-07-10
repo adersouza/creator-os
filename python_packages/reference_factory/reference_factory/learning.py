@@ -20,6 +20,7 @@ from .embeddings import (
     DEFAULT_EMBEDDING_THRESHOLD,
     build_embedding_clusters,
 )
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .patterns import (
     analyze_patterns,
@@ -27,7 +28,6 @@ from .patterns import (
     prompt_briefs_from_winner_dna,
 )
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
 DEFAULT_LABEL_WEIGHTS = {

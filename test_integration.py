@@ -74,9 +74,9 @@ sys.path.insert(0, str(pc_root))
 
 try:
     from pipeline_contracts import (
-        load_schema,
-        load_example,
         example_names,
+        load_example,
+        load_schema,
         validate_schema_examples,
     )
 
@@ -118,12 +118,12 @@ sys.path.insert(0, str(cf_root))
 
 try:
     from pipeline_contracts import (
-        validate_campaign_draft_payload,
+        load_example,
         validate_audio_intent,
-        validate_performance_sync,
+        validate_campaign_draft_payload,
         validate_creative_plan,
         validate_pattern_card,
-        load_example,
+        validate_performance_sync,
     )
 
     # Validate campaign_draft_payload example
@@ -175,15 +175,16 @@ except Exception as e:
 section("3. Campaign Factory — Cost Tracker Module")
 
 try:
+    import sqlite3
+
     from campaign_factory.cost_tracker import (
-        estimate_token_cost,
-        estimate_generation_cost,
-        record_ai_cost,
+        PROVIDER_PRICING,
         cost_summary,
         ensure_cost_table,
-        PROVIDER_PRICING,
+        estimate_generation_cost,
+        estimate_token_cost,
+        record_ai_cost,
     )
-    import sqlite3
 
     check("cost_tracker importable", True)
     check("4 providers priced", len(PROVIDER_PRICING) == 4,

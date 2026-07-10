@@ -14,9 +14,9 @@ from sqlite3 import Connection
 from typing import Any
 
 from .db import json_dump, json_load
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .timeutil import now_iso
-from .fileops import atomic_write_text
 
 FRESH_TREND_STATUSES = {"rising", "fresh", "current", "trending", "unknown"}
 STALE_TREND_STATUSES = {"peaked", "fading", "stale", "expired"}
