@@ -63,6 +63,41 @@ this monorepo was fixed in-session; the items below cannot be completed here.
   matching the existing entries (title, artist, source, license, license URL,
   page URL, tags).
 
+## Needs Codex (in-flight work — deliberately not touched)
+
+### 6. 19 failing contentforge similarity/calibration tests (pre-existing)
+- Observed in the follow-up fix session (commit `6005f1a6`); NOT caused by
+  that commit — its diff (`monorepo-ci.yml`, `test/tool-availability.js`,
+  `campaign_factory/db.py`) touches none of the failing code paths.
+- Failing area was last changed by the Campaign Factory gating PRs
+  (#79, #81, `c3ab1cff`) that Codex is actively iterating on, so it was left
+  alone per "don't interrupt codex".
+- Representative failures (`pnpm --filter contentforge test`):
+  - `campaign-factory-calibration.test.js:116` —
+    `good/campaign_factory_avconvert_render.mp4 overallVerdict` is `'fail'`,
+    test expects `'warn'`.
+  - `campaign-factory-report.test.js:80` — expects 0 missing-media entries,
+    gets 8. Smells like fixture drift rather than logic.
+  - `similarity-route.test.js` — multiple: upload-ready FFmpeg render fails
+    instead of warning (line 219), hook-watchability blocking flag false
+    (line 359), reference-match variation meter false (line 442), forced-OCR
+    advisory-only, Apple Vision → Tesseract fallback, legacy-FFmpeg-metadata
+    warn path, compression-review warn path.
+- Full failure list: 19 total; pattern is verdicts coming back one severity
+  harsher than tests expect (`fail` vs `warn`, blocking vs advisory) plus
+  missing/renamed fixture media. Codex should reconcile the gating verdict
+  matrix with the test expectations (or update fixtures) in one pass.
+
+### 7. Follow-up session status (for context, all committed as `6005f1a6`)
+- Fixed: tool-availability probe (`-version` **or** `--version`, so tesseract
+  isn't misreported missing); `campaign_factory/db.py` SQLite hardening
+  (timeout=30, busy_timeout=30000, WAL — matches
+  `reel_factory.sqlite_utils.connect_sqlite`); CI now filters on
+  `scripts/**` and runs `pipeline-contracts-ts` tests.
+- Verified green before commit: campaign_factory Python suite (699 passed),
+  pipeline-contracts-ts (21 passed). Only the item-6 contentforge failures
+  remain red.
+
 ## Intentional non-issues (checked, do not "fix")
 - `apps/dashboard` mention in `CREATOR_OS_SYSTEM_MAP.md` is a deliberate
   negative reference.
