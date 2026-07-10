@@ -117,9 +117,11 @@ Rev 7 written. Verdict on Rev 7 not obtained (user-authorized extra round exhaus
 
 ## Verification and landing
 
-- Creator OS `make verify` passes against the isolated ThreadsDashboard consumer: contracts, Ruff, formatting, mypy, architecture, artifact checks, both Next builds, 185 JavaScript/TypeScript tests, and 1,457 Python tests. The existing ContentForge lint baseline remains 23 warnings and 0 errors; 17 media-tool tests remain intentionally skipped when Tesseract is unavailable.
-- Campaign Factory passes 702 tests, including fail-closed eligibility, promotion idempotency, migration quarantine, reconciliation, and the exactly-one-winner concurrency proof. Reel Factory passes all 574 tests with the optional vision/AI dependencies installed.
+- Creator OS `make verify` passes against the isolated ThreadsDashboard consumer: contracts, Ruff, formatting, mypy, architecture, artifact checks, both Next builds, 187 JavaScript/TypeScript tests, and 1,469 Python tests. All 153 ContentForge tests pass; its existing lint baseline remains 23 warnings and 0 errors.
+- Campaign Factory passes 709 tests, including fail-closed eligibility, promotion idempotency, migration quarantine, reconciliation, and the exactly-one-winner concurrency proof. Reel Factory passes all 579 tests with the optional vision/AI dependencies installed.
 - ThreadsDashboard passes 5,195 tests (1 skipped, 3 todo), typecheck, Biome lint, compatibility checks, contract parity, migration replay lint, and its production build/bundle budgets.
 - Unblocked the existing Tailwind 4 build mismatch in both Creator OS Next apps by switching their PostCSS integration to `@tailwindcss/postcss`.
-- Landing is isolated to `codex/plan-scheduler-v3`; no merge or deployment is performed by this plan.
+- Creator OS landing is published as PR #378 from `codex/plan-scheduler-v3`;
+  the combined audit verification tree is `codex/audit1-handoff`. No merge or
+  deployment is performed by this plan.
 - No production deployment or autoposter state change is authorized by this plan.

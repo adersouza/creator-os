@@ -14,6 +14,12 @@ provider credentials, and `pipeline_smoke.py --real-providers` explicitly exits
 because the real-provider path is not implemented. No scheduling, publishing,
 or paid-provider action was performed.
 
+Final verification: Creator OS passes 187 JavaScript/TypeScript tests and 1,469
+Python tests (including 153/153 ContentForge tests), plus both production builds
+and every static/contract/architecture gate. ThreadsDashboard passes 5,195 tests
+(1 skipped, 3 todo), typecheck, compatibility/contract parity, Biome lint,
+migration lint, production build, and bundle budgets.
+
 ## Needs the operator (this machine / accounts)
 
 ### 1. Install a dependency-cruiser-supported Node version (blocks `check:all`)
@@ -41,7 +47,8 @@ architecture positive/negative fixture controls pass under Node 24.
 
 ### 2a. Merge decisions for PLAN-SCHEDULER v3 PRs (operator's button)
 - [Creator OS #378](https://github.com/adersouza/creator-os/pull/378):
-  verified 7/7 checks green. Merge order: **#378 first**, then rerun
+  currently mergeable with all required checks green (8 passing, 3
+  intentionally skipped). Merge order: **#378 first**, then rerun
   [ThreadsDashboard #268](https://github.com/adersouza/ThreadsDashboard/pull/268)
   checks and undraft. Merging is an operator decision; nothing is merged,
   deployed, scheduled, or activated yet (autoposting off, trial graduation
@@ -50,9 +57,11 @@ architecture positive/negative fixture controls pass under Node 24.
 ### 2b. Pre-existing migration-replay failure blocking #268
 - #268 has two red checks: the contract-compare-vs-main job (self-heals once
   #378 merges) and `Clean migration replay on preview branch`, which is a
-  **pre-existing unchanged Supabase migration failure** — it will NOT
-  self-heal when #378 lands. Needs its own fix in the ThreadsDashboard repo
-  before #268 can be undrafted.
+  **pre-existing unchanged Supabase migration failure** at
+  `20260618221024_drop_unused_posts_indexes.sql`: `DROP INDEX CONCURRENTLY`
+  cannot run inside the replay pipeline. It will NOT self-heal when #378 lands
+  and needs its own ThreadsDashboard migration repair before #268 can be
+  undrafted.
 
 ### 2c. Graphify refresh blocked — no LLM API key configured
 - Codex's PLAN-SCHEDULER v3 run could not complete the Graphify refresh

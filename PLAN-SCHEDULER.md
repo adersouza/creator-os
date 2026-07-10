@@ -1,6 +1,10 @@
 # PLAN-SCHEDULER — Master Cross-Account Posting Schedule (v3)
 
-Status: DRAFT v3 — incorporates two Codex adversarial passes; claims below re-verified against code locally.
+Status: IMPLEMENTED AND VERIFIED (2026-07-10). Creator OS PR #378 is open,
+mergeable, and green; ThreadsDashboard PR #268 contains Phase 4 and remains a
+draft pending #378 plus an unrelated historical migration-replay repair. No
+merge, deployment, scheduling activation, publishing, or autoposter activation
+was performed.
 Scope: cross-account distribution safety, trial-reel intent, posting-time footprint. Human-in-the-loop preserved; autoposter stays OFF.
 
 ## Authority decision (settled)
