@@ -27,6 +27,7 @@ from campaign_factory.config import Settings  # noqa: E402
 from campaign_factory.core import CampaignFactory  # noqa: E402
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger  # noqa: E402
 from reel_pipeline import build_caption_outcome_context  # noqa: E402
+from campaign_factory.fileops import atomic_write_text
 
 CAPTION_TEXT = "Hard launch energy."
 CAPTION_HASH = "caption_hash_e2e_proof"
@@ -66,7 +67,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="caption_outcome_e2e_") as tmp:
         proof = run_proof(Path(tmp))
 
-    args.record.write_text(
+    atomic_write_text(args.record, 
         json.dumps(proof, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
     )

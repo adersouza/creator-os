@@ -12,6 +12,7 @@ from typing import Any
 from .caption_outcome import build_caption_outcome_context, load_context_json
 from .config import Settings
 from .persistence import json_load
+from .fileops import atomic_write_text
 
 
 class ReelExecutionRepository:
@@ -174,7 +175,7 @@ class ReelExecutionRepository:
                 }
                 if hook_metadata:
                     sidecar["hook_metadata"] = hook_metadata
-                (cap_dir / f"{clip_stem}.json").write_text(
+                atomic_write_text((cap_dir / f"{clip_stem}.json"), 
                     json.dumps(sidecar, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )

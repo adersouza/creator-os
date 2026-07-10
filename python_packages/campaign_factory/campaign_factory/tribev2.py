@@ -10,6 +10,7 @@ from typing import Any
 
 from .config import Settings
 from .persistence import json_load, utc_now
+from .fileops import atomic_write_text
 
 
 class TribeV2Repository:
@@ -463,7 +464,7 @@ class TribeV2Repository:
             title=f"{title}: {creator}",
             body=f"{banner}<section class='grid'>{''.join(cards)}</section>",
         )
-        html_path.write_text(html, encoding="utf-8")
+        atomic_write_text(html_path, html, encoding="utf-8")
         return str(html_path)
 
     def write_tribev2_holdout_contact_sheet(
@@ -500,7 +501,7 @@ class TribeV2Repository:
             title=f"TRIBE v2 Holdout Pilot Review: {creator}",
             body="".join(sections),
         )
-        html_path.write_text(html, encoding="utf-8")
+        atomic_write_text(html_path, html, encoding="utf-8")
         return str(html_path)
 
     def tribev2_contact_sheet_cards(

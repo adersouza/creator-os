@@ -10,6 +10,7 @@ from repurposer.pipeline import VariantPipeline
 from pipeline_contracts import validate_variant_assignment
 
 from .adapters.contentforge import audit_variation_batch
+from .fileops import atomic_write_text
 
 CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
     "campaign_factory_audit.v1.7",
@@ -57,7 +58,7 @@ def run_variation_stage(
                 output_dir
                 / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.preview.v1.json"
             )
-            path.write_text(
+            atomic_write_text(path, 
                 json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
             )
         else:
@@ -117,7 +118,7 @@ def run_variation_stage(
                 for item in assignment["assignments"]:
                     item.setdefault("lineage", {})["perceptual_audit"] = audit_lineage
                 validate_variant_assignment(assignment)
-                path.write_text(
+                atomic_write_text(path, 
                     json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
                 )
             except Exception:

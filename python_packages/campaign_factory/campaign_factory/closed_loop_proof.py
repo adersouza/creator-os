@@ -17,6 +17,7 @@ from .adapters.threadsdash import (
 )
 from .config import get_settings
 from .core import CampaignFactory
+from .fileops import atomic_write_text, file_lock
 
 DEFAULT_STACEY_PROMPT_PATH = (
     get_settings().reel_factory_root
@@ -620,12 +621,13 @@ class ClosedLoopProofRun:
 
     def write(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.json_path.write_text(
-            json.dumps(self.record, indent=2, ensure_ascii=False, sort_keys=True)
-            + "\n",
-            encoding="utf-8",
-        )
-        self.markdown_path.write_text(self._markdown(), encoding="utf-8")
+        with file_lock(self.json_path):
+            atomic_write_text(
+                self.json_path,
+                json.dumps(self.record, indent=2, ensure_ascii=False, sort_keys=True)
+                + "\n",
+            )
+            atomic_write_text(self.markdown_path, self._markdown())
 
     def _markdown(self) -> str:
         record = self.record

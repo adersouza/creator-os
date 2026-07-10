@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from .fileops import atomic_write_text
 
 
 class FinishedVideoRepository:
@@ -951,7 +952,7 @@ class FinishedVideoRepository:
         audit_dir = dirs["audits"] / "finished_video_operator"
         audit_dir.mkdir(parents=True, exist_ok=True)
         audit_path = audit_dir / f"{audit_id}.json"
-        audit_path.write_text(
+        atomic_write_text(audit_path, 
             json.dumps(audit_payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         self.conn.execute(

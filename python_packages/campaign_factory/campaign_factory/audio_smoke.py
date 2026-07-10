@@ -21,6 +21,7 @@ from .contracts import (
     validate_threadsdash_draft_payload,
 )
 from .core import CampaignFactory, utc_now
+from .fileops import atomic_write_text
 
 SMOKE_CSV = """title,artist,platform,native_audio_id,native_audio_url,mood_tags,best_content_types,account_fit,bpm,energy,trend_status,usage_count,safe_usage_notes,expires_at
 Runway Pop,DJ A,instagram,ig_runway_pop,https://instagram.com/audio/runway_pop,glam|fit_check,regular_reel|v01_original,smoke_account,124,8,rising,120000,Attach natively only,2099-01-01T00:00:00+00:00
@@ -51,13 +52,13 @@ CONTENTFORGE_SMOKE_RESPONSE = {
 
 def write_smoke_audio_csv(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(SMOKE_CSV, encoding="utf-8")
+    atomic_write_text(path, SMOKE_CSV, encoding="utf-8")
     return path
 
 
 def write_smoke_audio_snapshot_csv(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(SMOKE_SNAPSHOT_CSV, encoding="utf-8")
+    atomic_write_text(path, SMOKE_SNAPSHOT_CSV, encoding="utf-8")
     return path
 
 
@@ -302,7 +303,7 @@ def _run_pipeline_audio_smoke(
         "threadsdash": threadsdash_result,
         "skippedBoundaries": skipped_boundaries(threadsdash_root),
     }
-    (workspace / "pipeline_audio_smoke_summary.json").write_text(
+    atomic_write_text((workspace / "pipeline_audio_smoke_summary.json"), 
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -438,7 +439,7 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
     if asset is None:
         raise AssertionError("smoke rendered asset missing")
     report_path = Path(asset["campaign_path"]).with_suffix(".audit_smoke.json")
-    report_path.write_text(
+    atomic_write_text(report_path, 
         json.dumps(
             {
                 "readinessSummary": {
@@ -481,7 +482,7 @@ def _write_threadsdash_audio_gate_fixture(
         raise AssertionError("expected ThreadsDashboard draft for audio gate fixture")
     campaign_factory = (drafts[0].get("metadata") or {}).get("campaign_factory") or {}
     campaign_factory["audio_intent"] = unresolved_intent
-    draft_path.write_text(
+    atomic_write_text(draft_path, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
