@@ -29,6 +29,7 @@ def core_lineage():
         recipe_id="recipe_1",
         caption_hash="caption_hash",
         rendered_asset_id="asset_1",
+        content_fingerprint="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     )
 
 
@@ -113,6 +114,7 @@ def test_missing_prompt_hard_fails_and_v1_snapshot_is_fenced_from_learning():
             recipe_id="recipe_1",
             caption_hash="caption_hash",
             rendered_asset_id="asset_1",
+            content_fingerprint="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         )
 
     assert not learning_eligible(

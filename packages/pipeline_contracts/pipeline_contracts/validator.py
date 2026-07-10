@@ -15,6 +15,7 @@ _REPO_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 SCHEMA_DIR = _PACKAGE_SCHEMA_DIR if _PACKAGE_SCHEMA_DIR.exists() else _REPO_SCHEMA_DIR
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
+ASSIGNMENT_ELIGIBILITY_SCHEMA = "assignment_eligibility.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA = "campaign_draft_payload.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA = "campaign_draft_payload.v2.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_SCHEMA = CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA
@@ -39,6 +40,7 @@ FRONT_GENERATION_PLAN_SCHEMA = "front_generation_plan.v1.schema.json"
 
 SCHEMA_NAMES = {
     "audio_intent": AUDIO_INTENT_SCHEMA,
+    "assignment_eligibility": ASSIGNMENT_ELIGIBILITY_SCHEMA,
     "campaign_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "campaign_draft_payload_v1": CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA,
     "campaign_draft_payload_v2": CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA,
@@ -112,6 +114,10 @@ def validate_contract(value: Any, schema_name: str) -> None:
 
 def validate_audio_intent(value: Any) -> None:
     validate_contract(value, AUDIO_INTENT_SCHEMA)
+
+
+def validate_assignment_eligibility(value: Any) -> None:
+    validate_contract(value, ASSIGNMENT_ELIGIBILITY_SCHEMA)
 
 
 STRICT_CAMPAIGN_DRAFT_GRAPH_FIELDS = [
@@ -267,6 +273,7 @@ def _validate_campaign_draft_graph_ids(value: Any) -> None:
 def validate_schema_examples() -> list[dict[str, Any]]:
     validators: dict[str, Callable[[Any], None]] = {
         "audio_intent.v1.example.json": validate_audio_intent,
+        "assignment_eligibility.v1.example.json": validate_assignment_eligibility,
         "campaign_draft_payload.v1.example.json": validate_campaign_draft_payload,
         "campaign_draft_payload.v2.example.json": validate_campaign_draft_payload,
         "audio_catalog_export.v1.example.json": validate_audio_catalog_export,

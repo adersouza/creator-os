@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -20,7 +21,186 @@ STACEY1_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
 LARISSA_SOUL_ID = "44326567-b12c-410c-95b7-31891bb0629b"
 
 
+def eligibility_decision(
+    *, account_id: str, fingerprint: str, allowed: bool, reason: str | None = None
+) -> dict:
+    return {
+        "schema": "campaign_factory.assignment_eligibility.v1",
+        "allowed": allowed,
+        "reasonCodes": [] if allowed else [reason or "missing_identity_metadata"],
+        "inputs": {
+            "renderedAssetId": "asset_contract_test",
+            "campaignId": "camp_stacey",
+            "accountId": account_id,
+            "instagramAccountId": account_id,
+            "accountGroupId": "stacey",
+            "surface": "regular_reel",
+            "plannedAt": "2026-06-03T10:00:00+00:00",
+            "reuseWindowDays": 14,
+            "contentFingerprint": fingerprint,
+            "sourceFamilyId": "family_contract_test",
+            "perceptualFingerprint": "phash64:contract",
+            "perceptualClusterId": "phash64:contract",
+            "originAccountId": "stacey_a",
+        },
+        "matches": [],
+        "policy": {
+            "missingIdentity": "origin_account_only",
+            "crossAccountReuseWindowDays": 14,
+        },
+        "auto_posting": False,
+    }
+
+
 class PostingLedgerTests(unittest.TestCase):
+    def test_campaign_factory_artifact_block_reason_has_ledger_parity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            video = root / "artifact-blocked.mp4"
+            video.write_bytes(b"artifact blocked reel")
+            fingerprint = hashlib.sha256(video.read_bytes()).hexdigest()
+            approved_path = root / "approved.json"
+            approved_path.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(video),
+                                "generated_asset_lineage": {
+                                    "contentFingerprint": fingerprint,
+                                    "source": {
+                                        "soulName": "Stacey",
+                                        "sourceFamilyId": "family_contract_test",
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            decision = eligibility_decision(
+                account_id="stacey_a",
+                fingerprint=fingerprint,
+                allowed=False,
+                reason="missing_identity_metadata",
+            )
+            artifact_path = root / "eligibility.json"
+            artifact_path.write_text(json.dumps(decision), encoding="utf-8")
+
+            result = assign_approved_reels(
+                root,
+                campaign_id="camp_stacey",
+                approved_export=approved_path,
+                eligibility_artifact=artifact_path,
+            )
+
+            self.assertEqual(result["assigned"], 0)
+            self.assertEqual(result["conflicts"][0]["reasons"], decision["reasonCodes"])
+
+    def test_campaign_factory_artifact_is_authoritative_over_local_policy_mirror(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Manifest(root / "manifest.json")
+            create_posting_plan(
+                root,
+                creator="Stacey",
+                campaign_id="camp_stacey",
+                accounts=["stacey_a", "stacey_b"],
+                start_date="2026-06-03",
+                days=1,
+            )
+            first = root / "first-family.mp4"
+            first.write_bytes(b"first family reel")
+            first_export = root / "first.json"
+            first_export.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(first),
+                                "generated_asset_lineage": {
+                                    "source": {
+                                        "soulName": "Stacey",
+                                        "sourceFamilyId": "shared-family",
+                                    }
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                assign_approved_reels(
+                    root,
+                    campaign_id="camp_stacey",
+                    approved_export=first_export,
+                )["assigned"],
+                1,
+            )
+
+            second = root / "second-family.mp4"
+            second.write_bytes(b"second family reel")
+            second_fingerprint = hashlib.sha256(second.read_bytes()).hexdigest()
+            second_export = root / "second.json"
+            second_export.write_text(
+                json.dumps(
+                    {
+                        "items": [
+                            {
+                                "output_path": str(second),
+                                "generated_asset_lineage": {
+                                    "contentFingerprint": second_fingerprint,
+                                    "source": {
+                                        "soulName": "Stacey",
+                                        "sourceFamilyId": "shared-family",
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact_path = root / "allowed.json"
+            artifact_path.write_text(
+                json.dumps(
+                    eligibility_decision(
+                        account_id="stacey_b",
+                        fingerprint=second_fingerprint,
+                        allowed=True,
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            result = assign_approved_reels(
+                root,
+                campaign_id="camp_stacey",
+                approved_export=second_export,
+                eligibility_artifact=artifact_path,
+            )
+
+            self.assertEqual(result["assigned"], 1)
+            conn = connect_campaign_store(root)
+            assigned_slot = conn.execute(
+                "SELECT account_id FROM posting_slots WHERE posting_slot_id = ?",
+                (result["assignments"][0]["posting_slot_id"],),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(assigned_slot["account_id"], "stacey_b")
+            self.assertEqual(result["conflicts"], [])
+
     def test_posting_slots_have_hot_path_indexes(self):
         with tempfile.TemporaryDirectory() as tmp:
             conn = connect_campaign_store(Path(tmp))

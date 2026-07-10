@@ -9,6 +9,10 @@ from datetime import time as datetime_time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .assignment_eligibility import (
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 from .caption_outcome import column_values, load_context_json
 from .persistence import json_load
 
@@ -135,6 +139,7 @@ class DistributionRepository:
         cta_text: str | None = None,
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
+        trial_group_id: str | None = None,
     ) -> dict[str, Any]:
         asset = self._rendered_asset(rendered_asset_id)
         now = self._utc_now()
@@ -155,6 +160,20 @@ class DistributionRepository:
             instagram_trial_reels=instagram_trial_reels,
             trial_graduation_strategy=trial_graduation_strategy,
         )
+        self._ensure_default_reel_cadence(
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            now=now,
+        )
+        eligibility = enforce_assignment_eligibility(
+            self.conn,
+            rendered_asset_id=rendered_asset_id,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_at=planned_window_start,
+            surface=distribution_surface,
+        )
+        identity = eligibility["inputs"]
         caption_columns = column_values(
             load_context_json(asset.get("caption_outcome_context_json"))
         )
@@ -162,16 +181,18 @@ class DistributionRepository:
         self.conn.execute(
             """
             INSERT INTO distribution_plans
-            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, surface, content_surface,
+            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
+             source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+             assignment_eligibility_json, surface, content_surface,
              concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
              variant_operations_json,
              planned_window_start, planned_window_end, paired_rendered_asset_id, reason_code,
-             smart_link, cta_text, instagram_trial_reels, trial_graduation_strategy,
+             smart_link, cta_text, instagram_trial_reels, trial_graduation_strategy, trial_group_id,
              caption_hash, caption_text, caption_bank, caption_banks_json,
              creator_mix, creator_model, frame_type, length_class, format_class, caption_fit_version,
              suitability_decision, suitability_reason, source_clip, caption_outcome_context_json,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 plan_id,
@@ -179,6 +200,11 @@ class DistributionRepository:
                 rendered_asset_id,
                 account_id,
                 instagram_account_id,
+                identity["sourceFamilyId"],
+                identity["perceptualFingerprint"],
+                identity["perceptualClusterId"],
+                identity["accountGroupId"],
+                json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 distribution_surface,
                 content_surface,
                 variant_lineage.get("concept_id"),
@@ -201,6 +227,7 @@ class DistributionRepository:
                 cta_text,
                 1 if instagram_trial_reels else 0,
                 normalized_strategy,
+                trial_group_id,
                 caption_columns["caption_hash"],
                 caption_columns["caption_text"],
                 caption_columns["caption_bank"],
@@ -219,6 +246,7 @@ class DistributionRepository:
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self._record_event(
             "distribution_plan_created",
             campaign_id=asset["campaign_id"],
@@ -235,11 +263,42 @@ class DistributionRepository:
                 "reasonCode": reason_code,
                 "instagramTrialReels": bool(instagram_trial_reels),
                 "trialGraduationStrategy": normalized_strategy,
+                "trialGroupId": trial_group_id,
             },
             commit=False,
         )
         self.conn.commit()
         return self.distribution_plan(plan_id) or {}
+
+    def _ensure_default_reel_cadence(
+        self,
+        *,
+        account_id: str | None,
+        instagram_account_id: str | None,
+        now: str,
+    ) -> None:
+        row = None
+        if account_id:
+            row = self.conn.execute(
+                "SELECT id, handle FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+        if not row and instagram_account_id:
+            row = self.conn.execute(
+                "SELECT id, handle FROM accounts WHERE external_id = ?",
+                (instagram_account_id,),
+            ).fetchone()
+        if not row:
+            return
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO account_content_requirements
+            (id, account_id, creator, content_surface, cadence, max_per_day,
+             min_gap_hours, main_reels_per_day, trial_reels_per_day,
+             allowed_days, active, created_at, updated_at)
+            VALUES (?, ?, ?, 'reel', 'daily', 3, 4, 1, 2, '[]', 1, ?, ?)
+            """,
+            (self._new_id("requirement"), row["id"], row["handle"], now, now),
+        )
 
     def validate_instagram_trial_reel_intent(
         self,
@@ -336,6 +395,14 @@ class DistributionRepository:
             "instagram_trial_reels": bool(row.get("instagram_trial_reels")),
             "trialGraduationStrategy": row.get("trial_graduation_strategy"),
             "trial_graduation_strategy": row.get("trial_graduation_strategy"),
+            **(
+                {
+                    "trialGroupId": row.get("trial_group_id"),
+                    "trial_group_id": row.get("trial_group_id"),
+                }
+                if row.get("trial_group_id")
+                else {}
+            ),
             "conceptId": row.get("concept_id"),
             "parentReelId": row.get("parent_reel_id"),
             "variantFamilyId": row.get("variant_family_id"),
@@ -470,6 +537,13 @@ class DistributionRepository:
                     instagram_account_id=account_id,
                     planned_window_start=slot.isoformat(),
                     reason_code=reason_code,
+                    instagram_trial_reels=surface == "trial_reel",
+                    trial_graduation_strategy="MANUAL"
+                    if surface == "trial_reel"
+                    else None,
+                    trial_group_id=f"trial_{campaign['id']}_{asset['id']}"
+                    if surface == "trial_reel"
+                    else None,
                     smart_link=(profile or {}).get("defaultSmartLink"),
                     cta_text=(profile or {}).get("storyCtaText")
                     if surface == "story_cta"

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable
 from typing import Any
+
+from .assignment_eligibility import (
+    asset_identity,
+    enforce_assignment_eligibility,
+    persist_assignment_origin,
+)
 
 
 def _job_resolution_scope(job: dict[str, Any]) -> tuple[str, str]:
@@ -176,6 +183,13 @@ class CampaignOverviewRepository:
         ]
         audio_workflow = self._audio_workflow_summary(rendered)
         failed_jobs = self.unresolved_failed_jobs(jobs)
+        identity_blocked = 0
+        for raw in self._rendered_for_campaign(campaign["id"]):
+            identity = asset_identity(raw)
+            if raw.get("origin_account_id") and not (
+                identity["sourceFamilyId"] or identity["perceptualFingerprint"]
+            ):
+                identity_blocked += 1
         return {
             "schema": "campaign_factory.campaign_health.v1",
             "campaign": campaign["slug"],
@@ -196,6 +210,7 @@ class CampaignOverviewRepository:
                 ],
                 "audioBlocked": audio_workflow["counts"]["blocked"],
                 "audioReady": audio_workflow["counts"]["ready"],
+                "assignmentIdentityBlockedAssets": identity_blocked,
             },
             "audioWorkflow": audio_workflow,
             "failedJobs": failed_jobs[:10],
@@ -308,12 +323,23 @@ class CampaignOverviewRepository:
                 raise ValueError(f"account not found: {account_id}")
         now = self._utc_now()
         assignment_id = self._new_id("assign")
+        eligibility = enforce_assignment_eligibility(
+            self.conn,
+            rendered_asset_id=rendered_asset_id,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            planned_at=planned_window_start,
+            surface=asset.get("content_surface"),
+        )
+        identity = eligibility["inputs"]
         self.conn.execute(
             """
             INSERT INTO asset_account_assignments
-            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id, planned_window_start,
+            (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
+             source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
+             assignment_eligibility_json, planned_window_start,
              planned_window_end, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 assignment_id,
@@ -321,6 +347,11 @@ class CampaignOverviewRepository:
                 rendered_asset_id,
                 account_id,
                 instagram_account_id,
+                identity["sourceFamilyId"],
+                identity["perceptualFingerprint"],
+                identity["perceptualClusterId"],
+                identity["accountGroupId"],
+                json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 planned_window_start,
                 planned_window_end,
                 notes,
@@ -328,6 +359,7 @@ class CampaignOverviewRepository:
                 now,
             ),
         )
+        persist_assignment_origin(self.conn, eligibility)
         self._record_event(
             "asset_account_assigned",
             campaign_id=asset["campaign_id"],

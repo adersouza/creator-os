@@ -104,6 +104,7 @@
             "recipeId": "v01_original",
             "captionHash": "caption_hash_rendered",
             "renderedAssetId": "asset_smoke",
+            "contentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "variationApplied": false,
             "variantId": null,
             "audioIntentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

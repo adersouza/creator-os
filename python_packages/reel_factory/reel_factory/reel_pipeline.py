@@ -72,6 +72,7 @@ from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 
 from pipeline_contracts import validate_generated_asset_lineage
+from reel_factory.perceptual import enrich_lineage_identity, load_json
 
 AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")
 
@@ -793,6 +794,11 @@ def write_generated_asset_lineage_sidecar(
         },
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
     }
+    payload = enrich_lineage_identity(
+        payload,
+        out_path,
+        source_lineage=load_json(source_lineage_path),
+    )
     validate_generated_asset_lineage(payload)
     sidecar.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1776,6 +1782,7 @@ async def process_one(
             source_clip=src.stem,
             rendered_output=str(out_path),
         )
+        source_lineage_path = None
         if asset_prompt_info:
             prompt_set, prompt_source_path = asset_prompt_info
             source_lineage_path = ensure_source_asset_lineage(
@@ -1783,12 +1790,12 @@ async def process_one(
                 prompt_set=prompt_set,
                 prompt_source_path=prompt_source_path,
             )
-            write_generated_asset_lineage_sidecar(
-                out_path,
-                source_lineage_path=source_lineage_path,
-                render_job_key=key,
-                source_hash=src_hash,
-            )
+        write_generated_asset_lineage_sidecar(
+            out_path,
+            source_lineage_path=source_lineage_path,
+            render_job_key=key,
+            source_hash=src_hash,
+        )
 
         if mezz_cmd:
             try:

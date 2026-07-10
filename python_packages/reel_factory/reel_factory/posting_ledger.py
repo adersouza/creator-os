@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from audio_intent import read_audio_intent
 from intelligence_store import winner_score
 
+from pipeline_contracts import validate_assignment_eligibility
 from reel_factory.sqlite_utils import connect_sqlite
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
@@ -67,6 +68,7 @@ def ensure_posting_ledger_schema(conn: sqlite3.Connection) -> None:
         perceptual_fingerprint TEXT,
         perceptual_cluster_id TEXT,
         account_group_id TEXT,
+        origin_account_id TEXT,
         reuse_cooldown_days INTEGER NOT NULL DEFAULT 14,
         caption TEXT,
         caption_variant_id TEXT,
@@ -135,6 +137,7 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
         "perceptual_fingerprint": "TEXT",
         "perceptual_cluster_id": "TEXT",
         "account_group_id": "TEXT",
+        "origin_account_id": "TEXT",
         "reuse_cooldown_days": "INTEGER NOT NULL DEFAULT 14",
         "soul_id": "TEXT",
         "accepted_soul_ids_json": "TEXT NOT NULL DEFAULT '[]'",
@@ -355,10 +358,12 @@ def assign_approved_reels(
     approved_export: Path,
     dry_run: bool = False,
     source_reuse_window_days: int = DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS,
+    eligibility_artifact: Path | None = None,
 ) -> dict[str, Any]:
     conn = connect(root)
     payload = json.loads(Path(approved_export).read_text(encoding="utf-8"))
     items = payload.get("items") or []
+    artifact_decisions = _load_eligibility_decisions(eligibility_artifact)
     slots = [
         dict(row)
         for row in conn.execute(
@@ -397,25 +402,48 @@ def assign_approved_reels(
                 {"output_path": str(output_path), "reasons": ["missing_lineage"]}
             )
             continue
-        fp = content_fingerprint(output_path)
+        if not item_lineage and lineage_path:
+            item_lineage = _json_object(lineage_path.read_text(encoding="utf-8"))
+        if not available_slots:
+            conflicts.append(
+                {
+                    "output_path": str(output_path.resolve()),
+                    "reasons": ["no_available_planned_slot"],
+                }
+            )
+            continue
+        identity_reason = _creator_identity_conflict(
+            conn, item=item, lineage=item_lineage, slot=available_slots[0]
+        )
+        if identity_reason:
+            conflicts.append(
+                {
+                    "posting_slot_id": available_slots[0]["posting_slot_id"],
+                    "account_handle": available_slots[0]["account_handle"],
+                    "output_path": str(output_path.resolve()),
+                    "reasons": [identity_reason],
+                }
+            )
+            continue
+        fp = str(
+            _lineage_value(item_lineage, "contentFingerprint", "content_fingerprint")
+            or item.get("content_fingerprint")
+            or content_fingerprint(output_path)
+        ).strip()
+        item_lineage["contentFingerprint"] = fp
+        exported_fp = str(item.get("content_fingerprint") or "").strip()
+        if exported_fp and exported_fp != fp:
+            conflicts.append(
+                {
+                    "output_path": str(output_path.resolve()),
+                    "content_fingerprint": fp,
+                    "reasons": ["lineage_content_fingerprint_mismatch"],
+                }
+            )
+            continue
         candidate_uniqueness = _uniqueness_values(
             item, lineage=item_lineage, fingerprint=fp
         )
-        if available_slots:
-            identity_reason = _creator_identity_conflict(
-                conn, item=item, lineage=item_lineage, slot=available_slots[0]
-            )
-            if identity_reason:
-                conflicts.append(
-                    {
-                        "posting_slot_id": available_slots[0]["posting_slot_id"],
-                        "account_handle": available_slots[0]["account_handle"],
-                        "output_path": str(output_path.resolve()),
-                        "content_fingerprint": fp,
-                        "reasons": [identity_reason],
-                    }
-                )
-                continue
         slot_result: tuple[dict[str, Any], list[str]] | None = None
         conflict_accounts_seen: set[str] = set()
         terminal_conflict = False
@@ -429,7 +457,15 @@ def assign_approved_reels(
                 lineage=item_lineage,
                 uniqueness=candidate_uniqueness,
                 source_reuse_window_days=source_reuse_window_days,
+                include_policy_rules=not artifact_decisions,
             )
+            artifact_reason = _artifact_assignment_conflict(
+                artifact_decisions,
+                slot=slot,
+                fingerprint=fp,
+            )
+            if artifact_reason:
+                reasons.append(artifact_reason)
             if not reasons:
                 slot_result = (slot, reasons)
                 assigned_slot_index = idx
@@ -484,6 +520,10 @@ def assign_approved_reels(
         values.update(
             {
                 "posting_slot_id": slot["posting_slot_id"],
+                "origin_account_id": str(
+                    _lineage_value(item_lineage, "originAccountId", "origin_account_id")
+                    or slot["account_id"]
+                ),
                 "post_status": "ready_for_review",
                 "review_status": "pending",
                 "updated_at": now,
@@ -505,6 +545,7 @@ def assign_approved_reels(
                 perceptual_fingerprint=:perceptual_fingerprint,
                 perceptual_cluster_id=:perceptual_cluster_id,
                 account_group_id=:account_group_id,
+                origin_account_id=:origin_account_id,
                 reuse_cooldown_days=:reuse_cooldown_days,
                 caption=:caption,
                 caption_variant_id=:caption_variant_id,
@@ -640,7 +681,14 @@ def review_queue(root: Path, *, campaign_id: str | None = None) -> dict[str, Any
         data["audio_intent"] = _audio_state(data)
         data["actions"] = ["approve", "reject", "skip"]
         items.append(data)
-    return {"ok": True, "schema": SCHEMA, "count": len(items), "items": items}
+    conflict_summary = ledger_conflicts(root, campaign_id=campaign_id)
+    return {
+        "ok": True,
+        "schema": SCHEMA,
+        "count": len(items),
+        "assignmentBlockedCount": conflict_summary["count"],
+        "items": items,
+    }
 
 
 def ledger_conflicts(
@@ -662,6 +710,7 @@ def ledger_conflicts(
     seen_rendered: set[tuple[str, str]] = set()
     seen_fp: set[tuple[str, str]] = set()
     seen_campaign_fp: set[tuple[str, str]] = set()
+    origin_by_fingerprint: dict[str, str] = {}
     for row in rows:
         if row.get("rendered_output_path"):
             key = (row["account_id"], row["rendered_output_path"])
@@ -692,6 +741,21 @@ def ledger_conflicts(
                     }
                 )
             seen_campaign_fp.add(campaign_key)
+            if not (row.get("source_family_id") or row.get("perceptual_fingerprint")):
+                fingerprint = str(row["content_fingerprint"])
+                origin = str(
+                    row.get("origin_account_id")
+                    or origin_by_fingerprint.get(fingerprint)
+                    or row["account_id"]
+                )
+                origin_by_fingerprint.setdefault(fingerprint, origin)
+                if origin != row["account_id"]:
+                    conflicts.append(
+                        {
+                            "posting_slot_id": row["posting_slot_id"],
+                            "reason": "missing_identity_metadata",
+                        }
+                    )
         if row.get("source_reference_id"):
             nearby = _nearby_source_rows(conn, row, source_reuse_window_days)
             if nearby:
@@ -792,6 +856,7 @@ def cli_main() -> int:
     assign.add_argument("--root", default=".")
     assign.add_argument("--campaign-id", required=True)
     assign.add_argument("--approved-export", required=True)
+    assign.add_argument("--eligibility-artifact")
     assign.add_argument("--dry-run", action="store_true")
     conflicts = sub.add_parser("print-conflicts")
     conflicts.add_argument("--root", default=".")
@@ -825,6 +890,9 @@ def cli_main() -> int:
             root,
             campaign_id=args.campaign_id,
             approved_export=Path(args.approved_export),
+            eligibility_artifact=Path(args.eligibility_artifact)
+            if args.eligibility_artifact
+            else None,
             dry_run=args.dry_run,
         )
     elif args.cmd == "print-conflicts":
@@ -883,6 +951,7 @@ def _assignment_values(
         "perceptual_fingerprint": uniqueness["perceptual_fingerprint"],
         "perceptual_cluster_id": uniqueness["perceptual_cluster_id"],
         "account_group_id": uniqueness["account_group_id"],
+        "origin_account_id": None,
         "reuse_cooldown_days": reuse_cooldown_days,
         "caption": item.get("hook_text")
         or item.get("caption")
@@ -917,6 +986,7 @@ def _assignment_conflicts(
     lineage: dict[str, Any],
     uniqueness: dict[str, Any],
     source_reuse_window_days: int,
+    include_policy_rules: bool = True,
 ) -> list[str]:
     reasons = []
     existing_output = conn.execute(
@@ -940,25 +1010,95 @@ def _assignment_conflicts(
     existing_campaign_fp = conn.execute(
         """
         SELECT posting_slot_id FROM posting_slots
-        WHERE campaign_id=? AND content_fingerprint=? AND post_status NOT IN ('planned', 'skipped', 'failed')
+        WHERE campaign_id=? AND content_fingerprint=?
+          AND post_status NOT IN ('planned', 'skipped', 'failed')
         """,
         (slot["campaign_id"], fingerprint),
     ).fetchone()
     if existing_campaign_fp:
         reasons.append("duplicate_content_fingerprint_for_campaign")
-    source_reference_id = _lineage_value(
-        lineage, "sourceReferenceId", "reference_id", "source_reference_id"
-    )
-    if source_reference_id:
-        probe = dict(slot)
-        probe["source_reference_id"] = source_reference_id
-        if _nearby_source_rows(conn, probe, source_reuse_window_days):
-            reasons.append("nearby_source_reuse_for_account")
-    if _nearby_cross_account_uniqueness_rows(
-        conn, slot, uniqueness, source_reuse_window_days
-    ):
-        reasons.append("cross_account_source_or_perceptual_reuse")
+    if include_policy_rules:
+        has_identity = bool(
+            uniqueness.get("source_family_id")
+            or uniqueness.get("perceptual_fingerprint")
+        )
+        declared_origin = str(
+            _lineage_value(lineage, "originAccountId", "origin_account_id") or ""
+        )
+        if not has_identity:
+            prior = conn.execute(
+                """
+                SELECT account_id, origin_account_id FROM posting_slots
+                WHERE content_fingerprint=?
+                  AND post_status NOT IN ('planned', 'skipped', 'failed')
+                ORDER BY created_at LIMIT 1
+                """,
+                (fingerprint,),
+            ).fetchone()
+            origin = declared_origin or (
+                str(prior["origin_account_id"] or prior["account_id"]) if prior else ""
+            )
+            if origin and origin != slot["account_id"]:
+                reasons.append("missing_identity_metadata")
+        source_reference_id = _lineage_value(
+            lineage, "sourceReferenceId", "reference_id", "source_reference_id"
+        )
+        if source_reference_id:
+            probe = dict(slot)
+            probe["source_reference_id"] = source_reference_id
+            if _nearby_source_rows(conn, probe, source_reuse_window_days):
+                reasons.append("nearby_source_reuse_for_account")
+        if _nearby_cross_account_uniqueness_rows(
+            conn, slot, uniqueness, source_reuse_window_days
+        ):
+            reasons.append("cross_account_source_or_perceptual_reuse")
     return reasons
+
+
+def _load_eligibility_decisions(path: Path | None) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "campaign_factory.assignment_eligibility.v1"
+    ):
+        decisions = [payload]
+    elif isinstance(payload, dict) and isinstance(payload.get("decisions"), list):
+        decisions = [item for item in payload["decisions"] if isinstance(item, dict)]
+    else:
+        raise ValueError("invalid assignment eligibility artifact")
+    for decision in decisions:
+        if decision.get("schema") != "campaign_factory.assignment_eligibility.v1":
+            raise ValueError("invalid assignment eligibility decision schema")
+        if decision.get("auto_posting") is not False:
+            raise ValueError(
+                "assignment eligibility artifact must keep auto_posting=false"
+            )
+        validate_assignment_eligibility(decision)
+    return decisions
+
+
+def _artifact_assignment_conflict(
+    decisions: list[dict[str, Any]],
+    *,
+    slot: dict[str, Any],
+    fingerprint: str,
+) -> str | None:
+    if not decisions:
+        return None
+    for decision in decisions:
+        inputs = (
+            decision.get("inputs") if isinstance(decision.get("inputs"), dict) else {}
+        )
+        if str(inputs.get("accountId") or "") != str(slot["account_id"]):
+            continue
+        if str(inputs.get("contentFingerprint") or "") != fingerprint:
+            continue
+        reasons = decision.get("reasonCodes") or []
+        if decision.get("allowed") is True and not reasons:
+            return None
+        return str(reasons[0] if reasons else "assignment_eligibility_blocked")
+    return "assignment_eligibility_artifact_input_mismatch"
 
 
 def _uniqueness_values(

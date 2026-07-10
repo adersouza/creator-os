@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   platform TEXT NOT NULL DEFAULT 'instagram',
   external_id TEXT,
   model_id TEXT,
+  account_group_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(handle, platform),
@@ -212,6 +213,7 @@ CREATE TABLE IF NOT EXISTS rendered_assets (
   snapchat_display_name TEXT,
   snapchat_cta_text TEXT,
   metadata_json TEXT NOT NULL DEFAULT '{}',
+  origin_account_id TEXT,
   audit_status TEXT NOT NULL DEFAULT 'pending',
   review_state TEXT NOT NULL DEFAULT 'draft',
   created_at TEXT NOT NULL,
@@ -624,6 +626,11 @@ CREATE TABLE IF NOT EXISTS asset_account_assignments (
   rendered_asset_id TEXT NOT NULL,
   account_id TEXT,
   instagram_account_id TEXT,
+  source_family_id TEXT,
+  perceptual_fingerprint TEXT,
+  perceptual_cluster_id TEXT,
+  account_group_id TEXT,
+  assignment_eligibility_json TEXT NOT NULL DEFAULT '{}',
   planned_window_start TEXT,
   planned_window_end TEXT,
   caption_hash TEXT,
@@ -669,6 +676,7 @@ CREATE TABLE IF NOT EXISTS asset_inventory_reservations (
   account_group_id TEXT,
   reuse_cooldown_days INTEGER NOT NULL DEFAULT 14,
   override_reason TEXT,
+  assignment_eligibility_json TEXT NOT NULL DEFAULT '{}',
   metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -712,6 +720,11 @@ CREATE TABLE IF NOT EXISTS distribution_plans (
   rendered_asset_id TEXT NOT NULL,
   account_id TEXT,
   instagram_account_id TEXT,
+  source_family_id TEXT,
+  perceptual_fingerprint TEXT,
+  perceptual_cluster_id TEXT,
+  account_group_id TEXT,
+  assignment_eligibility_json TEXT NOT NULL DEFAULT '{}',
   surface TEXT NOT NULL DEFAULT 'regular_reel',
   content_surface TEXT NOT NULL DEFAULT 'reel',
   planned_window_start TEXT,
@@ -722,6 +735,7 @@ CREATE TABLE IF NOT EXISTS distribution_plans (
   cta_text TEXT,
   instagram_trial_reels INTEGER NOT NULL DEFAULT 0,
   trial_graduation_strategy TEXT,
+  trial_group_id TEXT,
   caption_hash TEXT,
   caption_text TEXT,
   caption_bank TEXT,
@@ -749,6 +763,61 @@ CREATE INDEX IF NOT EXISTS idx_distribution_plans_campaign ON distribution_plans
 CREATE INDEX IF NOT EXISTS idx_distribution_plans_rendered ON distribution_plans(rendered_asset_id);
 CREATE INDEX IF NOT EXISTS idx_distribution_plans_account ON distribution_plans(instagram_account_id);
 
+CREATE TABLE IF NOT EXISTS promotions (
+  id TEXT PRIMARY KEY,
+  promotion_type TEXT NOT NULL DEFAULT 'reel_ledger',
+  campaign_id TEXT NOT NULL,
+  rendered_asset_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  account_group_id TEXT NOT NULL,
+  posting_slot_id TEXT NOT NULL,
+  content_fingerprint TEXT NOT NULL,
+  trial_post_id TEXT,
+  source_system TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(content_fingerprint, account_id),
+  UNIQUE(account_id, posting_slot_id),
+  UNIQUE(trial_post_id),
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON UPDATE CASCADE,
+  FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotions_cross_account_window
+  ON promotions(content_fingerprint, account_id, created_at);
+
+CREATE TABLE IF NOT EXISTS promotion_events (
+  id TEXT PRIMARY KEY,
+  promotion_id TEXT NOT NULL,
+  rendered_asset_id TEXT NOT NULL,
+  content_fingerprint TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  posting_slot_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('previewed', 'created', 'updated', 'backfilled', 'reconciled', 'rejected')),
+  reason TEXT,
+  actor TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(promotion_id) REFERENCES promotions(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_promotion_events_promotion
+  ON promotion_events(promotion_id, created_at);
+
+CREATE TABLE IF NOT EXISTS trial_reel_observations (
+  id TEXT PRIMARY KEY,
+  trial_post_id TEXT NOT NULL,
+  distribution_plan_id TEXT,
+  account_id TEXT NOT NULL,
+  observed_hours INTEGER NOT NULL CHECK(observed_hours IN (1, 24)),
+  views INTEGER NOT NULL DEFAULT 0,
+  engagement INTEGER NOT NULL DEFAULT 0,
+  metrics_json TEXT NOT NULL DEFAULT '{}',
+  observed_at TEXT NOT NULL,
+  UNIQUE(trial_post_id, observed_hours),
+  FOREIGN KEY(distribution_plan_id) REFERENCES distribution_plans(id) ON UPDATE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS account_content_requirements (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
@@ -757,6 +826,8 @@ CREATE TABLE IF NOT EXISTS account_content_requirements (
   cadence TEXT NOT NULL DEFAULT 'daily',
   max_per_day INTEGER NOT NULL DEFAULT 1,
   min_gap_hours INTEGER NOT NULL DEFAULT 20,
+  main_reels_per_day INTEGER NOT NULL DEFAULT 1,
+  trial_reels_per_day INTEGER NOT NULL DEFAULT 2,
   allowed_days TEXT NOT NULL DEFAULT '[]',
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
@@ -1193,6 +1264,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _ensure_columns(conn, "accounts", {"account_group_id": "TEXT"})
     _ensure_columns(
         conn,
         "audit_reports",
@@ -1242,6 +1314,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             "snapchat_display_name": "TEXT",
             "snapchat_cta_text": "TEXT",
             "metadata_json": "TEXT NOT NULL DEFAULT '{}'",
+            "origin_account_id": "TEXT",
         },
     )
     _ensure_columns(
@@ -1383,6 +1456,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             "caption_outcome_context_json": "TEXT NOT NULL DEFAULT '{}'",
             "instagram_trial_reels": "INTEGER NOT NULL DEFAULT 0",
             "trial_graduation_strategy": "TEXT",
+            "source_family_id": "TEXT",
+            "perceptual_fingerprint": "TEXT",
+            "perceptual_cluster_id": "TEXT",
+            "account_group_id": "TEXT",
+            "assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
     _ensure_columns(
@@ -1427,6 +1505,77 @@ def init_db(conn: sqlite3.Connection) -> None:
             "snapchat_cta_text": "TEXT",
             "instagram_trial_reels": "INTEGER NOT NULL DEFAULT 0",
             "trial_graduation_strategy": "TEXT",
+            "trial_group_id": "TEXT",
+            "source_family_id": "TEXT",
+            "perceptual_fingerprint": "TEXT",
+            "perceptual_cluster_id": "TEXT",
+            "account_group_id": "TEXT",
+            "assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "asset_inventory_reservations",
+        {"assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'"},
+    )
+    _ensure_columns(conn, "promotions", {"account_group_id": "TEXT"})
+    _ensure_columns(
+        conn,
+        "promotion_events",
+        {
+            "rendered_asset_id": "TEXT",
+            "content_fingerprint": "TEXT",
+            "account_id": "TEXT",
+            "posting_slot_id": "TEXT",
+            "reason": "TEXT",
+        },
+    )
+    conn.execute(
+        """
+        UPDATE promotions
+        SET account_group_id = COALESCE(
+            NULLIF(account_group_id, ''),
+            (
+                SELECT COALESCE(NULLIF(a.account_group_id, ''), NULLIF(a.model_id, ''))
+                FROM accounts a
+                WHERE a.id = promotions.account_id
+            ),
+            campaign_id
+        )
+        WHERE account_group_id IS NULL OR account_group_id = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE promotion_events
+        SET rendered_asset_id = COALESCE(
+                NULLIF(rendered_asset_id, ''),
+                (SELECT p.rendered_asset_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            content_fingerprint = COALESCE(
+                NULLIF(content_fingerprint, ''),
+                (SELECT p.content_fingerprint FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            account_id = COALESCE(
+                NULLIF(account_id, ''),
+                (SELECT p.account_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            ),
+            posting_slot_id = COALESCE(
+                NULLIF(posting_slot_id, ''),
+                (SELECT p.posting_slot_id FROM promotions p WHERE p.id = promotion_events.promotion_id)
+            )
+        WHERE rendered_asset_id IS NULL OR rendered_asset_id = ''
+           OR content_fingerprint IS NULL OR content_fingerprint = ''
+           OR account_id IS NULL OR account_id = ''
+           OR posting_slot_id IS NULL OR posting_slot_id = ''
+        """
+    )
+    _ensure_columns(
+        conn,
+        "account_content_requirements",
+        {
+            "main_reels_per_day": "INTEGER NOT NULL DEFAULT 1",
+            "trial_reels_per_day": "INTEGER NOT NULL DEFAULT 2",
         },
     )
     _ensure_columns(
@@ -1524,6 +1673,22 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_distribution_plans_caption_hash ON distribution_plans(caption_hash)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_promotions_identity_window_v2 "
+        "ON promotions(content_fingerprint, account_group_id, created_at, account_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_promotion_events_identity "
+        "ON promotion_events(content_fingerprint, account_id, posting_slot_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_assignment_identity_window "
+        "ON asset_account_assignments(account_group_id, source_family_id, perceptual_cluster_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_distribution_identity_window "
+        "ON distribution_plans(account_group_id, source_family_id, perceptual_cluster_id, planned_window_start)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_proof_runs_campaign_asset ON proof_runs(campaign_id, rendered_asset_id, started_at)"
