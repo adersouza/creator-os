@@ -1202,7 +1202,7 @@ process.stdout.write(JSON.stringify(scoreAudioFit(input)));
                 timeout=5,
                 check=False,
             )
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return None
         if result.returncode != 0 or not result.stdout.strip():
             return None

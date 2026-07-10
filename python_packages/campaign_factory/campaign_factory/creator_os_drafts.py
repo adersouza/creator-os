@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 import json
 from collections.abc import Callable
 from datetime import datetime
@@ -185,6 +189,7 @@ class CreatorOSDraftRepository:
         try:
             needs_report = self._creator_content_needs(creator=creator, date=date)
         except Exception:
+            _LOGGER.debug("content-needs report unavailable; defaulting to empty", exc_info=True)
             needs_report = {}
         totals_by_surface = (
             needs_report.get("totalsBySurface")
@@ -475,6 +480,7 @@ class CreatorOSDraftRepository:
                     self._story_intent_report(creator=creator).get("intentCounts") or {}
                 )
             except Exception:
+                _LOGGER.debug("story-intent report unavailable; defaulting to empty", exc_info=True)
                 intent_counts = {}
             if intent_counts:
                 return sorted(

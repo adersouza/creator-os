@@ -601,7 +601,7 @@ class TribeV2Repository:
                 text=True,
                 timeout=30,
             )
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return ""
         return str(thumb) if thumb.exists() else ""
 

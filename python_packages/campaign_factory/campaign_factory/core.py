@@ -327,7 +327,7 @@ def read_png_rgb_pixels(path: Path, *, max_pixels: int = 3_000_000) -> dict[str,
     stride = width * channels
     try:
         raw = zlib.decompress(bytes(idat))
-    except Exception:
+    except zlib.error:
         return {"ok": False, "error": "png_decompress_failed"}
     rows: list[list[tuple[int, int, int]]] = []
     previous = bytearray(stride)
@@ -446,7 +446,7 @@ def probe_video_shape(path: Path) -> dict[str, Any]:
             check=False,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return {}
     if result.returncode != 0:
         return {}
