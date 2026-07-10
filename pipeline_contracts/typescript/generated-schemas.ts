@@ -1470,6 +1470,9 @@ export const generatedPipelineContractSchemas = {
 	                  "generated_asset_lineage": {
 	                    "$ref": "generated_asset_lineage.v2.schema.json"
 	                  },
+	                  "learning_cohort": {
+	                    "$ref": "learning_cohort.v1.schema.json"
+	                  },
 	                  "audio_intent": {
 	                    "$ref": "audio_intent.v1.schema.json"
 	                  },
@@ -2341,6 +2344,107 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "reviewNotes": {
 	      "type": "array"
+	    }
+	  }
+	} as const,
+	learningCohort: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "campaign_factory.learning_cohort.v1",
+	  "title": "Campaign Factory Learning Cohort Assignment",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "cohort_id",
+	    "assignment_id",
+	    "day_index",
+	    "arm",
+	    "surface",
+	    "assignment_seed",
+	    "creator",
+	    "soul_id",
+	    "account_handle"
+	  ],
+	  "properties": {
+	    "cohort_id": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "assignment_id": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "day_index": {
+	      "type": "integer",
+	      "minimum": 1,
+	      "maximum": 25
+	    },
+	    "arm": {
+	      "enum": [
+	        "ranked",
+	        "control"
+	      ]
+	    },
+	    "surface": {
+	      "enum": [
+	        "regular_reel",
+	        "trial_reel"
+	      ]
+	    },
+	    "reference_id": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "candidate_rank": {
+	      "type": [
+	        "integer",
+	        "null"
+	      ],
+	      "minimum": 1
+	    },
+	    "assignment_seed": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "source_family": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "content_fingerprint": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "provider_reservation_id": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "draft_id": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "post_id": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "creator": {
+	      "const": "Stacey"
+	    },
+	    "soul_id": {
+	      "const": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+	    },
+	    "account_handle": {
+	      "const": "staceyben101"
 	    }
 	  }
 	} as const,
@@ -3427,6 +3531,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "generatedAssetLineageV2", filename: "generated_asset_lineage.v2.schema.json", id: "reel_factory.generated_asset_lineage.v2" },
 	{ key: "higgsfieldSoulImagePrompt", filename: "higgsfield_soul_image_prompt.v1.schema.json", id: "reference_factory.higgsfield_soul_image_prompt.v1" },
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
+	{ key: "learningCohort", filename: "learning_cohort.v1.schema.json", id: "campaign_factory.learning_cohort.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },
 	{ key: "performanceSync", filename: "performance_sync.v1.schema.json", id: "campaign_factory.performance_sync.v1" },

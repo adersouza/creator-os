@@ -13,8 +13,9 @@ from .scoring import shortlist
 from .timeutil import now_iso
 
 VALID_LABELS = {"gold", "maybe", "ignore"}
-DEFAULT_GOLD_TARGET = 300
-DEFAULT_ACCOUNT_CAP = 30
+DEFAULT_GOLD_TARGET = 240
+DEFAULT_ACCOUNT_CAP = 60
+REVIEW_BATCH_SIZE = 25
 
 
 def label_reference(
@@ -344,6 +345,15 @@ def review_batch(
 
     captioned_count = sum(1 for item in selected if int(item["captionCount"]) > 0)
     visual_count = sum(1 for item in selected if int(item["captionCount"]) == 0)
+    for item in selected:
+        item["suggestedTags"] = suggest_reference_tags(conn, str(item["referenceId"]))
+    batches = [
+        [
+            str(item["referenceId"])
+            for item in selected[offset : offset + REVIEW_BATCH_SIZE]
+        ]
+        for offset in range(0, len(selected), REVIEW_BATCH_SIZE)
+    ]
     return {
         "schema": "reference_factory.review_batch.v1",
         "mode": mode,
@@ -364,7 +374,60 @@ def review_batch(
                 account_counts.items(), key=lambda item: (-item[1], item[0])
             )
         ],
+        "batchSize": REVIEW_BATCH_SIZE,
+        "approvalBatches": batches,
         "items": selected,
+    }
+
+
+def suggest_reference_tags(conn: Connection, reference_id: str) -> dict[str, object]:
+    """Return deterministic evidence-backed suggestions without mutating labels."""
+    pattern_row = conn.execute(
+        """SELECT visual_format, hook_type, caption_archetype, pattern_json
+        FROM reference_patterns WHERE reference_id = ?
+        ORDER BY quality_score DESC, updated_at DESC LIMIT 1""",
+        (reference_id,),
+    ).fetchone()
+    ocr_rows = conn.execute(
+        """SELECT ocr_text FROM ocr_results WHERE reference_id = ?
+        ORDER BY confidence DESC, created_at DESC LIMIT 3""",
+        (reference_id,),
+    ).fetchall()
+    existing = conn.execute(
+        "SELECT tags_json FROM review_labels WHERE reference_id = ? LIMIT 1",
+        (reference_id,),
+    ).fetchone()
+    suggestions: dict[str, set[str]] = {}
+
+    def add(tag: object, source: str) -> None:
+        normalized = str(tag or "").strip().lower().replace(" ", "_")
+        if normalized and normalized not in {"none", "unknown", "null"}:
+            suggestions.setdefault(normalized, set()).add(source)
+
+    for tag in json_load(existing["tags_json"], []) if existing else []:
+        add(tag, "existing_metadata")
+    if ocr_rows:
+        add("caption_example", "ocr")
+    if pattern_row:
+        add(pattern_row["visual_format"], "pattern_card")
+        add(pattern_row["hook_type"], "pattern_card")
+        add(pattern_row["caption_archetype"], "pattern_card")
+        pattern = json_load(pattern_row["pattern_json"], {})
+        winner_dna = pattern.get("winnerDna") if isinstance(pattern, dict) else {}
+        if isinstance(winner_dna, dict):
+            for key in ("visualStructure", "hookType", "captionArchetype", "audioRole"):
+                add(winner_dna.get(key), "winner_dna")
+        for key in ("embeddingClusterId", "embedding_cluster_id"):
+            if isinstance(pattern, dict) and pattern.get(key):
+                add(f"cluster_{pattern[key]}", "embedding")
+    return {
+        "schema": "reference_factory.suggested_tags.v1",
+        "referenceId": reference_id,
+        "writeApplied": False,
+        "tags": [
+            {"tag": tag, "reasons": sorted(sources)}
+            for tag, sources in sorted(suggestions.items())
+        ],
     }
 
 

@@ -682,8 +682,8 @@ def _record_ai_cost_event(
     lineage_path_text: str,
     stem: str,
     reservation_id: str | None,
+    cohort_id: str | None,
 ) -> str:
-    # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
     metadata = {
         "schema": "reel_factory.ai_cost_metadata.v1",
         "actualCredits": actual_credits,
@@ -703,6 +703,9 @@ def _record_ai_cost_event(
         metadata=metadata,
         source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
         reservation_id=reservation_id,
+        amount=actual_credits,
+        unit="higgsfield_credits" if actual_credits is not None else None,
+        cohort_id=cohort_id,
         ensure_schema=False,
     )
 
@@ -742,6 +745,7 @@ def _record_generation_costs(
                 lineage_path_text=lineage_path_text,
                 stem=plan.stem,
                 reservation_id=reservation_id,
+                cohort_id=getattr(plan, "campaign", None),
             )
             events.append(
                 {

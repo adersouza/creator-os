@@ -178,6 +178,7 @@ def build_draft_payloads(
                 audio_intent=audio_intent,
                 variant_assignment=variation_assignment,
             )
+            learning_cohort = _learning_cohort_metadata(asset)
             publishability = factory.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
@@ -295,6 +296,7 @@ def build_draft_payloads(
                 "referencePattern": asset.get("referencePattern") or {},
                 "sourcePrompt": asset.get("sourcePrompt") or {},
                 "generatedAssetLineage": generated_asset_lineage,
+                "learningCohort": learning_cohort,
                 "audioRecommendations": audio_recommendations,
                 "audioIntent": audio_intent,
                 "auditSummary": asset.get("auditSummary") or {},
@@ -2747,6 +2749,23 @@ def _caption_context_for_export(
     )
 
 
+def _learning_cohort_metadata(asset: dict[str, Any]) -> dict[str, Any] | None:
+    candidates = (
+        asset.get("learningCohort"),
+        asset.get("learning_cohort"),
+        (asset.get("sourcePrompt") or {}).get("learning_cohort")
+        if isinstance(asset.get("sourcePrompt"), dict)
+        else None,
+        (asset.get("generatedAssetLineage") or {}).get("learning_cohort")
+        if isinstance(asset.get("generatedAssetLineage"), dict)
+        else None,
+    )
+    for candidate in candidates:
+        if isinstance(candidate, dict) and candidate.get("cohort_id"):
+            return dict(candidate)
+    return None
+
+
 def _build_audio_intent(
     existing: Any,
     *,
@@ -3250,6 +3269,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "reference_pattern": draft.get("referencePattern") or {},
             "source_prompt": draft.get("sourcePrompt") or {},
             "generated_asset_lineage": draft.get("generatedAssetLineage") or {},
+            "learning_cohort": draft.get("learningCohort"),
             "lineage_v2_valid": lineage_v2_is_valid(draft.get("generatedAssetLineage")),
             "creative_plan": draft.get("creativePlan") or {},
             "audio_recommendations": audio_recommendations,
@@ -3353,6 +3373,8 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             metadata["thumbOffset"] = cover_frame.get("seconds")
     if draft.get("smartLink"):
         metadata["campaign_factory_smart_link"] = draft.get("smartLink")
+    if metadata["campaign_factory"].get("learning_cohort") is None:
+        metadata["campaign_factory"].pop("learning_cohort", None)
     return metadata
 
 
@@ -4207,7 +4229,7 @@ def sync_performance_snapshots(
     try:
         client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
         rows, posts_truncated = _select_threadsdash_posts_paged(
-            client, user_id=user_id, limit=limit
+            client, user_id=user_id, campaign_id=campaign["id"], limit=limit
         )
         tracked_rows = []
         tracked_snapshot_count = 0
@@ -4218,14 +4240,8 @@ def sync_performance_snapshots(
         skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         if posts_truncated:
-            warnings.append(
-                {
-                    "reason": "posts_truncated",
-                    "message": (
-                        f"posts read hit the limit of {limit}; additional rows exist "
-                        "and were not synced. Re-run with a higher limit."
-                    ),
-                }
+            raise RuntimeError(
+                f"campaign-filtered posts read exceeded limit {limit}; refusing truncated sync"
             )
         metric_history_error: str | None = None
         history_source_counts: dict[str, int] = {}
@@ -4245,7 +4261,7 @@ def sync_performance_snapshots(
             if not isinstance(campaign_metadata, dict) or not campaign_metadata:
                 continue
             metadata_campaign = campaign_metadata.get("campaign_id")
-            if metadata_campaign and metadata_campaign != campaign_slug:
+            if metadata_campaign not in {campaign["id"], campaign_slug}:
                 continue
             if row.get("id"):
                 metric_history_post_ids.append(str(row["id"]))
@@ -4258,15 +4274,8 @@ def sync_performance_snapshots(
                 )
             )
             if metric_history_truncated:
-                warnings.append(
-                    {
-                        "reason": "metric_history_truncated",
-                        "message": (
-                            "post_metric_history read hit its per-batch limit; "
-                            "additional snapshot rows exist and were not synced. "
-                            "Re-run with a higher limit."
-                        ),
-                    }
+                raise RuntimeError(
+                    "campaign metric history read was truncated; refusing partial sync"
                 )
         except RuntimeError as exc:
             metric_history_rows = []
@@ -4787,6 +4796,7 @@ def _select_threadsdash_posts_paged(
     client: SupabaseRestClient,
     *,
     user_id: str,
+    campaign_id: str | None = None,
     limit: int,
     page_size: int = THREADSDASH_POSTS_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -4794,6 +4804,8 @@ def _select_threadsdash_posts_paged(
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
     }
+    if campaign_id:
+        base_params["metadata->campaign_factory->>campaign_id"] = f"eq.{campaign_id}"
     rich_select = (
         "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,updated_at,scheduled_for,"
         "published_at,permalink,instagram_post_id,content,metadata,views_count,ig_views,"

@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS {RESERVATION_TABLE} (
     provider            TEXT NOT NULL,
     source              TEXT,
     estimated_cost_usd  REAL NOT NULL,
+    amount              REAL,
+    unit                TEXT,
+    provider_quote_json TEXT,
+    cohort_id           TEXT,
     asset_count         INTEGER NOT NULL,
     status              TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'cancelled')),
     created_at          TEXT NOT NULL,
@@ -36,6 +40,7 @@ CREATE TABLE IF NOT EXISTS {RESERVATION_TABLE} (
     cancelled_at        TEXT
 )
 """
+HIGGSFIELD_CREDIT_UNIT = "higgsfield_credits"
 
 
 class BalanceProvider(Protocol):
@@ -170,6 +175,71 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
         ).fetchone()
         is not None
     )
+
+
+def _ensure_reservation_table(conn: sqlite3.Connection) -> None:
+    conn.execute(RESERVATION_TABLE_SQL)
+    columns = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info({RESERVATION_TABLE})").fetchall()
+    }
+    for column, column_type in (
+        ("amount", "REAL"),
+        ("unit", "TEXT"),
+        ("provider_quote_json", "TEXT"),
+        ("cohort_id", "TEXT"),
+    ):
+        if column not in columns:
+            conn.execute(
+                f"ALTER TABLE {RESERVATION_TABLE} ADD COLUMN {column} {column_type}"
+            )
+
+
+def quote_higgsfield_generation(
+    model: str, *, params: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """Ask Higgsfield for the current provider-native credit quote."""
+    cli = shutil.which("higgsfield")
+    if not cli:
+        raise RuntimeError("higgsfield_cli_unavailable")
+    command = [cli, "generate", "cost", model]
+    for key, value in sorted((params or {}).items()):
+        command.extend([f"--{key.replace('_', '-')}", str(value)])
+    command.append("--json")
+    proc = subprocess.run(
+        command, check=False, capture_output=True, text=True, timeout=60
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("higgsfield_quote_unavailable")
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("higgsfield_quote_invalid_json") from exc
+    credits = _parse_quote_credits(payload)
+    if credits is None or credits <= 0:
+        raise RuntimeError("higgsfield_quote_missing_credits")
+    return {
+        "schema": "reel_factory.higgsfield_provider_quote.v1",
+        "provider": "higgsfield",
+        "model": model,
+        "amount": credits,
+        "unit": HIGGSFIELD_CREDIT_UNIT,
+        "raw": payload,
+    }
+
+
+def _parse_quote_credits(payload: Any) -> float | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in ("credits", "creditCost", "costCredits", "cost"):
+        parsed = _parse_float(payload.get(key))
+        if parsed is not None:
+            return parsed
+    for key in ("quote", "usage", "data", "result"):
+        parsed = _parse_quote_credits(payload.get(key))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _validated_ledger_amount(value: Any, *, source: str) -> float:
@@ -557,6 +627,186 @@ def reserve_higgsfield_spend(
         "source": source,
     }
     return result
+
+
+def reserve_higgsfield_credits(
+    *,
+    provider_quote: dict[str, Any],
+    asset_count: int,
+    cohort_id: str,
+    source: str | None = None,
+    provider: BalanceProvider | None = None,
+    root: str | Path = ".",
+    cost_db_path: str | Path | None = None,
+    now: datetime.datetime | None = None,
+) -> dict[str, Any]:
+    """Atomically reserve a current Higgsfield credit quote.
+
+    This is the authoritative paid path. Legacy USD reservations remain only
+    for compatibility and must not be used by cohort or acceptance runs.
+    """
+    amount = _parse_float(provider_quote.get("amount"))
+    unit = provider_quote.get("unit")
+    normalized_assets = _parse_int(asset_count)
+    if amount is None or amount <= 0 or unit != HIGGSFIELD_CREDIT_UNIT:
+        raise ValueError("provider quote must contain positive Higgsfield credits")
+    if normalized_assets is None:
+        raise ValueError("asset_count must be a positive integer")
+    if not isinstance(cohort_id, str) or not cohort_id.strip():
+        raise ValueError("cohort_id is required")
+
+    daily_budget = _required_positive_env("HIGGSFIELD_DAILY_BUDGET_CREDITS")
+    run_max_assets = _required_positive_int_env("HIGGSFIELD_RUN_MAX_ASSETS")
+    cohort_cap = _required_positive_env("HIGGSFIELD_COHORT_MAX_CREDITS")
+    min_balance = _required_nonnegative_env("HIGGSFIELD_MIN_BALANCE_CREDITS")
+    provider = provider or CliBalanceProvider()
+    balance_raw, balance_error = provider.balance()
+    balance = _parse_float(balance_raw)
+
+    reasons: list[str] = []
+    if normalized_assets > run_max_assets:
+        reasons.append("run_asset_limit_exceeded")
+    if balance is None:
+        reasons.append(balance_error or "higgsfield_balance_unavailable")
+    elif balance - amount < min_balance:
+        reasons.append("projected_balance_below_minimum")
+
+    root_path = Path(root)
+    db_path = (
+        Path(cost_db_path).expanduser()
+        if cost_db_path is not None
+        else _campaign_cost_db_path(root_path)
+    )
+    timestamp = now or datetime.datetime.now(datetime.UTC)
+    created_at = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    reservation_id = f"hfr_{uuid.uuid4().hex}"
+    daily_spend = cohort_spend = 0.0
+    try:
+        with connect_sqlite(db_path, wal=False) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _ensure_reservation_table(conn)
+            daily_spend = _credit_reservation_total(
+                conn, day=timestamp.date().isoformat()
+            )
+            cohort_spend = _credit_reservation_total(conn, cohort_id=cohort_id)
+            if daily_spend + amount > daily_budget:
+                reasons.append("projected_daily_credits_exceeded")
+            if cohort_spend + amount > cohort_cap:
+                reasons.append("projected_cohort_credits_exceeded")
+            reasons = _dedupe_reasons(reasons)
+            if not reasons:
+                compatibility_usd = _credits_to_compatibility_usd(amount)
+                conn.execute(
+                    f"""
+                    INSERT INTO {RESERVATION_TABLE}
+                        (id, provider, source, estimated_cost_usd, amount, unit,
+                         provider_quote_json, cohort_id, asset_count, status, created_at)
+                    VALUES (?, 'higgsfield', ?, ?, ?, ?, ?, ?, ?, 'reserved', ?)
+                    """,
+                    (
+                        reservation_id,
+                        source,
+                        compatibility_usd,
+                        amount,
+                        HIGGSFIELD_CREDIT_UNIT,
+                        json.dumps(provider_quote, sort_keys=True),
+                        cohort_id,
+                        normalized_assets,
+                        created_at,
+                    ),
+                )
+            conn.commit()
+    except sqlite3.Error as exc:
+        reasons.append("cost_ledger_unreadable")
+        reasons.append(str(exc))
+
+    allowed = not reasons
+    return {
+        "schema": SCHEMA,
+        "allowed": allowed,
+        "blockingReason": "" if allowed else reasons[0],
+        "blockingReasons": reasons,
+        "providerQuote": provider_quote,
+        "balanceCredits": balance,
+        "budgetPolicy": {
+            "dailyBudgetCredits": daily_budget,
+            "cohortMaxCredits": cohort_cap,
+            "minimumBalanceCredits": min_balance,
+            "perRunMaxAssets": run_max_assets,
+            "spentTodayCredits": round(daily_spend, 4),
+            "cohortSpentCredits": round(cohort_spend, 4),
+            "projectedDailyCredits": round(daily_spend + amount, 4),
+            "projectedCohortCredits": round(cohort_spend + amount, 4),
+            "projectedBalanceCredits": None
+            if balance is None
+            else round(balance - amount, 4),
+        },
+        "reservation": {
+            "schema": RESERVATION_SCHEMA,
+            "id": reservation_id if allowed else None,
+            "status": "reserved" if allowed else "not_created",
+            "source": source,
+            "cohortId": cohort_id,
+            "amount": amount,
+            "unit": HIGGSFIELD_CREDIT_UNIT,
+        },
+    }
+
+
+def _credit_reservation_total(
+    conn: sqlite3.Connection,
+    *,
+    day: str | None = None,
+    cohort_id: str | None = None,
+) -> float:
+    clauses = ["unit = ?", "status IN ('reserved', 'consumed')"]
+    params: list[Any] = [HIGGSFIELD_CREDIT_UNIT]
+    if day is not None:
+        clauses.append("substr(created_at, 1, 10) = ?")
+        params.append(day)
+    if cohort_id is not None:
+        clauses.append("cohort_id = ?")
+        params.append(cohort_id)
+    rows = conn.execute(
+        f"SELECT amount FROM {RESERVATION_TABLE} WHERE {' AND '.join(clauses)}",
+        params,
+    ).fetchall()
+    return sum(
+        _validated_ledger_amount(row[0], source=RESERVATION_TABLE) for row in rows
+    )
+
+
+def _required_positive_env(name: str) -> float:
+    parsed = _parse_float(os.environ.get(name))
+    if parsed is None or parsed <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return parsed
+
+
+def _required_nonnegative_env(name: str) -> float:
+    parsed = _parse_float(os.environ.get(name))
+    if parsed is None:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return parsed
+
+
+def _required_positive_int_env(name: str) -> int:
+    parsed = _parse_int(os.environ.get(name))
+    if parsed is None:
+        raise ValueError(f"{name} must be a positive integer")
+    return parsed
+
+
+def _credits_to_compatibility_usd(amount: float) -> float:
+    raw = os.environ.get("HIGGSFIELD_USD_PER_CREDIT")
+    if raw is None or raw == "":
+        return 0.0
+    conversion = _parse_float(raw)
+    if conversion is None or conversion <= 0:
+        raise ValueError(
+            "HIGGSFIELD_USD_PER_CREDIT must be finite and positive when configured"
+        )
+    return round(amount * conversion, 8)
 
 
 def _transition_reservation(

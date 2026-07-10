@@ -31,6 +31,7 @@ from higgsfield_cost_preflight import (
     consume_higgsfield_spend_reservation,
     nonnegative_float_arg,
     positive_int_arg,
+    reserve_higgsfield_credits,
     reserve_higgsfield_spend,
 )
 from hook_ai import hook_similarity_mode
@@ -811,6 +812,80 @@ def _set_higgsfield_guardrail_env(monkeypatch, db_path: Path) -> None:
     monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_USD", "10")
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "5")
+
+
+def _set_higgsfield_credit_guardrail_env(monkeypatch, db_path: Path) -> None:
+    monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_CREDITS", "8")
+    monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
+    monkeypatch.setenv("HIGGSFIELD_COHORT_MAX_CREDITS", "150")
+    monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "25")
+
+
+def test_higgsfield_native_credit_reservation_tracks_cohort_and_quote(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    quote = {
+        "schema": "reel_factory.higgsfield_provider_quote.v1",
+        "amount": 1.5,
+        "unit": "higgsfield_credits",
+        "model": "soul_2",
+    }
+
+    result = reserve_higgsfield_credits(
+        provider_quote=quote,
+        asset_count=1,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is True
+    assert result["budgetPolicy"]["projectedBalanceCredits"] == 48.5
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """SELECT amount, unit, cohort_id, estimated_cost_usd
+            FROM higgsfield_spend_reservations"""
+        ).fetchone()
+    assert row == (1.5, "higgsfield_credits", "stacey_learning_cohort_v1", 0.0)
+
+
+def test_higgsfield_native_credit_reservation_fails_closed_on_caps(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    quote = {"amount": 7.0, "unit": "higgsfield_credits"}
+    first = reserve_higgsfield_credits(
+        provider_quote=quote,
+        asset_count=2,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+    assert first["allowed"] is True
+
+    retry = reserve_higgsfield_credits(
+        provider_quote={"amount": 2.0, "unit": "higgsfield_credits"},
+        asset_count=1,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(50),
+        root=tmp_path,
+    )
+    assert retry["allowed"] is False
+    assert "projected_daily_credits_exceeded" in retry["blockingReasons"]
+
+    low_balance = reserve_higgsfield_credits(
+        provider_quote={"amount": 1.0, "unit": "higgsfield_credits"},
+        asset_count=1,
+        cohort_id="other_cohort",
+        provider=FakeBalanceProvider(25.5),
+        root=tmp_path,
+    )
+    assert low_balance["allowed"] is False
+    assert "projected_balance_below_minimum" in low_balance["blockingReasons"]
 
 
 def test_higgsfield_atomic_reservation_prevents_concurrent_overspend(

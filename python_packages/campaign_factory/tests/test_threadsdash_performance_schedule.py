@@ -67,7 +67,7 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
 
     result = module.main(
         env={
-            "CAMPAIGN_FACTORY_SYNC_CAMPAIGN": "may",
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS": '["may"]',
             "THREADSDASH_USER_ID": "user_1",
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role",
@@ -130,7 +130,7 @@ def test_sync_threadsdash_performance_skips_bridge_when_sync_fails(monkeypatch):
 
     result = module.main(
         env={
-            "CAMPAIGN_FACTORY_SYNC_CAMPAIGN": "may",
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS": '["may"]',
             "THREADSDASH_USER_ID": "user_1",
             "SUPABASE_URL": "https://example.supabase.co",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role",
@@ -146,11 +146,11 @@ def test_hourly_sync_never_invokes_standalone_reel_refresh():
     module = load_sync_module()
     command = module.build_fanout_command(
         {
-            "CAMPAIGN_FACTORY_SYNC_CAMPAIGN": "may",
             "CAMPAIGN_FACTORY_DB": "/tmp/campaign.sqlite",
             "REEL_FACTORY_ROOT": "/tmp/reel",
             "REFERENCE_FACTORY_DB": "/tmp/reference.sqlite",
-        }
+        },
+        "may",
     )
 
     joined = " ".join(command)

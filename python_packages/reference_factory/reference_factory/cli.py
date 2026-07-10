@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="random",
         choices=["random", "top-accounts", "captioned", "visual", "best", "unreviewed"],
     )
-    sheet.add_argument("--count", type=int, default=100)
+    sheet.add_argument("--count", type=int, default=25)
     sheet.add_argument("--per-account", type=int, default=25)
 
     shortlist = sub.add_parser("shortlist", help="Print ranked candidate shortlist")
@@ -142,9 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     review_batch_parser = sub.add_parser(
         "review-batch", help="Print a balanced guided review batch"
     )
-    review_batch_parser.add_argument("--target", type=int, default=300)
+    review_batch_parser.add_argument("--target", type=int, default=240)
     review_batch_parser.add_argument("--mode", default="balanced", choices=["balanced"])
-    review_batch_parser.add_argument("--account-cap", type=int, default=30)
+    review_batch_parser.add_argument("--account-cap", type=int, default=60)
 
     label = sub.add_parser("label", help="Persist a manual review label")
     label.add_argument("--reference-id", required=True)

@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS ai_cost_events (
     input_tokens    INTEGER,
     output_tokens   INTEGER,
     generations     INTEGER,
+    amount          REAL,
+    unit            TEXT,
+    provider_quote_json TEXT,
+    cohort_id       TEXT,
     estimated_cost_usd REAL NOT NULL,
     metadata_json   TEXT,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -78,6 +82,16 @@ def ensure_cost_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE ai_cost_events ADD COLUMN source_event_key TEXT")
     if "reservation_id" not in columns:
         conn.execute("ALTER TABLE ai_cost_events ADD COLUMN reservation_id TEXT")
+    for column, column_type in (
+        ("amount", "REAL"),
+        ("unit", "TEXT"),
+        ("provider_quote_json", "TEXT"),
+        ("cohort_id", "TEXT"),
+    ):
+        if column not in columns:
+            conn.execute(
+                f"ALTER TABLE ai_cost_events ADD COLUMN {column} {column_type}"
+            )
     conn.execute(CREATE_SOURCE_KEY_INDEX_SQL)
 
 
@@ -122,6 +136,10 @@ def record_ai_cost(
     metadata: dict[str, Any] | None = None,
     source_event_key: str | None = None,
     reservation_id: str | None = None,
+    amount: float | None = None,
+    unit: str | None = None,
+    provider_quote: dict[str, Any] | None = None,
+    cohort_id: str | None = None,
     ensure_schema: bool = True,
 ) -> str:
     """Record an AI cost event and return the event ID."""
@@ -135,6 +153,21 @@ def record_ai_cost(
         if existing:
             return existing[0]
 
+    if amount is not None:
+        if (
+            isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(float(amount))
+            or float(amount) < 0
+        ):
+            raise ValueError("amount must be finite and non-negative")
+        if not isinstance(unit, str) or not unit.strip():
+            raise ValueError("unit is required when amount is provided")
+        amount = float(amount)
+        unit = unit.strip()
+    elif unit is not None:
+        raise ValueError("amount is required when unit is provided")
+
     if estimated_cost_usd is None:
         if input_tokens is not None or output_tokens is not None:
             estimated_cost_usd = estimate_token_cost(
@@ -144,6 +177,8 @@ def record_ai_cost(
             )
         elif generations is not None:
             estimated_cost_usd = estimate_generation_cost(provider, generations)
+        elif amount is not None and unit == "USD":
+            estimated_cost_usd = amount
         else:
             estimated_cost_usd = 0.0
     if (
@@ -166,8 +201,9 @@ def record_ai_cost(
         INSERT OR IGNORE INTO ai_cost_events
             (id, source_event_key, reservation_id, campaign_id, provider, operation,
              input_tokens, output_tokens, generations,
+             amount, unit, provider_quote_json, cohort_id,
              estimated_cost_usd, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -179,6 +215,10 @@ def record_ai_cost(
             input_tokens,
             output_tokens,
             generations,
+            amount,
+            unit,
+            json.dumps(provider_quote, sort_keys=True) if provider_quote else None,
+            cohort_id,
             estimated_cost_usd,
             json.dumps(metadata) if metadata else None,
             created_at,
@@ -263,4 +303,17 @@ def cost_summary(
             "campaign_id": campaign_id,
             "days": days,
         },
+        "native_units": _native_unit_summary(conn, where=where, params=params),
     }
+
+
+def _native_unit_summary(
+    conn: sqlite3.Connection, *, where: str, params: list[Any]
+) -> dict[str, float]:
+    rows = conn.execute(
+        f"""SELECT unit, SUM(amount) FROM ai_cost_events {where}
+        {"AND" if where else "WHERE"} amount IS NOT NULL AND unit IS NOT NULL
+        GROUP BY unit""",
+        params,
+    ).fetchall()
+    return {str(row[0]): round(float(row[1] or 0.0), 4) for row in rows}

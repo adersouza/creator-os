@@ -2899,7 +2899,7 @@ def test_review_api_lists_labels_and_stats(tmp_path: Path) -> None:
     assert batch_response.status_code == 200
     assert batch_response.json()["schema"] == "reference_factory.review_batch.v1"
     assert stats_response.json()["counts"]["gold"] == 1
-    assert stats_response.json()["goldProgress"]["target"] == 300
+    assert stats_response.json()["goldProgress"]["target"] == 240
     assert review_stats(connect(db_path))["counts"]["validVideos"] == 1
 
 
