@@ -87,3 +87,9 @@ Phase 0.2 (perceptual computation) ∥ PLAN.md S1/S6 → Phase 1 → 2 → 3 →
 - v1: Codex REJECT — wrong spine (posting_ledger), raw-hash fallback, rotation-matrix theater, trial label conflation.
 - v2: Codex REJECT — fictional Phase 0 dependency (no perceptual computation exists; cluster falls back to fingerprint), gate missed write paths (reservations, promotion bridge), Phase 2 import direction forbidden by import-linter, v2 payload schema already exists, `instagramTrialReels.ts` already downstream, jitter belongs in ThreadsDashboard.
 - v3 (this doc): all above incorporated; claims re-verified against `pyproject.toml`, `packages/pipeline_contracts/schemas/`, `ThreadsDashboard/api/_lib/instagramTrialReels.ts`, `inventory_perceptual.py`.
+
+## Audit log
+
+- Audit 1 — atomic writes (commits `f6ba0194`, `f0915e69`): all bare `write_text`/`json.dump` writers in campaign_factory, reel_factory, reference_factory migrated to `fileops.atomic_write_text`/`atomic_write_json` (146+ sites); helpers write temp file in same dir + fsync + `os.replace`.
+- Audit 2 — broad-except triage, campaign_factory core (commit `ee7afe52`): narrowed subprocess/zlib handlers, added debug logging to previously silent report fallbacks; remaining sites deferred to audit 3.
+- Audit 3 — broad-except triage, `app.py` + adapters (no code change): all 70 `app.py` sites are uniform API-boundary translation `except Exception as exc: raise HTTPException(400/404, str(exc)) from exc`, with `except HTTPException: raise` guards where internal 404s pass through; the two `record_event` sites also `fail_pipeline_job` and re-raise. All 16 adapter sites (contentforge 3, threadsdash 13) capture errors into failure events, result error lists, or blocker fields. No silent swallows. Open design note (deferred, API-semantics decision): internal server bugs surface as 400 with `str(exc)` in the body instead of sanitized 500.
