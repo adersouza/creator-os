@@ -314,8 +314,10 @@ with Campaign Factory fields:
   than averages. PDQ requires every source/sibling distance to be greater than
   `40`; SSCD requires every source/sibling similarity to be below `0.50`.
 - Detector unavailability produces `pdq_unavailable` or `sscd_unavailable`.
-  Sibling collisions produce `pdq_sibling_collision` or
-  `sscd_sibling_collision`. All four codes are blocking for this profile.
+  Those codes are blocking for explicit multi-variant fan-out and advisory for
+  a single-reel audit, where no sibling-distinctness decision exists. Sibling
+  collisions produce blocking `pdq_sibling_collision` or
+  `sscd_sibling_collision` codes.
 - `timings` reports audit runtime in milliseconds so slow OCR/frame sampling can
   be monitored without changing verdict semantics.
 - `ocr.fallbackUsed` means ContentForge could not use the first requested OCR

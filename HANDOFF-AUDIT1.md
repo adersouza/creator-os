@@ -189,11 +189,22 @@ findings have **no fix, no handoff line, and no plan section** yet:
    `reel_execution.py:167`, `asset_import.py:288`). Audit recommended one
    operational-hardening plan section covering crash recovery + API
    pagination + CI gaps — never created.
-3. **Legacy Supabase ambiguous POST retry (audit A6)** — check-then-insert
-   with plain POST, no idempotency key, 3x retry on timeout/429/5xx
-   (`threadsdash.py:1667`, `5628–5641`, `5692–5709`). Gated behind
-   `CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1`, so low likelihood;
-   either add an idempotency key or document the flag as unsafe/deprecated.
+3. **Legacy Supabase ambiguous POST retry (audit A6)** — RESOLVED.
+   `SupabaseRestClient.insert` no longer retries ambiguous failures:
+   `_open_json_or_empty(retry_ambiguous=False)` retries only statuses that
+   guarantee non-processing (408/425/429) and never retries network-level
+   errors/timeouts for plain POST inserts. Idempotent requests
+   (GET/PATCH/DELETE/upsert/storage upsert) keep the full transient set
+   (409/5xx + URLError). Workflow-level dedup already existed: posts are
+   reused via `campaign_factory_post_key` lookup and media via
+   `storage_path` select + `upsert(on_conflict="storage_path")`, so a
+   failed-then-rerun export does not duplicate rows. Covered by
+   `test_supabase_rest_client_insert_does_not_retry_ambiguous_errors`,
+   `..._insert_retries_safe_statuses`, and
+   `..._insert_does_not_retry_network_errors` in `tests/test_core.py`.
+   The whole path remains gated behind
+   `CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES=1` (legacy/deprecated;
+   default-off).
 4. **Assignment/distribution-plan idempotency (audit A1, partial)** —
    Phase 5 constrains *promotion* uniqueness (PLAN-SCHEDULER.md:77), but it
    is unverified that it extends to `asset_account_assignments` and
@@ -202,11 +213,22 @@ findings have **no fix, no handoff line, and no plan section** yet:
    `plan_distribution(replace=True)` commits delete separately at
    `distribution.py:382`). Audit proved duplicate rows under rerun. Verify
    Phase 5 scope covers these tables or extend it.
-5. **Intersection-masking consumer-contract test (audit B5)** —
-   `test_threadsdash_consumer_contracts.py` compared only the schema-set
-   intersection, so schemas *missing* from ThreadsDashboard pass silently.
-   Session grep was inconclusive on whether this was since fixed — verify,
-   and if not, assert required v2 schemas exist in the consumer.
+5. **Intersection-masking consumer-contract test (audit B5)** — RESOLVED.
+   `packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py`
+   now pins an explicit `REQUIRED_THREADSDASH_SCHEMAS` list (all canonical
+   schemas except internal-only `assignment_eligibility.v1`, which has no
+   ThreadsDashboard consumer). Missing required schemas or example payloads
+   in the dashboard mirror now fail loudly; byte-equality is asserted per
+   required schema, plus for any extra mirrored canonical schema. The list
+   itself is validated against the canonical set so stale entries also
+   fail. Un-masking immediately caught real drift: the dashboard mirror of
+   `generated_asset_lineage.v2` (schema + example) and
+   `campaign_draft_payload.v2.example.json` were stale (missing
+   `contentFingerprint` and perceptual-fingerprint fields); synced from
+   canonical, all 3 tests pass with
+   `THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard`.
+   NOTE: the ThreadsDashboard repo has 3 uncommitted synced files that need
+   a commit there.
 6. **Dead contracts (audit B12)** — `repurposing_plan.v1` has no production
    producer or consumer; `front_generation_plan.v1` has no machine consumer.
    No keep/remove decision recorded. Decide and log in PLAN-SCHEDULER audit

@@ -312,10 +312,10 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
   var verdicts = {};
   var pdq = results.pdq;
   if (pdq) {
-    if (pdq.available === false || pdq.error) {
-      verdicts.pdq = campaignProfile ? "fail" : "warn";
-    } else if (campaignProfile && !fanoutDistinctness) {
+    if (campaignProfile && !fanoutDistinctness) {
       verdicts.pdq = "pass";
+    } else if (pdq.available === false || pdq.error) {
+      verdicts.pdq = campaignProfile ? "fail" : "warn";
     } else if (campaignProfile) {
       var pdqStats = pdq.stats || {};
       var pdqFailed = !Number.isFinite(pdqStats.minDistance) ||
@@ -330,10 +330,10 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
   }
   var sscd = results.sscd;
   if (sscd) {
-    if (sscd.available === false || sscd.error) {
-      verdicts.sscd = campaignProfile ? "fail" : "warn";
-    } else if (campaignProfile && !fanoutDistinctness) {
+    if (campaignProfile && !fanoutDistinctness) {
       verdicts.sscd = "pass";
+    } else if (sscd.available === false || sscd.error) {
+      verdicts.sscd = campaignProfile ? "fail" : "warn";
     } else if (campaignProfile) {
       var sscdStats = sscd.stats || {};
       var sscdFailed = !Number.isFinite(sscdStats.maxSimilarity) ||
@@ -427,7 +427,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
       var stats = detector.stats || {};
       if (detector.available === false || detector.error) {
         addReadinessItem(
-          blockingItems,
+          fanoutDistinctness ? blockingItems : warningItems,
           layer + "_unavailable",
           layer + ": detector unavailable",
           layer.toUpperCase() + " detector unavailable"

@@ -169,12 +169,15 @@ test("/api/similarity validates comparisonFiles as existing sibling filenames", 
   }
 });
 
-test("/api/similarity forces perceptual detectors for Campaign Factory profile", async function () {
+test("/api/similarity forces perceptual detectors for Campaign Factory fan-out", async function () {
   var files = await seedCampaignFactoryFiles();
+  var sibling = path.join(LEGACY_FINAL_DIR, "cf_similarity_sibling.jpg");
+  await writeFile(sibling, "sibling fixture");
   try {
     var response = await POST(similarityRequest({
       source: files.sourceName,
       targetFile: files.variantName,
+      comparisonFiles: [path.basename(sibling)],
       auditProfile: "campaign_factory_v1",
       layers: [],
     }));
@@ -188,6 +191,7 @@ test("/api/similarity forces perceptual detectors for Campaign Factory profile",
     assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), true);
   } finally {
     await cleanupCampaignFactoryFiles(files);
+    await rm(sibling, { force: true });
   }
 });
 

@@ -85,6 +85,26 @@ test("campaign profile fails closed when perceptual detectors are unavailable", 
   assert.equal(summary.blockingCodes.includes("sscd_unavailable"), true);
 });
 
+test("campaign single-reel audit keeps unavailable perceptual detectors advisory", function () {
+  var results = {
+    pdq: { available: false, error: "pdqhash missing" },
+    sscd: { available: false, error: "model missing" },
+  };
+  var verdicts = buildDetectorVerdicts(results, "campaign_factory_v1", {
+    variantCount: 1,
+  });
+  var summary = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+    variantCount: 1,
+  });
+
+  assert.deepEqual(verdicts, { pdq: "pass", sscd: "pass" });
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.blockingCodes.length, 0);
+  assert.equal(summary.warningCodes.includes("pdq_unavailable"), true);
+  assert.equal(summary.warningCodes.includes("sscd_unavailable"), true);
+});
+
 test("default profile keeps unavailable perceptual detectors advisory", function () {
   var results = {
     pdq: { available: false, error: "pdqhash missing" },
