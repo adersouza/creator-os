@@ -92,7 +92,7 @@ export async function POST(request) {
       size: buffer.length,
       mediaType: sniffedType,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Upload failed" },
       { status: 500 }

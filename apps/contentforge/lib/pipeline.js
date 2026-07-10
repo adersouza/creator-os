@@ -1,7 +1,7 @@
 import { spawn, execFile } from "child_process";
 import path from "path";
 import crypto from "crypto";
-import { mkdirSync, readdirSync, unlinkSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, unlinkSync, rmSync, writeFileSync } from "fs";
 import { buildPhase1Args, buildPhase2Args, buildImageArgs, generateDeviceFilename } from "./ffmpeg.js";
 import { PROJECT_ROOT, getRunEditsDir, getRunFinalDir, resolveUploadPath } from "./paths.js";
 import { getPythonCommand } from "./python-runtime.js";
@@ -10,7 +10,7 @@ import { getFastQualityMetrics } from "./quality-metrics.js";
 import { getQaSignals, probeMedia, validateMediaInfo } from "./reels.js";
 import { getReelsProfile } from "./reels-profiles.js";
 import { createTextOverlayPng } from "./overlay.js";
-import { evaluateQualityGate, getVariantPreset, normalizeQualityGate, normalizeVariantPreset, variantScoreBundle, validateQualityGate } from "./variant-engine.js";
+import { evaluateQualityGate, getVariantPreset, normalizeQualityGate, normalizeVariantPreset, variantScoreBundle } from "./variant-engine.js";
 
 /**
  * Post-process a video file to strip forensic tells:
@@ -409,7 +409,7 @@ export async function runPipeline(config, sendEvent) {
     var info = await getVideoInfo(inputPath);
     hasAudio = info.hasAudio;
     sendEvent({ type: "log", text: "Source: " + info.width + "x" + info.height + " " + info.codec + " audio=" + hasAudio + "\n" });
-  } catch (e) {
+  } catch {
     sendEvent({ type: "log", text: "Could not probe source, assuming audio present\n" });
   }
 
@@ -490,7 +490,7 @@ export async function runPipeline(config, sendEvent) {
           failed++;
           recordRejection(candidateReport.rejectionReasons);
           recordRejectionSample(filename, candidateReport);
-          try { unlinkSync(outputPath); } catch (e) { /* ignore */ }
+          try { unlinkSync(outputPath); } catch { /* ignore */ }
           sendEvent({ type: "log", text: "× rejected " + filename + " (" + candidateReport.rejectionReasons.join(", ") + ")\n" });
           continue;
         }
@@ -505,7 +505,7 @@ export async function runPipeline(config, sendEvent) {
       }
     }
 
-    try { rmSync(editsDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+    try { rmSync(editsDir, { recursive: true, force: true }); } catch { /* ignore */ }
     writeFileSync(path.join(finalDir, "run_config.json"), JSON.stringify({
       mediaType: "video",
       inputFile,
@@ -614,7 +614,7 @@ export async function runPipeline(config, sendEvent) {
           failed++;
           recordRejection(candidateReport.rejectionReasons);
           recordRejectionSample(filename, candidateReport);
-          try { unlinkSync(outputPath); } catch (e) { /* ignore */ }
+          try { unlinkSync(outputPath); } catch { /* ignore */ }
           sendEvent({ type: "log", text: "× rejected " + filename + " (" + candidateReport.rejectionReasons.join(", ") + ")\n" });
           continue;
         }
@@ -631,7 +631,7 @@ export async function runPipeline(config, sendEvent) {
   }
 
   // Clean up run-specific edits dir (intermediates no longer needed)
-  try { rmSync(editsDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  try { rmSync(editsDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
   writeFileSync(path.join(finalDir, "run_config.json"), JSON.stringify({
     mediaType: "video",
@@ -712,7 +712,7 @@ export async function runImagePipeline(config, sendEvent) {
   try {
     var info = await getImageInfo(inputPath);
     sendEvent({ type: "log", text: "Source: " + info.width + "x" + info.height + " " + info.codec + " " + Math.round(info.size / 1024) + "KB\n" });
-  } catch (e) {
+  } catch {
     sendEvent({ type: "log", text: "Could not probe source image\n" });
   }
 
@@ -773,7 +773,7 @@ export async function runImagePipeline(config, sendEvent) {
         rejectedCandidates++;
         failed++;
         recordImageRejection(candidateReport.rejectionReasons);
-        try { unlinkSync(outputPath); } catch (e) { /* ignore */ }
+        try { unlinkSync(outputPath); } catch { /* ignore */ }
         sendEvent({ type: "log", text: "× rejected " + filename + " (" + candidateReport.rejectionReasons.join(", ") + ")\n" });
         continue;
       }

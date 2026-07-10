@@ -32,7 +32,7 @@ export async function GET(request) {
     files.sort((a, b) => a.name.localeCompare(b.name));
 
     return NextResponse.json({ files, count: files.length });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ files: [], count: 0 });
   }
 }

@@ -5,7 +5,6 @@ import { mkdir } from "fs/promises";
 import { extractThumbnail, extractImageThumbnail, getVideoInfo, getImageInfo } from "../../../lib/pipeline.js";
 import { resolveUploadPath, safeBasename } from "../../../lib/paths.js";
 
-var VIDEO_EXTS = [".mp4", ".mov", ".webm", ".avi", ".mkv"];
 var IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".heic"];
 
 export async function POST(request) {
@@ -81,7 +80,7 @@ export async function POST(request) {
         },
       });
     }
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Thumbnail extraction failed" },
       { status: 500 }

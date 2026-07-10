@@ -122,7 +122,7 @@ export default function ForgeProgress({ config, onComplete, mediaType }) {
               if (configs.length === 1 && onComplete) onComplete(data);
               break;
           }
-          } catch (e) {
+          } catch {
             // Skip malformed events
           }
         }
