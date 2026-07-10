@@ -265,6 +265,7 @@ test("campaign profile blocks watchability warnings", function () {
     creativeQuality: "warn",
   }, {
     auditProfile: "campaign_factory_v1",
+    requestedLayers: ["creativeQuality"],
   });
 
   assert.equal(summary.uploadReady, false);
@@ -273,6 +274,44 @@ test("campaign profile blocks watchability warnings", function () {
   assert.equal(summary.blockingCodes.includes("weak_first_3_seconds"), true);
   assert.equal(summary.blockingCodes.includes("creative_quality_review"), true);
   assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
+});
+
+test("campaign profile keeps absent overlay and unavailable OCR advisory", function () {
+  var results = {
+    readability: {
+      verdict: "warn",
+      warnings: [
+        { code: "caption_not_detected", message: "no overlay", severity: "warn" },
+        { code: "ocr_unavailable", message: "ocr unavailable", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { readability: "warn" }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("caption_not_detected"), true);
+  assert.equal(summary.warningCodes.includes("ocr_unavailable"), true);
+  assert.equal(summary.blockingCodes.length, 0);
+});
+
+test("implicit creative scoring stays advisory until the layer is requested", function () {
+  var results = {
+    creativeQuality: {
+      verdict: "warn",
+      warnings: [
+        { code: "creative_hook_missing", message: "hook missing", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { creativeQuality: "warn" }, {
+    auditProfile: "campaign_factory_v1",
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.warningCodes.includes("creative_hook_missing"), true);
+  assert.equal(summary.blockingCodes.length, 0);
 });
 
 test("default profile keeps virality gate warnings advisory", function () {

@@ -16,6 +16,7 @@ CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
     "campaign_factory_audit.v1.7",
     "campaign_factory_audit.v1.8",
     "campaign_factory_audit.v1.9",
+    "campaign_factory_audit.v1.10",
 }
 
 
@@ -58,8 +59,8 @@ def run_variation_stage(
                 output_dir
                 / f"{_safe_slug(asset['renderedAssetId'])}.variant_assignment.preview.v1.json"
             )
-            atomic_write_text(path, 
-                json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
+            atomic_write_text(
+                path, json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
             )
         else:
             pipeline = VariantPipeline(
@@ -118,8 +119,10 @@ def run_variation_stage(
                 for item in assignment["assignments"]:
                     item.setdefault("lineage", {})["perceptual_audit"] = audit_lineage
                 validate_variant_assignment(assignment)
-                atomic_write_text(path, 
-                    json.dumps(assignment, indent=2, sort_keys=True), encoding="utf-8"
+                atomic_write_text(
+                    path,
+                    json.dumps(assignment, indent=2, sort_keys=True),
+                    encoding="utf-8",
                 )
             except Exception:
                 for variant_path in variant_paths:

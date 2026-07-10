@@ -37,7 +37,7 @@ with Campaign Factory fields:
 
 ```json
 {
-  "contractVersion": "campaign_factory_audit.v1.9",
+  "contractVersion": "campaign_factory_audit.v1.10",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "<staged rendered filename>",
   "comparisonFiles": ["<staged sibling filename>"],
@@ -287,6 +287,11 @@ with Campaign Factory fields:
   nonblocking warnings.
 - `recommendedAction: "approve_candidate"` is used only for clean candidates.
 - `contractVersion` identifies the stable Campaign Factory audit contract.
+- `campaign_factory_audit.v1.10` keeps missing overlay text and unavailable OCR
+  advisory, filters implausible/noisy OCR boxes, and blocks heuristic
+  `creativeQuality` warnings only when Campaign Factory explicitly requests the
+  `creativeQuality` layer. Confirmed caption readability, safe-zone, weak-opening,
+  and deterministic watchability failures remain blocking.
 - `campaign_factory_audit.v1.9` adds the optional `videoAnalysis` layer. The
   layer consumes a supplied Higgsfield `video_analysis` or equivalent VLM report;
   ContentForge does not make paid/live provider calls from `/api/similarity`.
@@ -300,9 +305,11 @@ with Campaign Factory fields:
   Factory explicitly requests `layers: ["virality"]`, missing reports, low
   predicted virality, weak predicted hook strength, or high retention risk are
   blocking. The default profile keeps these findings advisory.
-- `campaign_factory_audit.v1.7` blocks caption safe-zone, caption readability,
-  hook visibility, deterministic watchability, and creative-quality warnings for
-  Campaign Factory upload readiness.
+- `campaign_factory_audit.v1.7` introduced blocking caption safe-zone,
+  readability, hook-visibility, deterministic-watchability, and
+  creative-quality warnings for Campaign Factory upload readiness. Version
+  `v1.10` narrows missing-overlay/OCR evidence and implicit creative heuristics
+  to review signals.
 - `campaign_factory_audit.v1.4` evaluates worst-case detector evidence rather
   than averages. PDQ requires every source/sibling distance to be greater than
   `40`; SSCD requires every source/sibling similarity to be below `0.50`.
@@ -316,14 +323,15 @@ with Campaign Factory fields:
 - `creativeQuality` uses OCR, cover-frame statistics, readability scores, and
   first-3-second motion/text signals to estimate hook clarity, subject
   visibility, visual clarity, and opening strength. Its warnings are blocking
-  for `campaign_factory_v1` fan-out. `semanticEngine: "heuristic_v1"` means it
-  is not model-backed semantic vision.
+  for `campaign_factory_v1` only when the request includes
+  `layers: ["creativeQuality"]`; otherwise they remain review signals.
+  `semanticEngine: "heuristic_v1"` means it is not model-backed semantic vision.
 - `watchability` uses deterministic local evidence when available: VMAF/CAMBI
   reference metrics, loudnorm integrated loudness/true peak, black/silence
   detection, and crop/letterbox detection. Missing optional filters are not
   fail-closed; measured failures are blocking for `campaign_factory_v1`.
-- Safe-zone, caption readability, hook-visibility, watchability,
-  creative-quality, requested virality, and requested video-analysis warnings are blocking for
+- Safe-zone, confirmed caption readability, hook-visibility, watchability,
+  requested creative-quality, requested virality, and requested video-analysis warnings are blocking for
   `campaign_factory_v1` because
   assets with illegible captions, weak openings, bad loudness, letterboxing,
   banding/compression loss, unclear creative signals, or low configured
@@ -347,8 +355,6 @@ Campaign Factory V1 should treat these as blockers:
 - `provenance_ai_flagged`
 - `caption_too_close_to_edge`
 - `caption_overlaps_ui_safe_zone`
-- `ocr_unavailable`
-- `caption_not_detected`
 - `caption_low_confidence`
 - `caption_low_contrast`
 - `caption_text_too_small`
@@ -368,6 +374,11 @@ Campaign Factory V1 should treat these as blockers:
 - `creative_subject_unclear`
 - `creative_opening_static`
 - `creative_opening_no_early_hook`
+
+`ocr_unavailable` and `caption_not_detected` are advisory because a clean
+no-overlay render is valid and OCR availability is not evidence of a bad asset.
+The `creative_*` codes above are blocking only for an explicitly requested
+`creativeQuality` layer.
 - `video_vmaf_low`
 - `video_cambi_banding`
 - `audio_loudness_out_of_range`

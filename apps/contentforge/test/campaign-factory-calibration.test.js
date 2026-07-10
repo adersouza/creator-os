@@ -37,7 +37,10 @@ async function stageFixture(fixtureFile) {
   var targetPath = path.join(LEGACY_FINAL_DIR, targetName);
   await rm(sourcePath, { force: true });
   await rm(targetPath, { force: true });
-  await copyFile(path.join(FIXTURE_ROOT, "good", "campaign_factory_avconvert_render.mp4"), sourcePath);
+  var sourceFixture = fixtureFile.startsWith("failures/")
+    ? path.join(FIXTURE_ROOT, "good", "campaign_factory_avconvert_render.mp4")
+    : path.join(FIXTURE_ROOT, fixtureFile);
+  await copyFile(sourceFixture, sourcePath);
   await copyFile(path.join(FIXTURE_ROOT, fixtureFile), targetPath);
   return { sourcePath, targetPath, sourceName: SOURCE_NAME, targetName };
 }
@@ -49,7 +52,7 @@ async function cleanupStaged(staged) {
 }
 
 function assertContract(body) {
-  assert.equal(body.contractVersion, "campaign_factory_audit.v1.9");
+  assert.equal(body.contractVersion, "campaign_factory_audit.v1.10");
   assert.equal(body.auditProfile, "campaign_factory_v1");
   assert.equal(typeof body.targetFile, "string");
   assert.equal(typeof body.readinessSummary.summaryText, "string");

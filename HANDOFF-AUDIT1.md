@@ -5,9 +5,22 @@ Produced at the end of the audit-1 repair session (tasks: reel_factory
 architecture-guard hardening, stale-doc cleanup). Everything fixable inside
 this monorepo was fixed in-session; the items below cannot be completed here.
 
+## Follow-up resolution (2026-07-10)
+
+All code-level follow-ups are now resolved on `codex/audit1-handoff` or verified
+on the existing ThreadsDashboard scheduler branch. The only item that remains
+external is a paid/credentialed provider acceptance run: this checkout has no
+provider credentials, and `pipeline_smoke.py --real-providers` explicitly exits
+because the real-provider path is not implemented. No scheduling, publishing,
+or paid-provider action was performed.
+
 ## Needs the operator (this machine / accounts)
 
 ### 1. Install a dependency-cruiser-supported Node version (blocks `check:all`)
+
+**Resolved:** Homebrew Node 24 is installed; `.nvmrc` and the root `engines`
+constraint now reject the unsupported Node 25 line. `check:arch:ts` and the full
+architecture positive/negative fixture controls pass under Node 24.
 - Symptom: `pnpm check:arch:ts` (dependency-cruiser 18) hard-errors on the
   installed Node **25.9.0**: supported ranges are `^22||^24||>=26`.
 - Blast radius: `pnpm check:arch`, `pnpm check:all`, and the positive control
@@ -48,6 +61,11 @@ this monorepo was fixed in-session; the items below cannot be completed here.
   rerun the refresh.
 
 ### 2. Real-provider / credentialed runs
+
+**External by design:** credential names were checked without exposing values;
+none are present. The repository has no implemented real-provider acceptance
+path to invoke safely. Local SQLite/fake-provider proof remains the authoritative
+non-mutating evidence until that separate acceptance harness exists.
 - The repaired proof scripts (`caption_outcome_e2e_proof.py`, smoke scripts,
   root `test_integration.py`) validate against fakes/local SQLite. Runs against
   real Supabase/provider backends need operator-held credentials and should be
@@ -56,6 +74,11 @@ this monorepo was fixed in-session; the items below cannot be completed here.
 ## Needs the ThreadsDashboard repo (separate repo)
 
 ### 3. PLAN-SCHEDULER Phase 4 — footprint reduction (relocated per review)
+
+**Resolved in ThreadsDashboard:** `codex/plan-scheduler-v3` contains per-account
+base slots/timezones, deterministic ±20 minute jitter, local-date clamping,
+minimum-gap enforcement, and both 2026 US DST transition tests. Targeted tests,
+typecheck, and compatibility checks pass.
 - **STATUS UPDATE: delivered pending merge.** ThreadsDashboard PR #268
   (draft) implements this — account-local scheduling, deterministic ±20 min
   jitter, min gaps, DST handling, trial-intent transport. Remains open until
@@ -71,6 +94,9 @@ this monorepo was fixed in-session; the items below cannot be completed here.
   preferences and sync-back makes no equality assertions on final times.
 
 ### 4. Contract-change re-verification against the live consumer
+
+**Resolved:** ThreadsDashboard `compat:check` passes against the Creator OS
+PLAN-SCHEDULER worktree and reports its pipeline-contract snapshot in sync.
 - Creator OS intentionally has no committed `apps/dashboard` source mirror
   (`CREATOR_OS_SYSTEM_MAP.md` — do not restore it). Any change to
   `packages/pipeline_contracts` schemas is only verified here via the
@@ -80,6 +106,11 @@ this monorepo was fixed in-session; the items below cannot be completed here.
 ## Needs the split reel_factory repo (or a rewrite)
 
 ### 5. `audio_library_import.py` was never migrated
+
+**Resolved:** the importer was rewritten in the packaged Reel Factory module
+with its documented root compatibility entrypoint. It supports local files and
+direct HTTP(S) downloads, validates audio with `ffprobe`, installs atomically,
+uses SHA-256 identities, and writes idempotent license/provenance sidecars.
 - `docs/audio_pool_strategy.md` documented
   `python_packages/reel_factory/audio_library_import.py`; the file does not
   exist in this monorepo and has no git history here. Either migrate it from
@@ -92,6 +123,12 @@ this monorepo was fixed in-session; the items below cannot be completed here.
 ## Needs Codex (in-flight work — deliberately not touched)
 
 ### 6. 19 failing contentforge similarity/calibration tests (pre-existing)
+
+**Resolved:** the current reproduction was nine failures. Repairs cover the
+workspace Python runtime, declared PDQ dependency, calibrated OCR/noise handling,
+honest no-overlay/OCR-unavailable advisory semantics, preserved hard quality
+gates, and corrected calibration fixtures. The formerly failing calibration,
+report, and similarity route cases now pass.
 - Observed in the follow-up fix session (commit `6005f1a6`); NOT caused by
   that commit — its diff (`monorepo-ci.yml`, `test/tool-availability.js`,
   `campaign_factory/db.py`) touches none of the failing code paths.

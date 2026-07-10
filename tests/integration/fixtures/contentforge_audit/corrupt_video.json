@@ -1,5 +1,5 @@
 {
-  "contractVersion": "campaign_factory_audit.v1.9",
+  "contractVersion": "campaign_factory_audit.v1.10",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "cf_golden_corrupt_video_corrupt_video.mp4",
   "comparisonFiles": [],

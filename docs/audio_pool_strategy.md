@@ -41,13 +41,10 @@ Pixabay Music is a good manual source, but its music downloads are not exposed
 through the official Pixabay image/video API. Download selected tracks manually
 from the track page, then import the local file or URL.
 
-> **STALE / NOT MIGRATED (see `HANDOFF-AUDIT1.md`):** the importer this section
-> used to document, `python_packages/reel_factory/audio_library_import.py`, does
-> not exist in this monorepo (and has no history here). Until it is migrated or
-> rewritten, add tracks manually: place the MP3 in
-> `python_packages/reel_factory/03_audio_library/` alongside a JSON proof
-> sidecar matching the existing entries (title, artist, source, license,
-> license URL, page URL, tags). The original invocation, kept for reference:
+Use `audio_library_import.py` to validate the audio stream, install it
+atomically, and write the SHA-256-addressed license/provenance sidecar. Repeating
+the same import is idempotent. Pass either `--url` for a direct HTTP(S) audio
+download or `--file` for a local track:
 
 ```bash
 uv run --package reel-factory python python_packages/reel_factory/audio_library_import.py \
@@ -61,6 +58,8 @@ uv run --package reel-factory python python_packages/reel_factory/audio_library_
   --page-url "https://pixabay.com/music/..." \
   --tag moody --tag reel
 ```
+
+For a local download, replace `--url ...` with `--file ~/Downloads/track.mp3`.
 
 Other direct-download royalty-free libraries work the same way. The first local
 seed uses Incompetech CC BY 4.0 tracks, which require attribution tracking.

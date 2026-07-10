@@ -32,7 +32,7 @@ instagram,ig_runway_pop,2026-05-22T11:00:00+00:00,trending,140000,0.33,0.82,manu
 """
 
 CONTENTFORGE_SMOKE_RESPONSE = {
-    "contractVersion": "campaign_factory_audit.v1.9",
+    "contractVersion": "campaign_factory_audit.v1.10",
     "auditProfile": "campaign_factory_v1",
     "targetFile": "rendered_smoke.mp4",
     "layers": {},
@@ -301,7 +301,8 @@ def _run_pipeline_audio_smoke(
         "threadsdash": threadsdash_result,
         "skippedBoundaries": skipped_boundaries(threadsdash_root),
     }
-    atomic_write_text((workspace / "pipeline_audio_smoke_summary.json"), 
+    atomic_write_text(
+        (workspace / "pipeline_audio_smoke_summary.json"),
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -437,7 +438,8 @@ def add_smoke_audit_report(factory: CampaignFactory) -> None:
     if asset is None:
         raise AssertionError("smoke rendered asset missing")
     report_path = Path(asset["campaign_path"]).with_suffix(".audit_smoke.json")
-    atomic_write_text(report_path, 
+    atomic_write_text(
+        report_path,
         json.dumps(
             {
                 "readinessSummary": {
@@ -480,8 +482,8 @@ def _write_threadsdash_audio_gate_fixture(
         raise AssertionError("expected ThreadsDashboard draft for audio gate fixture")
     campaign_factory = (drafts[0].get("metadata") or {}).get("campaign_factory") or {}
     campaign_factory["audio_intent"] = unresolved_intent
-    atomic_write_text(draft_path, 
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        draft_path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
 
