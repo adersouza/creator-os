@@ -58,7 +58,7 @@ def save_config(root: Path, updates: dict[str, Any]) -> dict[str, Any]:
         else:
             rendered = _quote(str(value))
         lines.append(f"{key} = {rendered}")
-    config_pathatomic_write_text((root), "\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(config_path(Path(root)), "\n".join(lines) + "\n", encoding="utf-8")
     return data
 
 
