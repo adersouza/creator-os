@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "sync_threadsdash_performance.py"
 OPERATIONS_DOC_PATH = (
@@ -38,6 +40,36 @@ def test_sync_threadsdash_performance_requires_configured_env():
     module = load_sync_module()
 
     assert module.main(env={}) == 2
+
+
+def test_sync_threadsdash_performance_defaults_to_ten_thousand_posts():
+    module = load_sync_module()
+    command = module.build_sync_command(
+        {
+            "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS": '["may"]',
+            "THREADSDASH_USER_ID": "user_1",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+            "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
+        }
+    )
+
+    assert command[-2:] == ["--limit", "10000"]
+
+
+def test_sync_threadsdash_performance_rejects_invalid_limits():
+    module = load_sync_module()
+    base = {
+        "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS": '["may"]',
+        "THREADSDASH_USER_ID": "user_1",
+        "SUPABASE_URL": "https://example.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "service-role",
+        "LEARNING_LOOP_CUTOVER": "2026-07-09T00:00:00+00:00",
+    }
+
+    for value in ("0", "-1", "not-a-number"):
+        with pytest.raises(ValueError, match="positive integer"):
+            module.build_sync_command({**base, "CAMPAIGN_FACTORY_SYNC_LIMIT": value})
 
 
 def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):

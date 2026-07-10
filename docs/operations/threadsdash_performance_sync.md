@@ -15,6 +15,7 @@ export LEARNING_LOOP_CUTOVER="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export CAMPAIGN_FACTORY_DB="/absolute/path/to/campaign_factory.sqlite"
 export REEL_FACTORY_ROOT="/absolute/path/to/python_packages/reel_factory"
 export REFERENCE_FACTORY_DB="/absolute/path/to/reference_factory.sqlite"
+export CAMPAIGN_FACTORY_SYNC_LIMIT=10000
 ```
 
 `LEARNING_LOOP_CUTOVER` is the forward-only learning boundary. Raw performance
@@ -30,7 +31,13 @@ Roll out the lineage migration in this order:
 3. Deploy the Creator OS v2 producer and set `LEARNING_LOOP_CUTOVER` to that
    deployment instant.
 4. Run the hourly command once manually and verify all three destination
-   reports before enabling the recurring job.
+reports before enabling the recurring job.
+
+The hourly job reads only the explicit active campaign list in
+`CAMPAIGN_FACTORY_SYNC_CAMPAIGNS`. Its default scan ceiling is 10,000 posts;
+set `CAMPAIGN_FACTORY_SYNC_LIMIT` to another positive integer only when the
+active campaign inventory requires it. Pagination still fails closed if rows
+remain beyond the configured ceiling.
 
 Never deploy the v2 producer ahead of the dual-accept consumer. Local code may
 contain both halves during review, but the production order remains strict.
