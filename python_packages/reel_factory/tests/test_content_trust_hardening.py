@@ -31,6 +31,7 @@ from higgsfield_cost_preflight import (
     consume_higgsfield_spend_reservation,
     nonnegative_float_arg,
     positive_int_arg,
+    quote_higgsfield_generation,
     reserve_higgsfield_credits,
     reserve_higgsfield_spend,
 )
@@ -820,6 +821,31 @@ def _set_higgsfield_credit_guardrail_env(monkeypatch, db_path: Path) -> None:
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
     monkeypatch.setenv("HIGGSFIELD_COHORT_MAX_CREDITS", "150")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "25")
+
+
+def test_higgsfield_quote_preserves_cli_parameter_names(monkeypatch) -> None:
+    captured: list[str] = []
+
+    class Result:
+        returncode = 0
+        stdout = '{"credits": 1}'
+
+    monkeypatch.setattr(
+        "higgsfield_cost_preflight.shutil.which", lambda _name: "/bin/higgsfield"
+    )
+
+    def fake_run(command, **_kwargs):
+        captured.extend(command)
+        return Result()
+
+    monkeypatch.setattr("higgsfield_cost_preflight.subprocess.run", fake_run)
+    quote = quote_higgsfield_generation(
+        "text2image_soul_v2", params={"aspect_ratio": "9:16"}
+    )
+
+    assert quote["amount"] == 1
+    assert "--aspect_ratio" in captured
+    assert "--aspect-ratio" not in captured
 
 
 def test_higgsfield_native_credit_reservation_tracks_cohort_and_quote(
