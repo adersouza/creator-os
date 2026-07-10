@@ -53,6 +53,7 @@ DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
+POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
 
 
 def build_draft_payloads(
@@ -4168,10 +4169,27 @@ def sync_performance_snapshots(
         learning_ineligible_reasons: dict[str, int] = {}
         learning_ineligible_snapshot_count = 0
         learning_ineligible_post_ids: set[str] = set()
+        metric_history_post_ids: list[str] = []
+        for row in rows:
+            row_metadata = (
+                row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            )
+            campaign_metadata = (
+                row_metadata.get("campaign_factory")
+                if isinstance(row_metadata, dict)
+                else None
+            )
+            if not isinstance(campaign_metadata, dict) or not campaign_metadata:
+                continue
+            metadata_campaign = campaign_metadata.get("campaign_id")
+            if metadata_campaign and metadata_campaign != campaign_slug:
+                continue
+            if row.get("id"):
+                metric_history_post_ids.append(str(row["id"]))
         try:
             metric_history_rows = _select_threadsdash_post_metric_history(
                 client,
-                post_ids=[str(row.get("id")) for row in rows if row.get("id")],
+                post_ids=metric_history_post_ids,
                 limit=limit,
             )
         except RuntimeError as exc:
@@ -4695,15 +4713,21 @@ def _select_threadsdash_post_metric_history(
         "views_count,likes_count,replies_count,reposts_count,quotes_count,shares_count,"
         "saves_count,reach,engagement_rate"
     )
-    return client.select(
-        "post_metric_history",
-        {
-            "select": select_columns,
-            "post_id": f"in.({','.join(ids)})",
-            "order": "snapshot_at.asc",
-            "limit": str(max(limit, len(ids) * 24)),
-        },
-    )
+    rows: list[dict[str, Any]] = []
+    for offset in range(0, len(ids), POST_METRIC_HISTORY_POST_ID_BATCH_SIZE):
+        batch = ids[offset : offset + POST_METRIC_HISTORY_POST_ID_BATCH_SIZE]
+        rows.extend(
+            client.select(
+                "post_metric_history",
+                {
+                    "select": select_columns,
+                    "post_id": f"in.({','.join(batch)})",
+                    "order": "snapshot_at.asc",
+                    "limit": str(max(limit, len(batch) * 24)),
+                },
+            )
+        )
+    return rows
 
 
 def _validate_threadsdash_post_metric_history_read(rows: list[dict[str, Any]]) -> None:
