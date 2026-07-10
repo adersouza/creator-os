@@ -16,7 +16,7 @@ import {
 	validateVariantAssignment,
 } from "../typescript/index";
 
-const schemaRoot = resolve(__dirname, "../schemas");
+const schemaRoot = resolve(__dirname, "../pipeline_contracts/schemas");
 
 function example(name: string) {
 	return JSON.parse(

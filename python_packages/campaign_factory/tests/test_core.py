@@ -384,14 +384,6 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
         "", encoding="utf-8"
     )
     (reference_root / "reference_factory" / "cli.py").write_text("", encoding="utf-8")
-    (root / "schemas").mkdir(parents=True)
-    for name in [
-        "audio_intent.v1.schema.json",
-        "campaign_draft_payload.v1.schema.json",
-        "audio_catalog_export.v1.schema.json",
-        "performance_sync.v1.schema.json",
-    ]:
-        (root / "schemas" / name).write_text("{}", encoding="utf-8")
     settings = Settings(
         root=root,
         db_path=root / "campaign_factory.sqlite",

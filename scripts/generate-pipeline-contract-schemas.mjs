@@ -4,10 +4,15 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { basename, dirname, join, resolve } from "node:path";
 
 const repoRoot = resolve(new URL("..", import.meta.url).pathname);
-const canonicalSchemasDir = join(repoRoot, "packages", "pipeline_contracts", "schemas");
+const canonicalSchemasDir = join(
+	repoRoot,
+	"packages",
+	"pipeline_contracts",
+	"pipeline_contracts",
+	"schemas",
+);
 const outputPaths = [
 	join(repoRoot, "packages", "pipeline_contracts", "typescript", "generated-schemas.ts"),
-	join(repoRoot, "pipeline_contracts", "typescript", "generated-schemas.ts"),
 ];
 const checkMode = process.argv.includes("--check");
 

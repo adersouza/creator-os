@@ -20,15 +20,10 @@ FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_audit_fixture.json"
 BUSINESS_FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_business_audit_fixture.json"
 
 GENERATED_CONTRACT_PATHS = (
-    "packages/pipeline_contracts/pipeline_contracts/schemas/",
-    "pipeline_contracts/schemas/",
-    "python_packages/campaign_factory/schemas/",
-    "pipeline_contracts/typescript/",
     "packages/pipeline_contracts/typescript/generated-schemas.ts",
-    "pipeline_contracts/typescript/generated-schemas.ts",
 )
 CANONICAL_CONTRACT_PATHS = (
-    "packages/pipeline_contracts/schemas/",
+    "packages/pipeline_contracts/pipeline_contracts/schemas/",
     "packages/pipeline_contracts/typescript/index.ts",
 )
 CURRENT_DOC_ROOTS = (
@@ -277,7 +272,7 @@ def contract_audit(_fixture: dict[str, Any], quick: bool) -> Result:
             else "contract drift command failed",
             command,
             evidence=tail(check.output, 8),
-            affected=["packages/pipeline_contracts/schemas"],
+            affected=["packages/pipeline_contracts/pipeline_contracts/schemas"],
             next_action="Run `pnpm sync:contracts` from canonical schemas."
             if check.returncode
             else "None.",
@@ -337,7 +332,7 @@ def lineage_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     if not has_ref(
         read_json(
             ROOT
-            / "packages/pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json"
+            / "packages/pipeline_contracts/pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json"
         ),
         "generated_asset_lineage.v1.schema.json",
     ):
@@ -2152,7 +2147,7 @@ def threadsdash_contract_evidence() -> str:
     )
     if not root.exists():
         return "missing ThreadsDashboard contract mirror"
-    canonical = ROOT / "packages/pipeline_contracts/schemas"
+    canonical = ROOT / "packages/pipeline_contracts/pipeline_contracts/schemas"
     common = sorted(
         path.name
         for path in root.glob("*.schema.json")
@@ -2170,12 +2165,13 @@ def threadsdash_contract_evidence() -> str:
 
 
 def schema_usage() -> dict[str, list[str]]:
-    schema_dir = ROOT / "packages/pipeline_contracts/schemas"
+    schema_dir = ROOT / "packages/pipeline_contracts/pipeline_contracts/schemas"
     schemas = sorted(path.name for path in schema_dir.glob("*.schema.json"))
     repo_text = "\n".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for path in repo_files((".py", ".js", ".ts", ".tsx", ".json", ".md", ".mjs"))
-        if "packages/pipeline_contracts/schemas" not in str(path.relative_to(ROOT))
+        if "packages/pipeline_contracts/pipeline_contracts/schemas"
+        not in str(path.relative_to(ROOT))
     )
     unused = [
         name
@@ -2344,7 +2340,8 @@ def print_text(results: list[Result]) -> None:
 def self_check() -> int:
     assert tail("a\nb\n", limit=1) == "b"
     assert path_touches(
-        "pipeline_contracts/schemas/x.schema.json", GENERATED_CONTRACT_PATHS
+        "packages/pipeline_contracts/typescript/generated-schemas.ts",
+        GENERATED_CONTRACT_PATHS,
     )
     assert not path_touches("README.md", GENERATED_CONTRACT_PATHS)
     assert has_ref({"items": [{"$ref": "x.schema.json"}]}, "x.schema.json")
