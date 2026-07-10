@@ -35,6 +35,7 @@ from pipeline_contracts.llm_resilience import (
     urlopen_json_with_retry,
 )
 from project_config import config_path
+from .fileops import atomic_write_text
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 GEMINI_GENERATE_URL = (
@@ -1632,7 +1633,7 @@ def write_prompt_lineage(
         "humanReviewRequired": True,
     }
     path = out_path.with_suffix(out_path.suffix + ".grok_lineage.json")
-    path.write_text(json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -1890,14 +1891,14 @@ def generate_prompt(
                     "policy": "deterministic_compiler_no_cleanup_needed",
                 }
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(
+            atomic_write_text(out_path, 
                 json.dumps(asdict(compiled), indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
             raw_path = None
             if response is not None:
                 raw_path = out_path.with_suffix(out_path.suffix + ".grok_raw.json")
-                raw_path.write_text(
+                atomic_write_text(raw_path, 
                     json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8"
                 )
             lineage = {

@@ -12,6 +12,7 @@ from .caption_archetypes import caption_archetype
 from .db import json_dump, json_load
 from .identity import stable_id
 from .timeutil import now_iso
+from .fileops import atomic_write_text
 
 
 def import_apify_metrics(
@@ -163,7 +164,7 @@ def generate_prompt_cards(
         with jsonl.open("w", encoding="utf-8") as f:
             for card in cards:
                 f.write(json.dumps(card, ensure_ascii=False, sort_keys=True) + "\n")
-        manifest.write_text(
+        atomic_write_text(manifest, 
             json.dumps(
                 {"schema": "reference_factory.prompt_cards.v1", "cards": cards},
                 indent=2,
@@ -246,7 +247,7 @@ def export_learning_set(
     manifest_path = output_dir / f"learning_set_top{limit}.json"
     jsonl_path = output_dir / f"learning_set_top{limit}.jsonl"
     prompt_path = output_dir / f"prompt_cards_top{limit}.jsonl"
-    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+    atomic_write_text(manifest_path, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     with jsonl_path.open("w", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
@@ -274,7 +275,7 @@ def write_top_public_posts(top: dict[str, object], output_dir: Path) -> dict[str
     with jsonl.open("w", encoding="utf-8") as f:
         for item in items:
             f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
-    summary.write_text(
+    atomic_write_text(summary, 
         json.dumps(
             {
                 "schema": "reference_factory.top_public_posts_matched_summary.v1",

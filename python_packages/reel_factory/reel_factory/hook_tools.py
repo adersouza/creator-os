@@ -15,6 +15,7 @@ from embedding_provider import (
     cosine_similarity,
     get_embedding_provider,
 )
+from .fileops import atomic_write_text
 
 try:
     from rapidfuzz import fuzz  # type: ignore
@@ -148,7 +149,7 @@ def save_hook_to_library(
             )
             item["embedding_model"] = get_embedding_provider(embedding_model).name
             item["embedding_dims"] = len(semantic_vector(hook, embedding_model))
-            path.write_text(
+            atomic_write_text(path, 
                 json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8"
             )
             return item
@@ -168,7 +169,7 @@ def save_hook_to_library(
         "use_count": 1,
     }
     library.append(item)
-    path.write_text(json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
     return item
 
 
@@ -202,7 +203,7 @@ def reindex_hook_library(
         item["reindexed_at"] = int(time.time())
         library[idx] = item
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
     return {
         "count": len(library),
         "groups": len({item.get("semantic_group") for item in library}),

@@ -8,6 +8,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
+from .fileops import atomic_write_text
 
 SceneType = Literal[
     "mirror_selfie",
@@ -130,7 +131,7 @@ def main() -> int:
     if args.out:
         path = Path(args.out).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(payload, encoding="utf-8")
+        atomic_write_text(path, payload, encoding="utf-8")
         print(str(path))
     else:
         print(payload, end="")

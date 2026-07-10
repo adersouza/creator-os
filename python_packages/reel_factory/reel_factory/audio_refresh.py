@@ -17,6 +17,7 @@ from audio_provider import (
     trending_cml_path,
     watch_list_path,
 )
+from .fileops import atomic_write_text
 
 SCHEMA = "reel_factory.audio_refresh.v1"
 KEEP_CML_REVIEW_INDICES = {1, 3, 4, 7, 8, 10}
@@ -117,7 +118,7 @@ def _write_pool(
         "source_path": str(source_path) if source_path else None,
         "tracks": tracks,
     }
-    path.write_text(
+    atomic_write_text(path, 
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
@@ -152,7 +153,7 @@ def _load_refresh_state(root: Path) -> dict[str, Any]:
 def _write_refresh_state(root: Path, state: dict[str, Any]) -> None:
     path = refresh_state_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    atomic_write_text(path, 
         json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 

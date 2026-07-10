@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 from caption_render import render_caption_png
 from PIL import Image, ImageChops
+from .fileops import atomic_write_text
 
 
 def _flattened_pixels(image: Image.Image):
@@ -620,7 +621,7 @@ def save_crop_plan(root: Path, plan: dict[str, Any]) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     plan = dict(plan)
     plan["updatedAt"] = int(time.time())
-    out.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(out, json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
 
@@ -765,7 +766,7 @@ def write_panel_lineage(
         "review": {"humanReviewRequired": True},
     }
     out = clip_path.with_suffix(".generated_asset_lineage.json")
-    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
 
@@ -787,7 +788,7 @@ def install_cropped_panel(
     clip_path = raw_dir / f"{stem}.mp4"
     shutil.copy2(panel_video, clip_path)
     cap_path = cap_dir / f"{stem}.json"
-    cap_path.write_text(
+    atomic_write_text(cap_path, 
         json.dumps(
             {
                 "hooks": [caption],

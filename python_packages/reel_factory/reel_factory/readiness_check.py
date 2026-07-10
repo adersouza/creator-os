@@ -17,6 +17,7 @@ from safe_zone import score_safe_zone
 from virality_qc import evaluate_output_virality
 
 from reel_factory.sqlite_utils import connect_sqlite
+from .fileops import atomic_write_text
 
 PLATFORM_PROFILES: dict[str, dict[str, Any]] = {
     "instagram_reels": {
@@ -341,7 +342,7 @@ def run_readiness(
             "records": records,
         }
         path = readiness_path(clip_dir)
-        path.write_text(
+        atomic_write_text(path, 
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         reports.append(str(path))

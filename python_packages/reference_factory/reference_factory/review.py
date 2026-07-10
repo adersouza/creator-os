@@ -10,6 +10,7 @@ from .db import json_dump, json_load
 from .identity import stable_id
 from .scoring import shortlist
 from .timeutil import now_iso
+from .fileops import atomic_write_text
 
 VALID_LABELS = {"gold", "maybe", "ignore"}
 DEFAULT_GOLD_TARGET = 300
@@ -279,7 +280,7 @@ def export_gold(
             manifest_items.append(item)
             f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
     summary = build_gold_summary(conn, manifest_items)
-    summary_path.write_text(
+    atomic_write_text(summary_path, 
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     )
     return {

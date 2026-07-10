@@ -72,6 +72,7 @@ from render_plan import RenderPlan, validate_account_scope
 from variation_engine import get_pack_version, vary_caption_text
 
 from pipeline_contracts import validate_generated_asset_lineage
+from .fileops import atomic_write_text
 
 AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")
 
@@ -794,7 +795,7 @@ def write_generated_asset_lineage_sidecar(
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
     }
     validate_generated_asset_lineage(payload)
-    sidecar.write_text(
+    atomic_write_text(sidecar, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return sidecar
@@ -950,7 +951,7 @@ def write_caption_lineage_sidecar(
         or lineage
     )
     sidecar = out_path.with_suffix(out_path.suffix + ".caption_lineage.json")
-    sidecar.write_text(
+    atomic_write_text(sidecar, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return sidecar
@@ -995,7 +996,7 @@ def ensure_source_asset_lineage(
             "humanReviewRequired": True,
         },
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -1057,7 +1058,7 @@ def write_required_similarity_audit(
                 row["verdict"] = "INFO (self-generated source)"
                 row["selfSourceExempt"] = True
     if rows:
-        (clip_out / "_similarity.json").write_text(
+        atomic_write_text((clip_out / "_similarity.json"), 
             json.dumps(rows, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -2824,7 +2825,7 @@ async def amain(args):
         log.info(f"deduped {duplicate_jobs} duplicate render task(s) before launch")
     if args.caption_placement_qc:
         qc_path = root / "caption_placement_qc.json"
-        qc_path.write_text(
+        atomic_write_text(qc_path, 
             json.dumps(
                 {
                     "schema": "reel_factory.caption_placement_qc_report.v1",

@@ -26,6 +26,7 @@ from intelligence_store import ensure_intelligence_schema
 from pipeline_contracts.llm_resilience import decode_json_object
 
 from reel_factory.sqlite_utils import connect_sqlite
+from .fileops import atomic_write_text
 
 ANALYSIS_FIELDS = {
     "baseVisualFormula": {},
@@ -317,7 +318,7 @@ def analyze_reference(
         "createdAt": int(time.time()),
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
+    atomic_write_text(out_path, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     db = root / "manifest.sqlite"

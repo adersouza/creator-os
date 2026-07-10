@@ -69,6 +69,7 @@ from .reference_intake import (
 from .review import build_shortlist, export_gold, label_reference, review_batch
 from .scan import scan_source
 from .tiktok_archive import import_tiktok_archive
+from .fileops import atomic_write_text
 
 
 def parse_limit(value: str | int | None) -> int | None:
@@ -921,7 +922,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
+                atomic_write_text(path, 
                     json.dumps(health, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
@@ -934,7 +935,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
+                atomic_write_text(path, 
                     json.dumps(shortlist, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )

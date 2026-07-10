@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_intent import read_audio_intent
+from .fileops import atomic_write_text
 
 FOCAL_SAFE = {"focal-safe", "focal_safe_v1"}
 LANES = {"top", "center", "bottom"}
@@ -350,7 +351,7 @@ def promote_review_batch(
         "fileSha256": _hash_paths(manifest_path, manifest, rows),
         "rows": rows,
     }
-    output_path.write_text(
+    atomic_write_text(output_path, 
         json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {**guard, "packagePath": str(output_path)}

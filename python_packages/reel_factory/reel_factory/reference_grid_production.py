@@ -27,6 +27,7 @@ from generate_prompts import (
 )
 from grid_crop import crop_image_grid_panels
 from PIL import Image, ImageDraw
+from .fileops import atomic_write_text
 
 DEFAULT_REFERENCE_ROOT = Path("/tmp/creator_os_reference_accounts")
 DEFAULT_OUTPUT_ROOT = Path("output/reference_grok_grids_20260611")
@@ -264,7 +265,7 @@ def run_crop(
         "name": profile_name,
         **PROFILES[profile_name],
     }
-    manifest_path.write_text(
+    atomic_write_text(manifest_path, 
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return manifest
@@ -473,7 +474,7 @@ def run_one(
         "scheduled": 0,
         "published": 0,
     }
-    (job_dir / "job_summary.json").write_text(
+    atomic_write_text((job_dir / "job_summary.json"), 
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return record
@@ -519,7 +520,7 @@ def recrop_one(
     record["animated"] = 0
     record["scheduled"] = 0
     record["published"] = 0
-    (job_dir / "job_summary.json").write_text(
+    atomic_write_text((job_dir / "job_summary.json"), 
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return record
@@ -554,7 +555,7 @@ def summarize(
         "records": records,
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "summary.json").write_text(
+    atomic_write_text((output_root / "summary.json"), 
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return summary
@@ -588,7 +589,7 @@ def write_blocked_summary(
         "records": [],
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    (output_root / "summary.json").write_text(
+    atomic_write_text((output_root / "summary.json"), 
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return summary

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
+from .fileops import atomic_write_text
 
 DEFAULT_EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"
 DEFAULT_EMBEDDING_THRESHOLD = 0.86
@@ -172,7 +173,7 @@ def _cached_vector(
         vector = [float(value) for value in provider(source)]
     except Exception:
         return None
-    cache_path.write_text(
+    atomic_write_text(cache_path, 
         json.dumps({**metadata, "dim": len(vector), "vector": vector}, sort_keys=True)
         + "\n",
         encoding="utf-8",

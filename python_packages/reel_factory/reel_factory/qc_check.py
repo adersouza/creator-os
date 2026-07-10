@@ -42,6 +42,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from .fileops import atomic_write_text
 
 # Default mode: catch broken files, not enforce a specific ratio.
 # Higgsfield emits ~3:4 (e.g. 1108×1868, 1244×1660, 828×1108), and the
@@ -493,7 +494,7 @@ def compare_golden_dir(proc_dir: Path, golden_dir: Path) -> dict:
         "failed": sum(1 for r in records if not r.get("passed")),
         "records": records,
     }
-    out.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    atomic_write_text(out, json.dumps(summary, indent=2), encoding="utf-8")
     summary["report_json"] = str(out)
     return summary
 

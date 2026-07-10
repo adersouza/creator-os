@@ -14,6 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+from .fileops import atomic_write_text
 
 SAFE_STEM_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}")
 
@@ -170,7 +171,7 @@ def download_reel_url(
 
 
 def write_url_sidecar(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _existing_import_for_url(out_dir: Path, url: str) -> dict[str, object] | None:

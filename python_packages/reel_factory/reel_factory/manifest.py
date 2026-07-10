@@ -18,6 +18,7 @@ from intelligence_store import ensure_intelligence_schema
 
 from reel_factory.metrics_store import ensure_metrics_schema
 from reel_factory.sqlite_utils import connect_sqlite
+from .fileops import atomic_write_text
 
 log = logging.getLogger("reel")
 
@@ -814,7 +815,7 @@ class Manifest:
     def save(self):
         self.conn.commit()
         tmp = self.json_path.with_suffix(".tmp")
-        tmp.write_text(
+        atomic_write_text(tmp, 
             json.dumps(self.to_json_data(), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )

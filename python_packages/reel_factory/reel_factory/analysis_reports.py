@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
+from .fileops import atomic_write_text
 
 DEFAULT_REPORTS = ("virality", "video_analysis")
 REQUEST_SCHEMA = "reel_factory.analysis_report_requests.v1"
@@ -113,8 +114,10 @@ def _write_request_manifest(
             "estimatedCostUsd": 0,
             "records": directory_records,
         }
-        _manifest_path(Path(str(directory_records[0]["outputPath"]))).write_text(
-            _json_dumps(payload), encoding="utf-8"
+        atomic_write_text(
+            _manifest_path(Path(str(directory_records[0]["outputPath"]))),
+            _json_dumps(payload),
+            encoding="utf-8",
         )
 
 
@@ -196,13 +199,13 @@ def write_operator_reports(
     written: list[str] = []
     if virality is not None:
         payload = _normalize_virality_report(virality, provider=provider)
-        sidecars["virality"].write_text(_json_dumps(payload), encoding="utf-8")
+        atomic_write_text(sidecars["virality"], _json_dumps(payload), encoding="utf-8")
         written.append("virality")
     if video_analysis is not None:
         payload = _normalize_video_analysis_report(
             video_analysis, output_path=output, provider=provider
         )
-        sidecars["video_analysis"].write_text(_json_dumps(payload), encoding="utf-8")
+        atomic_write_text(sidecars["video_analysis"], _json_dumps(payload), encoding="utf-8")
         written.append("video_analysis")
 
     return {

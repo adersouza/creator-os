@@ -24,6 +24,7 @@ from posting_ledger import assign_approved_reels
 from virality_select import rank_candidates
 
 from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
+from .fileops import atomic_write_text
 
 PIPELINE_SCHEMA = "reel_factory.pipeline_run.v1"
 STAGES = (
@@ -78,7 +79,7 @@ def _load_state(path: Path) -> dict[str, Any] | None:
 def _write_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = int(time.time())
-    path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _stage_done(state: dict[str, Any], stage: str, force: set[str]) -> bool:
@@ -280,7 +281,7 @@ def write_approved_export(
         ],
     }
     path = run_dir / "approved_export.json"
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 

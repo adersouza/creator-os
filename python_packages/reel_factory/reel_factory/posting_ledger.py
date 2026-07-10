@@ -21,6 +21,7 @@ from audio_intent import read_audio_intent
 from intelligence_store import winner_score
 
 from reel_factory.sqlite_utils import connect_sqlite
+from .fileops import atomic_write_text
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (
@@ -763,7 +764,7 @@ def export_schedule_package(
             out_dir
             / f"schedule_{campaign_id or 'all'}_{date_from or 'start'}_{date_to or 'end'}_{int(time.time())}.json"
         )
-        out_path.write_text(
+        atomic_write_text(out_path, 
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         payload["path"] = str(out_path)

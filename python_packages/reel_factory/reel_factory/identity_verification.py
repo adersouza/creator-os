@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from .fileops import atomic_write_text
 
 SCHEMA = "reel_factory.identity_verification.v1"
 REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v1"
@@ -323,7 +324,7 @@ def build_reference_set(
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(output_path.parent, 0o700)
-    output_path.write_text(
+    atomic_write_text(output_path, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     os.chmod(output_path, 0o600)

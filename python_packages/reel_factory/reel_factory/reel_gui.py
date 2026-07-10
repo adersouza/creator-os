@@ -141,6 +141,7 @@ from posting_ledger import (
     review_queue as ledger_review_queue,
     transition_slot as ledger_transition_slot,
 )  # noqa
+from .fileops import atomic_write_text
 
 RAW_DIR = ROOT / "00_source_videos"
 CAP_DIR = ROOT / "01_captions"
@@ -970,7 +971,7 @@ def save_photo_post_asset(
         "status": "saved",
     }
     sidecar = dest.with_suffix(dest.suffix + ".photo_post.json")
-    sidecar.write_text(
+    atomic_write_text(sidecar, 
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {
@@ -1026,7 +1027,7 @@ def queue_threadsdashboard_post(
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     item_path = out_dir / f"{post_id}.json"
-    item_path.write_text(
+    atomic_write_text(item_path, 
         json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     queue_path = out_dir / "queue.jsonl"
@@ -1037,7 +1038,7 @@ def queue_threadsdashboard_post(
                 rows.append(json.loads(line))
     rows = [row for row in rows if row.get("post_id") != post_id]
     rows.append(record)
-    queue_path.write_text(
+    atomic_write_text(queue_path, 
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
@@ -1243,7 +1244,7 @@ def _update_source_lineage_with_fanout(
         or panel.get("path")
         for panel in manifest.get("panelCrops") or []
     }
-    lineage_path.write_text(
+    atomic_write_text(lineage_path, 
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return str(lineage_path)
@@ -1264,7 +1265,7 @@ def _write_shared_motion_prompt(source_prompt: Path, stem: str) -> Path:
         "klingMotionPrompt": prompt.klingMotionPrompt,
         "notes": f"Shared fanout motion prompt for {stem}. {prompt.notes}".strip(),
     }
-    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
 
@@ -1303,7 +1304,7 @@ def _attach_panel_lineage(
         "cropBox": panel.get("cropBox"),
         "startImagePath": panel.get("startImagePath") or panel.get("path"),
     }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _higgsfield_cli_error(failure_kind: str = "command_failed") -> dict[str, Any]:
@@ -1551,7 +1552,7 @@ def save_hooks(stem: str, body: dict = Body(...)):
         side["generation"] = generation
     elif isinstance(side.get("generation"), dict):
         side["generation"]["updated_at"] = _utc_now()
-    json_side.write_text(json.dumps(side, indent=2, ensure_ascii=False))
+    atomic_write_text(json_side, json.dumps(side, indent=2, ensure_ascii=False))
     return {
         "ok": True,
         "hook_count": len(parsed_hooks),
@@ -1585,7 +1586,7 @@ def auto_hooks_api(stem: str, body: dict = Body(default={})):
         "note": "Generated automatically for the simple make-reels flow.",
     }
     CAP_DIR.mkdir(parents=True, exist_ok=True)
-    json_side.write_text(json.dumps(side, indent=2, ensure_ascii=False))
+    atomic_write_text(json_side, json.dumps(side, indent=2, ensure_ascii=False))
     return {
         "ok": True,
         "stem": stem,
@@ -1816,7 +1817,7 @@ def import_reel_url_api(body: dict = Body(...)):
         raise HTTPException(400, "reel import failed")
 
     cap = CAP_DIR / f"{stem}.json"
-    cap.write_text(
+    atomic_write_text(cap, 
         json.dumps(
             {
                 "_downloaded_from_url": url,
@@ -2695,12 +2696,12 @@ def asset_download_video_api(body: dict = Body(...)):
         "review": {"humanReviewRequired": True},
     }
     lineage_path = RAW_DIR / f"{stem}.generated_asset_lineage.json"
-    lineage_path.write_text(
+    atomic_write_text(lineage_path, 
         json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     cap = CAP_DIR / f"{stem}.json"
     if not cap.exists():
-        cap.write_text(
+        atomic_write_text(cap, 
             json.dumps(
                 {
                     "hooks": body.get("hooks")
@@ -3224,7 +3225,7 @@ async def upload_clip(file: UploadFile = File(...)):
     # Stub caption sidecar so the clip appears with an editable hook list
     sidecar = CAP_DIR / f"{stem}.json"
     if not sidecar.exists():
-        sidecar.write_text(
+        atomic_write_text(sidecar, 
             json.dumps(
                 {
                     "_uploaded_from": file.filename,
