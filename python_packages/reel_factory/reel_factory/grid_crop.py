@@ -16,7 +16,10 @@ import numpy as np
 from caption_render import render_caption_png
 from PIL import Image, ImageChops
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 
 def _flattened_pixels(image: Image.Image):

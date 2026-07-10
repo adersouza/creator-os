@@ -16,7 +16,10 @@ from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from .fileops import atomic_write_json
+try:
+    from .fileops import atomic_write_json
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_json
 
 AUDIO_EXTENSIONS = {".aac", ".flac", ".m4a", ".mp3", ".wav"}
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024

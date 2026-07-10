@@ -16,7 +16,10 @@ from typing import Any
 
 from generate_assets import AssetGenerationPlan, dry_run, load_prompt
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.visual_direction_benchmark.v1"
 DEFAULT_BENCHMARK_ID = "visual_direction_v1"

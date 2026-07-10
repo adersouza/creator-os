@@ -17,7 +17,10 @@ from intelligence_store import winner_score
 
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 ACTIVE_BANKS = [
     "shared_girl_next_door",

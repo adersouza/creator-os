@@ -18,7 +18,10 @@ from audio_provider import (
     watch_list_path,
 )
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.audio_refresh.v1"
 KEEP_CML_REVIEW_INDICES = {1, 3, 4, 7, 8, 10}

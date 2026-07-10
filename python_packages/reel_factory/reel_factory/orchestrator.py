@@ -21,7 +21,10 @@ from typing import Any
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 from .sqlite_utils import connect_sqlite
 
 STATES = {

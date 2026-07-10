@@ -23,7 +23,10 @@ from intelligence_store import winner_score
 from pipeline_contracts import validate_assignment_eligibility
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (

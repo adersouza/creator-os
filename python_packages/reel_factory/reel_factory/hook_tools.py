@@ -16,7 +16,10 @@ from embedding_provider import (
     get_embedding_provider,
 )
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 try:
     from rapidfuzz import fuzz  # type: ignore

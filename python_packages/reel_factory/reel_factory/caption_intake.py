@@ -23,7 +23,10 @@ from caption_bank import (
 )
 from discoverability_safety import discoverability_safe_content_contract
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 CANDIDATE_SCHEMA = "reel_factory.caption_candidate_intake.v1"
 INVENTORY_SCHEMA = "reel_factory.caption_source_inventory.v1"

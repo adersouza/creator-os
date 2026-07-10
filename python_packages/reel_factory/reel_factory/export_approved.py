@@ -15,7 +15,10 @@ from readiness_check import load_readiness_for_output, normalize_platform
 from reel_factory.perceptual import enrich_lineage_identity
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 
 def export_approved(

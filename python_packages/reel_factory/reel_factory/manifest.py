@@ -19,7 +19,10 @@ from intelligence_store import ensure_intelligence_schema
 from reel_factory.metrics_store import ensure_metrics_schema
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 log = logging.getLogger("reel")
 

@@ -12,7 +12,10 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 DEFAULT_REPORTS = ("virality", "video_analysis")
 REQUEST_SCHEMA = "reel_factory.analysis_report_requests.v1"

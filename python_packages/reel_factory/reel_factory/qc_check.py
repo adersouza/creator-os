@@ -43,7 +43,10 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .fileops import atomic_write_text
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 # Default mode: catch broken files, not enforce a specific ratio.
 # Higgsfield emits ~3:4 (e.g. 1108×1868, 1244×1660, 828×1108), and the
