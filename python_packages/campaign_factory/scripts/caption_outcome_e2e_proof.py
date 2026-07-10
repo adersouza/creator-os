@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -25,12 +26,14 @@ from campaign_factory.adapters.threadsdash import (  # noqa: E402
 )
 from campaign_factory.config import Settings  # noqa: E402
 from campaign_factory.core import CampaignFactory  # noqa: E402
+from campaign_factory.fileops import atomic_write_text
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger  # noqa: E402
 from reel_pipeline import build_caption_outcome_context  # noqa: E402
 
 CAPTION_TEXT = "Hard launch energy."
 CAPTION_HASH = "caption_hash_e2e_proof"
 CAMPAIGN_SLUG = "caption-proof"
+IG_POST_CAPTION = "Hard launch energy, no warmup. #reels"
 CONTEXT_KEYS = [
     "schema",
     "caption_hash",
@@ -63,10 +66,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Learning readers fail closed when LEARNING_LOOP_CUTOVER is unset; pin a
+    # cutover before the fixture's published_at so the proof snapshot is
+    # eligible (matches production deploy config, see learning_score.py).
+    os.environ.setdefault("LEARNING_LOOP_CUTOVER", "2026-06-01T00:00:00+00:00")
+
     with tempfile.TemporaryDirectory(prefix="caption_outcome_e2e_") as tmp:
         proof = run_proof(Path(tmp))
 
-    args.record.write_text(
+    atomic_write_text(
+        args.record,
         json.dumps(proof, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -85,9 +94,39 @@ def run_proof(tmp_path: Path) -> dict[str, Any]:
             self.service_role_key = service_role_key
 
         def select(self, table: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-            if table != "posts":
-                raise AssertionError(f"unexpected table: {table}")
-            return rows
+            if table == "posts":
+                return rows
+            if table == "post_metric_history":
+                # Learning eligibility requires history_source='metric_history'
+                # (see learning_score.LEARNING_ELIGIBLE_SQL); an empty history
+                # forces the post_row_fallback path and the snapshot is
+                # silently dropped from every report. Mirror each post row as
+                # one metric-history observation.
+                return [
+                    {
+                        "id": f"pmh_{post['id']}",
+                        "post_id": post["id"],
+                        "account_id": post.get("account_id"),
+                        "platform": post.get("platform"),
+                        "snapshot_at": post.get("updated_at"),
+                        "hours_since_publish": 1.5,
+                        "views_count": post.get("views"),
+                        "likes_count": post.get("likes_count"),
+                        "replies_count": post.get("ig_comment_count"),
+                        "reposts_count": 0,
+                        "quotes_count": 0,
+                        "shares_count": post.get("ig_shares"),
+                        "saves_count": (
+                            (post.get("metadata") or {}).get("metrics", {}).get("saves")
+                        ),
+                        "reach": (
+                            (post.get("metadata") or {}).get("metrics", {}).get("reach")
+                        ),
+                        "engagement_rate": 0.08,
+                    }
+                    for post in rows
+                ]
+            raise AssertionError(f"unexpected table: {table}")
 
     original_client = threadsdash_adapter.SupabaseRestClient
     threadsdash_adapter.SupabaseRestClient = FakeClient
@@ -128,6 +167,20 @@ def _run_steps(
         rendered_output=str(rendered_output.resolve()),
         creator_model="lola",
     )
+    # Publishability v2 gates read these from the stored caption outcome context.
+    # They are not part of CONTEXT_KEYS, so the cross-stage fingerprint assertion
+    # still proves the canonical context is byte-identical at every stage.
+    emitted_context = {
+        **emitted_context,
+        "captionPlacementPolicy": "focal_safe_v1",
+        "captionPlacementDecision": {
+            "status": "passed",
+            "policy": "focal_safe_v1",
+            "lane": "lower_third",
+            "checkedAt": "2026-06-05T09:00:00+00:00",
+        },
+        "instagram_post_caption": IG_POST_CAPTION,
+    }
     _write_reel_posting_slot(
         cf,
         campaign_slug=campaign["slug"],
@@ -171,6 +224,12 @@ def _run_steps(
             f"promoted asset did not retain caption hash {CAPTION_HASH}: {promoted_rows}"
         )
     asset = dict(asset_row)
+    _attach_publishability_evidence(cf, asset)
+    asset = dict(
+        cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
+        ).fetchone()
+    )
     plan = dict(
         cf.conn.execute(
             "SELECT * FROM distribution_plans WHERE rendered_asset_id = ?",
@@ -261,6 +320,81 @@ def _make_factory(tmp_path: Path) -> CampaignFactory:
             campaigns_dir=tmp_path / "campaigns",
         )
     )
+
+
+def _attach_publishability_evidence(cf: CampaignFactory, asset: dict[str, Any]) -> None:
+    """Attach the evidence the publishability v2 gates require.
+
+    The proof exercises caption-outcome context integrity, not the audit or
+    audio pipelines, so this stands in for contentforge (audit report) and the
+    operator audio flow (audioIntent) with minimal passing evidence — the same
+    shape the publishability unit tests use.
+    """
+    report_path = Path(asset["campaign_path"]).with_suffix(".audit_proof.json")
+    report_payload = {
+        "readinessSummary": {
+            "uploadReady": True,
+            "blockingReasons": [],
+            "warnings": [],
+            "blockingCodes": [],
+            "warningCodes": [],
+            "visualQcStatus": "passed",
+            "identityVerificationStatus": "passed",
+        },
+        "visualQcStatus": "passed",
+        "identityVerificationStatus": "passed",
+        "visualQc": {"status": "passed"},
+        "identityVerification": {"status": "passed"},
+        "overallVerdict": "pass",
+        "warnings": [],
+        "failedChecks": [],
+        "error": None,
+    }
+    report_path.write_text(json.dumps(report_payload), encoding="utf-8")
+    cf.conn.execute(
+        """
+        INSERT INTO audit_reports
+        (id, campaign_id, rendered_asset_id, contentforge_run_id, report_path, score, status,
+         layers_json, verdicts_json, overall_verdict, files_analyzed, failed_checks_json, warnings_json, created_at)
+        VALUES (?, ?, ?, 'run_proof', ?, 100, 'approved_candidate', '{}', '{}', 'pass', 1, '[]', '[]', ?)
+        """,
+        (
+            "audit_proof",
+            asset["campaign_id"],
+            asset["id"],
+            str(report_path),
+            "2026-06-05T09:00:00+00:00",
+        ),
+    )
+
+    caption_generation = json.loads(asset.get("caption_generation_json") or "{}")
+    caption_generation["audioIntent"] = {
+        "status": "skipped",
+        "reason": "proof_fixture_no_audio",
+    }
+    # Publishability reads the operator post caption and placement QC decision
+    # from caption_generation_json (see instagram_post_caption_for_asset and the
+    # generatedAssetLineage merge in publishability.py); supply them the same way.
+    caption_generation["instagram_post_caption"] = IG_POST_CAPTION
+    generated_lineage = caption_generation.get("generatedAssetLineage")
+    if not isinstance(generated_lineage, dict):
+        generated_lineage = {}
+    generated_lineage.setdefault("captionPlacementPolicy", "focal_safe_v1")
+    generated_lineage.setdefault(
+        "captionPlacementDecision",
+        {
+            "status": "passed",
+            "lane": "lower_third",
+            "policy": "focal_safe_v1",
+            "checkedAt": "2026-06-05T09:00:00+00:00",
+        },
+    )
+    caption_generation["generatedAssetLineage"] = generated_lineage
+    cf.conn.execute(
+        "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = ?",
+        (json.dumps(caption_generation), asset["id"]),
+    )
+    cf.conn.commit()
 
 
 def _write_reel_posting_slot(

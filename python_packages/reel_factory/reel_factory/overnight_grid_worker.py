@@ -26,6 +26,8 @@ from caption_render import render_caption_png
 from generate_assets import AssetGenerationPlan, create_video_asset
 from PIL import Image, ImageChops
 
+from .fileops import atomic_write_text
+
 
 def _flattened_pixels(image: Image.Image):
     getter = getattr(image, "get_flattened_data", None)
@@ -163,8 +165,10 @@ def prompt_for_grid(root: Path, grid: GridSpec) -> Path:
         ),
         notes="Shared motion prompt for overnight crop-and-review workflow.",
     )
-    path.write_text(
-        json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        path,
+        json.dumps(payload.__dict__, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return path
 
@@ -186,8 +190,10 @@ def prompt_for_panel(root: Path, grid: GridSpec, panel: int) -> Path:
         ),
         notes="Shared panel fanout motion prompt.",
     )
-    path.write_text(
-        json.dumps(payload.__dict__, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        path,
+        json.dumps(payload.__dict__, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return path
 
@@ -528,7 +534,9 @@ def write_candidate_lineage(
         "review": {"humanReviewRequired": True},
     }
     out = source_clip.with_suffix(".generated_asset_lineage.json")
-    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return out
 
 
@@ -549,7 +557,8 @@ def install_candidate(
     src.parent.mkdir(parents=True, exist_ok=True)
     cap.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(panel_video, src)
-    cap.write_text(
+    atomic_write_text(
+        cap,
         json.dumps(
             {
                 "hooks": [caption],
@@ -763,8 +772,8 @@ def run_worker(args: argparse.Namespace) -> dict[str, Any]:
         / f"overnight_report_{int(time.time())}.json"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        out_path, json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     report["reportPath"] = str(out_path)
     return report
@@ -864,8 +873,8 @@ def run_individual_panels(args: argparse.Namespace) -> dict[str, Any]:
         / f"individual_panel_report_{int(time.time())}.json"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        out_path, json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     report["reportPath"] = str(out_path)
     return report

@@ -16,6 +16,8 @@ from typing import Any
 
 from generate_assets import AssetGenerationPlan, dry_run, load_prompt
 
+from .fileops import atomic_write_text
+
 SCHEMA = "reel_factory.visual_direction_benchmark.v1"
 DEFAULT_BENCHMARK_ID = "visual_direction_v1"
 CONDITIONS = ("neutral", "enhanced")
@@ -198,8 +200,10 @@ def create_benchmark_plan(
         },
         "reels": planned_reels,
     }
-    out_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        out_path,
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return {"ok": True, "path": str(out_path), "benchmark": payload}
 

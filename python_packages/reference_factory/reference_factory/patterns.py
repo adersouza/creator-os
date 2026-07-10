@@ -14,6 +14,7 @@ from typing import Any
 from .audio import extract_audio_signal
 from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .db import json_dump, json_load
+from .fileops import atomic_write_text
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
 from .timeutil import now_iso
@@ -252,7 +253,8 @@ def export_patterns(
     with jsonl_path.open("w", encoding="utf-8") as f:
         for card in cards:
             f.write(json.dumps(card, ensure_ascii=False, sort_keys=True) + "\n")
-    manifest_path.write_text(
+    atomic_write_text(
+        manifest_path,
         json.dumps(
             {
                 "schema": "reference_factory.pattern_cards.v1",
@@ -263,10 +265,11 @@ def export_patterns(
             indent=2,
             ensure_ascii=False,
         )
-        + "\n"
+        + "\n",
     )
-    summary_path.write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    atomic_write_text(
+        summary_path,
+        json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )
     payload: dict[str, object] = {
         "schema": "reference_factory.export_patterns.v1",

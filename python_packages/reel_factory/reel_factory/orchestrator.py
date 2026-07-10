@@ -21,6 +21,7 @@ from typing import Any
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
+from .fileops import atomic_write_text
 from .sqlite_utils import connect_sqlite
 
 STATES = {
@@ -701,8 +702,8 @@ def export_approved_assets(root: Path, *, now: int | None = None) -> int:
             datetime.fromtimestamp(ts, UTC).strftime("%Y%m%dT%H%M%SZ")
             + ".approved_export.json"
         )
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         for row in rows:
             advance(conn, str(row["asset_id"]), "exported", now=ts)
@@ -754,8 +755,8 @@ def write_tick_report(root: Path, report: dict[str, Any]) -> Path:
         "%Y%m%dT%H%M%SZ"
     )
     path = ticks_dir / f"{ts}.json"
-    path.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        path, json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return path
 

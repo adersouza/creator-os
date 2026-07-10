@@ -1,5 +1,5 @@
 {
-  "contractVersion": "campaign_factory_audit.v1.9",
+  "contractVersion": "campaign_factory_audit.v1.10",
   "auditProfile": "campaign_factory_v1",
   "targetFile": "cf_golden_iphone_reel_iphone_reel_upload_ready.mp4",
   "comparisonFiles": [],

@@ -22,6 +22,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from .fileops import atomic_write_text
+
 CANVAS_W = 1080
 CANVAS_H = 1920
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
@@ -313,7 +315,7 @@ def render_slideshow_video(
             lines.append(f"file '{slide.resolve()}'")
             lines.append(f"duration {seconds_per_slide:.3f}")
         lines.append(f"file '{slides[-1].resolve()}'")
-        list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(list_path, "\n".join(lines) + "\n", encoding="utf-8")
         cmd = [
             ffmpeg,
             "-hide_banner",
@@ -442,7 +444,8 @@ def build_slideshow(
         grid_path=str(grid_path) if grid_path else None,
         items=items,
     )
-    (out_dir / "slideshow_manifest.json").write_text(
+    atomic_write_text(
+        (out_dir / "slideshow_manifest.json"),
         json.dumps(asdict(manifest), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )

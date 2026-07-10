@@ -8,9 +8,10 @@ Research: Identical QTs across a batch indicate common-origin processing.
 Randomizing QTs makes each image appear to come from a different device/software.
 """
 
-import sys
-import os
 import json
+import os
+import sys
+
 import numpy as np
 
 try:
@@ -20,7 +21,6 @@ except ImportError:
     sys.exit(1)
 
 from PIL import Image
-
 
 # Standard JPEG luminance quantization table (Annex K)
 STANDARD_QT_LUMA = np.array([

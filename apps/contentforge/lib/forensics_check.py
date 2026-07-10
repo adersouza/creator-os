@@ -5,10 +5,10 @@ Reports advisory double-compression, encoder-fingerprint, and GOP signals.
 These heuristics are useful operator-review signals, not deterministic proof.
 """
 
-import sys
 import json
 import os
 import subprocess
+import sys
 
 try:
     import numpy as np

@@ -8,6 +8,7 @@ from sqlite3 import Connection
 
 from .config import DEFAULT_DATA_ROOT
 from .db import json_dump
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .media import extract_frame
 from .scoring import score_reference
@@ -180,7 +181,8 @@ def write_html(path: Path, refs: list[dict[str, object]], mode: str) -> None:
             </article>
             """
         )
-    path.write_text(
+    atomic_write_text(
+        path,
         f"""<!doctype html>
 <html>
 <head>
@@ -214,7 +216,7 @@ def write_montage(path: Path, refs: list[dict[str, object]]) -> None:
         if row.get("thumbnail_path") and Path(str(row.get("thumbnail_path"))).exists()
     ]
     if not thumbs:
-        path.write_text("No thumbnails available yet.\n", encoding="utf-8")
+        atomic_write_text(path, "No thumbnails available yet.\n", encoding="utf-8")
         return
     with tempfile_list(thumbs) as list_path:
         subprocess.run(

@@ -11,10 +11,10 @@ If either signals AI-generated content, Instagram adds the "AI Info" label,
 which reduces algorithmic distribution.
 """
 
-import sys
 import json
 import os
 import subprocess
+import sys
 
 # AI-related IPTC DigitalSourceType values that trigger platform labels
 AI_SOURCE_TYPES = {

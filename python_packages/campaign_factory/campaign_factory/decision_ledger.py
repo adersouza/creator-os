@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 import hashlib
 import json
 import sqlite3
@@ -394,6 +398,10 @@ class DecisionLedgerRepository:
         try:
             needs = self._creator_content_needs(creator=creator, date=date)
         except Exception:
+            _LOGGER.debug(
+                "content-needs report unavailable; no ledger entries emitted",
+                exc_info=True,
+            )
             return entries
         for account in needs.get("accounts") or []:
             if not isinstance(account, dict):

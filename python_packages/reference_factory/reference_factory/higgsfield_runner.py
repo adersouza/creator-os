@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .fileops import atomic_write_text
+
 DEFAULT_STACEY_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
 DEFAULT_SOUL_IDS = {
     "stacey": DEFAULT_STACEY_SOUL_ID,
@@ -191,7 +193,8 @@ def generate_with_higgsfield(
         "manifestPath": str(output_root / "higgsfield_generation_manifest.json"),
         "runs": runs,
     }
-    (output_root / "higgsfield_generation_manifest.json").write_text(
+    atomic_write_text(
+        (output_root / "higgsfield_generation_manifest.json"),
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -915,7 +918,8 @@ def _run_pair(
                         result = _run_json(cmd, runner)
                         _raise_for_provider_status(result)
                         _write_job_id(out_dir / f"{image_stem}_job_id.txt", result)
-                        image_asset.write_text(
+                        atomic_write_text(
+                            image_asset,
                             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8",
                         )
@@ -1084,7 +1088,8 @@ def _run_pair(
                                 variation_result = cached_variation
                             else:
                                 variation_result = _run_json(variation_cmd, runner)
-                                variation_asset.write_text(
+                                atomic_write_text(
+                                    variation_asset,
                                     json.dumps(
                                         variation_result, indent=2, ensure_ascii=False
                                     )
@@ -1093,7 +1098,8 @@ def _run_pair(
                                 )
                         else:
                             variation_result = _run_json(variation_cmd, runner)
-                            variation_asset.write_text(
+                            atomic_write_text(
+                                variation_asset,
                                 json.dumps(
                                     variation_result, indent=2, ensure_ascii=False
                                 )
@@ -1137,7 +1143,8 @@ def _run_pair(
                             out_dir / f"kling_video{soul_grid_suffix}_job_id.txt",
                             video_result,
                         )
-                        video_asset.write_text(
+                        atomic_write_text(
+                            video_asset,
                             json.dumps(video_result, indent=2, ensure_ascii=False)
                             + "\n",
                             encoding="utf-8",
@@ -1227,8 +1234,10 @@ def _run_pair(
         "schema": "reference_factory.ai_cost_ledger.v1",
         "events": cost_events,
     }
-    lineage_path.write_text(
-        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        lineage_path,
+        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
     campaign_intake = None
@@ -1275,7 +1284,8 @@ def _run_pair(
         "lineagePath": str(lineage_path),
         "campaignIntake": campaign_intake,
     }
-    (out_dir / "run_manifest.json").write_text(
+    atomic_write_text(
+        (out_dir / "run_manifest.json"),
         json.dumps(run_manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -2103,13 +2113,15 @@ def _run_individual_variations(
             )
             if not _variation_result_is_reusable(panel_result):
                 panel_result = _run_json(cmd, runner)
-                result_path.write_text(
+                atomic_write_text(
+                    result_path,
                     json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
         else:
             panel_result = _run_json(cmd, runner)
-            result_path.write_text(
+            atomic_write_text(
+                result_path,
                 json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
@@ -2227,7 +2239,8 @@ def _run_variation_panel_videos(
             )
         else:
             panel_result = _run_json(cmd, runner)
-            result_path.write_text(
+            atomic_write_text(
+                result_path,
                 json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
@@ -2530,8 +2543,10 @@ def _create_variation_sequence_video(panel_paths: list[Path], out_path: Path) ->
                     or "failed to create variation sequence segment"
                 )
             segment_paths.append(segment)
-        list_path.write_text(
-            "".join(f"file '{path}'\n" for path in segment_paths), encoding="utf-8"
+        atomic_write_text(
+            list_path,
+            "".join(f"file '{path}'\n" for path in segment_paths),
+            encoding="utf-8",
         )
         concat_cmd = [
             "ffmpeg",
@@ -2746,7 +2761,7 @@ def _materialize_result_asset(result: dict[str, Any], prefix: Path) -> str | Non
 def _write_job_id(path: Path, result: dict[str, Any]) -> None:
     job_id = _result_id(result)
     if job_id:
-        path.write_text(job_id + "\n", encoding="utf-8")
+        atomic_write_text(path, job_id + "\n", encoding="utf-8")
 
 
 def _raise_for_provider_status(result: dict[str, Any]) -> None:

@@ -92,7 +92,7 @@ export async function generateCampaignFactoryFixtures() {
   var whiteCaption = await createTextOverlay("white-caption.png", { text: "BIG HOOK" });
   var edgeCaption = await createTextOverlay("edge-caption.png", { text: "EDGE HOOK", width: 1000 });
   var lowContrastCaption = await createTextOverlay("low-contrast-caption.png", { text: "LOW CONTRAST", color: "#3f3f3f" });
-  var smallCaption = await createTextOverlay("small-caption.png", { text: "SMALL HOOK", color: "#ffffff", width: 620, height: 90, fontSize: 34 });
+  var smallCaption = await createTextOverlay("small-caption.png", { text: "SMALL HOOK", color: "#ffffff", width: 800, height: 190, fontSize: 64 });
 
   await createFixture("good/campaign_factory_avconvert_render.mp4", {
     lavfi: "testsrc=size=1080x1920:rate=30",

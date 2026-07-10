@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .fileops import atomic_write_text
 from .persistence import json_load
 
 
@@ -204,7 +205,8 @@ class ArchiveQualityRepository:
             / f"archive_inventory_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
         )
         result["reportPath"] = str(report_path)
-        report_path.write_text(
+        atomic_write_text(
+            report_path,
             json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )
@@ -425,7 +427,8 @@ class ArchiveQualityRepository:
             "items": ranked,
         }
         result["reportPath"] = str(report_path)
-        report_path.write_text(
+        atomic_write_text(
+            report_path,
             json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )

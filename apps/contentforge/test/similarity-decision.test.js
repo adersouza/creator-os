@@ -133,7 +133,7 @@ test("Campaign Factory fan-out still fails master and sibling distinctness", fun
   assert.equal(readiness.blockingCodes.includes("sscd_sibling_collision"), true);
 });
 
-test("quality-floor warnings are advisory by default and blocking for Campaign Factory", function () {
+test("quality-floor warnings block Campaign Factory when creative quality is requested", function () {
   var results = {
     safeZone: {
       warnings: [{ code: "caption_too_close_to_edge", label: "Caption edge", message: "caption too close" }],
@@ -148,7 +148,10 @@ test("quality-floor warnings are advisory by default and blocking for Campaign F
   var verdicts = { safeZone: "warn", readability: "warn", creativeQuality: "warn" };
 
   var defaultReadiness = buildReadinessSummary(results, verdicts);
-  var campaignReadiness = buildReadinessSummary(results, verdicts, { auditProfile: "campaign_factory_v1" });
+  var campaignReadiness = buildReadinessSummary(results, verdicts, {
+    auditProfile: "campaign_factory_v1",
+    requestedLayers: ["creativeQuality"],
+  });
 
   assert.equal(defaultReadiness.uploadReady, true);
   assert.equal(defaultReadiness.warningCodes.includes("caption_too_close_to_edge"), true);

@@ -34,6 +34,7 @@ from .config import (
 from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
+from .fileops import atomic_write_text
 from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
@@ -921,7 +922,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
+                atomic_write_text(
+                    path,
                     json.dumps(health, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
@@ -934,7 +936,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(
+                atomic_write_text(
+                    path,
                     json.dumps(shortlist, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )

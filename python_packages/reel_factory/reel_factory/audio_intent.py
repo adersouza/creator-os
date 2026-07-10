@@ -9,6 +9,8 @@ from typing import Any
 
 from pipeline_contracts import validate_audio_intent
 
+from .fileops import atomic_write_text
+
 AUDIO_INTENT_MODES = {
     "native_trending_audio",
     "original_voiceover",
@@ -64,5 +66,7 @@ def write_audio_intent(
     }
     validate_audio_intent(payload)
     path = audio_intent_path(output_path)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path

@@ -17,6 +17,8 @@ from intelligence_store import winner_score
 
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .fileops import atomic_write_text
+
 ACTIVE_BANKS = [
     "shared_girl_next_door",
     "dm_follow_bait",
@@ -420,20 +422,25 @@ class CaptionBankStore:
             "source_hash": source_hash,
             "mixes": self.mixes,
         }
-        (base / "banks.json").write_text(
-            json.dumps(banks_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            (base / "banks.json"),
+            json.dumps(banks_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
-        (base / "mixes.json").write_text(
-            json.dumps(mixes_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            (base / "mixes.json"),
+            json.dumps(mixes_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         if not (base / "performance.json").exists():
-            (base / "performance.json").write_text(
+            atomic_write_text(
+                (base / "performance.json"),
                 json.dumps(empty_performance_payload(), indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
         readme = base / "README.md"
         if not readme.exists():
-            readme.write_text(_readme_text(), encoding="utf-8")
+            atomic_write_text(readme, _readme_text(), encoding="utf-8")
 
     def all_items(self) -> list[dict[str, Any]]:
         seen: set[str] = set()
@@ -782,7 +789,9 @@ def refresh_caption_weights(root: Path) -> dict[str, Any]:
     base = root / "caption_banks"
     base.mkdir(parents=True, exist_ok=True)
     path = base / "performance.json"
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {
         "updated": len(weights),
         "unresolved": unresolved,

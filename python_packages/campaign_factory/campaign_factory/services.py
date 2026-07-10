@@ -2174,6 +2174,17 @@ class CoreServices:
     ) -> dict[str, Any]:
         return self.events.set_pipeline_job_campaign(job_id, campaign_id)
 
+    def reclaim_stale_pipeline_jobs(
+        self,
+        stuck_hours: float,
+        *,
+        action: str = "fail",
+        max_attempts: int | None = None,
+    ) -> dict[str, Any]:
+        return self.events.reclaim_stale_pipeline_jobs(
+            stuck_hours, action=action, max_attempts=max_attempts
+        )
+
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
         return self.events.pipeline_job(job_id)
 

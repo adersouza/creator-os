@@ -321,6 +321,18 @@ class CampaignOverviewRepository:
             ).fetchone()
             if not row:
                 raise ValueError(f"account not found: {account_id}")
+        existing = self.conn.execute(
+            """
+            SELECT * FROM asset_account_assignments
+            WHERE rendered_asset_id = ?
+              AND COALESCE(account_id, '') = COALESCE(?, '')
+              AND COALESCE(instagram_account_id, '') = COALESCE(?, '')
+              AND COALESCE(planned_window_start, '') = COALESCE(?, '')
+            """,
+            (rendered_asset_id, account_id, instagram_account_id, planned_window_start),
+        ).fetchone()
+        if existing:
+            return dict(existing)
         now = self._utc_now()
         assignment_id = self._new_id("assign")
         eligibility = enforce_assignment_eligibility(

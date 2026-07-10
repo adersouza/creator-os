@@ -20,6 +20,7 @@ from .embeddings import (
     DEFAULT_EMBEDDING_THRESHOLD,
     build_embedding_clusters,
 )
+from .fileops import atomic_write_text
 from .identity import stable_id
 from .patterns import (
     analyze_patterns,
@@ -914,25 +915,27 @@ def _write_learning_outputs(
     }
     campaign_payload = _campaign_reference_bank(run_id, clusters)
 
-    clusters_json.write_text(
-        json.dumps(clusters_payload, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(
+        clusters_json, json.dumps(clusters_payload, indent=2, ensure_ascii=False) + "\n"
     )
     with clusters_jsonl.open("w", encoding="utf-8") as f:
         for cluster in clusters:
             f.write(json.dumps(cluster, ensure_ascii=False, sort_keys=True) + "\n")
-    playbook_json.write_text(json.dumps(playbook, indent=2, ensure_ascii=False) + "\n")
-    playbook_md.write_text(_playbook_markdown(playbook), encoding="utf-8")
-    prompt_pack_json.write_text(
-        json.dumps(prompt_pack, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(
+        playbook_json, json.dumps(playbook, indent=2, ensure_ascii=False) + "\n"
+    )
+    atomic_write_text(playbook_md, _playbook_markdown(playbook), encoding="utf-8")
+    atomic_write_text(
+        prompt_pack_json, json.dumps(prompt_pack, indent=2, ensure_ascii=False) + "\n"
     )
     with prompt_pack_jsonl.open("w", encoding="utf-8") as f:
         for prompt in prompt_pack["prompts"]:
             f.write(json.dumps(prompt, ensure_ascii=False, sort_keys=True) + "\n")
-    campaign_bank.write_text(
-        json.dumps(campaign_payload, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(
+        campaign_bank, json.dumps(campaign_payload, indent=2, ensure_ascii=False) + "\n"
     )
-    caption_bank.write_text(
-        json.dumps(caption_formulas, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(
+        caption_bank, json.dumps(caption_formulas, indent=2, ensure_ascii=False) + "\n"
     )
     return {
         "clustersJsonPath": str(clusters_json),

@@ -256,6 +256,74 @@ class EventRepository:
         self.conn.commit()
         return self.pipeline_job(job_id)
 
+    def reclaim_stale_pipeline_jobs(
+        self,
+        stuck_hours: float,
+        *,
+        action: str = "fail",
+        max_attempts: int | None = None,
+    ) -> dict[str, Any]:
+        """Recover pipeline jobs stranded in 'queued'/'running' by a crashed worker.
+
+        action='fail' marks stale jobs failed; action='requeue' returns them to
+        'queued' (unless max_attempts is set and already reached, in which case
+        the job is failed instead). Returns a summary with the touched jobs.
+        """
+        if stuck_hours <= 0:
+            raise ValueError("stuck_hours must be positive")
+        if action not in {"fail", "requeue"}:
+            raise ValueError(f"unsupported reclaim action: {action}")
+        rows = self.conn.execute(
+            "SELECT * FROM pipeline_jobs WHERE status IN ('queued', 'running')"
+        ).fetchall()
+        now = self._utc_now()
+        reclaimed: list[dict[str, Any]] = []
+        for raw in rows:
+            row = dict(raw)
+            stuck, age_hours = _pipeline_job_stuck_status(row, stuck_hours)
+            if not stuck:
+                continue
+            attempts = int(row.get("attempt_count") or 0)
+            requeue = action == "requeue" and (
+                max_attempts is None or attempts < max_attempts
+            )
+            if requeue:
+                self.conn.execute(
+                    "UPDATE pipeline_jobs SET status = 'queued', error = NULL, started_at = NULL, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
+                    (now, row["id"]),
+                )
+                outcome = "requeued"
+            else:
+                error = (
+                    f"reclaimed as stale after {round(age_hours or 0.0, 3)}h "
+                    f"(threshold {stuck_hours}h)"
+                )
+                self.conn.execute(
+                    "UPDATE pipeline_jobs SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
+                    (error, now, now, row["id"]),
+                )
+                outcome = "failed"
+            reclaimed.append(
+                {
+                    "id": row["id"],
+                    "jobType": row["job_type"],
+                    "campaignId": row["campaign_id"],
+                    "previousStatus": row["status"],
+                    "attemptCount": attempts,
+                    "ageHours": round(age_hours, 3) if age_hours is not None else None,
+                    "outcome": outcome,
+                }
+            )
+        self.conn.commit()
+        return {
+            "stuckThresholdHours": stuck_hours,
+            "action": action,
+            "maxAttempts": max_attempts,
+            "scanned": len(rows),
+            "reclaimedCount": len(reclaimed),
+            "reclaimed": reclaimed,
+        }
+
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
         row = self.conn.execute(
             "SELECT * FROM pipeline_jobs WHERE id = ?", (job_id,)
@@ -301,9 +369,13 @@ def _parse_sqlite_timestamp(value: Any) -> datetime | None:
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        # SQLite datetime() emits naive UTC strings; never interpret as local.
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _pipeline_job_stuck_status(

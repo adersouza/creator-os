@@ -23,6 +23,8 @@ from intelligence_store import winner_score
 from pipeline_contracts import validate_assignment_eligibility
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .fileops import atomic_write_text
+
 SLOT_TYPES = ("main", "trial_1", "trial_2")
 POST_STATUSES = (
     "planned",
@@ -827,8 +829,10 @@ def export_schedule_package(
             out_dir
             / f"schedule_{campaign_id or 'all'}_{date_from or 'start'}_{date_to or 'end'}_{int(time.time())}.json"
         )
-        out_path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            out_path,
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         payload["path"] = str(out_path)
     return payload

@@ -15,6 +15,8 @@ from readiness_check import load_readiness_for_output, normalize_platform
 from reel_factory.perceptual import enrich_lineage_identity
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .fileops import atomic_write_text
+
 
 def export_approved(
     root: Path,
@@ -144,8 +146,8 @@ def export_approved(
         "count": len(items),
         "items": items,
     }
-    out_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        out_path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {"ok": True, "count": len(items), "path": str(out_path), "items": items}
 

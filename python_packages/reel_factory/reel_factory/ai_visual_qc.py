@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .fileops import atomic_write_text
+
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 _YUNET_MODEL_PATH = (
     Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
@@ -305,8 +307,8 @@ def run_ai_qc(
             "records": [asdict(rec) for rec in records],
         }
         report = clip_dir / "_ai_qc.json"
-        report.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            report, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         reports.append(str(report))
         all_records.extend(payload["records"])

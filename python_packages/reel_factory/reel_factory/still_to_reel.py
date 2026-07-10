@@ -21,6 +21,8 @@ from PIL import Image
 
 from pipeline_contracts import validate_generated_asset_lineage
 
+from .fileops import atomic_write_text
+
 SCHEMA = "reel_factory.motion_edit_render.v1"
 CANVAS_W = 1080
 CANVAS_H = 1920
@@ -351,7 +353,9 @@ def _write_lineage(
     }
     validate_generated_asset_lineage(payload)
     path = output.with_suffix(output.suffix + ".generated_asset_lineage.json")
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 

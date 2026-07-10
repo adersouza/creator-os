@@ -67,3 +67,65 @@ class Settings:
 
 def get_settings() -> Settings:
     return Settings()
+
+
+def resolve_repo_roots(projects_root: Path) -> dict[str, Path]:
+    """Resolve sibling repo roots for smoke fixtures.
+
+    Supports two layouts:
+    - flat: ``<projects_root>/{reel_factory,contentforge,reference_factory,ThreadsDashboard}``
+      (used by tests with temp dirs)
+    - canonical: ``creator-os/python_packages/*``, ``creator-os/apps/contentforge``,
+      with ``ThreadsDashboard`` as a sibling of ``creator-os``.
+
+    ``projects_root`` may be the workspace root (parent of ``creator-os``) or the
+    ``creator-os`` checkout itself. Env overrides (``REEL_FACTORY_ROOT`` etc.) win.
+    """
+    root = Path(projects_root).expanduser().resolve()
+    if (root / "creator-os").is_dir():
+        creator_os = root / "creator-os"
+    elif root.name == "python_packages":
+        # Legacy default from the smoke scripts: <creator-os>/python_packages
+        creator_os = root.parent
+    else:
+        creator_os = root
+
+    def pick(env_var: str, candidates: list[Path]) -> Path:
+        env = os.environ.get(env_var)
+        if env:
+            return Path(env).expanduser().resolve()
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        return candidates[-1]
+
+    return {
+        "reel_factory": pick(
+            "REEL_FACTORY_ROOT",
+            [
+                root / "reel_factory",
+                creator_os / "python_packages" / "reel_factory",
+            ],
+        ),
+        "contentforge": pick(
+            "CONTENTFORGE_ROOT",
+            [
+                root / "contentforge",
+                creator_os / "apps" / "contentforge",
+            ],
+        ),
+        "reference_factory": pick(
+            "REFERENCE_FACTORY_ROOT",
+            [
+                root / "reference_factory",
+                creator_os / "python_packages" / "reference_factory",
+            ],
+        ),
+        "ThreadsDashboard": pick(
+            "THREADSDASH_ROOT",
+            [
+                root / "ThreadsDashboard",
+                creator_os.parent / "ThreadsDashboard",
+            ],
+        ),
+    }
