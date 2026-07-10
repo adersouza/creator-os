@@ -8,9 +8,11 @@ from campaign_factory.core import CampaignFactory
 from campaign_factory.learning_cohort import (
     COHORT_ID,
     audit_learning_cohort,
+    learning_cohort_assignment_metadata,
     prepare_learning_cohort,
     run_learning_cohort_day,
 )
+from pipeline_contracts.validator import validate_contract
 
 
 def _factory(tmp_path: Path) -> CampaignFactory:
@@ -55,6 +57,11 @@ def test_prepare_is_fixed_balanced_and_idempotent(tmp_path: Path) -> None:
                 late["scheduled_for"]
             ) - datetime.fromisoformat(early["scheduled_for"])
             assert gap.total_seconds() >= 6 * 3600
+        assignment_id = cf.conn.execute(
+            "SELECT id FROM learning_cohort_assignments ORDER BY day_index, surface LIMIT 1"
+        ).fetchone()["id"]
+        metadata = learning_cohort_assignment_metadata(cf.conn, assignment_id)
+        validate_contract(metadata, "learning_cohort.v1.schema.json")
     finally:
         cf.close()
 

@@ -13,7 +13,14 @@
     "assignment_seed",
     "creator",
     "soul_id",
-    "account_handle"
+    "account_handle",
+    "generation_state",
+    "approval_state",
+    "schedule_state",
+    "publish_state",
+    "metric_1h_state",
+    "metric_24h_state",
+    "metric_72h_state"
   ],
   "properties": {
     "cohort_id": { "type": "string", "minLength": 1 },
@@ -29,6 +36,13 @@
     "provider_reservation_id": { "type": ["string", "null"] },
     "draft_id": { "type": ["string", "null"] },
     "post_id": { "type": ["string", "null"] },
+    "generation_state": { "type": "string", "minLength": 1 },
+    "approval_state": { "type": "string", "minLength": 1 },
+    "schedule_state": { "type": "string", "minLength": 1 },
+    "publish_state": { "type": "string", "minLength": 1 },
+    "metric_1h_state": { "type": "string", "minLength": 1 },
+    "metric_24h_state": { "type": "string", "minLength": 1 },
+    "metric_72h_state": { "type": "string", "minLength": 1 },
     "creator": { "const": "Stacey" },
     "soul_id": { "const": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36" },
     "account_handle": { "const": "staceyben101" }

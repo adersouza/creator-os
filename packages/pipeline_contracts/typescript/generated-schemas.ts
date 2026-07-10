@@ -2362,7 +2362,14 @@ export const generatedPipelineContractSchemas = {
 	    "assignment_seed",
 	    "creator",
 	    "soul_id",
-	    "account_handle"
+	    "account_handle",
+	    "generation_state",
+	    "approval_state",
+	    "schedule_state",
+	    "publish_state",
+	    "metric_1h_state",
+	    "metric_24h_state",
+	    "metric_72h_state"
 	  ],
 	  "properties": {
 	    "cohort_id": {
@@ -2436,6 +2443,34 @@ export const generatedPipelineContractSchemas = {
 	        "string",
 	        "null"
 	      ]
+	    },
+	    "generation_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "approval_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "schedule_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "publish_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "metric_1h_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "metric_24h_state": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "metric_72h_state": {
+	      "type": "string",
+	      "minLength": 1
 	    },
 	    "creator": {
 	      "const": "Stacey"

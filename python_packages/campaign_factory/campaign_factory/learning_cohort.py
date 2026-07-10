@@ -293,6 +293,44 @@ def audit_learning_cohort(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def learning_cohort_assignment_metadata(
+    conn: sqlite3.Connection, assignment_id: str
+) -> dict[str, Any]:
+    ensure_learning_cohort_tables(conn)
+    row = conn.execute(
+        "SELECT * FROM learning_cohort_assignments WHERE id = ? AND cohort_id = ?",
+        (assignment_id, COHORT_ID),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown learning cohort assignment: {assignment_id}")
+    value = dict(row)
+    return {
+        "cohort_id": value["cohort_id"],
+        "assignment_id": value["id"],
+        "day_index": value["day_index"],
+        "arm": value["arm"],
+        "surface": value["surface"],
+        "reference_id": value["reference_id"],
+        "candidate_rank": value["candidate_rank"],
+        "assignment_seed": value["assignment_seed"],
+        "source_family": value["source_family"],
+        "content_fingerprint": value["content_fingerprint"],
+        "provider_reservation_id": value["provider_reservation_id"],
+        "draft_id": value["draft_id"],
+        "post_id": value["post_id"],
+        "creator": CREATOR,
+        "soul_id": SOUL_ID,
+        "account_handle": ACCOUNT_HANDLE,
+        "generation_state": value["generation_state"],
+        "approval_state": value["approval_state"],
+        "schedule_state": value["schedule_state"],
+        "publish_state": value["publish_state"],
+        "metric_1h_state": value["metric_1h_state"],
+        "metric_24h_state": value["metric_24h_state"],
+        "metric_72h_state": value["metric_72h_state"],
+    }
+
+
 def _run_day_blockers(conn: sqlite3.Connection, *, day_index: int) -> list[str]:
     blockers: list[str] = []
     ambiguous = conn.execute(
@@ -462,6 +500,17 @@ def _public_assignment(row: dict[str, Any]) -> dict[str, Any]:
         "generationState": row["generation_state"],
         "approvalState": row["approval_state"],
         "scheduleState": row["schedule_state"],
+        "publishState": row["publish_state"],
+        "metric1hState": row["metric_1h_state"],
+        "metric24hState": row["metric_24h_state"],
+        "metric72hState": row["metric_72h_state"],
+        "referenceId": row["reference_id"],
+        "candidateRank": row["candidate_rank"],
+        "sourceFamily": row["source_family"],
+        "contentFingerprint": row["content_fingerprint"],
+        "providerReservationId": row["provider_reservation_id"],
+        "draftId": row["draft_id"],
+        "postId": row["post_id"],
     }
 
 
