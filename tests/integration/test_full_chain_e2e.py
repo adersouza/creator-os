@@ -7,18 +7,22 @@ raw ``performance_snapshots``/``reference_patterns`` INSERTs). That leaves the
 *seams* untested: a shape drift between what an upstream stage emits and what a
 downstream stage reads would keep every unit test green while production breaks.
 
-This module drives the REAL upstream stage and feeds its REAL output into the
-REAL downstream stage. The only hand-built values are data owned by external
-systems (ContentForge/QC verdicts, remote media-host URLs, ThreadsDashboard
-metric numbers/timestamps) -- everything crossing a seam under test is produced
-by the genuine upstream call.
+This module drives the REAL Campaign Factory producer/consumer stage for each
+seam under test and feeds its REAL output into the next Campaign Factory stage.
+It deliberately seeds a few producer-side fixtures that live behind paid or
+external boundaries in this test environment: prompt/lineage generation,
+Reel Factory render worker output, ContentForge/QC verdicts, remote media-host
+URLs, and ThreadsDashboard metric numbers/timestamps. Those seeded fixtures are
+consumer-side coverage only and must not be read as producer coverage for those
+external artifacts.
 
 Seam coverage:
   A. sync_reel_outputs -> export_threadsdash draft (caption spine)
   B. export_threadsdash posts -> sync_performance_snapshots (metric round-trip)
   C. performance_snapshots -> learning_fanout -> reference prompt_post_outcomes
   D. reference learning bank -> import_reference_bank -> recommend_next_batch
-  E. full chain A..D, asserting the caption_hash/lineage spine at every hop.
+  E. full chain A..D, asserting the full caption_outcome_context and lineage
+     spine at every hop.
 """
 
 from __future__ import annotations
@@ -76,13 +80,12 @@ def set_source_prompt(
     prompt_id: str,
     reference_id: str,
 ) -> None:
-    """Seed the source asset's source_prompt.
+    """Seed the source asset's source_prompt fixture.
 
-    This is upstream of stage 2 (prompt generation), not part of any seam under
-    test; we set it because the prompt-generation stage needs paid providers.
-    It carries the promptId/referenceId that the real export_manifest threads
-    into generatedAssetLineage.source -- the join the reference learning hop
-    keys on.
+    This is consumer-side coverage for prompt/lineage consumption, not producer
+    coverage for the paid prompt-generation stage. It carries the
+    promptId/referenceId that the real export_manifest threads into
+    generatedAssetLineage.source -- the join the reference learning hop keys on.
     """
     source_prompt = {
         "promptId": prompt_id,
@@ -110,13 +113,15 @@ def simulate_reel_render(
     caption: str,
     recipe: str = "v01_original",
 ) -> Path:
-    """Stand in for the reel_factory render worker.
+    """Fixture for the external reel_factory render worker.
 
     Follows test_core.test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset:
     populate the caption sidecar's ``generation`` block and write a
-    manifest.sqlite ``variations`` row + rendered output file. The caption text
-    echoes the sidecar prepare_reel_inputs wrote (real upstream), so the
-    caption spine flowing into sync_reel_outputs is genuine.
+    manifest.sqlite ``variations`` row + rendered output file. This does not
+    claim Reel Factory producer coverage; it creates the worker artifact that
+    sync_reel_outputs consumes. The caption text echoes the sidecar
+    prepare_reel_inputs wrote (real upstream), so the caption spine flowing into
+    sync_reel_outputs is genuine.
     """
     stem = job["reel_clip_stem"]
     sidecar = cf.settings.reel_factory_root / "01_captions" / f"{stem}.json"
@@ -231,13 +236,14 @@ def add_audit_report(
 
 
 def mark_publishable_qc(cf: CampaignFactory, rendered_asset_id: str) -> None:
-    """Record the caption-placement-QC pass and audio-intent resolution.
+    """Record external caption-placement-QC and audio-intent fixtures.
 
     Caption-placement QC and audio-intent resolution are downstream QC/audio
-    subsystems that GATE reel publishability. We stamp their verdicts here (only
-    the QC decision status + audio-intent status), leaving caption_hash /
-    caption_text -- the spine crossing the seam under test -- exactly as
-    sync_reel_outputs produced them.
+    subsystems that GATE reel publishability. This is consumer-side coverage for
+    the publishability/export stages, not producer coverage for the placement
+    decision. We stamp only the QC decision status + audio-intent status,
+    leaving caption_hash / caption_text -- the spine crossing the seam under
+    test -- exactly as sync_reel_outputs produced them.
     """
     row = cf.conn.execute(
         "SELECT caption_outcome_context_json, caption_generation_json FROM rendered_assets WHERE id = ?",
@@ -357,16 +363,12 @@ def _make_fake_client(dashboard: _FakeDashboard):
             if table == "posts":
                 user_id = str(params.get("user_id", "")).removeprefix("eq.")
                 rows = [
-                    dict(p)
-                    for p in dashboard.posts.values()
-                    if p["user_id"] == user_id
+                    dict(p) for p in dashboard.posts.values() if p["user_id"] == user_id
                 ]
                 post_key = params.get("campaign_factory_post_key")
                 if post_key is not None:
                     key = str(post_key).removeprefix("eq.")
-                    rows = [
-                        r for r in rows if r["campaign_factory_post_key"] == key
-                    ]
+                    rows = [r for r in rows if r["campaign_factory_post_key"] == key]
                 return rows[offset : offset + limit]
             if table == "post_metric_history":
                 raw = str(params.get("post_id", ""))
@@ -444,7 +446,11 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
 
         def read(self):
             return json.dumps(
-                {"success": True, "postIds": self.post_ids, "writtenDrafts": len(self.post_ids)}
+                {
+                    "success": True,
+                    "postIds": self.post_ids,
+                    "writtenDrafts": len(self.post_ids),
+                }
             ).encode("utf-8")
 
     def fake_urlopen(request, timeout):
@@ -455,6 +461,36 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
         return resp
 
     monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+
+
+def _export_drafts(export: dict[str, Any]) -> list[dict[str, Any]]:
+    return json.loads(Path(export["path"]).read_text(encoding="utf-8"))["payload"][
+        "drafts"
+    ]
+
+
+def _export_campaign_meta(export: dict[str, Any]) -> dict[str, Any]:
+    drafts = _export_drafts(export)
+    assert len(drafts) == 1
+    return drafts[0]["metadata"]["campaign_factory"]
+
+
+def _json_state(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _table_count(cf: CampaignFactory, table: str) -> int:
+    return int(cf.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+def _performance_snapshot_state(cf: CampaignFactory) -> str:
+    rows = [
+        dict(row)
+        for row in cf.conn.execute(
+            "SELECT * FROM performance_snapshots ORDER BY post_id, snapshot_at, id"
+        ).fetchall()
+    ]
+    return _json_state(rows)
 
 
 def drive_real_render_and_sync(
@@ -507,7 +543,8 @@ def export_real_asset(
 ) -> dict[str, Any]:
     """Drive render -> sync -> QC -> approve -> plan -> real export.
 
-    Returns ``{asset, synced_caption_hash, synced_context, export}``.
+    Returns the rendered asset/context before and after the external QC fixture,
+    plus the real export output.
     """
     asset = drive_real_render_and_sync(
         cf, tmp_path, caption=caption, prompt_id=prompt_id, reference_id=reference_id
@@ -516,6 +553,12 @@ def export_real_asset(
     synced_context = json.loads(asset["caption_outcome_context_json"])
     add_audit_report(cf, asset["id"])
     mark_publishable_qc(cf, asset["id"])
+    final_asset = dict(
+        cf.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
+        ).fetchone()
+    )
+    final_context = json.loads(final_asset["caption_outcome_context_json"])
     cf.review_rendered_asset(asset["id"], decision="approved")
     cf.create_distribution_plan(
         asset["id"],
@@ -535,8 +578,10 @@ def export_real_asset(
     )
     return {
         "asset": asset,
+        "final_asset": final_asset,
         "synced_caption_hash": synced_caption_hash,
         "synced_context": synced_context,
+        "final_context": final_context,
         "export": export,
     }
 
@@ -609,33 +654,54 @@ def test_seam_a_sync_output_flows_into_export_draft(
     dashboard = _FakeDashboard()
     try:
         driven = export_real_asset(cf, tmp_path, monkeypatch, dashboard)
-        asset = driven["asset"]
         synced_caption_hash = driven["synced_caption_hash"]
         synced_context = driven["synced_context"]
+        final_context = driven["final_context"]
         result = driven["export"]
         assert synced_caption_hash
         assert synced_context["caption_hash"] == synced_caption_hash
 
         assert result["dashboardIngest"]["attempted"] is True
         assert result["dashboardIngest"]["reconciled"] is True
-        drafts = json.loads(Path(result["path"]).read_text())["payload"]["drafts"]
+        drafts = _export_drafts(result)
         assert len(drafts) == 1
-        draft_meta = drafts[0]["metadata"]["campaign_factory"]
+        draft_meta = _export_campaign_meta(result)
+        draft_context = draft_meta["caption_outcome_context"]
         # THE seam assertion: the exported draft's caption spine equals the
         # rendered_asset produced by sync_reel_outputs.
         assert draft_meta["caption_hash"] == synced_caption_hash
-        assert (
-            draft_meta["caption_outcome_context"]["caption_hash"]
-            == synced_caption_hash
-        )
-        assert (
-            draft_meta["caption_outcome_context"]["caption_text"]
-            == synced_context["caption_text"]
-        )
+        assert draft_context == final_context
+        assert draft_context["caption_hash"] == synced_caption_hash
+        assert draft_context["caption_text"] == synced_context["caption_text"]
+        # Topic/scene-fit fields emitted by sync_reel_outputs must survive the
+        # QC/export hop; these fields are what downstream learning uses to
+        # connect caption outcomes to content shape, not just to caption_hash.
+        for key in (
+            "caption_bank",
+            "caption_banks",
+            "creator_mix",
+            "creator_model",
+            "format_class",
+            "frame_type",
+            "length_class",
+            "caption_fit_version",
+            "render_recipe",
+            "source_clip",
+            "suitability_decision",
+            "suitability_reason",
+        ):
+            assert key in synced_context
+            assert draft_context[key] == synced_context[key]
         # and a real post landed in the dashboard carrying the same spine
         assert len(dashboard.posts) == 1
         post = next(iter(dashboard.posts.values()))
-        assert post["metadata"]["campaign_factory"]["caption_hash"] == synced_caption_hash
+        assert (
+            post["metadata"]["campaign_factory"]["caption_hash"] == synced_caption_hash
+        )
+        assert (
+            post["metadata"]["campaign_factory"]["caption_outcome_context"]
+            == final_context
+        )
     finally:
         cf.close()
 
@@ -683,6 +749,57 @@ def test_seam_b_exported_posts_round_trip_into_performance_snapshots(
             assert row["history_source"] == "metric_history"
             assert row["lineage_v2_valid"] == 1
         assert [row["views"] for row in rows] == [120, 1500]
+    finally:
+        cf.close()
+
+
+def test_export_and_performance_sync_are_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    dashboard = _FakeDashboard()
+    try:
+        driven = export_real_asset(cf, tmp_path, monkeypatch, dashboard)
+        first_meta = _export_campaign_meta(driven["export"])
+        first_post_key = first_meta["post_key"]
+        first_post_ids = list(driven["export"]["dashboardIngest"]["postIds"])
+        assert first_post_ids == ["post_e2e_1"]
+        assert _table_count(cf, "rendered_assets") == 1
+        assert _table_count(cf, "distribution_plans") == 1
+        assert len(dashboard.posts) == 1
+
+        dashboard_state_after_first_export = _json_state(dashboard.posts)
+        second_export = export_threadsdash(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            dry_run=False,
+            threadsdash_ingest_url=_INGEST_URL,
+            threadsdash_ingest_secret="ingest-secret",
+            **_SUPABASE_KW,
+        )
+        second_meta = _export_campaign_meta(second_export)
+        assert second_meta["post_key"] == first_post_key
+        assert second_export["dashboardIngest"]["postIds"] == first_post_ids
+        assert len(dashboard.posts) == 1
+        assert _json_state(dashboard.posts) == dashboard_state_after_first_export
+        assert _table_count(cf, "rendered_assets") == 1
+        assert _table_count(cf, "distribution_plans") == 1
+
+        publish_with_metrics(dashboard)
+        first_sync = sync_performance_snapshots(
+            cf, campaign_slug="may", user_id="user_1", **_SUPABASE_KW
+        )
+        assert first_sync["inserted"] == 2
+        assert _table_count(cf, "performance_snapshots") == 2
+        snapshot_state_after_first_sync = _performance_snapshot_state(cf)
+
+        second_sync = sync_performance_snapshots(
+            cf, campaign_slug="may", user_id="user_1", **_SUPABASE_KW
+        )
+        assert second_sync["inserted"] == 0
+        assert _table_count(cf, "performance_snapshots") == 2
+        assert _performance_snapshot_state(cf) == snapshot_state_after_first_sync
     finally:
         cf.close()
 
@@ -863,21 +980,30 @@ def test_seam_c_snapshots_fan_out_to_reference_outcomes(
 from reference_factory.learning import build_learning_system  # noqa: E402
 
 
-def seed_reference_pattern(reference_db: Path, *, reference_id: str) -> str:
+def seed_reference_pattern(
+    reference_db: Path,
+    *,
+    reference_id: str,
+    pattern_id: str = "refpat_e2e",
+    visual_format: str = "caption_led_visual",
+    hook_type: str = "question_hook",
+    caption_archetype: str = "question_hook",
+    rank: int = 1,
+    quality_score: float = 80,
+    measured_reward: float | None = None,
+) -> str:
     """Seed the analyzed reference_pattern row (upstream analyzer artifact).
 
     build_learning_system reads reference_patterns; the fanout's
     refresh_measured_outcomes_for_references folds the measured reward onto the
     row bound to this reference_id.
     """
-    cluster_key = "caption_led_visual::question_hook::question_hook"
+    cluster_key = f"{visual_format}::{hook_type}::{caption_archetype}"
     pattern_json = {
-        "visualFormat": "caption_led_visual",
-        "hookType": "question_hook",
-        "captionArchetype": "question_hook",
-        "captionFormulas": [
-            {"formula": "{q}?", "exampleCaptions": ["red or pink ?"]}
-        ],
+        "visualFormat": visual_format,
+        "hookType": hook_type,
+        "captionArchetype": caption_archetype,
+        "captionFormulas": [{"formula": "{q}?", "exampleCaptions": ["red or pink ?"]}],
         "metrics": {},
         "higgsfieldJsonTemplate": {"scene": "caption-led vertical reel"},
         "promptTemplate": {"captionBrief": "short direct question"},
@@ -888,6 +1014,17 @@ def seed_reference_pattern(reference_db: Path, *, reference_id: str) -> str:
             }
         ],
     }
+    if measured_reward is not None:
+        pattern_json["metrics"]["measuredOutcome"] = {
+            "rewardScore": measured_reward,
+            "sampleCount": 3,
+            "performanceClass": (
+                "performed_well" if measured_reward >= 1.0 else "underperformed"
+            ),
+        }
+        pattern_json["performanceClass"] = pattern_json["metrics"]["measuredOutcome"][
+            "performanceClass"
+        ]
     now = "2026-01-01T00:00:00+00:00"
     conn = connect_reference_db(reference_db)
     try:
@@ -897,15 +1034,69 @@ def seed_reference_pattern(reference_db: Path, *, reference_id: str) -> str:
               id, reference_id, public_post_id, rank, provider, model,
               analyzer_version, suggested_label, visual_format, hook_type,
               caption_archetype, quality_score, pattern_json, created_at, updated_at
-            ) VALUES ('refpat_e2e', ?, NULL, 1, 'auto', 'model', 'v1', 'gold',
-                      'caption_led_visual', 'question_hook', 'question_hook', 80, ?, ?, ?)
+            ) VALUES (?, ?, NULL, ?, 'auto', 'model', 'v1', 'gold',
+                      ?, ?, ?, ?, ?, ?, ?)
             """,
-            (reference_id, json.dumps(pattern_json), now, now),
+            (
+                pattern_id,
+                reference_id,
+                rank,
+                visual_format,
+                hook_type,
+                caption_archetype,
+                quality_score,
+                json.dumps(pattern_json),
+                now,
+                now,
+            ),
         )
         conn.commit()
     finally:
         conn.close()
     return cluster_key
+
+
+def _set_reference_pattern_measured_outcome(
+    reference_db: Path, pattern_id: str, reward_score: float
+) -> None:
+    performance_class = "performed_well" if reward_score >= 1.0 else "underperformed"
+    conn = connect_reference_db(reference_db)
+    try:
+        row = conn.execute(
+            "SELECT pattern_json FROM reference_patterns WHERE id = ?", (pattern_id,)
+        ).fetchone()
+        assert row is not None
+        pattern_json = json.loads(row["pattern_json"])
+        metrics = pattern_json.setdefault("metrics", {})
+        metrics["measuredOutcome"] = {
+            "rewardScore": reward_score,
+            "sampleCount": 3,
+            "performanceClass": performance_class,
+        }
+        pattern_json["performanceClass"] = performance_class
+        conn.execute(
+            "UPDATE reference_patterns SET pattern_json = ? WHERE id = ?",
+            (json.dumps(pattern_json, sort_keys=True), pattern_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _cluster_rank(bank_path: Path, cluster_key: str) -> int:
+    bank = json.loads(bank_path.read_text(encoding="utf-8"))
+    for cluster in bank["clusters"]:
+        if cluster["clusterKey"] == cluster_key:
+            return int(cluster.get("rank") or cluster["clusterRank"])
+    raise AssertionError(f"missing cluster {cluster_key!r}")
+
+
+def _imported_pattern_rank(cf: CampaignFactory, cluster_key: str) -> int:
+    patterns = cf.reference_patterns(limit=20)["patterns"]
+    for pattern in patterns:
+        if pattern["clusterKey"] == cluster_key:
+            return int(pattern["rank"])
+    raise AssertionError(f"missing imported pattern {cluster_key!r}")
 
 
 def run_chain_through_fanout(
@@ -933,11 +1124,9 @@ def run_chain_through_fanout(
             prompt_id=prompt_id,
             reference_id=reference_id,
         )
-        drafts = json.loads(Path(driven["export"]["path"]).read_text())["payload"][
-            "drafts"
-        ]
-        export_meta = drafts[0]["metadata"]["campaign_factory"]
+        export_meta = _export_campaign_meta(driven["export"])
         export_caption_hash = export_meta["caption_hash"]
+        export_context = export_meta["caption_outcome_context"]
         export_lineage_prompt_id = (
             (export_meta.get("generated_asset_lineage") or {}).get("source") or {}
         ).get("promptId")
@@ -945,9 +1134,16 @@ def run_chain_through_fanout(
         sync_performance_snapshots(
             cf, campaign_slug="may", user_id="user_1", **_SUPABASE_KW
         )
-        snapshot_caption_hash = cf.conn.execute(
-            "SELECT caption_hash FROM performance_snapshots LIMIT 1"
-        ).fetchone()[0]
+        snapshot_row = cf.conn.execute(
+            """
+            SELECT caption_hash, caption_outcome_context_json
+            FROM performance_snapshots
+            ORDER BY snapshot_at
+            LIMIT 1
+            """
+        ).fetchone()
+        snapshot_caption_hash = snapshot_row["caption_hash"]
+        snapshot_context = json.loads(snapshot_row["caption_outcome_context_json"])
     finally:
         cf.close()
 
@@ -970,9 +1166,13 @@ def run_chain_through_fanout(
         "reference_id": reference_id,
         "cluster_key": cluster_key,
         "synced_caption_hash": driven["synced_caption_hash"],
+        "synced_context": driven["synced_context"],
+        "final_context": driven["final_context"],
         "export_caption_hash": export_caption_hash,
+        "export_context": export_context,
         "export_lineage_prompt_id": export_lineage_prompt_id,
         "snapshot_caption_hash": snapshot_caption_hash,
+        "snapshot_context": snapshot_context,
     }
 
 
@@ -996,6 +1196,15 @@ def test_seam_d_reference_bank_imports_and_ranks(
     chain = run_chain_through_fanout(tmp_path, monkeypatch)
     reference_db = chain["reference_db"]
     cluster_key = chain["cluster_key"]
+    loser_cluster_key = seed_reference_pattern(
+        reference_db,
+        reference_id="reference_e2e_loser",
+        pattern_id="refpat_e2e_loser",
+        visual_format="talking_head_visual",
+        hook_type="statement_hook",
+        caption_archetype="statement_caption",
+        measured_reward=0.25,
+    )
 
     # The fanout stamped a measured outcome onto the reference pattern.
     ref_conn = connect_reference_db(reference_db)
@@ -1009,6 +1218,7 @@ def test_seam_d_reference_bank_imports_and_ranks(
         ref_conn.close()
     measured = (pattern_json.get("metrics") or {}).get("measuredOutcome")
     assert measured and measured.get("sampleCount", 0) >= 1
+    assert measured["rewardScore"] > 1.0
 
     # REAL reference-side bank export (the producer import_reference_bank reads).
     learning_dir = reference_db.parent / "learning"
@@ -1023,24 +1233,58 @@ def test_seam_d_reference_bank_imports_and_ranks(
     bank = json.loads(bank_path.read_text())
     assert bank["schema"] == "reference_factory.campaign_reference_bank.v1"
     assert any(c["clusterKey"] == cluster_key for c in bank["clusters"])
+    assert any(c["clusterKey"] == loser_cluster_key for c in bank["clusters"])
+    assert _cluster_rank(bank_path, cluster_key) < _cluster_rank(
+        bank_path, loser_cluster_key
+    )
 
     cf = _reopen_factory(chain)
     try:
         imported = cf.import_reference_bank(bank_path)
-        assert imported["patternsImported"] >= 1
-        cluster_keys = {
-            p["clusterKey"] for p in cf.reference_patterns()["patterns"]
-        }
-        assert cluster_key in cluster_keys
+        assert imported["patternsImported"] >= 2
+        assert _imported_pattern_rank(cf, cluster_key) < _imported_pattern_rank(
+            cf, loser_cluster_key
+        )
 
         recommendation = cf.recommend_next_batch("may", count=3)
         # THE seam assertion: recommend_next_batch surfaces the imported pattern
         # (populated only via import_reference_bank, no raw reference_patterns SQL).
-        selected_keys = {
-            (item.get("referencePattern") or {}).get("clusterKey")
-            for item in recommendation["items"]
-        }
-        assert cluster_key in selected_keys
+        assert recommendation["items"]
+        assert (
+            recommendation["items"][0]["referencePattern"]["clusterKey"] == cluster_key
+        )
+
+        # Now make the original winner lose and the competitor win. A constant
+        # or quality-only ranker would keep the original order; the real
+        # measured outcome must reverse the bank rank, imported rank, and
+        # recommendation choice.
+        _set_reference_pattern_measured_outcome(reference_db, "refpat_e2e", 0.25)
+        _set_reference_pattern_measured_outcome(reference_db, "refpat_e2e_loser", 2.5)
+        ref_conn = connect_reference_db(reference_db)
+        try:
+            swapped_export = build_learning_system(
+                ref_conn,
+                limit=10,
+                output_dir=reference_db.parent / "learning_swapped",
+                embedding_clusters=False,
+            )
+        finally:
+            ref_conn.close()
+        swapped_bank_path = Path(swapped_export["campaignReferenceBankPath"])
+        assert _cluster_rank(swapped_bank_path, loser_cluster_key) < _cluster_rank(
+            swapped_bank_path, cluster_key
+        )
+        swapped_import = cf.import_reference_bank(swapped_bank_path)
+        assert swapped_import["patternsImported"] >= 2
+        assert _imported_pattern_rank(cf, loser_cluster_key) < _imported_pattern_rank(
+            cf, cluster_key
+        )
+        swapped_recommendation = cf.recommend_next_batch("may", count=3)
+        assert swapped_recommendation["items"]
+        assert (
+            swapped_recommendation["items"][0]["referencePattern"]["clusterKey"]
+            == loser_cluster_key
+        )
     finally:
         cf.close()
 
@@ -1061,6 +1305,24 @@ def test_seam_e_full_chain_spine_is_identical_at_every_hop(
     assert caption_hash
     assert chain["export_caption_hash"] == caption_hash
     assert chain["snapshot_caption_hash"] == caption_hash
+    assert chain["final_context"]["caption_hash"] == caption_hash
+    assert chain["export_context"] == chain["final_context"]
+    assert chain["snapshot_context"] == chain["final_context"]
+    for key in (
+        "caption_bank",
+        "caption_banks",
+        "creator_mix",
+        "creator_model",
+        "format_class",
+        "frame_type",
+        "length_class",
+        "caption_fit_version",
+        "render_recipe",
+        "source_clip",
+        "suitability_decision",
+        "suitability_reason",
+    ):
+        assert chain["synced_context"][key] == chain["final_context"][key]
 
     # --- lineage/promptId spine: source_prompt -> export lineage -> reference outcome ---
     assert chain["export_lineage_prompt_id"] == prompt_id
@@ -1091,22 +1353,41 @@ def test_seam_e_full_chain_spine_is_identical_at_every_hop(
 
     cf = _reopen_factory(chain)
     try:
-        # caption_hash is still the same on the persisted rendered asset + snapshot
-        rendered_caption_hash = cf.conn.execute(
-            "SELECT caption_hash FROM rendered_assets LIMIT 1"
-        ).fetchone()[0]
-        snapshot_caption_hash = cf.conn.execute(
-            "SELECT caption_hash FROM performance_snapshots LIMIT 1"
-        ).fetchone()[0]
+        # caption_outcome_context is still the same on the persisted rendered
+        # asset + snapshot, not merely the caption_hash.
+        rendered_row = cf.conn.execute(
+            """
+            SELECT caption_hash, caption_outcome_context_json
+            FROM rendered_assets
+            LIMIT 1
+            """
+        ).fetchone()
+        snapshot_row = cf.conn.execute(
+            """
+            SELECT caption_hash, caption_outcome_context_json
+            FROM performance_snapshots
+            ORDER BY snapshot_at
+            LIMIT 1
+            """
+        ).fetchone()
+        rendered_caption_hash = rendered_row["caption_hash"]
+        snapshot_caption_hash = snapshot_row["caption_hash"]
         assert rendered_caption_hash == caption_hash
         assert snapshot_caption_hash == caption_hash
+        assert (
+            json.loads(rendered_row["caption_outcome_context_json"])
+            == chain["final_context"]
+        )
+        assert (
+            json.loads(snapshot_row["caption_outcome_context_json"])
+            == chain["final_context"]
+        )
 
         cf.import_reference_bank(bank_path)
         recommendation = cf.recommend_next_batch("may", count=3)
-        selected_keys = {
-            (item.get("referencePattern") or {}).get("clusterKey")
-            for item in recommendation["items"]
-        }
-        assert cluster_key in selected_keys
+        assert recommendation["items"]
+        assert (
+            recommendation["items"][0]["referencePattern"]["clusterKey"] == cluster_key
+        )
     finally:
         cf.close()
