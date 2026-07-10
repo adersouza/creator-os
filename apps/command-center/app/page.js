@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 var REFRESH_MS = 30000;
-var CONTENTFORGE_URL = "http://localhost:3000";
+var CONTENTFORGE_URL = "http://localhost:3002";
 var AUTH_HINT =
   "Start the server with ALLOW_INSECURE_LOCAL=1 npm run dev or set CREATOR_OS_API_TOKEN.";
 

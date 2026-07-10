@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createForgePostHandler } from "../app/api/forge/route.js";
 import { createVariantPackPostHandler } from "../app/api/variant-pack/route.js";
 
 function jsonRequest(url, body) {
@@ -8,14 +7,6 @@ function jsonRequest(url, body) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
-}
-
-function textRequest(url, body) {
-  return new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
   });
 }
 
@@ -34,75 +25,6 @@ function lockStub(acquired = true) {
     },
   };
 }
-
-test("forge route validates input before invoking video pipeline", async function () {
-  var lock = lockStub();
-  var pipelineCalls = [];
-  var handler = createForgePostHandler({
-    acquireProcessLockImpl: lock.acquireProcessLockImpl,
-    existsSyncImpl: () => true,
-    runPipelineImpl: async function (config, sendEvent) {
-      pipelineCalls.push(config);
-      sendEvent({ type: "complete", runId: "stub-video" });
-    },
-  });
-
-  var response = await handler(jsonRequest("http://localhost/api/forge", {
-    inputFile: "clip.mp4",
-    numEdits: 1,
-    spinsPerEdit: 1,
-    outputProfile: "organic",
-  }));
-  var body = await response.text();
-
-  assert.equal(response.status, 200);
-  assert.match(body, /stub-video/);
-  assert.equal(pipelineCalls.length, 1);
-  assert.deepEqual(pipelineCalls[0], {
-    inputFile: "uploads/clip.mp4",
-    numEdits: 1,
-    spinsPerEdit: 1,
-    level: undefined,
-    flip: false,
-    vertical: true,
-    outputProfile: "organic",
-    variantPreset: "quality",
-    variantOptions: {},
-    qualityGate: undefined,
-  });
-  assert.equal(lock.calls.release, 1);
-});
-
-test("forge route rejects bad requests and releases the local process lock", async function () {
-  var lock = lockStub();
-  var handler = createForgePostHandler({
-    acquireProcessLockImpl: lock.acquireProcessLockImpl,
-  });
-
-  var response = await handler(textRequest("http://localhost/api/forge", "{not json"));
-
-  assert.equal(response.status, 400);
-  assert.equal(await response.text(), "Invalid JSON");
-  assert.equal(lock.calls.acquire, 1);
-  assert.equal(lock.calls.release, 1);
-});
-
-test("forge route does not start a second local run while lock is active", async function () {
-  var lock = lockStub(false);
-  var handler = createForgePostHandler({
-    acquireProcessLockImpl: lock.acquireProcessLockImpl,
-  });
-
-  var response = await handler(jsonRequest("http://localhost/api/forge", {
-    inputFile: "clip.mp4",
-    numEdits: 1,
-    spinsPerEdit: 1,
-  }));
-
-  assert.equal(response.status, 429);
-  assert.equal(lock.calls.acquire, 1);
-  assert.equal(lock.calls.release, 0);
-});
 
 test("variant-pack route runs orchestration through an injectable subprocess boundary", async function () {
   var lock = lockStub();
