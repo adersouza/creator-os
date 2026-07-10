@@ -236,6 +236,7 @@ def build_draft_payloads(
             post_key = _stable_export_key("post", draft_key)
             draft = {
                 "userId": user_id,
+                "workspaceId": os.environ.get("THREADSDASH_WORKSPACE_ID"),
                 "accountId": account_id,
                 "instagramAccountId": instagram_account_id,
                 "modelId": asset.get("modelId"),

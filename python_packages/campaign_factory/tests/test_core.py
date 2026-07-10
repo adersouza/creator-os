@@ -1416,7 +1416,10 @@ def test_audio_memory_v2_balanced_scoring_prefers_ofm_velocity_and_low_fatigue(
         cf.close()
 
 
-def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: Path):
+def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("THREADSDASH_WORKSPACE_ID", "workspace_1")
     catalog_path = tmp_path / "audio_catalog.json"
     catalog_path.write_text(
         json.dumps(
@@ -1453,6 +1456,7 @@ def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(tmp_path: P
         add_audit_report(cf)
 
         payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        assert payload["drafts"][0]["workspaceId"] == "workspace_1"
         intent = payload["drafts"][0]["metadata"]["campaign_factory"]["audio_intent"]
 
         assert intent["status"] == "recommended"
