@@ -66,9 +66,21 @@ ThreadsDashboard `campaignSchedule.ts` owns actual scheduled times; building a s
 3. Rule-change semantics: adjustments apply only to not-yet-approved items.
 4. DROPPED (from v1): Latin-square rotation matrix — 14-day cross-account window dominates; negligible added protection.
 
+## Phase 5 — Promotion tracking hardening: constraints over checks
+
+Motivation: current tracking recomputes fingerprints on read (fallback chains → fail-open bugs like the empty-fingerprint bypass), enforces dedup via per-run in-memory sets (blind to concurrent/historical runs), and encodes state in status strings (implicit state machine, no enforcement). Fixed symptoms in reel_ledger_promotion; this phase removes the class.
+
+1. Fingerprint once, at asset creation: `generated_asset_lineage.v2` carries `content_fingerprint`; promotion *validates* it, never computes it. Missing fingerprint = hard fail, no sha256 fallback chain. Delete fallback code paths from `reel_ledger_promotion.py`.
+2. Dedup moves into the store: SQLite table `promotions` with `UNIQUE(content_fingerprint, account_id)` and `UNIQUE(account_id, posting_slot_id)`. Duplicate promotion becomes structurally impossible (IntegrityError → skip + reason), correct across concurrent runs. Cross-account reuse window (`DEFAULT_CROSS_ACCOUNT_REUSE_WINDOW_DAYS`) enforced by indexed query on the same table, not by rescanning ledger rows.
+3. Append-only promotion event log: rows (asset_id, content_fingerprint, account_id, posting_slot_id, action, reason, ts). Current state = latest event per key; no mutation of status strings. `PROMOTED_REASON_PREFIX` / `NON_PROMOTABLE_STATUSES` string matching replaced by typed `action` enum. Ledger CSV becomes a derived export, not the source of truth.
+4. Migration: backfill event log from existing ledger rows; one-time reconciliation report of rows whose recomputed fingerprint disagrees with lineage v2 (fix or quarantine before cutover). Dual-write window, then flip reads.
+5. Tests: uniqueness violated under two concurrent promoters (one wins, one gets typed skip); missing-fingerprint hard-fails; backfill idempotent; derived ledger export byte-stable across re-runs.
+
+Depends on Phase 1 (lineage v2 write path populated). Independent of Phases 3–4.
+
 ## Sequencing
 
-Phase 0.2 (perceptual computation) ∥ PLAN.md S1/S6 → Phase 1 → 2 → 3 → 4 (optional, other repo). Phases 1+3 carry most value. Each phase: tests + PLAN-REVIEW-LOG.md entry before next.
+Phase 0.2 (perceptual computation) ∥ PLAN.md S1/S6 → Phase 1 → 2 → 3 → 4 (optional, other repo) → 5 (after Phase 1; parallel with 3). Phases 1+3 carry most value; Phase 5 removes the dedup bug class. Each phase: tests + PLAN-REVIEW-LOG.md entry before next.
 
 ## Review log
 
