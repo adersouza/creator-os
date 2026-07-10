@@ -410,7 +410,9 @@ def probe_higgsfield_capabilities(root: Path, *, force: bool = False) -> dict[st
         },
     }
     payload["validation"] = validate_required_capabilities(payload)
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return payload
 
 
@@ -1074,7 +1076,9 @@ def _record_cost_preflight_block(
     payload["generation"]["costPreflight"] = cost_preflight
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     _append_failed_generation(plan, lineage_path=path, lineage=payload)
     return {
         "ok": False,
@@ -1142,7 +1146,9 @@ def _record_generation_failure(
         }
     path = lineage_path(plan)
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     _append_failed_generation(plan, lineage_path=path, lineage=payload)
     campaign_record = None
     if plan.campaign or plan.creator:
@@ -1381,7 +1387,9 @@ def create_assets(
             "reason": generated_video_qc_failure_reason(video_qc),
         }
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     if video_status and video_status != "completed":
         return {
             "ok": False,
@@ -1762,8 +1770,8 @@ def create_image_asset(
             "stage": "generated_image_qc",
             "reason": generated_image_qc_failure_reason(qc),
         }
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         return {
             "ok": False,
@@ -1772,7 +1780,9 @@ def create_image_asset(
             "campaign_record": None,
             "error": payload["generation"]["failure"],
         }
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     campaign_record = None
     if plan.campaign or plan.creator:
         campaign_record = record_asset_generation(
@@ -1832,8 +1842,8 @@ def create_direct_reference_image_asset(
         payload["generation"]["costPreflight"] = cost_preflight
         path = direct_reference_lineage_path(plan)
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
@@ -1871,8 +1881,8 @@ def create_direct_reference_image_asset(
         )
         path = direct_reference_lineage_path(plan)
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
@@ -1937,8 +1947,8 @@ def create_direct_reference_image_asset(
             "stage": "generated_image_qc",
             "reason": generated_image_qc_failure_reason(qc),
         }
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         _append_failed_generation(plan, lineage_path=path, lineage=payload)
         return {
@@ -1948,7 +1958,9 @@ def create_direct_reference_image_asset(
             "campaign_record": None,
             "error": payload["generation"]["failure"],
         }
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {"ok": True, "path": str(path), "lineage": payload, "campaign_record": None}
 
 
@@ -2136,7 +2148,9 @@ def create_video_asset(
         ],
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     if video_status and video_status != "completed":
         return {
             "ok": False,
@@ -2275,7 +2289,9 @@ def wait_or_status(lineage: Path, *, wait: bool) -> dict[str, Any]:
             _step("generate_wait" if wait else "generate_get", cmd, results[job_id])
         )
     data.setdefault("generation", {})["statusResults"] = results
-    atomic_write_text(lineage, json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        lineage, json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {"ok": True, "path": str(lineage), "results": results}
 
 

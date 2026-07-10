@@ -120,8 +120,10 @@ def refresh_tiktok_audio(
     }
     summary_path = learning_dir / "tiktok_audio_latest_downloads_summary.json"
     summary["summaryPath"] = str(summary_path)
-    atomic_write_text(summary_path, 
-        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        summary_path,
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return summary
 

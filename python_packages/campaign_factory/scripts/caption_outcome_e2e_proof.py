@@ -74,7 +74,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="caption_outcome_e2e_") as tmp:
         proof = run_proof(Path(tmp))
 
-    atomic_write_text(args.record, 
+    atomic_write_text(
+        args.record,
         json.dumps(proof, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -116,14 +117,10 @@ def run_proof(tmp_path: Path) -> dict[str, Any]:
                         "quotes_count": 0,
                         "shares_count": post.get("ig_shares"),
                         "saves_count": (
-                            (post.get("metadata") or {})
-                            .get("metrics", {})
-                            .get("saves")
+                            (post.get("metadata") or {}).get("metrics", {}).get("saves")
                         ),
                         "reach": (
-                            (post.get("metadata") or {})
-                            .get("metrics", {})
-                            .get("reach")
+                            (post.get("metadata") or {}).get("metrics", {}).get("reach")
                         ),
                         "engagement_rate": 0.08,
                     }

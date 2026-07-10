@@ -253,7 +253,8 @@ def export_patterns(
     with jsonl_path.open("w", encoding="utf-8") as f:
         for card in cards:
             f.write(json.dumps(card, ensure_ascii=False, sort_keys=True) + "\n")
-    atomic_write_text(manifest_path, 
+    atomic_write_text(
+        manifest_path,
         json.dumps(
             {
                 "schema": "reference_factory.pattern_cards.v1",
@@ -264,10 +265,11 @@ def export_patterns(
             indent=2,
             ensure_ascii=False,
         )
-        + "\n"
+        + "\n",
     )
-    atomic_write_text(summary_path, 
-        json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    atomic_write_text(
+        summary_path,
+        json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
     )
     payload: dict[str, object] = {
         "schema": "reference_factory.export_patterns.v1",

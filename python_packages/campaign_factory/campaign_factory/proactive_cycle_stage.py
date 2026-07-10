@@ -175,7 +175,8 @@ def run_proactive_cycle_stage(
             "pipelineJobId": pipeline_job["id"],
         }
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(report_path, 
+        atomic_write_text(
+            report_path,
             json.dumps(sanitize_for_storage(report), indent=2, sort_keys=True),
             encoding="utf-8",
         )

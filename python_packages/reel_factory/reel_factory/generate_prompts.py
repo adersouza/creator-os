@@ -1634,7 +1634,9 @@ def write_prompt_lineage(
         "humanReviewRequired": True,
     }
     path = out_path.with_suffix(out_path.suffix + ".grok_lineage.json")
-    atomic_write_text(path, json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 
@@ -1892,15 +1894,18 @@ def generate_prompt(
                     "policy": "deterministic_compiler_no_cleanup_needed",
                 }
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(out_path, 
+            atomic_write_text(
+                out_path,
                 json.dumps(asdict(compiled), indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
             raw_path = None
             if response is not None:
                 raw_path = out_path.with_suffix(out_path.suffix + ".grok_raw.json")
-                atomic_write_text(raw_path, 
-                    json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8"
+                atomic_write_text(
+                    raw_path,
+                    json.dumps(response, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
                 )
             lineage = {
                 "prompt_mode": reported_prompt_mode,

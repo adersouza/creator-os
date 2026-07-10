@@ -303,8 +303,10 @@ def write_selection(
     out_dir.mkdir(parents=True, exist_ok=True)
     name = stem or f"{selection.get('track_id', 'track')}_{int(time.time())}"
     path = out_dir / f"{_slug(name)}.json"
-    atomic_write_text(path, 
-        json.dumps(selection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        path,
+        json.dumps(selection, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return path
 

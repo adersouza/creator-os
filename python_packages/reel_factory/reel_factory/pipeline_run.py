@@ -80,7 +80,9 @@ def _load_state(path: Path) -> dict[str, Any] | None:
 def _write_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = int(time.time())
-    atomic_write_text(path, json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _stage_done(state: dict[str, Any], stage: str, force: set[str]) -> bool:
@@ -282,7 +284,9 @@ def write_approved_export(
         ],
     }
     path = run_dir / "approved_export.json"
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 

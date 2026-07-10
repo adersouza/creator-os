@@ -398,7 +398,10 @@ class DecisionLedgerRepository:
         try:
             needs = self._creator_content_needs(creator=creator, date=date)
         except Exception:
-            _LOGGER.debug("content-needs report unavailable; no ledger entries emitted", exc_info=True)
+            _LOGGER.debug(
+                "content-needs report unavailable; no ledger entries emitted",
+                exc_info=True,
+            )
             return entries
         for account in needs.get("accounts") or []:
             if not isinstance(account, dict):

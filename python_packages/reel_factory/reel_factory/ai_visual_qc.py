@@ -307,8 +307,8 @@ def run_ai_qc(
             "records": [asdict(rec) for rec in records],
         }
         report = clip_dir / "_ai_qc.json"
-        atomic_write_text(report, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            report, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         reports.append(str(report))
         all_records.extend(payload["records"])

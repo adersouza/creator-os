@@ -353,7 +353,9 @@ def _write_lineage(
     }
     validate_generated_asset_lineage(payload)
     path = output.with_suffix(output.suffix + ".generated_asset_lineage.json")
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return path
 
 

@@ -64,11 +64,15 @@ def build_approval_board(
     json_path = out_dir / "approval_decisions.json"
     csv_path = out_dir / "approval_decisions.csv"
 
-    atomic_write_text(json_path, 
-        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
     _write_decision_csv(csv_path, decisions["items"])
-    atomic_write_text(html_path, _render_html(manifest, decisions, title), encoding="utf-8")
+    atomic_write_text(
+        html_path, _render_html(manifest, decisions, title), encoding="utf-8"
+    )
 
     return {
         "schema": "reel_factory.approval_board_result.v1",
@@ -92,10 +96,14 @@ def build_variant_approval_board(
     html_path = out_dir / "variant_swipe_review.html"
     json_path = out_dir / "variant_swipe_decisions.json"
 
-    atomic_write_text(json_path, 
-        json.dumps(variants, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(variants, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
-    atomic_write_text(html_path, _render_variant_html(variants, title), encoding="utf-8")
+    atomic_write_text(
+        html_path, _render_variant_html(variants, title), encoding="utf-8"
+    )
     return {
         "schema": "reel_factory.variant_approval_board_result.v1",
         "count": len(variants["items"]),
@@ -117,10 +125,14 @@ def build_assisted_approval_board(
     html_path = out_dir / "assisted_review.html"
     json_path = out_dir / "assisted_review_decisions.json"
 
-    atomic_write_text(json_path, 
-        json.dumps(assisted, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(assisted, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
-    atomic_write_text(html_path, _render_assisted_html(assisted, title), encoding="utf-8")
+    atomic_write_text(
+        html_path, _render_assisted_html(assisted, title), encoding="utf-8"
+    )
     return {
         "schema": "reel_factory.assisted_approval_board_result.v1",
         "count": len(assisted["items"]),
@@ -224,8 +236,10 @@ def promote_approval_decisions(
         "items": rows,
     }
     manifest_path = selected_dir / "selected_manifest.json"
-    atomic_write_text(manifest_path, 
-        json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        manifest_path,
+        json.dumps(manifest, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
     return {
         "schema": "reel_factory.approval_promote_result.v1",

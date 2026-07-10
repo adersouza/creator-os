@@ -200,8 +200,10 @@ def create_benchmark_plan(
         },
         "reels": planned_reels,
     }
-    atomic_write_text(out_path, 
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        out_path,
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return {"ok": True, "path": str(out_path), "benchmark": payload}
 

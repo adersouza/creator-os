@@ -193,7 +193,8 @@ def generate_with_higgsfield(
         "manifestPath": str(output_root / "higgsfield_generation_manifest.json"),
         "runs": runs,
     }
-    atomic_write_text((output_root / "higgsfield_generation_manifest.json"), 
+    atomic_write_text(
+        (output_root / "higgsfield_generation_manifest.json"),
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -917,7 +918,8 @@ def _run_pair(
                         result = _run_json(cmd, runner)
                         _raise_for_provider_status(result)
                         _write_job_id(out_dir / f"{image_stem}_job_id.txt", result)
-                        atomic_write_text(image_asset, 
+                        atomic_write_text(
+                            image_asset,
                             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8",
                         )
@@ -1086,7 +1088,8 @@ def _run_pair(
                                 variation_result = cached_variation
                             else:
                                 variation_result = _run_json(variation_cmd, runner)
-                                atomic_write_text(variation_asset, 
+                                atomic_write_text(
+                                    variation_asset,
                                     json.dumps(
                                         variation_result, indent=2, ensure_ascii=False
                                     )
@@ -1095,7 +1098,8 @@ def _run_pair(
                                 )
                         else:
                             variation_result = _run_json(variation_cmd, runner)
-                            atomic_write_text(variation_asset, 
+                            atomic_write_text(
+                                variation_asset,
                                 json.dumps(
                                     variation_result, indent=2, ensure_ascii=False
                                 )
@@ -1139,7 +1143,8 @@ def _run_pair(
                             out_dir / f"kling_video{soul_grid_suffix}_job_id.txt",
                             video_result,
                         )
-                        atomic_write_text(video_asset, 
+                        atomic_write_text(
+                            video_asset,
                             json.dumps(video_result, indent=2, ensure_ascii=False)
                             + "\n",
                             encoding="utf-8",
@@ -1229,8 +1234,10 @@ def _run_pair(
         "schema": "reference_factory.ai_cost_ledger.v1",
         "events": cost_events,
     }
-    atomic_write_text(lineage_path, 
-        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        lineage_path,
+        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
     campaign_intake = None
@@ -1277,7 +1284,8 @@ def _run_pair(
         "lineagePath": str(lineage_path),
         "campaignIntake": campaign_intake,
     }
-    atomic_write_text((out_dir / "run_manifest.json"), 
+    atomic_write_text(
+        (out_dir / "run_manifest.json"),
         json.dumps(run_manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -2105,13 +2113,15 @@ def _run_individual_variations(
             )
             if not _variation_result_is_reusable(panel_result):
                 panel_result = _run_json(cmd, runner)
-                atomic_write_text(result_path, 
+                atomic_write_text(
+                    result_path,
                     json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
         else:
             panel_result = _run_json(cmd, runner)
-            atomic_write_text(result_path, 
+            atomic_write_text(
+                result_path,
                 json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
@@ -2229,7 +2239,8 @@ def _run_variation_panel_videos(
             )
         else:
             panel_result = _run_json(cmd, runner)
-            atomic_write_text(result_path, 
+            atomic_write_text(
+                result_path,
                 json.dumps(panel_result, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
@@ -2532,8 +2543,10 @@ def _create_variation_sequence_video(panel_paths: list[Path], out_path: Path) ->
                     or "failed to create variation sequence segment"
                 )
             segment_paths.append(segment)
-        atomic_write_text(list_path, 
-            "".join(f"file '{path}'\n" for path in segment_paths), encoding="utf-8"
+        atomic_write_text(
+            list_path,
+            "".join(f"file '{path}'\n" for path in segment_paths),
+            encoding="utf-8",
         )
         concat_cmd = [
             "ffmpeg",

@@ -172,7 +172,9 @@ def download_reel_url(
 
 
 def write_url_sidecar(path: Path, payload: dict[str, object]) -> None:
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _existing_import_for_url(out_dir: Path, url: str) -> dict[str, object] | None:

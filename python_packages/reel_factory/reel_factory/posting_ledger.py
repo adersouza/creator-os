@@ -765,8 +765,10 @@ def export_schedule_package(
             out_dir
             / f"schedule_{campaign_id or 'all'}_{date_from or 'start'}_{date_to or 'end'}_{int(time.time())}.json"
         )
-        atomic_write_text(out_path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            out_path,
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         payload["path"] = str(out_path)
     return payload

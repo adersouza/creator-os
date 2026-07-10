@@ -444,7 +444,8 @@ def build_slideshow(
         grid_path=str(grid_path) if grid_path else None,
         items=items,
     )
-    atomic_write_text((out_dir / "slideshow_manifest.json"), 
+    atomic_write_text(
+        (out_dir / "slideshow_manifest.json"),
         json.dumps(asdict(manifest), indent=2, ensure_ascii=False),
         encoding="utf-8",
     )

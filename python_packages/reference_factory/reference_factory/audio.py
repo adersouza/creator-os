@@ -1010,8 +1010,10 @@ def competitor_audio_leaderboard(
     if output_path:
         output_path = Path(output_path).expanduser()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(output_path, 
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        atomic_write_text(
+            output_path,
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
         payload["path"] = str(output_path)
     return payload
@@ -1088,8 +1090,10 @@ def export_audio_catalog(
     if output_path:
         output_path = Path(output_path).expanduser()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(output_path, 
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        atomic_write_text(
+            output_path,
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
         payload["path"] = str(output_path)
     return payload
@@ -2236,7 +2240,8 @@ def write_audio_patterns(
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = output_dir / f"audio_patterns_top{limit}.json"
     jsonl = output_dir / f"audio_patterns_top{limit}.jsonl"
-    atomic_write_text(manifest, 
+    atomic_write_text(
+        manifest,
         json.dumps(
             {
                 "schema": "reference_factory.audio_patterns.v1",

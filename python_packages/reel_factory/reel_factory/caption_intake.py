@@ -394,11 +394,14 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
         "accountsBlockedPrivateUnavailable": blocked_accounts,
         "captions": inventory_rows,
     }
-    atomic_write_text(inventory_json, 
-        json.dumps(inventory_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        inventory_json,
+        json.dumps(inventory_payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     _write_inventory_csv(inventory_csv, inventory_rows)
-    atomic_write_text(adaptations_json, 
+    atomic_write_text(
+        adaptations_json,
         json.dumps(
             {
                 "schema": "reel_factory.stacey_caption_adaptations.v1",
@@ -411,7 +414,8 @@ def build_inventory(root: Path, *, stamp: str | None = None) -> dict[str, Any]:
         ),
         encoding="utf-8",
     )
-    atomic_write_text(quarantine_json, 
+    atomic_write_text(
+        quarantine_json,
         json.dumps(
             {
                 "schema": "reel_factory.bad_caption_quarantine.v1",
@@ -497,7 +501,8 @@ def promote(root: Path, approved_path: Path) -> dict[str, Any]:
         out_dir = reel_root / "01_captions"
         out_dir.mkdir(parents=True, exist_ok=True)
         sidecar = _next_sidecar_path(out_dir)
-        atomic_write_text(sidecar, 
+        atomic_write_text(
+            sidecar,
             json.dumps({"hooks": promoted}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -526,7 +531,9 @@ def plan_placement(root: Path) -> dict[str, Any]:
         "Stacey/Larissa overlay text uses stacey_static_center. Static hooks use lower_center. "
         "Timed hooks omit explicit bands so placement.py can resolve lower_center/lower_center_alt from the actual video."
     )
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     review = reel_root / "caption_banks" / "candidate_intake_placement_review.md"
     _write_placement_review(review, rows)
     return {
@@ -599,8 +606,10 @@ def swipe_review(
 
     json_path = out_dir / f"caption_{mode}_swipe_decisions.json"
     html_path = out_dir / f"caption_{mode}_swipe_review.html"
-    atomic_write_text(json_path, 
-        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(decisions, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
     atomic_write_text(html_path, _render_swipe_review_html(decisions), encoding="utf-8")
     return {
@@ -688,7 +697,9 @@ def _write_candidates(
     }
     if extras:
         payload.update(extras)
-    atomic_write_text(out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return payload | {"path": str(out)}
 
 

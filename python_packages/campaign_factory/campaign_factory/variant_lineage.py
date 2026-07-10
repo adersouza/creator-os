@@ -816,7 +816,8 @@ class VariantLineageRepository:
                 audit_dir = dirs["audits"] / "contentforge_variants"
                 audit_dir.mkdir(parents=True, exist_ok=True)
                 audit_path = audit_dir / f"{audit_id}.json"
-                atomic_write_text(audit_path, 
+                atomic_write_text(
+                    audit_path,
                     json.dumps(audit_payload, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )

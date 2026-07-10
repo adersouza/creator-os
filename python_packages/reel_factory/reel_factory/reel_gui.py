@@ -971,8 +971,8 @@ def save_photo_post_asset(
         "status": "saved",
     }
     sidecar = dest.with_suffix(dest.suffix + ".photo_post.json")
-    atomic_write_text(sidecar, 
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        sidecar, json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {
         "ok": True,
@@ -1027,8 +1027,8 @@ def queue_threadsdashboard_post(
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     item_path = out_dir / f"{post_id}.json"
-    atomic_write_text(item_path, 
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        item_path, json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     queue_path = out_dir / "queue.jsonl"
     rows = []
@@ -1038,7 +1038,8 @@ def queue_threadsdashboard_post(
                 rows.append(json.loads(line))
     rows = [row for row in rows if row.get("post_id") != post_id]
     rows.append(record)
-    atomic_write_text(queue_path, 
+    atomic_write_text(
+        queue_path,
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
@@ -1244,8 +1245,10 @@ def _update_source_lineage_with_fanout(
         or panel.get("path")
         for panel in manifest.get("panelCrops") or []
     }
-    atomic_write_text(lineage_path, 
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        lineage_path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return str(lineage_path)
 
@@ -1265,7 +1268,9 @@ def _write_shared_motion_prompt(source_prompt: Path, stem: str) -> Path:
         "klingMotionPrompt": prompt.klingMotionPrompt,
         "notes": f"Shared fanout motion prompt for {stem}. {prompt.notes}".strip(),
     }
-    atomic_write_text(out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        out, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return out
 
 
@@ -1304,7 +1309,9 @@ def _attach_panel_lineage(
         "cropBox": panel.get("cropBox"),
         "startImagePath": panel.get("startImagePath") or panel.get("path"),
     }
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _higgsfield_cli_error(failure_kind: str = "command_failed") -> dict[str, Any]:
@@ -1817,7 +1824,8 @@ def import_reel_url_api(body: dict = Body(...)):
         raise HTTPException(400, "reel import failed")
 
     cap = CAP_DIR / f"{stem}.json"
-    atomic_write_text(cap, 
+    atomic_write_text(
+        cap,
         json.dumps(
             {
                 "_downloaded_from_url": url,
@@ -2696,12 +2704,15 @@ def asset_download_video_api(body: dict = Body(...)):
         "review": {"humanReviewRequired": True},
     }
     lineage_path = RAW_DIR / f"{stem}.generated_asset_lineage.json"
-    atomic_write_text(lineage_path, 
-        json.dumps(lineage, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        lineage_path,
+        json.dumps(lineage, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     cap = CAP_DIR / f"{stem}.json"
     if not cap.exists():
-        atomic_write_text(cap, 
+        atomic_write_text(
+            cap,
             json.dumps(
                 {
                     "hooks": body.get("hooks")
@@ -3225,7 +3236,8 @@ async def upload_clip(file: UploadFile = File(...)):
     # Stub caption sidecar so the clip appears with an editable hook list
     sidecar = CAP_DIR / f"{stem}.json"
     if not sidecar.exists():
-        atomic_write_text(sidecar, 
+        atomic_write_text(
+            sidecar,
             json.dumps(
                 {
                     "_uploaded_from": file.filename,
@@ -3235,7 +3247,7 @@ async def upload_clip(file: UploadFile = File(...)):
                 },
                 indent=2,
                 ensure_ascii=False,
-            )
+            ),
         )
 
     return {"ok": True, "stem": stem, "filename": file.filename}

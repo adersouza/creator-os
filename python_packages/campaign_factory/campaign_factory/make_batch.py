@@ -579,8 +579,10 @@ class MakeBatchRepository:
             if src_path.exists():
                 shutil.copy2(src_path, media_dir / src_path.name)
         hooks_file = out_dir / "hooks.json"
-        atomic_write_text(hooks_file, 
-            json.dumps({"hooks": hooks}, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            hooks_file,
+            json.dumps({"hooks": hooks}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         seed = int(
             hashlib.sha256(

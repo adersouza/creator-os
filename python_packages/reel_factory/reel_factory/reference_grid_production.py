@@ -266,8 +266,10 @@ def run_crop(
         "name": profile_name,
         **PROFILES[profile_name],
     }
-    atomic_write_text(manifest_path, 
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        manifest_path,
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return manifest
 
@@ -475,8 +477,10 @@ def run_one(
         "scheduled": 0,
         "published": 0,
     }
-    atomic_write_text((job_dir / "job_summary.json"), 
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        (job_dir / "job_summary.json"),
+        json.dumps(record, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return record
 
@@ -521,8 +525,10 @@ def recrop_one(
     record["animated"] = 0
     record["scheduled"] = 0
     record["published"] = 0
-    atomic_write_text((job_dir / "job_summary.json"), 
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        (job_dir / "job_summary.json"),
+        json.dumps(record, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return record
 
@@ -556,8 +562,10 @@ def summarize(
         "records": records,
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    atomic_write_text((output_root / "summary.json"), 
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        (output_root / "summary.json"),
+        json.dumps(summary, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return summary
 
@@ -590,8 +598,10 @@ def write_blocked_summary(
         "records": [],
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    atomic_write_text((output_root / "summary.json"), 
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        (output_root / "summary.json"),
+        json.dumps(summary, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
     return summary
 

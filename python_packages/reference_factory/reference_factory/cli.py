@@ -922,7 +922,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(path, 
+                atomic_write_text(
+                    path,
                     json.dumps(health, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )
@@ -935,7 +936,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.export:
                 path = Path(args.export).expanduser()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                atomic_write_text(path, 
+                atomic_write_text(
+                    path,
                     json.dumps(shortlist, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8",
                 )

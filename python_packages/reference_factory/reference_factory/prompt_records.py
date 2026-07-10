@@ -19,7 +19,8 @@ def read_jsonl_records(path: Path) -> list[dict[str, Any]]:
 
 def write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, 
+    atomic_write_text(
+        path,
         "".join(
             json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n"
             for record in records

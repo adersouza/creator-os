@@ -343,8 +343,8 @@ def run_readiness(
             "records": records,
         }
         path = readiness_path(clip_dir)
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         reports.append(str(path))
         all_records.extend(records)

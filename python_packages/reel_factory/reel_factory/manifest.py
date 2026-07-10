@@ -816,7 +816,8 @@ class Manifest:
     def save(self):
         self.conn.commit()
         tmp = self.json_path.with_suffix(".tmp")
-        atomic_write_text(tmp, 
+        atomic_write_text(
+            tmp,
             json.dumps(self.to_json_data(), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )

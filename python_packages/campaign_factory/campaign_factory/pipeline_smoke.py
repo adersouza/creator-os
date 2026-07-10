@@ -72,8 +72,10 @@ def _run_pipeline_smoke(
         },
         "skippedBoundaries": [],
     }
-    atomic_write_text((workspace / "pipeline_smoke_summary.json"), 
-        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        (workspace / "pipeline_smoke_summary.json"),
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return summary
 
@@ -86,8 +88,10 @@ def _run_mocked_generation_intake_smoke(
     source_video.write_bytes(b"mocked generated video")
     lineage_path = workspace / "generated_asset_lineage.json"
     lineage = _mock_lineage(source_video)
-    atomic_write_text(lineage_path, 
-        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        lineage_path,
+        json.dumps(lineage, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
     roots = resolve_repo_roots(projects_root)

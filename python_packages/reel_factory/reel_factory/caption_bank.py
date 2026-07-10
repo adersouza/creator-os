@@ -422,14 +422,19 @@ class CaptionBankStore:
             "source_hash": source_hash,
             "mixes": self.mixes,
         }
-        atomic_write_text((base / "banks.json"), 
-            json.dumps(banks_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            (base / "banks.json"),
+            json.dumps(banks_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
-        atomic_write_text((base / "mixes.json"), 
-            json.dumps(mixes_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            (base / "mixes.json"),
+            json.dumps(mixes_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
         if not (base / "performance.json").exists():
-            atomic_write_text((base / "performance.json"), 
+            atomic_write_text(
+                (base / "performance.json"),
                 json.dumps(empty_performance_payload(), indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -784,7 +789,9 @@ def refresh_caption_weights(root: Path) -> dict[str, Any]:
     base = root / "caption_banks"
     base.mkdir(parents=True, exist_ok=True)
     path = base / "performance.json"
-    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {
         "updated": len(weights),
         "unresolved": unresolved,

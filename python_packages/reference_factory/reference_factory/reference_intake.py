@@ -294,8 +294,8 @@ def export_video_analyses(
     }
     suffix = f"_{_norm(provider)}" if provider else ""
     path = output_dir / f"video_analyses{suffix}.json"
-    atomic_write_text(path, 
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return {
         "schema": "reference_factory.export_video_analyses.v1",
@@ -454,22 +454,28 @@ def export_analysis_queue(
     schema_path = output_dir / f"{_norm(provider_target)}_prompt_output_schema.json"
     rubric_path = output_dir / f"{_norm(provider_target)}_prompt_scoring_rubric.json"
     rubric_md_path = output_dir / f"{_norm(provider_target)}_prompt_scoring_rubric.md"
-    atomic_write_text(json_path, 
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     with jsonl_path.open("w", encoding="utf-8") as f:
         for job in jobs:
             f.write(json.dumps(job, ensure_ascii=False, sort_keys=True) + "\n")
     atomic_write_text(md_path, _analysis_queue_markdown(jobs), encoding="utf-8")
-    atomic_write_text(schema_path, 
+    atomic_write_text(
+        schema_path,
         json.dumps(GEMINI_PROMPT_OUTPUT_SCHEMA, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    atomic_write_text(rubric_path, 
+    atomic_write_text(
+        rubric_path,
         json.dumps(GEMINI_PROMPT_SCORING_RUBRIC, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    atomic_write_text(rubric_md_path, _prompt_scoring_rubric_markdown(), encoding="utf-8")
+    atomic_write_text(
+        rubric_md_path, _prompt_scoring_rubric_markdown(), encoding="utf-8"
+    )
     return {
         "schema": "reference_factory.export_reference_analysis_queue.v1",
         "count": len(jobs),
@@ -608,7 +614,8 @@ def import_gemini_app_response(
     output_dir = data_root / "reference_intake"
     output_dir.mkdir(parents=True, exist_ok=True)
     import_path = output_dir / "gemini_app_import_latest.json"
-    atomic_write_text(import_path, 
+    atomic_write_text(
+        import_path,
         json.dumps({"items": [analysis]}, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -711,7 +718,8 @@ def analyze_reference_with_gemini_api(
             )
     import_path = data_root / "reference_intake" / "gemini_api_import_latest.json"
     import_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(import_path, 
+    atomic_write_text(
+        import_path,
         json.dumps({"items": imported_items}, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -822,7 +830,8 @@ def analyze_reference_with_grok_api(
             )
     import_path = data_root / "reference_intake" / "grok_api_import_latest.json"
     import_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(import_path, 
+    atomic_write_text(
+        import_path,
         json.dumps({"items": imported_items}, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -941,7 +950,8 @@ def compile_prompts_with_grok_api(
     _write_jsonl_records(image_path, image_rows)
     _write_jsonl_records(video_path, video_rows)
     out_path = prompt_dir / f"grok_compiled_prompts_{reference_id}.json"
-    atomic_write_text(out_path, 
+    atomic_write_text(
+        out_path,
         json.dumps(
             {
                 "schema": "reference_factory.grok_compiled_prompts.v1",
@@ -1137,8 +1147,10 @@ def export_video_prompts(
     review_path = output_dir / "daily_prompt_review.md"
     for prompt in prompts:
         _validate_prompt_contract(prompt["targetTool"], prompt["prompt"])
-    atomic_write_text(json_path, 
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        json_path,
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     with jsonl_path.open("w", encoding="utf-8") as f:
         for prompt in prompts:
@@ -1158,7 +1170,9 @@ def export_video_prompts(
                     + "\n"
                 )
     atomic_write_text(md_path, _video_prompts_markdown(prompts), encoding="utf-8")
-    atomic_write_text(review_path, _daily_prompt_review_markdown(prompts), encoding="utf-8")
+    atomic_write_text(
+        review_path, _daily_prompt_review_markdown(prompts), encoding="utf-8"
+    )
     return {
         "schema": "reference_factory.export_video_prompts.v1",
         "count": len(prompts),

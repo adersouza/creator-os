@@ -148,8 +148,8 @@ def export_approved(
         "count": len(items),
         "items": items,
     }
-    atomic_write_text(out_path, 
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        out_path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {"ok": True, "count": len(items), "path": str(out_path), "items": items}
 

@@ -93,7 +93,8 @@ def ensure_default_profile(data_root: Path = DEFAULT_DATA_ROOT) -> Path:
     profile_path = data_root / "captions" / "caption_adaptation_profile.json"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     if not profile_path.exists():
-        atomic_write_text(profile_path, 
+        atomic_write_text(
+            profile_path,
             json.dumps(DEFAULT_PROFILE, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
@@ -317,8 +318,10 @@ def _write_outputs(
             "maybeTxt": str(maybe_txt),
         },
     }
-    atomic_write_text(summary_path, 
-        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    atomic_write_text(
+        summary_path,
+        json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return {**summary["outputs"], "summary": str(summary_path)}
 

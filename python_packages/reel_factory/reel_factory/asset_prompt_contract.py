@@ -197,8 +197,8 @@ def prompt_response_json(prompt_set: AssetPromptSet) -> str:
 def write_prompt_template(path: str) -> None:
     out_path = Path(path).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_path, 
-        prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8"
+    atomic_write_text(
+        out_path, prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8"
     )
 
 

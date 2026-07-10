@@ -150,8 +150,10 @@ def save_hook_to_library(
             )
             item["embedding_model"] = get_embedding_provider(embedding_model).name
             item["embedding_dims"] = len(semantic_vector(hook, embedding_model))
-            atomic_write_text(path, 
-                json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8"
+            atomic_write_text(
+                path,
+                json.dumps(library, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
             return item
     provider = get_embedding_provider(embedding_model)
@@ -170,7 +172,9 @@ def save_hook_to_library(
         "use_count": 1,
     }
     library.append(item)
-    atomic_write_text(path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return item
 
 
@@ -204,7 +208,9 @@ def reindex_hook_library(
         item["reindexed_at"] = int(time.time())
         library[idx] = item
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(
+        path, json.dumps(library, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return {
         "count": len(library),
         "groups": len({item.get("semantic_group") for item in library}),

@@ -206,7 +206,9 @@ def write_operator_reports(
         payload = _normalize_video_analysis_report(
             video_analysis, output_path=output, provider=provider
         )
-        atomic_write_text(sidecars["video_analysis"], _json_dumps(payload), encoding="utf-8")
+        atomic_write_text(
+            sidecars["video_analysis"], _json_dumps(payload), encoding="utf-8"
+        )
         written.append("video_analysis")
 
     return {

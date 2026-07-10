@@ -702,8 +702,8 @@ def export_approved_assets(root: Path, *, now: int | None = None) -> int:
             datetime.fromtimestamp(ts, UTC).strftime("%Y%m%dT%H%M%SZ")
             + ".approved_export.json"
         )
-        atomic_write_text(path, 
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         for row in rows:
             advance(conn, str(row["asset_id"]), "exported", now=ts)
@@ -755,8 +755,8 @@ def write_tick_report(root: Path, report: dict[str, Any]) -> Path:
         "%Y%m%dT%H%M%SZ"
     )
     path = ticks_dir / f"{ts}.json"
-    atomic_write_text(path, 
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    atomic_write_text(
+        path, json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return path
 

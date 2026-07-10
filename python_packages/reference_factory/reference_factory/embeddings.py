@@ -174,7 +174,8 @@ def _cached_vector(
         vector = [float(value) for value in provider(source)]
     except Exception:
         return None
-    atomic_write_text(cache_path, 
+    atomic_write_text(
+        cache_path,
         json.dumps({**metadata, "dim": len(vector), "vector": vector}, sort_keys=True)
         + "\n",
         encoding="utf-8",

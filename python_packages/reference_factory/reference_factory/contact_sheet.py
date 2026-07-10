@@ -181,7 +181,8 @@ def write_html(path: Path, refs: list[dict[str, object]], mode: str) -> None:
             </article>
             """
         )
-    atomic_write_text(path, 
+    atomic_write_text(
+        path,
         f"""<!doctype html>
 <html>
 <head>

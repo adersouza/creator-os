@@ -175,7 +175,8 @@ class ReelExecutionRepository:
                 }
                 if hook_metadata:
                     sidecar["hook_metadata"] = hook_metadata
-                atomic_write_text((cap_dir / f"{clip_stem}.json"), 
+                atomic_write_text(
+                    (cap_dir / f"{clip_stem}.json"),
                     json.dumps(sidecar, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )

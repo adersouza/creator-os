@@ -352,8 +352,8 @@ def promote_review_batch(
         "fileSha256": _hash_paths(manifest_path, manifest, rows),
         "rows": rows,
     }
-    atomic_write_text(output_path, 
-        json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8"
+    atomic_write_text(
+        output_path, json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return {**guard, "packagePath": str(output_path)}
 
