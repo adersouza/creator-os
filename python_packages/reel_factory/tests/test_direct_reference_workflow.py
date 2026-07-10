@@ -117,6 +117,10 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                         "blockingReasons": [],
                     },
                 ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_direct_success",
+                ),
                 patch("generate_assets._run_json", return_value=raw_image),
                 patch("generate_assets.download_result", side_effect=fake_download),
                 patch("generate_assets.assess_image_qc", return_value=QC_PASS),
@@ -195,6 +199,10 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                         "blockingReason": "",
                         "blockingReasons": [],
                     },
+                ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_direct_qc_failure",
                 ),
                 patch("generate_assets._run_json", return_value=raw_image),
                 patch("generate_assets.download_result", side_effect=fake_download),

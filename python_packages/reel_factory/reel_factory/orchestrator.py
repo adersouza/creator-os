@@ -825,6 +825,7 @@ def tick(
                 asset_count=shortfall,
                 estimated_cost_usd=None,
                 root=root,
+                cost_db_path=campaign_factory_db_path(root),
             )
             generation = {
                 "started": False,
@@ -837,6 +838,7 @@ def tick(
                 asset_count=shortfall,
                 estimated_cost_usd=total_estimate,
                 root=root,
+                cost_db_path=campaign_factory_db_path(root),
             )
             if preflight.get("allowed"):
                 run_id = datetime.fromtimestamp(ts, UTC).strftime(

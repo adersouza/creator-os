@@ -26,7 +26,11 @@ from campaign_store import (
     validate_generation_soul,
 )
 from deprecated_generators import guard_deprecated_generator
-from higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from higgsfield_cost_preflight import (
+    consume_higgsfield_spend_reservation,
+    nonnegative_float_arg,
+    reserve_higgsfield_spend,
+)
 from identity_verification import verify_identity
 from PIL import Image
 
@@ -677,6 +681,7 @@ def _record_ai_cost_event(
     actual_credits: float | None,
     lineage_path_text: str,
     stem: str,
+    reservation_id: str | None,
 ) -> str:
     # TODO: reconcile Higgsfield credits -> USD once the API exposes a stable conversion.
     metadata = {
@@ -687,6 +692,7 @@ def _record_ai_cost_event(
         "jobId": job_id,
         "lineagePath": lineage_path_text,
         "stem": stem,
+        "spendReservationId": reservation_id,
     }
     return cost_tracker.record_ai_cost(
         conn,
@@ -696,6 +702,7 @@ def _record_ai_cost_event(
         generations=1,
         metadata=metadata,
         source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
+        reservation_id=reservation_id,
         ensure_schema=False,
     )
 
@@ -705,6 +712,7 @@ def _record_generation_costs(
     *,
     lineage_path_text: str,
     records: list[dict[str, Any]],
+    reservation_id: str | None = None,
 ) -> dict[str, Any]:
     events = []
     cost_tracker = _load_cost_tracker_module()
@@ -733,6 +741,7 @@ def _record_generation_costs(
                 actual_credits=actual_credits,
                 lineage_path_text=lineage_path_text,
                 stem=plan.stem,
+                reservation_id=reservation_id,
             )
             events.append(
                 {
@@ -1095,14 +1104,51 @@ def _cost_preflight_for_plan(
     include_video: bool = False,
     asset_count: int | None = None,
 ) -> dict[str, Any]:
-    count = asset_count if asset_count is not None else (2 if include_video else 1)
-    return check_higgsfield_cost_preflight(
+    default_count = 2 if include_video else 1
+    if (
+        not include_video
+        and isinstance(plan, AssetGenerationPlan)
+        and plan.image_mode == "six-pack"
+    ):
+        default_count = 6
+    count = asset_count if asset_count is not None else default_count
+    return reserve_higgsfield_spend(
         asset_count=count,
         estimated_cost_usd=plan.estimated_cost_usd,
+        source=f"reel_factory:{type(plan).__name__}:{plan.stem}",
         allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
         budget_override_ledger_error=plan.budget_override_ledger_error,
         root=plan.source_dir.parent,
+        cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
     )
+
+
+def _cost_reservation_id(cost_preflight: dict[str, Any]) -> str:
+    reservation = cost_preflight.get("reservation")
+    reservation_id = reservation.get("id") if isinstance(reservation, dict) else None
+    if not isinstance(reservation_id, str) or not reservation_id:
+        raise RuntimeError(
+            "paid generation allowed without an atomic spend reservation"
+        )
+    return reservation_id
+
+
+def _consume_cost_reservation(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan,
+    cost_preflight: dict[str, Any],
+) -> str:
+    reservation_id = _cost_reservation_id(cost_preflight)
+    if not consume_higgsfield_spend_reservation(
+        reservation_id,
+        root=plan.source_dir.parent,
+        cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
+    ):
+        raise RuntimeError(
+            "spend reservation could not be consumed before provider call"
+        )
+    reservation = cost_preflight["reservation"]
+    reservation["status"] = "consumed"
+    return reservation_id
 
 
 def _record_generation_failure(
@@ -1117,6 +1163,7 @@ def _record_generation_failure(
     capabilities: dict[str, Any] | None = None,
     soul_id: str | None = None,
     soul_name: str | None = None,
+    cost_preflight: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     failure = _failure_raw(error)
     raw.setdefault("failure", failure)
@@ -1130,6 +1177,8 @@ def _record_generation_failure(
         raw=raw,
     )
     payload["generation"]["status"] = "generation_rejected_or_failed"
+    if cost_preflight is not None:
+        payload["generation"]["costPreflight"] = cost_preflight
     payload["generation"]["failure"] = {
         "stage": stage,
         "command": error.cmd,
@@ -1241,6 +1290,7 @@ def create_assets(
             soul_id=soul_id,
             soul_name=plan.soul_name,
         )
+    reservation_id = _consume_cost_reservation(plan, cost_preflight)
 
     upload_id = None
 
@@ -1269,6 +1319,7 @@ def create_assets(
             capabilities=capabilities,
             soul_id=soul_id,
             soul_name=plan.soul_name,
+            cost_preflight=cost_preflight,
         )
     steps.append(_step("image_create", image_cmd, raw["image"]))
     identity_validation = validate_generation_soul(raw["image"], soul_id)
@@ -1303,6 +1354,7 @@ def create_assets(
             capabilities=capabilities,
             soul_id=soul_id,
             soul_name=plan.soul_name,
+            cost_preflight=cost_preflight,
         )
     steps.append(_step("video_create", video_cmd, raw["video"]))
     video_job_id = extract_id(raw["video"])
@@ -1379,6 +1431,7 @@ def create_assets(
                 "raw": raw.get("video"),
             },
         ],
+        reservation_id=reservation_id,
     )
     if video_qc["status"] == "failed":
         payload["generation"]["status"] = "video_qc_rejected"
@@ -1631,6 +1684,7 @@ def create_image_asset(
             soul_id=soul_id,
             soul_name=plan.soul_name,
         )
+    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     upload_id = None
     image_prompts = (
         _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
@@ -1667,6 +1721,7 @@ def create_image_asset(
                 capabilities=capabilities,
                 soul_id=soul_id,
                 soul_name=plan.soul_name,
+                cost_preflight=cost_preflight,
             )
         raw_images.append(image_raw)
         steps.append(
@@ -1762,6 +1817,7 @@ def create_image_asset(
             }
             for image_raw in raw_images
         ],
+        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
@@ -1853,6 +1909,7 @@ def create_direct_reference_image_asset(
             "campaign_record": None,
             "error": payload["generation"]["failure"],
         }
+    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     image_cmd = build_image_cmd(
         prompt,
         reference=plan.reference_image,
@@ -1879,6 +1936,7 @@ def create_direct_reference_image_asset(
             status="generation_rejected_or_failed",
             failure={"stage": "image_create", "command": exc.cmd, **failure},
         )
+        payload["generation"]["costPreflight"] = cost_preflight
         path = direct_reference_lineage_path(plan)
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
@@ -1939,6 +1997,7 @@ def create_direct_reference_image_asset(
                 "raw": raw.get("image"),
             }
         ],
+        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
@@ -2054,6 +2113,7 @@ def create_video_asset(
             soul_id=plan.soul_id,
             soul_name=plan.soul_name,
         )
+    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
@@ -2081,6 +2141,7 @@ def create_video_asset(
             capabilities=capabilities,
             soul_id=plan.soul_id,
             soul_name=plan.soul_name,
+            cost_preflight=cost_preflight,
         )
     steps.append(_step("video_create", video_cmd, raw["video"]))
     video_job_id = extract_id(raw["video"])
@@ -2146,6 +2207,7 @@ def create_video_asset(
                 "raw": raw.get("video"),
             }
         ],
+        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
@@ -2415,7 +2477,7 @@ def main() -> int:
     ap.add_argument("--video-sound", default="off")
     ap.add_argument("--image-model", default=IMAGE_MODEL)
     ap.add_argument("--video-model", default=VIDEO_MODEL)
-    ap.add_argument("--estimated-cost-usd", type=float)
+    ap.add_argument("--estimated-cost-usd", type=nonnegative_float_arg)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
     ap.add_argument("--budget-override-ledger-error", action="store_true")
     ap.add_argument("--lineage")

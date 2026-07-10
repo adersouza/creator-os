@@ -393,6 +393,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "blockingReasons": [],
                     },
                 ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_rejection",
+                ),
                 patch("generate_assets._run_json", side_effect=err),
             ):
                 result = create_image_asset(plan)
@@ -505,6 +509,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                         "blockingReason": "",
                         "blockingReasons": [],
                     },
+                ),
+                patch(
+                    "generate_assets._consume_cost_reservation",
+                    return_value="hfr_test_active_image",
                 ),
                 patch(
                     "generate_assets._run_json",

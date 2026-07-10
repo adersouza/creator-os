@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import sqlite3
 import uuid
 from typing import Any
@@ -42,6 +43,7 @@ CREATE_TABLE_SQL = """\
 CREATE TABLE IF NOT EXISTS ai_cost_events (
     id              TEXT PRIMARY KEY,
     source_event_key TEXT,
+    reservation_id  TEXT,
     campaign_id     TEXT,
     provider        TEXT NOT NULL,
     operation       TEXT NOT NULL,
@@ -74,6 +76,8 @@ def ensure_cost_table(conn: sqlite3.Connection) -> None:
     }
     if "source_event_key" not in columns:
         conn.execute("ALTER TABLE ai_cost_events ADD COLUMN source_event_key TEXT")
+    if "reservation_id" not in columns:
+        conn.execute("ALTER TABLE ai_cost_events ADD COLUMN reservation_id TEXT")
     conn.execute(CREATE_SOURCE_KEY_INDEX_SQL)
 
 
@@ -117,6 +121,7 @@ def record_ai_cost(
     estimated_cost_usd: float | None = None,
     metadata: dict[str, Any] | None = None,
     source_event_key: str | None = None,
+    reservation_id: str | None = None,
     ensure_schema: bool = True,
 ) -> str:
     """Record an AI cost event and return the event ID."""
@@ -141,6 +146,14 @@ def record_ai_cost(
             estimated_cost_usd = estimate_generation_cost(provider, generations)
         else:
             estimated_cost_usd = 0.0
+    if (
+        isinstance(estimated_cost_usd, bool)
+        or not isinstance(estimated_cost_usd, (int, float))
+        or not math.isfinite(float(estimated_cost_usd))
+        or float(estimated_cost_usd) < 0
+    ):
+        raise ValueError("estimated_cost_usd must be finite and non-negative")
+    estimated_cost_usd = float(estimated_cost_usd)
 
     event_id = (
         f"cost_{uuid.uuid5(uuid.NAMESPACE_URL, source_event_key).hex[:12]}"
@@ -151,14 +164,15 @@ def record_ai_cost(
     conn.execute(
         """\
         INSERT OR IGNORE INTO ai_cost_events
-            (id, source_event_key, campaign_id, provider, operation,
+            (id, source_event_key, reservation_id, campaign_id, provider, operation,
              input_tokens, output_tokens, generations,
              estimated_cost_usd, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
             source_event_key,
+            reservation_id,
             campaign_id,
             provider,
             operation,

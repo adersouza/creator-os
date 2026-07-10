@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -13,6 +14,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from reel_factory.higgsfield_cost_preflight import (
+    BalanceProvider,
+    cancel_higgsfield_spend_reservation,
+    consume_higgsfield_spend_reservation,
+    reserve_higgsfield_spend,
+)
 
 from .fileops import atomic_write_text
 
@@ -67,6 +75,7 @@ def generate_with_higgsfield(
     wait: bool = False,
     dry_run: bool = False,
     max_credits: float | None = 8.0,
+    estimated_cost_usd: float | None = None,
     no_video: bool = False,
     no_campaign_intake: bool = False,
     image_candidates: int = 1,
@@ -82,8 +91,15 @@ def generate_with_higgsfield(
     model: str | None = None,
     creative_plan: str | None = None,
     min_prompt_score: int | None = DEFAULT_PROMPT_SCORE_THRESHOLD,
+    balance_provider: BalanceProvider | None = None,
     runner: Runner | None = None,
 ) -> dict[str, Any]:
+    _validate_generation_budget_inputs(
+        limit=limit,
+        image_candidates=image_candidates,
+        max_credits=max_credits,
+        estimated_cost_usd=estimated_cost_usd,
+    )
     pairs = load_prompt_pairs(
         data_root=data_root, limit=limit, reference_id=reference_id
     )
@@ -121,40 +137,124 @@ def generate_with_higgsfield(
             "runs": [],
         }
 
+    paid_asset_count = estimate_generation_assets(
+        len(runnable),
+        no_video=no_video,
+        image_candidates=image_candidates,
+        variation_grid=variation_grid,
+        variation_strategy=variation_strategy,
+        variation_layout=variation_layout,
+        animate_variation_panels=animate_variation_panels,
+        selected_image_provided=selected_image is not None,
+        variation_panel_dir_provided=variation_panel_dir is not None,
+    )
+    reservation_root = campaign_factory_root or data_root
+    cost_preflight: dict[str, Any] | None = None
+    reservation_id: str | None = None
+    reservation_consumed = False
+    cost_db_path = _campaign_cost_db_path(
+        data_root=data_root, campaign_factory_root=campaign_factory_root
+    )
+    if not dry_run and paid_asset_count > 0:
+        cost_preflight = reserve_higgsfield_spend(
+            asset_count=paid_asset_count,
+            estimated_cost_usd=estimated_cost_usd,
+            provider=balance_provider,
+            source=(
+                "reference_factory:generate_with_higgsfield:"
+                + (reference_id or "batch")
+            ),
+            root=reservation_root,
+            cost_db_path=cost_db_path,
+        )
+        if not cost_preflight.get("allowed"):
+            return {
+                "schema": "reference_factory.higgsfield_generation.v1",
+                "status": "blocked",
+                "reason": "cost_preflight_blocked",
+                "estimatedCredits": estimated,
+                "estimatedCostUsd": estimated_cost_usd,
+                "paidAssetCount": paid_asset_count,
+                "costPreflight": cost_preflight,
+                "count": len(runnable),
+                "blockedPrompts": blocked,
+                "runs": [],
+            }
+        reservation = cost_preflight.get("reservation")
+        reservation_id = (
+            reservation.get("id") if isinstance(reservation, dict) else None
+        )
+        if not isinstance(reservation_id, str) or not reservation_id:
+            raise RuntimeError(
+                "Reference Factory paid generation allowed without spend reservation"
+            )
+
     output_root = data_root / "reference_intake" / "generated" / _day()
     output_root.mkdir(parents=True, exist_ok=True)
     soul_uuid = resolve_soul_id(soul_id)
-    run = runner or _run_command
+    base_run = runner or _run_command
+
+    def guarded_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        nonlocal reservation_consumed
+        if _is_paid_generation_command(cmd) and reservation_id:
+            if not reservation_consumed:
+                if not consume_higgsfield_spend_reservation(
+                    reservation_id,
+                    root=reservation_root,
+                    cost_db_path=cost_db_path,
+                ):
+                    raise RuntimeError(
+                        "Reference Factory spend reservation could not be consumed"
+                    )
+                reservation_consumed = True
+                if cost_preflight and isinstance(
+                    cost_preflight.get("reservation"), dict
+                ):
+                    cost_preflight["reservation"]["status"] = "consumed"
+        return base_run(cmd)
+
+    run = guarded_run
     score_by_ref = {pair.reference_id: score for pair, score in scored_pairs}
-    runs = [
-        _run_pair(
-            pair,
-            prompt_score=score_by_ref.get(pair.reference_id, {}),
-            data_root=data_root,
-            output_root=output_root,
-            soul_name=soul_id,
-            soul_uuid=soul_uuid,
-            kling_mode=kling_mode,
-            wait=wait,
-            dry_run=dry_run,
-            no_video=no_video,
-            no_campaign_intake=no_campaign_intake,
-            image_candidates=max(1, image_candidates),
-            variation_grid=variation_grid,
-            variation_model=variation_model,
-            variation_layout=variation_layout,
-            variation_strategy=variation_strategy,
-            animate_variation_panels=animate_variation_panels,
-            variation_panel_dir=variation_panel_dir,
-            selected_image=selected_image,
-            campaign_factory_root=campaign_factory_root,
-            campaign=campaign,
-            model=model,
-            creative_plan=creative_plan,
-            runner=run,
-        )
-        for pair in runnable
-    ]
+    try:
+        runs = [
+            _run_pair(
+                pair,
+                prompt_score=score_by_ref.get(pair.reference_id, {}),
+                data_root=data_root,
+                output_root=output_root,
+                soul_name=soul_id,
+                soul_uuid=soul_uuid,
+                kling_mode=kling_mode,
+                wait=wait,
+                dry_run=dry_run,
+                no_video=no_video,
+                no_campaign_intake=no_campaign_intake,
+                image_candidates=max(1, image_candidates),
+                variation_grid=variation_grid,
+                variation_model=variation_model,
+                variation_layout=variation_layout,
+                variation_strategy=variation_strategy,
+                animate_variation_panels=animate_variation_panels,
+                variation_panel_dir=variation_panel_dir,
+                selected_image=selected_image,
+                campaign_factory_root=campaign_factory_root,
+                campaign=campaign,
+                model=model,
+                creative_plan=creative_plan,
+                spend_reservation_id=reservation_id,
+                runner=run,
+            )
+            for pair in runnable
+        ]
+    finally:
+        if reservation_id and not reservation_consumed:
+            cancel_higgsfield_spend_reservation(
+                reservation_id,
+                root=reservation_root,
+                cost_db_path=cost_db_path,
+            )
+            if cost_preflight and isinstance(cost_preflight.get("reservation"), dict):
+                cost_preflight["reservation"]["status"] = "cancelled"
     manifest = {
         "schema": "reference_factory.higgsfield_generation.v1",
         "status": _manifest_status(
@@ -181,6 +281,9 @@ def generate_with_higgsfield(
         "imageCandidates": max(1, image_candidates),
         "variationGrid": variation_grid,
         "estimatedCredits": estimated,
+        "estimatedCostUsd": estimated_cost_usd,
+        "paidAssetCount": paid_asset_count,
+        "costPreflight": cost_preflight,
         "maxCredits": max_credits,
         "count": len(runs),
         "requestedCount": len(pairs),
@@ -235,6 +338,8 @@ def run_daily_generation(
     wait: bool = False,
     dry_run: bool = False,
     max_credits: float | None = 80.0,
+    estimated_cost_usd: float | None = None,
+    balance_provider: BalanceProvider | None = None,
     runner: Runner | None = None,
 ) -> dict[str, Any]:
     return generate_with_higgsfield(
@@ -245,6 +350,7 @@ def run_daily_generation(
         wait=wait,
         dry_run=dry_run,
         max_credits=max_credits,
+        estimated_cost_usd=estimated_cost_usd,
         no_video=False,
         no_campaign_intake=False,
         image_candidates=1,
@@ -259,6 +365,7 @@ def run_daily_generation(
         campaign=campaign,
         model=model,
         creative_plan=creative_plan,
+        balance_provider=balance_provider,
         runner=runner,
     )
 
@@ -645,6 +752,76 @@ def estimate_credits(
     return round(count * per, 2)
 
 
+def estimate_generation_assets(
+    count: int,
+    *,
+    no_video: bool = False,
+    image_candidates: int = 1,
+    variation_grid: bool = False,
+    variation_strategy: str = DEFAULT_VARIATION_STRATEGY,
+    variation_layout: str = DEFAULT_VARIATION_LAYOUT,
+    animate_variation_panels: bool = False,
+    selected_image_provided: bool = False,
+    variation_panel_dir_provided: bool = False,
+) -> int:
+    """Count provider generation submissions covered by the USD reservation."""
+    effective_image_candidates = (
+        1
+        if variation_grid and variation_strategy == "soul_grid"
+        else max(1, image_candidates)
+    )
+    per_reference = 0 if selected_image_provided else effective_image_candidates
+    if not no_video:
+        per_reference += 1
+    if variation_grid and variation_strategy != "soul_grid":
+        variation_count = (
+            len(_variation_outfits(variation_layout))
+            if variation_strategy == "individual"
+            else 1
+        )
+        if not variation_panel_dir_provided:
+            per_reference += variation_count
+        if animate_variation_panels and variation_strategy == "individual":
+            per_reference += variation_count
+    return max(0, count) * per_reference
+
+
+def _validate_generation_budget_inputs(
+    *,
+    limit: int,
+    image_candidates: int,
+    max_credits: float | None,
+    estimated_cost_usd: float | None,
+) -> None:
+    for name, value in (("limit", limit), ("image_candidates", image_candidates)):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+    for name, value in (
+        ("max_credits", max_credits),
+        ("estimated_cost_usd", estimated_cost_usd),
+    ):
+        if value is None:
+            continue
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise ValueError(f"{name} must be finite and non-negative")
+
+
+def _is_paid_generation_command(cmd: list[str]) -> bool:
+    return (
+        bool(cmd)
+        and Path(cmd[0]).name == "higgsfield"
+        and any(
+            cmd[index : index + 2] == ["generate", "create"]
+            for index in range(1, len(cmd) - 1)
+        )
+    )
+
+
 def _campaign_cost_db_path(
     *, data_root: Path, campaign_factory_root: Path | None
 ) -> Path:
@@ -689,6 +866,7 @@ def _record_generation_cost(
     result: dict[str, Any] | None,
     lineage_path: Path,
     reference_id: str,
+    reservation_id: str | None,
 ) -> dict[str, Any] | None:
     result = result or {}
     job_id = _result_id(result)
@@ -709,6 +887,7 @@ def _record_generation_cost(
         "jobId": job_id,
         "lineagePath": str(lineage_path),
         "referenceId": reference_id,
+        "spendReservationId": reservation_id,
     }
     with sqlite3.connect(db_path) as conn:
         event_id = cost_tracker.record_ai_cost(
@@ -719,6 +898,7 @@ def _record_generation_cost(
             generations=1,
             metadata=metadata,
             source_event_key=f"reference_factory:{provider}:{operation}:{job_id}",
+            reservation_id=reservation_id,
         )
     return {
         "eventId": event_id,
@@ -737,6 +917,7 @@ def _record_image_generation_costs(
     lineage_path: Path,
     reference_id: str,
     candidate_results: list[dict[str, Any]],
+    reservation_id: str | None,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for item in candidate_results:
@@ -751,6 +932,7 @@ def _record_image_generation_costs(
             result=result,
             lineage_path=lineage_path,
             reference_id=reference_id,
+            reservation_id=reservation_id,
         )
         if event:
             events.append(event)
@@ -786,6 +968,7 @@ def _run_pair(
     campaign: str | None,
     model: str | None,
     creative_plan: str | None,
+    spend_reservation_id: str | None,
     runner: Runner,
 ) -> dict[str, Any]:
     out_dir = output_root / _safe_name(pair.reference_id)
@@ -955,6 +1138,7 @@ def _run_pair(
                         lineage_path=lineage_path,
                         reference_id=pair.reference_id,
                         candidate_results=candidate_results,
+                        reservation_id=spend_reservation_id,
                     )
                 )
             if variation_grid:
@@ -1213,6 +1397,7 @@ def _run_pair(
                 result=video_result,
                 lineage_path=lineage_path,
                 reference_id=pair.reference_id,
+                reservation_id=spend_reservation_id,
             )
             if event:
                 cost_events.append(event)
@@ -1227,6 +1412,7 @@ def _run_pair(
                 result=variation_result,
                 lineage_path=lineage_path,
                 reference_id=pair.reference_id,
+                reservation_id=spend_reservation_id,
             )
             if event:
                 cost_events.append(event)
