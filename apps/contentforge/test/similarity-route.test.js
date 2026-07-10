@@ -671,20 +671,22 @@ test("/api/similarity reports optional Python layer failures as warnings", async
   }
 });
 
-test("/api/similarity keeps optional c2pa unavailability advisory while detector absence blocks", async function () {
+test("/api/similarity keeps optional c2pa and detector absence advisory for one reel", async function () {
   var files = await seedCampaignFactoryFiles();
   try {
     var response = await POST(similarityRequest({
       source: files.sourceName,
+      targetFile: files.variantName,
       auditProfile: "campaign_factory_v1",
       layers: ["provenance"],
     }));
     var body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.verdicts.provenance, "warn");
-    assert.equal(body.overallVerdict, "fail");
-    assert.equal(body.readinessSummary.uploadReady, false);
-    assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), true);
+    assert.equal(body.overallVerdict, "warn", auditDiagnostics(body));
+    assert.equal(body.readinessSummary.uploadReady, true, auditDiagnostics(body));
+    assert.equal(body.readinessSummary.blockingCodes.includes("sscd_unavailable"), false);
+    assert.equal(body.readinessSummary.warningCodes.includes("sscd_unavailable"), true);
     assert.equal(
       body.readinessSummary.warningCodes.includes("provenance_c2pa_unavailable") ||
         body.readinessSummary.warningCodes.includes("provenance_unavailable"),
