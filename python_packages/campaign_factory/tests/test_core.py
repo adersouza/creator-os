@@ -16682,6 +16682,29 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
     assert captured["post_id"] == "in.(post_1)"
 
 
+def test_metric_history_read_batches_the_captured_1000_post_request_shape():
+    captured_filters: list[str] = []
+
+    class UrlLengthGuardClient:
+        def select(self, table, params):
+            assert table == "post_metric_history"
+            post_filter = params["post_id"]
+            captured_filters.append(post_filter)
+            if len(post_filter) >= 20_000:
+                raise RuntimeError("Supabase request failed 400: Bad Request")
+            return []
+
+    post_ids = [f"00000000-0000-4000-8000-{index:012d}" for index in range(1000)]
+    rows = threadsdash_adapter._select_threadsdash_post_metric_history(
+        UrlLengthGuardClient(), post_ids=post_ids, limit=1000
+    )
+
+    assert rows == []
+    assert len(captured_filters) == 200
+    assert all(len(post_filter) < 250 for post_filter in captured_filters)
+    assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
+
+
 def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
