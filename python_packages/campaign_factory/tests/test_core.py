@@ -16254,7 +16254,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
         def select(self, table, params):
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
-            return [
+            rows = [
                 {
                     "id": "post_1",
                     "status": "published",
@@ -16294,6 +16294,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
                     },
                 },
             ]
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -16515,29 +16516,32 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return [
-                    {
-                        "id": "hist_post_1_24h",
-                        "post_id": "post_1",
-                        "account_id": "acct_1",
-                        "platform": "instagram",
-                        "snapshot_at": "2026-01-03T01:00:00+00:00",
-                        "hours_since_publish": 24,
-                        "views_count": 1200,
-                        "likes_count": 80,
-                        "replies_count": 9,
-                        "reposts_count": 0,
-                        "quotes_count": 0,
-                        "shares_count": 14,
-                        "saves_count": 22,
-                        "reach": 1100,
-                        "engagement_rate": 0.113,
-                        "created_at": "2026-01-03T01:00:00+00:00",
-                    }
-                ]
+                return _slice_rows(
+                    [
+                        {
+                            "id": "hist_post_1_24h",
+                            "post_id": "post_1",
+                            "account_id": "acct_1",
+                            "platform": "instagram",
+                            "snapshot_at": "2026-01-03T01:00:00+00:00",
+                            "hours_since_publish": 24,
+                            "views_count": 1200,
+                            "likes_count": 80,
+                            "replies_count": 9,
+                            "reposts_count": 0,
+                            "quotes_count": 0,
+                            "shares_count": 14,
+                            "saves_count": 22,
+                            "reach": 1100,
+                            "engagement_rate": 0.113,
+                            "created_at": "2026-01-03T01:00:00+00:00",
+                        }
+                    ],
+                    params,
+                )
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
-            return rows
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -16642,10 +16646,10 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
             select_calls.append((table, dict(params)))
             if table == "posts":
                 assert params["user_id"] == "eq.user_1"
-                return post_rows
+                return _slice_rows(post_rows, params)
             if table == "post_metric_history":
                 assert params["post_id"] == "in.(post_history_1)"
-                return history_rows
+                return _slice_rows(history_rows, params)
             raise AssertionError(table)
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
@@ -16724,7 +16728,14 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
                 "SELECT post_id, snapshot_at, views, likes, comments, shares, saves, reach FROM performance_snapshots ORDER BY snapshot_at"
             ).fetchall()
         ]
-        assert [table for table, _ in select_calls] == ["posts", "post_metric_history"]
+        # Clamp-safe paginator issues one trailing empty-page read per table
+        # (short non-empty pages are not trusted as end-of-data).
+        assert [table for table, _ in select_calls] == [
+            "posts",
+            "posts",
+            "post_metric_history",
+            "post_metric_history",
+        ]
         assert result["postsScanned"] == 1
         assert result["campaignFactoryPostsScanned"] == 1
         assert result["metricHistoryRowsScanned"] == 2
@@ -16767,25 +16778,28 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
                 raise RuntimeError(
                     "HTTP 400: column post_metric_history.created_at does not exist"
                 )
-            return [
-                {
-                    "id": "hist_no_created_at",
-                    "post_id": "post_1",
-                    "account_id": "acct_1",
-                    "platform": "instagram",
-                    "snapshot_at": "2026-01-03T01:00:00+00:00",
-                    "hours_since_publish": 24,
-                    "views_count": 1200,
-                    "likes_count": 80,
-                    "replies_count": 9,
-                    "reposts_count": 0,
-                    "quotes_count": 0,
-                    "shares_count": 14,
-                    "saves_count": 22,
-                    "reach": 1100,
-                    "engagement_rate": 0.113,
-                }
-            ]
+            return _slice_rows(
+                [
+                    {
+                        "id": "hist_no_created_at",
+                        "post_id": "post_1",
+                        "account_id": "acct_1",
+                        "platform": "instagram",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                        "hours_since_publish": 24,
+                        "views_count": 1200,
+                        "likes_count": 80,
+                        "replies_count": 9,
+                        "reposts_count": 0,
+                        "quotes_count": 0,
+                        "shares_count": 14,
+                        "saves_count": 22,
+                        "reach": 1100,
+                        "engagement_rate": 0.113,
+                    }
+                ],
+                params,
+            )
 
     rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
         CapturedFailingRequestClient(), post_ids=["post_1"], limit=1000
@@ -16854,6 +16868,18 @@ def test_metric_history_read_batches_the_captured_1000_post_request_shape():
     assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
 
 
+def _slice_rows(rows, params):
+    """Apply PostgREST-style limit/offset paging to a fake result set.
+
+    Fakes that ignore ``offset`` return the same non-empty page forever, which
+    the clamp-safe paginator (correctly) keeps reading until ``limit`` — so
+    test fakes must honor paging params the way real PostgREST does.
+    """
+    offset = int(params.get("offset", "0"))
+    limit = int(params.get("limit", str(len(rows))))
+    return rows[offset : offset + limit]
+
+
 def _paged_posts_client(total_rows: int):
     class PagedPostsClient:
         def __init__(self):
@@ -16884,7 +16910,11 @@ def test_posts_read_paginates_beyond_page_size():
     assert truncated is False
     assert len({row["id"] for row in rows}) == 750
     offsets = [int(call.get("offset", "0")) for call in client.calls]
-    assert offsets == [0, 500]
+    # A short-but-non-empty page is not treated as end-of-data (PostgREST
+    # `max-rows` can silently clamp pages below the requested limit), so the
+    # reader pages from the real offset until it sees an empty page. The final
+    # call at offset 750 returns [] and terminates the loop without a probe.
+    assert offsets == [0, 500, 750]
 
 
 def test_posts_read_detects_truncation_at_limit():
@@ -16933,32 +16963,35 @@ def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
             if table == "post_metric_history":
                 raise RuntimeError(error)
             assert table == "posts"
-            return [
-                {
-                    "id": "post_fallback_1",
-                    "status": "published",
-                    "platform": "instagram",
-                    "instagram_account_id": "ig_1",
-                    "created_at": "2026-01-02T00:00:00+00:00",
-                    "updated_at": "2026-01-03T01:00:00+00:00",
-                    "published_at": "2026-01-02T01:00:00+00:00",
-                    "views": 1200,
-                    "likes_count": 80,
-                    "metadata": {
-                        "campaign_factory": threadsdash_campaign_factory_metadata(
-                            source
-                        )
+            return _slice_rows(
+                [
+                    {
+                        "id": "post_fallback_1",
+                        "status": "published",
+                        "platform": "instagram",
+                        "instagram_account_id": "ig_1",
+                        "created_at": "2026-01-02T00:00:00+00:00",
+                        "updated_at": "2026-01-03T01:00:00+00:00",
+                        "published_at": "2026-01-02T01:00:00+00:00",
+                        "views": 1200,
+                        "likes_count": 80,
+                        "metadata": {
+                            "campaign_factory": threadsdash_campaign_factory_metadata(
+                                source
+                            )
+                        },
                     },
-                },
-                {
-                    "id": "post_manual_1",
-                    "status": "published",
-                    "platform": "instagram",
-                    "published_at": "2026-01-02T01:00:00+00:00",
-                    "updated_at": "2026-01-03T01:00:00+00:00",
-                    "metadata": {},
-                },
-            ]
+                    {
+                        "id": "post_manual_1",
+                        "status": "published",
+                        "platform": "instagram",
+                        "published_at": "2026-01-02T01:00:00+00:00",
+                        "updated_at": "2026-01-03T01:00:00+00:00",
+                        "metadata": {},
+                    },
+                ],
+                params,
+            )
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FailingHistoryClient)
     try:
@@ -17118,9 +17151,13 @@ def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(
 
         def select(self, table, params):
             if table == "posts":
-                return post_rows
+                offset = int(params.get("offset", 0))
+                limit = int(params.get("limit", len(post_rows)))
+                return post_rows[offset : offset + limit]
             if table == "post_metric_history":
-                return history_rows
+                offset = int(params.get("offset", 0))
+                limit = int(params.get("limit", len(history_rows)))
+                return history_rows[offset : offset + limit]
             raise AssertionError(table)
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
@@ -17206,7 +17243,7 @@ def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(
             if table == "post_metric_history":
                 return []
             assert table == "posts"
-            return rows
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -17257,7 +17294,9 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(
                 return []
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
-            return rows
+            offset = int(params.get("offset", 0))
+            limit = int(params.get("limit", len(rows)))
+            return rows[offset : offset + limit]
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -17368,7 +17407,9 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
             if table == "post_metric_history":
                 return []
             assert table == "posts"
-            return rows
+            offset = int(params.get("offset", 0))
+            limit = int(params.get("limit", len(rows)))
+            return rows[offset : offset + limit]
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -18213,9 +18254,13 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return history_rows
+                offset = int(params.get("offset", 0))
+                limit = int(params.get("limit", len(history_rows)))
+                return history_rows[offset : offset + limit]
             assert table == "posts"
-            return rows
+            offset = int(params.get("offset", 0))
+            limit = int(params.get("limit", len(rows)))
+            return rows[offset : offset + limit]
 
     monkeypatch.setattr(app_module, "settings", settings)
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)

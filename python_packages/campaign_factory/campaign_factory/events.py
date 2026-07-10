@@ -294,10 +294,16 @@ class EventRepository:
                 )
                 outcome = "requeued"
             else:
-                error = (
-                    f"reclaimed as stale after {round(age_hours or 0.0, 3)}h "
-                    f"(threshold {stuck_hours}h)"
-                )
+                if age_hours is None:
+                    error = (
+                        "reclaimed as stale: unparseable updated_at/created_at "
+                        f"timestamps (threshold {stuck_hours}h)"
+                    )
+                else:
+                    error = (
+                        f"reclaimed as stale after {round(age_hours, 3)}h "
+                        f"(threshold {stuck_hours}h)"
+                    )
                 self.conn.execute(
                     "UPDATE pipeline_jobs SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
                     (error, now, now, row["id"]),
@@ -387,6 +393,10 @@ def _pipeline_job_stuck_status(
         row.get("updated_at")
     ) or _parse_sqlite_timestamp(row.get("created_at"))
     if timestamp is None:
-        return False, None
+        # A queued/running job whose timestamps are missing or corrupted can
+        # never age past the threshold; treating it as "not stuck" would strand
+        # it forever with no operator signal. Fail loudly: report it stuck with
+        # unknown age so reclaim recovers it (crash-recovery audit).
+        return True, None
     age_hours = max(0.0, (datetime.now(UTC) - timestamp).total_seconds() / 3600.0)
     return age_hours >= threshold_hours, age_hours

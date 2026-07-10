@@ -165,6 +165,76 @@ def test_recency_decay_downweights_old_winners():
     )
 
 
+def test_garbage_metrics_do_not_poison_scores():
+    """NaN/inf/bool metric values must be rejected, not propagated.
+
+    Before the fix, float('nan') in reach flowed through snapshot_reward into
+    the weighted mean, turning score/planningScore into NaN-derived garbage.
+    """
+    nan_snapshot = _snapshot(post_id="nan_post")
+    nan_snapshot["metrics"]["reach"] = float("nan")
+    nan_snapshot["metrics"]["impressions"] = float("inf")
+    nan_snapshot["metrics"]["views"] = 1000
+    nan_snapshot["metrics"]["likes"] = float("nan")
+
+    summary = aggregate_performance([nan_snapshot])
+    learning = summary["learning"]
+    assert learning["status"] == "measured"
+    score = performance_score(summary)
+    assert score is not None
+    assert 0 <= score <= 100
+    assert 0 <= performance_planning_score(summary) <= 100
+
+
+def test_boolean_metric_values_are_not_counts():
+    snapshot = _snapshot(post_id="bool_post")
+    snapshot["metrics"]["reach"] = True
+    snapshot["metrics"]["impressions"] = True
+    snapshot["metrics"]["views"] = True
+    summary = aggregate_performance([snapshot])
+    # True must not masquerade as exposure=1
+    assert summary["learning"]["status"] == "unmeasured"
+
+
+def test_negative_engagement_counts_are_clamped():
+    """Corrupted negative counts must not drag rewards negative."""
+    snapshot = _snapshot(post_id="neg_post", views=1000)
+    snapshot["metrics"]["likes"] = -500
+    snapshot["metrics"]["comments"] = -50
+    snapshot["metrics"]["shares"] = 0
+    snapshot["metrics"]["saves"] = 0
+    summary = aggregate_performance([snapshot])
+    reward = summary["learning"]["weightedRelativeReward"]
+    assert reward >= 0.0
+
+
+def test_zero_engagement_account_baseline_does_not_explode_relative_reward():
+    """An all-zero-engagement account gets the default baseline, not a 1e-6
+    floor that would send the next nonzero reward to astronomic values."""
+    snapshots = [
+        _snapshot(
+            post_id=f"dead_{i}",
+            account="dead",
+            views=1000,
+            likes=0,
+            comments=0,
+            shares=0,
+            saves=0,
+        )
+        for i in range(3)
+    ]
+    baselines = account_reward_baselines(snapshots)
+    live = _snapshot(post_id="revival", account="dead", views=1000, likes=10)
+    relative = snapshot_normalized_reward(live, baselines)
+    # Clamped to sane territory by the shrinkage prior downstream; here we
+    # only require the ratio itself stays finite and bounded.
+    import math as _math
+
+    assert _math.isfinite(relative)
+    summary = aggregate_performance([live], account_baselines=baselines)
+    assert 0 <= performance_score(summary) <= 100
+
+
 def test_unmeasured_is_explicit_not_fake_average():
     summary = aggregate_performance(
         [
