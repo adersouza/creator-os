@@ -26,6 +26,27 @@ this monorepo was fixed in-session; the items below cannot be completed here.
   `pipeline_contracts must not import campaign_factory` and
   `reel_factory must not import campaign_factory`). Only the TS leg is blocked.
 
+### 2a. Merge decisions for PLAN-SCHEDULER v3 PRs (operator's button)
+- [Creator OS #378](https://github.com/adersouza/creator-os/pull/378):
+  verified 7/7 checks green. Merge order: **#378 first**, then rerun
+  [ThreadsDashboard #268](https://github.com/adersouza/ThreadsDashboard/pull/268)
+  checks and undraft. Merging is an operator decision; nothing is merged,
+  deployed, scheduled, or activated yet (autoposting off, trial graduation
+  manual).
+
+### 2b. Pre-existing migration-replay failure blocking #268
+- #268 has two red checks: the contract-compare-vs-main job (self-heals once
+  #378 merges) and `Clean migration replay on preview branch`, which is a
+  **pre-existing unchanged Supabase migration failure** — it will NOT
+  self-heal when #378 lands. Needs its own fix in the ThreadsDashboard repo
+  before #268 can be undrafted.
+
+### 2c. Graphify refresh blocked — no LLM API key configured
+- Codex's PLAN-SCHEDULER v3 run could not complete the Graphify refresh
+  because no LLM API key is configured on this machine. Repository
+  architecture gates passed independently. Operator must set the key, then
+  rerun the refresh.
+
 ### 2. Real-provider / credentialed runs
 - The repaired proof scripts (`caption_outcome_e2e_proof.py`, smoke scripts,
   root `test_integration.py`) validate against fakes/local SQLite. Runs against
@@ -35,6 +56,11 @@ this monorepo was fixed in-session; the items below cannot be completed here.
 ## Needs the ThreadsDashboard repo (separate repo)
 
 ### 3. PLAN-SCHEDULER Phase 4 — footprint reduction (relocated per review)
+- **STATUS UPDATE: delivered pending merge.** ThreadsDashboard PR #268
+  (draft) implements this — account-local scheduling, deterministic ±20 min
+  jitter, min gaps, DST handling, trial-intent transport. Remains open until
+  Creator OS #378 merges and the item-2b migration failure is fixed. Original
+  spec kept below for verification against the PR.
 - Per `PLAN-SCHEDULER.md` ("Phase 4 — Footprint reduction lives in
   ThreadsDashboard"): per-account base slot times + real per-account timezones
   (replacing uniform America/New_York 10:00/15:00/20:00), deterministic
