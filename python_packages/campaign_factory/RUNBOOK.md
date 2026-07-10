@@ -32,6 +32,32 @@ The command never schedules or publishes. On success it writes
 cancels the unused reservation, and after consumption it never double-consumes
 or pretends the credit was refunded.
 
+The repository phase driver is
+`python_packages/campaign_factory/scripts/real_provider_phase_driver.py`. Point
+`--driver-command` at that executable (or invoke it with `uv run python`) and
+configure one local command per phase:
+
+```bash
+export CREATOR_OS_ACCEPTANCE_PHASE_VERIFY_SOUL_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_QUOTE_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_RESERVE_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_CONSUME_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_CANCEL_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_GENERATE_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_RENDER_STATIC_MP4_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_REEL_QC_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_CONTENTFORGE_QC_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_HMAC_INGEST_PREVIEW_DRAFT_COMMAND='...'
+export CREATOR_OS_ACCEPTANCE_PHASE_VERIFY_DRAFT_COMMAND='...'
+```
+
+Each command reads one JSON object from stdin and writes one JSON object to
+stdout. Provider, Supabase, HMAC, and other credentials belong only in those
+commands' inherited environment. Do not put secrets in command strings. The
+driver rejects unknown phases and any lineage that requests scheduling or
+publishing. Run the configured commands individually with fixture input before
+granting paid confirmation.
+
 ## 1. Start services
 
 Terminal A: ContentForge.

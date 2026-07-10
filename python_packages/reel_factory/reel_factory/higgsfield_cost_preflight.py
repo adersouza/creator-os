@@ -204,7 +204,7 @@ def quote_higgsfield_generation(
         raise RuntimeError("higgsfield_cli_unavailable")
     command = [cli, "generate", "cost", model]
     for key, value in sorted((params or {}).items()):
-        command.extend([f"--{key.replace('_', '-')}", str(value)])
+        command.extend([f"--{key}", str(value)])
     command.append("--json")
     proc = subprocess.run(
         command, check=False, capture_output=True, text=True, timeout=60
