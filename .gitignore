@@ -65,3 +65,4 @@ graphify-out/
 /orange_top_*.json
 /original_*_mirror_selfie.json
 /style_*_template.json
+.codex/
