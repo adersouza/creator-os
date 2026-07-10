@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.request
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -135,6 +136,102 @@ def analyze_patterns(
         "summary": summary["summary"],
         **paths,
         "items": patterns[:10],
+    }
+
+
+def refresh_measured_outcomes_for_references(
+    conn: Connection, reference_ids: Iterable[str], *, commit: bool = True
+) -> dict[str, Any]:
+    """Refresh only denormalized pattern rows affected by prompt outcome changes."""
+    changed: list[str] = []
+    normalized_reference_ids = sorted(
+        {str(value).strip() for value in reference_ids if value}
+    )
+    timestamp = now_iso()
+    for reference_id in normalized_reference_ids:
+        prompts = conn.execute(
+            """
+            SELECT outcome_sample_count, outcome_reward_score, outcome_confidence,
+                   outcome_updated_at
+            FROM generated_video_prompts
+            WHERE reference_id = ? AND outcome_reward_score IS NOT NULL
+            """,
+            (reference_id,),
+        ).fetchall()
+        sample_count = sum(int(row["outcome_sample_count"] or 0) for row in prompts)
+        measured = None
+        if sample_count > 0:
+            reward = sum(
+                float(row["outcome_reward_score"])
+                * max(1, int(row["outcome_sample_count"] or 0))
+                for row in prompts
+            ) / sum(max(1, int(row["outcome_sample_count"] or 0)) for row in prompts)
+            confidence_rows = [
+                float(row["outcome_confidence"])
+                for row in prompts
+                if row["outcome_confidence"] is not None
+            ]
+            measured = {
+                "rewardScore": reward,
+                "sampleCount": sample_count,
+                "confidence": (
+                    sum(confidence_rows) / len(confidence_rows)
+                    if confidence_rows
+                    else None
+                ),
+                "updatedAt": max(
+                    str(row["outcome_updated_at"] or "") for row in prompts
+                ),
+            }
+        pattern_rows = conn.execute(
+            """
+            SELECT rp.id, rp.pattern_json, rp.quality_score, pp.match_type
+            FROM reference_patterns rp
+            LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
+            WHERE rp.reference_id = ?
+            """,
+            (reference_id,),
+        ).fetchall()
+        for row in pattern_rows:
+            pattern = json_load(row["pattern_json"], {})
+            metrics = (
+                pattern.get("metrics")
+                if isinstance(pattern.get("metrics"), dict)
+                else {}
+            )
+            metrics["measuredOutcome"] = measured
+            pattern["metrics"] = metrics
+            performance_class = _performance_class(
+                {
+                    "measuredOutcome": measured,
+                    "matchType": row["match_type"],
+                },
+                float(row["quality_score"] or 0),
+            )
+            pattern["performanceClass"] = performance_class
+            winner_dna = (
+                pattern.get("winnerDna")
+                if isinstance(pattern.get("winnerDna"), dict)
+                else {}
+            )
+            winner_dna["performanceClass"] = performance_class
+            winner_dna["rewardScore"] = (
+                measured.get("rewardScore") if measured else None
+            )
+            winner_dna["sampleCount"] = measured.get("sampleCount") if measured else 0
+            pattern["winnerDna"] = winner_dna
+            conn.execute(
+                "UPDATE reference_patterns SET pattern_json = ?, updated_at = ? WHERE id = ?",
+                (json_dump(pattern), timestamp, row["id"]),
+            )
+            changed.append(str(row["id"]))
+    if commit:
+        conn.commit()
+    return {
+        "schema": "reference_factory.targeted_pattern_refresh.v1",
+        "references": len(normalized_reference_ids),
+        "patternsChanged": len(changed),
+        "patternIds": changed,
     }
 
 

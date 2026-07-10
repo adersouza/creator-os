@@ -15,7 +15,9 @@ _REPO_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 SCHEMA_DIR = _PACKAGE_SCHEMA_DIR if _PACKAGE_SCHEMA_DIR.exists() else _REPO_SCHEMA_DIR
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
-CAMPAIGN_DRAFT_PAYLOAD_SCHEMA = "campaign_draft_payload.v1.schema.json"
+CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA = "campaign_draft_payload.v1.schema.json"
+CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA = "campaign_draft_payload.v2.schema.json"
+CAMPAIGN_DRAFT_PAYLOAD_SCHEMA = CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA
 AUDIO_CATALOG_EXPORT_SCHEMA = "audio_catalog_export.v1.schema.json"
 PERFORMANCE_SYNC_SCHEMA = "performance_sync.v1.schema.json"
 POST_METRIC_HISTORY_READ_SCHEMA = "post_metric_history.read.v1.schema.json"
@@ -24,7 +26,9 @@ PATTERN_CARD_SCHEMA = "pattern_card.v1.schema.json"
 VIDEO_ANALYSIS_SCHEMA = "video_analysis.v1.schema.json"
 HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA = "higgsfield_soul_image_prompt.v1.schema.json"
 KLING_3_VIDEO_PROMPT_SCHEMA = "kling_3_video_prompt.v1.schema.json"
-GENERATED_ASSET_LINEAGE_SCHEMA = "generated_asset_lineage.v1.schema.json"
+GENERATED_ASSET_LINEAGE_V1_SCHEMA = "generated_asset_lineage.v1.schema.json"
+GENERATED_ASSET_LINEAGE_V2_SCHEMA = "generated_asset_lineage.v2.schema.json"
+GENERATED_ASSET_LINEAGE_SCHEMA = GENERATED_ASSET_LINEAGE_V1_SCHEMA
 CREATIVE_PLAN_SCHEMA = "creative_plan.v1.schema.json"
 RECOMMENDATION_NEXT_BATCH_SCHEMA = "recommendation_next_batch.v1.schema.json"
 RECOMMENDATION_ACCURACY_REPORT_SCHEMA = "recommendation_accuracy_report.v1.schema.json"
@@ -36,6 +40,8 @@ FRONT_GENERATION_PLAN_SCHEMA = "front_generation_plan.v1.schema.json"
 SCHEMA_NAMES = {
     "audio_intent": AUDIO_INTENT_SCHEMA,
     "campaign_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
+    "campaign_draft_payload_v1": CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA,
+    "campaign_draft_payload_v2": CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA,
     "threadsdash_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "audio_catalog_export": AUDIO_CATALOG_EXPORT_SCHEMA,
     "performance_sync": PERFORMANCE_SYNC_SCHEMA,
@@ -47,6 +53,8 @@ SCHEMA_NAMES = {
     "higgsfield_soul_image_prompt": HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA,
     "kling_3_video_prompt": KLING_3_VIDEO_PROMPT_SCHEMA,
     "generated_asset_lineage": GENERATED_ASSET_LINEAGE_SCHEMA,
+    "generated_asset_lineage_v1": GENERATED_ASSET_LINEAGE_V1_SCHEMA,
+    "generated_asset_lineage_v2": GENERATED_ASSET_LINEAGE_V2_SCHEMA,
     "creative_plan": CREATIVE_PLAN_SCHEMA,
     "recommendation_next_batch": RECOMMENDATION_NEXT_BATCH_SCHEMA,
     "campaign_factory_recommendations_next_batch": RECOMMENDATION_NEXT_BATCH_SCHEMA,
@@ -118,7 +126,17 @@ STRICT_CAMPAIGN_DRAFT_GRAPH_FIELDS = [
 def validate_campaign_draft_payload(
     value: Any, *, strict_graph_ids: bool = False
 ) -> None:
-    validate_contract(value, CAMPAIGN_DRAFT_PAYLOAD_SCHEMA)
+    schema_id = value.get("schema") if isinstance(value, dict) else None
+    if schema_id == "campaign_factory.threadsdash_drafts.v1":
+        schema_name = CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA
+    elif schema_id == "campaign_factory.threadsdash_drafts.v2":
+        schema_name = CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA
+    else:
+        raise ContractValidationError(
+            "$.schema must be campaign_factory.threadsdash_drafts.v1 or "
+            "campaign_factory.threadsdash_drafts.v2"
+        )
+    validate_contract(value, schema_name)
     if strict_graph_ids:
         _validate_campaign_draft_graph_ids(value)
 
@@ -172,7 +190,21 @@ def validate_kling_3_video_prompt(value: Any) -> None:
 
 
 def validate_generated_asset_lineage(value: Any) -> None:
-    validate_contract(value, GENERATED_ASSET_LINEAGE_SCHEMA)
+    schema_id = value.get("schema") if isinstance(value, dict) else None
+    if schema_id == "reel_factory.generated_asset_lineage.v1":
+        schema_name = GENERATED_ASSET_LINEAGE_V1_SCHEMA
+    elif schema_id == "reel_factory.generated_asset_lineage.v2":
+        schema_name = GENERATED_ASSET_LINEAGE_V2_SCHEMA
+    else:
+        raise ContractValidationError(
+            "$.schema must be reel_factory.generated_asset_lineage.v1 or "
+            "reel_factory.generated_asset_lineage.v2"
+        )
+    validate_contract(value, schema_name)
+
+
+def validate_generated_asset_lineage_v2(value: Any) -> None:
+    validate_contract(value, GENERATED_ASSET_LINEAGE_V2_SCHEMA)
 
 
 def validate_creative_plan(value: Any) -> None:
@@ -236,6 +268,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
     validators: dict[str, Callable[[Any], None]] = {
         "audio_intent.v1.example.json": validate_audio_intent,
         "campaign_draft_payload.v1.example.json": validate_campaign_draft_payload,
+        "campaign_draft_payload.v2.example.json": validate_campaign_draft_payload,
         "audio_catalog_export.v1.example.json": validate_audio_catalog_export,
         "performance_sync.v1.example.json": validate_performance_sync,
         "post_metric_history.read.v1.example.json": validate_post_metric_history_read,
@@ -245,6 +278,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "higgsfield_soul_image_prompt.v1.example.json": validate_higgsfield_soul_image_prompt,
         "kling_3_video_prompt.v1.example.json": validate_kling_3_video_prompt,
         "generated_asset_lineage.v1.example.json": validate_generated_asset_lineage,
+        "generated_asset_lineage.v2.example.json": validate_generated_asset_lineage,
         "creative_plan.v1.example.json": validate_creative_plan,
         "recommendation_next_batch.v1.example.json": validate_recommendation_next_batch,
         "recommendation_accuracy_report.v1.example.json": validate_recommendation_accuracy_report,

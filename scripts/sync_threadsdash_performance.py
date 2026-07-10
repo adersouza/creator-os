@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-
 REQUIRED_ENV = (
     "CAMPAIGN_FACTORY_SYNC_CAMPAIGN",
     "THREADSDASH_USER_ID",
     "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
+    "LEARNING_LOOP_CUTOVER",
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,9 @@ DEFAULT_CAMPAIGN_FACTORY_DB = (
     REPO_ROOT / "python_packages" / "campaign_factory" / "campaign_factory.sqlite"
 )
 DEFAULT_REEL_FACTORY_ROOT = REPO_ROOT / "python_packages" / "reel_factory"
+DEFAULT_REFERENCE_FACTORY_DB = (
+    Path.home() / "Developer" / "reference_reels" / "reference_factory.sqlite"
+)
 
 
 def build_sync_command(env: Mapping[str, str]) -> list[str]:
@@ -45,29 +49,33 @@ def build_sync_command(env: Mapping[str, str]) -> list[str]:
     ]
 
 
-def build_refresh_command(env: Mapping[str, str]) -> list[str]:
+def build_fanout_command(env: Mapping[str, str]) -> list[str]:
     reel_factory_root = Path(env.get("REEL_FACTORY_ROOT") or DEFAULT_REEL_FACTORY_ROOT)
     campaign_factory_db = Path(
         env.get("CAMPAIGN_FACTORY_DB") or DEFAULT_CAMPAIGN_FACTORY_DB
     )
+    reference_factory_db = Path(
+        env.get("REFERENCE_FACTORY_DB") or DEFAULT_REFERENCE_FACTORY_DB
+    )
     return [
         "uv",
         "run",
-        "--directory",
-        str(reel_factory_root),
         "python",
-        "metrics_store.py",
-        "--root",
-        str(reel_factory_root),
-        "refresh-outcomes",
+        str(REPO_ROOT / "scripts" / "learning_fanout.py"),
         "--campaign-factory-db",
         str(campaign_factory_db),
+        "--reel-factory-root",
+        str(reel_factory_root),
+        "--reference-factory-db",
+        str(reference_factory_db),
         "--campaign",
         env["CAMPAIGN_FACTORY_SYNC_CAMPAIGN"],
     ]
 
 
-def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
+) -> int:
     args = list(argv or [])
     environment = dict(env or os.environ)
     try:
@@ -76,7 +84,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(str(exc), file=sys.stderr)
         return 2
     if "--dry-run" in args:
-        for cmd in (command, build_refresh_command(environment)):
+        for cmd in (command, build_fanout_command(environment)):
             safe = [
                 "<redacted>"
                 if value == environment["SUPABASE_SERVICE_ROLE_KEY"]
@@ -85,11 +93,61 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             ]
             print(" ".join(safe))
         return 0
-    completed = subprocess.run(command, check=False)
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
     if completed.returncode != 0:
+        _forward_phase_output(completed)
         return completed.returncode
-    refreshed = subprocess.run(build_refresh_command(environment), check=False)
-    return refreshed.returncode
+    try:
+        performance_report = _json_report(completed, phase="performance sync")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    fanout = subprocess.run(
+        build_fanout_command(environment),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if fanout.returncode != 0:
+        _forward_phase_output(fanout)
+        return fanout.returncode
+    try:
+        fanout_report = _json_report(fanout, phase="learning fan-out")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "schema": "creator_os.hourly_learning_sync.v1",
+                "performanceSync": performance_report,
+                "learningFanout": fanout_report,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _json_report(
+    completed: subprocess.CompletedProcess[str], *, phase: str
+) -> dict[str, object]:
+    raw = (completed.stdout or "").strip()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{phase} returned invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{phase} returned non-object JSON")
+    return value
+
+
+def _forward_phase_output(completed: subprocess.CompletedProcess[str]) -> None:
+    if completed.stdout:
+        print(completed.stdout.rstrip(), file=sys.stdout)
+    if completed.stderr:
+        print(completed.stderr.rstrip(), file=sys.stderr)
 
 
 if __name__ == "__main__":

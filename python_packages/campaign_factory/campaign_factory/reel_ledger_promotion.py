@@ -143,8 +143,11 @@ def _build_preview(
     )
     fingerprint_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in promotable_rows:
-        fp = str(row.get("content_fingerprint") or "").strip()
+        fp = _row_fingerprint(row)
         if fp:
+            # Backfill so downstream checks and _promotion_action reuse the
+            # computed hash instead of silently skipping dedup (fail-closed).
+            row["content_fingerprint"] = fp
             fingerprint_rows[fp].append(row)
 
     for row in rows:
@@ -259,6 +262,24 @@ def _build_preview(
     }
 
 
+def _row_fingerprint(row: dict[str, Any]) -> str:
+    """Stored content fingerprint, or sha256 of the rendered output as fallback.
+
+    Returns "" when neither is available so callers fail closed instead of
+    skipping duplicate detection.
+    """
+    fp = str(row.get("content_fingerprint") or "").strip()
+    if fp:
+        return fp
+    raw_path = str(row.get("rendered_output_path") or "").strip()
+    if not raw_path:
+        return ""
+    output = Path(raw_path).expanduser()
+    if output.is_file():
+        return sha256_file(output)
+    return ""
+
+
 def _row_blockers(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     output = Path(str(row.get("rendered_output_path") or "")).expanduser()
@@ -266,6 +287,8 @@ def _row_blockers(row: dict[str, Any]) -> list[str]:
         reasons.append("missing_rendered_output_path")
     elif not output.exists():
         reasons.append("missing_rendered_output_file")
+    if not _row_fingerprint(row):
+        reasons.append("missing_content_fingerprint")
     if not _lineage(row):
         reasons.append("missing_lineage")
     if not str(row.get("caption") or "").strip():
@@ -418,6 +441,9 @@ def _upsert_source_asset(
         "schema": "campaign_factory.reel_ledger_promoted_source.v1",
         "promotedFrom": REEL_SLOT_EXTERNAL_SYSTEM,
         "postingSlotId": action["postingSlotId"],
+        "promptId": f"prompt_reel_ledger_{action['postingSlotId']}",
+        "referenceId": source_key,
+        "generationTool": "reel_factory_posting_ledger",
         "generatedAssetLineage": lineage,
         "contentFingerprint": action["renderedAsset"]["contentHash"],
     }

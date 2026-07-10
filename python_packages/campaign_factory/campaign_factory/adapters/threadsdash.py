@@ -33,6 +33,12 @@ from ..core import (
     normalize_content_surface,
     utc_now,
 )
+from ..learning_readiness import closed_loop_learning_status
+from ..learning_score import (
+    learning_ineligibility_reasons,
+    learning_loop_cutover_iso,
+)
+from ..lineage_v2 import finalize_lineage_v2, lineage_v2_is_valid
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -47,6 +53,7 @@ DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
+POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
 
 
 def build_draft_payloads(
@@ -137,6 +144,19 @@ def build_draft_payloads(
             )
             audio_recommendations = _audio_recommendations_for_destination(
                 factory, asset, destination
+            )
+            audio_intent = _build_audio_intent(
+                asset.get("audioIntent")
+                or (asset.get("captionGeneration") or {}).get("audioIntent")
+                or (asset.get("referencePattern") or {}).get("audioIntent"),
+                audio_recommendations=audio_recommendations,
+                platform="instagram",
+                distribution_surface=distribution_surface,
+            )
+            generated_asset_lineage = finalize_lineage_v2(
+                asset.get("generatedAssetLineage") or {},
+                audio_intent=audio_intent,
+                variant_assignment=variation_assignment,
             )
             publishability = factory.explain_publishability(
                 asset["renderedAssetId"],
@@ -253,16 +273,9 @@ def build_draft_payloads(
                 "recipe": asset.get("recipe"),
                 "referencePattern": asset.get("referencePattern") or {},
                 "sourcePrompt": asset.get("sourcePrompt") or {},
-                "generatedAssetLineage": asset.get("generatedAssetLineage") or {},
+                "generatedAssetLineage": generated_asset_lineage,
                 "audioRecommendations": audio_recommendations,
-                "audioIntent": _build_audio_intent(
-                    asset.get("audioIntent")
-                    or (asset.get("captionGeneration") or {}).get("audioIntent")
-                    or (asset.get("referencePattern") or {}).get("audioIntent"),
-                    audio_recommendations=audio_recommendations,
-                    platform="instagram",
-                    distribution_surface=distribution_surface,
-                ),
+                "audioIntent": audio_intent,
                 "auditSummary": asset.get("auditSummary") or {},
                 "plannedWindowStart": destination.get("plannedWindowStart"),
                 "plannedWindowEnd": destination.get("plannedWindowEnd"),
@@ -292,7 +305,7 @@ def build_draft_payloads(
             draft["metadata"] = _draft_metadata(draft)
             drafts.append(draft)
     return {
-        "schema": "campaign_factory.threadsdash_drafts.v1",
+        "schema": "campaign_factory.threadsdash_drafts.v2",
         "campaign": campaign_slug,
         "manifest": manifest,
         "drafts": drafts,
@@ -3189,6 +3202,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "reference_pattern": draft.get("referencePattern") or {},
             "source_prompt": draft.get("sourcePrompt") or {},
             "generated_asset_lineage": draft.get("generatedAssetLineage") or {},
+            "lineage_v2_valid": lineage_v2_is_valid(draft.get("generatedAssetLineage")),
             "creative_plan": draft.get("creativePlan") or {},
             "audio_recommendations": audio_recommendations,
             "audio_intent": audio_intent,
@@ -4150,14 +4164,37 @@ def sync_performance_snapshots(
         skipped = 0
         skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
+        metric_history_error: str | None = None
+        history_source_counts: dict[str, int] = {}
+        learning_ineligible_reasons: dict[str, int] = {}
+        learning_ineligible_snapshot_count = 0
+        learning_ineligible_post_ids: set[str] = set()
+        metric_history_post_ids: list[str] = []
+        for row in rows:
+            row_metadata = (
+                row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            )
+            campaign_metadata = (
+                row_metadata.get("campaign_factory")
+                if isinstance(row_metadata, dict)
+                else None
+            )
+            if not isinstance(campaign_metadata, dict) or not campaign_metadata:
+                continue
+            metadata_campaign = campaign_metadata.get("campaign_id")
+            if metadata_campaign and metadata_campaign != campaign_slug:
+                continue
+            if row.get("id"):
+                metric_history_post_ids.append(str(row["id"]))
         try:
             metric_history_rows = _select_threadsdash_post_metric_history(
                 client,
-                post_ids=[str(row.get("id")) for row in rows if row.get("id")],
+                post_ids=metric_history_post_ids,
                 limit=limit,
             )
         except RuntimeError as exc:
             metric_history_rows = []
+            metric_history_error = str(exc)
             warnings.append(
                 {
                     "reason": "metric_history_unavailable",
@@ -4177,8 +4214,15 @@ def sync_performance_snapshots(
             ) or {}
             if not isinstance(meta, dict) or not meta:
                 skipped += 1
+                post_id = str(row.get("id") or "unknown")
+                learning_ineligible_post_ids.add(post_id)
+                learning_ineligible_reasons["manual_no_lineage"] = (
+                    learning_ineligible_reasons.get("manual_no_lineage", 0) + 1
+                )
                 warning = _performance_sync_skip_warning(
-                    row, reason="missing_campaign_factory_metadata"
+                    row,
+                    reason="missing_campaign_factory_metadata",
+                    learningIneligibleReason="manual_no_lineage",
                 )
                 skipped_rows.append(warning)
                 warnings.append(warning)
@@ -4207,6 +4251,11 @@ def sync_performance_snapshots(
             )
             if not eligibility["eligible"]:
                 skipped += 1
+                post_id = str(row.get("id") or "unknown")
+                learning_ineligible_post_ids.add(post_id)
+                learning_ineligible_reasons["metrics_not_eligible"] = (
+                    learning_ineligible_reasons.get("metrics_not_eligible", 0) + 1
+                )
                 warning = {
                     "postId": row.get("id"),
                     "renderedAssetId": meta.get("rendered_asset_id"),
@@ -4226,6 +4275,20 @@ def sync_performance_snapshots(
                     row=sync_row,
                     meta={**meta, "metrics_eligible": True},
                 )
+                history_source = str(
+                    snapshot.get("history_source") or "post_row_fallback"
+                )
+                history_source_counts[history_source] = (
+                    history_source_counts.get(history_source, 0) + 1
+                )
+                ineligible_reasons = learning_ineligibility_reasons(snapshot)
+                for reason in ineligible_reasons:
+                    learning_ineligible_reasons[reason] = (
+                        learning_ineligible_reasons.get(reason, 0) + 1
+                    )
+                if ineligible_reasons:
+                    learning_ineligible_snapshot_count += 1
+                    learning_ineligible_post_ids.add(str(snapshot["post_id"]))
                 existing = factory.conn.execute(
                     "SELECT id FROM performance_snapshots WHERE post_id = ? AND snapshot_at = ?",
                     (snapshot["post_id"], snapshot["snapshot_at"]),
@@ -4241,8 +4304,8 @@ def sync_performance_snapshots(
                      suitability_reason, source_clip, caption_outcome_context_json, recipe,
                      post_id, platform, content_surface, status, account_id, instagram_account_id,
                      permalink, published_at, snapshot_at, views, likes, comments, shares, saves, impressions,
-                     reach, watch_time_seconds, metrics_eligible, raw_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     reach, watch_time_seconds, metrics_eligible, history_source, lineage_v2_valid, raw_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(post_id, snapshot_at) DO UPDATE SET
                       campaign_id = excluded.campaign_id,
                       rendered_asset_id = excluded.rendered_asset_id,
@@ -4289,6 +4352,8 @@ def sync_performance_snapshots(
                       reach = excluded.reach,
                       watch_time_seconds = excluded.watch_time_seconds,
                       metrics_eligible = excluded.metrics_eligible,
+                      history_source = excluded.history_source,
+                      lineage_v2_valid = excluded.lineage_v2_valid,
                       raw_json = excluded.raw_json
                     """,
                     (
@@ -4340,6 +4405,8 @@ def sync_performance_snapshots(
                         snapshot["reach"],
                         snapshot["watch_time_seconds"],
                         snapshot["metrics_eligible"],
+                        snapshot["history_source"],
+                        snapshot["lineage_v2_valid"],
                         snapshot["raw_json"],
                         snapshot["created_at"],
                     ),
@@ -4495,8 +4562,14 @@ def sync_performance_snapshots(
                 "campaign": campaign_slug,
                 "userId": user_id,
                 "postsScanned": len(rows),
+                "postsImported": len(tracked_rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
                 "metricHistoryRowsScanned": len(metric_history_rows),
+                "metricHistoryError": metric_history_error,
+                "historySources": history_source_counts,
+                "learningIneligiblePosts": len(learning_ineligible_post_ids),
+                "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
+                "learningIneligibleReasons": learning_ineligible_reasons,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
@@ -4507,14 +4580,26 @@ def sync_performance_snapshots(
         )
         factory.conn.commit()
         summary = factory.performance_summary(campaign_slug)
+        learning_readiness = closed_loop_learning_status(
+            factory.conn, campaign_slug=campaign_slug
+        )
         result = {
             "schema": "campaign_factory.performance_sync.v1",
             "campaign": campaign_slug,
             "userId": user_id,
             "checkedAt": utc_now(),
             "postsScanned": len(rows),
+            "postsImported": len(tracked_rows),
             "campaignFactoryPostsScanned": len(tracked_rows),
             "metricHistoryRowsScanned": len(metric_history_rows),
+            "metricHistoryError": metric_history_error,
+            "historySources": history_source_counts,
+            "fallbackRows": history_source_counts.get("post_row_fallback", 0),
+            "learningIneligiblePosts": len(learning_ineligible_post_ids),
+            "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
+            "learningIneligibleReasons": learning_ineligible_reasons,
+            "learningLoopCutover": learning_loop_cutover_iso(),
+            "learningReadiness": learning_readiness,
             "campaignFactorySnapshotsScanned": tracked_snapshot_count,
             "inserted": inserted,
             "updated": updated,
@@ -4535,8 +4620,14 @@ def sync_performance_snapshots(
             message=f"Performance synced: {inserted} inserted, {updated} updated, {skipped} skipped",
             metadata={
                 "postsScanned": len(rows),
+                "postsImported": len(tracked_rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
                 "metricHistoryRowsScanned": len(metric_history_rows),
+                "metricHistoryError": metric_history_error,
+                "historySources": history_source_counts,
+                "learningIneligiblePosts": len(learning_ineligible_post_ids),
+                "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
+                "learningIneligibleReasons": learning_ineligible_reasons,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
@@ -4550,8 +4641,14 @@ def sync_performance_snapshots(
             pipeline_job["id"],
             {
                 "postsScanned": len(rows),
+                "postsImported": len(tracked_rows),
                 "campaignFactoryPostsScanned": len(tracked_rows),
                 "metricHistoryRowsScanned": len(metric_history_rows),
+                "metricHistoryError": metric_history_error,
+                "historySources": history_source_counts,
+                "learningIneligiblePosts": len(learning_ineligible_post_ids),
+                "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
+                "learningIneligibleReasons": learning_ineligible_reasons,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
@@ -4614,17 +4711,23 @@ def _select_threadsdash_post_metric_history(
     select_columns = (
         "id,post_id,account_id,platform,snapshot_at,hours_since_publish,"
         "views_count,likes_count,replies_count,reposts_count,quotes_count,shares_count,"
-        "saves_count,reach,engagement_rate,created_at"
+        "saves_count,reach,engagement_rate"
     )
-    return client.select(
-        "post_metric_history",
-        {
-            "select": select_columns,
-            "post_id": f"in.({','.join(ids)})",
-            "order": "snapshot_at.asc",
-            "limit": str(max(limit, len(ids) * 24)),
-        },
-    )
+    rows: list[dict[str, Any]] = []
+    for offset in range(0, len(ids), POST_METRIC_HISTORY_POST_ID_BATCH_SIZE):
+        batch = ids[offset : offset + POST_METRIC_HISTORY_POST_ID_BATCH_SIZE]
+        rows.extend(
+            client.select(
+                "post_metric_history",
+                {
+                    "select": select_columns,
+                    "post_id": f"in.({','.join(batch)})",
+                    "order": "snapshot_at.asc",
+                    "limit": str(max(limit, len(batch) * 24)),
+                },
+            )
+        )
+    return rows
 
 
 def _validate_threadsdash_post_metric_history_read(rows: list[dict[str, Any]]) -> None:
@@ -4663,7 +4766,7 @@ def _threadsdash_performance_rows(
     post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     if not metric_history_rows:
-        return [post_row]
+        return [{**post_row, "history_source": "post_row_fallback"}]
     return [
         _threadsdash_post_with_metric_history(post_row, history_row)
         for history_row in metric_history_rows
@@ -4674,6 +4777,7 @@ def _threadsdash_post_with_metric_history(
     post_row: dict[str, Any], history_row: dict[str, Any]
 ) -> dict[str, Any]:
     merged = dict(post_row)
+    merged["history_source"] = "metric_history"
     merged["metrics_updated_at"] = history_row.get("snapshot_at") or history_row.get(
         "created_at"
     )
@@ -4918,6 +5022,17 @@ def _performance_snapshot_from_row(
             "ig_reels_video_view_total_time",
         ),
         "metrics_eligible": 1 if meta.get("metrics_eligible") else 0,
+        "history_source": row.get("history_source") or "post_row_fallback",
+        "lineage_v2_valid": 1
+        if lineage_v2_is_valid(
+            meta.get("generated_asset_lineage"),
+            campaign_id=meta.get("campaign_id"),
+            recipe_id=meta.get("recipe"),
+            caption_hash=meta.get("caption_hash"),
+            rendered_asset_id=meta.get("rendered_asset_id"),
+            variant_id=meta.get("variant_asset_id"),
+        )
+        else 0,
         "raw_json": json.dumps(raw_row, ensure_ascii=False, sort_keys=True),
         "created_at": utc_now(),
     }

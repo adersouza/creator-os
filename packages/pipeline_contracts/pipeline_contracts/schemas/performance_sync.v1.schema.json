@@ -28,12 +28,41 @@
     "postsScanned": {
       "type": "integer"
     },
+    "postsImported": {
+      "type": "integer"
+    },
     "campaignFactoryPostsScanned": {
       "type": "integer"
     },
     "metricHistoryRowsScanned": {
       "type": "integer",
       "description": "Rows read from ThreadsDashboard post_metric_history for time-series performance learning"
+    },
+    "metricHistoryError": {
+      "type": ["string", "null"]
+    },
+    "historySources": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"}
+    },
+    "fallbackRows": {
+      "type": "integer"
+    },
+    "learningIneligiblePosts": {
+      "type": "integer"
+    },
+    "learningIneligibleSnapshots": {
+      "type": "integer"
+    },
+    "learningIneligibleReasons": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"}
+    },
+    "learningLoopCutover": {
+      "type": ["string", "null"]
+    },
+    "learningReadiness": {
+      "type": "object"
     },
     "campaignFactorySnapshotsScanned": {
       "type": "integer",

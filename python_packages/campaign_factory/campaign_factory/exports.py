@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .caption_outcome import build_caption_outcome_context, load_context_json
+from .lineage_v2 import build_lineage_v2_core
 from .persistence import json_load, utc_now
 
 
@@ -218,6 +219,18 @@ def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
                 if isinstance(caption_generation.get("generatedAssetLineage"), dict)
                 else caption_generation,
             )
+        generated_lineage = build_lineage_v2_core(
+            generated_lineage,
+            campaign_id=campaign["slug"],
+            recipe_id=row["recipe"],
+            caption_hash=caption_outcome_context.get("caption_hash")
+            or row.get("caption_hash"),
+            rendered_asset_id=row["id"],
+            prompt_id=source_prompt.get("promptId") or source_prompt.get("prompt_id"),
+            reference_id=source_prompt.get("referenceId")
+            or source_prompt.get("reference_id")
+            or (reference_pattern or {}).get("referenceId"),
+        )
         creative_plan = None
         creative_plan_id = source_prompt.get("creativePlanId") or source_prompt.get(
             "creative_plan_id"

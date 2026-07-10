@@ -7,6 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from campaign_factory.learning_score import (
+    learning_eligible_sql,
+    learning_loop_cutover_iso,
+)
+
 from .persistence import json_load, utc_now
 
 WINNER_EXPANSION_OPERATION_FAMILIES = [
@@ -400,14 +405,18 @@ class WinnerExpansionRepository:
         min_followers: int = 1,
     ) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ? AND metrics_eligible = 1
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign["id"],),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                f"""
+                SELECT * FROM performance_snapshots
+                WHERE campaign_id = ? AND {learning_eligible_sql()}
+                ORDER BY snapshot_at DESC, created_at DESC
+                """,
+                (campaign["id"], cutover_iso),
+            ).fetchall()
         reach_floor = min_reach if min_reach is not None else min_views
         winners = []
         seen_posts: set[str] = set()
@@ -627,16 +636,20 @@ class WinnerExpansionRepository:
         parent_asset_id: str,
         parent_reel_id: str,
     ) -> dict[str, Any]:
-        rows = self.conn.execute(
-            """
-            SELECT * FROM performance_snapshots
-            WHERE campaign_id = ?
-              AND metrics_eligible = 1
-              AND (rendered_asset_id = ? OR parent_reel_id = ?)
-            ORDER BY snapshot_at DESC, created_at DESC
-            """,
-            (campaign_id, parent_asset_id, parent_reel_id),
-        ).fetchall()
+        cutover_iso = learning_loop_cutover_iso()
+        if cutover_iso is None:
+            rows = []
+        else:
+            rows = self.conn.execute(
+                f"""
+                SELECT * FROM performance_snapshots
+                WHERE campaign_id = ?
+                  AND {learning_eligible_sql()}
+                  AND (rendered_asset_id = ? OR parent_reel_id = ?)
+                ORDER BY snapshot_at DESC, created_at DESC
+                """,
+                (campaign_id, cutover_iso, parent_asset_id, parent_reel_id),
+            ).fetchall()
         best_score = 0
         best_metrics: dict[str, int] = {}
         for row in rows:

@@ -429,10 +429,12 @@ def test_contract_schema_examples_validate():
         "audio_intent.v1.example.json",
         "audio_catalog_export.v1.example.json",
         "campaign_draft_payload.v1.example.json",
+        "campaign_draft_payload.v2.example.json",
         "caption_outcome_context.v1.example.json",
         "creative_plan.v1.example.json",
         "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
+        "generated_asset_lineage.v2.example.json",
         "higgsfield_soul_image_prompt.v1.example.json",
         "kling_3_video_prompt.v1.example.json",
         "motion_edit_render.v1.example.json",
@@ -2108,6 +2110,12 @@ def test_import_folder_accepts_guarded_reel_review_package(
                 "schema": "reel_factory.generated_asset_lineage.v1",
                 "workflow": "reel_factory_review_batch",
                 "pipelineTraceId": "trace_review_1",
+                "source": {
+                    "promptId": "prompt_review_1",
+                    "referenceId": "reference_review_1",
+                },
+                "generation": {"tool": "reel_factory_review_batch"},
+                "review": {"humanReviewRequired": True, "status": "approved"},
                 "captionPlacementDecision": {
                     "status": "passed",
                     "selectedLane": "top",
@@ -3622,6 +3630,34 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
         cf.close()
 
 
+def set_test_source_prompt(
+    cf: CampaignFactory,
+    source_id: str,
+    *,
+    prompt_id: str = "prompt_test_001",
+    reference_id: str = "reference_test_001",
+) -> None:
+    source_prompt = {
+        "promptId": prompt_id,
+        "referenceId": reference_id,
+        "generationTool": "manual_finished_video",
+        "generatedAssetLineage": {
+            "schema": "reel_factory.generated_asset_lineage.v1",
+            "pipelineTraceId": f"trace_{prompt_id}",
+            "source": {
+                "promptId": prompt_id,
+                "referenceId": reference_id,
+            },
+            "generation": {"tool": "manual_finished_video"},
+            "review": {"humanReviewRequired": True, "status": "draft"},
+        },
+    }
+    cf.conn.execute(
+        "UPDATE source_assets SET source_prompt = ? WHERE id = ?",
+        (json.dumps(source_prompt, sort_keys=True), source_id),
+    )
+
+
 def add_rendered_asset(
     cf: CampaignFactory,
     tmp_path: Path,
@@ -3634,6 +3670,7 @@ def add_rendered_asset(
     (folder / "a.mp4").write_bytes(b"source")
     cf.import_folder(folder, campaign_slug=campaign_slug, model_slug="model")
     source = cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
+    set_test_source_prompt(cf, source["id"])
     rendered_path = tmp_path / filename
     rendered_path.write_bytes(b"rendered")
     now = "2026-01-01T00:00:00+00:00"
@@ -3705,7 +3742,9 @@ def add_source_asset(
     folder.mkdir(exist_ok=True)
     (folder / "source.mp4").write_bytes(b"source")
     cf.import_folder(folder, campaign_slug=campaign_slug, model_slug="model")
-    return cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
+    source = cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
+    set_test_source_prompt(cf, source["id"], prompt_id="prompt_motion_edit_001")
+    return source
 
 
 def fake_motion_edit_render(
@@ -3754,10 +3793,13 @@ def write_fake_motion_edit_outputs(output_path: Path) -> None:
         json.dumps(
             {
                 "schema": "reel_factory.generated_asset_lineage.v1",
-                "workflow": "motion_edit_still_to_reel",
-                "paidGeneration": False,
-                "estimatedCostUsd": 0,
-                "humanReviewRequired": True,
+                "pipelineTraceId": "trace_motion_edit_test_001",
+                "source": {"parentStillPath": "/tmp/still.png"},
+                "generation": {
+                    "tool": "reel_factory.still_to_reel",
+                    "workflow": "motion_edit_still_to_reel",
+                },
+                "review": {"humanReviewRequired": True, "status": "draft"},
             }
         ),
         encoding="utf-8",
@@ -4607,6 +4649,10 @@ def test_motion_edit_stage_apply_registers_review_ready_asset(
         assert caption_generation["motionEditRender"]["animationMode"] == "motion_edit"
         assert caption_generation["paidGeneration"] is False
         assert caption_generation["estimatedCostUsd"] == 0
+        assert (
+            caption_generation["generatedAssetLineage"]["source"]["promptId"]
+            == "prompt_motion_edit_001"
+        )
         assert metadata["humanReviewRequired"] is True
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
@@ -4701,8 +4747,27 @@ def threadsdash_campaign_factory_metadata(
         "recipe": recipe,
         "captionOutcomeContext": context,
         "caption_outcome_context": context,
+        "generated_asset_lineage": {
+            "schema": "reel_factory.generated_asset_lineage.v2",
+            "pipelineTraceId": "trace_threadsdash_test_001",
+            "campaignId": "may",
+            "recipeId": recipe,
+            "captionHash": caption_hash,
+            "renderedAssetId": rendered_asset_id,
+            "variationApplied": False,
+            "variantId": None,
+            "audioIntentFingerprint": threadsdash_adapter._text_hash("audio_intent"),
+            "audioId": None,
+            "source": {
+                "promptId": "prompt_test_001",
+                "referenceId": "reference_test_001",
+            },
+            "generation": {"tool": "manual_finished_video"},
+            "review": {"humanReviewRequired": True, "status": "approved"},
+        },
         "publishability_failure_reasons": [],
         "quarantined": False,
+        "lineage_v2_valid": 1,
         "handoff_manifest": {
             "manifest_version": 1,
             "asset_id": rendered_asset_id,
@@ -4979,6 +5044,13 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         assert draft["_localFilePath"] == str(rendered_path)
         assert draft["media"][0]["fileName"] == rendered_path.name
         assert draft["metadata"]["campaign_factory"]["variant_assignment"] is None
+        lineage = draft["metadata"]["campaign_factory"]["generated_asset_lineage"]
+        assert payload["schema"] == "campaign_factory.threadsdash_drafts.v2"
+        assert lineage["schema"] == "reel_factory.generated_asset_lineage.v2"
+        assert lineage["variationApplied"] is False
+        assert lineage["variantId"] is None
+        assert lineage["audioId"] is None
+        assert len(lineage["audioIntentFingerprint"]) == 64
     finally:
         cf.close()
 
@@ -5029,6 +5101,11 @@ def test_threadsdash_export_enabled_variation_maps_account_media(
         assert meta["parent_master_asset_id"] == "asset_1"
         assert meta["variant_asset_id"].startswith("asset_1_")
         assert meta["variant_assignment"]["lineage"]["paid_generation"] is False
+        assert meta["generated_asset_lineage"]["variationApplied"] is True
+        assert (
+            meta["generated_asset_lineage"]["variantId"]
+            == meta["variant_assignment"]["variant_asset_id"]
+        )
     finally:
         cf.close()
 
@@ -5048,10 +5125,32 @@ def test_threadsdash_export_enabled_variation_blocks_missing_assignment(tmp_path
         cf.close()
 
 
+def test_export_manifest_hard_blocks_missing_lineage_v2_prompt_id(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE source_assets SET source_prompt = '{}' WHERE id = ?",
+            (source["id"],),
+        )
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        with pytest.raises(
+            ValueError, match="generated asset lineage v2 missing promptId"
+        ):
+            cf.export_manifest(campaign_slug="may")
+    finally:
+        cf.close()
+
+
 def test_mass_production_readiness_report_flags_blockers(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
-        add_rendered_asset(cf, tmp_path)
+        source, _ = add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE source_assets SET source_prompt = '{}' WHERE id = ?",
+            (source["id"],),
+        )
         cf.conn.execute(
             "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
         )
@@ -5199,6 +5298,10 @@ def test_mass_production_readiness_report_detects_duplicate_content_risk(
                     }
                 ),
             ),
+        )
+        cf.conn.execute(
+            "UPDATE source_assets SET source_prompt = '{}' WHERE id = ?",
+            (source["id"],),
         )
         cf.conn.commit()
 
@@ -6234,6 +6337,7 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
             folder, campaign_slug="may", model_slug="model", account_handles=["ig_a"]
         )
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
+        set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -6792,10 +6896,12 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, instagram_account_id,
-             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at)
+             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at,
+             published_at, metrics_eligible, history_source, lineage_v2_valid)
             VALUES
             ('perf_good', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_1', 'instagram',
-             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?)
+             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?,
+             '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1)
             """,
             (
                 campaign["id"],
@@ -6941,9 +7047,9 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
                 INSERT INTO performance_snapshots
                 (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
                  caption_hash, recipe, post_id, platform, status, instagram_account_id,
-                 snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible, raw_json, created_at)
+                 snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible, raw_json, created_at, published_at, history_source, lineage_v2_valid)
                 VALUES (?, ?, 'asset_1', ?, ?, ?, ?, 'v01_original', ?, 'instagram',
-                 'published', 'ig_1', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                 'published', 'ig_1', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, '2026-01-02T00:00:00+00:00', 'metric_history', 1)
                 """,
                 (
                     snapshot_id,
@@ -7423,9 +7529,9 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
                 (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
                  caption_hash, recipe, post_id, platform, status, instagram_account_id,
                  snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
-                 variant_operations_json, raw_json, created_at)
+                 variant_operations_json, raw_json, created_at, published_at, history_source, lineage_v2_valid)
                 VALUES (?, ?, 'asset_1', ?, ?, ?, ?, 'v01_original', ?, 'instagram',
-                 'published', 'ig_memory', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                 'published', 'ig_memory', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '2026-01-02T00:00:00+00:00', 'metric_history', 1)
                 """,
                 (
                     snapshot_id,
@@ -7510,16 +7616,21 @@ def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, instagram_account_id,
-             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at)
+             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at,
+             published_at, metrics_eligible, history_source, lineage_v2_valid)
             VALUES
             ('perf_rec', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_rec', 'instagram',
-             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?),
+             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?,
+             '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_base_1', ?, 'manual_1', ?, 'hash_b1', ?, ?, 'v01_original', 'post_b1', 'instagram',
-             'published', 'ig_1', ?, 100, 5, 0, 0, 0, 100, '{}', ?),
+             'published', 'ig_1', ?, 100, 5, 0, 0, 0, 100, '{}', ?,
+             '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_base_2', ?, 'manual_2', ?, 'hash_b2', ?, ?, 'v01_original', 'post_b2', 'instagram',
-             'published', 'ig_1', ?, 120, 6, 0, 0, 0, 120, '{}', ?),
+             'published', 'ig_1', ?, 120, 6, 0, 0, 0, 120, '{}', ?,
+             '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_base_3', ?, 'manual_3', ?, 'hash_b3', ?, ?, 'v01_original', 'post_b3', 'instagram',
-             'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?)
+             'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?,
+             '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1)
             """,
             (
                 campaign["id"],
@@ -7624,16 +7735,21 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, instagram_account_id,
-             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at)
+             snapshot_at, views, likes, comments, shares, saves, reach, raw_json, created_at,
+             published_at, metrics_eligible, history_source, lineage_v2_valid)
             VALUES
             ('perf_acc_rec', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_rec', 'instagram',
-             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?),
+             'published', 'ig_1', ?, 12000, 900, 80, 100, 140, 10000, '{}', ?,
+             '2026-05-30T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_acc_base_1', ?, 'manual_1', ?, 'hash_b1', ?, ?, 'v01_original', 'post_b1', 'instagram',
-             'published', 'ig_1', ?, 100, 5, 0, 0, 0, 100, '{}', ?),
+             'published', 'ig_1', ?, 100, 5, 0, 0, 0, 100, '{}', ?,
+             '2026-05-30T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_acc_base_2', ?, 'manual_2', ?, 'hash_b2', ?, ?, 'v01_original', 'post_b2', 'instagram',
-             'published', 'ig_1', ?, 120, 6, 0, 0, 0, 120, '{}', ?),
+             'published', 'ig_1', ?, 120, 6, 0, 0, 0, 120, '{}', ?,
+             '2026-05-30T00:00:00+00:00', 1, 'metric_history', 1),
             ('perf_acc_base_3', ?, 'manual_3', ?, 'hash_b3', ?, ?, 'v01_original', 'post_b3', 'instagram',
-             'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?)
+             'published', 'ig_1', ?, 90, 4, 0, 0, 0, 90, '{}', ?,
+             '2026-05-30T00:00:00+00:00', 1, 'metric_history', 1)
             """,
             (
                 campaign["id"],
@@ -7868,10 +7984,10 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, instagram_account_id,
-             snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible, raw_json, created_at)
+             snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible, raw_json, created_at, published_at, history_source, lineage_v2_valid)
             VALUES
             ('perf_account_1', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_1', 'instagram',
-             'published', 'ig_memory', ?, 5000, 400, 20, 30, 50, 4500, 1, ?, ?)
+             'published', 'ig_memory', ?, 5000, 400, 20, 30, 50, 4500, 1, ?, ?, '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 campaign["id"],
@@ -8100,6 +8216,7 @@ def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_r
         (folder / "a.mp4").write_bytes(b"source")
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
+        set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "needs_audio.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -9220,6 +9337,7 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
             folder, campaign_slug="launch", model_slug="model", account_handles=["ig_a"]
         )
         source = imported["imported"][0]
+        set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "rendered.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -9674,6 +9792,7 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
             folder, campaign_slug="may", model_slug="stacey", account_handles=["ig_a"]
         )
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
+        set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -12243,10 +12362,10 @@ def test_variant_metrics_rollup_groups_by_parent_family_and_variant(tmp_path: Pa
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, caption_hash,
              post_id, platform, status, instagram_account_id, snapshot_at, views, likes,
              comments, shares, saves, reach, metrics_eligible, concept_id, parent_reel_id,
-             variant_family_id, variant_id, audio_id, created_at)
+             variant_family_id, variant_id, audio_id, created_at, published_at, history_source, lineage_v2_valid)
             VALUES ('perf_variant_1', ?, 'asset_1', ?, 'hash_1', 'caption_hash_1',
              'post_variant_1', 'instagram', 'published', 'ig_1', '2026-01-02T00:00:00+00:00',
-             100, 10, 2, 3, 4, 90, 1, ?, ?, 'vfam_test', ?, 'audio_1', '2026-01-02T00:00:00+00:00')
+             100, 10, 2, 3, 4, 90, 1, ?, ?, 'vfam_test', ?, 'audio_1', '2026-01-02T00:00:00+00:00', '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 cf.rendered_asset("asset_1")["campaign_id"],
@@ -12293,13 +12412,13 @@ def test_winner_registry_remembers_why_winners_won_without_writing(tmp_path: Pat
              caption_angle, post_id, platform, status, instagram_account_id, published_at,
              snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
              concept_id, parent_reel_id, variant_family_id, variant_id, audio_id, creator_mix,
-             created_at, raw_json)
+             created_at, raw_json, history_source, lineage_v2_valid)
             VALUES ('perf_memory_winner', ?, 'asset_1', ?, 'hash_1', 'caption_hash_1',
              'tease', 'post_memory_winner', 'instagram', 'published', 'ig_1',
              '2026-06-06T18:12:00+00:00', '2026-06-06T20:00:00+00:00',
              12000, 700, 40, 80, 100, 11000, 1, ?, ?, 'vfam_memory', 'variant_memory',
              'audio_12', 'Stacey', '2026-06-06T20:00:00+00:00',
-             '{"followers": 12, "onlyfansRevenue": 999999}')
+             '{"followers": 12, "onlyfansRevenue": 999999}', 'metric_history', 1)
             """,
             (campaign_id, source_asset_id, parent["conceptId"], parent["parentReelId"]),
         )
@@ -12438,10 +12557,10 @@ def test_winner_patterns_rolls_up_top_concepts_audio_captions_and_windows(
                 (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, caption_hash,
                  caption_angle, post_id, platform, status, instagram_account_id, published_at,
                  snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
-                 concept_id, parent_reel_id, audio_id, creator_mix, created_at, raw_json)
+                 concept_id, parent_reel_id, audio_id, creator_mix, created_at, raw_json, history_source, lineage_v2_valid)
                 VALUES (?, ?, 'asset_1', ?, ?, ?, ?, ?, 'instagram', 'published', 'ig_1',
                  ?, '2026-06-09T00:00:00+00:00', ?, 100, 10, 20, 30, ?, 1,
-                 ?, ?, ?, 'Stacey', '2026-06-09T00:00:00+00:00', '{}')
+                 ?, ?, ?, 'Stacey', '2026-06-09T00:00:00+00:00', '{}', 'metric_history', 1)
                 """,
                 (
                     snapshot_id,
@@ -15526,11 +15645,11 @@ def test_variant_inventory_plan_prefers_winner_parent_over_non_winner(tmp_path: 
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, caption_hash,
              post_id, platform, status, instagram_account_id, snapshot_at, views, likes,
              comments, shares, saves, reach, metrics_eligible, concept_id, parent_reel_id,
-             audio_id, created_at)
+             audio_id, created_at, published_at, history_source, lineage_v2_valid)
             VALUES ('perf_inventory_winner', ?, 'asset_winner', ?, 'hash_asset_winner', 'caption_hash_asset_winner',
              'post_winner', 'instagram', 'published', 'ig_1', '2026-01-02T00:00:00+00:00',
              12000, 700, 40, 80, 100, 11000, 1, ?, ?, 'audio_1',
-             '2026-01-02T00:00:00+00:00')
+             '2026-01-02T00:00:00+00:00', '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 campaign["id"],
@@ -15685,11 +15804,11 @@ def test_winner_expansion_report_is_read_only_and_uses_instagram_visible_metrics
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, caption_hash,
              post_id, platform, status, instagram_account_id, snapshot_at, views, likes,
              comments, shares, saves, reach, metrics_eligible, concept_id, parent_reel_id,
-             variant_family_id, variant_id, audio_id, created_at, raw_json)
+             variant_family_id, variant_id, audio_id, created_at, raw_json, published_at, history_source, lineage_v2_valid)
             VALUES ('perf_winner', ?, 'asset_1', ?, 'hash_1', 'caption_hash_1',
              'post_winner', 'instagram', 'published', 'ig_1', '2026-01-02T00:00:00+00:00',
              12000, 700, 40, 80, 100, 11000, 1, ?, ?, 'vfam_report', ?, 'audio_1',
-             '2026-01-02T00:00:00+00:00', '{"onlyfansRevenue":999999}')
+             '2026-01-02T00:00:00+00:00', '{"onlyfansRevenue":999999}', '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 cf.rendered_asset("asset_1")["campaign_id"],
@@ -15863,6 +15982,7 @@ def test_threadsdash_live_export_builds_exact_supabase_rows(
     try:
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
+        set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -16068,6 +16188,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
             "UPDATE source_assets SET id = 'src_1', content_hash = 'source_hash_1' WHERE id = ?",
             (source["id"],),
         )
+        set_test_source_prompt(cf, "src_1")
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
         now = "2026-01-01T00:00:00+00:00"
@@ -16133,7 +16254,7 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
                             "rendered_asset_id": "asset_1",
                         }
                     },
-                }
+                },
             ]
 
     monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
@@ -16279,7 +16400,26 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return []
+                return [
+                    {
+                        "id": "hist_post_1_24h",
+                        "post_id": "post_1",
+                        "account_id": "acct_1",
+                        "platform": "instagram",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                        "hours_since_publish": 24,
+                        "views_count": 1200,
+                        "likes_count": 80,
+                        "replies_count": 9,
+                        "reposts_count": 0,
+                        "quotes_count": 0,
+                        "shares_count": 14,
+                        "saves_count": 22,
+                        "reach": 1100,
+                        "engagement_rate": 0.113,
+                        "created_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ]
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
             return rows
@@ -16501,6 +16641,148 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
         cf.close()
 
 
+def test_metric_history_read_omits_nonexistent_created_at_column():
+    captured: dict[str, str] = {}
+
+    class CapturedFailingRequestClient:
+        def select(self, table, params):
+            assert table == "post_metric_history"
+            captured.update(params)
+            if "created_at" in params["select"].split(","):
+                raise RuntimeError(
+                    "HTTP 400: column post_metric_history.created_at does not exist"
+                )
+            return [
+                {
+                    "id": "hist_no_created_at",
+                    "post_id": "post_1",
+                    "account_id": "acct_1",
+                    "platform": "instagram",
+                    "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    "hours_since_publish": 24,
+                    "views_count": 1200,
+                    "likes_count": 80,
+                    "replies_count": 9,
+                    "reposts_count": 0,
+                    "quotes_count": 0,
+                    "shares_count": 14,
+                    "saves_count": 22,
+                    "reach": 1100,
+                    "engagement_rate": 0.113,
+                }
+            ]
+
+    rows = threadsdash_adapter._select_threadsdash_post_metric_history(
+        CapturedFailingRequestClient(), post_ids=["post_1"], limit=1000
+    )
+    threadsdash_adapter._validate_threadsdash_post_metric_history_read(rows)
+
+    assert len(rows) == 1
+    assert "created_at" not in captured["select"].split(",")
+    assert captured["post_id"] == "in.(post_1)"
+
+
+def test_metric_history_read_batches_the_captured_1000_post_request_shape():
+    captured_filters: list[str] = []
+
+    class UrlLengthGuardClient:
+        def select(self, table, params):
+            assert table == "post_metric_history"
+            post_filter = params["post_id"]
+            captured_filters.append(post_filter)
+            if len(post_filter) >= 20_000:
+                raise RuntimeError("Supabase request failed 400: Bad Request")
+            return []
+
+    post_ids = [f"00000000-0000-4000-8000-{index:012d}" for index in range(1000)]
+    rows = threadsdash_adapter._select_threadsdash_post_metric_history(
+        UrlLengthGuardClient(), post_ids=post_ids, limit=1000
+    )
+
+    assert rows == []
+    assert len(captured_filters) == 200
+    assert all(len(post_filter) < 250 for post_filter in captured_filters)
+    assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
+
+
+def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    error = "HTTP 503: post_metric_history temporarily unavailable"
+
+    class FailingHistoryClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            if table == "post_metric_history":
+                raise RuntimeError(error)
+            assert table == "posts"
+            return [
+                {
+                    "id": "post_fallback_1",
+                    "status": "published",
+                    "platform": "instagram",
+                    "instagram_account_id": "ig_1",
+                    "created_at": "2026-01-02T00:00:00+00:00",
+                    "updated_at": "2026-01-03T01:00:00+00:00",
+                    "published_at": "2026-01-02T01:00:00+00:00",
+                    "views": 1200,
+                    "likes_count": 80,
+                    "metadata": {
+                        "campaign_factory": threadsdash_campaign_factory_metadata(
+                            source
+                        )
+                    },
+                },
+                {
+                    "id": "post_manual_1",
+                    "status": "published",
+                    "platform": "instagram",
+                    "published_at": "2026-01-02T01:00:00+00:00",
+                    "updated_at": "2026-01-03T01:00:00+00:00",
+                    "metadata": {},
+                },
+            ]
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FailingHistoryClient)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        result = sync_performance_snapshots(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        stored = cf.conn.execute(
+            "SELECT metrics_eligible, history_source, lineage_v2_valid FROM performance_snapshots WHERE post_id = ?",
+            ("post_fallback_1",),
+        ).fetchone()
+        assert result["inserted"] == 1
+        assert result["postsScanned"] == 2
+        assert result["postsImported"] == 1
+        assert result["metricHistoryError"] == error
+        assert result["historySources"] == {"post_row_fallback": 1}
+        assert result["fallbackRows"] == 1
+        assert result["learningIneligiblePosts"] == 2
+        assert result["learningIneligibleSnapshots"] == 1
+        assert result["learningIneligibleReasons"] == {
+            "fallback_history_source": 1,
+            "manual_no_lineage": 1,
+        }
+        assert result["learningReadiness"]["counts"]["eligiblePosts"] == 0
+        assert dict(stored) == {
+            "metrics_eligible": 1,
+            "history_source": "post_row_fallback",
+            "lineage_v2_valid": 1,
+        }
+    finally:
+        cf.close()
+
+
 def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -16512,8 +16794,8 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
             (id, campaign_id, rendered_asset_id, source_asset_id, caption_hash, recipe,
              post_id, platform, status, account_id, instagram_account_id, published_at,
              snapshot_at, views, likes, comments, shares, saves, reach, metrics_eligible,
-             raw_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 1, ?, ?)
+             raw_json, created_at, history_source, lineage_v2_valid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 1, ?, ?, 'metric_history', 1)
             """,
             (
                 "perf_approved",
@@ -16554,8 +16836,8 @@ def test_reference_outcome_report_ranks_approved_measured_references(tmp_path: P
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, caption_hash, recipe,
              post_id, platform, status, account_id, instagram_account_id, published_at,
-             snapshot_at, views, metrics_eligible, raw_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 1, ?, ?)
+             snapshot_at, views, metrics_eligible, raw_json, created_at, history_source, lineage_v2_valid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'instagram', 'published', ?, ?, ?, ?, ?, 1, ?, ?, 'metric_history', 1)
             """,
             (
                 "perf_unmeasured",
@@ -16977,14 +17259,14 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
              frame_type, length_class, format_class, caption_fit_version, source_clip,
              caption_outcome_context_json, recipe, post_id, platform, status, account_id,
              instagram_account_id, snapshot_at, views, likes, comments, shares, saves, reach,
-             watch_time_seconds, metrics_eligible, raw_json, created_at)
+             watch_time_seconds, metrics_eligible, raw_json, created_at, published_at, history_source, lineage_v2_valid)
             VALUES
             ('perf_caption_review_1', ?, 'asset_1', ?, 'hash_1', ?, 'caption_hash_1',
              'caption', 'question_bank', ?, 'Lola', 'lola', 'mirror_fullbody',
              'very_short', 'single_line', 'v1', 'clip_010', ?, 'v09_caption_bg',
              'post_caption_review_1', 'instagram', 'published', NULL, 'ig_1',
              '2026-01-03T00:00:00+00:00', 1000, 80, 9, 12, 18, 900, 240.0, 1, '{}',
-             '2026-01-03T00:00:00+00:00')
+             '2026-01-03T00:00:00+00:00', '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 campaign_id,
@@ -17002,14 +17284,14 @@ def test_performance_summary_includes_read_only_caption_outcome_review(tmp_path:
              frame_type, length_class, format_class, caption_fit_version, source_clip,
              caption_outcome_context_json, recipe, post_id, platform, status, account_id,
              instagram_account_id, snapshot_at, views, likes, comments, shares, saves, reach,
-             watch_time_seconds, metrics_eligible, raw_json, created_at)
+             watch_time_seconds, metrics_eligible, raw_json, created_at, published_at, history_source, lineage_v2_valid)
             VALUES
             ('perf_caption_review_ineligible', ?, 'asset_bad', ?, 'hash_bad', ?, 'caption_hash_bad',
              'bad caption', 'bad_bank', ?, 'Lola', 'lola', 'mirror_fullbody',
              'very_short', 'single_line', 'v1', 'clip_bad', ?, 'v00_passthrough',
              'post_bad', 'instagram', 'published', NULL, 'ig_1',
              '2026-01-03T00:00:00+00:00', 9999, 999, 99, 99, 99, 9999, 999.0, 0, '{}',
-             '2026-01-03T00:00:00+00:00')
+             '2026-01-03T00:00:00+00:00', '2026-01-02T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 campaign_id,
@@ -17595,12 +17877,12 @@ def test_performance_summary_builds_hook_recipe_audio_leaderboards(tmp_path: Pat
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, account_id, instagram_account_id,
              permalink, published_at, snapshot_at, views, likes, comments, shares, saves, reach,
-             watch_time_seconds, metrics_eligible, raw_json, created_at)
+             watch_time_seconds, metrics_eligible, raw_json, created_at, history_source, lineage_v2_valid)
             VALUES
             ('perf_lb_1', ?, 'asset_1', ?, 'hash_1', ?, 'caption_hash_1',
              'v01_original', 'post_lb_1', 'instagram', 'published', NULL, 'ig_1',
              'https://instagram.test/p/lb1', '2026-01-02T00:00:00+00:00',
-             '2026-01-03T00:00:00+00:00', 1000, 80, 9, 12, 18, 900, 240.0, 1, ?, '2026-01-03T00:00:00+00:00')
+             '2026-01-03T00:00:00+00:00', 1000, 80, 9, 12, 18, 900, 240.0, 1, ?, '2026-01-03T00:00:00+00:00', 'metric_history', 1)
             """,
             (
                 campaign_id,
@@ -17680,12 +17962,13 @@ def test_dashboard_returns_performance_fields(tmp_path: Path):
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, account_id, instagram_account_id,
              published_at, snapshot_at, views, likes, comments, shares, saves, reach,
-             watch_time_seconds, raw_json, created_at)
+             watch_time_seconds, raw_json, created_at, metrics_eligible, history_source,
+             lineage_v2_valid)
             VALUES
             ('perf_1', ?, 'asset_1', ?, 'hash_1', 'source_hash_1',
              ?, 'v01_original', 'post_1', 'instagram', 'published', NULL, 'ig_1',
              '2026-01-02T00:00:00+00:00', '2026-01-03T00:00:00+00:00', 500, 40, 3, 7, 9, 450,
-             100.0, '{}', '2026-01-03T00:00:00+00:00')
+             100.0, '{}', '2026-01-03T00:00:00+00:00', 1, 'metric_history', 1)
             """,
             (
                 campaign_id,
@@ -17708,6 +17991,7 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
     cf = make_factory(tmp_path)
     settings = cf.settings
     rows = []
+    history_rows = []
 
     class FakeClient:
         def __init__(self, url: str, service_role_key: str):
@@ -17715,7 +17999,7 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return []
+                return history_rows
             assert table == "posts"
             return rows
 
@@ -17730,13 +18014,34 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
                 "platform": "instagram",
                 "instagram_account_id": "ig_1",
                 "created_at": "2026-01-02T00:00:00+00:00",
-                "views_count": 333,
+                "published_at": "2026-01-02T01:00:00+00:00",
+                "views_count": 111,
                 "ig_impressions": 444,
-                "ig_reach": 400,
+                "ig_reach": 200,
                 "metadata": {
                     "campaign_factory": threadsdash_campaign_factory_metadata(source),
-                    "insights": {"likes": 21, "shares": 4, "saves": 6},
+                    "insights": {"likes": 5, "shares": 1, "saves": 2},
                 },
+            }
+        )
+        history_rows.append(
+            {
+                "id": "hist_api_1",
+                "post_id": "post_api_1",
+                "account_id": "acct_1",
+                "platform": "instagram",
+                "snapshot_at": "2026-01-03T01:00:00+00:00",
+                "hours_since_publish": 24,
+                "views_count": 333,
+                "likes_count": 21,
+                "replies_count": 3,
+                "reposts_count": 0,
+                "quotes_count": 0,
+                "shares_count": 4,
+                "saves_count": 6,
+                "reach": 400,
+                "engagement_rate": 0.113,
+                "created_at": "2026-01-03T01:00:00+00:00",
             }
         )
     finally:
@@ -18419,10 +18724,12 @@ def test_ranking_uses_performance_but_keeps_blocked_assets_low(tmp_path: Path):
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, account_id, instagram_account_id,
-             snapshot_at, views, likes, comments, shares, saves, reach, watch_time_seconds, raw_json, created_at)
+             snapshot_at, views, likes, comments, shares, saves, reach, watch_time_seconds,
+             raw_json, created_at, published_at, metrics_eligible, history_source, lineage_v2_valid)
             VALUES
             ('perf_good', ?, 'asset_1', ?, 'hash_1', ?, ?, 'v01_original', 'post_1', 'instagram', 'published',
-             NULL, 'ig_1', '2026-01-03T00:00:00+00:00', 10000, 800, 80, 100, 120, 9000, 500.0, '{}', '2026-01-03T00:00:00+00:00')
+             NULL, 'ig_1', '2026-01-03T00:00:00+00:00', 10000, 800, 80, 100, 120, 9000, 500.0, '{}',
+             '2026-01-03T00:00:00+00:00', '2026-01-02T00:00:00+00:00', 1, 'metric_history', 1)
             """,
             (campaign_id, source["id"], source["content_hash"], caption_hash),
         )
@@ -20860,9 +21167,9 @@ def _insert_creative_kb_snapshot(
          parent_reel_id, variant_family_id, variant_id, audio_id, recipe, post_id, platform,
          content_surface, status, account_id, instagram_account_id, published_at, snapshot_at,
          views, likes, comments, shares, saves, impressions, reach, watch_time_seconds,
-         metrics_eligible, raw_json, created_at)
+         metrics_eligible, raw_json, created_at, history_source, lineage_v2_valid)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'recipe_1', ?, 'instagram',
-         ?, 'published', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 0, 1, ?, ?)
+         ?, 'published', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, 0, 1, ?, ?, 'metric_history', 1)
         """,
         (
             snapshot_id,
@@ -22674,8 +22981,8 @@ def test_closed_loop_learning_status_counts_posts_with_1h_and_24h_history(
                 """
                 INSERT INTO performance_snapshots
                 (id, campaign_id, post_id, content_surface, snapshot_at, published_at, views,
-                 metrics_eligible, raw_json, created_at)
-                VALUES (?, ?, ?, 'reel', ?, '2026-01-01T00:00:00+00:00', ?, 1, ?, ?)
+                 metrics_eligible, raw_json, created_at, history_source, lineage_v2_valid)
+                VALUES (?, ?, ?, 'reel', ?, '2026-01-01T00:00:00+00:00', ?, 1, ?, ?, 'metric_history', 1)
                 """,
                 (
                     snapshot_id,

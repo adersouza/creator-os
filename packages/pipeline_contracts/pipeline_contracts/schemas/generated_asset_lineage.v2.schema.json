@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.generated_asset_lineage.v2",
+  "title": "Reel Factory Generated Asset Lineage v2",
+  "description": "Complete forward-learning lineage for a Campaign Factory draft. The audio intent fingerprint is SHA-256 over the UTF-8 canonical JSON of the final audio_intent payload using recursively sorted object keys, separators ',' and ':', and no insignificant whitespace.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "pipelineTraceId",
+    "source",
+    "generation",
+    "review",
+    "campaignId",
+    "recipeId",
+    "captionHash",
+    "renderedAssetId",
+    "variationApplied",
+    "variantId",
+    "audioIntentFingerprint"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reel_factory.generated_asset_lineage.v2"
+    },
+    "pipelineTraceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["promptId"],
+      "properties": {
+        "promptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "referenceId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tool"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "quality": {
+      "type": "object"
+    },
+    "campaignId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recipeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "captionHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "renderedAssetId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variationApplied": {
+      "type": "boolean"
+    },
+    "variantId": {
+      "type": ["string", "null"]
+    },
+    "audioIntentFingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase SHA-256 over UTF-8 canonical JSON (lexicographically sorted object keys, comma/colon separators, no insignificant whitespace) of the final pipeline.audio_intent.v1 semantic payload. The recursive canonical input excludes pipelineTraceId, assignee, selected_by, attached_by, verified_by, and timestamp keys ending in _at or At."
+    },
+    "audioId": {
+      "type": ["string", "null"]
+    },
+    "asset_state": {
+      "type": "string",
+      "enum": [
+        "approved_but_not_publishable",
+        "publishable_candidate",
+        "exportable",
+        "invalid_retired_draft"
+      ]
+    },
+    "publishability_failure_reasons": {
+      "type": "array"
+    },
+    "blockingReason": {
+      "type": ["string", "null"]
+    },
+    "rootCause": {
+      "type": ["string", "null"]
+    },
+    "captionOutcomeContext": {
+      "$ref": "caption_outcome_context.v1.schema.json"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "variationApplied": {"const": true}
+        },
+        "required": ["variationApplied"]
+      },
+      "then": {
+        "properties": {
+          "variantId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "variantId": {"type": "null"}
+        }
+      }
+    }
+  ]
+}

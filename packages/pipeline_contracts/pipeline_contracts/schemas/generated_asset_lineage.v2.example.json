@@ -1,0 +1,31 @@
+{
+  "schema": "reel_factory.generated_asset_lineage.v2",
+  "pipelineTraceId": "trace_generated_asset_002",
+  "campaignId": "may",
+  "recipeId": "v01_original",
+  "captionHash": "caption_hash_rendered",
+  "renderedAssetId": "asset_002",
+  "variationApplied": false,
+  "variantId": null,
+  "audioIntentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "audioId": null,
+  "source": {
+    "referenceId": "ref_001",
+    "promptId": "prompt_001",
+    "patternCardId": "pattern_mirror_001",
+    "formatType": "mirror_selfie"
+  },
+  "generation": {
+    "tool": "higgsfield_kling_manual",
+    "modelProfile": "soul_id_primary",
+    "assetPath": "/tmp/generated.mp4"
+  },
+  "review": {
+    "humanReviewRequired": true,
+    "status": "approved"
+  },
+  "quality": {
+    "readiness_checks_pass": true
+  },
+  "asset_state": "exportable"
+}
