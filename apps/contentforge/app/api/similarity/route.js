@@ -19,7 +19,7 @@ var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
 var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "watchability", "originality", "creativeQuality", "virality", "videoAnalysis"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
-var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.9";
+var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.10";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
 var versionCache = new Map();
 
@@ -252,6 +252,19 @@ function addAdvisoryWarnings(warningItems, layer, warnings) {
   }
 }
 
+function addProfileWarnings(blockingItems, warningItems, layer, warnings, shouldBlock) {
+  for (var warning of warnings || []) {
+    var destination = shouldBlock(warning) ? blockingItems : warningItems;
+    addReadinessItem(
+      destination,
+      warning.code || layer + "_review",
+      warning.message || warning.label || layer + " needs review",
+      warning.label || warning.message || layer + " needs review",
+      warning.severity || "warn"
+    );
+  }
+}
+
 function warningPriority(item) {
   var code = item.code || "";
   if (/^caption_|^hook_|^cover_|^creative_/.test(code)) return 0;
@@ -299,10 +312,10 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
   var verdicts = {};
   var pdq = results.pdq;
   if (pdq) {
-    if (pdq.available === false || pdq.error) {
-      verdicts.pdq = campaignProfile ? "fail" : "warn";
-    } else if (campaignProfile && !fanoutDistinctness) {
+    if (campaignProfile && !fanoutDistinctness) {
       verdicts.pdq = "pass";
+    } else if (pdq.available === false || pdq.error) {
+      verdicts.pdq = campaignProfile ? "fail" : "warn";
     } else if (campaignProfile) {
       var pdqStats = pdq.stats || {};
       var pdqFailed = !Number.isFinite(pdqStats.minDistance) ||
@@ -317,10 +330,10 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
   }
   var sscd = results.sscd;
   if (sscd) {
-    if (sscd.available === false || sscd.error) {
-      verdicts.sscd = campaignProfile ? "fail" : "warn";
-    } else if (campaignProfile && !fanoutDistinctness) {
+    if (campaignProfile && !fanoutDistinctness) {
       verdicts.sscd = "pass";
+    } else if (sscd.available === false || sscd.error) {
+      verdicts.sscd = campaignProfile ? "fail" : "warn";
     } else if (campaignProfile) {
       var sscdStats = sscd.stats || {};
       var sscdFailed = !Number.isFinite(sscdStats.maxSimilarity) ||
@@ -339,6 +352,7 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
 export function buildReadinessSummary(results, verdicts, options = {}) {
   var auditProfile = options.auditProfile || "default";
   var campaignProfile = auditProfile === "campaign_factory_v1";
+  var requestedLayers = new Set(options.requestedLayers || []);
   var hasVariantCount = Object.prototype.hasOwnProperty.call(options, "variantCount");
   var fanoutDistinctness = !campaignProfile || !hasVariantCount || Number(options.variantCount || 0) > 1;
   var blockingReasons = [];
@@ -386,11 +400,23 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
   }
 
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "safe_zone", results.safeZone?.warnings);
-  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "caption", results.readability?.warnings);
+  addProfileWarnings(
+    blockingItems,
+    warningItems,
+    "caption",
+    results.readability?.warnings,
+    function (warning) {
+      return campaignProfile && !["caption_not_detected", "ocr_unavailable"].includes(warning.code);
+    }
+  );
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "hook", results.hookVisibility?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "watchability", results.watchability?.warnings);
-  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "creative", results.creativeQuality?.warnings);
+  addAdvisoryWarnings(
+    campaignProfile && requestedLayers.has("creativeQuality") ? blockingItems : warningItems,
+    "creative",
+    results.creativeQuality?.warnings
+  );
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "virality", results.virality?.warnings);
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "video_analysis", results.videoAnalysis?.warnings);
   addAdvisoryWarnings(warningItems, "originality", results.multiAccountOriginalityAudit?.warnings);
@@ -401,7 +427,7 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
       var stats = detector.stats || {};
       if (detector.available === false || detector.error) {
         addReadinessItem(
-          blockingItems,
+          fanoutDistinctness ? blockingItems : warningItems,
           layer + "_unavailable",
           layer + ": detector unavailable",
           layer.toUpperCase() + " detector unavailable"
@@ -1393,6 +1419,29 @@ function advisoryWarning(code, label, message, severity = "warn") {
   return { code, label, message, severity };
 }
 
+function plausibleOcrBox(box) {
+  var textLength = String(box.ocrText || "").replace(/[^a-z0-9]/gi, "").length;
+  var frameWidth = Math.max(1, Number(box.frame?.width || 0));
+  var frameHeight = Math.max(1, Number(box.frame?.height || 0));
+  var width = Math.max(0, Number(box.box?.w || 0));
+  var height = Math.max(0, Number(box.box?.h || 0));
+  var areaRatio = (width * height) / (frameWidth * frameHeight);
+  var heightRatio = height / frameHeight;
+  var confidence = Number(box.confidence || 0);
+  var highConfidenceSmallText = textLength >= 3 && heightRatio >= 0.008 && confidence >= 90;
+  var readableScale = heightRatio >= 0.035 ||
+    (heightRatio >= 0.015 && confidence >= 55) ||
+    highConfidenceSmallText;
+  return textLength >= 2 && readableScale && areaRatio <= 0.65 && heightRatio <= 0.50;
+}
+
+function plausibleHeuristicCaptionBox(box, frame) {
+  var widthRatio = box.w / Math.max(1, frame.width);
+  var heightRatio = box.h / Math.max(1, frame.height);
+  var aspectRatio = box.w / Math.max(1, box.h);
+  return box.cells >= 30 && widthRatio >= 0.25 && widthRatio <= 0.90 && heightRatio >= 0.015 && heightRatio <= 0.12 && aspectRatio >= 3;
+}
+
 function uniqueWarnings(warnings) {
   var seen = new Set();
   return (warnings || []).filter(function (warning) {
@@ -1476,6 +1525,8 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
   var lowContrastBoxes = 0;
   var smallCaptionBoxes = 0;
   var unsafeBoxes = 0;
+  var heuristicCaptionBoxes = [];
+  var rawHeuristicBoxes = [];
   var earlyTextBoxes = 0;
   var deltas = [];
   var timingMetrics = {
@@ -1543,7 +1594,12 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
       if (ocrFrameResult.fallbackReason && !ocrFallbackReason) ocrFallbackReason = ocrFrameResult.fallbackReason;
       for (var method of ocrFrameResult.preprocessing || []) ocrPreprocessing.add(method);
       ocrBoxesBeforeMerge += ocrFrameResult.boxesBeforeMerge ?? ocrFrameResult.boxes?.length ?? 0;
-      var frameOcrBoxes = (ocrFrameResult.boxes || []).map(function (box) {
+      var plausibleBoxes = (ocrFrameResult.boxes || []).filter(plausibleOcrBox);
+      var plausibleConfidence = plausibleBoxes.length
+        ? plausibleBoxes.reduce(function (sum, box) { return sum + (box.confidence || 0); }, 0) / plausibleBoxes.length
+        : null;
+      if (plausibleBoxes.length > 12 && plausibleConfidence < 60) plausibleBoxes = [];
+      var frameOcrBoxes = plausibleBoxes.map(function (box) {
         var contrast = regionContrast(frame, box);
         var safeZoneIssues = textBoxSafeZoneIssues(box, frame);
         var frameHeight = Math.max(1, box.frame?.height || frame.height || 1);
@@ -1574,6 +1630,9 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
         ocrText: frameOcrBoxes.map(function (box) { return box.ocrText; }).join(" ").trim(),
         confidence: frameOcrBoxes.length ? Math.round(frameOcrBoxes.reduce((sum, box) => sum + box.confidence, 0) / frameOcrBoxes.length) : null,
         captionBoxes: frameOcrBoxes,
+        ...(process.env.CONTENTFORGE_DEBUG_OCR_BOXES === "1"
+          ? { rawCaptionBoxes: ocrFrameResult.boxes || [] }
+          : {}),
       });
 
       if (previous) {
@@ -1582,6 +1641,11 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
       }
       previous = frame;
       var detected = detectTextLikeBoxes(frame);
+      if (process.env.CONTENTFORGE_DEBUG_OCR_BOXES === "1") {
+        rawHeuristicBoxes.push(...detected.boxes.map(function (box) {
+          return { ...box, timeSec: frame.timeSec };
+        }));
+      }
       var frameTextBoxCount = Math.max(detected.boxes.length, frameOcrBoxes.length);
       textBoxesDetected += frameTextBoxCount;
       if (frame.timeSec <= 3) earlyTextBoxes += frameTextBoxCount;
@@ -1595,12 +1659,16 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
       }
       for (var box of detected.boxes) {
         if (detected.avgContrast > 0 && detected.avgContrast < thresholds.heuristicLowContrast) lowContrastBoxes++;
-        // When OCR finds real text boxes, use those for safe-zone placement.
-        // Heuristic boxes can catch caption-like regions when OCR misses text,
-        // but on real creator footage they often pick up body/background edges.
-        if (frameOcrBoxes.length === 0) {
+        if (
+          frameOcrBoxes.length === 0 &&
+          detected.boxes.length <= 4 &&
+          plausibleHeuristicCaptionBox(box, frame)
+        ) {
           var issues = textBoxSafeZoneIssues(box, frame);
-          if (issues.length) unsafeBoxes++;
+          if (issues.length) {
+            unsafeBoxes++;
+            heuristicCaptionBoxes.push({ ...box, issues });
+          }
         }
       }
     }
@@ -1666,10 +1734,14 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
     safeWarnings.push(advisoryWarning("caption_too_close_to_edge", "Caption may be too close to edge", "Caption-like text is close to an edge or platform UI safe zone"));
     safeWarnings.push(advisoryWarning("caption_overlaps_ui_safe_zone", "Caption may overlap Reels controls", "Caption-like text may overlap bottom or right-side Reels UI controls"));
   }
-  if (earlyTextBoxes === 0 && videoFiles.length > 0) {
-    hookWarnings.push(advisoryWarning("hook_text_missing_first_3_seconds", "No hook text found early", "No large hook text detected in the first 3 seconds"));
-  }
   var avgDelta = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
+  if (
+    earlyTextBoxes === 0 &&
+    videoFiles.length > 0 &&
+    (avgDelta === null || avgDelta < thresholds.weakOpeningDelta)
+  ) {
+    hookWarnings.push(advisoryWarning("hook_text_missing_first_3_seconds", "No hook text found early", "No large hook text detected in a low-motion opening"));
+  }
   if (avgDelta !== null && avgDelta < thresholds.staticOpeningDelta) {
     hookWarnings.push(advisoryWarning("static_opening", "Opening has little motion", "The first 3 seconds have little visual change"));
   }
@@ -1709,7 +1781,16 @@ async function runReelAdvisoryAudit(outputDir, files, sourcePath = null) {
     safeZone: {
       verdict: safeWarnings.length ? "warn" : "pass",
       warnings: safeWarnings,
-      metrics: { frameSamples, textBoxesDetected, ocrTextBoxesDetected, unsafeBoxes },
+      metrics: {
+        frameSamples,
+        textBoxesDetected,
+        ocrTextBoxesDetected,
+        unsafeBoxes,
+        heuristicCaptionBoxes,
+        ...(process.env.CONTENTFORGE_DEBUG_OCR_BOXES === "1"
+          ? { rawHeuristicBoxes }
+          : {}),
+      },
     },
     readability: {
       verdict: readabilityWarnings.length ? "warn" : "pass",
@@ -2006,7 +2087,11 @@ export async function POST(request) {
       verdicts.originality = results.multiAccountOriginalityAudit.verdict;
     }
 
-    var readinessSummary = buildReadinessSummary(results, verdicts, { auditProfile, variantCount: files.length });
+    var readinessSummary = buildReadinessSummary(results, verdicts, {
+      auditProfile,
+      variantCount: files.length,
+      requestedLayers: layers,
+    });
     var overallVerdict = readinessSummary.blockingReasons.length > 0 ? "fail"
       : readinessSummary.warnings.length > 0 ? "warn" : "pass";
     var verdictCodes = Object.fromEntries(Object.entries(verdicts).map(function ([layer, verdict]) {

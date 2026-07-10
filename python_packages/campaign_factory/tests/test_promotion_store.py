@@ -127,12 +127,12 @@ def test_backfill_quarantines_duplicate_identity_instead_of_raising(tmp_path: Pa
         cf.conn.execute(
             """
             INSERT INTO distribution_plans
-            (id, campaign_id, rendered_asset_id, account_id, surface, reason_code,
-             created_at, updated_at)
+            (id, campaign_id, rendered_asset_id, account_id, surface,
+             planned_window_start, reason_code, created_at, updated_at)
             VALUES ('dist_duplicate', ?, 'asset_1', ?, 'regular_reel',
-                    'reel_ledger:slot_duplicate', ?, ?)
+                    ?, 'reel_ledger:slot_duplicate', ?, ?)
             """,
-            (campaign_id, account_id, now, now),
+            (campaign_id, account_id, now, now, now),
         )
         cf.conn.commit()
 

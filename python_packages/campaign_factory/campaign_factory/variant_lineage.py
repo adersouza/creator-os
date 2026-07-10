@@ -20,6 +20,7 @@ from campaign_factory.learning_score import (
 
 from .caption_outcome import load_context_json
 from .config import Settings
+from .fileops import atomic_write_text
 from .persistence import json_load
 
 CONTENTFORGE_VARIANT_PRESETS = {
@@ -815,7 +816,8 @@ class VariantLineageRepository:
                 audit_dir = dirs["audits"] / "contentforge_variants"
                 audit_dir.mkdir(parents=True, exist_ok=True)
                 audit_path = audit_dir / f"{audit_id}.json"
-                audit_path.write_text(
+                atomic_write_text(
+                    audit_path,
                     json.dumps(audit_payload, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )

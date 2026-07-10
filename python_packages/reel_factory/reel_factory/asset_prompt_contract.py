@@ -15,6 +15,8 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .fileops import atomic_write_text
+
 REQUIRED_PROMPT_FIELDS = ("higgsfieldGridPrompt", "klingMotionPrompt")
 HIGGSFIELD_GRID_PROMPT_REJECTS = (
     "no",
@@ -195,8 +197,8 @@ def prompt_response_json(prompt_set: AssetPromptSet) -> str:
 def write_prompt_template(path: str) -> None:
     out_path = Path(path).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8"
+    atomic_write_text(
+        out_path, prompt_response_json(EMPTY_ASSET_PROMPT_SET) + "\n", encoding="utf-8"
     )
 
 

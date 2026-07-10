@@ -5,10 +5,11 @@ Uses Meta's pdqhash library — the exact algorithm used by Instagram/Facebook i
 Threshold: Hamming distance <= 31 out of 256 bits = flagged as duplicate.
 """
 
-import sys
 import json
 import os
 import subprocess
+import sys
+
 import numpy as np
 
 try:

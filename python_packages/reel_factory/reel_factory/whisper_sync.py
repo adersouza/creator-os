@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .fileops import atomic_write_text
+
 
 def transcribe_clip(
     root: Path,
@@ -56,7 +58,8 @@ def transcribe_clip(
     out_path = root / "01_captions" / f"{clip}.whisper.json"
     if out_path.exists() and not overwrite:
         return {"ok": True, "path": str(out_path), "hook": hook, "written": False}
-    out_path.write_text(
+    atomic_write_text(
+        out_path,
         json.dumps(
             {"hooks": [hook], "caption_color": "auto"}, indent=2, ensure_ascii=False
         ),

@@ -15,6 +15,7 @@ from .core import (
     slugify,
 )
 from .cost_tracker import PROVIDER_PRICING
+from .fileops import atomic_write_text
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
 
@@ -598,7 +599,7 @@ def _write_prompt_pack(
     }
     if guidance:
         payload["learnedPromptGuidance"] = guidance
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False))
     return path
 
 

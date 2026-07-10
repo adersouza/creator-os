@@ -140,11 +140,30 @@ class DistributionRepository:
         instagram_trial_reels: bool = False,
         trial_graduation_strategy: str | None = None,
         trial_group_id: str | None = None,
+        commit: bool = True,
     ) -> dict[str, Any]:
         asset = self._rendered_asset(rendered_asset_id)
         now = self._utc_now()
         plan_id = self._new_id("dist")
         distribution_surface = _normalize_distribution_surface(surface)
+        existing = self.conn.execute(
+            """
+            SELECT id FROM distribution_plans
+            WHERE rendered_asset_id = ? AND surface = ?
+              AND COALESCE(account_id, '') = COALESCE(?, '')
+              AND COALESCE(instagram_account_id, '') = COALESCE(?, '')
+              AND COALESCE(planned_window_start, '') = COALESCE(?, '')
+            """,
+            (
+                rendered_asset_id,
+                distribution_surface,
+                account_id,
+                instagram_account_id,
+                planned_window_start,
+            ),
+        ).fetchone()
+        if existing:
+            return self.distribution_plan(existing["id"]) or {}
         asset_content_surface = self._normalize_content_surface(
             asset.get("content_surface")
         )
@@ -267,7 +286,8 @@ class DistributionRepository:
             },
             commit=False,
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return self.distribution_plan(plan_id) or {}
 
     def _ensure_default_reel_cadence(
@@ -355,7 +375,9 @@ class DistributionRepository:
         ).fetchall()
         return [self.distribution_plan_payload(dict(row)) for row in rows]
 
-    def clear_distribution_plans_for_campaign(self, campaign_slug: str) -> int:
+    def clear_distribution_plans_for_campaign(
+        self, campaign_slug: str, *, commit: bool = True
+    ) -> int:
         campaign = self._campaign_by_slug(campaign_slug)
         count = self.conn.execute(
             "SELECT COUNT(*) AS count FROM distribution_plans WHERE campaign_id = ?",
@@ -372,7 +394,8 @@ class DistributionRepository:
             metadata={"campaign": campaign_slug, "cleared": count},
             commit=False,
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return int(count or 0)
 
     def distribution_plan_payload(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -447,7 +470,7 @@ class DistributionRepository:
         self._start_pipeline_job(pipeline_job["id"])
         try:
             cleared = (
-                self.clear_distribution_plans_for_campaign(campaign_slug)
+                self.clear_distribution_plans_for_campaign(campaign_slug, commit=False)
                 if replace
                 else 0
             )
@@ -536,6 +559,7 @@ class DistributionRepository:
                     surface=surface,
                     instagram_account_id=account_id,
                     planned_window_start=slot.isoformat(),
+                    commit=False,
                     reason_code=reason_code,
                     instagram_trial_reels=surface == "trial_reel",
                     trial_graduation_strategy="MANUAL"
@@ -559,6 +583,7 @@ class DistributionRepository:
                         surface="story_cta",
                         instagram_account_id=account_id,
                         planned_window_start=story_slot.isoformat(),
+                        commit=False,
                         paired_rendered_asset_id=asset["id"],
                         reason_code="cta_followup",
                         smart_link=(profile or {}).get("defaultSmartLink"),
@@ -613,6 +638,9 @@ class DistributionRepository:
             self._finish_pipeline_job(pipeline_job["id"], result)
             return result
         except Exception as exc:
+            # Discard the partial delete/insert batch so a failed replace run
+            # cannot commit a half-written plan set via the failure bookkeeping.
+            self.conn.rollback()
             self._record_event(
                 "distribution_planned",
                 campaign_id=campaign["id"],

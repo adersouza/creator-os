@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
@@ -16697,9 +16697,10 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
                 }
             ]
 
-    rows = threadsdash_adapter._select_threadsdash_post_metric_history(
+    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
         CapturedFailingRequestClient(), post_ids=["post_1"], limit=1000
     )
+    assert truncated is False
     threadsdash_adapter._validate_threadsdash_post_metric_history_read(rows)
 
     assert len(rows) == 1
@@ -16720,14 +16721,80 @@ def test_metric_history_read_batches_the_captured_1000_post_request_shape():
             return []
 
     post_ids = [f"00000000-0000-4000-8000-{index:012d}" for index in range(1000)]
-    rows = threadsdash_adapter._select_threadsdash_post_metric_history(
+    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
         UrlLengthGuardClient(), post_ids=post_ids, limit=1000
     )
+    assert truncated is False
 
     assert rows == []
     assert len(captured_filters) == 200
     assert all(len(post_filter) < 250 for post_filter in captured_filters)
     assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
+
+
+def _paged_posts_client(total_rows: int):
+    class PagedPostsClient:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def select(self, table, params):
+            assert table == "posts"
+            self.calls.append(dict(params))
+            offset = int(params.get("offset", "0"))
+            limit = int(params["limit"])
+            remaining = max(total_rows - offset, 0)
+            count = min(limit, remaining)
+            return [
+                {"id": f"post_{offset + index}", "metadata": {}}
+                for index in range(count)
+            ]
+
+    return PagedPostsClient()
+
+
+def test_posts_read_paginates_beyond_page_size():
+    client = _paged_posts_client(total_rows=750)
+    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+        client, user_id="user_1", limit=1000, page_size=500
+    )
+
+    assert len(rows) == 750
+    assert truncated is False
+    assert len({row["id"] for row in rows}) == 750
+    offsets = [int(call.get("offset", "0")) for call in client.calls]
+    assert offsets == [0, 500]
+
+
+def test_posts_read_detects_truncation_at_limit():
+    client = _paged_posts_client(total_rows=1200)
+    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+        client, user_id="user_1", limit=1000, page_size=500
+    )
+
+    assert len(rows) == 1000
+    assert truncated is True
+    # final call is the 1-row truncation probe
+    assert client.calls[-1]["limit"] == "1"
+    assert client.calls[-1]["offset"] == "1000"
+
+
+def test_metric_history_read_detects_truncation():
+    class TruncatedHistoryClient:
+        def select(self, table, params):
+            assert table == "post_metric_history"
+            offset = int(params.get("offset", "0"))
+            limit = int(params["limit"])
+            return [
+                {"id": f"hist_{offset + index}", "post_id": "post_1"}
+                for index in range(limit)
+            ]
+
+    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
+        TruncatedHistoryClient(), post_ids=["post_1"], limit=48
+    )
+
+    assert truncated is True
+    assert len(rows) == 48
 
 
 def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
@@ -25597,6 +25664,93 @@ def test_supabase_rest_client_retries_transient_http_error(
 
     assert result == {"ok": True}
     assert calls["count"] == 2
+
+
+def test_supabase_rest_client_insert_does_not_retry_ambiguous_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def fake_urlopen(_request, timeout):
+        calls["count"] += 1
+        raise HTTPError(
+            "https://example.supabase.co",
+            503,
+            "temporary",
+            {},
+            io.BytesIO(b"maybe committed"),
+        )
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    client = threadsdash_adapter.SupabaseRestClient(
+        "https://example.supabase.co", "service-role"
+    )
+
+    with pytest.raises(RuntimeError, match="Supabase request failed 503"):
+        client.insert("posts", {"content": "hello"})
+
+    assert calls["count"] == 1
+
+
+def test_supabase_rest_client_insert_retries_safe_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'[{"id": "post_1"}]'
+
+    def fake_urlopen(_request, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise HTTPError(
+                "https://example.supabase.co",
+                429,
+                "rate limited",
+                {},
+                io.BytesIO(b"slow down"),
+            )
+        return FakeResponse()
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    client = threadsdash_adapter.SupabaseRestClient(
+        "https://example.supabase.co", "service-role"
+    )
+
+    result = client.insert("posts", {"content": "hello"})
+
+    assert result == [{"id": "post_1"}]
+    assert calls["count"] == 2
+
+
+def test_supabase_rest_client_insert_does_not_retry_network_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def fake_urlopen(_request, timeout):
+        calls["count"] += 1
+        raise URLError("timed out")
+
+    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    client = threadsdash_adapter.SupabaseRestClient(
+        "https://example.supabase.co", "service-role"
+    )
+
+    with pytest.raises(RuntimeError, match="Supabase request failed"):
+        client.insert("posts", {"content": "hello"})
+
+    assert calls["count"] == 1
 
 
 def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:

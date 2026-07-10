@@ -4,7 +4,6 @@ import importlib
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 PYTEST_PATH_ORDER = (
     ROOT / "python_packages" / "campaign_factory",

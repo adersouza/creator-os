@@ -47,7 +47,10 @@ async function stageFixture(fixtureFile, prefix) {
   var targetPath = path.join(LEGACY_FINAL_DIR, targetName);
   await rm(sourcePath, { force: true });
   await rm(targetPath, { force: true });
-  await copyFile(path.join(ROOT, "good", "campaign_factory_avconvert_render.mp4"), sourcePath);
+  var sourceFixture = fixtureFile.startsWith("failures/")
+    ? path.join(ROOT, "good", "campaign_factory_avconvert_render.mp4")
+    : path.join(ROOT, fixtureFile);
+  await copyFile(sourceFixture, sourcePath);
   await copyFile(path.join(ROOT, fixtureFile), targetPath);
   return { sourcePath, targetPath, sourceName: SOURCE_NAME, targetName };
 }

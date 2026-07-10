@@ -1,0 +1,242 @@
+{
+  "campaign": {
+    "id": "camp_6dfced54dfd4",
+    "slug": "caption_proof"
+  },
+  "captionHashByStage": {
+    "captionOutcomeReport": "caption_hash_e2e_proof",
+    "captionSelected": "caption_hash_e2e_proof",
+    "distributionPlans": "caption_hash_e2e_proof",
+    "performanceSnapshots": "caption_hash_e2e_proof",
+    "reelRenderLineage": "caption_hash_e2e_proof",
+    "renderedAssets": "caption_hash_e2e_proof",
+    "threadsdashDraft": "caption_hash_e2e_proof",
+    "threadsdashMetadata": "caption_hash_e2e_proof"
+  },
+  "contextFingerprintByStage": {
+    "captionOutcomeReport": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "captionSelected": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "distributionPlans": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "performanceSnapshots": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "reelRenderLineage": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "renderedAssets": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "threadsdashDraft": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4",
+    "threadsdashMetadata": "c519cbd7f0c176237154366707975d72d2af3b075044cf88bf47fe249e9509f4"
+  },
+  "contextsByStage": {
+    "captionOutcomeReport": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "captionSelected": {
+      "captionPlacementDecision": {
+        "checkedAt": "2026-06-05T09:00:00+00:00",
+        "lane": "lower_third",
+        "policy": "focal_safe_v1",
+        "status": "passed"
+      },
+      "captionPlacementPolicy": "focal_safe_v1",
+      "captionSceneFitVersion": null,
+      "captionSceneTags": [],
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "instagram_post_caption": "Hard launch energy, no warmup. #reels",
+      "length_class": "very_short",
+      "reelSceneTags": [],
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "sceneCompatibilityDecision": null,
+      "sceneCompatibilityReason": null,
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "distributionPlans": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "performanceSnapshots": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "reelRenderLineage": {
+      "captionPlacementDecision": {
+        "checkedAt": "2026-06-05T09:00:00+00:00",
+        "lane": "lower_third",
+        "policy": "focal_safe_v1",
+        "status": "passed"
+      },
+      "captionPlacementPolicy": "focal_safe_v1",
+      "captionSceneFitVersion": null,
+      "captionSceneTags": [],
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "instagram_post_caption": "Hard launch energy, no warmup. #reels",
+      "length_class": "very_short",
+      "reelSceneTags": [],
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "sceneCompatibilityDecision": null,
+      "sceneCompatibilityReason": null,
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "renderedAssets": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "threadsdashDraft": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    },
+    "threadsdashMetadata": {
+      "caption_bank": "launch_hooks",
+      "caption_banks": [
+        "launch_hooks"
+      ],
+      "caption_fit_version": "v1",
+      "caption_hash": "caption_hash_e2e_proof",
+      "caption_text": "Hard launch energy.",
+      "creator_mix": "Lola",
+      "creator_model": "lola",
+      "format_class": "single_line",
+      "frame_type": "mirror_fullbody",
+      "length_class": "very_short",
+      "render_recipe": "v09_caption_bg",
+      "rendered_output": "/private/var/folders/cw/xyg1ggz567g3k4n2srdf51g80000gn/T/caption_outcome_e2e_f0xa0oyo/rendered_caption_outcome_proof.mp4",
+      "schema": "campaign_factory.caption_outcome_context.v1",
+      "source_clip": "clip_010",
+      "suitability_decision": "allowed",
+      "suitability_reason": "very_short static caption allowed for mirror_fullbody"
+    }
+  },
+  "generatedAt": "2026-07-10T03:43:49+00:00",
+  "guardrails": {
+    "autoLearning": false,
+    "bankWeightChanges": false,
+    "captionSelectionChanges": false,
+    "phase2TimedSegmentation": false,
+    "promptGrokKlingAudioChanges": false,
+    "winnerBankPromotion": false
+  },
+  "ids": {
+    "distributionPlanId": "dist_cbd65c8d4854",
+    "performanceSnapshotId": "perf_913535754f9f",
+    "renderedAssetId": "asset_4f107523ee2c",
+    "threadsdashPostId": "post_caption_outcome_e2e"
+  },
+  "manualReviewOnly": true,
+  "reportCoverage": {
+    "coverageRatio": 1.0,
+    "snapshots": 1,
+    "snapshotsMissingCaptionOutcomeContext": 0,
+    "snapshotsWithCaptionOutcomeContext": 1
+  },
+  "schema": "campaign_factory.caption_outcome_tracking_v1_e2e_proof.v1",
+  "syncResult": {
+    "inserted": 1,
+    "skipped": 0,
+    "updated": 0
+  }
+}

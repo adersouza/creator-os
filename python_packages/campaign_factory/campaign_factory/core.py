@@ -327,7 +327,7 @@ def read_png_rgb_pixels(path: Path, *, max_pixels: int = 3_000_000) -> dict[str,
     stride = width * channels
     try:
         raw = zlib.decompress(bytes(idat))
-    except Exception:
+    except zlib.error:
         return {"ok": False, "error": "png_decompress_failed"}
     rows: list[list[tuple[int, int, int]]] = []
     previous = bytearray(stride)
@@ -446,7 +446,7 @@ def probe_video_shape(path: Path) -> dict[str, Any]:
             check=False,
             timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return {}
     if result.returncode != 0:
         return {}
@@ -1091,6 +1091,17 @@ class CampaignFactory:
         self, job_id: str, campaign_id: str
     ) -> dict[str, Any]:
         return self.services.set_pipeline_job_campaign(job_id, campaign_id)
+
+    def reclaim_stale_pipeline_jobs(
+        self,
+        stuck_hours: float,
+        *,
+        action: str = "fail",
+        max_attempts: int | None = None,
+    ) -> dict[str, Any]:
+        return self.services.reclaim_stale_pipeline_jobs(
+            stuck_hours, action=action, max_attempts=max_attempts
+        )
 
     def pipeline_job(self, job_id: str) -> dict[str, Any]:
         return self.services.pipeline_job(job_id)

@@ -7,6 +7,7 @@ from typing import Any
 
 from .core import sanitize_for_storage, slugify
 from .cost_tracker import PROVIDER_PRICING
+from .fileops import atomic_write_text
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
 
@@ -174,7 +175,8 @@ def run_proactive_cycle_stage(
             "pipelineJobId": pipeline_job["id"],
         }
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
+        atomic_write_text(
+            report_path,
             json.dumps(sanitize_for_storage(report), indent=2, sort_keys=True),
             encoding="utf-8",
         )

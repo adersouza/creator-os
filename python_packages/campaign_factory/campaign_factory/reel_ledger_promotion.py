@@ -390,6 +390,9 @@ def _build_preview(
     for row in promotable_rows:
         fp = _lineage_content_fingerprint(row)
         if fp:
+            # Backfill so downstream checks and _promotion_action reuse the
+            # lineage fingerprint instead of silently skipping dedup (fail-closed).
+            row["content_fingerprint"] = fp
             fingerprint_rows[fp].append(row)
 
     for row in rows:

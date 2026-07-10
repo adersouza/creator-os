@@ -52,7 +52,8 @@ variant unusable.
 
 ## Requirements
 
-- Node.js 20.9 or newer
+- Node.js 22.x, 24.x, or 26+ (Node 25 is unsupported by dependency-cruiser 18;
+  the repo `.nvmrc` selects Node 24)
 - npm 10 or newer
 - Python 3.10 or newer
 - FFmpeg and FFprobe available on `PATH`

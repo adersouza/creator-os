@@ -9,11 +9,17 @@ function forcedMissingTools() {
 
 export function hasTool(command) {
   if (forcedMissingTools().has(command)) return false;
-  var result = spawnSync(command, ["-version"], {
-    encoding: "utf8",
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-  return result.status === 0;
+  // Tools disagree on the flag: ffmpeg wants -version, tesseract exits 1 on
+  // -version and wants --version. Accept either so installed tools are never
+  // misreported as missing.
+  for (var flags of [["-version"], ["--version"]]) {
+    var result = spawnSync(command, flags, {
+      encoding: "utf8",
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    if (result.status === 0) return true;
+  }
+  return false;
 }
 
 export function missingTools(tools) {

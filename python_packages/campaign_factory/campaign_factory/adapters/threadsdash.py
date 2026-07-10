@@ -4160,7 +4160,9 @@ def sync_performance_snapshots(
     factory.start_pipeline_job(pipeline_job["id"])
     try:
         client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
-        rows = _select_threadsdash_posts(client, user_id=user_id, limit=limit)
+        rows, posts_truncated = _select_threadsdash_posts_paged(
+            client, user_id=user_id, limit=limit
+        )
         tracked_rows = []
         tracked_snapshot_count = 0
         inserted = 0
@@ -4169,6 +4171,16 @@ def sync_performance_snapshots(
         skipped = 0
         skipped_rows: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
+        if posts_truncated:
+            warnings.append(
+                {
+                    "reason": "posts_truncated",
+                    "message": (
+                        f"posts read hit the limit of {limit}; additional rows exist "
+                        "and were not synced. Re-run with a higher limit."
+                    ),
+                }
+            )
         metric_history_error: str | None = None
         history_source_counts: dict[str, int] = {}
         learning_ineligible_reasons: dict[str, int] = {}
@@ -4192,11 +4204,24 @@ def sync_performance_snapshots(
             if row.get("id"):
                 metric_history_post_ids.append(str(row["id"]))
         try:
-            metric_history_rows = _select_threadsdash_post_metric_history(
-                client,
-                post_ids=metric_history_post_ids,
-                limit=limit,
+            metric_history_rows, metric_history_truncated = (
+                _select_threadsdash_post_metric_history(
+                    client,
+                    post_ids=metric_history_post_ids,
+                    limit=limit,
+                )
             )
+            if metric_history_truncated:
+                warnings.append(
+                    {
+                        "reason": "metric_history_truncated",
+                        "message": (
+                            "post_metric_history read hit its per-batch limit; "
+                            "additional snapshot rows exist and were not synced. "
+                            "Re-run with a higher limit."
+                        ),
+                    }
+                )
         except RuntimeError as exc:
             metric_history_rows = []
             metric_history_error = str(exc)
@@ -4676,13 +4701,52 @@ def sync_performance_snapshots(
         raise
 
 
-def _select_threadsdash_posts(
-    client: SupabaseRestClient, *, user_id: str, limit: int
-) -> list[dict[str, Any]]:
+THREADSDASH_POSTS_PAGE_SIZE = 500
+
+
+def _select_paged(
+    client: SupabaseRestClient,
+    table: str,
+    params: dict[str, str],
+    *,
+    limit: int,
+    page_size: int,
+    probe_select: str = "id",
+) -> tuple[list[dict[str, Any]], bool]:
+    """Fetch up to ``limit`` rows in pages of ``page_size``.
+
+    Returns ``(rows, truncated)`` where ``truncated`` is True when at least
+    one additional row exists beyond ``limit``.
+    """
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while len(rows) < limit:
+        page_limit = min(page_size, limit - len(rows))
+        page = client.select(
+            table,
+            {**params, "limit": str(page_limit), "offset": str(offset)},
+        )
+        rows.extend(page)
+        if len(page) < page_limit:
+            return rows, False
+        offset += len(page)
+    probe = client.select(
+        table,
+        {**params, "select": probe_select, "limit": "1", "offset": str(offset)},
+    )
+    return rows, bool(probe)
+
+
+def _select_threadsdash_posts_paged(
+    client: SupabaseRestClient,
+    *,
+    user_id: str,
+    limit: int,
+    page_size: int = THREADSDASH_POSTS_PAGE_SIZE,
+) -> tuple[list[dict[str, Any]], bool]:
     base_params = {
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
-        "limit": str(limit),
     }
     rich_select = (
         "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,updated_at,scheduled_for,"
@@ -4693,15 +4757,33 @@ def _select_threadsdash_posts(
         "ig_reels_avg_watch_time,ig_reels_video_view_total_time"
     )
     try:
-        return client.select("posts", {"select": rich_select, **base_params})
+        return _select_paged(
+            client,
+            "posts",
+            {"select": rich_select, **base_params},
+            limit=limit,
+            page_size=page_size,
+        )
     except RuntimeError:
-        return client.select(
+        return _select_paged(
+            client,
             "posts",
             {
                 "select": "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,scheduled_for,content,metadata",
                 **base_params,
             },
+            limit=limit,
+            page_size=page_size,
         )
+
+
+def _select_threadsdash_posts(
+    client: SupabaseRestClient, *, user_id: str, limit: int
+) -> list[dict[str, Any]]:
+    rows, _truncated = _select_threadsdash_posts_paged(
+        client, user_id=user_id, limit=limit
+    )
+    return rows
 
 
 def _select_threadsdash_post_metric_history(
@@ -4709,30 +4791,36 @@ def _select_threadsdash_post_metric_history(
     *,
     post_ids: list[str],
     limit: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
+    """Returns ``(rows, truncated)``; ``truncated`` means at least one batch
+    had more history rows than its per-batch limit allowed."""
     ids = sorted({post_id for post_id in post_ids if post_id})
     if not ids:
-        return []
+        return [], False
     select_columns = (
         "id,post_id,account_id,platform,snapshot_at,hours_since_publish,"
         "views_count,likes_count,replies_count,reposts_count,quotes_count,shares_count,"
         "saves_count,reach,engagement_rate"
     )
     rows: list[dict[str, Any]] = []
+    truncated = False
     for offset in range(0, len(ids), POST_METRIC_HISTORY_POST_ID_BATCH_SIZE):
         batch = ids[offset : offset + POST_METRIC_HISTORY_POST_ID_BATCH_SIZE]
-        rows.extend(
-            client.select(
-                "post_metric_history",
-                {
-                    "select": select_columns,
-                    "post_id": f"in.({','.join(batch)})",
-                    "order": "snapshot_at.asc",
-                    "limit": str(max(limit, len(batch) * 24)),
-                },
-            )
+        batch_limit = max(limit, len(batch) * 24)
+        batch_rows, batch_truncated = _select_paged(
+            client,
+            "post_metric_history",
+            {
+                "select": select_columns,
+                "post_id": f"in.({','.join(batch)})",
+                "order": "snapshot_at.asc",
+            },
+            limit=batch_limit,
+            page_size=batch_limit,
         )
-    return rows
+        truncated = truncated or batch_truncated
+        rows.extend(batch_rows)
+    return rows, truncated
 
 
 def _validate_threadsdash_post_metric_history_read(rows: list[dict[str, Any]]) -> None:
@@ -5643,7 +5731,11 @@ class SupabaseRestClient:
                 }
             ),
         )
-        return self._open_json_or_empty(request)
+        # Plain POST inserts are not idempotent: a retry after an ambiguous
+        # failure (timeout, or a 5xx sent after the row committed) can create
+        # duplicate rows (audit A6). Only retry statuses that guarantee the
+        # request was never processed; never retry network-level ambiguity.
+        return self._open_json_or_empty(request, retry_ambiguous=False)
 
     def upsert(self, table: str, row: dict[str, Any], *, on_conflict: str) -> Any:
         endpoint = f"{self.url}/rest/v1/{quote(table)}?on_conflict={quote(on_conflict, safe=',')}"
@@ -5694,8 +5786,18 @@ class SupabaseRestClient:
         )
         return self._open_json_or_empty(request)
 
-    def _open_json_or_empty(self, request: Request) -> Any:
-        transient_statuses = {408, 409, 425, 429, 500, 502, 503, 504}
+    def _open_json_or_empty(
+        self, request: Request, *, retry_ambiguous: bool = True
+    ) -> Any:
+        # Statuses where the server definitely did not process the request,
+        # so retrying is always safe (even for non-idempotent POST inserts).
+        safe_statuses = {408, 425, 429}
+        # Statuses where the request *may* have been processed before the
+        # error/timeout surfaced; only retried for idempotent requests.
+        ambiguous_statuses = {409, 500, 502, 503, 504}
+        transient_statuses = (
+            safe_statuses | ambiguous_statuses if retry_ambiguous else safe_statuses
+        )
         last_error: Exception | None = None
         for attempt in range(3):
             try:
@@ -5708,8 +5810,11 @@ class SupabaseRestClient:
                 if exc.code not in transient_statuses or attempt == 2:
                     raise last_error from exc
             except URLError as exc:
+                # Network-level failure (incl. timeouts): ambiguous whether
+                # the request reached the server. Never retried for
+                # non-idempotent requests.
                 last_error = RuntimeError(f"Supabase request failed: {exc}")
-                if attempt == 2:
+                if not retry_ambiguous or attempt == 2:
                     raise last_error from exc
             time.sleep(0.25 * (2**attempt))
         else:  # pragma: no cover - loop either breaks or raises

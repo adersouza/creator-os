@@ -1256,9 +1256,14 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    # timeout + busy_timeout let overlapping cron writers wait instead of
+    # failing with "database is locked"; WAL lets readers proceed during
+    # writes. Matches reel_factory.sqlite_utils.connect_sqlite defaults.
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -1723,6 +1728,43 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_asset_inventory_reservations_uniqueness
         ON asset_inventory_reservations(campaign_id, surface, source_family_id, perceptual_cluster_id, status, reserved_at)
+        """
+    )
+    # Dedupe legacy rows before enforcing uniqueness (keep earliest insert).
+    conn.execute(
+        """
+        DELETE FROM asset_account_assignments WHERE rowid NOT IN (
+          SELECT MIN(rowid) FROM asset_account_assignments
+          GROUP BY rendered_asset_id, COALESCE(account_id, ''),
+                   COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
+        )
+        """
+    )
+    conn.execute(
+        """
+        DELETE FROM distribution_plans WHERE rowid NOT IN (
+          SELECT MIN(rowid) FROM distribution_plans
+          GROUP BY rendered_asset_id, surface, COALESCE(account_id, ''),
+                   COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_account_assignments_uniqueness
+        ON asset_account_assignments(
+          rendered_asset_id, COALESCE(account_id, ''),
+          COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_distribution_plans_uniqueness
+        ON distribution_plans(
+          rendered_asset_id, surface, COALESCE(account_id, ''),
+          COALESCE(instagram_account_id, ''), COALESCE(planned_window_start, '')
+        )
         """
     )
     _repair_source_asset_fk_references(conn)

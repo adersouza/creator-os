@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .fileops import atomic_write_text
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
@@ -56,7 +58,9 @@ def save_config(root: Path, updates: dict[str, Any]) -> dict[str, Any]:
         else:
             rendered = _quote(str(value))
         lines.append(f"{key} = {rendered}")
-    config_path(root).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(
+        config_path(Path(root)), "\n".join(lines) + "\n", encoding="utf-8"
+    )
     return data
 
 
