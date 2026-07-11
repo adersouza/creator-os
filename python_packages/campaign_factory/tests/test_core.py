@@ -8513,6 +8513,94 @@ def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_r
         cf.close()
 
 
+def test_threadsdash_draft_notify_defers_required_native_audio_without_unlocking_publish(
+    tmp_path: Path, monkeypatch
+):
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            return []
+
+    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (
+                json.dumps(
+                    {
+                        "instagram_post_caption": "new post",
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "mode": "native_platform_audio",
+                            "required": True,
+                            "status": "recommended",
+                            "platform": "instagram",
+                        },
+                    }
+                ),
+            ),
+        )
+        cf.conn.commit()
+        cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
+
+        payload = build_draft_payloads(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            schedule_mode="draft",
+            publish_mode="notify",
+        )
+        draft = payload["drafts"][0]
+        metadata = draft["metadata"]["campaign_factory"]
+        manifest = metadata["handoff_manifest"]
+
+        assert metadata["asset_state"] == "exportable"
+        assert metadata["publishability_failure_reasons"] == ["missing_audio"]
+        assert metadata["audio_intent"]["gates"] == {
+            "allow_draft_export": True,
+            "allow_preview_schedule": False,
+            "allow_live_schedule": False,
+            "allow_publish": False,
+        }
+        assert manifest["manifest_version"] == 2
+        assert manifest["audio_id"] == "deferred_to_notify_handoff"
+        assert manifest["audioDeferredToHandoff"] is True
+        assert manifest["surfaceReadiness"] == {
+            "canHandoff": True,
+            "scheduleSafe": False,
+            "blockingReasons": ["missing_audio"],
+        }
+        threadsdash_adapter.validate_threadsdash_draft_payload_strict(payload)
+
+        readiness = evaluate_export_readiness(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+            schedule_mode="draft",
+            publish_mode="notify",
+        )
+
+        assert not any(
+            "campaign_audio_unresolved" in reason
+            or reason.endswith("publishability:missing_audio")
+            for reason in readiness["blockingReasons"]
+        )
+        assert any(
+            reason.endswith("native_audio_deferred_to_notify_handoff")
+            for reason in readiness["warnings"]
+        )
+    finally:
+        cf.close()
+
+
 def test_dashboard_audio_workflow_summary_counts_audio_tasks(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

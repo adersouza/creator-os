@@ -1157,6 +1157,12 @@ class PublishabilityRepository:
             root_cause = "wrong_approved_asset"
         blocking_reason = failures[0] if failures else None
         manifest = None
+        deferred_audio_failures = {"missing_audio", "embedded_audio_missing"}
+        audio_deferred_to_notify_handoff = bool(
+            failures
+            and set(failures).issubset(deferred_audio_failures)
+            and is_reel_surface
+        )
         distribution_content_surface = self._normalize_content_surface(
             (distribution_plan or {}).get("contentSurface")
             or (distribution_plan or {}).get("content_surface")
@@ -1179,9 +1185,11 @@ class PublishabilityRepository:
         trial_group_id = (distribution_plan or {}).get("trialGroupId") or (
             distribution_plan or {}
         ).get("trial_group_id")
-        if not failures and distribution_plan is not None:
+        if (
+            not failures or audio_deferred_to_notify_handoff
+        ) and distribution_plan is not None:
             manifest = {
-                "manifest_version": 2 if distribution_content_surface != "reel" else 1,
+                "manifest_version": 2,
                 "asset_id": asset["id"],
                 "rendered_asset_id": asset["id"],
                 "source_asset_id": asset.get("source_asset_id"),
@@ -1222,7 +1230,12 @@ class PublishabilityRepository:
                     export_caption_hash,
                     render_recipe,
                 ),
-                "audio_id": audio_id or "not_required",
+                "audio_id": audio_id
+                or (
+                    "deferred_to_notify_handoff"
+                    if audio_deferred_to_notify_handoff
+                    else "not_required"
+                ),
                 "distribution_plan_id": distribution_plan["id"],
                 "content_surface": distribution_content_surface,
                 "contentSurface": distribution_content_surface,
@@ -1236,16 +1249,23 @@ class PublishabilityRepository:
                 "trial_group_id": trial_group_id if instagram_trial_reels else None,
                 "exported_by_system": "campaign_factory",
                 "exported_at": self._utc_now(),
+                "audioDeferredToHandoff": audio_deferred_to_notify_handoff,
+                "surfaceReadiness": {
+                    "canHandoff": True,
+                    "scheduleSafe": not audio_deferred_to_notify_handoff,
+                    "blockingReasons": failures
+                    if audio_deferred_to_notify_handoff
+                    else [],
+                },
             }
-            if distribution_content_surface != "reel":
-                manifest["mediaItems"] = [
-                    {
-                        "mediaPath": output_path,
-                        "mediaHash": content_fingerprint,
-                        "mediaType": str(asset.get("media_type") or "image").lower(),
-                        "componentIndex": 0,
-                    }
-                ]
+            manifest["mediaItems"] = [
+                {
+                    "mediaPath": output_path,
+                    "mediaHash": content_fingerprint,
+                    "mediaType": str(asset.get("media_type") or "video").lower(),
+                    "componentIndex": 0,
+                }
+            ]
             if audio_segment:
                 manifest["audio_segment"] = audio_segment
             if cover_frame:
@@ -1281,6 +1301,9 @@ class PublishabilityRepository:
             "lifecycle_state": lifecycle_state,
             "publishableCandidate": not failures,
             "exportable": not failures
+            and distribution_plan is not None
+            and manifest is not None,
+            "draftExportable": audio_deferred_to_notify_handoff
             and distribution_plan is not None
             and manifest is not None,
             "approved": approved,
