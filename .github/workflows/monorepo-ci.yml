@@ -122,6 +122,7 @@ jobs:
         run: brew install ffmpeg tesseract
       - run: uv sync --all-extras --all-packages
       - run: uv run pytest packages/pipeline_contracts/tests
+      - run: uv run pytest packages/creator_os_core/tests
       - run: uv run pytest python_packages/campaign_factory/tests
       - run: uv run pytest python_packages/reel_factory/tests
       - run: uv run pytest python_packages/reference_factory/tests
