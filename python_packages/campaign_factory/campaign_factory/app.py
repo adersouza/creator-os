@@ -5,6 +5,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.local_api_auth import (
+    install_local_api_auth_middleware,
+    require_local_api_auth,
+)
 from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +28,6 @@ from .adapters.threadsdash import (
 )
 from .config import get_settings
 from .core import CampaignFactory
-from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
 
 settings = get_settings()
 app = FastAPI(title="campaign_factory", dependencies=[Depends(require_local_api_auth)])

@@ -4,11 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TS_FIXTURE="$ROOT/packages/pipeline_contracts/__arch_guard_violation__.ts"
 PY_FIXTURE="$ROOT/packages/pipeline_contracts/pipeline_contracts/__arch_guard_violation__.py"
+CORE_PY_FIXTURE="$ROOT/packages/creator_os_core/creator_os_core/__arch_guard_violation__.py"
 REEL_FACTORY_PY_FIXTURE="$ROOT/python_packages/reel_factory/__arch_guard_violation__.py"
 
 cleanup() {
   rm -f "$TS_FIXTURE"
   rm -f "$PY_FIXTURE"
+  rm -f "$CORE_PY_FIXTURE"
   rm -f "$REEL_FACTORY_PY_FIXTURE"
 }
 trap cleanup EXIT
@@ -70,7 +72,28 @@ fi
 
 cleanup
 
-# Negative fixture 3: reel_factory must not import campaign_factory.
+# Negative fixture 3: creator_os_core must remain foundational.
+cat > "$CORE_PY_FIXTURE" <<'FIXTURE'
+from campaign_factory import core
+
+VALUE = core.CampaignFactory
+FIXTURE
+
+if (cd "$ROOT" && uv run lint-imports >/tmp/creator-os-arch-guard-core-py.log 2>&1); then
+  cat /tmp/creator-os-arch-guard-core-py.log
+  echo "ERROR: import-linter did not reject creator_os_core -> campaign_factory import" >&2
+  exit 1
+fi
+
+if ! grep -q "creator_os_core remains foundational" /tmp/creator-os-arch-guard-core-py.log; then
+  cat /tmp/creator-os-arch-guard-core-py.log
+  echo "ERROR: import-linter failed, but not with the expected creator_os_core violation" >&2
+  exit 1
+fi
+
+cleanup
+
+# Negative fixture 4: reel_factory must not import campaign_factory.
 cat > "$REEL_FACTORY_PY_FIXTURE" <<'FIXTURE'
 from campaign_factory import core
 

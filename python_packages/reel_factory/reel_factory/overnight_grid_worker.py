@@ -23,6 +23,7 @@ from typing import Any
 from asset_prompt_contract import AssetPromptSet
 from campaign_store import rate_output
 from caption_render import render_caption_png
+from creator_os_core.media_probe import probe_video_stream as probe_video
 from generate_assets import AssetGenerationPlan, create_video_asset
 from PIL import Image, ImageChops
 
@@ -67,33 +68,6 @@ class GridSpec:
 
 def _run(cmd: list[str], *, timeout: int = 60 * 20) -> None:
     subprocess.run(cmd, check=True, timeout=timeout)
-
-
-def probe_video(path: Path) -> dict[str, Any]:
-    raw = subprocess.check_output(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(path),
-        ],
-        text=True,
-    )
-    streams = json.loads(raw).get("streams", [])
-    if not streams:
-        raise ValueError(f"no video stream found: {path}")
-    stream = streams[0]
-    return {
-        "width": int(stream.get("width") or 0),
-        "height": int(stream.get("height") or 0),
-        "duration": float(stream.get("duration") or 0.0),
-    }
 
 
 def sha256_file(path: Path) -> str:

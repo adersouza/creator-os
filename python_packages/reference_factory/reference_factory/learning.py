@@ -9,6 +9,8 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .audio import (
     analyze_audio_patterns,
     cluster_audio_recommendations,
@@ -20,7 +22,6 @@ from .embeddings import (
     DEFAULT_EMBEDDING_THRESHOLD,
     build_embedding_clusters,
 )
-from .fileops import atomic_write_text
 from .identity import stable_id
 from .patterns import (
     analyze_patterns,

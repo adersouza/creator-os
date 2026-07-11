@@ -6952,6 +6952,56 @@ def test_content_graph_tracks_import_render_audit_approval_and_export(
         cf.close()
 
 
+def test_graph_id_for_and_ensure_graph_edge_direct(tmp_path: Path):
+    # Direct coverage for the graph_id_for/ensure_graph_edge facade methods,
+    # previously exercised only by the deleted test_core_characterization.py
+    # golden-master snapshots (F7). Other content-graph tests here assert the
+    # graph via table SQL and graph_id fields but never call these two methods
+    # directly.
+    cf = make_factory(tmp_path)
+    try:
+        model = cf.upsert_model("Model A", name="Model A", notes="first")
+        campaign = cf.upsert_campaign(
+            "Launch Campaign", model["slug"], platform="threads"
+        )
+        account = cf.upsert_account(
+            "@creator_a", platform="instagram", external_id="ig_1", model_id=model["id"]
+        )
+
+        campaign_graph = cf.graph_id_for(
+            "campaigns",
+            campaign["id"],
+            entity_type="campaign",
+            payload={"slug": campaign["slug"]},
+        )
+        account_graph = cf.graph_id_for(
+            "accounts",
+            account["id"],
+            entity_type="account",
+            payload={"handle": account["handle"]},
+        )
+        assert campaign_graph and campaign_graph.startswith("cg_")
+        assert account_graph and account_graph.startswith("cg_")
+
+        edge_id = cf.ensure_graph_edge(
+            campaign_graph,
+            account_graph,
+            "assigned_account",
+            evidence={"source": "test"},
+            commit=True,
+        )
+        assert edge_id
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM content_graph_edges "
+                "WHERE relation_type = 'assigned_account'"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        cf.close()
+
+
 def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

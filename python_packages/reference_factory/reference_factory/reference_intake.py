@@ -13,6 +13,7 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
 from pipeline_contracts.llm_resilience import urlopen_json_with_retry
 
 from pipeline_contracts import (
@@ -23,7 +24,6 @@ from pipeline_contracts import (
 )
 
 from .db import json_dump, json_load
-from .fileops import atomic_write_text
 from .identity import stable_id
 from .prompt_records import (
     find_prompt_record as _find_prompt_record,

@@ -10,6 +10,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from campaign_factory.learning_score import (
     learning_eligible_sql,
     learning_loop_cutover_iso,
@@ -18,7 +20,6 @@ from campaign_factory.learning_score import (
 from .caption_outcome import load_context_json
 from .config import Settings
 from .contentforge_cli import run_contentforge
-from .fileops import atomic_write_text
 from .persistence import json_load
 
 CONTENTFORGE_VARIANT_PRESETS = {

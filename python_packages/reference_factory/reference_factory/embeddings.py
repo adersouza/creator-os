@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from .fileops import atomic_write_text
+from creator_os_core.fileops import atomic_write_text
+from creator_os_core.vectors import cosine_similarity as _cosine
+from creator_os_core.vectors import normalize_vector as _normalize
 
 DEFAULT_EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"
 DEFAULT_EMBEDDING_THRESHOLD = 0.86
@@ -284,15 +285,6 @@ def _medoid(component: list[int], vectors: list[list[float]]) -> int:
             / max(1, len(component))
         ),
     )
-
-
-def _normalize(vector: list[float]) -> list[float]:
-    norm = math.sqrt(sum(value * value for value in vector))
-    return [value / norm for value in vector] if norm else vector
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
 
 
 def _timm_provider(model_name: str) -> Callable[[Path], list[float]]:

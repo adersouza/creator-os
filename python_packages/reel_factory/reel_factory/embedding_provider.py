@@ -7,11 +7,16 @@ model cannot be loaded, callers can fall back to the deterministic hash model.
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
+
+# Re-exported for callers that import these from this module (e.g.
+# ``from embedding_provider import cosine_similarity``). The redundant aliases
+# mark the imports as intentional re-exports so linters keep them.
+from creator_os_core.vectors import cosine_similarity as cosine_similarity
+from creator_os_core.vectors import normalize_vector as normalize_vector
 
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 HASH_MODEL = "hash-v1"
@@ -74,17 +79,6 @@ class SentenceTransformersProvider:
 @lru_cache(maxsize=4)
 def _cached_sentence_provider(model_name: str) -> SentenceTransformersProvider:
     return SentenceTransformersProvider(model_name)
-
-
-def normalize_vector(vec: list[float]) -> list[float]:
-    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-    return [v / norm for v in vec]
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    if len(a) != len(b):
-        return 0.0
-    return sum(x * y for x, y in zip(a, b, strict=True))
 
 
 def get_embedding_provider(

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local campaign control layer for Higgsfield/Juno33 sources, reel_factory renders, ContentForge audits, and ThreadsDash drafts"
 requires-python = ">=3.11"
 dependencies = [
+  "creator-os-core",
   "fastapi>=0.115,<1",
   "pipeline-contracts",
   "uvicorn[standard]>=0.30,<1",
@@ -21,6 +22,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.uv.sources]
+creator-os-core = { workspace = true }
 pipeline-contracts = { workspace = true }
 
 [build-system]

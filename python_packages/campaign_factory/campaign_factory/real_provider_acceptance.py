@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Protocol
 
-from .fileops import atomic_write_text
+from creator_os_core.fileops import atomic_write_text
 
 STACEY_SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 ACCEPTANCE_COHORT_ID = "stacey_learning_cohort_v1"

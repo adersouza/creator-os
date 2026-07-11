@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text, file_lock
+
 from .adapters.threadsdash import (
     SupabaseRestClient,
     evaluate_export_readiness,
@@ -17,7 +19,6 @@ from .adapters.threadsdash import (
 )
 from .config import get_settings
 from .core import CampaignFactory
-from .fileops import atomic_write_text, file_lock
 
 DEFAULT_STACEY_PROMPT_PATH = (
     get_settings().reel_factory_root

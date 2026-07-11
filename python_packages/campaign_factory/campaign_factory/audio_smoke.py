@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .adapters.threadsdash import (
     build_draft_payloads,
     evaluate_export_readiness,
@@ -21,7 +23,6 @@ from .contracts import (
     validate_threadsdash_draft_payload,
 )
 from .core import CampaignFactory, utc_now
-from .fileops import atomic_write_text
 
 SMOKE_CSV = """title,artist,platform,native_audio_id,native_audio_url,mood_tags,best_content_types,account_fit,bpm,energy,trend_status,usage_count,safe_usage_notes,expires_at
 Runway Pop,DJ A,instagram,ig_runway_pop,https://instagram.com/audio/runway_pop,glam|fit_check,regular_reel|v01_original,smoke_account,124,8,rising,120000,Attach natively only,2099-01-01T00:00:00+00:00

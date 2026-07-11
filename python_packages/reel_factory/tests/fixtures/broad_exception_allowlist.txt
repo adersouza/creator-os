@@ -12,7 +12,7 @@ reel_factory/api/metrics_routes.py:dashboard_summary:65
 reel_factory/audio_mux.py:audio_stream_count:44
 reel_factory/audio_mux.py:_audio_meta:71
 reel_factory/audio_mux.py:mux_root:245
-reel_factory/campaign_store.py:get_asset_generation:829
+reel_factory/campaign_store.py:get_asset_generation:813
 reel_factory/caption_bank.py:build:338
 reel_factory/caption_bank.py:_history_captions:694
 reel_factory/caption_bank.py:_history_captions:705
@@ -22,8 +22,8 @@ reel_factory/embedding_index.py:text_for_path:31
 reel_factory/embedding_index.py:text_for_path:41
 reel_factory/embedding_index.py:text_for_path:71
 reel_factory/embedding_index.py:duplicate_risk:268
-reel_factory/embedding_provider.py:get_embedding_provider:101
-reel_factory/embedding_provider.py:get_embedding_provider:108
+reel_factory/embedding_provider.py:get_embedding_provider:95
+reel_factory/embedding_provider.py:get_embedding_provider:102
 reel_factory/generate_assets.py:_soul_id_for_plan:815
 reel_factory/generate_assets.py:_soul_id_for_plan:820
 reel_factory/generate_assets.py:_soul_id_for_direct_plan:838
@@ -37,7 +37,7 @@ reel_factory/generate_prompts.py:frame_is_visible:181
 reel_factory/generate_prompts.py:_safe_fragment:304
 reel_factory/generate_prompts.py:generate_prompt:1738
 reel_factory/generate_prompts.py:generate_prompt:1759
-reel_factory/grid_crop.py:next_clip_stem:741
+reel_factory/grid_crop.py:next_clip_stem:715
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131
 reel_factory/identity_verification.py:get_identity_provider:100
@@ -70,8 +70,8 @@ reel_factory/operator_tools.py:_asset_fanout_panels_sync:2572
 reel_factory/operator_tools.py:list_accounts:3201
 reel_factory/operator_tools.py:runner:3289
 reel_factory/operator_tools.py:runner:3292
-reel_factory/overnight_grid_worker.py:simple_rating:461
-reel_factory/overnight_grid_worker.py:next_clip_stem:497
+reel_factory/overnight_grid_worker.py:simple_rating:435
+reel_factory/overnight_grid_worker.py:next_clip_stem:471
 reel_factory/placement.py:probe_caption_region_luminance:128
 reel_factory/placement.py:probe_caption_region_luminance:134
 reel_factory/placement.py:_extract_probe_frame:180

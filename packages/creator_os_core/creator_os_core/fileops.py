@@ -1,6 +1,6 @@
-"""Locking and atomic-write helpers for reference_factory.
+"""Locking and atomic-write helpers shared across the Creator OS factories.
 
-Writers across the package (report/audit/summary emitters, scripts) previously
+Writers across the packages (report/audit/summary emitters, scripts) previously
 used bare ``Path.write_text``. A crash mid-write leaves a truncated file, and
 concurrent writers (cron + interactive runs) can interleave. These helpers
 provide:

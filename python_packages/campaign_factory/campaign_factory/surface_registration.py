@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .fileops import atomic_write_text
+from creator_os_core.fileops import atomic_write_text
 
 
 class SurfaceRegistrationRepository:

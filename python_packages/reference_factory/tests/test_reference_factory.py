@@ -505,6 +505,7 @@ def test_scan_dedupes_references_by_content_hash(tmp_path: Path) -> None:
     assert row["hashes"] == 1
 
 
+@pytest.mark.slow
 def test_ffprobe_handles_valid_and_broken_video(tmp_path: Path) -> None:
     good = tmp_path / "good.mp4"
     broken = tmp_path / "broken.mp4"
@@ -521,6 +522,7 @@ def test_ffprobe_handles_valid_and_broken_video(tmp_path: Path) -> None:
     assert parse_fps("30000/1001") == 29.97
 
 
+@pytest.mark.slow
 def test_probe_and_sample_frames_create_records(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -553,6 +555,7 @@ def test_ocr_parser_and_caption_hash_are_stable(tmp_path: Path) -> None:
     assert text_hash("Hello Twin") == text_hash("hello   twin")
 
 
+@pytest.mark.slow
 def test_caption_pattern_and_label_export(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -660,6 +663,7 @@ def test_caption_adaptation_exports_profile_outputs(tmp_path: Path) -> None:
     assert Path(result["outputs"]["goldTxt"]).exists()
 
 
+@pytest.mark.slow
 def test_contact_sheet_generates_html(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -680,6 +684,7 @@ def test_contact_sheet_generates_html(tmp_path: Path) -> None:
     assert "Reference Factory Contact Sheet" in html_path.read_text()
 
 
+@pytest.mark.slow
 def test_reference_intake_queues_gemini_analysis_and_exports_prompts(
     tmp_path: Path,
 ) -> None:
@@ -841,6 +846,7 @@ def test_pattern_and_video_analysis_contract_validation_blocks_write(
         )
 
 
+@pytest.mark.slow
 def test_reference_intake_imports_analysis_before_prompt_generation(
     tmp_path: Path,
 ) -> None:
@@ -968,6 +974,7 @@ def test_reference_intake_imports_analysis_before_prompt_generation(
     assert "bedroom mirror" in prompt["mainPrompt"]
 
 
+@pytest.mark.slow
 def test_reference_intake_minimal_gemini_prompt_and_direct_prompt_import(
     tmp_path: Path,
 ) -> None:
@@ -1777,6 +1784,7 @@ def test_higgsfield_individual_variations_assemble_local_grid(
     ).exists()
 
 
+@pytest.mark.slow
 def test_higgsfield_can_animate_individual_variation_panels(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1844,6 +1852,7 @@ def test_higgsfield_can_animate_individual_variation_panels(
     ).exists()
 
 
+@pytest.mark.slow
 def test_higgsfield_reuses_existing_panels_before_kling_animation(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2578,6 +2587,7 @@ def test_higgsfield_empty_download_is_rejected(
     ).exists()
 
 
+@pytest.mark.slow
 def test_reference_intake_imports_gemini_app_response_from_queue(
     tmp_path: Path,
 ) -> None:
@@ -2635,6 +2645,7 @@ def test_reference_intake_imports_gemini_app_response_from_queue(
     ).exists()
 
 
+@pytest.mark.slow
 def test_reference_intake_can_queue_video_only_from_mixed_folder(
     tmp_path: Path,
 ) -> None:
@@ -2658,6 +2669,7 @@ def test_reference_intake_can_queue_video_only_from_mixed_folder(
     assert queued["jobs"][0]["fileName"] == "clip.mp4"
 
 
+@pytest.mark.slow
 def test_reference_local_analysis_creates_pattern_card_and_export(
     tmp_path: Path,
 ) -> None:
@@ -2721,6 +2733,7 @@ def test_public_prompt_card_handles_shared_choice_caption_archetype() -> None:
     assert card["learnedPattern"]["structureNotes"]
 
 
+@pytest.mark.slow
 def test_thumbnail_batch_skips_existing_and_creates_missing(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -2744,6 +2757,7 @@ def test_thumbnail_batch_skips_existing_and_creates_missing(tmp_path: Path) -> N
     )
 
 
+@pytest.mark.slow
 def test_review_query_filters_and_clear_label(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -2817,6 +2831,7 @@ def test_review_batch_balances_and_excludes_labeled_items(tmp_path: Path) -> Non
     assert max(account_counts.values()) <= 2
 
 
+@pytest.mark.slow
 def test_ocr_cleanup_drops_junk_and_keeps_useful_caption(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -2840,6 +2855,7 @@ def test_ocr_cleanup_drops_junk_and_keeps_useful_caption(tmp_path: Path) -> None
     assert remaining == "this is a strong hook"
 
 
+@pytest.mark.slow
 def test_gold_export_includes_metadata(tmp_path: Path) -> None:
     source = tmp_path / "examples"
     account = source / "account_a"
@@ -2867,6 +2883,7 @@ def test_gold_export_includes_metadata(tmp_path: Path) -> None:
     assert exported["summary"]["accountDistribution"][0]["account"] == "account_a"
 
 
+@pytest.mark.slow
 def test_review_api_lists_labels_and_stats(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -2903,6 +2920,7 @@ def test_review_api_lists_labels_and_stats(tmp_path: Path) -> None:
     assert review_stats(connect(db_path))["counts"]["validVideos"] == 1
 
 
+@pytest.mark.slow
 def test_reference_intake_api_queues_and_generates_prompt_exports(
     tmp_path: Path,
 ) -> None:

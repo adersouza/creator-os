@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.sqlite import ensure_columns as _ensure_columns
+
 from .config import DEFAULT_DB_PATH, ensure_data_dirs
 
 SCHEMA = """
@@ -406,18 +408,6 @@ def _declared_schema_columns() -> dict[str, dict[str, str]]:
             columns[name] = ddl
         tables[table] = columns
     return tables
-
-
-def _ensure_columns(
-    conn: sqlite3.Connection, table: str, columns: dict[str, str]
-) -> None:
-    existing = {
-        str(row["name"])
-        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    }
-    for name, ddl in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def source_metrics_from_info_json(media_path: Path) -> dict[str, Any]:

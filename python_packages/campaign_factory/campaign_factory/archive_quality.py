@@ -7,7 +7,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .fileops import atomic_write_text
+from creator_os_core.fileops import atomic_write_text
+
 from .persistence import json_load
 
 

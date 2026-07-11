@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .core import sanitize_for_storage, slugify
 from .cost_tracker import PROVIDER_PRICING
-from .fileops import atomic_write_text
 from .persistence import utc_now
 from .variation_stage import run_variation_stage
 

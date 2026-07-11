@@ -6,10 +6,11 @@ from pathlib import Path
 from types import MethodType
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .audio_smoke import run_pipeline_audio_smoke
 from .config import Settings, resolve_repo_roots
 from .core import CampaignFactory
-from .fileops import atomic_write_text
 
 
 def run_pipeline_smoke(

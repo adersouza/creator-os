@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from overnight_grid_worker import (
     CAPTIONS,
     create_kling_for_grid,
@@ -126,6 +127,7 @@ class OvernightGridWorkerTests(unittest.TestCase):
             )
             self.assertIn("grid.png", result["start_image"])
 
+    @pytest.mark.slow
     def test_crop_grid_video_uses_expected_panel_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
