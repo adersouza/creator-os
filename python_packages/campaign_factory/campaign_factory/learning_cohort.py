@@ -18,7 +18,7 @@ from .lineage_v2 import lineage_v2_is_learning_traceable
 COHORT_ID = "stacey_learning_cohort_v1"
 CREATOR = "Stacey"
 SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
-ACCOUNT_HANDLE = "staceyben101"
+ACCOUNT_HANDLE = "bennett_s33"
 TIMEZONE = "America/New_York"
 TOTAL_DAYS = 25
 METRIC_WINDOWS = {

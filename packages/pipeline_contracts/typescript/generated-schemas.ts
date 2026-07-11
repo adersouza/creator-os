@@ -2494,7 +2494,7 @@ export const generatedPipelineContractSchemas = {
 	      "const": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 	    },
 	    "account_handle": {
-	      "const": "staceyben101"
+	      "const": "bennett_s33"
 	    }
 	  }
 	} as const,
