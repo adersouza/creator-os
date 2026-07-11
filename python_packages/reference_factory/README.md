@@ -47,6 +47,8 @@ python3 -m reference_factory.cli label --reference-id ref_xxx --label gold --tag
 python3 -m reference_factory.cli ocr-cleanup
 python3 -m reference_factory.cli export-gold
 python3 -m reference_factory.cli import-apify-metrics --input /path/to/apify.json
+python3 -m reference_factory.cli backfill-follower-metrics
+python3 -m reference_factory.cli backfill-follower-metrics --apply
 python3 -m reference_factory.cli import-tiktok-archive --source $HOME/Downloads/tiktok
 python3 -m reference_factory.cli top-public-posts --limit 300
 python3 -m reference_factory.cli generate-prompt-cards --limit 50
@@ -63,6 +65,9 @@ with `--caption-share` and `--account-cap`, or set
 `REFERENCE_BANK_CAPTION_SHARE` and `REFERENCE_BANK_ACCOUNT_CAP`. When follower
 counts are present, ranking uses `(likes + comments) / followers` before raw
 reach; missing follower counts fall back to engagement-per-view and raw volume.
+Follower counts are accepted from top-level exports and nested `owner`, `author`,
+or `user` objects. Use `backfill-follower-metrics` to preview recovery from
+already stored source JSON, then repeat with `--apply` to persist it.
 Use `--strict-balance` for a rebuild that leaves scarce bucket capacity empty
 instead of padding the bank with the dominant signal type.
 

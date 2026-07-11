@@ -54,6 +54,7 @@ from .patterns import (
 from .proof_verifier import verify_proof_bundle
 from .provider_doctor import provider_doctor
 from .public_metrics import (
+    backfill_follower_metrics,
     export_learning_set,
     generate_prompt_cards,
     import_apify_metrics,
@@ -179,6 +180,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Apify JSON output path; repeatable",
     )
     apify_import.add_argument("--top-limit", type=int, default=300)
+
+    follower_backfill = sub.add_parser(
+        "backfill-follower-metrics",
+        help="Recover nested follower counts already present in stored source JSON",
+    )
+    follower_backfill.add_argument(
+        "--apply",
+        action="store_true",
+        help="Persist the backfill; otherwise print a dry-run summary",
+    )
 
     tiktok_import = sub.add_parser(
         "import-tiktok-archive",
@@ -784,6 +795,8 @@ def main(argv: list[str] | None = None) -> int:
                     output_dir=data_root / "apify",
                 )
             )
+        elif args.command == "backfill-follower-metrics":
+            print_json(backfill_follower_metrics(conn, apply=args.apply))
         elif args.command == "import-tiktok-archive":
             print_json(
                 import_tiktok_archive(

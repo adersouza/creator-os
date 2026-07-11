@@ -73,6 +73,7 @@ from reference_factory.patterns import (
 from reference_factory.proof_verifier import verify_proof_bundle
 from reference_factory.provider_doctor import provider_doctor
 from reference_factory.public_metrics import (
+    backfill_follower_metrics,
     export_learning_set,
     generate_prompt_cards,
     import_apify_metrics,
@@ -3147,6 +3148,73 @@ def test_public_post_ranking_uses_follower_normalized_engagement_before_raw(
     assert top["items"][1]["publicFollowerEngagementRate"] == 0.002
 
 
+def test_import_apify_metrics_reads_nested_follower_counts(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    apify_path = tmp_path / "nested_followers.json"
+    apify_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "nested",
+                    "ownerUsername": "nested_account",
+                    "shortCode": "NESTED",
+                    "videoPlayCount": 10_000,
+                    "likesCount": 500,
+                    "commentsCount": 50,
+                    "author": {"followers_count": 2_000},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    import_apify_metrics(conn, [apify_path], top_limit=1)
+
+    row = conn.execute("SELECT * FROM public_posts").fetchone()
+    assert row["owner_follower_count"] == 2_000
+    assert row["public_rate_score"] == 5.0
+    assert row["public_follower_engagement_rate"] == 0.275
+
+
+def test_backfill_follower_metrics_is_dry_run_by_default(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO public_posts (
+          id, owner_username, short_code, video_play_count, likes_count,
+          comments_count, match_type, raw_json, imported_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'external_only', ?, 'now')
+        """,
+        (
+            "post_nested",
+            "nested_account",
+            "NESTED_BACKFILL",
+            5_000,
+            200,
+            50,
+            json.dumps({"user": {"followers_count": 1_000}}),
+        ),
+    )
+    conn.commit()
+
+    preview = backfill_follower_metrics(conn)
+    before = conn.execute("SELECT * FROM public_posts").fetchone()
+    applied = backfill_follower_metrics(conn, apply=True)
+    after = conn.execute("SELECT * FROM public_posts").fetchone()
+    repeated = backfill_follower_metrics(conn)
+
+    assert preview["apply"] is False
+    assert preview["rowsWithFollowerSource"] == 1
+    assert preview["rowsChanged"] == 1
+    assert before["owner_follower_count"] is None
+    assert applied["rowsChanged"] == 1
+    assert after["owner_follower_count"] == 1_000
+    assert after["public_rate_score"] == 5.0
+    assert after["public_follower_engagement_rate"] == 0.25
+    assert repeated["rowsChanged"] == 0
+
+
 def test_top_public_posts_balances_signal_types_and_caps_source_accounts(
     tmp_path: Path,
 ) -> None:
@@ -4205,7 +4273,13 @@ def test_tiktok_archive_imports_slideshow_references_and_patterns(
     write_archive_db(
         appdata / "db_authors.js",
         "dba_base64",
-        {"author123": {"uniqueIds": ["slide_creator"], "nickname": "Slide Creator"}},
+        {
+            "author123": {
+                "uniqueIds": ["slide_creator"],
+                "nickname": "Slide Creator",
+                "followerCount": 10_000,
+            }
+        },
     )
     write_archive_db(
         appdata / "db_videos.js",
@@ -4245,6 +4319,9 @@ def test_tiktok_archive_imports_slideshow_references_and_patterns(
     assert source["account"] == "slide_creator"
     assert post["short_code"] == "tiktok_video456"
     assert post["product_type"] == "tiktok_slideshow_reference"
+    assert post["owner_follower_count"] == 10_000
+    assert post["public_rate_score"] == 12.3456
+    assert post["public_follower_engagement_rate"] == 0.9
     assert top["items"][0]["rawJson"]["sourceFormat"] == "slideshow"
     assert analyzed["analyzed"] == 1
     assert pattern["visual_format"] == "tiktok_slideshow"

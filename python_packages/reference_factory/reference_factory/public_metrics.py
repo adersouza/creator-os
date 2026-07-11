@@ -115,6 +115,71 @@ def import_apify_metrics(
     }
 
 
+def backfill_follower_metrics(
+    conn: Connection,
+    *,
+    apply: bool = False,
+) -> dict[str, object]:
+    rows = conn.execute(
+        """
+        SELECT id, owner_username, video_view_count, video_play_count,
+               likes_count, comments_count, owner_follower_count,
+               public_rate_score, public_follower_engagement_rate, raw_json
+        FROM public_posts
+        ORDER BY id
+        """
+    ).fetchall()
+    updates: list[tuple[int, float | None, float, str]] = []
+    accounts: set[str] = set()
+    for row in rows:
+        raw_json = json_load(row["raw_json"], {})
+        followers = _follower_count(raw_json)
+        if not followers:
+            continue
+        accounts.add(str(row["owner_username"] or "_unknown"))
+        public_rate = _rate_from_counts(
+            followers,
+            row["video_play_count"] or row["video_view_count"],
+        )
+        follower_engagement = _engagement_rate_from_counts(
+            followers,
+            row["likes_count"],
+            row["comments_count"],
+        )
+        current = (
+            _int_or_none(row["owner_follower_count"]),
+            _float_or_none(row["public_rate_score"]),
+            _float_or_none(row["public_follower_engagement_rate"]),
+        )
+        desired = (followers, public_rate, follower_engagement)
+        if current != desired:
+            updates.append((*desired, str(row["id"])))
+
+    if apply and updates:
+        conn.executemany(
+            """
+            UPDATE public_posts
+            SET owner_follower_count = ?,
+                public_rate_score = ?,
+                public_follower_engagement_rate = ?
+            WHERE id = ?
+            """,
+            updates,
+        )
+        conn.commit()
+
+    return {
+        "schema": "reference_factory.backfill_follower_metrics.v1",
+        "apply": apply,
+        "publicPosts": len(rows),
+        "rowsWithFollowerSource": sum(
+            1 for row in rows if _follower_count(json_load(row["raw_json"], {}))
+        ),
+        "accountsWithFollowerSource": len(accounts),
+        "rowsChanged": len(updates),
+    }
+
+
 def top_public_posts(
     conn: Connection,
     limit: int = 300,
@@ -445,10 +510,19 @@ def _follower_count(post: dict[str, Any]) -> int | None:
         value = _int_or_none(post.get(key))
         if value:
             return value
-    owner = post.get("owner")
-    if isinstance(owner, dict):
-        for key in ("followersCount", "followerCount"):
-            value = _int_or_none(owner.get(key))
+    for container_key in ("owner", "author", "user"):
+        container = post.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        for key in (
+            "ownerFollowersCount",
+            "followersCount",
+            "followerCount",
+            "owner_follower_count",
+            "followers_count",
+            "followers",
+        ):
+            value = _int_or_none(container.get(key))
             if value:
                 return value
     return None
@@ -463,19 +537,43 @@ def _public_rate_score(post: dict[str, Any]) -> float | None:
         or _int_or_none(post.get("videoViewCount"))
         or 0
     )
-    if exposure <= 0:
-        return None
-    return round(exposure / followers, 6)
+    return _rate_from_counts(followers, exposure)
 
 
 def _public_follower_engagement_rate(post: dict[str, Any]) -> float | None:
     followers = _follower_count(post)
     if not followers:
         return None
-    engagements = (_int_or_none(post.get("likesCount")) or 0) + (
-        _int_or_none(post.get("commentsCount")) or 0
+    return _engagement_rate_from_counts(
+        followers,
+        post.get("likesCount"),
+        post.get("commentsCount"),
     )
+
+
+def _rate_from_counts(followers: int, exposure: object) -> float | None:
+    exposure_count = _int_or_none(exposure) or 0
+    if exposure_count <= 0:
+        return None
+    return round(exposure_count / followers, 6)
+
+
+def _engagement_rate_from_counts(
+    followers: int,
+    likes: object,
+    comments: object,
+) -> float:
+    engagements = (_int_or_none(likes) or 0) + (_int_or_none(comments) or 0)
     return round(engagements / followers, 8)
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _public_post_sort_key(

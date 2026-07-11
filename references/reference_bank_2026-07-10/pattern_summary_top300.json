@@ -1,46 +1,48 @@
 {
   "schema": "reference_factory.pattern_summary.v1",
   "summary": {
-    "avgQualityScore": 98.95,
+    "avgQualityScore": 99.46,
     "captionArchetypes": {
+      "cta_bait": 2,
       "hashtag_context": 12,
-      "minimal_bait": 18,
-      "question_hook": 60,
-      "short_meme_caption": 68
+      "minimal_bait": 14,
+      "question_hook": 63,
+      "short_meme_caption": 78
     },
-    "count": 158,
+    "count": 169,
     "hookTypes": {
-      "curiosity_gap": 98,
-      "direct_response": 60
+      "action_prompt": 2,
+      "curiosity_gap": 104,
+      "direct_response": 63
     },
     "referenceSignalTypes": {
-      "caption_driven": 137,
-      "visual_driven": 21
+      "caption_driven": 150,
+      "visual_driven": 19
     },
     "suggestedLabels": {
-      "gold": 158
+      "gold": 169
     },
     "tags": {
-      "caption_style": 158,
+      "caption_style": 169,
       "fit_check": 2,
-      "hook_good": 112,
-      "slideshow": 76,
-      "visual_style": 77
+      "hook_good": 101,
+      "pose": 1,
+      "slideshow": 56,
+      "visual_style": 57
     },
     "topAccounts": {
-      "BabyyMimiii_": 56,
-      "amandastarry": 2,
-      "cakedlucien": 10,
-      "evonica.black": 8,
+      "BabyyMimiii_": 60,
+      "cakedlucien": 37,
+      "evonica.black": 5,
       "itsnadorlily": 15,
-      "lunarose.vibes_": 56,
-      "maxiabanks": 10,
+      "lunarose.vibes_": 36,
+      "maxiabanks": 15,
       "nayabarbiee": 1
     },
     "visualFormats": {
-      "caption_led_visual": 81,
+      "caption_led_visual": 112,
       "fit_check": 1,
-      "tiktok_slideshow": 76
+      "tiktok_slideshow": 56
     }
   }
 }
