@@ -1,8 +1,8 @@
 # Reel Factory Orchestrator
 
-The Reel Factory orchestrator is currently a dark state machine. It records
-asset pipeline state and emits tick reports, but it does not start generation,
-publishing, scheduling, or ThreadsDashboard runtime work.
+The Reel Factory orchestrator records asset pipeline state and emits tick
+reports. State processing and paid generation have independent gates. It never
+publishes, schedules, or invokes ThreadsDashboard runtime work.
 
 ## State
 
@@ -30,6 +30,7 @@ you want the tick to touch the SQLite state table:
 
 ```toml
 enabled = false
+paid_generation_enabled = false
 daily_candidate_target = 10
 top_k_for_approval = 3
 campaign = "stacey"
@@ -42,9 +43,13 @@ caption_mix = "Stacey"
 `enabled = false` is the default. In that mode the tick writes a JSON status
 report but does not create or mutate the database.
 
-When enabled, the tick refuses to start paid generation unless `campaign`,
-`creator`, one reference path, and `estimated_cost_per_asset_usd` are set and
-the existing Higgsfield cost preflight allows the run. It then calls the existing
+`enabled = true` permits state recovery, ingestion, ranking, approval promotion,
+and dry-run planning. It does not grant spending authority. Paid generation also
+requires `paid_generation_enabled = true`, the per-invocation
+`--allow-paid-generation` flag, and a positive `--max-total-cost-usd` ceiling.
+The tick also refuses paid generation unless `campaign`, `creator`, one reference
+path, and `estimated_cost_per_asset_usd` are set and the existing Higgsfield cost
+preflight allows the run. It then calls the existing
 `pipeline_run` flow for the daily shortfall, ingests `pipeline_run.json` evidence
 into `asset_pipeline_state`, and promotes the top ranked export-ready assets into
 the approval inbox. It does not schedule or publish.
@@ -68,6 +73,14 @@ Run one tick:
 
 ```bash
 uv run python -m reel_factory.orchestrator tick --root python_packages/reel_factory
+```
+
+That command cannot spend. A paid tick requires all persistent and
+per-invocation gates:
+
+```bash
+uv run python -m reel_factory.orchestrator tick --root python_packages/reel_factory \
+  --allow-paid-generation --max-total-cost-usd 1.00
 ```
 
 Tick reports are written to
