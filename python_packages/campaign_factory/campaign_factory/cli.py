@@ -1160,6 +1160,7 @@ def main() -> int:
     ref_import.add_argument("--campaign")
     ref_import.add_argument("--apply", action="store_true")
     ref_import.add_argument("--require-local-paths", action="store_true")
+    ref_import.add_argument("--replace-campaign-links", action="store_true")
 
     audio_import = sub.add_parser("import-audio-catalog")
     audio_import.add_argument("--path", required=True)
@@ -3930,6 +3931,7 @@ def main() -> int:
                     dry_run=not args.apply,
                     campaign_slug=args.campaign,
                     require_local_paths=args.require_local_paths,
+                    replace_campaign_links=args.replace_campaign_links,
                 )
             )
         elif args.cmd == "import-audio-catalog":

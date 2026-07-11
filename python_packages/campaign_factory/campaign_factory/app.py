@@ -519,6 +519,7 @@ def import_reference_bank(body: dict[str, Any] = Body(...)):
             dry_run=bool(body.get("dryRun", True)),
             campaign_slug=body.get("campaign"),
             require_local_paths=bool(body.get("requireLocalPaths", False)),
+            replace_campaign_links=bool(body.get("replaceCampaignLinks", False)),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

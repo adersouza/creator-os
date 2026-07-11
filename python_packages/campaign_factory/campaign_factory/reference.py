@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 from collections.abc import Callable
@@ -46,6 +47,7 @@ class ReferenceRepository:
         dry_run: bool = False,
         campaign_slug: str | None = None,
         require_local_paths: bool = False,
+        replace_campaign_links: bool = False,
     ) -> dict[str, Any]:
         bank_path = Path(bank_path).expanduser().resolve()
         if not bank_path.exists():
@@ -61,6 +63,8 @@ class ReferenceRepository:
         updated = 0
         unchanged = 0
         linked = 0
+        unlinked = 0
+        imported_pattern_ids: set[str] = set()
         missing_paths: list[str] = []
         for idx, cluster in enumerate(clusters, 1):
             cluster_key = str(
@@ -76,15 +80,20 @@ class ReferenceRepository:
             ).fetchone()
             if existing:
                 pattern_id = existing["id"]
+            imported_pattern_ids.add(pattern_id)
             reference_ids = (
                 cluster.get("referenceIds") or prompt.get("referenceIds") or []
             )
             local_paths = (
                 cluster.get("localPaths") or cluster.get("referenceFiles") or []
             )
+            local_paths = [
+                str(Path(os.path.expandvars(str(path))).expanduser())
+                for path in local_paths
+            ]
             for local_path in local_paths:
-                if not Path(str(local_path)).expanduser().exists():
-                    missing_paths.append(str(local_path))
+                if not Path(local_path).exists():
+                    missing_paths.append(local_path)
             public_urls = prompt.get("publicUrls") or []
             prompt_template = cluster.get("promptTemplate") or {}
             higgsfield_json = prompt.get("higgsfieldJson") or {}
@@ -201,6 +210,29 @@ class ReferenceRepository:
                 "reference bank contains missing local paths: "
                 + ", ".join(sorted(set(missing_paths))[:10])
             )
+        if replace_campaign_links:
+            if campaign is None:
+                raise ValueError("replace_campaign_links requires a campaign")
+            if not imported_pattern_ids:
+                raise ValueError(
+                    "refusing to replace campaign links from an empty bank"
+                )
+            existing_links = self.conn.execute(
+                """SELECT id, reference_pattern_id FROM campaign_reference_plans
+                WHERE campaign_id = ?""",
+                (campaign["id"],),
+            ).fetchall()
+            stale_link_ids = [
+                row["id"]
+                for row in existing_links
+                if row["reference_pattern_id"] not in imported_pattern_ids
+            ]
+            unlinked = len(stale_link_ids)
+            if not dry_run and stale_link_ids:
+                self.conn.executemany(
+                    "DELETE FROM campaign_reference_plans WHERE id = ?",
+                    [(link_id,) for link_id in stale_link_ids],
+                )
         if not dry_run:
             self.conn.commit()
         if not dry_run and (created or updated or linked):
@@ -224,12 +256,13 @@ class ReferenceRepository:
             "bankPath": str(bank_path),
             "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
             "dryRun": dry_run,
-            "wouldWrite": bool(created or updated or linked),
+            "wouldWrite": bool(created or updated or linked or unlinked),
             "patternsImported": created + updated,
             "patternsCreated": created,
             "patternsUpdated": updated,
             "patternsUnchanged": unchanged,
             "campaignLinksCreated": linked,
+            "campaignLinksRemoved": unlinked,
             "campaign": campaign_slug,
             "missingLocalPaths": sorted(set(missing_paths)),
         }
