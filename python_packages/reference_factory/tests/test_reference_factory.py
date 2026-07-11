@@ -46,6 +46,7 @@ from reference_factory.learning import (
     _campaign_reference_bank,
     _cluster_cards,
     _cluster_from_items,
+    _review_label_weight,
     build_learning_system,
     learning_summary,
 )
@@ -3752,13 +3753,13 @@ def test_learning_system_exports_winner_dna_and_audio_fit_from_measured_winners(
     )
 
 
-def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
+def test_review_labels_control_limited_cluster_selection_without_reclassifying(
     tmp_path: Path,
 ) -> None:
     conn = make_conn(tmp_path)
-    for reference_id, visual_format in (
-        ("ref_gold", "mirror_selfie"),
-        ("ref_ignore", "bedroom_pose"),
+    for reference_id, visual_format, raw_rank in (
+        ("ref_gold", "mirror_selfie", 999),
+        ("ref_ignore", "bedroom_pose", 1),
     ):
         conn.execute(
             """
@@ -3787,12 +3788,13 @@ def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
               id, reference_id, rank, provider, analyzer_version, suggested_label,
               visual_format, hook_type, caption_archetype, quality_score,
               pattern_json, created_at, updated_at
-            ) VALUES (?, ?, 1, 'heuristic', 'test', 'maybe', ?, 'viewer_insert',
+            ) VALUES (?, ?, ?, 'heuristic', 'test', 'maybe', ?, 'viewer_insert',
                       'question_hook', 70, ?, 'now', 'now')
             """,
             (
                 f"pattern_{reference_id}",
                 reference_id,
+                raw_rank,
                 visual_format,
                 json.dumps(pattern),
             ),
@@ -3800,8 +3802,10 @@ def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
     label_reference(conn, "ref_gold", "gold", ["visual_style"], "keeper")
     label_reference(conn, "ref_ignore", "ignore", ["visual_style"], "weak")
 
-    first = learning_summary(conn, limit=10)
+    first = learning_summary(conn, limit=1)
+    first_export = export_patterns(conn, limit=1, output_dir=tmp_path / "first")
     assert first["topClusters"][0]["topReferenceId"] == "ref_gold"
+    assert first_export["items"][0]["referenceId"] == "ref_gold"
     assert first["topClusters"][0]["winnerDna"]["performanceClassCounts"] == {
         "performed_well": 1
     }
@@ -3809,15 +3813,17 @@ def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
     conn.execute("DELETE FROM review_labels")
     label_reference(conn, "ref_gold", "ignore", ["visual_style"], "weak")
     label_reference(conn, "ref_ignore", "gold", ["visual_style"], "keeper")
-    second = learning_summary(conn, limit=10)
+    second = learning_summary(conn, limit=1)
+    second_export = export_patterns(conn, limit=1, output_dir=tmp_path / "second")
 
     assert second["topClusters"][0]["topReferenceId"] == "ref_ignore"
+    assert second_export["items"][0]["referenceId"] == "ref_ignore"
     assert second["topClusters"][0]["winnerDna"]["performanceClassCounts"] == {
         "performed_well": 1
     }
 
 
-def test_characterizes_secondary_signals_can_outrank_gold_under_soft_weights():
+def test_gold_label_is_authoritative_over_stronger_secondary_signals():
     clusters = _cluster_cards(
         [
             {
@@ -3853,7 +3859,62 @@ def test_characterizes_secondary_signals_can_outrank_gold_under_soft_weights():
         ]
     )
 
-    assert clusters[0]["topReferenceId"] == "ref_maybe"
+    assert clusters[0]["topReferenceId"] == "ref_gold"
+    assert clusters[0]["labelAuthorityWeight"] == 1.5
+
+
+def test_label_weight_defaults_and_env_knobs_preserve_authority_order(monkeypatch):
+    for name in (
+        "REFERENCE_LABEL_WEIGHT_GOLD",
+        "REFERENCE_LABEL_WEIGHT_MAYBE",
+        "REFERENCE_LABEL_WEIGHT_UNLABELED",
+        "REFERENCE_LABEL_WEIGHT_IGNORE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert _review_label_weight("gold") == 4.0
+    assert _review_label_weight("maybe") == 2.0
+    assert _review_label_weight(None) == 1.0
+    assert _review_label_weight("ignore") == 0.0
+
+    monkeypatch.setenv("REFERENCE_LABEL_WEIGHT_GOLD", "8.5")
+    monkeypatch.setenv("REFERENCE_LABEL_WEIGHT_IGNORE", "0.25")
+    assert _review_label_weight("gold") == 8.5
+    assert _review_label_weight("ignore") == 0.25
+
+
+def test_outcomes_break_ties_between_equally_authoritative_gold_labels():
+    cluster = _cluster_from_items(
+        "mirror_selfie::viewer_insert::question_hook",
+        [
+            {
+                "rank": 1,
+                "referenceId": "ref_gold_loser",
+                "account": "account_a",
+                "plays": 100_000,
+                "qualityScore": 95,
+                "reviewLabel": "gold",
+                "tasteWeight": 4.0,
+                "performanceClass": "underperformed",
+                "measuredOutcome": {"rewardScore": 0.6},
+                "winnerDna": {},
+            },
+            {
+                "rank": 2,
+                "referenceId": "ref_gold_winner",
+                "account": "account_b",
+                "plays": 1_000,
+                "qualityScore": 70,
+                "reviewLabel": "gold",
+                "tasteWeight": 4.0,
+                "performanceClass": "performed_well",
+                "measuredOutcome": {"rewardScore": 1.8},
+                "winnerDna": {},
+            },
+        ],
+    )
+
+    assert cluster["topReferenceId"] == "ref_gold_winner"
+    assert cluster["outcomeSignalScore"] == 1.2
 
 
 def test_learning_cluster_keeps_account_winners_ahead_of_unproven_references() -> None:

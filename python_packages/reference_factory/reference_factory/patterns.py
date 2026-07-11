@@ -18,6 +18,7 @@ from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .db import json_dump, json_load
 from .identity import stable_id, text_hash
 from .public_metrics import top_public_posts
+from .ranking import review_label_weight
 from .timeutil import now_iso
 
 ANALYZER_VERSION = "reference_factory.patterns.v1"
@@ -447,19 +448,42 @@ def vision_context_for_reference(
 
 
 def _pattern_rows(conn: Connection, limit: int) -> list[Any]:
-    return conn.execute(
+    rows = conn.execute(
         """
         SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
                pp.video_play_count, pp.video_view_count, pp.likes_count, pp.comments_count,
-               pp.match_type, sf.path AS local_path, sf.account, sf.file_name
+               pp.match_type, sf.path AS local_path, sf.account, sf.file_name,
+               rl.label AS review_label
         FROM reference_patterns rp
         LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
         LEFT JOIN source_files sf ON sf.reference_id = rp.reference_id
+        LEFT JOIN review_labels rl ON rl.id = (
+          SELECT id FROM review_labels
+          WHERE reference_id = rp.reference_id
+          ORDER BY updated_at DESC
+          LIMIT 1
+        )
         ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
-        LIMIT ?
         """,
-        (limit,),
     ).fetchall()
+    return sorted(rows, key=_pattern_row_rank_key)[:limit]
+
+
+def _pattern_row_rank_key(row: Any) -> tuple[float, float, int, float]:
+    pattern = json_load(row["pattern_json"], {})
+    metrics = pattern.get("metrics") if isinstance(pattern.get("metrics"), dict) else {}
+    outcome = (
+        metrics.get("measuredOutcome")
+        if isinstance(metrics.get("measuredOutcome"), dict)
+        else {}
+    )
+    reward = outcome.get("rewardScore")
+    return (
+        -review_label_weight(row["review_label"]),
+        -float(reward) if isinstance(reward, (int, float)) else 0.0,
+        int(row["rank"] or 999999),
+        -float(row["quality_score"] or 0.0),
+    )
 
 
 def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
@@ -1410,6 +1434,8 @@ def _pattern_row_to_card(row: Any) -> dict[str, Any]:
             "measuredOutcome": metrics.get("measuredOutcome"),
         },
         "suggestedLabel": row["suggested_label"],
+        "reviewLabel": row["review_label"],
+        "tasteWeight": review_label_weight(row["review_label"]),
         "visualFormat": row["visual_format"],
         "hookType": row["hook_type"],
         "captionArchetype": row["caption_archetype"],
