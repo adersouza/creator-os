@@ -1,11 +1,11 @@
 # Creator OS Master Operating Specification
 
-Status: **DRAFT — awaiting operator questionnaire answers**
+Status: **LOCKED — operator questionnaire answered 2026-07-11**
 
 This document is the implementation authority for the current Creator OS
-production-readiness goal. It records only requirements the operator has
-already stated. Unanswered product decisions must not be silently converted
-into defaults.
+production-readiness goal. It incorporates the operator's 101 answers and
+explicit confirmation that every depicted model is over 18. Where the operator
+selected the recommendation, the recommendation is binding until changed here.
 
 ## Locked Outcome
 
@@ -27,6 +27,146 @@ Creator OS must become a usable headless production system that:
 9. Preserves ThreadsDashboard as the scheduling and publishing authority.
 10. Collects real 1h, 24h, and 72h outcomes and feeds them back into selection
     and reference learning.
+
+## Locked Operator Decisions
+
+### Business outcome and scale
+
+- Primary outcome: grow Stacey's Instagram reach and drive trackable traffic to
+  her OnlyFans funnel. Revenue is not a learning input because it is not
+  currently observable; use views, engagement, follows, profile visits, and
+  attributable link clicks in a weighted score.
+- Benchmark direction: the manually operated `@staceybennetx` Instagram account.
+- Stacey launches first, then Stacey1, Larissa, Lola, and the operator's other
+  verified models. Every creator learns independently.
+- Target fleet: approximately 200 accounts. Existing generated media is the
+  launch inventory; reference-conditioned Higgsfield generation ramps in over
+  subsequent weeks instead of blocking launch.
+- Per-account target: one regular reel daily or every other day plus one or two
+  trial reels daily. The planner must treat this as a capacity target, not a
+  reason to bypass inventory, uniqueness, account-health, or publish gates.
+- Initial proof remains a bounded 50-post cohort. It is a launch gate, not the
+  long-term manual workflow.
+- Instagram is the initial platform.
+
+### Creative and age policy
+
+- All depicted models are verified by the operator as over 18.
+- When age wording improves Soul output, the creative prompt uses exactly
+  `19 years old`. Age verification stays in metadata/QC, not in creative prose.
+  Do not use `adult`, `woman`, `girl`, `teen`, or ambiguous `young` age wording
+  in the generation prompt.
+- Default look: strongly sexy, candid/amateur, believable phone/selfie or
+  propped-camera footage. Mirror selfies, selfies, and casually placed-camera
+  scenes are preferred over polished luxury/editorial scenes.
+- Sexy does not mean only more exposed skin. Allowed emphasis includes fuller
+  cleavage, tight clothing, an amateur feel, and a mischievous expression.
+- Preserve identity, pose, outfit, setting, lighting, and expression. Do not
+  alter the waist or add unrelated body/scene changes. Selfies may emphasize
+  chest/cleavage; full-body shots may additionally emphasize a rounder butt.
+- Stacey identity guidance includes dark hair and no tattoos. Identity guidance
+  must be applied without overriding the Soul identity.
+- Bikinis, lingerie, sheer-but-covered clothing, and deep cleavage are allowed.
+  Reject visible nipples, explicit nudity, extreme explicitness, age ambiguity,
+  or failed identity/anatomy evidence.
+- Block cigarettes, drugs, weapons, and controversial themes by default. Keep
+  the reference setting rather than inventing luxury context.
+
+### References and generation
+
+- Reference inputs may come from Reference Factory, operator-uploaded folders,
+  and reviewed public examples/accounts.
+- Gold references are automatic-first; `maybe` requires approval; `ignore` is
+  excluded and may be deleted after evidence retention.
+- Select by measured performance when available, balance visual-driven and
+  caption-driven patterns, and cap source-account concentration.
+- Reuse strong references when useful, but vary captions/timing and keep similar
+  uses separated across accounts. Crop salvageable interface borders; reject
+  interface elements covering the subject.
+- Reference approval is batch-based and must be easy for the operator to review.
+- One reference-conditioned Soul pass produces and preserves the original.
+  Capture its provider prompt. Create one text-only sexy candidate without
+  paying to regenerate the original. One automatic retry is allowed only after
+  identity/anatomy failure; then reject the reference.
+- Generate in the aspect ratio that best serves the shot (`3:4`, `2:3`, or
+  `9:16`), then produce the Instagram-ready 9:16 reel without destructive
+  subject cropping.
+- Reference Factory is the long-term learning source: successful past assets,
+  prompts, patterns, captions, and measured outcomes become future generation
+  examples so the system does not depend forever on new reference images.
+
+### Static MP4, captions, and audio
+
+- Every QC-passing still produces a free-provider-cost static MP4; failed stills
+  do not. Duration is deterministically randomized within 5–7 seconds.
+- Preserve a clean locked/no-zoom MP4 and, when caption placement passes, a
+  captioned MP4. The clean static remains the fallback for every candidate.
+- Overlay hooks come from the caption bank. Use Instagram Sans Condensed by
+  default and the approved larger bold style occasionally. Caption work remains
+  an active weekly optimization area.
+- Placement must find the best safe lane and never cover the face/body focal
+  area. If no safe lane survives measurement, regenerate for negative space or
+  use the clean MP4; do not force an unsafe overlay.
+- Burned overlay text and post captions remain separate. Campaign Factory owns
+  post captions.
+- Native/platform audio remains a ThreadsDashboard or Notify Publish decision.
+  Evaluate a free audio path, but do not burn or license audio speculatively.
+
+### Paid Kling policy
+
+- Kling may run only after at least two safe, human-approved static candidates
+  are ranked and one unique best candidate receives a durable selection receipt.
+- Rank with identity/anatomy as hard gates and a balanced score using visual
+  quality, attractiveness, reference fidelity, predicted engagement, and the
+  optional Higgsfield virality predictor when it is free. Explain wins/losses.
+- Never animate a candidate that failed identity, anatomy, ContentForge, human
+  approval, or receipt validation. If Kling fails, retain/use the static MP4.
+- Operational ceiling: at most 10 Kling videos in one day, with zero automatic
+  paid retries. This is a ceiling, not a daily target.
+- Hard monthly provider ceiling: 1,000 credits across Soul/Higgsfield/Kling,
+  subject to live balance verification. Pace daily spending so the monthly
+  allocation cannot be exhausted early; the runtime must fail closed if current
+  balance or price is unknown.
+- Each Kling charge requires explicit approval until at least five real paid
+  runs complete successfully. Afterwards, only receipt-backed candidates may
+  use an operator-configured automatic budget lane.
+- Investigate provider-supported no-audio/short-duration/settings options before
+  changing the assumed price. Never claim savings without a live quote.
+
+### Drafts, scheduling, and publishing
+
+- After approval, signed HMAC draft creation is automatic and idempotent: one
+  winning asset creates exactly one ThreadsDashboard draft.
+- Creator OS never publishes directly. All posts flow through ThreadsDashboard,
+  which either uses the approved Meta publishing path or sends a Notify Publish
+  handoff to the operator's phone for accounts operated there.
+- Human final approval is required during the initial cohort and the first day
+  or two of launch. The target state is no routine manual posting except phone
+  Notify Publish accounts.
+- After proof, high-confidence posts may auto-schedule and automatic publishing
+  becomes an operator-controlled option. Native-audio/publishability proof still
+  applies to direct TD publishing.
+- Account assignment is automatic. Trial reels test non-follower distribution
+  and may use different/randomized posting windows from regular reels.
+- Use randomized, testable posting windows. Keep identical/similar visuals and
+  captions far apart across accounts; change overlay/caption/other safe features
+  where appropriate.
+- One confirmed publish/reauth failure pauses the account. A global kill switch
+  stops paid generation, drafts, scheduling, and publishing.
+
+### Learning, operations, and operator experience
+
+- Always collect 1h, 24h, and 72h evidence; 24h is the primary reward.
+  Normalize per account and learn original-vs-sexy and Kling-vs-static lift.
+- Notify actionable failures immediately via macOS and Discord; send routine
+  state in a daily digest.
+- Run headlessly after reboot. Keep the machine light: short local hot retention,
+  offload durable approved media/evidence to the configured Supabase recovery
+  layer, and delete expired rejected media only after retention proof.
+- Produce a weekly improvement digest covering performance, caption/reference/
+  timing experiments, Kling ROI, failures, recommended configuration changes,
+  and the next bounded tests. Recommendations must cite real outcome evidence.
+- The operator experience must not require terminal commands for routine use.
 
 ## Current Safety State
 
@@ -56,25 +196,6 @@ Creator OS must become a usable headless production system that:
    the active accepted-still front path and remains durable if optional Kling
    fails.
 
-## Decisions Awaiting Operator Answers
-
-The questionnaire covers ten decision groups:
-
-1. outcome and scope;
-2. creative identity and boundaries;
-3. reference selection;
-4. Soul stills and sexy variants;
-5. free static MP4 behavior;
-6. Kling eligibility and budgets;
-7. ranking and selection;
-8. captions, native audio, and drafts;
-9. scheduling and publishing;
-10. learning, operations, and ownership.
-
-Until those answers are locked, implementation may repair contradictions and
-add non-mutating tests, but it must not guess spend ceilings, publishing
-authority, posting volume, or sexual-content boundaries.
-
 ## Required Completion Evidence
 
 | Requirement | Authoritative proof |
@@ -88,10 +209,15 @@ authority, posting volume, or sexual-content boundaries.
 | Publishing boundary | ThreadsDashboard approval/native-audio proof and guarded manual publish receipt |
 | Learning loop | The published post has eligible 1h, 24h, and 72h snapshots and updates the correct campaign/reference/reel outcomes |
 | Operations | Runtime checkout, launchd health, budget/kill switches, notifications, backup check, and operator runbook verified |
+| Weekly improvement | Scheduled weekly digest uses real outcomes and proposes bounded evidence-backed experiments |
 
 ## Completion Rule
 
-The master goal is complete only when the operator-approved specification is
-implemented and the evidence table is satisfied end to end. Green unit tests,
-an open pull request, a preview deployment, or an isolated paid still do not by
-themselves prove completion.
+The master goal is complete only when the operator can upload or select library
+content and wake up to new high-quality reels that were selected, gated,
+drafted, and scheduled across the fleet; ThreadsDashboard either publishes them
+through its approved Meta path or sends the required Notify Publish handoff;
+paid generation remains inside budget; real metrics update learning; and the
+weekly digest recommends improvements. Routine operation must not require code
+or terminal commands. Green unit tests, an open pull request, a preview
+deployment, or an isolated paid still do not by themselves prove completion.

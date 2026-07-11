@@ -17,6 +17,7 @@ from .core import (
     slugify,
 )
 from .cost_tracker import PROVIDER_PRICING
+from .kling_selection_stage import validate_kling_selection_receipt
 from .persistence import utc_now
 from .static_mp4_stage import run_static_mp4_stage
 from .variation_stage import run_variation_stage
@@ -42,6 +43,7 @@ def run_front_generation_stage(
     enable_paid_generation: bool = False,
     budget_cap_usd: float | None = None,
     accepted_still_path: Path | None = None,
+    kling_selection_receipt_path: Path | None = None,
     estimated_image_cost_usd: float = DEFAULT_IMAGE_COST_USD,
     estimated_video_cost_usd: float = DEFAULT_KLING_COST_USD,
     wait: bool = False,
@@ -54,6 +56,8 @@ def run_front_generation_stage(
         raise ValueError("animation_mode must be kling or motion_edit")
     if not creator and not soul_id and not soul_name:
         raise ValueError("creator, soul_id, or soul_name is required")
+    if kling_selection_receipt_path is not None and accepted_still_path is None:
+        raise ValueError("Kling selection receipt requires an accepted still")
     campaign = factory.campaign_by_slug(campaign_slug)
     model_slug = factory._model_slug_for_campaign(campaign["id"])
     dirs = factory.campaign_dirs(model_slug, campaign["slug"])
@@ -70,6 +74,7 @@ def run_front_generation_stage(
     projected_cost = _projected_cost(
         animation_mode=animation_mode,
         accepted_still_path=accepted_still_path,
+        kling_selection_receipt_path=kling_selection_receipt_path,
         estimated_image_cost_usd=estimated_image_cost_usd,
         estimated_video_cost_usd=estimated_video_cost_usd,
     )
@@ -90,6 +95,9 @@ def run_front_generation_stage(
             "budgetCapUsd": budget_cap_usd,
             "acceptedStillPath": str(accepted_still_path)
             if accepted_still_path
+            else None,
+            "klingSelectionReceiptPath": str(kling_selection_receipt_path)
+            if kling_selection_receipt_path
             else None,
             "wait": wait,
             "download": download,
@@ -115,6 +123,7 @@ def run_front_generation_stage(
             animation_mode=animation_mode,
             prompt_path=prompt_path,
             accepted_still_path=accepted_still_path,
+            kling_selection_receipt_path=kling_selection_receipt_path,
             dry_run=dry_run or not apply,
             budget_cap_usd=budget_cap_usd,
             estimated_image_cost_usd=estimated_image_cost_usd,
@@ -161,6 +170,7 @@ def run_front_generation_stage(
                     .expanduser()
                     .resolve(),
                     estimated_video_cost_usd=estimated_video_cost_usd,
+                    kling_selection_receipt=video_result.get("klingSelectionReceipt"),
                 )
                 if enable_variation:
                     variation = run_variation_stage(
@@ -197,11 +207,12 @@ def _projected_cost(
     *,
     animation_mode: str,
     accepted_still_path: Path | None,
+    kling_selection_receipt_path: Path | None,
     estimated_image_cost_usd: float,
     estimated_video_cost_usd: float,
 ) -> float:
     total = 0.0 if accepted_still_path else estimated_image_cost_usd
-    if animation_mode == "kling":
+    if animation_mode == "kling" and kling_selection_receipt_path is not None:
         total += estimated_video_cost_usd
     return total
 
@@ -246,6 +257,7 @@ def _build_stages(
     animation_mode: str,
     prompt_path: Path,
     accepted_still_path: Path | None,
+    kling_selection_receipt_path: Path | None,
     dry_run: bool,
     budget_cap_usd: float | None,
     estimated_image_cost_usd: float,
@@ -314,35 +326,17 @@ def _build_stages(
                 }
             )
         else:
-            video_result = _invoke_generate_assets(
-                factory,
-                [
-                    "video-dry-run",
-                    "--prompt-json",
-                    str(prompt_path),
-                    "--stem",
-                    stem,
-                    "--start-image",
-                    ACCEPTED_STILL_PLACEHOLDER,
-                    "--campaign",
-                    campaign_slug,
-                    "--estimated-cost-usd",
-                    str(estimated_video_cost_usd),
-                    *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-                    *_runtime_generation_args(
-                        wait=wait, download=download, dry_run=True
-                    ),
-                ],
-                budget_cap_usd=budget_cap_usd,
-            )
             stages.append(
                 {
                     "name": "kling_video",
-                    "status": "planned",
+                    "status": "blocked",
                     "paid": True,
                     "estimatedCostUsd": estimated_video_cost_usd,
-                    "commands": video_result.get("commands") or [],
-                    "result": video_result,
+                    "commands": [],
+                    "reason": (
+                        "Kling requires an accepted static fallback, safe audit, "
+                        "human approval, and best-only selection receipt."
+                    ),
                 }
             )
         return stages
@@ -398,6 +392,27 @@ def _build_stages(
             }
         )
     else:
+        if kling_selection_receipt_path is None:
+            stages.append(
+                {
+                    "name": "kling_video",
+                    "status": "blocked",
+                    "paid": True,
+                    "estimatedCostUsd": estimated_video_cost_usd,
+                    "commands": [],
+                    "reason": (
+                        "Kling is blocked until this static candidate wins an "
+                        "approved multi-candidate ranking batch."
+                    ),
+                }
+            )
+            return stages
+        selection = validate_kling_selection_receipt(
+            factory,
+            receipt_path=kling_selection_receipt_path,
+            accepted_still_path=accepted_still,
+            selected_static_asset=static_result.get("registeredAsset"),
+        )
         video_result = _invoke_generate_assets(
             factory,
             [
@@ -419,6 +434,7 @@ def _build_stages(
             ],
             budget_cap_usd=budget_cap_usd,
         )
+        video_result["klingSelectionReceipt"] = selection
         stages.append(
             {
                 "name": "kling_video",
@@ -532,6 +548,7 @@ def _register_kling_rendered_asset(
     plan: dict[str, Any],
     accepted_still_path: Path,
     estimated_video_cost_usd: float,
+    kling_selection_receipt: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if video_path.stat().st_size <= 0:
         raise FileNotFoundError(f"Kling video output is empty: {video_path}")
@@ -548,6 +565,7 @@ def _register_kling_rendered_asset(
         "frontGenerationPlan": plan,
         "generatedAssetLineagePath": lineage_path,
         "acceptedStillPath": str(accepted_still_path),
+        "klingSelectionReceipt": kling_selection_receipt,
         "humanReviewRequired": True,
     }
     metadata = {
@@ -557,6 +575,7 @@ def _register_kling_rendered_asset(
             "estimatedCostUsd": estimated_video_cost_usd,
             "acceptedStillPath": str(accepted_still_path),
             "generatedAssetLineagePath": lineage_path,
+            "klingSelectionReceipt": kling_selection_receipt,
         },
         "humanReviewRequired": True,
     }

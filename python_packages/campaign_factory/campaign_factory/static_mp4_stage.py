@@ -23,7 +23,7 @@ def run_static_mp4_stage(
     *,
     campaign_slug: str,
     still_path: Path,
-    duration_seconds: float = 5.0,
+    duration_seconds: float | None = None,
     dry_run: bool = True,
     apply: bool = False,
     allow_upscale: bool = False,
@@ -37,6 +37,11 @@ def run_static_mp4_stage(
     if not still.exists() or not still.is_file():
         raise FileNotFoundError(f"accepted still not found: {still}")
     still_fingerprint = sha256_file(still)
+    selected_duration = (
+        float(duration_seconds)
+        if duration_seconds is not None
+        else _duration_for_still(still_fingerprint)
+    )
     output_path = (
         dirs["rendered"] / f"{slugify(still.stem)}_{still_fingerprint[:12]}_static.mp4"
     )
@@ -47,7 +52,7 @@ def run_static_mp4_stage(
             "campaign": campaign_slug,
             "stillPath": str(still),
             "outputPath": str(output_path),
-            "durationSeconds": duration_seconds,
+            "durationSeconds": selected_duration,
             "dryRun": dry_run,
             "apply": apply,
             "paidGeneration": False,
@@ -55,17 +60,32 @@ def run_static_mp4_stage(
     )
     factory.start_pipeline_job(pipeline_job["id"])
     try:
-        render = _invoke_reel_factory_static_mp4(
-            factory,
-            still_path=still,
-            output_path=output_path,
-            duration_seconds=duration_seconds,
-            dry_run=dry_run or not apply,
-            allow_upscale=allow_upscale,
+        registered_asset = (
+            _existing_static_asset(
+                factory,
+                campaign_id=campaign["id"],
+                parent_still_hash=still_fingerprint,
+            )
+            if apply and not dry_run
+            else None
         )
+        reused = registered_asset is not None
+        if reused:
+            metadata = _json_object(registered_asset.get("metadata_json"))
+            render = metadata.get("staticMp4Render")
+            if not isinstance(render, dict):
+                raise ValueError("registered static MP4 is missing render metadata")
+        else:
+            render = _invoke_reel_factory_static_mp4(
+                factory,
+                still_path=still,
+                output_path=output_path,
+                duration_seconds=selected_duration,
+                dry_run=dry_run or not apply,
+                allow_upscale=allow_upscale,
+            )
         _validate_render(render)
-        registered_asset = None
-        if apply and not dry_run:
+        if apply and not dry_run and not reused:
             registered_asset = _register_rendered_asset(
                 factory,
                 campaign=campaign,
@@ -78,6 +98,7 @@ def run_static_mp4_stage(
             "dryRun": dry_run or not apply,
             "apply": bool(apply and not dry_run),
             "paidGeneration": False,
+            "reused": reused,
             "render": render,
             "registeredAsset": registered_asset,
             "pipelineJobId": pipeline_job["id"],
@@ -324,6 +345,50 @@ def _source_prompt(source_asset: dict[str, Any]) -> dict[str, Any]:
     if not str(payload.get("referenceId") or "").strip():
         raise ValueError("static MP4 registration requires source referenceId")
     return payload
+
+
+def _existing_static_asset(
+    factory: Any, *, campaign_id: str, parent_still_hash: str
+) -> dict[str, Any] | None:
+    rows = factory.conn.execute(
+        """
+        SELECT * FROM rendered_assets
+        WHERE campaign_id = ? AND recipe = 'static_mp4'
+        ORDER BY created_at, id
+        """,
+        (campaign_id,),
+    ).fetchall()
+    for row in rows:
+        asset = dict(row)
+        metadata = _json_object(asset.get("metadata_json"))
+        lineage = metadata.get("generatedAssetLineage")
+        source = lineage.get("source") if isinstance(lineage, dict) else None
+        if not isinstance(source, dict) or source.get("parentStillHash") != (
+            parent_still_hash
+        ):
+            continue
+        output = Path(asset["output_path"])
+        if output.is_file() and sha256_file(output) == asset["content_hash"]:
+            return asset
+    return None
+
+
+def _json_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return value if isinstance(value, dict) else {}
+    return {}
+
+
+def _duration_for_still(still_fingerprint: str) -> float:
+    """Stable 5–7 second variation so retries never change the asset recipe."""
+    milliseconds = int(still_fingerprint[:8], 16) % 2001
+    return round(5.0 + milliseconds / 1000.0, 3)
 
 
 def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]:

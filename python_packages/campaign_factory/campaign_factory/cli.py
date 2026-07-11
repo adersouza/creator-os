@@ -35,6 +35,7 @@ from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
 from .front_generation_stage import run_front_generation_stage
+from .kling_selection_stage import run_kling_selection_stage
 from .learning_cohort import (
     assign_learning_cohort_references,
     audit_learning_cohort,
@@ -226,7 +227,7 @@ def main() -> int:
     static_mp4 = animation_sub.add_parser("static-mp4")
     static_mp4.add_argument("--campaign", required=True)
     static_mp4.add_argument("--still", required=True)
-    static_mp4.add_argument("--duration", type=float, default=5.0)
+    static_mp4.add_argument("--duration", type=float)
     static_mp4.add_argument("--dry-run", action="store_true")
     static_mp4.add_argument("--apply", action="store_true")
     static_mp4.add_argument("--allow-upscale", action="store_true")
@@ -245,6 +246,7 @@ def main() -> int:
         "--animation-mode", choices=["kling", "motion_edit"], default="kling"
     )
     front_link.add_argument("--accepted-still")
+    front_link.add_argument("--kling-selection-receipt")
     front_link.add_argument("--estimated-image-cost-usd", type=float, default=0.05)
     front_link.add_argument("--estimated-video-cost-usd", type=float, default=0.10)
     front_link.add_argument("--budget-cap-usd", type=float)
@@ -255,6 +257,12 @@ def main() -> int:
     front_link.add_argument("--variation-preset", default="ig_subtle")
     front_link.add_argument("--dry-run", action="store_true")
     front_link.add_argument("--apply", action="store_true")
+    select_kling = generation_sub.add_parser("select-kling")
+    select_kling.add_argument("--campaign", required=True)
+    select_kling.add_argument("--rendered-asset-id", action="append", required=True)
+    select_kling.add_argument("--batch-id")
+    select_kling.add_argument("--dry-run", action="store_true")
+    select_kling.add_argument("--apply", action="store_true")
 
     proactive = sub.add_parser("proactive-cycle")
     proactive_sub = proactive.add_subparsers(dest="proactive_cmd", required=True)
@@ -2557,6 +2565,9 @@ def main() -> int:
                         accepted_still_path=Path(args.accepted_still)
                         if args.accepted_still
                         else None,
+                        kling_selection_receipt_path=Path(args.kling_selection_receipt)
+                        if args.kling_selection_receipt
+                        else None,
                         estimated_image_cost_usd=args.estimated_image_cost_usd,
                         estimated_video_cost_usd=args.estimated_video_cost_usd,
                         budget_cap_usd=args.budget_cap_usd,
@@ -2565,6 +2576,17 @@ def main() -> int:
                         download=args.download,
                         enable_variation=args.enable_variation,
                         variation_preset=args.variation_preset,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                    )
+                )
+            elif args.generation_cmd == "select-kling":
+                print_json(
+                    run_kling_selection_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        rendered_asset_ids=args.rendered_asset_id,
+                        batch_id=args.batch_id,
                         dry_run=not args.apply or args.dry_run,
                         apply=args.apply,
                     )

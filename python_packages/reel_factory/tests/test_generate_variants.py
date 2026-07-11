@@ -17,6 +17,7 @@ def test_clean_strips_identity_and_ui_keeps_scene_and_outfit() -> None:
     for banned in (
         "caucasian",
         "dark hair",
+        "woman",
         "nose ring",
         "screenshot",
         "plus sign",
@@ -25,6 +26,7 @@ def test_clean_strips_identity_and_ui_keeps_scene_and_outfit() -> None:
         assert banned not in cleaned, f"{banned!r} survived: {cleaned}"
     assert "bikini" in cleaned  # outfit kept
     assert "beach" in cleaned  # scene kept
+    assert "of a," not in cleaned
 
 
 def test_clean_keeps_object_colors_and_leaves_no_debris() -> None:
@@ -47,8 +49,8 @@ def test_clean_keeps_object_colors_and_leaves_no_debris() -> None:
 
 
 def test_sexy_variant_is_append_only_cleavage() -> None:
-    sexy = sexy_variant("a woman on a beach in a bikini", include_butt=False)
-    assert sexy.startswith("a woman on a beach in a bikini")
+    sexy = sexy_variant("on a beach in a bikini", include_butt=False)
+    assert sexy.startswith("on a beach in a bikini")
     assert "cleavage" in sexy.lower()
     assert "butt" not in sexy.lower()  # cleavage-only for a selfie
 
@@ -73,3 +75,29 @@ def test_spec_reuses_original_and_plans_exactly_one_text_only_sexy_call() -> Non
     assert spec["original"]["aspect_ratio"] == spec["sexy"]["aspect_ratio"]
     assert spec["provider_generation_count"] == 1
     assert "run only the sexy" in spec["next"]
+
+
+def test_stacey_sexy_prompt_uses_exact_operator_identity_phrase() -> None:
+    spec = build_spec(
+        _ENHANCED,
+        soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        reference_media_id="ref-9",
+    )
+    prompt = spec["sexy"]["prompt"].lower()
+    assert "19 years old" in prompt
+    assert "dark hair" in prompt
+    assert "no tattoos" in prompt
+    for banned in ("adult", "woman", "girl", "teen", "young"):
+        assert banned not in prompt
+
+
+def test_stacey_prompt_removes_standalone_adult_word() -> None:
+    spec = build_spec(
+        "A mirror selfie with an adult subject in a social media story interface.",
+        soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+    )
+    prompt = spec["sexy"]["prompt"].lower()
+    assert "19 years old" in prompt
+    for banned in ("adult", "woman", "girl", "teen", "young"):
+        assert banned not in prompt
+    assert "in an" not in prompt

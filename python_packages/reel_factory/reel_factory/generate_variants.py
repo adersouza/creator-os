@@ -92,12 +92,14 @@ def autocrop_reference(
 
 # Phrases the reference-pass enhancer injects that must go before reuse.
 # Identity descriptors fight the Soul; UI/screenshot words render fake app chrome
-# (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Nouns like "woman" are
-# kept — only the offending adjective/phrase is removed.
+# (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Creator-specific identity
+# guidance is appended later from an explicit allowlist.
 _STRIP_PATTERNS = (
     # identity: ethnicity / age. NOTE "white" is deliberately NOT here -- it is a
     # common object color ("white lounge chairs", "blue and white sky").
     r"\byoung\b",
+    r"\badults?\b",
+    r"\b(?:adult\s+)?(?:woman|girl|teen)\b",
     r"\b(?:caucasian|latina|hispanic|middle[- ]eastern)\b",
     # age clause incl. the "(she) appears to be in her early 20s" lead-in
     r"\b(?:she )?appears to be(?: in her[^,.]*)?",
@@ -174,12 +176,28 @@ def clean_prompt(captured: str) -> str:
     text = re.sub(r"\s+([,.])", r"\1", text)  # space-before-punct
     text = re.sub(r",\s*\.", ".", text)  # ", ." -> "."
     text = re.sub(r"\.\s*,", ".", text)  # ". ," -> "."
+    text = re.sub(r"\b(?:of|featuring|showing)\s+(?:an?|the)?\s*(?=[,.])", "", text)
+    text = re.sub(r"(?i)\b(?:in|with|of|as|on)\s+(?:an?|the)?\s*(?=[,.]|$)", "", text)
+    text = re.sub(
+        r"(?i)^\s*(?:an?|the)\s+(?=(?:taking|posing|wearing|seated|standing|sitting|leaning)\b)",
+        "",
+        text,
+    )
     text = re.sub(r"(?:^|(?<=\. ))\s*,\s*", "", text)  # leading comma in a clause
-    text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "a woman ", text)
+    text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "", text)
     return text.strip(" ,.\n") + ("." if text.strip(" ,.\n") else "")
 
 
-def sexy_variant(cleaned: str, *, include_butt: bool) -> str:
+_STACEY_SOUL_IDS = {
+    "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+    "5828d958-91dd-4d6d-8909-934503f47644",
+}
+_STACEY_IDENTITY_GUIDANCE = "19 years old, dark hair, no tattoos"
+
+
+def sexy_variant(
+    cleaned: str, *, include_butt: bool, identity_guidance: str | None = None
+) -> str:
     """Append-only body emphasis. House ceiling: cleavage (+ butt if full-body).
 
     Nothing else is amplified on purpose -- pose/expression/lighting edits degrade
@@ -189,7 +207,8 @@ def sexy_variant(cleaned: str, *, include_butt: bool) -> str:
     if include_butt:
         emphasis += " and a curvier rounder butt"
     base = cleaned.rstrip(" .")
-    return f"{base}, {emphasis}."
+    parts = [part for part in (base, identity_guidance, emphasis) if part]
+    return ", ".join(parts) + "."
 
 
 def pick_aspect(prompt: str) -> str:
@@ -206,6 +225,7 @@ def build_spec(
     *,
     soul_id: str,
     reference_media_id: str | None = None,
+    identity_guidance: str | None = None,
 ) -> dict[str, Any]:
     """Reuse the reference result and plan one sexy text-only generation.
 
@@ -218,10 +238,18 @@ def build_spec(
     cleaned = clean_prompt(captured_prompt)
     aspect = pick_aspect(cleaned)
     full_body = aspect == "2:3"
-    sexy = sexy_variant(cleaned, include_butt=full_body)
+    guidance = (
+        identity_guidance
+        if identity_guidance is not None
+        else _STACEY_IDENTITY_GUIDANCE
+        if soul_id in _STACEY_SOUL_IDS
+        else None
+    )
+    sexy = sexy_variant(cleaned, include_butt=full_body, identity_guidance=guidance)
     return {
         "soul_id": soul_id,
         "cleaned_prompt": cleaned,
+        "identity_guidance": guidance,
         "original": {
             "source": "reference_pass_result",
             "generation_required": False,
@@ -287,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
         "--reference-media-id", help="Higgsfield media_id of the UI-free crop."
     )
     ap.add_argument(
+        "--identity-guidance",
+        help="Explicit creator guidance appended only to the text-only variant.",
+    )
+    ap.add_argument(
         "--autocrop", help="Path to a reference screenshot to trim (black bars/bezel)."
     )
     ap.add_argument(
@@ -315,7 +347,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.soul_id:
         ap.error("--soul-id is required with --captured-prompt")
     spec = build_spec(
-        captured, soul_id=args.soul_id, reference_media_id=args.reference_media_id
+        captured,
+        soul_id=args.soul_id,
+        reference_media_id=args.reference_media_id,
+        identity_guidance=args.identity_guidance,
     )
     print(json.dumps(spec, indent=2, ensure_ascii=False))
     return 0

@@ -14,10 +14,19 @@ on top of the data score.
 
 from __future__ import annotations
 
+import argparse
+import json
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from reel_factory.feature_extract import features_from_lineage
+
+try:
+    from .fileops import atomic_write_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from fileops import atomic_write_text
 
 from intelligence_store import confidence_for_sample_size
 from winner_dna import FEATURE_KEYS, connect
@@ -155,3 +164,95 @@ def select_best(
 ) -> dict[str, Any] | None:
     ranked = rank_candidates(candidates, root, scorer=scorer)
     return ranked[0] if ranked else None
+
+
+def rank_kling_candidate_manifest(
+    manifest: dict[str, Any], root: Path
+) -> dict[str, Any]:
+    """Rank a paid-Kling candidate batch and fail closed on weak evidence."""
+    if manifest.get("schema") != "campaign_factory.kling_candidate_manifest.v1":
+        raise ValueError("Kling candidate manifest has the wrong schema")
+    batch_id = str(manifest.get("batchId") or "").strip()
+    if not batch_id:
+        raise ValueError("Kling candidate manifest requires batchId")
+    raw_candidates = manifest.get("candidates")
+    if not isinstance(raw_candidates, list) or len(raw_candidates) < 2:
+        raise ValueError("best-only Kling selection requires at least two candidates")
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in raw_candidates:
+        if not isinstance(raw, dict):
+            raise ValueError("Kling candidate entries must be objects")
+        candidate_id = str(raw.get("id") or "").strip()
+        if not candidate_id or candidate_id in seen:
+            raise ValueError("Kling candidate ids must be non-empty and unique")
+        seen.add(candidate_id)
+        lineage = raw.get("generatedAssetLineage")
+        features = raw.get("features")
+        if not isinstance(features, dict):
+            features = (
+                features_from_lineage(lineage) if isinstance(lineage, dict) else {}
+            )
+        candidate = {**raw, "id": candidate_id, "features": features}
+        candidates.append(candidate)
+
+    ranked = rank_candidates(candidates, root)
+    for index, candidate in enumerate(ranked, start=1):
+        candidate["rank"] = index
+    signal_present = any(
+        int((candidate.get("predictedEngagement") or {}).get("matched") or 0) > 0
+        or candidate.get(_VIRALITY_KEY) is not None
+        for candidate in ranked
+    )
+    top_key = (
+        float(ranked[0].get("score") or 0),
+        int((ranked[0].get("predictedEngagement") or {}).get("matched") or 0),
+    )
+    runner_up_key = (
+        float(ranked[1].get("score") or 0),
+        int((ranked[1].get("predictedEngagement") or {}).get("matched") or 0),
+    )
+    if not signal_present:
+        status = "insufficient_signal"
+        selected_id = None
+    elif top_key <= runner_up_key:
+        status = "ambiguous_top"
+        selected_id = None
+    else:
+        status = "selected"
+        selected_id = ranked[0]["id"]
+    return {
+        "schema": "reel_factory.kling_candidate_ranking.v1",
+        "batchId": batch_id,
+        "status": status,
+        "selectedCandidateId": selected_id,
+        "candidateCount": len(ranked),
+        "signalPresent": signal_present,
+        "publishingAllowed": False,
+        "paidGenerationAuthorized": False,
+        "candidates": ranked,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rank-kling-candidates")
+    parser.add_argument("--root", default=".")
+    parser.add_argument("--out")
+    args = parser.parse_args(argv)
+    if not args.rank_kling_candidates:
+        parser.error("--rank-kling-candidates is required")
+    payload = json.loads(Path(args.rank_kling_candidates).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Kling candidate manifest must be a JSON object")
+    result = rank_kling_candidate_manifest(payload, Path(args.root).resolve())
+    rendered = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
+    if args.out:
+        atomic_write_text(Path(args.out), rendered, encoding="utf-8")
+    print(rendered, end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
