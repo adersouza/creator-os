@@ -441,6 +441,7 @@ def _audit_asset(
 ) -> dict[str, Any]:
     media_path = Path(asset["campaign_path"])
     source_path = _source_path_for_asset(factory, asset)
+    locked_static = asset.get("recipe") == "static_mp4"
     run_id = uuid.uuid4().hex[:8]
     failed: list[str] = []
     warnings: list[str] = []
@@ -463,6 +464,9 @@ def _audit_asset(
                 "audit_profile": DEFAULT_AUDIT_PROFILE,
                 "layers": layers,
             }
+            if locked_static:
+                post_kwargs["animation_mode"] = "static_image_mp4"
+                post_kwargs["allow_static_opening"] = True
             if staged_references:
                 post_kwargs["originality_reference_files"] = [
                     path.name for path in staged_references
@@ -489,11 +493,21 @@ def _audit_asset(
             "filesAnalyzed": 0,
         }
     score = _score_from_verdict(response.get("overallVerdict"), min_score=min_score)
+    readiness = response.get("readinessSummary")
+    static_upload_ready = (
+        locked_static
+        and isinstance(readiness, dict)
+        and readiness.get("uploadReady") is True
+        and not failed
+    )
     status = (
         "approved_candidate"
-        if response.get("overallVerdict") == "pass"
-        and score >= min_score
-        and not failed
+        if (
+            response.get("overallVerdict") == "pass"
+            and score >= min_score
+            and not failed
+        )
+        or static_upload_ready
         else "needs_review"
     )
     report = {
@@ -502,6 +516,10 @@ def _audit_asset(
         "contentForgeBaseUrl": contentforge_base_url,
         "contentForgeRunId": run_id,
         "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
+        "animationMode": response.get("animationMode")
+        or ("static_image_mp4" if locked_static else None),
+        "allowStaticOpening": response.get("allowStaticOpening") is True
+        or locked_static,
         "renderedAssetId": asset["id"],
         "sourceFile": str(source_path),
         "stagedSourceFile": staged_source_name,

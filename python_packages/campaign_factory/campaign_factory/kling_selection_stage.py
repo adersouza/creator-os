@@ -234,7 +234,8 @@ def _eligible_candidate(
     if (
         not audit
         or audit["status"] != "approved_candidate"
-        or audit["overall_verdict"] != "pass"
+        or audit["overall_verdict"] not in {"pass", "warn"}
+        or _json_list(audit["failed_checks_json"])
     ):
         raise ValueError(f"Kling candidate audit evidence is unsafe: {asset_id}")
     output = Path(asset["output_path"])
@@ -348,3 +349,15 @@ def _json_object(raw: Any) -> dict[str, Any]:
             return {}
         return value if isinstance(value, dict) else {}
     return {}
+
+
+def _json_list(raw: Any) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return [raw]
+        return value if isinstance(value, list) else [value]
+    return []
