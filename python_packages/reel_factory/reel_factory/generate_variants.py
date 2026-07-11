@@ -94,6 +94,27 @@ def autocrop_reference(
 # Identity descriptors fight the Soul; UI/screenshot words render fake app chrome
 # (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Creator-specific identity
 # guidance is appended later from an explicit allowlist.
+_IDENTITY_WITH_HAIR_RE = re.compile(
+    r"\b(?:a|an|the)\s+"
+    r"(?:(?:young|adult)\s+)*"
+    r"(?:(?:caucasian|latina|hispanic|middle[- ]eastern)\s+)?"
+    r"(?:woman|girl|teen)\s+with\s+"
+    r"(?:(?:long|short|shoulder-length|medium-length|voluminous|softly|wavy|straight|curly|damp|slightly|dark|light|jet|platinum|brown|blonde?|black|red|auburn|brunette|ginger)[,\s]+)+hair\b",
+    flags=re.IGNORECASE,
+)
+_IDENTITY_SUBJECT_RE = re.compile(
+    r"\b(?:a|an|the)\s+"
+    r"(?:(?:young|adult)\s+)*"
+    r"(?:(?:caucasian|latina|hispanic|middle[- ]eastern)\s+)?"
+    r"(?:woman|girl|teen)\b",
+    flags=re.IGNORECASE,
+)
+_HAND_HOLDING_PHONE_RE = re.compile(
+    r"(?P<hand>\b(?:her|his|their)\s+(?:right|left)\s+hand\b"
+    r"(?:,\s*[^,.]{1,80},)?\s*)"
+    r"holds?\s+(?:an?|the)\s+(?:iphone|smartphone|phone)\b",
+    flags=re.IGNORECASE,
+)
 _STRIP_PATTERNS = (
     # identity: ethnicity / age. NOTE "white" is deliberately NOT here -- it is a
     # common object color ("white lounge chairs", "blue and white sky").
@@ -164,7 +185,14 @@ _REEL_CUES = ("reel", "story", "9:16", "vertical video", "tiktok")
 
 def clean_prompt(captured: str) -> str:
     """Remove identity descriptors + UI/screenshot words, tidy punctuation."""
-    text = _STRIP_RE.sub("", captured)
+    # Preserve sentence structure while removing provider-injected identity and
+    # fake-UI trigger words. These replacements run before the broad strip pass
+    # so real provider prose never degrades into fragments such as
+    # "features a with" or "holds an in front".
+    text = _IDENTITY_WITH_HAIR_RE.sub("a person", captured)
+    text = _IDENTITY_SUBJECT_RE.sub("a person", text)
+    text = _HAND_HOLDING_PHONE_RE.sub(r"\g<hand>rests", text)
+    text = _STRIP_RE.sub("", text)
     # drop orphaned subject-verbs left when their object was stripped ("She has.")
     text = re.sub(
         r"(?i)\b(?:she|he|the woman|her)\s+(?:has|is|wears|sports)\s*(?=[.,]|$)",

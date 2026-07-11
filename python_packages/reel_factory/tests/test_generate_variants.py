@@ -11,6 +11,14 @@ _ENHANCED = (
     'HEX VALUES: ["#000000", "#7f534a"]'
 )
 
+_REAL_HIGGSFIELD_CAPTURE = (
+    "A vertical close-up mirror selfie features a young adult Caucasian woman "
+    "with medium-length, softly wavy dark brown hair. She is wearing a sheer, "
+    "black lace bodysuit with floral embroidery. Her right hand, visible in the "
+    "frame, holds an iPhone in front of her, partially obscuring her face. The "
+    "background shows a softly lit bedroom with warm ambient lighting."
+)
+
 
 def test_clean_strips_identity_and_ui_keeps_scene_and_outfit() -> None:
     cleaned = clean_prompt(_ENHANCED).lower()
@@ -46,6 +54,36 @@ def test_clean_keeps_object_colors_and_leaves_no_debris() -> None:
     assert "shot on a," not in low and "on a smartphone" not in low
     assert "  " not in cleaned  # no double spaces
     assert ", ," not in cleaned and ". ," not in cleaned  # no punctuation debris
+
+
+def test_clean_preserves_grammar_from_real_higgsfield_capture() -> None:
+    cleaned = clean_prompt(_REAL_HIGGSFIELD_CAPTURE)
+    low = cleaned.lower()
+
+    assert "features a person" in low
+    assert "right hand, visible in the frame, rests in front of her" in low
+    assert "black lace bodysuit" in low
+    assert "softly lit bedroom" in low
+    for debris in ("features a with", "holds an in front", "a with", "an in front"):
+        assert debris not in low
+    for forbidden in ("adult", "woman", "girl", "teen", "young", "iphone"):
+        assert forbidden not in low
+
+
+def test_real_capture_builds_clean_text_only_stacey_variant() -> None:
+    spec = build_spec(
+        _REAL_HIGGSFIELD_CAPTURE,
+        soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        reference_media_id="real-reference-media",
+    )
+    prompt = spec["sexy"]["prompt"].lower()
+
+    assert "features a person" in prompt
+    assert "19 years old, dark hair, no tattoos" in prompt
+    assert "fuller chest with deeper cleavage" in prompt
+    assert spec["sexy"]["text_only"] is True
+    assert spec["sexy"]["reference_media_id"] is None
+    assert spec["provider_generation_count"] == 1
 
 
 def test_sexy_variant_is_append_only_cleavage() -> None:
