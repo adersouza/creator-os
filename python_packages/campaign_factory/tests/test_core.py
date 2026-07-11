@@ -5110,6 +5110,107 @@ def test_static_mp4_stage_apply_is_idempotent_for_same_accepted_still(
         cf.close()
 
 
+def test_static_mp4_stage_matches_the_accepted_still_to_its_source_lineage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        first = add_source_asset(cf, tmp_path)
+        second_folder = tmp_path / "second_source"
+        second_folder.mkdir()
+        (second_folder / "second.mp4").write_bytes(b"second-source")
+        cf.import_folder(second_folder, campaign_slug="may", model_slug="model")
+        sources = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])
+        second = next(source for source in sources if source["id"] != first["id"])
+        set_test_source_prompt(
+            cf,
+            second["id"],
+            prompt_id="prompt_second",
+            reference_id="reference_second",
+        )
+        accepted = tmp_path / "accepted-second.png"
+        accepted.write_bytes(b"accepted-second")
+        prompt = json.loads(
+            cf.conn.execute(
+                "SELECT source_prompt FROM source_assets WHERE id = ?", (second["id"],)
+            ).fetchone()[0]
+        )
+        prompt["generatedAssetLineage"]["review"] = {
+            "humanReviewRequired": True,
+            "humanReviewStatus": "approved",
+            "generatedImageQc": {
+                "schema": "reel_factory.generated_image_qc.v1",
+                "status": "passed",
+                "results": [
+                    {
+                        "path": str(accepted),
+                        "postable": True,
+                        "anatomy": {"plausible": True},
+                        "exposure": {"safe": True},
+                    }
+                ],
+            },
+        }
+        cf.conn.execute(
+            "UPDATE source_assets SET source_prompt = ? WHERE id = ?",
+            (json.dumps(prompt, sort_keys=True), second["id"]),
+        )
+        cf.conn.commit()
+
+        def fake_invoke(_factory, **kwargs):
+            output_path = kwargs["output_path"]
+            write_fake_static_mp4_outputs(output_path)
+            return fake_static_mp4_render(
+                kwargs["still_path"], output_path, dry_run=False
+            )
+
+        monkeypatch.setattr(
+            "campaign_factory.static_mp4_stage._invoke_reel_factory_static_mp4",
+            fake_invoke,
+        )
+        result = run_static_mp4_stage(
+            cf,
+            campaign_slug="may",
+            still_path=accepted,
+            dry_run=False,
+            apply=True,
+        )
+
+        assert result["sourceAssetId"] == second["id"]
+        assert result["registeredAsset"]["source_asset_id"] == second["id"]
+        lineage = json.loads(result["registeredAsset"]["metadata_json"])[
+            "generatedAssetLineage"
+        ]
+        assert lineage["source"]["promptId"] == "prompt_second"
+        assert lineage["source"]["referenceId"] == "reference_second"
+    finally:
+        cf.close()
+
+
+def test_static_mp4_stage_blocks_ambiguous_multi_source_lineage(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        second_folder = tmp_path / "second_source"
+        second_folder.mkdir()
+        (second_folder / "second.mp4").write_bytes(b"second-source")
+        cf.import_folder(second_folder, campaign_slug="may", model_slug="model")
+        accepted = tmp_path / "unmatched.png"
+        accepted.write_bytes(b"unmatched")
+
+        with pytest.raises(ValueError, match="does not match generated-image QC"):
+            run_static_mp4_stage(
+                cf,
+                campaign_slug="may",
+                still_path=accepted,
+                dry_run=True,
+            )
+    finally:
+        cf.close()
+
+
 def create_approved_static_candidates(
     cf: CampaignFactory,
     tmp_path: Path,
