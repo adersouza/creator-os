@@ -16397,6 +16397,61 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
         cf.close()
 
 
+def test_notify_publish_resolves_only_audio_handoff_metric_blockers(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        image = write_surface_image(tmp_path / "notify_metrics.png")
+        registered = cf.register_surface_asset(
+            input_path=image,
+            surface="feed_single",
+            creator="Stacey",
+            campaign_slug="stacey_notify_metrics_proof",
+            instagram_post_caption="soft launch today",
+        )
+        asset = cf.rendered_asset(registered["renderedAssetId"])
+        manifest = cf.surface_draft_proof(
+            creator="Stacey",
+            campaign="stacey_notify_metrics_proof",
+            rendered_asset_id=registered["renderedAssetId"],
+        )["drafts"][0]["handoffManifestV2"]
+        row = {
+            "id": "post_notify_metrics",
+            "status": "published",
+            "platform": "instagram",
+            "publish_mode": "notify",
+            "handoff_status": "completed",
+            "manual_publish_confirmed_at": "2026-07-11T19:14:41Z",
+            "instagram_post_id": "ig_media_1",
+            "permalink": "https://www.instagram.com/reel/example/",
+        }
+        meta = {
+            "rendered_asset_id": asset["id"],
+            "source_asset_id": asset["source_asset_id"],
+            "content_hash": asset["content_hash"],
+            "caption_hash": asset["caption_hash"],
+            "asset_state": "exportable",
+            "handoff_manifest": manifest,
+            "publishability_failure_reasons": [
+                "embedded_audio_missing",
+                "missing_audio",
+            ],
+        }
+
+        resolved = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+            cf, row=row, meta=meta
+        )
+        assert resolved["eligible"] is True
+
+        meta["publishability_failure_reasons"].append("identity_verification_failed")
+        unsafe = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+            cf, row=row, meta=meta
+        )
+        assert unsafe["eligible"] is False
+        assert "publishability_failure_reasons_present" in unsafe["blockingReasons"]
+    finally:
+        cf.close()
+
+
 def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -17974,6 +18029,24 @@ def test_posts_read_detects_truncation_at_limit():
     # final call is the 1-row truncation probe
     assert client.calls[-1]["limit"] == "1"
     assert client.calls[-1]["offset"] == "1000"
+
+
+def test_campaign_filtered_posts_read_accepts_internal_id_and_slug():
+    client = _paged_posts_client(total_rows=0)
+
+    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+        client,
+        user_id="user_1",
+        campaign_ids=["campaign_internal", "stacey_learning_cohort_v1"],
+        limit=1000,
+        page_size=500,
+    )
+
+    assert rows == []
+    assert truncated is False
+    assert client.calls[0]["metadata->campaign_factory->>campaign_id"] == (
+        'in.("campaign_internal","stacey_learning_cohort_v1")'
+    )
 
 
 def test_metric_history_read_detects_truncation():
