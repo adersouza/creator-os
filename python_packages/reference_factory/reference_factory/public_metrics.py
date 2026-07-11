@@ -750,7 +750,7 @@ def _prompt_card_from_post(item: dict[str, object]) -> dict[str, object]:
                 "original content only",
                 "preserve platform-safe framing",
                 "avoid direct caption copying",
-                "keep subject adult-presenting",
+                "keep subject 19 years old",
             ],
         },
     }
