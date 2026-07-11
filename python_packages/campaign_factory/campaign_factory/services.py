@@ -2274,6 +2274,7 @@ class CoreServices:
         account_handles: list[str] | None = None,
         source_prompt: str | None = None,
         notes: str | None = None,
+        storage_mode: str = "copy",
     ) -> dict[str, Any]:
         return self.asset_import.import_folder(
             folder,
@@ -2284,6 +2285,7 @@ class CoreServices:
             account_handles=account_handles,
             source_prompt=source_prompt,
             notes=notes,
+            storage_mode=storage_mode,
         )
 
     def assets_for_campaign(self, campaign_id: str) -> list[dict[str, Any]]:
