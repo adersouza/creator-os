@@ -18,6 +18,7 @@ from campaign_factory.learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
     sync_learning_cohort_metrics,
+    sync_learning_cohort_publish_state,
 )
 from campaign_factory.lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
 from pipeline_contracts.validator import validate_contract
@@ -407,6 +408,135 @@ def test_metric_sync_writes_real_windows_reward_and_retracts(
         assert retracted["assignmentsChanged"] == 1
         assert row["metric_24h_state"] == "pending"
         assert row["reward_24h"] is None
+    finally:
+        cf.close()
+
+
+def test_publish_sync_repairs_notify_handoff_before_metric_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LEARNING_LOOP_CUTOVER", "2026-07-01T00:00:00Z")
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        assignment = dict(
+            cf.conn.execute(
+                """SELECT * FROM learning_cohort_assignments
+                WHERE surface = 'trial_reel' ORDER BY day_index LIMIT 1"""
+            ).fetchone()
+        )
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET draft_id = 'threadsdash_post_1', rendered_asset_id = 'asset_1',
+                approval_state = 'approved', generation_state = 'draft_ingested'
+            WHERE id = ?""",
+            (assignment["id"],),
+        )
+        campaign_id = cf.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
+        ).fetchone()["id"]
+        cf.conn.execute(
+            """INSERT INTO performance_snapshots
+            (id, campaign_id, rendered_asset_id, post_id, platform, status,
+             published_at, snapshot_at, views, likes, comments, shares, saves,
+             reach, metrics_eligible, history_source, lineage_v2_valid, raw_json,
+             created_at)
+            VALUES ('snapshot_1h', ?, 'asset_1', 'threadsdash_post_1',
+             'instagram', 'published', '2026-07-11T18:54:35+00:00',
+             '2026-07-11T19:59:56+00:00', 2, 0, 0, 0, 0, 1, 1,
+             'metric_history', 1, ?, '2026-07-11T19:59:56+00:00')""",
+            (
+                campaign_id,
+                __import__("json").dumps(
+                    {
+                        "metadata": {
+                            "trialGroupId": assignment["id"],
+                            "threadsdash_metric_history": {"hoursSincePublish": 1.09},
+                        }
+                    }
+                ),
+            ),
+        )
+        cf.conn.commit()
+
+        publish_first = sync_learning_cohort_publish_state(cf.conn)
+        metric_first = sync_learning_cohort_metrics(cf.conn)
+        publish_second = sync_learning_cohort_publish_state(cf.conn)
+        row = dict(
+            cf.conn.execute(
+                "SELECT * FROM learning_cohort_assignments WHERE id = ?",
+                (assignment["id"],),
+            ).fetchone()
+        )
+
+        assert publish_first["status"] == "synced"
+        assert publish_first["assignmentsChanged"] == 1
+        assert publish_second["assignmentsChanged"] == 0
+        assert metric_first["assignmentsChanged"] == 1
+        assert row["post_id"] == "threadsdash_post_1"
+        assert row["publish_state"] == "published"
+        assert row["schedule_state"] == "published"
+        assert row["metric_1h_state"] == "complete"
+    finally:
+        cf.close()
+
+
+def test_publish_sync_fails_closed_on_asset_or_assignment_conflict(
+    tmp_path: Path,
+) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        assignment = dict(
+            cf.conn.execute(
+                """SELECT * FROM learning_cohort_assignments
+                WHERE surface = 'trial_reel' ORDER BY day_index LIMIT 1"""
+            ).fetchone()
+        )
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET draft_id = 'threadsdash_post_1', rendered_asset_id = 'asset_1',
+                approval_state = 'approved', generation_state = 'draft_ingested'
+            WHERE id = ?""",
+            (assignment["id"],),
+        )
+        campaign_id = cf.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
+        ).fetchone()["id"]
+        cf.conn.execute(
+            """INSERT INTO performance_snapshots
+            (id, campaign_id, rendered_asset_id, post_id, platform, status,
+             published_at, snapshot_at, metrics_eligible, history_source,
+             lineage_v2_valid, raw_json, created_at)
+            VALUES ('snapshot_conflict', ?, 'wrong_asset', 'threadsdash_post_1',
+             'instagram', 'published', '2026-07-11T18:54:35+00:00',
+             '2026-07-11T19:59:56+00:00', 1, 'metric_history', 1, ?,
+             '2026-07-11T19:59:56+00:00')""",
+            (
+                campaign_id,
+                __import__("json").dumps(
+                    {"metadata": {"trialGroupId": "another_assignment"}}
+                ),
+            ),
+        )
+        cf.conn.commit()
+
+        result = sync_learning_cohort_publish_state(cf.conn)
+        row = dict(
+            cf.conn.execute(
+                "SELECT * FROM learning_cohort_assignments WHERE id = ?",
+                (assignment["id"],),
+            ).fetchone()
+        )
+
+        assert result["status"] == "conflict"
+        assert result["assignmentsChanged"] == 0
+        assert result["conflicts"][0]["blockingReasons"] == [
+            "rendered_asset_mismatch",
+            "cohort_assignment_metadata_mismatch",
+        ]
+        assert row["post_id"] is None
+        assert row["publish_state"] == "not_published"
     finally:
         cf.close()
 

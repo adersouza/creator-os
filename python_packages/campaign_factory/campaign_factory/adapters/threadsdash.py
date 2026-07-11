@@ -34,7 +34,11 @@ from ..core import (
     normalize_content_surface,
     utc_now,
 )
-from ..learning_cohort import COHORT_ID, sync_learning_cohort_metrics
+from ..learning_cohort import (
+    COHORT_ID,
+    sync_learning_cohort_metrics,
+    sync_learning_cohort_publish_state,
+)
 from ..learning_readiness import closed_loop_learning_status
 from ..learning_score import (
     learning_ineligibility_reasons,
@@ -4783,6 +4787,11 @@ def sync_performance_snapshots(
             },
         )
         factory.conn.commit()
+        cohort_publish_writeback = (
+            sync_learning_cohort_publish_state(factory.conn)
+            if campaign_slug == COHORT_ID
+            else None
+        )
         cohort_metric_writeback = (
             sync_learning_cohort_metrics(factory.conn)
             if campaign_slug == COHORT_ID
@@ -4809,6 +4818,7 @@ def sync_performance_snapshots(
             "learningIneligibleReasons": learning_ineligible_reasons,
             "learningLoopCutover": learning_loop_cutover_iso(),
             "learningReadiness": learning_readiness,
+            "learningCohortPublishWriteback": cohort_publish_writeback,
             "learningCohortMetricWriteback": cohort_metric_writeback,
             "campaignFactorySnapshotsScanned": tracked_snapshot_count,
             "inserted": inserted,
@@ -4838,6 +4848,7 @@ def sync_performance_snapshots(
                 "learningIneligiblePosts": len(learning_ineligible_post_ids),
                 "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
                 "learningIneligibleReasons": learning_ineligible_reasons,
+                "learningCohortPublishWriteback": cohort_publish_writeback,
                 "learningCohortMetricWriteback": cohort_metric_writeback,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
