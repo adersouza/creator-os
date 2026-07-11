@@ -34,6 +34,7 @@ DIR_PATHS = (
 )
 
 MANIFEST_NAME = "backup-manifest.json"
+CREDENTIAL_PATTERNS = ("secrets.toml", "*.env", "*.pem", "*.key")
 
 
 def sha256_file(path: Path) -> str:
@@ -101,7 +102,12 @@ def backup_runtime_state(
         entry = {"name": name, "source": str(source), "status": "missing"}
         if source.exists():
             dest = target / rel
-            shutil.copytree(source, dest, dirs_exist_ok=True)
+            shutil.copytree(
+                source,
+                dest,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(*CREDENTIAL_PATTERNS),
+            )
             entry |= {"status": "backed_up", "path": str(dest.relative_to(target))}
         result["directories"].append(entry)
 

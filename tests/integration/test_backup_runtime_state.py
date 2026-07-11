@@ -58,6 +58,14 @@ def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path
 def test_backup_runtime_state_never_copies_creator_os_credentials(tmp_path: Path):
     repo = tmp_path / "repo"
     _sqlite_db(repo / "python_packages/reel_factory/manifest.sqlite")
+    project_data = repo / "python_packages/reel_factory/project_data"
+    project_data.mkdir(parents=True)
+    (project_data / "secrets.toml").write_text(
+        'api_key = "never-copy-project-secret"\n', encoding="utf-8"
+    )
+    (project_data / "orchestrator.toml").write_text(
+        "enabled = false\n", encoding="utf-8"
+    )
     credentials = tmp_path / ".creator-os"
     credentials.mkdir()
     (credentials / "campaign-factory-ingest.env").write_text(
@@ -68,7 +76,18 @@ def test_backup_runtime_state_never_copies_creator_os_credentials(tmp_path: Path
 
     backup_root = Path(result["backupDir"])
     assert not any(".creator-os" in str(path) for path in backup_root.rglob("*"))
+    assert not (
+        backup_root / "python_packages/reel_factory/project_data/secrets.toml"
+    ).exists()
+    assert (
+        backup_root / "python_packages/reel_factory/project_data/orchestrator.toml"
+    ).exists()
     assert "never-copy-me" not in "".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in backup_root.rglob("*")
+        if path.is_file()
+    )
+    assert "never-copy-project-secret" not in "".join(
         path.read_text(encoding="utf-8", errors="ignore")
         for path in backup_root.rglob("*")
         if path.is_file()
