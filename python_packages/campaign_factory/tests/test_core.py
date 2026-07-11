@@ -17947,6 +17947,47 @@ def test_learning_lineage_repairs_missing_reference_from_canonical_local_asset(
         cf.close()
 
 
+def test_learning_lineage_repairs_missing_source_lineage_artifact_path(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        lineage_path = tmp_path / "source.direct_reference_lineage.json"
+        lineage_path.write_text("{}", encoding="utf-8")
+        caption_generation = json.loads(
+            cf.conn.execute(
+                "SELECT caption_generation_json FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()[0]
+        )
+        caption_generation["generatedAssetLineage"] = {
+            "source": {"sourceLineagePath": str(lineage_path)}
+        }
+        cf.conn.execute(
+            "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
+            (json.dumps(caption_generation, sort_keys=True),),
+        )
+        cf.conn.commit()
+        meta = threadsdash_campaign_factory_metadata(source)
+        meta["generated_asset_lineage"]["source"]["sourceLineagePath"] = None
+
+        _, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf,
+                row={"id": "post_repair_lineage_path", "metadata": {}},
+                meta=meta,
+            )
+        )
+
+        assert report["blockingReasons"] == []
+        assert report["repairedFields"] == ["source.sourceLineagePath"]
+        assert repaired_meta["generated_asset_lineage"]["source"][
+            "sourceLineagePath"
+        ] == str(lineage_path)
+    finally:
+        cf.close()
+
+
 def test_learning_lineage_refuses_conflicting_reference_identity(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:

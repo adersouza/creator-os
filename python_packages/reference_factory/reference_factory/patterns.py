@@ -182,12 +182,24 @@ def refresh_measured_outcomes_for_references(
     for reference_id in normalized_reference_ids:
         prompts = conn.execute(
             """
+            WITH relevant_prompts AS (
+              SELECT id, outcome_sample_count, outcome_reward_score,
+                     outcome_confidence, outcome_updated_at
+              FROM generated_video_prompts
+              WHERE reference_id = ?
+              UNION
+              SELECT gvp.id, gvp.outcome_sample_count, gvp.outcome_reward_score,
+                     gvp.outcome_confidence, gvp.outcome_updated_at
+              FROM generated_video_prompts gvp
+              JOIN generated_prompt_reference_links link ON link.prompt_id = gvp.id
+              WHERE link.reference_id = ? AND link.role = 'pattern_member'
+            )
             SELECT outcome_sample_count, outcome_reward_score, outcome_confidence,
                    outcome_updated_at
-            FROM generated_video_prompts
-            WHERE reference_id = ? AND outcome_reward_score IS NOT NULL
+            FROM relevant_prompts
+            WHERE outcome_reward_score IS NOT NULL
             """,
-            (reference_id,),
+            (reference_id, reference_id),
         ).fetchall()
         sample_count = sum(int(row["outcome_sample_count"] or 0) for row in prompts)
         measured = None

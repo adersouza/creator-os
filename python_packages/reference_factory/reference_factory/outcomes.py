@@ -76,7 +76,12 @@ def upsert_prompt_post_outcome(
     if not prompt:
         return {"status": "skipped", "reason": "no_matching_generated_prompt"}
     reference_id = _optional_text(record.get("referenceId", record.get("reference_id")))
-    if reference_id and reference_id != str(prompt["reference_id"]):
+    if reference_id and not _prompt_accepts_reference(
+        conn,
+        prompt_id=prompt_id,
+        primary_reference_id=str(prompt["reference_id"]),
+        reference_id=reference_id,
+    ):
         return {"status": "skipped", "reason": "reference_prompt_mismatch"}
     existing = conn.execute(
         "SELECT * FROM prompt_post_outcomes WHERE prompt_id = ? AND post_id = ?",
@@ -128,9 +133,48 @@ def upsert_prompt_post_outcome(
         "promptId": prompt_id,
         "postId": post_id,
         "referenceId": str(prompt["reference_id"]),
+        "attributedReferenceIds": _attributed_reference_ids(conn, prompt_id),
         "sourceSnapshotAt": source_snapshot_at,
         "aggregate": aggregate,
     }
+
+
+def _prompt_accepts_reference(
+    conn: Connection,
+    *,
+    prompt_id: str,
+    primary_reference_id: str,
+    reference_id: str,
+) -> bool:
+    if reference_id == primary_reference_id:
+        return True
+    linked = conn.execute(
+        """
+        SELECT 1 FROM generated_prompt_reference_links
+        WHERE prompt_id = ? AND reference_id = ?
+        UNION ALL
+        SELECT 1 FROM generated_prompt_external_references
+        WHERE prompt_id = ? AND external_reference_id = ?
+        LIMIT 1
+        """,
+        (prompt_id, reference_id, prompt_id, reference_id),
+    ).fetchone()
+    return linked is not None
+
+
+def _attributed_reference_ids(conn: Connection, prompt_id: str) -> list[str]:
+    return [
+        str(row["reference_id"])
+        for row in conn.execute(
+            """
+            SELECT reference_id
+            FROM generated_prompt_reference_links
+            WHERE prompt_id = ? AND role = 'pattern_member'
+            ORDER BY reference_id
+            """,
+            (prompt_id,),
+        ).fetchall()
+    ]
 
 
 def retract_prompt_post_outcome(

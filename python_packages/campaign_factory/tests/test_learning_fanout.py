@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -109,6 +110,9 @@ def insert_snapshot(
     views: int = 100,
     lineage_v2_valid: int = 1,
     history_source: str = "metric_history",
+    reference_id: str = "reference_1",
+    source_lineage_path: Path | None = None,
+    pattern_reference_ids: list[str] | None = None,
 ) -> None:
     raw = {
         "metadata": {
@@ -130,10 +134,17 @@ def insert_snapshot(
                     "pipelineTraceId": "trace_1",
                     "source": {
                         "promptId": prompt_id,
-                        "referenceId": "reference_1",
+                        "referenceId": reference_id,
+                        "sourceLineagePath": str(source_lineage_path)
+                        if source_lineage_path
+                        else None,
                     },
                     "generation": {"tool": "higgsfield"},
                     "review": {"status": "approved"},
+                },
+                "reference_pattern": {
+                    "id": "pattern_cluster_1",
+                    "referenceIds": pattern_reference_ids or [],
                 },
             },
         }
@@ -391,8 +402,8 @@ def test_soft_skip_retries_caps_and_hash_change_reopens(tmp_path: Path):
         ).fetchone()[0]
     )
     raw["metadata"]["campaign_factory"]["generated_asset_lineage"]["source"][
-        "referenceId"
-    ] = "reference_changed"
+        "sourceLineagePath"
+    ] = "/tmp/recovered.direct_reference_lineage.json"
     conn.execute(
         "UPDATE performance_snapshots SET raw_json = ? WHERE id = 'snap_missing_prompt'",
         (json.dumps(raw, sort_keys=True),),
@@ -408,6 +419,70 @@ def test_soft_skip_retries_caps_and_hash_change_reopens(tmp_path: Path):
     ).fetchone()
     assert ledger["status"] == "pending"
     assert ledger["attempt_count"] == 1
+    conn.close()
+
+
+def test_missing_prompt_registers_from_real_lineage_before_reference_fanout(
+    tmp_path: Path,
+) -> None:
+    module = load_bridge_module()
+    campaign_db, reel_root, reference_db, _ = setup_learning_databases(
+        tmp_path, prompt_ids=()
+    )
+    output_path = tmp_path / "observed.png"
+    output_path.write_bytes(b"observed-output")
+    identity_path = tmp_path / "identity.png"
+    identity_path.write_bytes(b"identity-reference")
+    captured_prompt = "Captured provider prompt from the immutable lineage artifact."
+    prompt_sha = hashlib.sha256(captured_prompt.encode()).hexdigest()
+    prompt_id = f"prompt_higgsfield_{prompt_sha[:16]}"
+    lineage_path = tmp_path / "observed.direct_reference_lineage.json"
+    lineage_path.write_text(
+        json.dumps(
+            {
+                "source": {"referenceImage": str(identity_path)},
+                "generation": {
+                    "imageJobId": "job_observed",
+                    "capturedHiggsfieldPrompt": captured_prompt,
+                    "models": {"image": "text2image_soul_v2"},
+                    "params": {"imageAspectRatio": "9:16"},
+                },
+                "assets": {"localPaths": {"image": str(output_path)}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    insert_snapshot(
+        campaign_db,
+        snapshot_id="snap_observed",
+        snapshot_at="2026-01-03T00:00:00+00:00",
+        hours=24,
+        prompt_id=prompt_id,
+        reference_id="identity_set:file_1",
+        source_lineage_path=lineage_path,
+        pattern_reference_ids=["reference_1"],
+    )
+
+    result = run_bridge(module, campaign_db, reel_root, reference_db)
+
+    assert result["fanout"]["reference"]["done"] == 1
+    conn = connect_reference_db(reference_db)
+    prompt = conn.execute(
+        "SELECT status FROM generated_video_prompts WHERE id = ?", (prompt_id,)
+    ).fetchone()
+    outcome = conn.execute(
+        "SELECT post_id FROM prompt_post_outcomes WHERE prompt_id = ?", (prompt_id,)
+    ).fetchone()
+    link = conn.execute(
+        """
+        SELECT reference_id FROM generated_prompt_reference_links
+        WHERE prompt_id = ? AND role = 'pattern_member'
+        """,
+        (prompt_id,),
+    ).fetchone()
+    assert prompt["status"] == "outcome_observed"
+    assert outcome["post_id"] == "post_1"
+    assert link["reference_id"] == "reference_1"
     conn.close()
 
 

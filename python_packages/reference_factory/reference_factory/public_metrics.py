@@ -190,15 +190,24 @@ def top_public_posts(
 ) -> dict[str, object]:
     rows = conn.execute(
         """
-        WITH prompt_outcomes AS (
-          SELECT reference_id,
+        WITH prompt_references AS (
+          SELECT id AS prompt_id, reference_id
+          FROM generated_video_prompts
+          UNION
+          SELECT prompt_id, reference_id
+          FROM generated_prompt_reference_links
+          WHERE role = 'pattern_member'
+        ),
+        prompt_outcomes AS (
+          SELECT prompt_references.reference_id,
                  MAX(outcome_reward_score) AS measured_outcome_score,
                  MAX(outcome_confidence) AS measured_outcome_confidence,
                  SUM(outcome_sample_count) AS measured_outcome_sample_count,
                  MAX(outcome_updated_at) AS measured_outcome_updated_at
-          FROM generated_video_prompts
+          FROM prompt_references
+          JOIN generated_video_prompts ON generated_video_prompts.id = prompt_references.prompt_id
           WHERE outcome_reward_score IS NOT NULL
-          GROUP BY reference_id
+          GROUP BY prompt_references.reference_id
         )
         SELECT public_posts.*,
                (SELECT COUNT(*) FROM caption_patterns cp

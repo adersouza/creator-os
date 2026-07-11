@@ -31,6 +31,7 @@ from reel_factory.metrics_store import (
     upsert_bridge_outcome,
 )
 from reference_factory.db import connect as connect_reference_db
+from reference_factory.observed_prompts import register_observed_higgsfield_prompt
 from reference_factory.outcomes import (
     retract_prompt_post_outcome,
     upsert_prompt_post_outcome,
@@ -466,6 +467,9 @@ def _source_hash(row: dict[str, Any], destination: str, *, eligible: bool) -> st
         "renderedFilename": row.get("rendered_filename"),
         "promptId": source.get("promptId") if isinstance(source, dict) else None,
         "referenceId": source.get("referenceId") if isinstance(source, dict) else None,
+        "sourceLineagePath": source.get("sourceLineagePath")
+        if isinstance(source, dict)
+        else None,
         "audioId": row.get("audio_id"),
         "historySource": row.get("history_source"),
         "metricsEligible": row.get("metrics_eligible"),
@@ -513,9 +517,43 @@ def _write_reference(
         "baselineProvenance": provenance,
         "metrics": public.get("metrics"),
     }
+    if (
+        prompt_id
+        and not conn.execute(
+            "SELECT 1 FROM generated_video_prompts WHERE id = ?", (prompt_id,)
+        ).fetchone()
+    ):
+        lineage_path = str(source.get("sourceLineagePath") or "").strip()
+        if lineage_path:
+            reference_pattern = (
+                meta.get("reference_pattern")
+                if isinstance(meta.get("reference_pattern"), dict)
+                else {}
+            )
+            register_observed_higgsfield_prompt(
+                conn,
+                lineage_path=Path(lineage_path),
+                expected_prompt_id=prompt_id,
+                expected_external_reference_id=reference_id or None,
+                pattern_reference_ids=[
+                    str(value)
+                    for value in reference_pattern.get("referenceIds") or []
+                    if value
+                ],
+                source_pattern_id=str(
+                    lineage.get("sourceFamilyId") or reference_pattern.get("id") or ""
+                )
+                or None,
+                commit=False,
+            )
     result = upsert_prompt_post_outcome(conn, record, commit=False)
+    attributed_reference_ids = result.get("attributedReferenceIds") or []
     changed_reference_ids = {
-        str(result.get("referenceId") or reference_id or "").strip()
+        str(value).strip()
+        for value in (
+            attributed_reference_ids
+            or [result.get("referenceId") or reference_id or ""]
+        )
     }
     if result.get("status") in {"written", "updated"}:
         old_prompt = str((previous_identity or {}).get("promptId") or "")
@@ -531,6 +569,8 @@ def _write_reference(
             if old_prompt_row:
                 changed_reference_ids.add(str(old_prompt_row["reference_id"]))
         conn.commit()
+    else:
+        conn.rollback()
     result["changedReferenceIds"] = sorted(
         value for value in changed_reference_ids if value
     )

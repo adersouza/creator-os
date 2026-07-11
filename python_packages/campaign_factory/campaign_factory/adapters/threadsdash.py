@@ -5423,6 +5423,15 @@ def _repair_learning_lineage_from_local_asset(
         dict(lineage.get("source")) if isinstance(lineage.get("source"), dict) else {}
     )
 
+    stored_lineage_path = str(stored_source.get("sourceLineagePath") or "").strip()
+    incoming_lineage_path = str(incoming_source.get("sourceLineagePath") or "").strip()
+    if stored_lineage_path and incoming_lineage_path != stored_lineage_path:
+        if incoming_lineage_path:
+            blockers.append("sourceLineagePath_conflict")
+        else:
+            incoming_source["sourceLineagePath"] = stored_lineage_path
+            repaired_fields.append("source.sourceLineagePath")
+
     identity_sources = {
         "promptId": _unique_identity(
             stored_source.get("promptId"),

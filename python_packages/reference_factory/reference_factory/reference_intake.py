@@ -1107,10 +1107,11 @@ def export_video_prompts(
         SELECT gvp.*, sf.path, sf.account, sf.file_name
         FROM generated_video_prompts gvp
         JOIN source_files sf ON sf.reference_id = gvp.reference_id
+        WHERE gvp.status = ?
         ORDER BY gvp.updated_at DESC
         LIMIT ?
         """,
-        (limit,),
+        (PROMPT_READY_STATUS, limit),
     ).fetchall()
     prompts = []
     for row in rows:
