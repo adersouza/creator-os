@@ -153,6 +153,15 @@ def run_daily_cycle(
             "blockingReasons": ["due_assignments_missing"],
             "dueAssignments": [],
         }
+    if all(str(row.get("generation_state") or "") != "planned" for row in due):
+        return {
+            **base,
+            "status": "day_already_started",
+            "blockingReasons": [],
+            "dueAssignments": due,
+            "autoposterEnabled": False,
+            "requiresApprovalBeforeSchedule": True,
+        }
     if not apply:
         return {
             **base,
@@ -167,7 +176,7 @@ def run_daily_cycle(
         **base,
         "status": status,
         "blockingReasons": transition.get("blockingReasons") or [],
-        "dueAssignments": transition.get("assignments") or [],
+        "dueAssignments": _due_assignments(conn, day_index=day_index),
         "autoposterEnabled": False,
         "requiresApprovalBeforeSchedule": True,
     }

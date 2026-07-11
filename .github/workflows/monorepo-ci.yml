@@ -29,16 +29,20 @@ jobs:
           filters: |
             js:
               - 'apps/**'
-              - 'packages/**'
-              - 'scripts/**'
+              - 'packages/contentforge/**'
+              - 'packages/pipeline_contracts/**'
+              - 'scripts/**/*.mjs'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.github/workflows/monorepo-ci.yml'
             py:
               - 'python_packages/**'
+              - 'packages/creator_os_core/**'
               - 'packages/pipeline_contracts/**'
-              - 'scripts/**'
+              - 'scripts/**/*.py'
+              - 'scripts/**/*.sh'
+              - 'scripts/run/**'
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'

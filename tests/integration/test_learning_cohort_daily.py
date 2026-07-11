@@ -57,12 +57,43 @@ def test_daily_cycle_previews_and_queues_due_day_idempotently(tmp_path: Path) ->
 
         assert preview["status"] == "ready_to_queue"
         assert applied["status"] == "queued_for_generation"
-        assert repeated["status"] == "queued_for_generation"
-        assert {row["generationState"] for row in repeated["dueAssignments"]} == {
+        assert repeated["status"] == "day_already_started"
+        assert {row["generation_state"] for row in repeated["dueAssignments"]} == {
             "queued"
         }
         assert applied["providerCalls"] == 0
         assert applied["publishingActionsTaken"] == 0
+    finally:
+        cf.close()
+
+
+def test_daily_cycle_reports_completed_due_day_without_requeueing(
+    tmp_path: Path,
+) -> None:
+    module = load_module()
+    cf = factory(tmp_path)
+    try:
+        prepare(cf)
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET generation_state = 'draft_ingested', approval_state = 'approved'
+            WHERE cohort_id = ? AND day_index = 1""",
+            (COHORT_ID,),
+        )
+        cf.conn.commit()
+
+        report = module.run_daily_cycle(
+            cf.conn,
+            now=datetime.fromisoformat("2026-07-11T18:30:00-04:00"),
+            apply=True,
+        )
+
+        assert report["status"] == "day_already_started"
+        assert {row["generation_state"] for row in report["dueAssignments"]} == {
+            "draft_ingested"
+        }
+        assert report["providerCalls"] == 0
+        assert report["publishingActionsTaken"] == 0
     finally:
         cf.close()
 

@@ -32,4 +32,6 @@ report to:
 ```
 
 An unresolved prior handoff produces a macOS/Discord warning. A safe queued or
-idempotent day produces only the normal informational job heartbeat.
+idempotent day produces only the normal informational job heartbeat. A due day
+whose assignments already moved beyond `planned` reports `day_already_started`;
+it is not mislabeled as a new generation queue event.

@@ -98,6 +98,24 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     )
 
 
+def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> None:
+    workflow = _workflow(".github/workflows/monorepo-ci.yml")
+    filters = workflow["jobs"]["changes"]["steps"][1]["with"]["filters"]
+
+    js_filters, py_filters = filters.split("\npy:\n", maxsplit=1)
+    assert "- 'packages/**'" not in js_filters
+    assert "- 'scripts/**'" not in js_filters
+    assert "- 'packages/contentforge/**'" in js_filters
+    assert "- 'packages/pipeline_contracts/**'" in js_filters
+    assert "- 'scripts/**/*.mjs'" in js_filters
+
+    assert "- 'packages/creator_os_core/**'" in py_filters
+    assert "- 'packages/pipeline_contracts/**'" in py_filters
+    assert "- 'scripts/**/*.py'" in py_filters
+    assert "- 'scripts/**/*.sh'" in py_filters
+    assert "- 'scripts/run/**'" in py_filters
+
+
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
     producer_paths = (
         "python_packages/reel_factory/reel_factory/generate_assets.py",
