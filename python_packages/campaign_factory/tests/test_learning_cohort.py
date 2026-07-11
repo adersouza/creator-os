@@ -7,6 +7,7 @@ from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.learning_cohort import (
     COHORT_ID,
+    assign_learning_cohort_references,
     audit_learning_cohort,
     learning_cohort_assignment_metadata,
     prepare_learning_cohort,
@@ -26,6 +27,15 @@ def _factory(tmp_path: Path) -> CampaignFactory:
             campaigns_dir=tmp_path / "campaigns",
         )
     )
+
+
+def _reference_ready(cf: CampaignFactory) -> None:
+    cf.conn.execute(
+        """UPDATE learning_cohort_assignments
+        SET reference_id = 'stacey_ref', source_family = 'pattern_1',
+            content_fingerprint = id || '_fingerprint'"""
+    )
+    cf.conn.commit()
 
 
 def test_prepare_is_fixed_balanced_and_idempotent(tmp_path: Path) -> None:
@@ -72,6 +82,7 @@ def test_run_day_is_idempotent_and_pauses_for_old_approval_backlog(
     cf = _factory(tmp_path)
     try:
         prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        _reference_ready(cf)
         first = run_learning_cohort_day(cf.conn, day_index=1)
         second = run_learning_cohort_day(cf.conn, day_index=1)
         assert first["status"] == second["status"] == "queued_for_generation"
@@ -85,6 +96,88 @@ def test_run_day_is_idempotent_and_pauses_for_old_approval_backlog(
         blocked = run_learning_cohort_day(cf.conn, day_index=4)
         assert blocked["status"] == "paused"
         assert "approval_backlog_exceeds_two_days" in blocked["blockingReasons"]
+    finally:
+        cf.close()
+
+
+def test_reference_assignment_is_previewable_idempotent_and_identity_bound(
+    tmp_path: Path,
+) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        campaign_id = cf.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
+        ).fetchone()["id"]
+        now = "2026-07-11T00:00:00Z"
+        cf.conn.execute(
+            """INSERT INTO reference_patterns
+            (id, cluster_key, rank, label, imported_at, updated_at)
+            VALUES ('pattern_1', 'cluster_1', 1, 'Pattern 1', ?, ?)""",
+            (now, now),
+        )
+        cf.conn.execute(
+            """INSERT INTO campaign_reference_plans
+            (id, campaign_id, reference_pattern_id, created_at, updated_at)
+            VALUES ('plan_1', ?, 'pattern_1', ?, ?)""",
+            (campaign_id, now, now),
+        )
+        cf.conn.commit()
+        source = tmp_path / "stacey.png"
+        source.write_bytes(b"stacey")
+        manifest = tmp_path / "stacey.json"
+        manifest.write_text(
+            __import__("json").dumps(
+                {
+                    "creator": "Stacey",
+                    "status": "ready",
+                    "referenceSetId": "stacey_set",
+                    "sourceImages": [
+                        {
+                            "path": str(source),
+                            "sha256": "a" * 64,
+                            "status": "embedded",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        preview = assign_learning_cohort_references(
+            cf.conn, identity_manifest_path=manifest
+        )
+        assert preview["dryRun"] is True
+        assert preview["changes"] == 50
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM learning_cohort_assignments WHERE reference_id IS NOT NULL"
+            ).fetchone()[0]
+            == 0
+        )
+        applied = assign_learning_cohort_references(
+            cf.conn, identity_manifest_path=manifest, apply=True
+        )
+        repeat = assign_learning_cohort_references(
+            cf.conn, identity_manifest_path=manifest
+        )
+        assert applied["changes"] == 50
+        assert repeat["changes"] == 0
+        assert (
+            run_learning_cohort_day(cf.conn, day_index=1)["status"]
+            == "queued_for_generation"
+        )
+    finally:
+        cf.close()
+
+
+def test_run_day_blocks_when_reference_assignment_is_missing(tmp_path: Path) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        result = run_learning_cohort_day(cf.conn, day_index=1)
+        assert result["status"] == "paused"
+        assert "reference_assignment_missing" in result["blockingReasons"]
     finally:
         cf.close()
 

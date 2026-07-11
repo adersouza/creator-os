@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import sqlite3
 import statistics
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -206,6 +208,112 @@ def run_learning_cohort_day(
     }
 
 
+def assign_learning_cohort_references(
+    conn: sqlite3.Connection,
+    *,
+    identity_manifest_path: Path,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Deterministically attach Stacey identity evidence and ranked patterns."""
+    ensure_learning_cohort_tables(conn)
+    cohort = conn.execute(
+        "SELECT * FROM learning_cohorts WHERE id = ?", (COHORT_ID,)
+    ).fetchone()
+    if cohort is None:
+        raise RuntimeError("cohort_not_prepared")
+    manifest_path = identity_manifest_path.expanduser().resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("creator") != CREATOR or manifest.get("status") != "ready":
+        raise ValueError("identity manifest must be a ready Stacey reference set")
+    source_images = [
+        row
+        for row in manifest.get("sourceImages", [])
+        if row.get("status") == "embedded" and row.get("path") and row.get("sha256")
+    ]
+    if not source_images:
+        raise ValueError("identity manifest has no embedded source images")
+    missing_paths = [
+        str(row["path"]) for row in source_images if not Path(row["path"]).is_file()
+    ]
+    if missing_paths:
+        raise FileNotFoundError(
+            "identity reference paths are missing: " + ", ".join(missing_paths)
+        )
+    patterns = conn.execute(
+        """SELECT rp.id, rp.cluster_key, rp.rank
+        FROM campaign_reference_plans crp
+        JOIN campaigns c ON c.id = crp.campaign_id
+        JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id
+        WHERE c.slug = ?
+        ORDER BY COALESCE(rp.rank, 2147483647), rp.id""",
+        (COHORT_ID,),
+    ).fetchall()
+    if not patterns:
+        raise RuntimeError("cohort_has_no_reference_patterns")
+    assignments = _assignment_rows(conn)
+    planned: list[dict[str, Any]] = []
+    changes = 0
+    now = _utc_now()
+    reference_set_id = str(manifest.get("referenceSetId") or "stacey")
+    for index, assignment in enumerate(assignments):
+        source = source_images[index % len(source_images)]
+        pattern = patterns[index % len(patterns)]
+        reference_id = f"{reference_set_id}:{str(source['sha256'])[:16]}"
+        fingerprint = _digest(
+            f"{COHORT_ID}:{assignment['id']}:{reference_id}:{pattern['id']}"
+        )
+        changed = any(
+            (
+                assignment["reference_id"] != reference_id,
+                assignment["candidate_rank"] != pattern["rank"],
+                assignment["source_family"] != pattern["id"],
+                assignment["perceptual_cluster"] != pattern["cluster_key"],
+                assignment["content_fingerprint"] != fingerprint,
+            )
+        )
+        changes += int(changed)
+        planned.append(
+            {
+                "assignmentId": assignment["id"],
+                "referenceId": reference_id,
+                "referencePath": str(source["path"]),
+                "referencePatternId": pattern["id"],
+                "candidateRank": pattern["rank"],
+                "changed": changed,
+            }
+        )
+        if apply and changed:
+            conn.execute(
+                """UPDATE learning_cohort_assignments
+                SET reference_id = ?, candidate_rank = ?, source_family = ?,
+                    perceptual_cluster = ?, content_fingerprint = ?, updated_at = ?
+                WHERE id = ? AND cohort_id = ?""",
+                (
+                    reference_id,
+                    pattern["rank"],
+                    pattern["id"],
+                    pattern["cluster_key"],
+                    fingerprint,
+                    now,
+                    assignment["id"],
+                    COHORT_ID,
+                ),
+            )
+    if apply:
+        conn.commit()
+    return {
+        "schema": "campaign_factory.learning_cohort.reference_assignment.v1",
+        "cohortId": COHORT_ID,
+        "dryRun": not apply,
+        "assignmentCount": len(assignments),
+        "changes": changes,
+        "identityManifest": str(manifest_path),
+        "referenceSetId": reference_set_id,
+        "patternCount": len(patterns),
+        "assignments": planned,
+    }
+
+
 def learning_cohort_status(conn: sqlite3.Connection) -> dict[str, Any]:
     ensure_learning_cohort_tables(conn)
     cohort = conn.execute(
@@ -333,6 +441,15 @@ def learning_cohort_assignment_metadata(
 
 def _run_day_blockers(conn: sqlite3.Connection, *, day_index: int) -> list[str]:
     blockers: list[str] = []
+    missing_references = conn.execute(
+        """SELECT COUNT(*) FROM learning_cohort_assignments
+        WHERE cohort_id = ? AND day_index = ?
+          AND (reference_id IS NULL OR source_family IS NULL
+               OR content_fingerprint IS NULL)""",
+        (COHORT_ID, day_index),
+    ).fetchone()[0]
+    if missing_references:
+        blockers.append("reference_assignment_missing")
     ambiguous = conn.execute(
         """SELECT COUNT(*) FROM learning_cohort_assignments
         WHERE cohort_id = ? AND day_index < ? AND publish_state = 'ambiguous'""",
