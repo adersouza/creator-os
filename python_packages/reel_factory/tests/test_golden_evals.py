@@ -76,13 +76,15 @@ class TestPromptCleanupGolden:
     """Verify removal-only prompt cleanup against known golden cases."""
 
     def test_clean_prompt_passes_through(self):
-        """A prompt with no forbidden terms should pass through unchanged."""
+        """Identity wording is normalized to the exact operator age phrase."""
         clean = "A woman in a red dress standing by a window, soft natural light"
         result = clean_direct_higgsfield_prompt(clean)
-        assert result["cleaned"] == clean
-        assert result["changed"] is False
+        assert result["cleaned"] == (
+            "person, 19 years old in a red dress standing by a window, soft natural light"
+        )
+        assert result["changed"] is True
         assert result["valid"] is True
-        assert result["diff"] == []
+        assert result["diff"][0]["label"] == "subject_identity_to_exact_age"
 
     def test_returns_required_structure(self):
         """Verify all expected keys are present in the result dict."""

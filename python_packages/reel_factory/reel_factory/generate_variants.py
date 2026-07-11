@@ -274,7 +274,7 @@ def build_spec(
 
 def _demo() -> None:
     sample = (
-        "A slightly high-angle, close-up selfie of a young Caucasian woman with "
+        "A slightly high-angle, close-up selfie of a subject with "
         "long dark hair, posing outdoors on a beach. She is wearing a black lace "
         "bikini top with thin straps. She has a small hoop nose ring. The image is "
         "framed as a digital screenshot of a social media post, with an oversized "

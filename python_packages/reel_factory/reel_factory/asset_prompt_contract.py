@@ -100,8 +100,8 @@ Higgsfield/Soul ID still prompt:
 - The externally provided Soul ID handles identity.
 - The prompt describes the desired visible result: outfit, garment fit, garment placement, pose, framing, camera, lighting, environment, style, and generic panel consistency.
 - The prompt can apply the selected deterministic enhancement profile to body emphasis and garment fit.
-- The prompt does not describe detailed reference identity traits such as hair, ethnicity, or tattoos. Adult age wording is allowed when useful; Soul ID handles identity externally.
-- Generic consistency language such as same adult woman and consistent body proportions is allowed when it helps the image stay coherent.
+- The prompt does not describe detailed reference identity traits such as hair, ethnicity, or tattoos. Use the exact age phrase 19 years old; Soul ID handles identity externally.
+- Use only 19 years old for age and subject wording, plus generic consistency language when useful.
 - The prompt does not spend budget on face polish such as perfect face, freckles, skin texture, skin sheen, natural sheen, high detail, or sharp focus.
 - The prompt has no negative prompt field.
 - The prompt uses positive desired-result language only.

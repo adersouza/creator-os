@@ -35,8 +35,8 @@ reel_factory/generate_assets.py:generated_video_qc:1720
 reel_factory/generate_prompts.py:video_duration:166
 reel_factory/generate_prompts.py:frame_is_visible:181
 reel_factory/generate_prompts.py:_safe_fragment:304
-reel_factory/generate_prompts.py:generate_prompt:1738
-reel_factory/generate_prompts.py:generate_prompt:1759
+reel_factory/generate_prompts.py:generate_prompt:1762
+reel_factory/generate_prompts.py:generate_prompt:1783
 reel_factory/grid_crop.py:next_clip_stem:715
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131
