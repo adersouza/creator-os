@@ -3817,6 +3817,45 @@ def test_review_labels_soft_weight_actual_cluster_order_without_reclassifying(
     }
 
 
+def test_characterizes_secondary_signals_can_outrank_gold_under_soft_weights():
+    clusters = _cluster_cards(
+        [
+            {
+                "rank": 2,
+                "referenceId": "ref_gold",
+                "account": "small_account",
+                "plays": 100,
+                "qualityScore": 40,
+                "reviewLabel": "gold",
+                "tasteWeight": 1.5,
+                "visualFormat": "mirror_selfie",
+                "hookType": "viewer_insert",
+                "captionArchetype": "question_hook",
+                "performanceClass": "underperformed",
+                "measuredOutcome": {"rewardScore": 0.5},
+                "winnerDna": {},
+            },
+            {
+                "rank": 1,
+                "referenceId": "ref_maybe",
+                "account": "large_account",
+                "plays": 1_000_000,
+                "qualityScore": 95,
+                "reviewLabel": "maybe",
+                "tasteWeight": 0.9,
+                "visualFormat": "bedroom_pose",
+                "hookType": "direct_response",
+                "captionArchetype": "short_direct",
+                "performanceClass": "performed_well",
+                "measuredOutcome": {"rewardScore": 2.0},
+                "winnerDna": {},
+            },
+        ]
+    )
+
+    assert clusters[0]["topReferenceId"] == "ref_maybe"
+
+
 def test_learning_cluster_keeps_account_winners_ahead_of_unproven_references() -> None:
     cluster = _cluster_from_items(
         "mirror_selfie::viewer_insert::question_hook",
