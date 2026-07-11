@@ -7156,6 +7156,49 @@ def test_contentforge_http_audit_records_warn_and_fail_results(
         cf.close()
 
 
+def test_contentforge_static_mp4_audit_allows_expected_static_opening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    captured: dict[str, Any] = {}
+
+    def fake_similarity(_base_url, **kwargs):
+        captured.update(kwargs)
+        return {
+            "auditProfile": "campaign_factory_v1",
+            "animationMode": "static_image_mp4",
+            "allowStaticOpening": True,
+            "layers": {"hookVisibility": {"verdict": "warn"}},
+            "verdicts": {"hookVisibility": "warn"},
+            "overallVerdict": "warn",
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingCodes": [],
+                "warningCodes": ["static_opening"],
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET recipe = 'static_mp4' WHERE id = 'asset_1'"
+        )
+        cf.conn.commit()
+
+        result = audit_campaign(cf, campaign_slug="may")
+        report = result["reports"][0]
+
+        assert captured["animation_mode"] == "static_image_mp4"
+        assert captured["allow_static_opening"] is True
+        assert report["allowStaticOpening"] is True
+        assert report["status"] == "approved_candidate"
+        assert report["failedChecks"] == []
+    finally:
+        cf.close()
+
+
 def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
     tmp_path: Path, monkeypatch
 ):
