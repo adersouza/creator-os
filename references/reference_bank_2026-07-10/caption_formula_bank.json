@@ -1,0 +1,251 @@
+{
+  "schema": "reference_factory.caption_formula_bank.v1",
+  "captionArchetypes": {
+    "hashtag_context": [
+      {
+        "formula": "{short tease}\\n•\\n•\\n•\\n{optional context}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "#relationships #brunettegirl #greeneyedgirl #fyp #youngwomen",
+          "I am a young woman looking for loveee….  #youngwoman #model #influencer #valentinesday",
+          "#youngwoman #model #agegap #brounette #fyp",
+          "Replying to @Hamster Jack I mean he’s not wrong but wow 😭 #funny #dancer #funnycomments #commentsection #fypシ",
+          "Replying to @Hamster Jack you’re wrong but wowww 😅 #funnycomments #commentsection #dancer #funnydance #fypシ"
+        ]
+      },
+      {
+        "formula": "{one-line setup} + sparse separator lines",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "#relationships #brunettegirl #greeneyedgirl #fyp #youngwomen",
+          "I am a young woman looking for loveee….  #youngwoman #model #influencer #valentinesday",
+          "#youngwoman #model #agegap #brounette #fyp",
+          "Replying to @Hamster Jack I mean he’s not wrong but wow 😭 #funny #dancer #funnycomments #commentsection #fypシ",
+          "Replying to @Hamster Jack you’re wrong but wowww 😅 #funnycomments #commentsection #dancer #funnydance #fypシ"
+        ]
+      }
+    ],
+    "minimal_bait": [
+      {
+        "formula": "{1-3 emoji}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Suns out🤭",
+          "Too hard😉",
+          "Goodmorning🤭",
+          "ee oF :"
+        ]
+      },
+      {
+        "formula": "{one word}?",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Suns out🤭",
+          "Too hard😉",
+          "Goodmorning🤭",
+          "ee oF :"
+        ]
+      },
+      {
+        "formula": "{two-word reaction}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Suns out🤭",
+          "Too hard😉",
+          "Goodmorning🤭",
+          "ee oF :"
+        ]
+      },
+      {
+        "formula": "{1-3 emoji}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "it means…",
+          "I'm curious👀",
+          "Be honest…🥺",
+          "🥺",
+          "Do it😉"
+        ]
+      },
+      {
+        "formula": "{one word}?",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "it means…",
+          "I'm curious👀",
+          "Be honest…🥺",
+          "🥺",
+          "Do it😉"
+        ]
+      },
+      {
+        "formula": "{two-word reaction}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "it means…",
+          "I'm curious👀",
+          "Be honest…🥺",
+          "🥺",
+          "Do it😉"
+        ]
+      }
+    ],
+    "question_hook": [
+      {
+        "formula": "{direct question}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "Should we go on a date?",
+          "How is this angle?",
+          "Can we be friends?",
+          "Staring contest?",
+          "Did I catch your attention?"
+        ]
+      },
+      {
+        "formula": "can i {action/phrase}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "Should we go on a date?",
+          "How is this angle?",
+          "Can we be friends?",
+          "Staring contest?",
+          "Did I catch your attention?"
+        ]
+      },
+      {
+        "formula": "would you {viewer action}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "Should we go on a date?",
+          "How is this angle?",
+          "Can we be friends?",
+          "Staring contest?",
+          "Did I catch your attention?"
+        ]
+      },
+      {
+        "formula": "{direct question}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "What is your age? ;) message me in comments",
+          "be honest is it bad?😏",
+          "How old are you?!",
+          "Am I right?😏",
+          "did you get the message?"
+        ]
+      },
+      {
+        "formula": "can i {action/phrase}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "What is your age? ;) message me in comments",
+          "be honest is it bad?😏",
+          "How old are you?!",
+          "Am I right?😏",
+          "did you get the message?"
+        ]
+      },
+      {
+        "formula": "would you {viewer action}?",
+        "hookType": "direct_response",
+        "exampleCaptions": [
+          "What is your age? ;) message me in comments",
+          "be honest is it bad?😏",
+          "How old are you?!",
+          "Am I right?😏",
+          "did you get the message?"
+        ]
+      }
+    ],
+    "short_meme_caption": [
+      {
+        "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "2 big reasons to like brunettes",
+          "Eyes up here;)",
+          "My eyes are up here",
+          "rate my gyattt",
+          "@Obsservinglala Team brazil🇧🇷"
+        ]
+      },
+      {
+        "formula": "{short claim} + one emoji",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "2 big reasons to like brunettes",
+          "Eyes up here;)",
+          "My eyes are up here",
+          "rate my gyattt",
+          "@Obsservinglala Team brazil🇧🇷"
+        ]
+      },
+      {
+        "formula": "{direct tease} with no explanation",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "2 big reasons to like brunettes",
+          "Eyes up here;)",
+          "My eyes are up here",
+          "rate my gyattt",
+          "@Obsservinglala Team brazil🇧🇷"
+        ]
+      },
+      {
+        "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Late night cravingsss",
+          "ig: evonica_b",
+          "You're a lucky one🤗",
+          "No negotiation at all",
+          "Like come on, it's so obvious just say it lol😻"
+        ]
+      },
+      {
+        "formula": "{short claim} + one emoji",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Late night cravingsss",
+          "ig: evonica_b",
+          "You're a lucky one🤗",
+          "No negotiation at all",
+          "Like come on, it's so obvious just say it lol😻"
+        ]
+      },
+      {
+        "formula": "{direct tease} with no explanation",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Late night cravingsss",
+          "ig: evonica_b",
+          "You're a lucky one🤗",
+          "No negotiation at all",
+          "Like come on, it's so obvious just say it lol😻"
+        ]
+      },
+      {
+        "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Rate my outfit from 1-10"
+        ]
+      },
+      {
+        "formula": "{short claim} + one emoji",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Rate my outfit from 1-10"
+        ]
+      },
+      {
+        "formula": "{direct tease} with no explanation",
+        "hookType": "curiosity_gap",
+        "exampleCaptions": [
+          "Rate my outfit from 1-10"
+        ]
+      }
+    ]
+  }
+}

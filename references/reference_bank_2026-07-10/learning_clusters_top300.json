@@ -1,0 +1,2961 @@
+{
+  "schema": "reference_factory.learning_clusters.v1",
+  "runId": "learning_run_dafd786d1e0a309b",
+  "limit": 300,
+  "count": 8,
+  "clusters": [
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "caption_led_visual::curiosity_gap::short_meme_caption",
+      "clusterKey": "caption_led_visual::curiosity_gap::short_meme_caption",
+      "rank": 1,
+      "label": "caption led visual / curiosity gap / short meme caption",
+      "visualFormat": "caption_led_visual",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "short_meme_caption",
+      "itemCount": 41,
+      "avgQualityScore": 97.3,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 91.82,
+      "totalPlays": 26510665,
+      "medianPlays": 53673,
+      "accountCount": 4,
+      "accounts": [
+        "BabyyMimiii_",
+        "cakedlucien",
+        "itsnadorlily",
+        "nayabarbiee"
+      ],
+      "tags": [
+        "caption_style",
+        "fit_check"
+      ],
+      "topReferenceId": "ref_9abeedad7a634c58",
+      "topPublicPostId": "public_post_44991dac1441dfb2",
+      "topUrl": "https://x.com/BabyyMimiii_/status/2072519985574941052",
+      "topLocalPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2072519985574941052_1.mp4",
+      "referenceFiles": [
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2072519985574941052_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2069244857927786769_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2064132811317985434_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/cakedlucien/2067348548232913324_1_still.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071769349992362009_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2062343903093678144_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2047138424914616390_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2043140199488565673_1.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 29,
+          "referenceId": "ref_9abeedad7a634c58",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2072519985574941052",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2072519985574941052_1.mp4",
+          "plays": 3973,
+          "likes": 311,
+          "comments": 13,
+          "caption": "2 big reasons to like brunettes",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 75,
+          "referenceId": "ref_549c2f28d5256b06",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2069244857927786769",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2069244857927786769_1.mp4",
+          "plays": 36530,
+          "likes": 2344,
+          "comments": 127,
+          "caption": "Eyes up here;)",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 88,
+          "referenceId": "ref_1ede5cd08c0dd265",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2064132811317985434",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2064132811317985434_1.mp4",
+          "plays": 97068,
+          "likes": 6553,
+          "comments": 181,
+          "caption": "My eyes are up here",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 91,
+          "referenceId": "ref_569409fd0372f15e",
+          "account": "cakedlucien",
+          "url": "https://x.com/cakedlucien/status/2067348548232913324",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/cakedlucien/2067348548232913324_1_still.mp4",
+          "plays": 173274,
+          "likes": 9670,
+          "comments": 687,
+          "caption": "rate my gyattt",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 92,
+          "referenceId": "ref_6a004db58c0abfcb",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2071769349992362009",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071769349992362009_1.mp4",
+          "plays": 1034,
+          "likes": 54,
+          "comments": 1,
+          "caption": "@Obsservinglala Team brazil🇧🇷",
+          "qualityScore": 92.34,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 101,
+          "referenceId": "ref_c5898aba0b981893",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2062343903093678144",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2062343903093678144_1.mp4",
+          "plays": 362378,
+          "likes": 21798,
+          "comments": 686,
+          "caption": "Made you look;)",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 105,
+          "referenceId": "ref_cca5b25a9c13f058",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2047138424914616390",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2047138424914616390_1.mp4",
+          "plays": 38472,
+          "likes": 2889,
+          "comments": 45,
+          "caption": "Built in floaties🤭",
+          "qualityScore": 98.61,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 113,
+          "referenceId": "ref_a1cf38cc4d0c8242",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2043140199488565673",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2043140199488565673_1.mp4",
+          "plays": 73096,
+          "likes": 5449,
+          "comments": 36,
+          "caption": "Time for some cardio",
+          "qualityScore": 98.9,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "2 big reasons to like brunettes",
+            "Eyes up here;)",
+            "My eyes are up here",
+            "rate my gyattt",
+            "@Obsservinglala Team brazil🇧🇷"
+          ]
+        },
+        {
+          "formula": "{short claim} + one emoji",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "2 big reasons to like brunettes",
+            "Eyes up here;)",
+            "My eyes are up here",
+            "rate my gyattt",
+            "@Obsservinglala Team brazil🇧🇷"
+          ]
+        },
+        {
+          "formula": "{direct tease} with no explanation",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "2 big reasons to like brunettes",
+            "Eyes up here;)",
+            "My eyes are up here",
+            "rate my gyattt",
+            "@Obsservinglala Team brazil🇧🇷"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "reel",
+        "slideshow"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "current_native_trending_sound",
+        "fallbackInstruction": "Use a current native platform sound that matches the caption mood; avoid hard-burning unknown audio into the file.",
+        "nativeAudioPreferred": true,
+        "recommendations": []
+      },
+      "winnerDna": {
+        "visualStructure": "caption_led_visual",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "short_meme_caption",
+        "performanceClassCounts": {
+          "looks_good_only": 41
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "BabyyMimiii_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 22
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_9abeedad7a634c58"
+        },
+        {
+          "account": "cakedlucien",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 4
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_569409fd0372f15e"
+        },
+        {
+          "account": "itsnadorlily",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 14
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_78f69baaf33c3795"
+        },
+        {
+          "account": "nayabarbiee",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_f8e742c6423fe4c1"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 53673,
+        "totalPlays": 26510665,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 41
+        },
+        "topAccounts": [
+          "BabyyMimiii_",
+          "cakedlucien",
+          "itsnadorlily",
+          "nayabarbiee"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 22,
+          "maybe": 19
+        },
+        "effectiveItemWeight": 126.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "simple vertical shot designed around readable meme caption overlay",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "short meme-style caption"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_reel",
+        "duration_seconds": "6-12",
+        "scene": "simple vertical shot designed around readable meme caption overlay",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "short meme-style caption",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "primary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 10 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'caption led visual / curiosity gap / short meme caption' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "caption_led_visual::direct_response::question_hook",
+      "clusterKey": "caption_led_visual::direct_response::question_hook",
+      "rank": 2,
+      "label": "caption led visual / direct response / question hook",
+      "visualFormat": "caption_led_visual",
+      "hookType": "direct_response",
+      "captionArchetype": "question_hook",
+      "itemCount": 36,
+      "avgQualityScore": 98.67,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 87.41,
+      "totalPlays": 2431933,
+      "medianPlays": 40591,
+      "accountCount": 2,
+      "accounts": [
+        "BabyyMimiii_",
+        "cakedlucien"
+      ],
+      "tags": [
+        "caption_style",
+        "hook_good"
+      ],
+      "topReferenceId": "ref_2ea6cd23c0d77b75",
+      "topPublicPostId": "public_post_f54c80a91ff2e1e8",
+      "topUrl": "https://x.com/BabyyMimiii_/status/2071770340292710903",
+      "topLocalPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071770340292710903_1.mp4",
+      "referenceFiles": [
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071770340292710903_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2063454422550687838_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2068489409306001753_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071414388397904237_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071054188461580342_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2068149416339398878_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2059793075493372278_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2063800181561200985_1.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 38,
+          "referenceId": "ref_2ea6cd23c0d77b75",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2071770340292710903",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071770340292710903_1.mp4",
+          "plays": 15378,
+          "likes": 1184,
+          "comments": 29,
+          "caption": "Should we go on a date?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 62,
+          "referenceId": "ref_23cf87a4f27d1a8b",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2063454422550687838",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2063454422550687838_1.mp4",
+          "plays": 189290,
+          "likes": 15273,
+          "comments": 381,
+          "caption": "How is this angle?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 69,
+          "referenceId": "ref_9a7d5cd1984e66e0",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2068489409306001753",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2068489409306001753_1.mp4",
+          "plays": 385588,
+          "likes": 26236,
+          "comments": 1090,
+          "caption": "Can we be friends?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 81,
+          "referenceId": "ref_0e477743866190a9",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2071414388397904237",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071414388397904237_1.mp4",
+          "plays": 12817,
+          "likes": 776,
+          "comments": 17,
+          "caption": "Staring contest?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 86,
+          "referenceId": "ref_dbaa45b67eff79b3",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2071054188461580342",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071054188461580342_1.mp4",
+          "plays": 10099,
+          "likes": 589,
+          "comments": 12,
+          "caption": "Did I catch your attention?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 98,
+          "referenceId": "ref_ab02a964d5a0f6c1",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2068149416339398878",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2068149416339398878_1.mp4",
+          "plays": 54822,
+          "likes": 2814,
+          "comments": 231,
+          "caption": "Am I your type?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 102,
+          "referenceId": "ref_f396e6e8cdd64dde",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2059793075493372278",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2059793075493372278_1.mp4",
+          "plays": 74385,
+          "likes": 4579,
+          "comments": 197,
+          "caption": "Be honest what's the first thing you noticed?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 110,
+          "referenceId": "ref_d591bf6a1bf9ad0a",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2063800181561200985",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2063800181561200985_1.mp4",
+          "plays": 30169,
+          "likes": 1559,
+          "comments": 56,
+          "caption": "Did I catch your attention?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "direct_response"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{direct question}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "Should we go on a date?",
+            "How is this angle?",
+            "Can we be friends?",
+            "Staring contest?",
+            "Did I catch your attention?"
+          ]
+        },
+        {
+          "formula": "can i {action/phrase}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "Should we go on a date?",
+            "How is this angle?",
+            "Can we be friends?",
+            "Staring contest?",
+            "Did I catch your attention?"
+          ]
+        },
+        {
+          "formula": "would you {viewer action}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "Should we go on a date?",
+            "How is this angle?",
+            "Can we be friends?",
+            "Staring contest?",
+            "Did I catch your attention?"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "reel",
+        "slideshow"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "light_trending_response_sound",
+        "fallbackInstruction": "Use a recognizable low-volume trending sound that does not fight the short question hook.",
+        "nativeAudioPreferred": true,
+        "recommendations": []
+      },
+      "winnerDna": {
+        "visualStructure": "caption_led_visual",
+        "hookType": "direct_response",
+        "captionArchetype": "question_hook",
+        "performanceClassCounts": {
+          "looks_good_only": 36
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "direct_response"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "BabyyMimiii_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 30
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_f246d788faf41bd2"
+        },
+        {
+          "account": "cakedlucien",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 6
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_008537d51732da41"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 40591,
+        "totalPlays": 2431933,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 36
+        },
+        "topAccounts": [
+          "BabyyMimiii_",
+          "cakedlucien"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 31,
+          "maybe": 5
+        },
+        "effectiveItemWeight": 134.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "simple vertical shot designed around readable meme caption overlay",
+        "hookBrief": "caption asks a short question viewers can answer instantly",
+        "captionBrief": "short direct question"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_reel",
+        "duration_seconds": "6-12",
+        "scene": "simple vertical shot designed around readable meme caption overlay",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption asks a short question viewers can answer instantly",
+        "caption_overlay": "short direct question",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "direct_response"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "primary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 10 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'caption led visual / direct response / question hook' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "caption_led_visual::curiosity_gap::minimal_bait",
+      "clusterKey": "caption_led_visual::curiosity_gap::minimal_bait",
+      "rank": 3,
+      "label": "caption led visual / curiosity gap / minimal bait",
+      "visualFormat": "caption_led_visual",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "minimal_bait",
+      "itemCount": 4,
+      "avgQualityScore": 99.08,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 86.14,
+      "totalPlays": 1361292,
+      "medianPlays": 126769,
+      "accountCount": 2,
+      "accounts": [
+        "BabyyMimiii_",
+        "itsnadorlily"
+      ],
+      "tags": [
+        "caption_style"
+      ],
+      "topReferenceId": "ref_440200fdf4a3124b",
+      "topPublicPostId": "public_post_0f4d803a2fd290c3",
+      "topUrl": "https://x.com/BabyyMimiii_/status/2053271907210789343",
+      "topLocalPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2053271907210789343_1.mp4",
+      "referenceFiles": [
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2053271907210789343_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2056547345752379445_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071993756526534656_1.mp4",
+        "${REFERENCE_REELS_ROOT}/import_20260702/itsnadorlily/7642855397149166862.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 100,
+          "referenceId": "ref_440200fdf4a3124b",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2053271907210789343",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2053271907210789343_1.mp4",
+          "plays": 56204,
+          "likes": 4162,
+          "comments": 68,
+          "caption": "Suns out🤭",
+          "qualityScore": 99.7,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 106,
+          "referenceId": "ref_85802cf11cc9fc0f",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2056547345752379445",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2056547345752379445_1.mp4",
+          "plays": 197335,
+          "likes": 12362,
+          "comments": 379,
+          "caption": "Too hard😉",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 153,
+          "referenceId": "ref_f53cd4cc57d3cdc8",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2071993756526534656",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2071993756526534656_1.mp4",
+          "plays": 7753,
+          "likes": 566,
+          "comments": 25,
+          "caption": "Goodmorning🤭",
+          "qualityScore": 96.62,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 68,
+          "referenceId": "ref_ab6f8c297a327409",
+          "account": "itsnadorlily",
+          "url": "https://www.tiktok.com/@itsnadorlily/video/7642855397149166862",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/itsnadorlily/7642855397149166862.mp4",
+          "plays": 1100000,
+          "likes": 98000,
+          "comments": 873,
+          "caption": "ee oF :",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "caption_led_visual",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{1-3 emoji}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Suns out🤭",
+            "Too hard😉",
+            "Goodmorning🤭",
+            "ee oF :"
+          ]
+        },
+        {
+          "formula": "{one word}?",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Suns out🤭",
+            "Too hard😉",
+            "Goodmorning🤭",
+            "ee oF :"
+          ]
+        },
+        {
+          "formula": "{two-word reaction}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Suns out🤭",
+            "Too hard😉",
+            "Goodmorning🤭",
+            "ee oF :"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "reel",
+        "slideshow"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "current_native_trending_sound",
+        "fallbackInstruction": "Use a current native platform sound that matches the caption mood; avoid hard-burning unknown audio into the file.",
+        "nativeAudioPreferred": true,
+        "recommendations": []
+      },
+      "winnerDna": {
+        "visualStructure": "caption_led_visual",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "minimal_bait",
+        "performanceClassCounts": {
+          "looks_good_only": 4
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "BabyyMimiii_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 3
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_440200fdf4a3124b"
+        },
+        {
+          "account": "itsnadorlily",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_ab6f8c297a327409"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 126769,
+        "totalPlays": 1361292,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 4
+        },
+        "topAccounts": [
+          "BabyyMimiii_",
+          "itsnadorlily"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 3,
+          "maybe": 1
+        },
+        "effectiveItemWeight": 14.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "simple vertical shot designed around readable meme caption overlay",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "one-line minimal bait"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_reel",
+        "duration_seconds": "6-12",
+        "scene": "simple vertical shot designed around readable meme caption overlay",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "one-line minimal bait",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "caption_led_visual",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "secondary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 3 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'caption led visual / curiosity gap / minimal bait' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "tiktok_slideshow::direct_response::question_hook",
+      "clusterKey": "tiktok_slideshow::direct_response::question_hook",
+      "rank": 4,
+      "label": "tiktok slideshow / direct response / question hook",
+      "visualFormat": "tiktok_slideshow",
+      "hookType": "direct_response",
+      "captionArchetype": "question_hook",
+      "itemCount": 24,
+      "avgQualityScore": 100.0,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 86.09,
+      "totalPlays": 785761,
+      "medianPlays": 1203,
+      "accountCount": 3,
+      "accounts": [
+        "evonica.black",
+        "lunarose.vibes_",
+        "maxiabanks"
+      ],
+      "tags": [
+        "caption_style",
+        "hook_good",
+        "slideshow",
+        "visual_style"
+      ],
+      "topReferenceId": "ref_74a1ff8a6ad5c5b2",
+      "topPublicPostId": "public_post_b054949e7feeaaea",
+      "topUrl": "https://www.tiktok.com/@lunarose.vibes_/video/7629886304301436190",
+      "topLocalPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629886304301436190.mp4",
+      "referenceFiles": [
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629886304301436190.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7633691178768026911.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632358854323342622.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629929498259000606.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632101440055545118.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7606488329969732894.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7636986622130621726.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638783993940331806.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 28,
+          "referenceId": "ref_74a1ff8a6ad5c5b2",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7629886304301436190",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629886304301436190.mp4",
+          "plays": 841,
+          "likes": 122,
+          "comments": 0,
+          "caption": "What is your age? ;) message me in comments",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 53,
+          "referenceId": "ref_46ed1386aed81444",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7633691178768026911",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7633691178768026911.mp4",
+          "plays": 899,
+          "likes": 105,
+          "comments": 0,
+          "caption": "be honest is it bad?😏",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 54,
+          "referenceId": "ref_be3ffac00ad3295d",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7632358854323342622",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632358854323342622.mp4",
+          "plays": 1297,
+          "likes": 155,
+          "comments": 0,
+          "caption": "How old are you?!",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 59,
+          "referenceId": "ref_26a459ee3194b483",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7629929498259000606",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629929498259000606.mp4",
+          "plays": 1045,
+          "likes": 126,
+          "comments": 0,
+          "caption": "Am I right?😏",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 78,
+          "referenceId": "ref_fcfa7bbc7857cb2b",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7632101440055545118",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632101440055545118.mp4",
+          "plays": 1125,
+          "likes": 118,
+          "comments": 0,
+          "caption": "did you get the message?",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 125,
+          "referenceId": "ref_4ca3be9131dc8b1f",
+          "account": "evonica.black",
+          "url": "https://www.tiktok.com/@evonica.black/video/7606488329969732894",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7606488329969732894.mp4",
+          "plays": 427,
+          "likes": 39,
+          "comments": 0,
+          "caption": "Sweet 21-year-old good girl who secretly melts for a confident, mature man who takes charge respectfully. Is that so wrong? Asking for opinions! #fyp #goodgirl #maturemen #model #youngwoman",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 7,
+          "referenceId": "ref_19fecb163871db2f",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7636986622130621726",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7636986622130621726.mp4",
+          "plays": 1148,
+          "likes": 184,
+          "comments": 0,
+          "caption": "Would you kiss me back? 💋🫶",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        },
+        {
+          "rank": 10,
+          "referenceId": "ref_c1f1865cf4bb2d25",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7638783993940331806",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638783993940331806.mp4",
+          "plays": 1176,
+          "likes": 178,
+          "comments": 0,
+          "caption": "??",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "direct_response"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{direct question}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "What is your age? ;) message me in comments",
+            "be honest is it bad?😏",
+            "How old are you?!",
+            "Am I right?😏",
+            "did you get the message?"
+          ]
+        },
+        {
+          "formula": "can i {action/phrase}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "What is your age? ;) message me in comments",
+            "be honest is it bad?😏",
+            "How old are you?!",
+            "Am I right?😏",
+            "did you get the message?"
+          ]
+        },
+        {
+          "formula": "would you {viewer action}?",
+          "hookType": "direct_response",
+          "exampleCaptions": [
+            "What is your age? ;) message me in comments",
+            "be honest is it bad?😏",
+            "How old are you?!",
+            "Am I right?😏",
+            "did you get the message?"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "grid collage",
+        "first slide headline",
+        "photo sequence",
+        "centered bold callout",
+        "native slideshow pacing",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "slideshow_grid",
+        "slideshow_story_cards",
+        "slideshow_caption_callout",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "slideshow",
+        "reel"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "trending_slideshow_sound",
+        "fallbackInstruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy.",
+        "nativeAudioPreferred": true,
+        "recommendations": [
+          {
+            "platform": "tiktok",
+            "audioId": "7488349747757992726",
+            "audioTitle": "TikTok audio 7488349747757992726",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 292900,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7591194510978321182",
+            "audioTitle": "TikTok audio 7591194510978321182",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 241500,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7580526049614285599",
+            "audioTitle": "TikTok audio 7580526049614285599",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 224500,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7356061396491061264",
+            "audioTitle": "TikTok audio 7356061396491061264",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 2,
+            "totalPlays": 3075,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "6706436817605888001",
+            "audioTitle": "TikTok audio 6706436817605888001",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 2841,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          }
+        ]
+      },
+      "winnerDna": {
+        "visualStructure": "tiktok_slideshow",
+        "hookType": "direct_response",
+        "captionArchetype": "question_hook",
+        "performanceClassCounts": {
+          "looks_good_only": 24
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "direct_response"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "evonica.black",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_4ca3be9131dc8b1f"
+        },
+        {
+          "account": "lunarose.vibes_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 20
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_19fecb163871db2f"
+        },
+        {
+          "account": "maxiabanks",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 3
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_0510fc64e29b1779"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 1203,
+        "totalPlays": 785761,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 24
+        },
+        "topAccounts": [
+          "evonica.black",
+          "lunarose.vibes_",
+          "maxiabanks"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 6,
+          "unlabeled": 18
+        },
+        "effectiveItemWeight": 42.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "hookBrief": "caption asks a short question viewers can answer instantly",
+        "captionBrief": "short direct question"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_slideshow",
+        "duration_seconds": "6-10",
+        "scene": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption asks a short question viewers can answer instantly",
+        "caption_overlay": "short direct question",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "direct_response"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "primary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 10 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'tiktok slideshow / direct response / question hook' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "tiktok_slideshow::curiosity_gap::short_meme_caption",
+      "clusterKey": "tiktok_slideshow::curiosity_gap::short_meme_caption",
+      "rank": 5,
+      "label": "tiktok slideshow / curiosity gap / short meme caption",
+      "visualFormat": "tiktok_slideshow",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "short_meme_caption",
+      "itemCount": 26,
+      "avgQualityScore": 100.0,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 85.06,
+      "totalPlays": 134677,
+      "medianPlays": 1417,
+      "accountCount": 4,
+      "accounts": [
+        "amandastarry",
+        "evonica.black",
+        "lunarose.vibes_",
+        "maxiabanks"
+      ],
+      "tags": [
+        "caption_style",
+        "hook_good",
+        "slideshow",
+        "visual_style"
+      ],
+      "topReferenceId": "ref_9ba487d6254dadbf",
+      "topPublicPostId": "public_post_be6c31258c8ecc74",
+      "topUrl": "https://www.tiktok.com/@lunarose.vibes_/video/7632005820741471519",
+      "topLocalPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632005820741471519.mp4",
+      "referenceFiles": [
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632005820741471519.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7614961433129880863.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640201327712144670.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639097855294180638.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638875218534010142.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639580341237255454.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7634604373166886174.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7636265036394122526.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 41,
+          "referenceId": "ref_9ba487d6254dadbf",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7632005820741471519",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7632005820741471519.mp4",
+          "plays": 1386,
+          "likes": 180,
+          "comments": 0,
+          "caption": "Late night cravingsss",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 97,
+          "referenceId": "ref_b42e0fe50c78c093",
+          "account": "evonica.black",
+          "url": "https://www.tiktok.com/@evonica.black/video/7614961433129880863",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7614961433129880863.mp4",
+          "plays": 250,
+          "likes": 27,
+          "comments": 0,
+          "caption": "ig: evonica_b",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 3,
+          "referenceId": "ref_036769207bd8ffde",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7640201327712144670",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640201327712144670.mp4",
+          "plays": 822,
+          "likes": 147,
+          "comments": 0,
+          "caption": "You're a lucky one🤗",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 5,
+          "referenceId": "ref_5c59141195c40a5b",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7639097855294180638",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639097855294180638.mp4",
+          "plays": 930,
+          "likes": 164,
+          "comments": 0,
+          "caption": "No negotiation at all",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 11,
+          "referenceId": "ref_26529c76caa3ca59",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7638875218534010142",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638875218534010142.mp4",
+          "plays": 757,
+          "likes": 113,
+          "comments": 0,
+          "caption": "Like come on, it's so obvious just say it lol😻",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 14,
+          "referenceId": "ref_1e12eb7b0579bbf2",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7639580341237255454",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639580341237255454.mp4",
+          "plays": 883,
+          "likes": 127,
+          "comments": 0,
+          "caption": "If you don't say \"hii\" I'll assume you're not into girls",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 17,
+          "referenceId": "ref_774852dc4994e650",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7634604373166886174",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7634604373166886174.mp4",
+          "plays": 1189,
+          "likes": 178,
+          "comments": 0,
+          "caption": "You should text me...",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 20,
+          "referenceId": "ref_8bdcb4f93b6b0899",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7636265036394122526",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7636265036394122526.mp4",
+          "plays": 1598,
+          "likes": 227,
+          "comments": 0,
+          "caption": "Prove me right😅",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Late night cravingsss",
+            "ig: evonica_b",
+            "You're a lucky one🤗",
+            "No negotiation at all",
+            "Like come on, it's so obvious just say it lol😻"
+          ]
+        },
+        {
+          "formula": "{short claim} + one emoji",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Late night cravingsss",
+            "ig: evonica_b",
+            "You're a lucky one🤗",
+            "No negotiation at all",
+            "Like come on, it's so obvious just say it lol😻"
+          ]
+        },
+        {
+          "formula": "{direct tease} with no explanation",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Late night cravingsss",
+            "ig: evonica_b",
+            "You're a lucky one🤗",
+            "No negotiation at all",
+            "Like come on, it's so obvious just say it lol😻"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "grid collage",
+        "first slide headline",
+        "photo sequence",
+        "centered bold callout",
+        "native slideshow pacing",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "slideshow_grid",
+        "slideshow_story_cards",
+        "slideshow_caption_callout",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "slideshow",
+        "reel"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "trending_slideshow_sound",
+        "fallbackInstruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy.",
+        "nativeAudioPreferred": true,
+        "recommendations": [
+          {
+            "platform": "tiktok",
+            "audioId": "7066975952676375342",
+            "audioTitle": "TikTok audio 7066975952676375342",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 81200,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7447940772319480609",
+            "audioTitle": "TikTok audio 7447940772319480609",
+            "artistName": "amandastarry",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 10900,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "amandastarry"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7140360055967238918",
+            "audioTitle": "TikTok audio 7140360055967238918",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 10600,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7431481067138402320",
+            "audioTitle": "TikTok audio 7431481067138402320",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 2,
+            "totalPlays": 4586,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "6854863312866265089",
+            "audioTitle": "TikTok audio 6854863312866265089",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 3180,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          }
+        ]
+      },
+      "winnerDna": {
+        "visualStructure": "tiktok_slideshow",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "short_meme_caption",
+        "performanceClassCounts": {
+          "looks_good_only": 26
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "amandastarry",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_4b29cac4c1715067"
+        },
+        {
+          "account": "evonica.black",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 2
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_7789edf4bd0b228c"
+        },
+        {
+          "account": "lunarose.vibes_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 22
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_036769207bd8ffde"
+        },
+        {
+          "account": "maxiabanks",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_500a25041fe86909"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 1417,
+        "totalPlays": 134677,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 26
+        },
+        "topAccounts": [
+          "amandastarry",
+          "evonica.black",
+          "lunarose.vibes_",
+          "maxiabanks"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 1,
+          "maybe": 1,
+          "unlabeled": 24
+        },
+        "effectiveItemWeight": 30.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "short meme-style caption"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_slideshow",
+        "duration_seconds": "6-10",
+        "scene": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "short meme-style caption",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "primary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 10 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'tiktok slideshow / curiosity gap / short meme caption' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "tiktok_slideshow::curiosity_gap::minimal_bait",
+      "clusterKey": "tiktok_slideshow::curiosity_gap::minimal_bait",
+      "rank": 6,
+      "label": "tiktok slideshow / curiosity gap / minimal bait",
+      "visualFormat": "tiktok_slideshow",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "minimal_bait",
+      "itemCount": 14,
+      "avgQualityScore": 100.0,
+      "labelAuthorityWeight": 4.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 78.16,
+      "totalPlays": 17614,
+      "medianPlays": 900,
+      "accountCount": 1,
+      "accounts": [
+        "lunarose.vibes_"
+      ],
+      "tags": [
+        "caption_style",
+        "hook_good",
+        "slideshow",
+        "visual_style"
+      ],
+      "topReferenceId": "ref_643a255d25bc0a3c",
+      "topPublicPostId": "public_post_dad1865d3fe30e6b",
+      "topUrl": "https://www.tiktok.com/@lunarose.vibes_/video/7629377317348920606",
+      "topLocalPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629377317348920606.mp4",
+      "referenceFiles": [
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629377317348920606.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640538816222170398.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639832574214311198.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7641312960559811870.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638344781990563103.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7635442451330731294.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640334665995373855.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639209209279630622.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 67,
+          "referenceId": "ref_643a255d25bc0a3c",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7629377317348920606",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7629377317348920606.mp4",
+          "plays": 799,
+          "likes": 91,
+          "comments": 0,
+          "caption": "it means…",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 1,
+          "referenceId": "ref_9ba34998aefeda24",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7640538816222170398",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640538816222170398.mp4",
+          "plays": 724,
+          "likes": 142,
+          "comments": 0,
+          "caption": "I'm curious👀",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 2,
+          "referenceId": "ref_5d10e496b59e9772",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7639832574214311198",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639832574214311198.mp4",
+          "plays": 721,
+          "likes": 142,
+          "comments": 0,
+          "caption": "Be honest…🥺",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 4,
+          "referenceId": "ref_d964c70e06120293",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7641312960559811870",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7641312960559811870.mp4",
+          "plays": 424,
+          "likes": 72,
+          "comments": 0,
+          "caption": "🥺",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 6,
+          "referenceId": "ref_acd04286adf05133",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7638344781990563103",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7638344781990563103.mp4",
+          "plays": 898,
+          "likes": 150,
+          "comments": 0,
+          "caption": "Do it😉",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 9,
+          "referenceId": "ref_4c23b4863340542f",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7635442451330731294",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7635442451330731294.mp4",
+          "plays": 3605,
+          "likes": 589,
+          "comments": 0,
+          "caption": "please...",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 19,
+          "referenceId": "ref_fb1bf82bc6312ac9",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7640334665995373855",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7640334665995373855.mp4",
+          "plays": 916,
+          "likes": 122,
+          "comments": 0,
+          "caption": "😏👇",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 27,
+          "referenceId": "ref_66db4b84b79a12a6",
+          "account": "lunarose.vibes_",
+          "url": "https://www.tiktok.com/@lunarose.vibes_/video/7639209209279630622",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593484882266375181/videos/7639209209279630622.mp4",
+          "plays": 541,
+          "likes": 67,
+          "comments": 0,
+          "caption": "Trend🤭",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{1-3 emoji}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "it means…",
+            "I'm curious👀",
+            "Be honest…🥺",
+            "🥺",
+            "Do it😉"
+          ]
+        },
+        {
+          "formula": "{one word}?",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "it means…",
+            "I'm curious👀",
+            "Be honest…🥺",
+            "🥺",
+            "Do it😉"
+          ]
+        },
+        {
+          "formula": "{two-word reaction}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "it means…",
+            "I'm curious👀",
+            "Be honest…🥺",
+            "🥺",
+            "Do it😉"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "grid collage",
+        "first slide headline",
+        "photo sequence",
+        "centered bold callout",
+        "native slideshow pacing",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "slideshow_grid",
+        "slideshow_story_cards",
+        "slideshow_caption_callout",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "slideshow",
+        "reel"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "trending_slideshow_sound",
+        "fallbackInstruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy.",
+        "nativeAudioPreferred": true,
+        "recommendations": [
+          {
+            "platform": "tiktok",
+            "audioId": "7098516425689762606",
+            "audioTitle": "TikTok audio 7098516425689762606",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 3605,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7377439262486154027",
+            "audioTitle": "TikTok audio 7377439262486154027",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 2843,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7630500932102408991",
+            "audioTitle": "TikTok audio 7630500932102408991",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 1694,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "6865841209802229762",
+            "audioTitle": "TikTok audio 6865841209802229762",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 1690,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7632204032769116941",
+            "audioTitle": "TikTok audio 7632204032769116941",
+            "artistName": "lunarose.vibes_",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 1068,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "lunarose.vibes_"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          }
+        ]
+      },
+      "winnerDna": {
+        "visualStructure": "tiktok_slideshow",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "minimal_bait",
+        "performanceClassCounts": {
+          "looks_good_only": 14
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "lunarose.vibes_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 14
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_9ba34998aefeda24"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 900,
+        "totalPlays": 17614,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 14
+        },
+        "topAccounts": [
+          "lunarose.vibes_"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "gold": 1,
+          "unlabeled": 13
+        },
+        "effectiveItemWeight": 17.0,
+        "labelAuthorityWeight": 4.0
+      },
+      "promptTemplate": {
+        "visualBrief": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "one-line minimal bait"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_slideshow",
+        "duration_seconds": "6-10",
+        "scene": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "one-line minimal bait",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "secondary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 7 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'tiktok slideshow / curiosity gap / minimal bait' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": false,
+        "primaryPattern": false,
+        "reason": "needs_three_references_across_two_accounts"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "tiktok_slideshow::curiosity_gap::hashtag_context",
+      "clusterKey": "tiktok_slideshow::curiosity_gap::hashtag_context",
+      "rank": 7,
+      "label": "tiktok slideshow / curiosity gap / hashtag context",
+      "visualFormat": "tiktok_slideshow",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "hashtag_context",
+      "itemCount": 12,
+      "avgQualityScore": 100.0,
+      "labelAuthorityWeight": 2.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 86.4,
+      "totalPlays": 997110,
+      "medianPlays": 47632,
+      "accountCount": 3,
+      "accounts": [
+        "amandastarry",
+        "evonica.black",
+        "maxiabanks"
+      ],
+      "tags": [
+        "caption_style",
+        "hook_good",
+        "slideshow",
+        "visual_style"
+      ],
+      "topReferenceId": "ref_65b0af9583b7d4fa",
+      "topPublicPostId": "public_post_4e5b6529ac36c85a",
+      "topUrl": "https://www.tiktok.com/@evonica.black/video/7608639921158507807",
+      "topLocalPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7608639921158507807.mp4",
+      "referenceFiles": [
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7608639921158507807.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7606070215239060766.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7607236351662083358.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593101846437301518.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593456228227894583.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7594711424144772365.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593571335486442766.mp4",
+        "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7594374019374255373.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 127,
+          "referenceId": "ref_65b0af9583b7d4fa",
+          "account": "evonica.black",
+          "url": "https://www.tiktok.com/@evonica.black/video/7608639921158507807",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7608639921158507807.mp4",
+          "plays": 375,
+          "likes": 33,
+          "comments": 0,
+          "caption": "#relationships #brunettegirl #greeneyedgirl #fyp #youngwomen",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 128,
+          "referenceId": "ref_15f5925ef5940165",
+          "account": "evonica.black",
+          "url": "https://www.tiktok.com/@evonica.black/video/7606070215239060766",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7606070215239060766.mp4",
+          "plays": 1055,
+          "likes": 95,
+          "comments": 0,
+          "caption": "I am a young woman looking for loveee….  #youngwoman #model #influencer #valentinesday",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 132,
+          "referenceId": "ref_43d046516fd6a732",
+          "account": "evonica.black",
+          "url": "https://www.tiktok.com/@evonica.black/video/7607236351662083358",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7593895847445267511/videos/7607236351662083358.mp4",
+          "plays": 568,
+          "likes": 48,
+          "comments": 0,
+          "caption": "#youngwoman #model #agegap #brounette #fyp",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 51,
+          "referenceId": "ref_8c5c34c1853b9287",
+          "account": "maxiabanks",
+          "url": "https://www.tiktok.com/@maxiabanks/video/7593101846437301518",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593101846437301518.mp4",
+          "plays": 228100,
+          "likes": 45600,
+          "comments": 0,
+          "caption": "Replying to @Hamster Jack I mean he’s not wrong but wow 😭 #funny #dancer #funnycomments #commentsection #fypシ",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 74,
+          "referenceId": "ref_7dafb1d20131ab71",
+          "account": "maxiabanks",
+          "url": "https://www.tiktok.com/@maxiabanks/video/7593456228227894583",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593456228227894583.mp4",
+          "plays": 98500,
+          "likes": 17000,
+          "comments": 0,
+          "caption": "Replying to @Hamster Jack you’re wrong but wowww 😅 #funnycomments #commentsection #dancer #funnydance #fypシ",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 89,
+          "referenceId": "ref_af02b5e47e3be173",
+          "account": "maxiabanks",
+          "url": "https://www.tiktok.com/@maxiabanks/video/7594711424144772365",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7594711424144772365.mp4",
+          "plays": 183200,
+          "likes": 26700,
+          "comments": 0,
+          "caption": "the ending is my favorite part #Pokemon",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 94,
+          "referenceId": "ref_91276af82cc25033",
+          "account": "maxiabanks",
+          "url": "https://www.tiktok.com/@maxiabanks/video/7593571335486442766",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7593571335486442766.mp4",
+          "plays": 268100,
+          "likes": 37200,
+          "comments": 0,
+          "caption": "Replying to @Hamster Jack they can tell who I am from the back cause it’s heavy 😝 #funny #dancer #funnycomments #commentsection #dumptruck",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        },
+        {
+          "rank": 96,
+          "referenceId": "ref_4cace181151223f2",
+          "account": "maxiabanks",
+          "url": "https://www.tiktok.com/@maxiabanks/video/7594374019374255373",
+          "localPath": "${TIKTOK_ARCHIVE_ROOT}/data/Following/7589095005618045965/videos/7594374019374255373.mp4",
+          "plays": 120800,
+          "likes": 16400,
+          "comments": 0,
+          "caption": "Replying to @Hamster Jack you guys are WILDDD 😭 #dancer #funnycomments #commentsection #trending #fypシ",
+          "qualityScore": 100.0,
+          "winnerDna": {
+            "visualStructure": "tiktok_slideshow",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{short tease}\\n•\\n•\\n•\\n{optional context}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "#relationships #brunettegirl #greeneyedgirl #fyp #youngwomen",
+            "I am a young woman looking for loveee….  #youngwoman #model #influencer #valentinesday",
+            "#youngwoman #model #agegap #brounette #fyp",
+            "Replying to @Hamster Jack I mean he’s not wrong but wow 😭 #funny #dancer #funnycomments #commentsection #fypシ",
+            "Replying to @Hamster Jack you’re wrong but wowww 😅 #funnycomments #commentsection #dancer #funnydance #fypシ"
+          ]
+        },
+        {
+          "formula": "{one-line setup} + sparse separator lines",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "#relationships #brunettegirl #greeneyedgirl #fyp #youngwomen",
+            "I am a young woman looking for loveee….  #youngwoman #model #influencer #valentinesday",
+            "#youngwoman #model #agegap #brounette #fyp",
+            "Replying to @Hamster Jack I mean he’s not wrong but wow 😭 #funny #dancer #funnycomments #commentsection #fypシ",
+            "Replying to @Hamster Jack you’re wrong but wowww 😅 #funnycomments #commentsection #dancer #funnydance #fypシ"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "grid collage",
+        "first slide headline",
+        "photo sequence",
+        "centered bold callout",
+        "native slideshow pacing",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "slideshow_grid",
+        "slideshow_story_cards",
+        "slideshow_caption_callout",
+        "v09_caption_bg"
+      ],
+      "suggestedFormats": [
+        "slideshow",
+        "reel"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "trending_slideshow_sound",
+        "fallbackInstruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy.",
+        "nativeAudioPreferred": true,
+        "recommendations": [
+          {
+            "platform": "tiktok",
+            "audioId": "7591194510978321182",
+            "audioTitle": "TikTok audio 7591194510978321182",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 2,
+            "totalPlays": 451300,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7593101885494643470",
+            "audioTitle": "TikTok audio 7593101885494643470",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 228100,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7594374272320129847",
+            "audioTitle": "TikTok audio 7594374272320129847",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 120800,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7593456320473254670",
+            "audioTitle": "TikTok audio 7593456320473254670",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 98500,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          },
+          {
+            "platform": "tiktok",
+            "audioId": "7158862063429749510",
+            "audioTitle": "TikTok audio 7158862063429749510",
+            "artistName": "maxiabanks",
+            "usageType": "platform_sound",
+            "audioVibe": "trending_slideshow_sound",
+            "postCount": 1,
+            "totalPlays": 88600,
+            "measuredOutcomeSamples": 0,
+            "avgMeasuredReward": null,
+            "performanceClass": "looks_good_only",
+            "exampleAccounts": [
+              "maxiabanks"
+            ],
+            "instruction": "Use a current native TikTok/Instagram slideshow sound with soft pop, sped-up, or emotional photo-dump energy."
+          }
+        ]
+      },
+      "winnerDna": {
+        "visualStructure": "tiktok_slideshow",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "hashtag_context",
+        "performanceClassCounts": {
+          "looks_good_only": 12
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "amandastarry",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_b11f96f7849ee009"
+        },
+        {
+          "account": "evonica.black",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 5
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_79d71af610df2e74"
+        },
+        {
+          "account": "maxiabanks",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 6
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_8c5c34c1853b9287"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 47632,
+        "totalPlays": 997110,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 12
+        },
+        "topAccounts": [
+          "amandastarry",
+          "evonica.black",
+          "maxiabanks"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "maybe": 3,
+          "unlabeled": 9
+        },
+        "effectiveItemWeight": 15.0,
+        "labelAuthorityWeight": 2.0
+      },
+      "promptTemplate": {
+        "visualBrief": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "short meme-style caption"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_slideshow",
+        "duration_seconds": "6-10",
+        "scene": "TikTok-style slideshow carousel with 5-9 stills, fast first-slide hook, bold centered text, and simple swipeable story progression",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "short meme-style caption",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "tiktok_slideshow",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "primary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 6 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'tiktok slideshow / curiosity gap / hashtag context' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": true,
+        "primaryPattern": false,
+        "reason": "candidate_needs_measured_cohort_outcomes"
+      }
+    },
+    {
+      "schema": "reference_factory.learning_cluster.v1",
+      "patternId": "fit_check::curiosity_gap::short_meme_caption",
+      "clusterKey": "fit_check::curiosity_gap::short_meme_caption",
+      "rank": 8,
+      "label": "fit check / curiosity gap / short meme caption",
+      "visualFormat": "fit_check",
+      "hookType": "curiosity_gap",
+      "captionArchetype": "short_meme_caption",
+      "itemCount": 1,
+      "avgQualityScore": 96.33,
+      "labelAuthorityWeight": 2.0,
+      "outcomeSignalScore": 0.0,
+      "clusterScore": 64.46,
+      "totalPlays": 20872,
+      "medianPlays": 20872,
+      "accountCount": 1,
+      "accounts": [
+        "BabyyMimiii_"
+      ],
+      "tags": [
+        "caption_style",
+        "fit_check",
+        "visual_style"
+      ],
+      "topReferenceId": "ref_fc3509dd72cdd51c",
+      "topPublicPostId": "public_post_30a5ac13545da59f",
+      "topUrl": "https://x.com/BabyyMimiii_/status/2064511104525447558",
+      "topLocalPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2064511104525447558_1.mp4",
+      "referenceFiles": [
+        "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2064511104525447558_1.mp4"
+      ],
+      "topExamples": [
+        {
+          "rank": 145,
+          "referenceId": "ref_fc3509dd72cdd51c",
+          "account": "BabyyMimiii_",
+          "url": "https://x.com/BabyyMimiii_/status/2064511104525447558",
+          "localPath": "${REFERENCE_REELS_ROOT}/import_20260702/BabyyMimiii_/2064511104525447558_1.mp4",
+          "plays": 20872,
+          "likes": 748,
+          "comments": 29,
+          "caption": "Rate my outfit from 1-10",
+          "qualityScore": 96.33,
+          "winnerDna": {
+            "visualStructure": "fit_check",
+            "hookType": "curiosity_gap"
+          }
+        }
+      ],
+      "captionFormulas": [
+        {
+          "formula": "{pronoun/persona} can't resist {persona/context} {emoji}",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Rate my outfit from 1-10"
+          ]
+        },
+        {
+          "formula": "{short claim} + one emoji",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Rate my outfit from 1-10"
+          ]
+        },
+        {
+          "formula": "{direct tease} with no explanation",
+          "hookType": "curiosity_gap",
+          "exampleCaptions": [
+            "Rate my outfit from 1-10"
+          ]
+        }
+      ],
+      "visualRecipeHints": [
+        "vertical 9:16",
+        "clear first-second hook",
+        "center caption",
+        "fit check reveal",
+        "caption appears immediately"
+      ],
+      "suggestedVariantRecipes": [
+        "v01_original",
+        "v05_hflip",
+        "v06_zoom",
+        "v09_caption_bg",
+        "v07_tilt"
+      ],
+      "suggestedFormats": [
+        "reel",
+        "slideshow"
+      ],
+      "audioRecommendations": {
+        "schema": "reference_factory.audio_recommendations.v1",
+        "primaryStrategy": "confidence_pop_or_runway_sound",
+        "fallbackInstruction": "Use a current native confident pop, runway, or soft trap sound that matches a visual-first model clip.",
+        "nativeAudioPreferred": true,
+        "recommendations": []
+      },
+      "winnerDna": {
+        "visualStructure": "fit_check",
+        "hookType": "curiosity_gap",
+        "captionArchetype": "short_meme_caption",
+        "performanceClassCounts": {
+          "looks_good_only": 1
+        },
+        "audioRoles": [
+          "unknown_audio"
+        ],
+        "topReferenceDna": {
+          "visualStructure": "fit_check",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "accountWinnerSignals": [
+        {
+          "account": "BabyyMimiii_",
+          "performanceClass": "looks_good_only",
+          "performanceClassCounts": {
+            "looks_good_only": 1
+          },
+          "measuredOutcomeSamples": 0,
+          "avgMeasuredReward": null,
+          "audioRoles": [
+            "unknown_audio"
+          ],
+          "topReferenceId": "ref_fc3509dd72cdd51c"
+        }
+      ],
+      "personaWinnerSignals": [],
+      "performanceSignals": {
+        "medianViews": 20872,
+        "totalPlays": 20872,
+        "measuredOutcomeSamples": 0,
+        "avgMeasuredReward": null,
+        "performanceClassCounts": {
+          "looks_good_only": 1
+        },
+        "topAccounts": [
+          "BabyyMimiii_"
+        ]
+      },
+      "tasteWeights": {
+        "labels": {
+          "maybe": 1
+        },
+        "effectiveItemWeight": 2.0,
+        "labelAuthorityWeight": 2.0
+      },
+      "promptTemplate": {
+        "visualBrief": "vertical outfit or body-frame check, simple background, one clear reveal",
+        "hookBrief": "caption creates a curiosity gap",
+        "captionBrief": "short meme-style caption"
+      },
+      "higgsfieldJsonTemplate": {
+        "format": "vertical_reel",
+        "duration_seconds": "6-12",
+        "scene": "vertical outfit or body-frame check, simple background, one clear reveal",
+        "camera": "phone-shot vertical video, natural handheld motion, social reel pacing",
+        "action": "caption creates a curiosity gap",
+        "caption_overlay": "short meme-style caption",
+        "audio_direction": "plan native platform audio separately; match the sound vibe to the visual format and hook instead of hard-burning unknown audio",
+        "style": "high-performing Instagram Reels reference pattern",
+        "reference_match_goal": "close_format_variation",
+        "variation_controls": {
+          "keep": [
+            "structure",
+            "pacing",
+            "hook timing",
+            "caption placement style"
+          ],
+          "vary": [
+            "model identity",
+            "background details",
+            "wording",
+            "exact gesture",
+            "wardrobe"
+          ]
+        },
+        "negative_prompt": "logos, watermarks, broken anatomy, unreadable text, low resolution, underage appearance",
+        "source_winner_dna": {
+          "visualStructure": "fit_check",
+          "hookType": "curiosity_gap"
+        }
+      },
+      "operatorUse": {
+        "recommendedUse": "secondary_generation_pattern",
+        "batchIdea": "Use this cluster as a source format for 3 initial variants.",
+        "reviewInstruction": "Compare outputs against the 'fit check / curiosity gap / short meme caption' pattern with ContentForge reference match."
+      },
+      "guidanceEligibility": {
+        "searchable": true,
+        "candidatePattern": false,
+        "primaryPattern": false,
+        "reason": "singleton_search_only"
+      }
+    }
+  ]
+}

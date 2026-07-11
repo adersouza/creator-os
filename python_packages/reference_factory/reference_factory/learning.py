@@ -27,6 +27,7 @@ from .patterns import (
     apply_vision_pattern_overrides,
     prompt_briefs_from_winner_dna,
 )
+from .public_metrics import _reference_account_cap, _reference_caption_share
 from .ranking import item_taste_weight as _taste_weight
 from .ranking import review_label_weight as _review_label_weight
 from .timeutil import now_iso
@@ -42,12 +43,29 @@ def build_learning_system(
     embedding_clusters: bool = True,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     embedding_threshold: float = DEFAULT_EMBEDDING_THRESHOLD,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
 ) -> dict[str, object]:
     output_dir = output_dir or Path("learning")
     output_dir.mkdir(parents=True, exist_ok=True)
     if refresh_patterns or _pattern_count(conn) < min(limit, 1):
-        analyze_patterns(conn, limit=limit, provider="auto", output_dir=output_dir)
-    cards = _pattern_cards(conn, limit)
+        analyze_patterns(
+            conn,
+            limit=limit,
+            provider="auto",
+            output_dir=output_dir,
+            account_cap=account_cap,
+            caption_share=caption_share,
+            strict_balance=strict_balance,
+        )
+    cards = _pattern_cards(
+        conn,
+        limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     embedding_report = (
         build_embedding_clusters(
             conn,
@@ -122,6 +140,9 @@ def build_learning_system(
         "schema": "reference_factory.build_learning_system.v1",
         "runId": run_id,
         "limit": limit,
+        "accountCap": account_cap,
+        "captionShare": caption_share,
+        "strictBalance": strict_balance,
         "references": len(cards),
         "clusters": len(clusters),
         "summary": summary,
@@ -152,7 +173,14 @@ def _pattern_count(conn: Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM reference_patterns").fetchone()[0])
 
 
-def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
+def _pattern_cards(
+    conn: Connection,
+    limit: int,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
@@ -226,6 +254,12 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "publicRateScore": (pattern.get("metrics") or {}).get(
                     "publicRateScore"
                 ),
+                "publicFollowerEngagementRate": (pattern.get("metrics") or {}).get(
+                    "publicFollowerEngagementRate"
+                ),
+                "referenceSignalType": (pattern.get("metrics") or {}).get(
+                    "referenceSignalType"
+                ),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
                 "reviewLabel": row["review_label"],
@@ -248,7 +282,67 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
             -float(item.get("qualityScore") or 0.0),
         )
     )
-    return cards[:limit]
+    cards = [card for card in cards if _taste_weight(card) > 0.0]
+    return _balanced_learning_cards(
+        cards,
+        limit=limit,
+        account_cap=_reference_account_cap(account_cap),
+        caption_share=_reference_caption_share(caption_share),
+        strict_balance=strict_balance,
+    )
+
+
+def _balanced_learning_cards(
+    cards: list[dict[str, Any]],
+    *,
+    limit: int,
+    account_cap: int,
+    caption_share: float,
+    strict_balance: bool,
+) -> list[dict[str, Any]]:
+    if strict_balance:
+        cards = [
+            card
+            for card in cards
+            if card.get("referenceSignalType") in {"caption_driven", "visual_driven"}
+        ]
+    caption_goal = round(limit * caption_share)
+    visual_goal = max(0, limit - caption_goal)
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[str] = set()
+    account_counts: Counter[str] = Counter()
+
+    def bucket(card: dict[str, Any]) -> str:
+        explicit = str(card.get("referenceSignalType") or "").strip()
+        if explicit in {"caption_driven", "visual_driven"}:
+            return explicit
+        return (
+            "visual_driven"
+            if card.get("captionArchetype") == "captionless_visual"
+            else "caption_driven"
+        )
+
+    def add(candidates: list[dict[str, Any]], goal: int | None) -> None:
+        added = 0
+        for card in candidates:
+            if len(selected) >= limit or (goal is not None and added >= goal):
+                return
+            card_id = str(card.get("referenceId") or card.get("id") or "")
+            account = str(card.get("account") or "_unknown")
+            if not card_id or card_id in selected_ids:
+                continue
+            if account_counts[account] >= account_cap:
+                continue
+            selected.append(card)
+            selected_ids.add(card_id)
+            account_counts[account] += 1
+            added += 1
+
+    add([card for card in cards if bucket(card) == "caption_driven"], caption_goal)
+    add([card for card in cards if bucket(card) == "visual_driven"], visual_goal)
+    if not strict_balance:
+        add(cards, None)
+    return selected
 
 
 def _cluster_cards(
@@ -877,6 +971,11 @@ def _learning_summary(
         ),
         "visualFormats": dict(
             Counter(card.get("visualFormat") for card in cards).most_common()
+        ),
+        "referenceSignalTypes": dict(
+            Counter(
+                card.get("referenceSignalType") or "unknown" for card in cards
+            ).most_common()
         ),
         "topAccounts": dict(
             Counter(card.get("account") for card in cards).most_common(20)

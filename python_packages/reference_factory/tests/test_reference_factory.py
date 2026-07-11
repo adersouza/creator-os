@@ -3103,6 +3103,133 @@ def test_top_public_posts_prefers_recent_high_engagement_rate(tmp_path: Path) ->
     )
 
 
+def test_public_post_ranking_uses_follower_normalized_engagement_before_raw(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    apify_path = tmp_path / "followers.json"
+    apify_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "small",
+                    "ownerUsername": "small_account",
+                    "shortCode": "SMALL",
+                    "timestamp": "2026-07-01T00:00:00+00:00",
+                    "videoPlayCount": 1_000,
+                    "videoViewCount": 900,
+                    "likesCount": 80,
+                    "commentsCount": 20,
+                    "ownerFollowersCount": 200,
+                },
+                {
+                    "id": "large",
+                    "ownerUsername": "large_account",
+                    "shortCode": "LARGE",
+                    "timestamp": "2026-07-01T00:00:00+00:00",
+                    "videoPlayCount": 1_000_000,
+                    "videoViewCount": 900_000,
+                    "likesCount": 8_000,
+                    "commentsCount": 2_000,
+                    "ownerFollowersCount": 5_000_000,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    import_apify_metrics(conn, [apify_path], top_limit=2)
+    top = top_public_posts(conn, limit=2)
+
+    assert top["items"][0]["shortCode"] == "SMALL"
+    assert top["items"][0]["ownerFollowerCount"] == 200
+    assert top["items"][0]["publicFollowerEngagementRate"] == 0.5
+    assert top["items"][1]["publicFollowerEngagementRate"] == 0.002
+
+
+def test_top_public_posts_balances_signal_types_and_caps_source_accounts(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    accounts = [
+        "account_a",
+        "account_a",
+        "account_a",
+        "account_b",
+        "account_c",
+        "account_d",
+    ]
+    for index, account in enumerate(accounts):
+        reference_id = f"ref_balance_{index}"
+        conn.execute(
+            """
+            INSERT INTO source_files (
+              reference_id, path, account, file_name, extension, kind,
+              size_bytes, mtime, path_hash, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, '.mp4', 'video', 1, 'now', ?, 'now', 'now')
+            """,
+            (
+                reference_id,
+                f"/{reference_id}.mp4",
+                account,
+                f"{reference_id}.mp4",
+                f"hash_{index}",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO public_posts (
+              id, owner_username, short_code, timestamp, caption,
+              video_view_count, video_play_count, likes_count, comments_count,
+              owner_follower_count, public_follower_engagement_rate,
+              reference_id, raw_json, imported_at
+            ) VALUES (?, ?, ?, '2026-07-01T00:00:00+00:00', '', ?, ?, 10, 1,
+                      1000, ?, ?, '{}', 'now')
+            """,
+            (
+                f"post_balance_{index}",
+                account,
+                f"BAL{index}",
+                10_000 - index,
+                10_000 - index,
+                0.1 if index == 0 else 0.011,
+                reference_id,
+            ),
+        )
+        if index in {0, 3, 4}:
+            caption_text = {0: "alpha caption", 3: "beta caption", 4: "gamma caption"}[
+                index
+            ]
+            upsert_caption_pattern(
+                conn,
+                reference_id,
+                f"ocr_{index}",
+                caption_text,
+                [],
+                90.0,
+            )
+    conn.commit()
+
+    top = top_public_posts(conn, limit=4, account_cap=1, caption_share=0.5)
+
+    assert top["selection"]["captionDrivenSelected"] == 3
+    assert top["selection"]["visualDrivenSelected"] == 1
+    assert max(top["selection"]["accountCounts"].values()) == 1
+    assert len({item["ownerUsername"] for item in top["items"]}) == 4
+
+    strict = top_public_posts(
+        conn,
+        limit=4,
+        account_cap=1,
+        caption_share=0.5,
+        strict_balance=True,
+    )
+    assert strict["selection"]["strictBalance"] is True
+    assert strict["selection"]["captionDrivenSelected"] == 2
+    assert strict["selection"]["visualDrivenSelected"] == 1
+    assert len(strict["items"]) == 3
+
+
 def test_pattern_analyzer_labels_top_posts_and_exports_cards(tmp_path: Path) -> None:
     conn = make_conn(tmp_path)
     conn.execute(
@@ -4872,9 +4999,20 @@ def test_learning_system_builds_clusters_playbook_and_campaign_bank(
     built = build_learning_system(
         conn, limit=3, output_dir=tmp_path / "learning", embedding_clusters=False
     )
+    capped = build_learning_system(
+        conn,
+        limit=3,
+        output_dir=tmp_path / "learning_capped",
+        embedding_clusters=False,
+        account_cap=1,
+        caption_share=0.0,
+        strict_balance=True,
+    )
     summary = learning_summary(conn, limit=3)
 
     assert built["references"] == 3
+    assert capped["references"] == 1
+    assert capped["strictBalance"] is True
     assert built["clusters"] >= 1
     assert Path(built["playbookMarkdownPath"]).exists()
     assert Path(built["promptPackJsonlPath"]).exists()
