@@ -5453,6 +5453,31 @@ def _repair_learning_lineage_from_local_asset(
         elif not incoming and len(candidates) == 1:
             incoming_source[field] = next(iter(candidates))
             repaired_fields.append(f"source.{field}")
+
+    trusted_source = dict(incoming_source)
+    if stored_lineage_path:
+        trusted_source["sourceLineagePath"] = stored_lineage_path
+    else:
+        trusted_source.pop("sourceLineagePath", None)
+    trusted_features = _features_from_source_lineage(
+        trusted_source,
+        prompt_id=str(incoming_source.get("promptId") or ""),
+    )
+    incoming_features = (
+        lineage.get("features") if isinstance(lineage.get("features"), dict) else {}
+    )
+    if trusted_features:
+        merged_features = dict(trusted_features)
+        merged_features.update(
+            {
+                key: value
+                for key, value in incoming_features.items()
+                if value not in (None, "", "unknown")
+            }
+        )
+        if merged_features != incoming_features:
+            lineage["features"] = merged_features
+            repaired_fields.append("features")
     for field in ("promptId", "referenceId"):
         if not str(incoming_source.get(field) or "").strip():
             blockers.append(f"missing_{field}")
@@ -5492,6 +5517,40 @@ def _repair_learning_lineage_from_local_asset(
             "blockingReasons": sorted(set(blockers)),
         },
     )
+
+
+def _features_from_source_lineage(
+    source: dict[str, Any], *, prompt_id: str
+) -> dict[str, Any]:
+    raw_path = str(source.get("sourceLineagePath") or "").strip()
+    if not raw_path:
+        return {}
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    generation = (
+        payload.get("generation") if isinstance(payload.get("generation"), dict) else {}
+    )
+    captured = str(generation.get("capturedHiggsfieldPrompt") or "").strip()
+    if captured and prompt_id.startswith("prompt_higgsfield_"):
+        resolved = (
+            "prompt_higgsfield_"
+            + hashlib.sha256(captured.encode("utf-8")).hexdigest()[:16]
+        )
+        if resolved != prompt_id:
+            return {}
+    features = payload.get("features")
+    if not isinstance(features, dict):
+        return {}
+    return {
+        str(key): value for key, value in features.items() if value not in (None, "")
+    }
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:

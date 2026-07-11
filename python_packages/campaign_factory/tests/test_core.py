@@ -5110,6 +5110,93 @@ def test_static_mp4_stage_apply_is_idempotent_for_same_accepted_still(
         cf.close()
 
 
+def test_reused_static_mp4_repairs_direct_reference_features_without_rerender(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        source = add_source_asset(cf, tmp_path)
+        captured_prompt = "A bedroom mirror selfie with slow natural movement."
+        prompt_id = (
+            "prompt_higgsfield_"
+            + hashlib.sha256(captured_prompt.encode("utf-8")).hexdigest()[:16]
+        )
+        set_test_source_prompt(
+            cf,
+            source["id"],
+            prompt_id=prompt_id,
+            reference_id="identity_set:file_1",
+        )
+        still = tmp_path / "lca_test_direct_reference_9x16.png"
+        still.write_bytes(b"accepted-static-still")
+        invoke_count = 0
+
+        def fake_invoke(_factory, **kwargs):
+            nonlocal invoke_count
+            invoke_count += 1
+            write_fake_static_mp4_outputs(kwargs["output_path"])
+            return fake_static_mp4_render(
+                kwargs["still_path"], kwargs["output_path"], dry_run=False
+            )
+
+        monkeypatch.setattr(
+            "campaign_factory.static_mp4_stage._invoke_reel_factory_static_mp4",
+            fake_invoke,
+        )
+        first = run_static_mp4_stage(
+            cf,
+            campaign_slug="may",
+            still_path=still,
+            dry_run=False,
+            apply=True,
+        )
+        lineage_path = tmp_path / "lca_test.direct_reference_lineage.json"
+        lineage_path.write_text(
+            json.dumps(
+                {
+                    "features": {
+                        "scene": "bedroom",
+                        "camera": "mirror_selfie",
+                        "creator": "stacey",
+                        "motion": "slow_pan",
+                    },
+                    "generation": {"capturedHiggsfieldPrompt": captured_prompt},
+                    "assets": {"localPaths": {"image": str(still)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        second = run_static_mp4_stage(
+            cf,
+            campaign_slug="may",
+            still_path=still,
+            dry_run=False,
+            apply=True,
+        )
+
+        assert first["registeredAsset"]["id"] == second["registeredAsset"]["id"]
+        assert second["reused"] is True
+        assert invoke_count == 1
+        metadata = json.loads(second["registeredAsset"]["metadata_json"])
+        lineage = metadata["generatedAssetLineage"]
+        assert lineage["features"] == {
+            "camera": "mirror_selfie",
+            "creator": "stacey",
+            "motion": "slow_pan",
+            "scene": "bedroom",
+        }
+        assert lineage["source"]["sourceLineagePath"] == str(lineage_path)
+        assert (
+            json.loads(
+                Path(metadata["generatedAssetLineagePath"]).read_text(encoding="utf-8")
+            )
+            == lineage
+        )
+    finally:
+        cf.close()
+
+
 def test_static_mp4_stage_matches_the_accepted_still_to_its_source_lineage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -17954,7 +18041,17 @@ def test_learning_lineage_repairs_missing_source_lineage_artifact_path(
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         lineage_path = tmp_path / "source.direct_reference_lineage.json"
-        lineage_path.write_text("{}", encoding="utf-8")
+        lineage_path.write_text(
+            json.dumps(
+                {
+                    "features": {
+                        "creator": "stacey",
+                        "scene": "bedroom",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
         caption_generation = json.loads(
             cf.conn.execute(
                 "SELECT caption_generation_json FROM rendered_assets WHERE id = 'asset_1'"
@@ -17980,10 +18077,47 @@ def test_learning_lineage_repairs_missing_source_lineage_artifact_path(
         )
 
         assert report["blockingReasons"] == []
-        assert report["repairedFields"] == ["source.sourceLineagePath"]
+        assert report["repairedFields"] == [
+            "features",
+            "source.sourceLineagePath",
+        ]
         assert repaired_meta["generated_asset_lineage"]["source"][
             "sourceLineagePath"
         ] == str(lineage_path)
+        assert repaired_meta["generated_asset_lineage"]["features"] == {
+            "creator": "stacey",
+            "scene": "bedroom",
+        }
+    finally:
+        cf.close()
+
+
+def test_learning_lineage_does_not_read_untrusted_incoming_artifact_path(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        untrusted_path = tmp_path / "incoming.direct_reference_lineage.json"
+        untrusted_path.write_text(
+            json.dumps({"features": {"creator": "attacker", "scene": "spoofed"}}),
+            encoding="utf-8",
+        )
+        meta = threadsdash_campaign_factory_metadata(source)
+        meta["generated_asset_lineage"]["source"]["sourceLineagePath"] = str(
+            untrusted_path
+        )
+
+        _, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf,
+                row={"id": "post_untrusted_lineage_path", "metadata": {}},
+                meta=meta,
+            )
+        )
+
+        assert "features" not in report["repairedFields"]
+        assert "features" not in repaired_meta["generated_asset_lineage"]
     finally:
         cf.close()
 

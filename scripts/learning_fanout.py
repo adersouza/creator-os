@@ -30,6 +30,7 @@ from reel_factory.metrics_store import (
     retract_bridge_outcome,
     upsert_bridge_outcome,
 )
+from reel_factory.winner_dna import refresh_winner_dna
 from reference_factory.db import connect as connect_reference_db
 from reference_factory.observed_prompts import register_observed_higgsfield_prompt
 from reference_factory.outcomes import (
@@ -283,6 +284,7 @@ def fanout_learning_snapshots(
                 "references": 0,
                 "patternsChanged": 0,
             }
+        report["reelWinnerDnaRefresh"] = refresh_winner_dna(Path(reel_factory_root))
         report["readiness"] = closed_loop_learning_status(
             campaign_conn, campaign_slug=campaign
         )
@@ -469,6 +471,9 @@ def _source_hash(row: dict[str, Any], destination: str, *, eligible: bool) -> st
         "referenceId": source.get("referenceId") if isinstance(source, dict) else None,
         "sourceLineagePath": source.get("sourceLineagePath")
         if isinstance(source, dict)
+        else None,
+        "features": lineage.get("features")
+        if destination == "reel" and isinstance(lineage, dict)
         else None,
         "audioId": row.get("audio_id"),
         "historySource": row.get("history_source"),

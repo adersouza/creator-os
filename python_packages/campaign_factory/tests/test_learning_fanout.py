@@ -113,6 +113,7 @@ def insert_snapshot(
     reference_id: str = "reference_1",
     source_lineage_path: Path | None = None,
     pattern_reference_ids: list[str] | None = None,
+    lineage_features: dict[str, str] | None = None,
 ) -> None:
     raw = {
         "metadata": {
@@ -141,6 +142,7 @@ def insert_snapshot(
                     },
                     "generation": {"tool": "higgsfield"},
                     "review": {"status": "approved"},
+                    "features": lineage_features or {},
                 },
                 "reference_pattern": {
                     "id": "pattern_cluster_1",
@@ -461,11 +463,18 @@ def test_missing_prompt_registers_from_real_lineage_before_reference_fanout(
         reference_id="identity_set:file_1",
         source_lineage_path=lineage_path,
         pattern_reference_ids=["reference_1"],
+        lineage_features={
+            "scene": "bedroom",
+            "camera": "mirror_selfie",
+            "creator": "stacey",
+            "motion": "slow_pan",
+        },
     )
 
     result = run_bridge(module, campaign_db, reel_root, reference_db)
 
     assert result["fanout"]["reference"]["done"] == 1
+    assert result["reelWinnerDnaRefresh"]["rows"] == 4
     conn = connect_reference_db(reference_db)
     prompt = conn.execute(
         "SELECT status FROM generated_video_prompts WHERE id = ?", (prompt_id,)
@@ -484,6 +493,50 @@ def test_missing_prompt_registers_from_real_lineage_before_reference_fanout(
     assert outcome["post_id"] == "post_1"
     assert link["reference_id"] == "reference_1"
     conn.close()
+    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
+    feature = reel_conn.execute(
+        "SELECT scene, camera, creator, motion FROM reel_features"
+    ).fetchone()
+    winner_rows = reel_conn.execute(
+        "SELECT feature_key, feature_value FROM winner_dna ORDER BY feature_key"
+    ).fetchall()
+    assert tuple(feature) == ("bedroom", "mirror_selfie", "stacey", "slow_pan")
+    assert [tuple(row) for row in winner_rows] == [
+        ("camera", "mirror_selfie"),
+        ("creator", "stacey"),
+        ("motion", "slow_pan"),
+        ("scene", "bedroom"),
+    ]
+    reel_conn.close()
+
+    campaign_conn = connect(campaign_db)
+    snapshot = campaign_conn.execute(
+        "SELECT raw_json FROM performance_snapshots WHERE id = 'snap_observed'"
+    ).fetchone()
+    raw = json.loads(snapshot["raw_json"])
+    raw["metadata"]["campaign_factory"]["generated_asset_lineage"]["features"][
+        "hook_type"
+    ] = "curiosity"
+    campaign_conn.execute(
+        "UPDATE performance_snapshots SET raw_json = ? WHERE id = 'snap_observed'",
+        (json.dumps(raw, sort_keys=True),),
+    )
+    campaign_conn.commit()
+    campaign_conn.close()
+
+    rerun = run_bridge(module, campaign_db, reel_root, reference_db)
+
+    assert rerun["fanout"]["reel"]["reopenedByHash"] == 1
+    assert rerun["fanout"]["reel"]["done"] == 1
+    assert rerun["fanout"]["campaign"]["reopenedByHash"] == 0
+    assert rerun["fanout"]["reference"]["reopenedByHash"] == 0
+    assert rerun["reelWinnerDnaRefresh"]["rows"] == 5
+    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
+    assert (
+        reel_conn.execute("SELECT hook_type FROM reel_features").fetchone()["hook_type"]
+        == "curiosity"
+    )
+    reel_conn.close()
 
 
 def test_fallback_and_pre_cutover_rows_never_receive_ledgers(

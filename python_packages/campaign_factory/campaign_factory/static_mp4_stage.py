@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -91,6 +93,13 @@ def run_static_mp4_stage(
                 allow_upscale=allow_upscale,
             )
         _validate_render(render)
+        if reused and registered_asset is not None:
+            registered_asset = _repair_existing_static_lineage(
+                factory,
+                asset=registered_asset,
+                source_asset=source_asset,
+                still=still,
+            )
         if apply and not dry_run and not reused:
             registered_asset = _register_rendered_asset(
                 factory,
@@ -213,7 +222,9 @@ def _register_rendered_asset(
         return dict(existing)
     caption_hash = factory._text_hash("")
     source_prompt = _source_prompt(source_asset)
-    upstream_lineage = source_prompt.get("generatedAssetLineage")
+    upstream_lineage = _enriched_upstream_lineage(
+        source_prompt, output_still=Path(render["stillPath"])
+    )
     lineage = build_lineage_v2_core(
         upstream_lineage if isinstance(upstream_lineage, dict) else None,
         campaign_id=campaign["id"],
@@ -332,6 +343,198 @@ def _register_rendered_asset(
             "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
         ).fetchone()
     )
+
+
+def _repair_existing_static_lineage(
+    factory: Any,
+    *,
+    asset: dict[str, Any],
+    source_asset: dict[str, Any],
+    still: Path,
+) -> dict[str, Any]:
+    source_prompt = _source_prompt(source_asset)
+    upstream = _enriched_upstream_lineage(source_prompt, output_still=still)
+    upstream_features = (
+        upstream.get("features") if isinstance(upstream.get("features"), dict) else {}
+    )
+    upstream_source = (
+        upstream.get("source") if isinstance(upstream.get("source"), dict) else {}
+    )
+    lineage_path = str(upstream_source.get("sourceLineagePath") or "").strip()
+    if not upstream_features and not lineage_path:
+        return asset
+
+    metadata = _json_object(asset.get("metadata_json"))
+    caption_generation = _json_object(asset.get("caption_generation_json"))
+    lineage = metadata.get("generatedAssetLineage")
+    if not isinstance(lineage, dict):
+        lineage = caption_generation.get("generatedAssetLineage")
+    if not isinstance(lineage, dict):
+        raise ValueError("registered static MP4 is missing generated lineage")
+    updated_lineage = copy.deepcopy(lineage)
+    if upstream_features:
+        updated_lineage["features"] = copy.deepcopy(upstream_features)
+    if lineage_path:
+        updated_lineage.setdefault("source", {})["sourceLineagePath"] = lineage_path
+    if updated_lineage == lineage:
+        return asset
+
+    sidecar_value = str(
+        metadata.get("generatedAssetLineagePath")
+        or caption_generation.get("generatedAssetLineagePath")
+        or ""
+    ).strip()
+    sidecar = (
+        Path(sidecar_value).expanduser().resolve()
+        if sidecar_value
+        else Path(asset["output_path"]).with_suffix(
+            Path(asset["output_path"]).suffix + ".generated_asset_lineage.json"
+        )
+    )
+    atomic_write_text(
+        sidecar,
+        json.dumps(updated_lineage, indent=2, ensure_ascii=False, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    metadata["generatedAssetLineage"] = updated_lineage
+    metadata["generatedAssetLineagePath"] = str(sidecar)
+    caption_generation["generatedAssetLineage"] = updated_lineage
+    caption_generation["generatedAssetLineagePath"] = str(sidecar)
+    factory.conn.execute(
+        """
+        UPDATE rendered_assets
+        SET metadata_json = ?, caption_generation_json = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            json.dumps(
+                sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True
+            ),
+            json.dumps(
+                sanitize_for_storage(caption_generation),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            utc_now(),
+            asset["id"],
+        ),
+    )
+    factory.conn.commit()
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM rendered_assets WHERE id = ?", (asset["id"],)
+        ).fetchone()
+    )
+
+
+def _enriched_upstream_lineage(
+    source_prompt: dict[str, Any], *, output_still: Path
+) -> dict[str, Any]:
+    raw = source_prompt.get("generatedAssetLineage")
+    lineage = copy.deepcopy(raw) if isinstance(raw, dict) else {}
+    direct_path = _direct_reference_lineage_path(lineage, output_still)
+    if direct_path is None:
+        return lineage
+    direct = _read_json_object(direct_path)
+    _validate_direct_reference_lineage(
+        direct,
+        path=direct_path,
+        output_still=output_still,
+        expected_prompt_id=str(source_prompt.get("promptId") or ""),
+    )
+    features = direct.get("features")
+    if isinstance(features, dict):
+        existing = (
+            lineage.get("features") if isinstance(lineage.get("features"), dict) else {}
+        )
+        merged = dict(features)
+        merged.update(
+            {
+                key: value
+                for key, value in existing.items()
+                if value not in (None, "", "unknown")
+            }
+        )
+        lineage["features"] = merged
+    lineage.setdefault("source", {})["sourceLineagePath"] = str(direct_path)
+    return lineage
+
+
+def _direct_reference_lineage_path(
+    lineage: dict[str, Any], output_still: Path
+) -> Path | None:
+    source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    candidates: list[Path] = []
+    explicit = str(source.get("sourceLineagePath") or "").strip()
+    if explicit:
+        candidates.append(Path(explicit).expanduser().resolve())
+    stem = output_still.stem
+    suffix = "_direct_reference_9x16"
+    if stem.endswith(suffix):
+        candidates.append(
+            output_still.with_name(
+                f"{stem.removesuffix(suffix)}.direct_reference_lineage.json"
+            )
+        )
+    candidates.extend(
+        [
+            output_still.with_suffix(".direct_reference_lineage.json"),
+            output_still.with_suffix(
+                output_still.suffix + ".direct_reference_lineage.json"
+            ),
+        ]
+    )
+    for candidate in dict.fromkeys(path.resolve() for path in candidates):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _validate_direct_reference_lineage(
+    lineage: dict[str, Any],
+    *,
+    path: Path,
+    output_still: Path,
+    expected_prompt_id: str,
+) -> None:
+    assets = lineage.get("assets") if isinstance(lineage.get("assets"), dict) else {}
+    local_paths = (
+        assets.get("localPaths") if isinstance(assets.get("localPaths"), dict) else {}
+    )
+    recorded = str(local_paths.get("image") or "").strip()
+    if recorded:
+        recorded_path = Path(recorded).expanduser().resolve()
+        if recorded_path != output_still.resolve() and (
+            not recorded_path.is_file()
+            or sha256_file(recorded_path) != sha256_file(output_still)
+        ):
+            raise ValueError(
+                f"direct-reference lineage does not match accepted still: {path}"
+            )
+    generation = (
+        lineage.get("generation") if isinstance(lineage.get("generation"), dict) else {}
+    )
+    captured = str(generation.get("capturedHiggsfieldPrompt") or "").strip()
+    if captured and expected_prompt_id.startswith("prompt_higgsfield_"):
+        resolved = (
+            "prompt_higgsfield_"
+            + hashlib.sha256(captured.encode("utf-8")).hexdigest()[:16]
+        )
+        if resolved != expected_prompt_id:
+            raise ValueError(
+                "direct-reference lineage prompt does not match source prompt"
+            )
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"direct-reference lineage is invalid: {path}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"direct-reference lineage must be an object: {path}")
+    return value
 
 
 def _source_prompt(source_asset: dict[str, Any]) -> dict[str, Any]:
