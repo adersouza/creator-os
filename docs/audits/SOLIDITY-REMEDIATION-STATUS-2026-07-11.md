@@ -121,8 +121,12 @@ byte-identical.
   deletes it.
 - [ ] Repair the production migration ledger for `20260711014400` only after an
   exact dry-run review of the linked project.
-- [ ] Add and apply a reviewed migration revoking `authenticated` execution on
-  the five audited workspace-predicate `SECURITY DEFINER` functions.
+- [ ] Remove direct REST RPC exposure from the five audited workspace-predicate
+  `SECURITY DEFINER` helpers without breaking their authenticated RLS-policy
+  callers; prove the final design with workspace-access and unauthorized-access
+  tests before applying a migration. A blind `REVOKE EXECUTE FROM authenticated`
+  is not approved because repository history identifies these as intentional
+  authenticated RLS helpers.
 - [ ] Replay the complete migration chain on a clean database.
 - [ ] Require exact local/remote migration parity.
 - [ ] Compare critical production schema and policy checksums with the replayed
