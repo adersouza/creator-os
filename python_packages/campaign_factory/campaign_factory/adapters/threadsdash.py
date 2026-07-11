@@ -53,6 +53,7 @@ UNRESOLVED_NATIVE_AUDIO_STATUSES = {
     "selected",
     "blocked",
 }
+DEFERRED_NOTIFY_AUDIO_FAILURES = {"missing_audio", "embedded_audio_missing"}
 METRIC_CONTRACT_VERSION = "instagram_metrics_contract_v1"
 DASHBOARD_INGEST_MAX_ATTEMPTS = 3
 DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
@@ -187,8 +188,22 @@ def build_draft_payloads(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
             )
+            resolved_publish_mode = _resolve_publish_mode(
+                normalized_publish_mode,
+                normalize_content_surface(
+                    destination.get("contentSurface")
+                    or publishability.get("contentSurface")
+                    or distribution_surface
+                ),
+            )
+            audio_deferred_to_notify = _allows_draft_notify_audio_deferral(
+                schedule_mode=normalized_schedule_mode,
+                publish_mode=resolved_publish_mode,
+                audio_intent=audio_intent,
+                publishability=publishability,
+            )
             if not (
-                publishability.get("publishableCandidate")
+                (publishability.get("publishableCandidate") or audio_deferred_to_notify)
                 and publishability.get("handoff_manifest")
             ):
                 publishability = dict(publishability)
@@ -197,6 +212,7 @@ def build_draft_payloads(
                     **publishability,
                     "asset_state": "exportable",
                     "assetState": "exportable",
+                    "audioDeferredToHandoff": audio_deferred_to_notify,
                 }
             content_surface = normalize_content_surface(
                 destination.get("contentSurface")
@@ -284,9 +300,7 @@ def build_draft_payloads(
                 "distributionPlanId": destination.get("distributionPlanId"),
                 "distributionSurface": distribution_surface,
                 "contentSurface": content_surface,
-                "publishMode": _resolve_publish_mode(
-                    normalized_publish_mode, content_surface
-                ),
+                "publishMode": resolved_publish_mode,
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
                 "trialGroupId": destination.get("trialGroupId"),
@@ -421,7 +435,7 @@ def _campaign_factory_manifest_blockers(
                 f"{rendered_asset_id}:asset_state:{asset_state or 'missing'}"
             )
         failures = meta.get("publishability_failure_reasons") or []
-        if failures:
+        if failures and not _draft_notify_audio_deferred(draft):
             blockers.extend(
                 f"{rendered_asset_id}:publishability:{reason}" for reason in failures
             )
@@ -1424,6 +1438,16 @@ def evaluate_export_readiness(
             source_id = asset["source_asset_id"]
             source_counts = source_usage.get(source_id) or _empty_usage()
             asset_drafts = drafts_by_asset.get(asset["id"], [])
+            audio_deferred_to_notify = bool(asset_drafts) and all(
+                _draft_notify_audio_deferred(draft) for draft in asset_drafts
+            )
+            if audio_deferred_to_notify:
+                blocking = [
+                    reason
+                    for reason in blocking
+                    if not _is_deferred_notify_audio_blocker(reason)
+                ]
+                warnings.append("native_audio_deferred_to_notify_handoff")
             caption_hashes = {
                 draft.get("captionHash")
                 for draft in asset_drafts
@@ -1457,7 +1481,9 @@ def evaluate_export_readiness(
                 audio_intent = draft.get("audioIntent") or (
                     (draft.get("metadata") or {}).get("campaign_factory") or {}
                 ).get("audio_intent")
-                if not _audio_intent_allows_live(audio_intent):
+                if not _audio_intent_allows_live(
+                    audio_intent
+                ) and not _draft_notify_audio_deferred(draft):
                     blocking.append(
                         "campaign_audio_unresolved: select audio before ThreadsDashboard export"
                     )
@@ -2131,8 +2157,6 @@ def _hydrate_surface_media_items_for_uploaded_media(
     content_surface = normalize_content_surface(
         draft.get("contentSurface") or draft.get("content_surface")
     )
-    if content_surface == "reel":
-        return
     media_url = media_ref.get("publicUrl")
     if not isinstance(media_url, str) or not media_url.strip():
         return
@@ -3070,6 +3094,60 @@ def _audio_intent_allows_live(intent: Any) -> bool:
         selection.get(final_key).strip()
     )
     return bool(has_native_locator and has_selected_at and has_final_timestamp)
+
+
+def _allows_draft_notify_audio_deferral(
+    *,
+    schedule_mode: str,
+    publish_mode: str,
+    audio_intent: Any,
+    publishability: dict[str, Any],
+) -> bool:
+    if schedule_mode != "draft" or publish_mode != "notify":
+        return False
+    if not isinstance(audio_intent, dict) or audio_intent.get("required") is not True:
+        return False
+    gates = (
+        audio_intent.get("gates") if isinstance(audio_intent.get("gates"), dict) else {}
+    )
+    if (
+        gates.get("allow_draft_export") is not True
+        or gates.get("allow_publish") is not False
+    ):
+        return False
+    failures = {
+        str(reason)
+        for reason in publishability.get("publishability_failure_reasons") or []
+    }
+    manifest = publishability.get("handoff_manifest")
+    return bool(
+        failures
+        and failures.issubset(DEFERRED_NOTIFY_AUDIO_FAILURES)
+        and isinstance(manifest, dict)
+        and manifest.get("manifest_version") == 2
+        and manifest.get("audioDeferredToHandoff") is True
+    )
+
+
+def _draft_notify_audio_deferred(draft: dict[str, Any]) -> bool:
+    publishability = (
+        draft.get("publishability")
+        if isinstance(draft.get("publishability"), dict)
+        else {}
+    )
+    return _allows_draft_notify_audio_deferral(
+        schedule_mode=str(draft.get("scheduleMode") or "").strip().lower(),
+        publish_mode=str(draft.get("publishMode") or "").strip().lower(),
+        audio_intent=draft.get("audioIntent"),
+        publishability=publishability,
+    )
+
+
+def _is_deferred_notify_audio_blocker(reason: Any) -> bool:
+    normalized = str(reason).split(":")[-1].strip()
+    return normalized in DEFERRED_NOTIFY_AUDIO_FAILURES or normalized.startswith(
+        "campaign_audio_unresolved"
+    )
 
 
 def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:

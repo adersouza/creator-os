@@ -813,6 +813,38 @@ function contentSurfaceForDraft(
 	);
 }
 
+const DRAFT_NOTIFY_DEFERRED_AUDIO_FAILURES = new Set([
+	"missing_audio",
+	"embedded_audio_missing",
+]);
+
+function draftAllowsDeferredNotifyAudio(
+	draft: Record<string, unknown>,
+	campaignFactory: Record<string, unknown>,
+): boolean {
+	const manifest = handoffManifestFor(campaignFactory);
+	const audioIntent = isRecord(campaignFactory.audio_intent)
+		? campaignFactory.audio_intent
+		: null;
+	const gates = audioIntent && isRecord(audioIntent.gates) ? audioIntent.gates : null;
+	const failures = Array.isArray(campaignFactory.publishability_failure_reasons)
+		? campaignFactory.publishability_failure_reasons
+				.map((reason) => String(reason || "").trim())
+				.filter(Boolean)
+		: [];
+	return (
+		String(draft.scheduleMode || campaignFactory.schedule_mode || "").trim().toLowerCase() === "draft" &&
+		String(draft.publishMode || campaignFactory.publish_mode || "").trim().toLowerCase() === "notify" &&
+		audioIntent?.required === true &&
+		gates?.allow_draft_export === true &&
+		gates?.allow_publish === false &&
+		manifest?.manifest_version === 2 &&
+		manifest?.audioDeferredToHandoff === true &&
+		failures.length > 0 &&
+		failures.every((reason) => DRAFT_NOTIFY_DEFERRED_AUDIO_FAILURES.has(reason))
+	);
+}
+
 function explicitInstagramPostCaptionFor(
 	campaignFactory: Record<string, unknown>,
 	manifest: Record<string, unknown> | null,
@@ -1335,8 +1367,9 @@ export function validateCampaignFactoryDraftPayload(
 				`drafts[${index}].metadata.campaign_factory.asset_state must be publishable_candidate or exportable, got ${state}`,
 			);
 		}
-		const publishabilityFailures =
-			campaignFactoryPublishabilityFailureReasons(campaignFactory);
+		const publishabilityFailures = draftAllowsDeferredNotifyAudio(draft, campaignFactory)
+			? []
+			: campaignFactoryPublishabilityFailureReasons(campaignFactory);
 		for (const reason of publishabilityFailures) {
 			errors.push(
 				`drafts[${index}].metadata.campaign_factory.publishable_candidate missing ${reason}`,
