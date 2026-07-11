@@ -21,7 +21,7 @@
     "check:arch": "pnpm check:arch:ts && pnpm check:arch:py",
     "check:arch:fixtures": "bash scripts/test-architecture-guards.sh",
     "check:arch:py": "uv run lint-imports && python3 scripts/check-python-architecture-boundaries.py",
-    "check:arch:ts": "depcruise apps packages --config .dependency-cruiser.cjs --output-type err",
+    "check:arch:ts": "depcruise packages --config .dependency-cruiser.cjs --output-type err",
     "graphify:update": "bash scripts/graphify-update.sh",
     "lint": "turbo run lint",
     "audit:js-dead": "knip --workspace packages/contentforge --no-exit-code",
