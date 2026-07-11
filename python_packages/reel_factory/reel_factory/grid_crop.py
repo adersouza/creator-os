@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 from caption_render import render_caption_png
+from creator_os_core.media_probe import probe_video_stream as probe_video
 from PIL import Image, ImageChops
 
 try:
@@ -43,33 +44,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
-
-
-def probe_video(path: Path) -> dict[str, Any]:
-    raw = subprocess.check_output(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(path),
-        ],
-        text=True,
-    )
-    streams = json.loads(raw).get("streams") or []
-    if not streams:
-        raise ValueError(f"no video stream found: {path}")
-    stream = streams[0]
-    return {
-        "width": int(stream.get("width") or 0),
-        "height": int(stream.get("height") or 0),
-        "duration": float(stream.get("duration") or 0.0),
-    }
 
 
 def crop_plan_path(root: Path, stem: str) -> Path:

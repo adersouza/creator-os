@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "campaign-factory",
+  "creator-os-core",
   "pdqhash>=0.2.8,<1",
   "pipeline-contracts",
   "pytest>=8,<9",
@@ -12,10 +13,11 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["python_packages/*", "packages/pipeline_contracts"]
+members = ["python_packages/*", "packages/pipeline_contracts", "packages/creator_os_core"]
 
 [tool.uv.sources]
 campaign-factory = { workspace = true }
+creator-os-core = { workspace = true }
 pipeline-contracts = { workspace = true }
 reference-factory = { workspace = true }
 reel-factory = { workspace = true }
@@ -23,6 +25,7 @@ reel-factory = { workspace = true }
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
 testpaths = [
+  "packages/creator_os_core/tests",
   "packages/pipeline_contracts/tests",
   "python_packages/campaign_factory/tests",
   "python_packages/reel_factory/tests",
@@ -30,6 +33,7 @@ testpaths = [
 ]
 pythonpath = [
   "packages/pipeline_contracts",
+  "packages/creator_os_core",
   "python_packages/campaign_factory",
   "python_packages/reel_factory",
   "python_packages/reference_factory",
@@ -73,6 +77,7 @@ select = ["F", "I", "UP"]
 [tool.importlinter]
 root_packages = [
   "campaign_factory",
+  "creator_os_core",
   "pipeline_contracts",
   "reference_factory",
   "reel_factory",
@@ -86,6 +91,18 @@ source_modules = ["pipeline_contracts"]
 forbidden_modules = [
   "campaign_factory",
   "reference_factory",
+  "repurposer",
+]
+
+[[tool.importlinter.contracts]]
+name = "creator_os_core remains foundational"
+type = "forbidden"
+source_modules = ["creator_os_core"]
+forbidden_modules = [
+  "campaign_factory",
+  "pipeline_contracts",
+  "reference_factory",
+  "reel_factory",
   "repurposer",
 ]
 

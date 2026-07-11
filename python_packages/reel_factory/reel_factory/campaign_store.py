@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from asset_prompt_contract import parse_asset_prompt_response
+from creator_os_core.sqlite import ensure_columns as _ensure_columns
 from feature_extract import FEATURE_KEYS
 from intelligence_store import (
     confidence_for_sample_size,
@@ -132,23 +133,6 @@ def connect(root: Path) -> sqlite3.Connection:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
     return slug or f"campaign_{int(time.time())}"
-
-
-def _ensure_columns(
-    conn: sqlite3.Connection, table: str, columns: dict[str, str]
-) -> None:
-    exists = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table,),
-    ).fetchone()
-    if not exists:
-        return
-    existing = {
-        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    }
-    for name, ddl in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def ensure_campaign_schema(conn: sqlite3.Connection) -> None:

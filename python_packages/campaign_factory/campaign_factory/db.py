@@ -4,6 +4,9 @@ import re
 import sqlite3
 from pathlib import Path
 
+from creator_os_core.sqlite import connect_sqlite
+from creator_os_core.sqlite import ensure_columns as _ensure_columns
+
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -1255,15 +1258,11 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    # timeout + busy_timeout let overlapping cron writers wait instead of
-    # failing with "database is locked"; WAL lets readers proceed during
-    # writes. Matches reel_factory.sqlite_utils.connect_sqlite defaults.
-    conn = sqlite3.connect(db_path, timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    # Shared opener applies timeout + busy_timeout (overlapping cron writers
+    # wait instead of failing with "database is locked") and WAL (readers
+    # proceed during writes). foreign_keys stays campaign-specific.
+    conn = connect_sqlite(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -1770,21 +1769,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     _repair_source_asset_fk_references(conn)
     _repair_fk_references(conn, "rendered_assets_old_global_hash", "rendered_assets")
     conn.commit()
-
-
-def _ensure_columns(
-    conn: sqlite3.Connection, table: str, columns: dict[str, str]
-) -> None:
-    existing = {
-        row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    }
-    for name, ddl in columns.items():
-        if name not in existing:
-            try:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
-            except sqlite3.OperationalError as exc:
-                if "duplicate column name" not in str(exc).lower():
-                    raise
 
 
 def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:

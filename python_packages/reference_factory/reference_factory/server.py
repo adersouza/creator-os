@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
+from creator_os_core.local_api_auth import (
+    install_local_api_auth_middleware,
+    require_local_api_auth,
+)
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -20,7 +24,6 @@ from .audio import (
 )
 from .config import DEFAULT_DB_PATH
 from .db import connect
-from .local_api_auth import install_local_api_auth_middleware, require_local_api_auth
 from .reference_intake import (
     export_analysis_queue,
     export_video_prompts,

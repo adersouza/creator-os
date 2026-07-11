@@ -4,9 +4,13 @@ version = "0.1.0"
 description = "Local reference reel corpus analyzer for high-performing short-form videos."
 requires-python = ">=3.11"
 dependencies = [
+  "creator-os-core",
   "fastapi>=0.115",
   "pipeline-contracts",
   "pydantic>=2,<3",
+  # higgsfield_runner.py imports reel_factory.higgsfield_cost_preflight; declare
+  # the dep explicitly (the import DAG permits reference -> reel).
+  "reel-factory",
   "uvicorn>=0.30",
 ]
 
@@ -20,7 +24,9 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.uv.sources]
+creator-os-core = { workspace = true }
 pipeline-contracts = { workspace = true }
+reel-factory = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=69"]
