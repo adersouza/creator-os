@@ -1931,6 +1931,7 @@ export const generatedPipelineContractSchemas = {
 	            "enum": [
 	              "soul_reference_image",
 	              "still_accept_gate",
+	              "static_mp4",
 	              "kling_video",
 	              "motion_edit",
 	              "variation"

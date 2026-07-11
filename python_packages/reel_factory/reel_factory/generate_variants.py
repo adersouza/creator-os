@@ -11,11 +11,13 @@ half that used to be done by hand and got done wrong:
                        (those fight the Soul identity / render fake app chrome).
   2. `sexy_variant`  - append-only body emphasis, house ceiling (cleavage[+butt]).
   3. `pick_aspect`   - 3:4 selfie / 2:3 full-body / 9:16 reel.
-  4. `build_spec`    - emit the exact two generations to run: original (reference
-                       -conditioned) + sexy (TEXT-ONLY so the edit sticks).
+  4. `build_spec`    - reuse the reference-pass output as the original and emit
+                       exactly one additional sexy generation (TEXT-ONLY so the
+                       edit sticks).
 
-The agent then runs the two `generate_image` calls from the spec and ranks the
-results with `virality_select.select_best`. Nothing here spends money or posts.
+The agent runs only the sexy `generate_image` call from the spec, then ranks the
+existing original and the sexy result with `virality_select.select_best`.
+Nothing here spends money or posts.
 """
 
 from __future__ import annotations
@@ -205,11 +207,13 @@ def build_spec(
     soul_id: str,
     reference_media_id: str | None = None,
 ) -> dict[str, Any]:
-    """Two generations to run: original (reference-conditioned) + sexy (text-only).
+    """Reuse the reference result and plan one sexy text-only generation.
 
     `reference_media_id` is the Higgsfield media_id of the UI-free cropped ref
-    (the agent uploads it). The sexy variant is deliberately text-only: a ref
-    image re-triggers enhancement that wipes the body edit.
+    used by the already-completed reference pass. It remains lineage evidence;
+    it must not trigger a second original generation. The sexy variant is
+    deliberately text-only because a ref image re-triggers enhancement and
+    wipes the body edit.
     """
     cleaned = clean_prompt(captured_prompt)
     aspect = pick_aspect(cleaned)
@@ -219,24 +223,23 @@ def build_spec(
         "soul_id": soul_id,
         "cleaned_prompt": cleaned,
         "original": {
-            "model": "soul_2",
-            "soul_id": soul_id,
-            "prompt": cleaned,
+            "source": "reference_pass_result",
+            "generation_required": False,
             "aspect_ratio": aspect,
-            # original keeps the reference for composition; enhancer will re-run.
             "reference_media_id": reference_media_id,
-            "text_only": reference_media_id is None,
         },
         "sexy": {
             "model": "soul_2",
             "soul_id": soul_id,
             "prompt": sexy,
             "aspect_ratio": aspect,
+            "generation_required": True,
             # sexy MUST be text-only or the ref re-enhances and drops the edit.
             "reference_media_id": None,
             "text_only": True,
         },
-        "next": "run both generate_image calls, then virality_select.select_best on the results",
+        "provider_generation_count": 1,
+        "next": "run only the sexy generate_image call, then rank the existing original and sexy result with virality_select.select_best",
     }
 
 
@@ -259,6 +262,8 @@ def _demo() -> None:
     assert "beach" in cleaned.lower(), cleaned  # scene survives
     spec = build_spec(cleaned, soul_id="soul-x", reference_media_id="ref-1")
     assert spec["sexy"]["text_only"] is True
+    assert spec["original"]["generation_required"] is False
+    assert spec["provider_generation_count"] == 1
     assert "cleavage" in spec["sexy"]["prompt"].lower()
     assert spec["original"]["aspect_ratio"] == "3:4"  # selfie
     boat = build_spec(

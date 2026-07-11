@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Literal
 
 try:
+    from .asset_prompt_contract import validate_kling_motion_prompt_text
+except ImportError:  # script mode: package dir itself is on sys.path
+    from asset_prompt_contract import validate_kling_motion_prompt_text
+
+try:
     from .fileops import atomic_write_text
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
@@ -64,7 +69,7 @@ _MOTION_BY_SCENE = {
 _COMMON_SAFETY = (
     "Use the supplied 9:16 start image as the source frame. Preserve the same person, outfit, setting, pose family, "
     "camera angle, and lighting. Keep the full head and face visible. Create a short realistic phone video, 5 seconds, "
-    "with no new text, logos, UI, captions, watermarks, extra people, outfit changes, location changes, jump cuts, "
+    "with no new text, logos, captions, extra people, outfit changes, location changes, jump cuts, "
     "large camera moves, or major pose changes."
 )
 
@@ -101,13 +106,15 @@ def compile_reel_motion_prompt(
             prompt_context = (
                 f" Visual context from the accepted still: {trimmed[:500]}."
             )
+    motion_prompt = f"{_COMMON_SAFETY} {scene_motion}{prompt_context}"
+    validate_kling_motion_prompt_text(motion_prompt)
     return ReelMotionPrompt(
         schema="reel_factory.reel_motion_prompt.v1",
         startImagePath=start_image,
         sceneType=normalized,
         aspectRatio=aspect_ratio,
         durationSeconds=duration_seconds,
-        klingMotionPrompt=f"{_COMMON_SAFETY} {scene_motion}{prompt_context}",
+        klingMotionPrompt=motion_prompt,
     )
 
 

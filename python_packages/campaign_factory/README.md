@@ -151,6 +151,28 @@ performance syncs. `jobs` shows durable synchronous job records with inputs,
 results, errors, attempts, and timestamps so failed work can be inspected later.
 Secrets are redacted before job or event metadata is stored.
 
+## Accepted Soul stills
+
+Every accepted Soul still that enters the active front-generation path gets a
+locked, five-second static MP4 before any optional animation step. The static
+render is local and zero-provider-cost, contains no burned audio, remains
+review-gated, and is retained if Kling is skipped or fails. Repeating the same
+accepted still reuses its registered static asset.
+
+Create only the static fallback, with no paid-provider authorization:
+
+```bash
+campaign-factory animation static-mp4 \
+  --campaign <campaign-slug> \
+  --still /path/to/accepted-still.png \
+  --apply
+```
+
+The unified front path creates that same static fallback automatically when
+`--accepted-still` is supplied. `--animation-mode motion_edit` leaves the run
+zero-cost; `--animation-mode kling` is a separate paid upgrade and still
+requires both `--enable-paid-generation` and `--budget-cap-usd`.
+
 Reference Factory integration is local-first. `import-reference-bank` imports
 the learning system's `campaign_reference_bank.json` plus the Higgsfield prompt
 pack. `prepare-from-reference` selects a winning cluster and writes fresh

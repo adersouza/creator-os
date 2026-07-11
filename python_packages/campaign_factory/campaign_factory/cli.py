@@ -56,6 +56,7 @@ from .reel_ledger_promotion import (
     promote_reel_ledger,
     promotion_reconciliation_report,
 )
+from .static_mp4_stage import run_static_mp4_stage
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -222,6 +223,13 @@ def main() -> int:
     motion_edit.add_argument("--allow-upscale", action="store_true")
     motion_edit.add_argument("--enable-variation", action="store_true")
     motion_edit.add_argument("--variation-preset", default="ig_subtle")
+    static_mp4 = animation_sub.add_parser("static-mp4")
+    static_mp4.add_argument("--campaign", required=True)
+    static_mp4.add_argument("--still", required=True)
+    static_mp4.add_argument("--duration", type=float, default=5.0)
+    static_mp4.add_argument("--dry-run", action="store_true")
+    static_mp4.add_argument("--apply", action="store_true")
+    static_mp4.add_argument("--allow-upscale", action="store_true")
 
     generation = sub.add_parser("generation")
     generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
@@ -2519,6 +2527,18 @@ def main() -> int:
                         apply=args.apply,
                         enable_variation=args.enable_variation,
                         variation_preset=args.variation_preset,
+                        allow_upscale=args.allow_upscale,
+                    )
+                )
+            elif args.animation_cmd == "static-mp4":
+                print_json(
+                    run_static_mp4_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        still_path=Path(args.still),
+                        duration_seconds=args.duration,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
                         allow_upscale=args.allow_upscale,
                     )
                 )

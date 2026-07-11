@@ -18,6 +18,7 @@ from .core import (
 )
 from .cost_tracker import PROVIDER_PRICING
 from .persistence import utc_now
+from .static_mp4_stage import run_static_mp4_stage
 from .variation_stage import run_variation_stage
 
 SCHEMA = "campaign_factory.front_generation_plan.v1"
@@ -97,7 +98,7 @@ def run_front_generation_stage(
     )
     factory.start_pipeline_job(pipeline_job["id"])
     try:
-        if apply and not dry_run:
+        if apply and not dry_run and projected_cost > 0:
             _enforce_paid_generation_guard(
                 enable_paid_generation=enable_paid_generation,
                 budget_cap_usd=budget_cap_usd,
@@ -141,6 +142,8 @@ def run_front_generation_stage(
             "stages": stages,
         }
         validate_front_generation_plan(plan)
+        static_result = _stage_result(stages, "static_mp4")
+        registered_static_asset = static_result.get("registeredAsset")
         registered_asset = None
         variation = None
         if apply and not dry_run and accepted_still_path and animation_mode == "kling":
@@ -177,6 +180,7 @@ def run_front_generation_stage(
             "dryRun": dry_run or not apply,
             "apply": bool(apply and not dry_run),
             "plan": plan,
+            "registeredStaticAsset": registered_static_asset,
             "registeredAsset": registered_asset,
             "variation": variation,
             "promptPath": str(prompt_path),
@@ -288,6 +292,16 @@ def _build_stages(
                 "reason": "Kling or motion-edit waits for an accepted still.",
             }
         )
+        stages.append(
+            {
+                "name": "static_mp4",
+                "status": "blocked",
+                "paid": False,
+                "estimatedCostUsd": 0,
+                "commands": [],
+                "reason": "Static MP4 requires the accepted still path.",
+            }
+        )
         if animation_mode == "motion_edit":
             stages.append(
                 {
@@ -353,6 +367,23 @@ def _build_stages(
             "paid": False,
             "estimatedCostUsd": 0,
             "commands": [],
+        }
+    )
+    static_result = run_static_mp4_stage(
+        factory,
+        campaign_slug=campaign_slug,
+        still_path=accepted_still,
+        dry_run=dry_run,
+        apply=not dry_run,
+    )
+    stages.append(
+        {
+            "name": "static_mp4",
+            "status": "planned" if dry_run else "submitted",
+            "paid": False,
+            "estimatedCostUsd": 0,
+            "commands": [static_result["render"].get("ffmpegCommand") or []],
+            "result": static_result,
         }
     )
     if animation_mode == "motion_edit":

@@ -59,12 +59,17 @@ def test_pick_aspect_selfie_vs_fullbody_vs_reel() -> None:
     assert pick_aspect("a vertical video reel of a beach") == "9:16"
 
 
-def test_spec_sexy_is_text_only_and_original_keeps_ref() -> None:
+def test_spec_reuses_original_and_plans_exactly_one_text_only_sexy_call() -> None:
     spec = build_spec(_ENHANCED, soul_id="soul-1", reference_media_id="ref-9")
     # sexy MUST be text-only or the ref re-enhances and wipes the body edit
     assert spec["sexy"]["text_only"] is True
     assert spec["sexy"]["reference_media_id"] is None
     assert "cleavage" in spec["sexy"]["prompt"].lower()
-    # original keeps the reference for composition
+    assert spec["sexy"]["generation_required"] is True
+    # The reference-pass result is already the original; never pay to rerun it.
+    assert spec["original"]["source"] == "reference_pass_result"
+    assert spec["original"]["generation_required"] is False
     assert spec["original"]["reference_media_id"] == "ref-9"
     assert spec["original"]["aspect_ratio"] == spec["sexy"]["aspect_ratio"]
+    assert spec["provider_generation_count"] == 1
+    assert "run only the sexy" in spec["next"]

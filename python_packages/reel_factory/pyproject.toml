@@ -111,6 +111,7 @@ py-modules = [
   "slideshow_factory",
   "sscd_check",
   "sscd_video",
+  "static_mp4",
   "sqlite_utils",
   "still_to_reel",
   "thumbnail_gen",
