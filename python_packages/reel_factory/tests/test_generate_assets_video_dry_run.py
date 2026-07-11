@@ -85,6 +85,7 @@ def test_source_lineage_includes_aligned_winner_dna_features(tmp_path: Path) -> 
         commands=[],
     )
 
+    assert lineage["schema"] == "reel_factory.generated_asset_lineage.v2"
     assert lineage["features"]["creator"] == "stacey"
     assert lineage["features"]["scene"] == "bathroom_mirror"
     assert lineage["features"]["camera"] == "mirror_selfie"

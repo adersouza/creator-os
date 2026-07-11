@@ -1001,7 +1001,7 @@ def ensure_source_asset_lineage(
     if path.exists():
         return path
     payload = {
-        "schema": "campaign_factory.generated_asset_lineage.v2",
+        "schema": "reel_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
         "source": {
             "stem": src.stem,

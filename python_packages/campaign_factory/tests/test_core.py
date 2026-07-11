@@ -3942,7 +3942,7 @@ def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
         "commands": [["higgsfield", "generate", "create", "kling3_0"]],
         "path": str(video_path.with_suffix(".generated_asset_lineage.json")),
         "lineage": {
-            "schema": "campaign_factory.generated_asset_lineage.v2",
+            "schema": "reel_factory.generated_asset_lineage.v2",
             "generation": {
                 "workflow": "kling3_0_video_from_selected_panel",
                 "models": {"video": "kling3_0"},

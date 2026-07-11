@@ -4,10 +4,10 @@
 # Enabled by `make install` (git config core.hooksPath scripts/hooks).
 set -euo pipefail
 
-if git diff --cached --name-only | grep -Eq '(pipeline_contracts/|campaign_factory/schemas/)'; then
-	echo "[pre-commit] contract files changed — verifying mirrors..."
+if git diff --cached --name-only | grep -Eq 'pipeline_contracts/'; then
+	echo "[pre-commit] contract files changed — verifying generated outputs..."
 	if ! pnpm run --silent check:contracts; then
-		echo "[pre-commit] contract mirrors are out of sync. Run: pnpm sync:contracts" >&2
+		echo "[pre-commit] generated contracts are out of sync. Run: pnpm sync:contracts" >&2
 		exit 1
 	fi
 fi

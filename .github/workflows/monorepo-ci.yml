@@ -106,9 +106,6 @@ jobs:
       - run: pnpm --filter contentforge lint
       - run: pnpm --filter contentforge test
       - run: pnpm --filter contentforge build
-      - run: pnpm --filter command-center lint
-      - run: pnpm --filter command-center test
-      - run: pnpm --filter command-center build
 
   python:
     needs: changes

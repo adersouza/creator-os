@@ -2286,7 +2286,7 @@ def build_source_lineage(
     if creator:
         features["creator"] = creator
     return {
-        "schema": "campaign_factory.generated_asset_lineage.v2",
+        "schema": "reel_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
         "source": {
             "stem": plan.stem,

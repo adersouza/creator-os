@@ -2623,7 +2623,7 @@ def asset_download_video_api(body: dict = Body(...)):
         else None
     )
     lineage = {
-        "schema": "campaign_factory.generated_asset_lineage.v2",
+        "schema": "reel_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
         "source": {
             "stem": stem,
