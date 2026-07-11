@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from sqlite3 import Connection
@@ -14,6 +16,9 @@ from .caption_archetypes import caption_archetype
 from .db import json_dump, json_load
 from .identity import stable_id
 from .timeutil import now_iso
+
+DEFAULT_REFERENCE_ACCOUNT_CAP = 60
+DEFAULT_CAPTION_SHARE = 0.5
 
 
 def import_apify_metrics(
@@ -41,10 +46,11 @@ def import_apify_metrics(
             INSERT INTO public_posts (
               id, owner_username, short_code, url, timestamp, product_type, post_type,
               caption, video_view_count, video_play_count, likes_count, comments_count,
-              owner_follower_count, public_rate_score, display_url, video_url, match_type,
+              owner_follower_count, public_rate_score, public_follower_engagement_rate,
+              display_url, video_url, match_type,
               reference_id, local_path, raw_json, imported_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(short_code) DO UPDATE SET
               owner_username = excluded.owner_username,
               url = excluded.url,
@@ -58,6 +64,7 @@ def import_apify_metrics(
               comments_count = excluded.comments_count,
               owner_follower_count = excluded.owner_follower_count,
               public_rate_score = excluded.public_rate_score,
+              public_follower_engagement_rate = excluded.public_follower_engagement_rate,
               display_url = excluded.display_url,
               video_url = excluded.video_url,
               match_type = excluded.match_type,
@@ -81,6 +88,7 @@ def import_apify_metrics(
                 _int_or_none(post.get("commentsCount")),
                 _follower_count(post),
                 _public_rate_score(post),
+                _public_follower_engagement_rate(post),
                 post.get("displayUrl"),
                 post.get("videoUrl"),
                 match_type,
@@ -107,7 +115,14 @@ def import_apify_metrics(
     }
 
 
-def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
+def top_public_posts(
+    conn: Connection,
+    limit: int = 300,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> dict[str, object]:
     rows = conn.execute(
         """
         WITH prompt_outcomes AS (
@@ -121,6 +136,8 @@ def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
           GROUP BY reference_id
         )
         SELECT public_posts.*,
+               (SELECT COUNT(*) FROM caption_patterns cp
+                WHERE cp.reference_id = public_posts.reference_id) AS caption_pattern_count,
                prompt_outcomes.measured_outcome_score,
                prompt_outcomes.measured_outcome_confidence,
                prompt_outcomes.measured_outcome_sample_count,
@@ -130,11 +147,19 @@ def top_public_posts(conn: Connection, limit: int = 300) -> dict[str, object]:
         WHERE video_play_count IS NOT NULL OR video_view_count IS NOT NULL
         """,
     ).fetchall()
-    rows = sorted(rows, key=_public_post_sort_key, reverse=True)[:limit]
+    ranked = sorted(rows, key=_public_post_sort_key, reverse=True)
+    selected, selection = _balanced_public_rows(
+        ranked,
+        limit=max(0, int(limit)),
+        account_cap=_reference_account_cap(account_cap),
+        caption_share=_reference_caption_share(caption_share),
+        strict_balance=strict_balance,
+    )
     return {
         "schema": "reference_factory.top_public_posts.v1",
         "limit": limit,
-        "items": [_public_post_row(row, idx) for idx, row in enumerate(rows, 1)],
+        "selection": selection,
+        "items": [_public_post_row(row, idx) for idx, row in enumerate(selected, 1)],
     }
 
 
@@ -368,7 +393,9 @@ def _public_post_row(row, rank: int) -> dict[str, object]:
         "commentsCount": row["comments_count"],
         "ownerFollowerCount": row["owner_follower_count"],
         "publicRateScore": row["public_rate_score"],
+        "publicFollowerEngagementRate": row["public_follower_engagement_rate"],
         "publicEngagementRecencyScore": _public_engagement_recency_score(row),
+        "referenceSignalType": _reference_signal_bucket(row),
         "displayUrl": row["display_url"],
         "videoUrl": row["video_url"],
         "matchType": row["match_type"],
@@ -408,7 +435,13 @@ def _compact_raw_json(raw_json: dict[str, Any]) -> dict[str, object]:
 
 
 def _follower_count(post: dict[str, Any]) -> int | None:
-    for key in ("ownerFollowersCount", "followersCount", "followerCount"):
+    for key in (
+        "ownerFollowersCount",
+        "followersCount",
+        "followerCount",
+        "owner_follower_count",
+        "followers",
+    ):
         value = _int_or_none(post.get(key))
         if value:
             return value
@@ -435,16 +468,121 @@ def _public_rate_score(post: dict[str, Any]) -> float | None:
     return round(exposure / followers, 6)
 
 
-def _public_post_sort_key(row) -> tuple[float, float, float, float, int, int, int]:
+def _public_follower_engagement_rate(post: dict[str, Any]) -> float | None:
+    followers = _follower_count(post)
+    if not followers:
+        return None
+    engagements = (_int_or_none(post.get("likesCount")) or 0) + (
+        _int_or_none(post.get("commentsCount")) or 0
+    )
+    return round(engagements / followers, 8)
+
+
+def _public_post_sort_key(
+    row,
+) -> tuple[float, float, float, float, float, float, float, int, int, int]:
+    follower_engagement = row["public_follower_engagement_rate"]
     return (
         1.0 if row["measured_outcome_score"] is not None else 0.0,
         float(row["measured_outcome_score"] or 0),
         float(row["measured_outcome_confidence"] or 0),
+        1.0 if follower_engagement is not None else 0.0,
+        _follower_engagement_recency_score(row),
+        float(row["public_rate_score"] or 0),
         _public_engagement_recency_score(row),
         int(row["video_play_count"] or row["video_view_count"] or 0),
         int(row["video_view_count"] or 0),
         int(row["likes_count"] or 0),
     )
+
+
+def _follower_engagement_recency_score(row) -> float:
+    rate = row["public_follower_engagement_rate"]
+    if rate is None:
+        return 0.0
+    return round(float(rate) * _recency_weight(row["timestamp"]), 8)
+
+
+def _reference_account_cap(value: int | None) -> int:
+    if value is None:
+        value = _int_or_none(os.environ.get("REFERENCE_BANK_ACCOUNT_CAP"))
+    return max(1, int(value or DEFAULT_REFERENCE_ACCOUNT_CAP))
+
+
+def _reference_caption_share(value: float | None) -> float:
+    if value is None:
+        try:
+            value = float(os.environ.get("REFERENCE_BANK_CAPTION_SHARE", ""))
+        except ValueError:
+            value = None
+    if value is None:
+        value = DEFAULT_CAPTION_SHARE
+    return min(1.0, max(0.0, float(value)))
+
+
+def _reference_signal_bucket(row: Any) -> str:
+    return (
+        "caption_driven"
+        if int(row["caption_pattern_count"] or 0) > 0
+        else "visual_driven"
+    )
+
+
+def _balanced_public_rows(
+    rows: list[Any],
+    *,
+    limit: int,
+    account_cap: int,
+    caption_share: float,
+    strict_balance: bool = False,
+) -> tuple[list[Any], dict[str, Any]]:
+    caption_goal = round(limit * caption_share)
+    visual_goal = max(0, limit - caption_goal)
+    selected: list[Any] = []
+    selected_ids: set[str] = set()
+    account_counts: Counter[str] = Counter()
+    skipped_due_account_cap = 0
+
+    def add(candidates: list[Any], goal: int | None) -> None:
+        nonlocal skipped_due_account_cap
+        added = 0
+        for row in candidates:
+            if len(selected) >= limit or (goal is not None and added >= goal):
+                return
+            row_id = str(row["id"])
+            if row_id in selected_ids:
+                continue
+            account = str(row["owner_username"] or "_unknown")
+            if account_counts[account] >= account_cap:
+                skipped_due_account_cap += 1
+                continue
+            selected.append(row)
+            selected_ids.add(row_id)
+            account_counts[account] += 1
+            added += 1
+
+    add(
+        [row for row in rows if _reference_signal_bucket(row) == "caption_driven"],
+        caption_goal,
+    )
+    add(
+        [row for row in rows if _reference_signal_bucket(row) == "visual_driven"],
+        visual_goal,
+    )
+    if not strict_balance:
+        add(rows, None)
+    counts = Counter(_reference_signal_bucket(row) for row in selected)
+    return selected, {
+        "accountCap": account_cap,
+        "captionShareTarget": caption_share,
+        "strictBalance": strict_balance,
+        "captionDrivenGoal": caption_goal,
+        "visualDrivenGoal": visual_goal,
+        "captionDrivenSelected": counts["caption_driven"],
+        "visualDrivenSelected": counts["visual_driven"],
+        "skippedDueAccountCap": skipped_due_account_cap,
+        "accountCounts": dict(sorted(account_counts.items())),
+    }
 
 
 def _public_engagement_recency_score(row) -> float:

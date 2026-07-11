@@ -194,6 +194,9 @@ def build_parser() -> argparse.ArgumentParser:
         "top-public-posts", help="Print top public posts by plays/views"
     )
     top_posts.add_argument("--limit", type=int, default=300)
+    top_posts.add_argument("--account-cap", type=int, default=None)
+    top_posts.add_argument("--caption-share", type=float, default=None)
+    top_posts.add_argument("--strict-balance", action="store_true")
 
     prompts = sub.add_parser(
         "generate-prompt-cards",
@@ -221,6 +224,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider", default="auto", choices=["auto", "heuristic", "ollama"]
     )
     patterns.add_argument("--ollama-model", default=None)
+    patterns.add_argument("--account-cap", type=int, default=None)
+    patterns.add_argument("--caption-share", type=float, default=None)
+    patterns.add_argument("--strict-balance", action="store_true")
 
     outcome_import = sub.add_parser(
         "import-prompt-outcomes",
@@ -421,6 +427,9 @@ def build_parser() -> argparse.ArgumentParser:
         "export-patterns", help="Export pattern cards for learning/prompt use"
     )
     export_patterns_parser.add_argument("--limit", type=int, default=300)
+    export_patterns_parser.add_argument("--account-cap", type=int, default=None)
+    export_patterns_parser.add_argument("--caption-share", type=float, default=None)
+    export_patterns_parser.add_argument("--strict-balance", action="store_true")
     export_patterns_parser.add_argument(
         "--for-campaign-factory",
         action="store_true",
@@ -447,6 +456,9 @@ def build_parser() -> argparse.ArgumentParser:
     learning_system.add_argument(
         "--embedding-threshold", type=float, default=DEFAULT_EMBEDDING_THRESHOLD
     )
+    learning_system.add_argument("--account-cap", type=int, default=None)
+    learning_system.add_argument("--caption-share", type=float, default=None)
+    learning_system.add_argument("--strict-balance", action="store_true")
 
     learning_summary_parser = sub.add_parser(
         "learning-summary",
@@ -783,7 +795,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "top-public-posts":
-            print_json(top_public_posts(conn, args.limit))
+            print_json(
+                top_public_posts(
+                    conn,
+                    args.limit,
+                    account_cap=args.account_cap,
+                    caption_share=args.caption_share,
+                    strict_balance=args.strict_balance,
+                )
+            )
         elif args.command == "generate-prompt-cards":
             print_json(generate_prompt_cards(conn, args.limit, data_root / "apify"))
         elif args.command == "export-learning-set":
@@ -800,6 +820,9 @@ def main(argv: list[str] | None = None) -> int:
                     provider=args.provider,
                     ollama_model=args.ollama_model,
                     output_dir=data_root / "learning",
+                    account_cap=args.account_cap,
+                    caption_share=args.caption_share,
+                    strict_balance=args.strict_balance,
                 )
             )
         elif args.command == "import-prompt-outcomes":
@@ -1010,7 +1033,16 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
             else:
-                print_json(export_patterns(conn, args.limit, data_root / "learning"))
+                print_json(
+                    export_patterns(
+                        conn,
+                        args.limit,
+                        data_root / "learning",
+                        account_cap=args.account_cap,
+                        caption_share=args.caption_share,
+                        strict_balance=args.strict_balance,
+                    )
+                )
         elif args.command == "apply-pattern-labels":
             print_json(apply_pattern_labels(conn, args.limit, overwrite=args.overwrite))
         elif args.command == "build-learning-system":
@@ -1023,6 +1055,9 @@ def main(argv: list[str] | None = None) -> int:
                     embedding_clusters=args.embedding_clusters,
                     embedding_model=args.embedding_model,
                     embedding_threshold=args.embedding_threshold,
+                    account_cap=args.account_cap,
+                    caption_share=args.caption_share,
+                    strict_balance=args.strict_balance,
                 )
             )
         elif args.command == "learning-summary":

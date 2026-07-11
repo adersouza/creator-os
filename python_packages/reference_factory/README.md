@@ -57,6 +57,15 @@ python3 -m reference_factory.cli export-patterns --limit 300
 python3 -m reference_factory.cli build-learning-system --limit 300
 ```
 
+The rebuild selector defaults to a 50/50 caption-driven versus visual-driven
+mix and caps each source account at 60 references. Override deterministically
+with `--caption-share` and `--account-cap`, or set
+`REFERENCE_BANK_CAPTION_SHARE` and `REFERENCE_BANK_ACCOUNT_CAP`. When follower
+counts are present, ranking uses `(likes + comments) / followers` before raw
+reach; missing follower counts fall back to engagement-per-view and raw volume.
+Use `--strict-balance` for a rebuild that leaves scarce bucket capacity empty
+instead of padding the bank with the dominant signal type.
+
 ## Gemini App/Chrome Prompt Test
 
 ```bash

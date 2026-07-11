@@ -1,0 +1,46 @@
+{
+  "schema": "reference_factory.pattern_summary.v1",
+  "summary": {
+    "avgQualityScore": 98.95,
+    "captionArchetypes": {
+      "hashtag_context": 12,
+      "minimal_bait": 18,
+      "question_hook": 60,
+      "short_meme_caption": 68
+    },
+    "count": 158,
+    "hookTypes": {
+      "curiosity_gap": 98,
+      "direct_response": 60
+    },
+    "referenceSignalTypes": {
+      "caption_driven": 137,
+      "visual_driven": 21
+    },
+    "suggestedLabels": {
+      "gold": 158
+    },
+    "tags": {
+      "caption_style": 158,
+      "fit_check": 2,
+      "hook_good": 112,
+      "slideshow": 76,
+      "visual_style": 77
+    },
+    "topAccounts": {
+      "BabyyMimiii_": 56,
+      "amandastarry": 2,
+      "cakedlucien": 10,
+      "evonica.black": 8,
+      "itsnadorlily": 15,
+      "lunarose.vibes_": 56,
+      "maxiabanks": 10,
+      "nayabarbiee": 1
+    },
+    "visualFormats": {
+      "caption_led_visual": 81,
+      "fit_check": 1,
+      "tiktok_slideshow": 76
+    }
+  }
+}

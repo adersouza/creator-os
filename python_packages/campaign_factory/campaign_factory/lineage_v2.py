@@ -186,6 +186,40 @@ def lineage_v2_is_valid(
     return True
 
 
+def lineage_v2_is_learning_traceable(
+    value: Any,
+    *,
+    campaign_id: Any = None,
+    recipe_id: Any = None,
+    caption_hash: Any = None,
+    rendered_asset_id: Any = None,
+    variant_id: Any = None,
+) -> bool:
+    """Require the stable v2 identities used by the forward learning cohort.
+
+    ``renderedAssetId`` is the reel identity for this cohort. The published v2
+    contract permits a null referenceId, so learning applies the stricter
+    forward-only policy without changing the shared contract in place.
+    """
+    if not lineage_v2_is_valid(
+        value,
+        campaign_id=campaign_id,
+        recipe_id=recipe_id,
+        caption_hash=caption_hash,
+        rendered_asset_id=rendered_asset_id,
+        variant_id=variant_id,
+    ):
+        return False
+    source = value.get("source") if isinstance(value, dict) else None
+    return bool(
+        isinstance(source, dict)
+        and _optional_text(source.get("promptId"))
+        and _optional_text(source.get("referenceId"))
+        and _optional_text(value.get("campaignId"))
+        and _optional_text(value.get("renderedAssetId"))
+    )
+
+
 def _required_text(value: Any, field: str) -> str:
     text = _optional_text(value)
     if not text:

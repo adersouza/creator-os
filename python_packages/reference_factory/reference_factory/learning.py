@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -28,15 +27,12 @@ from .patterns import (
     apply_vision_pattern_overrides,
     prompt_briefs_from_winner_dna,
 )
+from .public_metrics import _reference_account_cap, _reference_caption_share
+from .ranking import item_taste_weight as _taste_weight
+from .ranking import review_label_weight as _review_label_weight
 from .timeutil import now_iso
 
 LEARNING_VERSION = "reference_factory.learning_system.v1"
-DEFAULT_LABEL_WEIGHTS = {
-    "gold": 1.5,
-    "maybe": 0.9,
-    "ignore": 0.3,
-    "unlabeled": 1.0,
-}
 
 
 def build_learning_system(
@@ -47,12 +43,29 @@ def build_learning_system(
     embedding_clusters: bool = True,
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     embedding_threshold: float = DEFAULT_EMBEDDING_THRESHOLD,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
 ) -> dict[str, object]:
     output_dir = output_dir or Path("learning")
     output_dir.mkdir(parents=True, exist_ok=True)
     if refresh_patterns or _pattern_count(conn) < min(limit, 1):
-        analyze_patterns(conn, limit=limit, provider="auto", output_dir=output_dir)
-    cards = _pattern_cards(conn, limit)
+        analyze_patterns(
+            conn,
+            limit=limit,
+            provider="auto",
+            output_dir=output_dir,
+            account_cap=account_cap,
+            caption_share=caption_share,
+            strict_balance=strict_balance,
+        )
+    cards = _pattern_cards(
+        conn,
+        limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     embedding_report = (
         build_embedding_clusters(
             conn,
@@ -127,6 +140,9 @@ def build_learning_system(
         "schema": "reference_factory.build_learning_system.v1",
         "runId": run_id,
         "limit": limit,
+        "accountCap": account_cap,
+        "captionShare": caption_share,
+        "strictBalance": strict_balance,
         "references": len(cards),
         "clusters": len(clusters),
         "summary": summary,
@@ -157,7 +173,14 @@ def _pattern_count(conn: Connection) -> int:
     return int(conn.execute("SELECT COUNT(*) FROM reference_patterns").fetchone()[0])
 
 
-def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
+def _pattern_cards(
+    conn: Connection,
+    limit: int,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
@@ -194,9 +217,7 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
           LIMIT 1
         )
         ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
-        LIMIT ?
         """,
-        (limit,),
     ).fetchall()
     cards = []
     for row in rows:
@@ -233,6 +254,12 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "publicRateScore": (pattern.get("metrics") or {}).get(
                     "publicRateScore"
                 ),
+                "publicFollowerEngagementRate": (pattern.get("metrics") or {}).get(
+                    "publicFollowerEngagementRate"
+                ),
+                "referenceSignalType": (pattern.get("metrics") or {}).get(
+                    "referenceSignalType"
+                ),
                 "qualityScore": float(row["quality_score"] or 0),
                 "suggestedLabel": row["suggested_label"],
                 "reviewLabel": row["review_label"],
@@ -247,17 +274,81 @@ def _pattern_cards(conn: Connection, limit: int) -> list[dict[str, Any]]:
                 "audioSignal": extract_audio_signal(raw_json, row["product_type"]),
             }
         )
-    return cards
+    cards.sort(
+        key=lambda item: (
+            -_taste_weight(item),
+            -_item_outcome_signal(item),
+            int(item.get("rank") or 999999),
+            -float(item.get("qualityScore") or 0.0),
+        )
+    )
+    cards = [card for card in cards if _taste_weight(card) > 0.0]
+    return _balanced_learning_cards(
+        cards,
+        limit=limit,
+        account_cap=_reference_account_cap(account_cap),
+        caption_share=_reference_caption_share(caption_share),
+        strict_balance=strict_balance,
+    )
+
+
+def _balanced_learning_cards(
+    cards: list[dict[str, Any]],
+    *,
+    limit: int,
+    account_cap: int,
+    caption_share: float,
+    strict_balance: bool,
+) -> list[dict[str, Any]]:
+    if strict_balance:
+        cards = [
+            card
+            for card in cards
+            if card.get("referenceSignalType") in {"caption_driven", "visual_driven"}
+        ]
+    caption_goal = round(limit * caption_share)
+    visual_goal = max(0, limit - caption_goal)
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[str] = set()
+    account_counts: Counter[str] = Counter()
+
+    def bucket(card: dict[str, Any]) -> str:
+        explicit = str(card.get("referenceSignalType") or "").strip()
+        if explicit in {"caption_driven", "visual_driven"}:
+            return explicit
+        return (
+            "visual_driven"
+            if card.get("captionArchetype") == "captionless_visual"
+            else "caption_driven"
+        )
+
+    def add(candidates: list[dict[str, Any]], goal: int | None) -> None:
+        added = 0
+        for card in candidates:
+            if len(selected) >= limit or (goal is not None and added >= goal):
+                return
+            card_id = str(card.get("referenceId") or card.get("id") or "")
+            account = str(card.get("account") or "_unknown")
+            if not card_id or card_id in selected_ids:
+                continue
+            if account_counts[account] >= account_cap:
+                continue
+            selected.append(card)
+            selected_ids.add(card_id)
+            account_counts[account] += 1
+            added += 1
+
+    add([card for card in cards if bucket(card) == "caption_driven"], caption_goal)
+    add([card for card in cards if bucket(card) == "visual_driven"], visual_goal)
+    if not strict_balance:
+        add(cards, None)
+    return selected
 
 
 def _cluster_cards(
     cards: list[dict[str, Any]], embedding_report: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
-    cards = [
-        card
-        for card in cards
-        if str(card.get("reviewLabel") or "").strip().lower() != "ignore"
-    ]
+    cards = [card for card in cards if _taste_weight(card) > 0.0]
     assignments = (
         embedding_report.get("assignments")
         if isinstance(embedding_report, dict)
@@ -278,7 +369,13 @@ def _cluster_cards(
     for key, items in grouped.items():
         clusters.append(_cluster_from_items(key, items, embedding_meta.get(key)))
     clusters.sort(
-        key=lambda item: (-item["clusterScore"], -item["itemCount"], item["label"])
+        key=lambda item: (
+            -item["labelAuthorityWeight"],
+            -item["outcomeSignalScore"],
+            -item["clusterScore"],
+            -item["itemCount"],
+            item["label"],
+        )
     )
     for idx, cluster in enumerate(clusters, 1):
         cluster["rank"] = idx
@@ -301,6 +398,8 @@ def _cluster_from_items(
     ranked = sorted(
         items,
         key=lambda item: (
+            -_taste_weight(item),
+            -_item_outcome_signal(item),
             int(item.get("rank") or 999999),
             -float(item.get("qualityScore") or 0),
         ),
@@ -336,6 +435,10 @@ def _cluster_from_items(
             (item.get("measuredOutcome") or {}).get("rewardScore"), (int, float)
         )
     ]
+    label_authority_weight = max(_taste_weight(item) for item in items)
+    outcome_signal_score = (
+        sum(measured_scores) / len(measured_scores) if measured_scores else 0.0
+    )
     cluster_score = _cluster_score(items, plays, quality, accounts, measured_scores)
     label = _cluster_label(visual, hook, caption)
     top_dna = top.get("winnerDna") if isinstance(top.get("winnerDna"), dict) else {}
@@ -351,6 +454,8 @@ def _cluster_from_items(
         "captionArchetype": caption,
         "itemCount": len(items),
         "avgQualityScore": round(sum(quality) / max(1, len(quality)), 2),
+        "labelAuthorityWeight": round(label_authority_weight, 4),
+        "outcomeSignalScore": round(outcome_signal_score, 4),
         "clusterScore": cluster_score,
         "totalPlays": sum(plays),
         "medianPlays": int(statistics.median(plays)) if plays else 0,
@@ -396,9 +501,8 @@ def _cluster_from_items(
             "labels": dict(
                 Counter(str(item.get("reviewLabel") or "unlabeled") for item in items)
             ),
-            "effectiveItemWeight": round(
-                sum(float(item.get("tasteWeight") or 1.0) for item in items), 4
-            ),
+            "effectiveItemWeight": round(sum(_taste_weight(item) for item in items), 4),
+            "labelAuthorityWeight": round(label_authority_weight, 4),
         },
         "promptTemplate": prompt_template,
         "higgsfieldJsonTemplate": _higgsfield_json_template(
@@ -461,6 +565,15 @@ def _performance_rank(performance_class: str) -> int:
         "underperformed": 1,
         "unproven": 0,
     }.get(performance_class, 0)
+
+
+def _item_outcome_signal(item: dict[str, Any]) -> float:
+    measured = item.get("measuredOutcome")
+    if isinstance(measured, dict) and isinstance(
+        measured.get("rewardScore"), (int, float)
+    ):
+        return float(measured["rewardScore"])
+    return float(_performance_rank(str(item.get("performanceClass") or "unproven")))
 
 
 def _winner_signals(
@@ -537,7 +650,7 @@ def _cluster_score(
     accounts: list[str],
     measured_scores: list[float] | None = None,
 ) -> float:
-    weights = [max(0.0, float(item.get("tasteWeight") or 1.0)) for item in items]
+    weights = [_taste_weight(item) for item in items]
     weight_total = max(0.000001, sum(weights))
     avg_quality = (
         sum(value * weight for value, weight in zip(quality, weights, strict=True))
@@ -554,7 +667,7 @@ def _cluster_score(
         measured_pairs = [
             (
                 float((item.get("measuredOutcome") or {}).get("rewardScore")),
-                max(0.0, float(item.get("tasteWeight") or 1.0)),
+                _taste_weight(item),
             )
             for item in items
             if isinstance(item.get("measuredOutcome"), dict)
@@ -576,21 +689,6 @@ def _cluster_score(
         + outcome_score,
         2,
     )
-
-
-def _review_label_weight(label: Any) -> float:
-    normalized = str(label or "unlabeled").strip().lower()
-    defaults = DEFAULT_LABEL_WEIGHTS
-    env_name = {
-        "gold": "REFERENCE_LABEL_WEIGHT_GOLD",
-        "maybe": "REFERENCE_LABEL_WEIGHT_MAYBE",
-        "ignore": "REFERENCE_LABEL_WEIGHT_IGNORE",
-        "unlabeled": "REFERENCE_LABEL_WEIGHT_UNLABELED",
-    }.get(normalized, "REFERENCE_LABEL_WEIGHT_UNLABELED")
-    try:
-        return max(0.0, float(os.environ.get(env_name, defaults.get(normalized, 1.0))))
-    except ValueError:
-        return defaults.get(normalized, 1.0)
 
 
 def _cluster_label(visual: str, hook: str, caption: str) -> str:
@@ -873,6 +971,11 @@ def _learning_summary(
         ),
         "visualFormats": dict(
             Counter(card.get("visualFormat") for card in cards).most_common()
+        ),
+        "referenceSignalTypes": dict(
+            Counter(
+                card.get("referenceSignalType") or "unknown" for card in cards
+            ).most_common()
         ),
         "topAccounts": dict(
             Counter(card.get("account") for card in cards).most_common(20)

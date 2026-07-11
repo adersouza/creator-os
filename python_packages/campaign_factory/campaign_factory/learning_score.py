@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from datetime import UTC, datetime
@@ -89,8 +90,39 @@ def learning_ineligibility_reasons(
     elif published_at is not None and published_at < cutover:
         reasons.append("pre_cutover")
     if _flag_int(_snapshot_value(snapshot, "lineage_v2_valid", "lineageV2Valid")) != 1:
-        reasons.append("manual_or_invalid_lineage_v2")
+        lineage_blockers = _lineage_blocking_reasons(snapshot)
+        if lineage_blockers:
+            reasons.extend(f"lineage_{reason}" for reason in lineage_blockers)
+        else:
+            reasons.append("manual_or_invalid_lineage_v2")
     return reasons
+
+
+def _lineage_blocking_reasons(snapshot: dict[str, Any]) -> list[str]:
+    direct = _snapshot_value(
+        snapshot,
+        "learning_lineage_blocking_reasons",
+        "learningLineageBlockingReasons",
+    )
+    if isinstance(direct, list):
+        return sorted({str(value) for value in direct if str(value).strip()})
+    raw = snapshot.get("raw_json", snapshot.get("rawJson"))
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    metadata = payload.get("metadata") if isinstance(payload, dict) else None
+    meta = metadata.get("campaign_factory") if isinstance(metadata, dict) else None
+    values = (
+        meta.get("learning_lineage_blocking_reasons")
+        if isinstance(meta, dict)
+        else None
+    )
+    if not isinstance(values, list):
+        return []
+    return sorted({str(value) for value in values if str(value).strip()})
 
 
 def _snapshot_value(snapshot: dict[str, Any], snake: str, camel: str) -> Any:

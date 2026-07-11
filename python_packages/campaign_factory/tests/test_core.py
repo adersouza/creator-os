@@ -748,6 +748,83 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
         cf.close()
 
 
+def test_reference_bank_import_expands_portable_local_paths(
+    tmp_path: Path, monkeypatch
+):
+    reference_root = tmp_path / "reference_reels"
+    reference_root.mkdir()
+    reference_file = reference_root / "portable.mp4"
+    reference_file.write_bytes(b"reference")
+    monkeypatch.setenv("REFERENCE_REELS_ROOT", str(reference_root))
+    bank_path = tmp_path / "portable-bank.json"
+    bank_path.write_text(
+        json.dumps(
+            {
+                "schema": "reference_factory.campaign_reference_bank.v1",
+                "clusters": [
+                    {
+                        "clusterKey": "portable_cluster",
+                        "label": "Portable cluster",
+                        "localPaths": ["${REFERENCE_REELS_ROOT}/portable.mp4"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cf = make_factory(tmp_path)
+    try:
+        result = cf.import_reference_bank(bank_path, require_local_paths=True)
+        assert result["missingLocalPaths"] == []
+        pattern = cf.reference_patterns()["patterns"][0]
+        assert pattern["localPaths"] == [str(reference_file)]
+    finally:
+        cf.close()
+
+
+def test_reference_bank_import_can_replace_campaign_links(tmp_path: Path):
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(
+        json.dumps(
+            {"clusters": [{"clusterKey": "old", "label": "Old", "localPaths": []}]}
+        ),
+        encoding="utf-8",
+    )
+    second_path.write_text(
+        json.dumps(
+            {"clusters": [{"clusterKey": "new", "label": "New", "localPaths": []}]}
+        ),
+        encoding="utf-8",
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "video.mp4").write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_folder(source, campaign_slug="may", model_slug="model")
+        cf.import_reference_bank(first_path, campaign_slug="may")
+        preview = cf.import_reference_bank(
+            second_path,
+            campaign_slug="may",
+            dry_run=True,
+            replace_campaign_links=True,
+        )
+        assert preview["campaignLinksCreated"] == 1
+        assert preview["campaignLinksRemoved"] == 1
+        applied = cf.import_reference_bank(
+            second_path, campaign_slug="may", replace_campaign_links=True
+        )
+        assert applied["campaignLinksRemoved"] == 1
+        linked_pattern = cf.conn.execute(
+            """SELECT rp.cluster_key FROM campaign_reference_plans crp
+            JOIN reference_patterns rp ON rp.id = crp.reference_pattern_id"""
+        ).fetchone()["cluster_key"]
+        assert linked_pattern == "new"
+    finally:
+        cf.close()
+
+
 def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -16846,6 +16923,65 @@ def test_metric_history_read_batches_the_captured_1000_post_request_shape():
     assert len(captured_filters) == 200
     assert all(len(post_filter) < 250 for post_filter in captured_filters)
     assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
+
+
+def test_learning_lineage_repairs_missing_reference_from_canonical_local_asset(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        meta = threadsdash_campaign_factory_metadata(source)
+        del meta["generated_asset_lineage"]["source"]["referenceId"]
+        row = {
+            "id": "post_repair_1",
+            "metadata": {"campaign_factory": meta},
+        }
+
+        repaired_row, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf, row=row, meta=meta
+            )
+        )
+
+        assert report == {
+            "repairedFields": ["source.referenceId"],
+            "blockingReasons": [],
+        }
+        assert (
+            repaired_meta["generated_asset_lineage"]["source"]["referenceId"]
+            == "reference_test_001"
+        )
+        assert (
+            repaired_row["metadata"]["campaign_factory"]["generated_asset_lineage"][
+                "source"
+            ]["referenceId"]
+            == "reference_test_001"
+        )
+    finally:
+        cf.close()
+
+
+def test_learning_lineage_refuses_conflicting_reference_identity(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        meta = threadsdash_campaign_factory_metadata(source)
+        meta["generated_asset_lineage"]["source"]["referenceId"] = "wrong_reference"
+
+        _, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf, row={"id": "post_conflict", "metadata": {}}, meta=meta
+            )
+        )
+
+        assert report["repairedFields"] == []
+        assert report["blockingReasons"] == ["referenceId_conflict"]
+        assert repaired_meta["learning_lineage_blocking_reasons"] == [
+            "referenceId_conflict"
+        ]
+    finally:
+        cf.close()
 
 
 def _slice_rows(rows, params):

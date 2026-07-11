@@ -17,7 +17,12 @@ from .audio import extract_audio_signal
 from .caption_archetypes import caption_archetype as classify_caption_archetype
 from .db import json_dump, json_load
 from .identity import stable_id, text_hash
-from .public_metrics import top_public_posts
+from .public_metrics import (
+    _reference_account_cap,
+    _reference_caption_share,
+    top_public_posts,
+)
+from .ranking import review_label_weight
 from .timeutil import now_iso
 
 ANALYZER_VERSION = "reference_factory.patterns.v1"
@@ -56,9 +61,18 @@ def analyze_patterns(
     provider: str = "auto",
     ollama_model: str | None = None,
     output_dir: Path | None = None,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
 ) -> dict[str, object]:
     provider_used = _resolve_provider(provider)
-    items = _pattern_source_rows(conn, limit)
+    items = _pattern_source_rows(
+        conn,
+        limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     timestamp = now_iso()
     patterns: list[dict[str, Any]] = []
     llm_attempted = False
@@ -121,11 +135,23 @@ def analyze_patterns(
         )
         patterns.append(pattern)
     conn.commit()
-    summary = pattern_summary(conn, limit=limit)
+    summary = pattern_summary(
+        conn,
+        limit=limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     paths: dict[str, str] = {}
     if output_dir:
         paths = export_patterns(
-            conn, limit=limit, output_dir=output_dir, include_items=False
+            conn,
+            limit=limit,
+            output_dir=output_dir,
+            include_items=False,
+            account_cap=account_cap,
+            caption_share=caption_share,
+            strict_balance=strict_balance,
         )
     return {
         "schema": "reference_factory.analyze_patterns.v1",
@@ -135,6 +161,9 @@ def analyze_patterns(
         "providerUsed": provider_used,
         "ollamaAttempted": llm_attempted,
         "ollamaUsed": llm_used,
+        "accountCap": account_cap,
+        "captionShare": caption_share,
+        "strictBalance": strict_balance,
         "summary": summary["summary"],
         **paths,
         "items": patterns[:10],
@@ -242,10 +271,19 @@ def export_patterns(
     limit: int = 300,
     output_dir: Path | None = None,
     include_items: bool = True,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
 ) -> dict[str, object]:
     output_dir = output_dir or Path("learning")
     output_dir.mkdir(parents=True, exist_ok=True)
-    rows = _pattern_rows(conn, limit)
+    rows = _pattern_rows(
+        conn,
+        limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     cards = [_pattern_row_to_card(row) for row in rows]
     summary = _summary_from_cards(cards)
     jsonl_path = output_dir / f"pattern_cards_top{limit}.jsonl"
@@ -286,8 +324,24 @@ def export_patterns(
     return payload
 
 
-def pattern_summary(conn: Connection, limit: int = 300) -> dict[str, object]:
-    cards = [_pattern_row_to_card(row) for row in _pattern_rows(conn, limit)]
+def pattern_summary(
+    conn: Connection,
+    limit: int = 300,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> dict[str, object]:
+    cards = [
+        _pattern_row_to_card(row)
+        for row in _pattern_rows(
+            conn,
+            limit,
+            account_cap=account_cap,
+            caption_share=caption_share,
+            strict_balance=strict_balance,
+        )
+    ]
     return _summary_from_cards(cards)
 
 
@@ -353,8 +407,21 @@ def apply_pattern_labels(
     }
 
 
-def _pattern_source_rows(conn: Connection, limit: int) -> list[dict[str, Any]]:
-    top = top_public_posts(conn, limit)
+def _pattern_source_rows(
+    conn: Connection,
+    limit: int,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> list[dict[str, Any]]:
+    top = top_public_posts(
+        conn,
+        limit,
+        account_cap=account_cap,
+        caption_share=caption_share,
+        strict_balance=strict_balance,
+    )
     rows = []
     for item in top["items"]:
         reference_id = item.get("referenceId")
@@ -446,20 +513,112 @@ def vision_context_for_reference(
     }
 
 
-def _pattern_rows(conn: Connection, limit: int) -> list[Any]:
-    return conn.execute(
+def _pattern_rows(
+    conn: Connection,
+    limit: int,
+    *,
+    account_cap: int | None = None,
+    caption_share: float | None = None,
+    strict_balance: bool = False,
+) -> list[Any]:
+    rows = conn.execute(
         """
         SELECT rp.*, pp.owner_username, pp.short_code, pp.url, pp.caption,
                pp.video_play_count, pp.video_view_count, pp.likes_count, pp.comments_count,
-               pp.match_type, sf.path AS local_path, sf.account, sf.file_name
+               pp.match_type, sf.path AS local_path, sf.account, sf.file_name,
+               rl.label AS review_label
         FROM reference_patterns rp
         LEFT JOIN public_posts pp ON pp.id = rp.public_post_id
         LEFT JOIN source_files sf ON sf.reference_id = rp.reference_id
+        LEFT JOIN review_labels rl ON rl.id = (
+          SELECT id FROM review_labels
+          WHERE reference_id = rp.reference_id
+          ORDER BY updated_at DESC
+          LIMIT 1
+        )
         ORDER BY COALESCE(rp.rank, 999999), rp.quality_score DESC
-        LIMIT ?
         """,
-        (limit,),
     ).fetchall()
+    ranked = sorted(rows, key=_pattern_row_rank_key)
+    if strict_balance:
+        ranked = [
+            row
+            for row in ranked
+            if _pattern_row_signal_type(row) in {"caption_driven", "visual_driven"}
+            and review_label_weight(row["review_label"]) > 0.0
+        ]
+    return _balanced_pattern_rows(
+        ranked,
+        limit=limit,
+        account_cap=_reference_account_cap(account_cap),
+        caption_share=_reference_caption_share(caption_share),
+        strict_balance=strict_balance,
+    )
+
+
+def _pattern_row_signal_type(row: Any) -> str | None:
+    pattern = json_load(row["pattern_json"], {})
+    metrics = pattern.get("metrics") if isinstance(pattern.get("metrics"), dict) else {}
+    value = str(metrics.get("referenceSignalType") or "").strip()
+    return value or None
+
+
+def _balanced_pattern_rows(
+    rows: list[Any],
+    *,
+    limit: int,
+    account_cap: int,
+    caption_share: float,
+    strict_balance: bool,
+) -> list[Any]:
+    caption_goal = round(limit * caption_share)
+    visual_goal = max(0, limit - caption_goal)
+    selected: list[Any] = []
+    selected_refs: set[str] = set()
+    account_counts: Counter[str] = Counter()
+
+    def add(candidates: list[Any], goal: int | None) -> None:
+        added = 0
+        for row in candidates:
+            if len(selected) >= limit or (goal is not None and added >= goal):
+                return
+            reference_id = str(row["reference_id"] or row["id"])
+            account = str(row["owner_username"] or row["account"] or "_unknown")
+            if reference_id in selected_refs or account_counts[account] >= account_cap:
+                continue
+            selected.append(row)
+            selected_refs.add(reference_id)
+            account_counts[account] += 1
+            added += 1
+
+    add(
+        [row for row in rows if _pattern_row_signal_type(row) == "caption_driven"],
+        caption_goal,
+    )
+    add(
+        [row for row in rows if _pattern_row_signal_type(row) == "visual_driven"],
+        visual_goal,
+    )
+    if not strict_balance:
+        add(rows, None)
+    return selected
+
+
+def _pattern_row_rank_key(row: Any) -> tuple[float, float, int, float]:
+    pattern = json_load(row["pattern_json"], {})
+    metrics = pattern.get("metrics") if isinstance(pattern.get("metrics"), dict) else {}
+    outcome = (
+        metrics.get("measuredOutcome")
+        if isinstance(metrics.get("measuredOutcome"), dict)
+        else {}
+    )
+    reward = outcome.get("rewardScore")
+    return (
+        -review_label_weight(row["review_label"]),
+        -float(reward) if isinstance(reward, (int, float)) else 0.0,
+        int(row["rank"] or 999999),
+        -float(row["quality_score"] or 0.0),
+    )
 
 
 def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
@@ -518,6 +677,8 @@ def _heuristic_pattern(item: dict[str, Any]) -> dict[str, Any]:
             "comments": item.get("commentsCount"),
             "ownerFollowerCount": item.get("ownerFollowerCount"),
             "publicRateScore": item.get("publicRateScore"),
+            "publicFollowerEngagementRate": item.get("publicFollowerEngagementRate"),
+            "referenceSignalType": item.get("referenceSignalType"),
             "measuredOutcome": item.get("measuredOutcome"),
             "performanceTier": performance_tier,
         },
@@ -1407,9 +1568,13 @@ def _pattern_row_to_card(row: Any) -> dict[str, Any]:
             "comments": row["comments_count"],
             "ownerFollowerCount": metrics.get("ownerFollowerCount"),
             "publicRateScore": metrics.get("publicRateScore"),
+            "publicFollowerEngagementRate": metrics.get("publicFollowerEngagementRate"),
+            "referenceSignalType": metrics.get("referenceSignalType"),
             "measuredOutcome": metrics.get("measuredOutcome"),
         },
         "suggestedLabel": row["suggested_label"],
+        "reviewLabel": row["review_label"],
+        "tasteWeight": review_label_weight(row["review_label"]),
         "visualFormat": row["visual_format"],
         "hookType": row["hook_type"],
         "captionArchetype": row["caption_archetype"],
@@ -1424,6 +1589,10 @@ def _summary_from_cards(cards: list[dict[str, Any]]) -> dict[str, object]:
     hooks = Counter(card.get("hookType") for card in cards)
     captions = Counter(card.get("captionArchetype") for card in cards)
     accounts = Counter(card.get("account") for card in cards)
+    signal_types = Counter(
+        ((card.get("metrics") or {}).get("referenceSignalType") or "unknown")
+        for card in cards
+    )
     tags: Counter[str] = Counter()
     for card in cards:
         for tag in (card.get("pattern") or {}).get("reviewTags") or []:
@@ -1437,6 +1606,7 @@ def _summary_from_cards(cards: list[dict[str, Any]]) -> dict[str, object]:
             "hookTypes": dict(hooks.most_common(20)),
             "captionArchetypes": dict(captions.most_common(20)),
             "topAccounts": dict(accounts.most_common(20)),
+            "referenceSignalTypes": dict(signal_types.most_common()),
             "tags": dict(tags.most_common(30)),
             "avgQualityScore": round(
                 sum(float(card.get("qualityScore") or 0) for card in cards)

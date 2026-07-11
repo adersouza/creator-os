@@ -190,6 +190,51 @@ def test_readiness_counts_only_forward_metric_history_with_v2_lineage(
         cf.close()
 
 
+def test_readiness_reaches_the_50_post_dual_window_gate(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        campaign = cf.upsert_campaign("learning_fifty", "instagram")
+        for post_index in range(50):
+            for hour, snapshot_at in (
+                (1, f"2026-06-02T01:{post_index:02d}:00+00:00"),
+                (24, f"2026-06-03T00:{post_index:02d}:00+00:00"),
+            ):
+                insert_snapshot(
+                    cf,
+                    campaign_id=campaign["id"],
+                    snapshot_id=f"snap_{post_index}_{hour}",
+                    post_id=f"post_{post_index}",
+                    snapshot_at=snapshot_at,
+                    raw={
+                        "metadata": {
+                            "threadsdash_metric_history": {"hoursSincePublish": hour}
+                        }
+                    },
+                )
+        insert_snapshot(
+            cf,
+            campaign_id=campaign["id"],
+            snapshot_id="snap_partial_1",
+            post_id="post_partial",
+            snapshot_at="2026-06-02T01:59:00+00:00",
+            raw={"metadata": {"threadsdash_metric_history": {"hoursSincePublish": 1}}},
+        )
+        cf.conn.commit()
+
+        status = closed_loop_learning_status(cf.conn, campaign_slug=campaign["slug"])
+
+        assert status["learningAuditReady"] is True
+        assert status["counts"] == {
+            "eligiblePosts": 51,
+            "postsWith1hHistory": 51,
+            "postsWith24hHistory": 50,
+            "postsWith1hAnd24hHistory": 50,
+        }
+        assert status["remaining"] == {"postsWith1hAnd24hHistory": 0}
+    finally:
+        cf.close()
+
+
 def test_performance_summary_asset_planning_and_baselines_exclude_poison_rows(
     tmp_path: Path,
 ) -> None:

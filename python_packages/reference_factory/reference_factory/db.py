@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS public_posts (
   comments_count INTEGER,
   owner_follower_count INTEGER,
   public_rate_score REAL,
+  public_follower_engagement_rate REAL,
   display_url TEXT,
   video_url TEXT,
   match_type TEXT NOT NULL DEFAULT 'external_only',
