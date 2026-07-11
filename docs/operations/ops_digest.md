@@ -23,6 +23,22 @@ The digest exits non-zero and notifies at `error` level when:
 - Runtime backup is missing or older than 26 hours.
 - Audio catalog is missing or older than 14 days.
 
+## Weekly Improvement Digest
+
+`scripts/weekly_improvement_digest.py` is the separate read-only weekly learning
+report. It uses the same explicit campaign allowlist and Campaign Factory
+database as the hourly performance sync. It only proposes a creative change
+when a leaderboard has at least three real measured samples; otherwise it says
+that no configuration change is justified yet.
+
+The report writes JSON and Markdown under `~/.creator-os/reports/`. It never
+generates assets, spends credits, changes configuration, schedules, or
+publishes. Run it manually with:
+
+```bash
+scripts/run_weekly_improvement_digest.sh
+```
+
 ## Manual Command
 
 ```bash
