@@ -190,8 +190,10 @@ Creator OS must become a usable headless production system that:
 3. The deterministic Kling compiler previously emitted terms rejected by the
    Kling prompt validator. The compiler now validates its own output against
    the shared contract before returning it.
-4. A current provider quote accepts the planned five-second Kling request, but
-   no live Kling result is present in current runtime evidence.
+4. A live read-only provider quote on 2026-07-11 reports 1 credit for the
+   planned Soul still and 8 credits for five-second Kling Pro with sound off.
+   The active path now reserves those native-credit quotes atomically; no live
+   Kling result is present in current runtime evidence.
 5. Free static MP4 rendering now runs as a mandatory, idempotent transition in
    the active accepted-still front path and remains durable if optional Kling
    fails.

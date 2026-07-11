@@ -12,8 +12,8 @@
     "animationMode",
     "dryRun",
     "paidGenerationEnabled",
-    "projectedCostUsd",
-    "budgetCapUsd",
+    "projectedCostCredits",
+    "budgetCapCredits",
     "budgetStatus",
     "humanReviewRequired",
     "publishingAllowed",
@@ -73,11 +73,14 @@
     "paidGenerationEnabled": {
       "type": "boolean"
     },
-    "projectedCostUsd": {
-      "type": "number",
+    "projectedCostCredits": {
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0
     },
-    "budgetCapUsd": {
+    "budgetCapCredits": {
       "type": [
         "number",
         "null"
@@ -89,7 +92,7 @@
       "enum": [
         "within_cap",
         "missing_cap",
-        "exceeds_cap",
+        "quote_pending",
         "not_required"
       ]
     },
@@ -109,7 +112,7 @@
           "name",
           "status",
           "paid",
-          "estimatedCostUsd",
+          "estimatedCostCredits",
           "commands"
         ],
         "properties": {
@@ -137,8 +140,11 @@
           "paid": {
             "type": "boolean"
           },
-          "estimatedCostUsd": {
-            "type": "number",
+          "estimatedCostCredits": {
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0
           },
           "commands": {

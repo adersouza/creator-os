@@ -1825,8 +1825,8 @@ export const generatedPipelineContractSchemas = {
 	    "animationMode",
 	    "dryRun",
 	    "paidGenerationEnabled",
-	    "projectedCostUsd",
-	    "budgetCapUsd",
+	    "projectedCostCredits",
+	    "budgetCapCredits",
 	    "budgetStatus",
 	    "humanReviewRequired",
 	    "publishingAllowed",
@@ -1886,11 +1886,14 @@ export const generatedPipelineContractSchemas = {
 	    "paidGenerationEnabled": {
 	      "type": "boolean"
 	    },
-	    "projectedCostUsd": {
-	      "type": "number",
+	    "projectedCostCredits": {
+	      "type": [
+	        "number",
+	        "null"
+	      ],
 	      "minimum": 0
 	    },
-	    "budgetCapUsd": {
+	    "budgetCapCredits": {
 	      "type": [
 	        "number",
 	        "null"
@@ -1902,7 +1905,7 @@ export const generatedPipelineContractSchemas = {
 	      "enum": [
 	        "within_cap",
 	        "missing_cap",
-	        "exceeds_cap",
+	        "quote_pending",
 	        "not_required"
 	      ]
 	    },
@@ -1922,7 +1925,7 @@ export const generatedPipelineContractSchemas = {
 	          "name",
 	          "status",
 	          "paid",
-	          "estimatedCostUsd",
+	          "estimatedCostCredits",
 	          "commands"
 	        ],
 	        "properties": {
@@ -1950,8 +1953,11 @@ export const generatedPipelineContractSchemas = {
 	          "paid": {
 	            "type": "boolean"
 	          },
-	          "estimatedCostUsd": {
-	            "type": "number",
+	          "estimatedCostCredits": {
+	            "type": [
+	              "number",
+	              "null"
+	            ],
 	            "minimum": 0
 	          },
 	          "commands": {

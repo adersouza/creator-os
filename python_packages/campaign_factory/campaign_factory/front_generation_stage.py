@@ -16,15 +16,12 @@ from .core import (
     sha256_file,
     slugify,
 )
-from .cost_tracker import PROVIDER_PRICING
 from .kling_selection_stage import validate_kling_selection_receipt
 from .persistence import utc_now
 from .static_mp4_stage import run_static_mp4_stage
 from .variation_stage import run_variation_stage
 
 SCHEMA = "campaign_factory.front_generation_plan.v1"
-DEFAULT_IMAGE_COST_USD = PROVIDER_PRICING["higgsfield"]["per_generation"]
-DEFAULT_KLING_COST_USD = PROVIDER_PRICING["kling"]["per_generation"]
 ACCEPTED_STILL_PLACEHOLDER = "<accepted_still_path_after_review>"
 
 
@@ -41,11 +38,9 @@ def run_front_generation_stage(
     dry_run: bool = True,
     apply: bool = False,
     enable_paid_generation: bool = False,
-    budget_cap_usd: float | None = None,
+    budget_cap_credits: float | None = None,
     accepted_still_path: Path | None = None,
     kling_selection_receipt_path: Path | None = None,
-    estimated_image_cost_usd: float = DEFAULT_IMAGE_COST_USD,
-    estimated_video_cost_usd: float = DEFAULT_KLING_COST_USD,
     wait: bool = False,
     download: bool = False,
     enable_variation: bool = False,
@@ -71,16 +66,14 @@ def run_front_generation_stage(
         scene_type=scene_type,
         reference_pattern=reference_pattern,
     )
-    projected_cost = _projected_cost(
+    paid_generation_required = _paid_generation_required(
         animation_mode=animation_mode,
         accepted_still_path=accepted_still_path,
         kling_selection_receipt_path=kling_selection_receipt_path,
-        estimated_image_cost_usd=estimated_image_cost_usd,
-        estimated_video_cost_usd=estimated_video_cost_usd,
     )
     budget_status = _budget_status(
-        projected_cost_usd=projected_cost,
-        budget_cap_usd=budget_cap_usd,
+        paid_generation_required=paid_generation_required,
+        budget_cap_credits=budget_cap_credits,
     )
     pipeline_job = factory.create_pipeline_job(
         "front_generation",
@@ -92,7 +85,7 @@ def run_front_generation_stage(
             "dryRun": dry_run,
             "apply": apply,
             "enablePaidGeneration": enable_paid_generation,
-            "budgetCapUsd": budget_cap_usd,
+            "budgetCapCredits": budget_cap_credits,
             "acceptedStillPath": str(accepted_still_path)
             if accepted_still_path
             else None,
@@ -106,11 +99,10 @@ def run_front_generation_stage(
     )
     factory.start_pipeline_job(pipeline_job["id"])
     try:
-        if apply and not dry_run and projected_cost > 0:
+        if apply and not dry_run and paid_generation_required:
             _enforce_paid_generation_guard(
                 enable_paid_generation=enable_paid_generation,
-                budget_cap_usd=budget_cap_usd,
-                projected_cost_usd=projected_cost,
+                budget_cap_credits=budget_cap_credits,
             )
         stages = _build_stages(
             factory,
@@ -125,9 +117,7 @@ def run_front_generation_stage(
             accepted_still_path=accepted_still_path,
             kling_selection_receipt_path=kling_selection_receipt_path,
             dry_run=dry_run or not apply,
-            budget_cap_usd=budget_cap_usd,
-            estimated_image_cost_usd=estimated_image_cost_usd,
-            estimated_video_cost_usd=estimated_video_cost_usd,
+            budget_cap_credits=budget_cap_credits,
             wait=wait,
             download=download,
         )
@@ -143,8 +133,8 @@ def run_front_generation_stage(
             "animationMode": animation_mode,
             "dryRun": dry_run or not apply,
             "paidGenerationEnabled": bool(enable_paid_generation),
-            "projectedCostUsd": round(projected_cost, 4),
-            "budgetCapUsd": budget_cap_usd,
+            "projectedCostCredits": None if paid_generation_required else 0,
+            "budgetCapCredits": budget_cap_credits,
             "budgetStatus": budget_status,
             "humanReviewRequired": True,
             "publishingAllowed": False,
@@ -169,7 +159,7 @@ def run_front_generation_stage(
                     accepted_still_path=Path(accepted_still_path)
                     .expanduser()
                     .resolve(),
-                    estimated_video_cost_usd=estimated_video_cost_usd,
+                    estimated_video_cost_credits=_provider_quote_amount(video_result),
                     kling_selection_receipt=video_result.get("klingSelectionReceipt"),
                 )
                 if enable_variation:
@@ -203,46 +193,38 @@ def run_front_generation_stage(
         raise
 
 
-def _projected_cost(
+def _paid_generation_required(
     *,
     animation_mode: str,
     accepted_still_path: Path | None,
     kling_selection_receipt_path: Path | None,
-    estimated_image_cost_usd: float,
-    estimated_video_cost_usd: float,
-) -> float:
-    total = 0.0 if accepted_still_path else estimated_image_cost_usd
-    if animation_mode == "kling" and kling_selection_receipt_path is not None:
-        total += estimated_video_cost_usd
-    return total
+) -> bool:
+    return accepted_still_path is None or (
+        animation_mode == "kling" and kling_selection_receipt_path is not None
+    )
 
 
 def _budget_status(
     *,
-    projected_cost_usd: float,
-    budget_cap_usd: float | None,
+    paid_generation_required: bool,
+    budget_cap_credits: float | None,
 ) -> str:
-    if projected_cost_usd <= 0:
+    if not paid_generation_required:
         return "not_required"
-    if budget_cap_usd is None:
+    if budget_cap_credits is None:
         return "missing_cap"
-    if projected_cost_usd > budget_cap_usd:
-        return "exceeds_cap"
-    return "within_cap"
+    return "quote_pending"
 
 
 def _enforce_paid_generation_guard(
     *,
     enable_paid_generation: bool,
-    budget_cap_usd: float | None,
-    projected_cost_usd: float,
+    budget_cap_credits: float | None,
 ) -> None:
     if not enable_paid_generation:
         raise PermissionError("paid generation requires --enable-paid-generation")
-    if budget_cap_usd is None:
-        raise ValueError("paid generation requires --budget-cap-usd")
-    if projected_cost_usd > budget_cap_usd:
-        raise ValueError("projected generation cost exceeds --budget-cap-usd")
+    if budget_cap_credits is None or budget_cap_credits <= 0:
+        raise ValueError("paid generation requires --budget-cap-credits")
 
 
 def _build_stages(
@@ -259,9 +241,7 @@ def _build_stages(
     accepted_still_path: Path | None,
     kling_selection_receipt_path: Path | None,
     dry_run: bool,
-    budget_cap_usd: float | None,
-    estimated_image_cost_usd: float,
-    estimated_video_cost_usd: float,
+    budget_cap_credits: float | None,
     wait: bool,
     download: bool,
 ) -> list[dict[str, Any]]:
@@ -275,21 +255,21 @@ def _build_stages(
                 str(reference_image),
                 "--stem",
                 stem,
-                "--estimated-cost-usd",
-                str(estimated_image_cost_usd),
+                *_credit_args(campaign_slug, budget_cap_credits),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
                 *_runtime_generation_args(
                     wait=wait, download=download, dry_run=dry_run
                 ),
             ],
-            budget_cap_usd=budget_cap_usd,
         )
+        if not dry_run:
+            _require_generation_ok(image_result, "Soul reference image")
         stages.append(
             {
                 "name": "soul_reference_image",
                 "status": "planned" if dry_run else "submitted",
                 "paid": True,
-                "estimatedCostUsd": estimated_image_cost_usd,
+                "estimatedCostCredits": _provider_quote_amount(image_result),
                 "commands": image_result.get("commands") or [],
                 "result": image_result,
             }
@@ -299,7 +279,7 @@ def _build_stages(
                 "name": "still_accept_gate",
                 "status": "waiting_for_review",
                 "paid": False,
-                "estimatedCostUsd": 0,
+                "estimatedCostCredits": 0,
                 "commands": [],
                 "reason": "Kling or motion-edit waits for an accepted still.",
             }
@@ -309,7 +289,7 @@ def _build_stages(
                 "name": "static_mp4",
                 "status": "blocked",
                 "paid": False,
-                "estimatedCostUsd": 0,
+                "estimatedCostCredits": 0,
                 "commands": [],
                 "reason": "Static MP4 requires the accepted still path.",
             }
@@ -320,7 +300,7 @@ def _build_stages(
                     "name": "motion_edit",
                     "status": "blocked",
                     "paid": False,
-                    "estimatedCostUsd": 0,
+                    "estimatedCostCredits": 0,
                     "commands": [],
                     "reason": "Motion edit requires the accepted still path.",
                 }
@@ -331,7 +311,7 @@ def _build_stages(
                     "name": "kling_video",
                     "status": "blocked",
                     "paid": True,
-                    "estimatedCostUsd": estimated_video_cost_usd,
+                    "estimatedCostCredits": None,
                     "commands": [],
                     "reason": (
                         "Kling requires an accepted static fallback, safe audit, "
@@ -349,7 +329,7 @@ def _build_stages(
             "name": "soul_reference_image",
             "status": "skipped",
             "paid": True,
-            "estimatedCostUsd": 0,
+            "estimatedCostCredits": 0,
             "commands": [],
             "reason": "Accepted still was supplied.",
         }
@@ -359,7 +339,7 @@ def _build_stages(
             "name": "still_accept_gate",
             "status": "planned" if dry_run else "submitted",
             "paid": False,
-            "estimatedCostUsd": 0,
+            "estimatedCostCredits": 0,
             "commands": [],
         }
     )
@@ -375,7 +355,7 @@ def _build_stages(
             "name": "static_mp4",
             "status": "planned" if dry_run else "submitted",
             "paid": False,
-            "estimatedCostUsd": 0,
+            "estimatedCostCredits": 0,
             "commands": [static_result["render"].get("ffmpegCommand") or []],
             "result": static_result,
         }
@@ -386,7 +366,7 @@ def _build_stages(
                 "name": "motion_edit",
                 "status": "planned",
                 "paid": False,
-                "estimatedCostUsd": 0,
+                "estimatedCostCredits": 0,
                 "commands": [],
                 "reason": "Run animation motion-edit separately after this paid still gate.",
             }
@@ -398,7 +378,7 @@ def _build_stages(
                     "name": "kling_video",
                     "status": "blocked",
                     "paid": True,
-                    "estimatedCostUsd": estimated_video_cost_usd,
+                    "estimatedCostCredits": None,
                     "commands": [],
                     "reason": (
                         "Kling is blocked until this static candidate wins an "
@@ -425,22 +405,22 @@ def _build_stages(
                 str(accepted_still),
                 "--campaign",
                 campaign_slug,
-                "--estimated-cost-usd",
-                str(estimated_video_cost_usd),
+                *_credit_args(campaign_slug, budget_cap_credits),
                 *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
                 *_runtime_generation_args(
                     wait=wait, download=download, dry_run=dry_run
                 ),
             ],
-            budget_cap_usd=budget_cap_usd,
         )
+        if not dry_run:
+            _require_generation_ok(video_result, "Kling video")
         video_result["klingSelectionReceipt"] = selection
         stages.append(
             {
                 "name": "kling_video",
                 "status": "planned" if dry_run else "submitted",
                 "paid": True,
-                "estimatedCostUsd": estimated_video_cost_usd,
+                "estimatedCostCredits": _provider_quote_amount(video_result),
                 "commands": video_result.get("commands") or [],
                 "result": video_result,
             }
@@ -448,9 +428,7 @@ def _build_stages(
     return stages
 
 
-def _invoke_generate_assets(
-    factory: Any, args: list[str], *, budget_cap_usd: float | None
-) -> dict[str, Any]:
+def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
     cmd = [
         reel_factory_python(factory.settings.reel_factory_root),
         "generate_assets.py",
@@ -459,10 +437,6 @@ def _invoke_generate_assets(
         str(factory.settings.reel_factory_root),
     ]
     env = os.environ.copy()
-    if budget_cap_usd is not None:
-        env.setdefault("HIGGSFIELD_DAILY_BUDGET_USD", str(budget_cap_usd))
-        env.setdefault("HIGGSFIELD_RUN_MAX_ASSETS", "2")
-        env.setdefault("HIGGSFIELD_MIN_BALANCE_USD", "0")
     proc = subprocess.run(
         cmd,
         cwd=factory.settings.reel_factory_root,
@@ -498,6 +472,44 @@ def _soul_args(
     if soul_name:
         args += ["--soul-name", soul_name]
     return args
+
+
+def _credit_args(campaign_slug: str, budget_cap_credits: float | None) -> list[str]:
+    args = ["--cohort-id", campaign_slug]
+    if budget_cap_credits is not None:
+        args += ["--max-credits", str(budget_cap_credits)]
+    return args
+
+
+def _provider_quote_amount(result: dict[str, Any]) -> float | None:
+    lineage = result.get("lineage")
+    generation = lineage.get("generation") if isinstance(lineage, dict) else None
+    preflight = (
+        generation.get("costPreflight") if isinstance(generation, dict) else None
+    )
+    quote = preflight.get("providerQuote") if isinstance(preflight, dict) else None
+    amount = quote.get("amount") if isinstance(quote, dict) else None
+    return (
+        float(amount)
+        if isinstance(amount, (int, float)) and not isinstance(amount, bool)
+        else None
+    )
+
+
+def _require_generation_ok(result: dict[str, Any], label: str) -> None:
+    if result.get("ok") is True:
+        return
+    error = result.get("error")
+    if isinstance(error, dict):
+        reason = error.get("reason") or error.get("message")
+    else:
+        reason = error
+    lineage = result.get("lineage")
+    generation = lineage.get("generation") if isinstance(lineage, dict) else None
+    failure = generation.get("failure") if isinstance(generation, dict) else None
+    if not reason and isinstance(failure, dict):
+        reason = failure.get("reason") or failure.get("message")
+    raise RuntimeError(f"{label} generation blocked or failed: {reason or 'unknown'}")
 
 
 def _runtime_generation_args(*, wait: bool, download: bool, dry_run: bool) -> list[str]:
@@ -547,7 +559,7 @@ def _register_kling_rendered_asset(
     video_result: dict[str, Any],
     plan: dict[str, Any],
     accepted_still_path: Path,
-    estimated_video_cost_usd: float,
+    estimated_video_cost_credits: float | None,
     kling_selection_receipt: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if video_path.stat().st_size <= 0:
@@ -561,7 +573,7 @@ def _register_kling_rendered_asset(
         "workflow": "front_generation_soul_to_kling",
         "animationMode": "kling",
         "paidGeneration": True,
-        "estimatedCostUsd": estimated_video_cost_usd,
+        "estimatedCostCredits": estimated_video_cost_credits,
         "frontGenerationPlan": plan,
         "generatedAssetLineagePath": lineage_path,
         "acceptedStillPath": str(accepted_still_path),
@@ -572,7 +584,7 @@ def _register_kling_rendered_asset(
         "frontGeneration": {
             "animationMode": "kling",
             "paidGeneration": True,
-            "estimatedCostUsd": estimated_video_cost_usd,
+            "estimatedCostCredits": estimated_video_cost_credits,
             "acceptedStillPath": str(accepted_still_path),
             "generatedAssetLineagePath": lineage_path,
             "klingSelectionReceipt": kling_selection_receipt,

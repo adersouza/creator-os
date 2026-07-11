@@ -10,8 +10,8 @@
   "animationMode": "kling",
   "dryRun": true,
   "paidGenerationEnabled": false,
-  "projectedCostUsd": 0.15,
-  "budgetCapUsd": null,
+  "projectedCostCredits": null,
+  "budgetCapCredits": null,
   "budgetStatus": "missing_cap",
   "humanReviewRequired": true,
   "publishingAllowed": false,
@@ -20,7 +20,7 @@
       "name": "soul_reference_image",
       "status": "planned",
       "paid": true,
-      "estimatedCostUsd": 0.05,
+      "estimatedCostCredits": null,
       "commands": [
         [
           "higgsfield",
@@ -34,14 +34,14 @@
       "name": "still_accept_gate",
       "status": "waiting_for_review",
       "paid": false,
-      "estimatedCostUsd": 0,
+      "estimatedCostCredits": 0,
       "commands": []
     },
     {
       "name": "kling_video",
       "status": "planned",
       "paid": true,
-      "estimatedCostUsd": 0.1,
+      "estimatedCostCredits": null,
       "commands": [
         [
           "higgsfield",

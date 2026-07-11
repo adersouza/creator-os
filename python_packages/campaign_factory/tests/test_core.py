@@ -4063,6 +4063,14 @@ def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
             "generation": {
                 "workflow": "kling3_0_video_from_selected_panel",
                 "models": {"video": "kling3_0"},
+                "costPreflight": {
+                    "allowed": True,
+                    "providerQuote": {
+                        "amount": 10,
+                        "unit": "higgsfield_credits",
+                        "model": "kling3_0",
+                    },
+                },
             },
             "assets": {"localPaths": {"video": str(video_path)}},
             "review": {"humanReviewRequired": True},
@@ -4080,9 +4088,8 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
         reference.write_bytes(b"png")
         calls: list[list[str]] = []
 
-        def fake_invoke(_factory, args, *, budget_cap_usd):
+        def fake_invoke(_factory, args):
             calls.append(args)
-            assert budget_cap_usd is None
             return fake_front_generation_result(args)
 
         monkeypatch.setattr(
@@ -4101,7 +4108,7 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
         plan = result["plan"]
         validate_front_generation_plan(plan)
         assert result["dryRun"] is True
-        assert plan["projectedCostUsd"] == 0.05
+        assert plan["projectedCostCredits"] is None
         assert plan["budgetStatus"] == "missing_cap"
         assert [stage["name"] for stage in plan["stages"]] == [
             "soul_reference_image",
@@ -4166,9 +4173,7 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(
 
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(
-                args
-            ),
+            lambda _factory, args: fake_front_generation_result(args),
         )
 
         result = run_front_generation_stage(
@@ -4230,7 +4235,7 @@ def test_front_generation_apply_fails_closed_without_enable_flag(
                 creator="Stacey",
                 dry_run=False,
                 apply=True,
-                budget_cap_usd=0.25,
+                budget_cap_credits=10,
             )
         row = cf.conn.execute(
             "SELECT status FROM pipeline_jobs WHERE job_type = 'front_generation'"
@@ -4255,7 +4260,7 @@ def test_front_generation_apply_requires_budget_cap(
             ),
         )
 
-        with pytest.raises(ValueError, match="budget-cap-usd"):
+        with pytest.raises(ValueError, match="budget-cap-credits"):
             run_front_generation_stage(
                 cf,
                 campaign_slug="may",
@@ -4279,9 +4284,8 @@ def test_front_generation_apply_submits_still_only_before_review(
         reference.write_bytes(b"png")
         calls: list[list[str]] = []
 
-        def fake_invoke(_factory, args, *, budget_cap_usd):
+        def fake_invoke(_factory, args):
             calls.append(args)
-            assert budget_cap_usd == 0.25
             return fake_front_generation_result(args)
 
         monkeypatch.setattr(
@@ -4297,7 +4301,7 @@ def test_front_generation_apply_submits_still_only_before_review(
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
-            budget_cap_usd=0.25,
+            budget_cap_credits=10,
         )
 
         plan = result["plan"]
@@ -4308,14 +4312,16 @@ def test_front_generation_apply_submits_still_only_before_review(
             str(reference.resolve()),
             "--stem",
             "reference",
-            "--estimated-cost-usd",
-            "0.05",
+            "--cohort-id",
+            "may",
+            "--max-credits",
+            "10",
             "--creator",
             "Stacey",
         ]
         assert len(calls) == 1
         assert ACCEPTED_STILL_PLACEHOLDER not in json.dumps(plan)
-        assert plan["budgetStatus"] == "within_cap"
+        assert plan["budgetStatus"] == "quote_pending"
         assert plan["stages"][0]["status"] == "submitted"
         assert plan["stages"][1]["name"] == "still_accept_gate"
         assert plan["stages"][1]["status"] == "waiting_for_review"
@@ -4343,7 +4349,7 @@ def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
         accepted.write_bytes(b"still")
         calls: list[list[str]] = []
 
-        def fake_invoke(_factory, args, *, budget_cap_usd):
+        def fake_invoke(_factory, args):
             calls.append(args)
             return fake_front_generation_result(args)
 
@@ -4364,7 +4370,7 @@ def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
 
         plan = result["plan"]
         validate_front_generation_plan(plan)
-        assert plan["projectedCostUsd"] == 0
+        assert plan["projectedCostCredits"] == 0
         assert calls == []
         assert plan["stages"][0]["status"] == "skipped"
         assert plan["stages"][2]["name"] == "static_mp4"
@@ -4390,9 +4396,8 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
         video.write_bytes(b"kling-video")
         calls: list[list[str]] = []
 
-        def fake_invoke(_factory, args, *, budget_cap_usd):
+        def fake_invoke(_factory, args):
             calls.append(args)
-            assert budget_cap_usd == 0.15
             return fake_kling_video_result(video)
 
         monkeypatch.setattr(
@@ -4412,13 +4417,15 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
-            budget_cap_usd=0.15,
+            budget_cap_credits=10,
             wait=True,
             download=True,
         )
 
         validate_front_generation_plan(result["plan"])
         assert calls[0][0] == "video"
+        assert calls[0][calls[0].index("--cohort-id") + 1] == "may"
+        assert calls[0][calls[0].index("--max-credits") + 1] == "10"
         assert "--wait" in calls[0]
         assert "--download" in calls[0]
         registered = result["registeredAsset"]
@@ -4434,6 +4441,7 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
         metadata = json.loads(registered["metadata_json"])
         assert caption_generation["animationMode"] == "kling"
         assert caption_generation["paidGeneration"] is True
+        assert caption_generation["estimatedCostCredits"] == 10
         assert caption_generation["humanReviewRequired"] is True
         assert metadata["humanReviewRequired"] is True
         assert (
@@ -4492,7 +4500,7 @@ def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
-            budget_cap_usd=0.15,
+            budget_cap_credits=10,
             wait=True,
             download=True,
             enable_variation=True,
@@ -4521,9 +4529,7 @@ def test_front_generation_enable_variation_requires_downloaded_video(
 
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda _factory, args, *, budget_cap_usd: fake_front_generation_result(
-                args
-            ),
+            lambda _factory, args: fake_front_generation_result(args),
         )
         patch_front_static_renderer(monkeypatch)
         selection_receipt = patch_front_kling_selection(monkeypatch, tmp_path)
@@ -4539,7 +4545,7 @@ def test_front_generation_enable_variation_requires_downloaded_video(
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
-                budget_cap_usd=0.15,
+                budget_cap_credits=10,
                 enable_variation=True,
             )
     finally:
@@ -4577,7 +4583,7 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
 
         plan = result["plan"]
         validate_front_generation_plan(plan)
-        assert plan["projectedCostUsd"] == 0
+        assert plan["projectedCostCredits"] == 0
         assert plan["budgetStatus"] == "not_required"
         assert plan["paidGenerationEnabled"] is False
         assert [stage["name"] for stage in plan["stages"]] == [
@@ -4622,7 +4628,7 @@ def test_front_generation_kling_failure_preserves_static_fallback(
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
-                budget_cap_usd=0.15,
+                budget_cap_credits=10,
             )
 
         rows = cf.conn.execute(
