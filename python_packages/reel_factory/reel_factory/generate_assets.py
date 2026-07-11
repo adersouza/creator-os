@@ -1002,6 +1002,33 @@ def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     }
 
 
+def dry_run_image_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
+    prompt = load_prompt(plan.prompt_json)
+    soul_id = _soul_id_for_plan(plan, dry=True)
+    image_prompts = (
+        _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
+    )
+    commands = [
+        build_image_cmd(
+            image_prompt,
+            reference=None,
+            soul_id=soul_id,
+            model=plan.image_model,
+            aspect_ratio=plan.image_aspect_ratio,
+            quality=plan.image_quality,
+            wait=wait,
+        )
+        for image_prompt in image_prompts
+    ]
+    return {
+        "ok": True,
+        "dry_run": True,
+        "workflow": "higgsfield_soul_v2_image_only",
+        "commands": commands,
+        "lineage_path": str(lineage_path(plan)),
+    }
+
+
 def direct_reference_lineage_path(plan: DirectReferenceImagePlan) -> Path:
     return plan.source_dir / f"{plan.stem}.direct_reference_lineage.json"
 
@@ -2557,6 +2584,8 @@ def main() -> int:
         choices=[
             "create",
             "dry-run",
+            "image",
+            "image-dry-run",
             "reference-image",
             "reference-image-dry-run",
             "video",
@@ -2663,6 +2692,23 @@ def main() -> int:
             dry_run(plan, wait=args.wait)
             if args.mode == "dry-run"
             else create_assets(
+                plan,
+                wait=args.wait,
+                download=args.download,
+            )
+        )
+    elif args.mode in {"image", "image-dry-run"}:
+        if not args.prompt_json or not args.stem:
+            raise SystemExit("--prompt-json and --stem are required")
+        if not args.soul_id and not args.soul_name and not args.creator:
+            raise SystemExit(
+                "--creator, --soul-id, or --soul-name is required so Soul V2 uses the creator identity"
+            )
+        plan = _plan_from_args(args)
+        result = (
+            dry_run_image_asset(plan, wait=args.wait)
+            if args.mode == "image-dry-run"
+            else create_image_asset(
                 plan,
                 wait=args.wait,
                 download=args.download,

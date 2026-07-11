@@ -178,11 +178,12 @@ Creator OS must become a usable headless production system that:
 - No readiness claim may substitute tests or fixtures for a real approved post
   completing the performance loop.
 
-## Confirmed Implementation Gaps
+## Resolved Implementation Gaps
 
-1. Reel Factory documents conflicting policies for captured-prompt sexy
-   variants: the helper implements them, while current production-flow guidance
-   disables them.
+1. Campaign Factory now invokes the captured-prompt variant policy directly:
+   the completed reference-conditioned original supplies the provider prompt,
+   and a separate image-only call creates the text-only sexy candidate without
+   attaching the reference or triggering Kling.
 2. The variant helper previously implied a second reference-conditioned
    “original” run after the first run already produced it. Its contract now
    reuses that first result and plans exactly one additional text-only sexy

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -71,10 +72,6 @@ def run_front_generation_stage(
         accepted_still_path=accepted_still_path,
         kling_selection_receipt_path=kling_selection_receipt_path,
     )
-    budget_status = _budget_status(
-        paid_generation_required=paid_generation_required,
-        budget_cap_credits=budget_cap_credits,
-    )
     pipeline_job = factory.create_pipeline_job(
         "front_generation",
         campaign["id"],
@@ -86,6 +83,7 @@ def run_front_generation_stage(
             "apply": apply,
             "enablePaidGeneration": enable_paid_generation,
             "budgetCapCredits": budget_cap_credits,
+            "budgetCapScope": "per_provider_call",
             "acceptedStillPath": str(accepted_still_path)
             if accepted_still_path
             else None,
@@ -104,6 +102,10 @@ def run_front_generation_stage(
                 enable_paid_generation=enable_paid_generation,
                 budget_cap_credits=budget_cap_credits,
             )
+            if not wait or not download:
+                raise ValueError(
+                    "live paid generation requires --wait --download so prompt, QC, and local assets are verified"
+                )
         stages = _build_stages(
             factory,
             campaign_slug=campaign_slug,
@@ -121,6 +123,12 @@ def run_front_generation_stage(
             wait=wait,
             download=download,
         )
+        projected_credits = _active_stage_credit_total(stages)
+        budget_status = _budget_status(
+            paid_generation_required=paid_generation_required,
+            budget_cap_credits=budget_cap_credits,
+            projected_credits=projected_credits,
+        )
         plan = {
             "schema": SCHEMA,
             "campaign": campaign_slug,
@@ -133,8 +141,9 @@ def run_front_generation_stage(
             "animationMode": animation_mode,
             "dryRun": dry_run or not apply,
             "paidGenerationEnabled": bool(enable_paid_generation),
-            "projectedCostCredits": None if paid_generation_required else 0,
+            "projectedCostCredits": projected_credits,
             "budgetCapCredits": budget_cap_credits,
+            "budgetCapScope": "per_provider_call",
             "budgetStatus": budget_status,
             "humanReviewRequired": True,
             "publishingAllowed": False,
@@ -208,12 +217,29 @@ def _budget_status(
     *,
     paid_generation_required: bool,
     budget_cap_credits: float | None,
+    projected_credits: float | None = None,
 ) -> str:
     if not paid_generation_required:
         return "not_required"
     if budget_cap_credits is None:
         return "missing_cap"
+    if projected_credits is not None:
+        return "within_cap"
     return "quote_pending"
+
+
+def _active_stage_credit_total(stages: list[dict[str, Any]]) -> float | None:
+    active_paid = [
+        stage
+        for stage in stages
+        if stage.get("paid") is True and stage.get("status") in {"planned", "submitted"}
+    ]
+    if not active_paid:
+        return 0.0
+    amounts = [stage.get("estimatedCostCredits") for stage in active_paid]
+    if any(not isinstance(amount, (int, float)) for amount in amounts):
+        return None
+    return round(sum(float(amount) for amount in amounts), 4)
 
 
 def _enforce_paid_generation_guard(
@@ -274,6 +300,61 @@ def _build_stages(
                 "result": image_result,
             }
         )
+        if dry_run:
+            stages.append(
+                {
+                    "name": "soul_sexy_image",
+                    "status": "blocked",
+                    "paid": True,
+                    "estimatedCostCredits": None,
+                    "commands": [],
+                    "reason": (
+                        "The text-only sexy variant requires the captured prompt "
+                        "from the completed reference-conditioned original."
+                    ),
+                }
+            )
+        else:
+            variant_spec = _invoke_generate_variant_spec(factory, image_result)
+            sexy_prompt_path = _write_sexy_prompt_pack(
+                prompt_path.with_name(f"{stem}.sexy_variant_prompt.json"),
+                variant_spec=variant_spec,
+                base_prompt_path=prompt_path,
+            )
+            sexy = variant_spec["sexy"]
+            sexy_result = _invoke_generate_assets(
+                factory,
+                [
+                    "image",
+                    "--prompt-json",
+                    str(sexy_prompt_path),
+                    "--stem",
+                    f"{stem}_sexy",
+                    "--image-aspect-ratio",
+                    str(sexy["aspect_ratio"]),
+                    *_credit_args(campaign_slug, budget_cap_credits),
+                    *_soul_args(
+                        creator=creator,
+                        soul_id=str(variant_spec["soul_id"]),
+                        soul_name=None,
+                    ),
+                    *_runtime_generation_args(
+                        wait=wait, download=download, dry_run=False
+                    ),
+                ],
+            )
+            _require_generation_ok(sexy_result, "text-only Soul sexy variant")
+            stages.append(
+                {
+                    "name": "soul_sexy_image",
+                    "status": "submitted",
+                    "paid": True,
+                    "estimatedCostCredits": _provider_quote_amount(sexy_result),
+                    "commands": sexy_result.get("commands") or [],
+                    "result": sexy_result,
+                    "variantSpec": variant_spec,
+                }
+            )
         stages.append(
             {
                 "name": "still_accept_gate",
@@ -281,7 +362,10 @@ def _build_stages(
                 "paid": False,
                 "estimatedCostCredits": 0,
                 "commands": [],
-                "reason": "Kling or motion-edit waits for an accepted still.",
+                "reason": (
+                    "Review the original and sexy still together, then supply the "
+                    "accepted still for its mandatory static MP4."
+                ),
             }
         )
         stages.append(
@@ -494,6 +578,110 @@ def _provider_quote_amount(result: dict[str, Any]) -> float | None:
         if isinstance(amount, (int, float)) and not isinstance(amount, bool)
         else None
     )
+
+
+def _invoke_generate_variant_spec(
+    factory: Any, original_result: dict[str, Any]
+) -> dict[str, Any]:
+    lineage = original_result.get("lineage")
+    if not isinstance(lineage, dict):
+        raise ValueError("completed Soul original is missing lineage")
+    generation = lineage.get("generation")
+    source = lineage.get("source")
+    if not isinstance(generation, dict) or not isinstance(source, dict):
+        raise ValueError("completed Soul original lineage is incomplete")
+    captured_prompt = str(generation.get("capturedHiggsfieldPrompt") or "").strip()
+    resolved_soul_id = str(source.get("soulId") or "").strip()
+    if not captured_prompt:
+        raise ValueError("Higgsfield did not return the captured original prompt")
+    if not resolved_soul_id:
+        raise ValueError("completed Soul original is missing its Soul ID")
+    command = [
+        reel_factory_python(factory.settings.reel_factory_root),
+        "generate_variants.py",
+        "--captured-prompt",
+        captured_prompt,
+        "--soul-id",
+        resolved_soul_id,
+    ]
+    image_job_id = str(generation.get("imageJobId") or "").strip()
+    if image_job_id:
+        command += ["--reference-media-id", image_job_id]
+    proc = subprocess.run(
+        command,
+        cwd=factory.settings.reel_factory_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            proc.stderr[-2000:] or proc.stdout[-2000:] or "variant spec failed"
+        )
+    try:
+        spec = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("variant spec returned invalid JSON") from exc
+    _validate_variant_spec(spec, expected_soul_id=resolved_soul_id)
+    return spec
+
+
+def _validate_variant_spec(spec: Any, *, expected_soul_id: str) -> None:
+    if not isinstance(spec, dict) or spec.get("soul_id") != expected_soul_id:
+        raise ValueError("variant spec Soul ID does not match the original")
+    original = spec.get("original")
+    sexy = spec.get("sexy")
+    if (
+        not isinstance(original, dict)
+        or original.get("generation_required") is not False
+        or not isinstance(sexy, dict)
+        or sexy.get("generation_required") is not True
+        or sexy.get("text_only") is not True
+        or sexy.get("reference_media_id") is not None
+        or spec.get("provider_generation_count") != 1
+    ):
+        raise ValueError("variant spec violates the original-plus-text-only policy")
+    prompt = str(sexy.get("prompt") or "")
+    if not prompt.strip():
+        raise ValueError("text-only sexy variant prompt is empty")
+    words = set(re.findall(r"[a-z]+", prompt.lower()))
+    forbidden = {
+        "adult",
+        "adults",
+        "woman",
+        "women",
+        "girl",
+        "girls",
+        "teen",
+        "teens",
+        "young",
+    }
+    if words & forbidden:
+        raise ValueError(
+            "text-only sexy variant prompt contains forbidden identity wording"
+        )
+
+
+def _write_sexy_prompt_pack(
+    path: Path, *, variant_spec: dict[str, Any], base_prompt_path: Path
+) -> Path:
+    base = json.loads(base_prompt_path.read_text(encoding="utf-8"))
+    sexy = variant_spec["sexy"]
+    payload = {
+        "higgsfieldGridPrompt": sexy["prompt"],
+        "klingMotionPrompt": str(base.get("klingMotionPrompt") or ""),
+        "notes": (
+            "Text-only Soul variant derived from the captured Higgsfield prompt; "
+            "the reference image is intentionally not attached."
+        ),
+    }
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _require_generation_ok(result: dict[str, Any], label: str) -> None:

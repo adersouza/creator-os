@@ -31,7 +31,7 @@ reel_factory/generate_assets.py:_soul_id_for_direct_plan:852
 reel_factory/generate_assets.py:download_result:919
 reel_factory/generate_assets.py:detect_grid_status:934
 reel_factory/generate_assets.py:single_image_layout_status:954
-reel_factory/generate_assets.py:generated_video_qc:1693
+reel_factory/generate_assets.py:generated_video_qc:1720
 reel_factory/generate_prompts.py:video_duration:166
 reel_factory/generate_prompts.py:frame_is_visible:181
 reel_factory/generate_prompts.py:_safe_fragment:304

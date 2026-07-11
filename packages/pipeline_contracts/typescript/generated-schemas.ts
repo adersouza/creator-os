@@ -1827,6 +1827,7 @@ export const generatedPipelineContractSchemas = {
 	    "paidGenerationEnabled",
 	    "projectedCostCredits",
 	    "budgetCapCredits",
+	    "budgetCapScope",
 	    "budgetStatus",
 	    "humanReviewRequired",
 	    "publishingAllowed",
@@ -1900,6 +1901,9 @@ export const generatedPipelineContractSchemas = {
 	      ],
 	      "minimum": 0
 	    },
+	    "budgetCapScope": {
+	      "const": "per_provider_call"
+	    },
 	    "budgetStatus": {
 	      "type": "string",
 	      "enum": [
@@ -1933,6 +1937,7 @@ export const generatedPipelineContractSchemas = {
 	            "type": "string",
 	            "enum": [
 	              "soul_reference_image",
+	              "soul_sexy_image",
 	              "still_accept_gate",
 	              "static_mp4",
 	              "kling_video",
@@ -1974,6 +1979,9 @@ export const generatedPipelineContractSchemas = {
 	          },
 	          "reason": {
 	            "type": "string"
+	          },
+	          "variantSpec": {
+	            "type": "object"
 	          }
 	        }
 	      }

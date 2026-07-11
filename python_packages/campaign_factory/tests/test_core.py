@@ -4039,6 +4039,21 @@ def fake_front_generation_result(args: list[str]) -> dict:
             "workflow": "higgsfield_direct_reference_image",
             "commands": [["higgsfield", "generate", "create", "text2image_soul_v2"]],
             "lineage_path": "/tmp/direct_reference_lineage.json",
+            "lineage": {
+                "source": {"soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"},
+                "generation": {
+                    "capturedHiggsfieldPrompt": "A mirror selfie in a fitted black top.",
+                    "imageJobId": "image_original_1",
+                },
+            },
+        }
+    if mode.startswith("image"):
+        return {
+            "ok": True,
+            "dry_run": mode.endswith("dry-run"),
+            "workflow": "higgsfield_soul_v2_image_only",
+            "commands": [["higgsfield", "generate", "create", "text2image_soul_v2"]],
+            "lineage_path": "/tmp/sexy_variant_lineage.json",
         }
     if mode.startswith("video"):
         return {
@@ -4049,6 +4064,35 @@ def fake_front_generation_result(args: list[str]) -> dict:
             "lineage_path": "/tmp/generated_asset_lineage.json",
         }
     raise AssertionError(f"unexpected generate_assets mode: {mode}")
+
+
+def patch_front_variant_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.front_generation_stage._invoke_generate_variant_spec",
+        lambda _factory, _result: {
+            "soul_id": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+            "cleaned_prompt": "A mirror selfie in a fitted black top.",
+            "original": {
+                "source": "reference_pass_result",
+                "generation_required": False,
+                "aspect_ratio": "3:4",
+                "reference_media_id": "image_original_1",
+            },
+            "sexy": {
+                "model": "soul_2",
+                "soul_id": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                "prompt": (
+                    "A mirror selfie in a fitted black top, 19 years old, dark "
+                    "hair, no tattoos, fuller chest with deeper cleavage."
+                ),
+                "aspect_ratio": "3:4",
+                "generation_required": True,
+                "reference_media_id": None,
+                "text_only": True,
+            },
+            "provider_generation_count": 1,
+        },
+    )
 
 
 def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
@@ -4112,14 +4156,17 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
         assert plan["budgetStatus"] == "missing_cap"
         assert [stage["name"] for stage in plan["stages"]] == [
             "soul_reference_image",
+            "soul_sexy_image",
             "still_accept_gate",
             "static_mp4",
             "kling_video",
         ]
         assert calls[0][0] == "reference-image-dry-run"
         assert len(calls) == 1
-        assert plan["stages"][3]["status"] == "blocked"
-        assert "selection receipt" in plan["stages"][3]["reason"]
+        assert plan["stages"][1]["status"] == "blocked"
+        assert "captured prompt" in plan["stages"][1]["reason"]
+        assert plan["stages"][4]["status"] == "blocked"
+        assert "selection receipt" in plan["stages"][4]["reason"]
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
         )
@@ -4274,6 +4321,36 @@ def test_front_generation_apply_requires_budget_cap(
         cf.close()
 
 
+def test_front_generation_live_paid_path_requires_wait_and_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("paid subprocess must not run")
+            ),
+        )
+
+        with pytest.raises(ValueError, match="wait --download"):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                enable_paid_generation=True,
+                budget_cap_credits=10,
+            )
+    finally:
+        cf.close()
+
+
 def test_front_generation_apply_submits_still_only_before_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -4292,6 +4369,7 @@ def test_front_generation_apply_submits_still_only_before_review(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
             fake_invoke,
         )
+        patch_front_variant_spec(monkeypatch)
 
         result = run_front_generation_stage(
             cf,
@@ -4302,6 +4380,8 @@ def test_front_generation_apply_submits_still_only_before_review(
             apply=True,
             enable_paid_generation=True,
             budget_cap_credits=10,
+            wait=True,
+            download=True,
         )
 
         plan = result["plan"]
@@ -4318,17 +4398,32 @@ def test_front_generation_apply_submits_still_only_before_review(
             "10",
             "--creator",
             "Stacey",
+            "--wait",
+            "--download",
         ]
-        assert len(calls) == 1
+        assert calls[1][0] == "image"
+        assert "--reference" not in calls[1]
+        assert "--prompt-json" in calls[1]
+        assert "--image-aspect-ratio" in calls[1]
+        assert len(calls) == 2
         assert ACCEPTED_STILL_PLACEHOLDER not in json.dumps(plan)
         assert plan["budgetStatus"] == "quote_pending"
         assert plan["stages"][0]["status"] == "submitted"
-        assert plan["stages"][1]["name"] == "still_accept_gate"
-        assert plan["stages"][1]["status"] == "waiting_for_review"
-        assert plan["stages"][2]["name"] == "static_mp4"
-        assert plan["stages"][2]["status"] == "blocked"
-        assert plan["stages"][3]["name"] == "kling_video"
+        assert plan["stages"][1]["name"] == "soul_sexy_image"
+        assert plan["stages"][1]["status"] == "submitted"
+        sexy_pack = json.loads(
+            Path(calls[1][calls[1].index("--prompt-json") + 1]).read_text(
+                encoding="utf-8"
+            )
+        )
+        assert "19 years old" in sexy_pack["higgsfieldGridPrompt"]
+        assert "--image" not in calls[1]
+        assert plan["stages"][2]["name"] == "still_accept_gate"
+        assert plan["stages"][2]["status"] == "waiting_for_review"
+        assert plan["stages"][3]["name"] == "static_mp4"
         assert plan["stages"][3]["status"] == "blocked"
+        assert plan["stages"][4]["name"] == "kling_video"
+        assert plan["stages"][4]["status"] == "blocked"
         assert plan["publishingAllowed"] is False
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
@@ -4547,6 +4642,8 @@ def test_front_generation_enable_variation_requires_downloaded_video(
                 enable_paid_generation=True,
                 budget_cap_credits=10,
                 enable_variation=True,
+                wait=True,
+                download=True,
             )
     finally:
         cf.close()
@@ -4629,6 +4726,8 @@ def test_front_generation_kling_failure_preserves_static_fallback(
                 apply=True,
                 enable_paid_generation=True,
                 budget_cap_credits=10,
+                wait=True,
+                download=True,
             )
 
         rows = cf.conn.execute(

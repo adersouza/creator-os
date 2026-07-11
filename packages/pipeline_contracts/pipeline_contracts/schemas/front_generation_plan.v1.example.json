@@ -12,6 +12,7 @@
   "paidGenerationEnabled": false,
   "projectedCostCredits": null,
   "budgetCapCredits": null,
+  "budgetCapScope": "per_provider_call",
   "budgetStatus": "missing_cap",
   "humanReviewRequired": true,
   "publishingAllowed": false,

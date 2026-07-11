@@ -183,6 +183,7 @@ def clean_prompt(captured: str) -> str:
         "",
         text,
     )
+    text = re.sub(r"\s+([,.])", r"\1", text)
     text = re.sub(r"(?:^|(?<=\. ))\s*,\s*", "", text)  # leading comma in a clause
     text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "", text)
     return text.strip(" ,.\n") + ("." if text.strip(" ,.\n") else "")

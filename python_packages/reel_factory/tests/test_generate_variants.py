@@ -101,3 +101,4 @@ def test_stacey_prompt_removes_standalone_adult_word() -> None:
     for banned in ("adult", "woman", "girl", "teen", "young"):
         assert banned not in prompt
     assert "in an" not in prompt
+    assert " ," not in prompt

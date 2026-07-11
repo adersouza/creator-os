@@ -326,6 +326,7 @@ export const frontGenerationPlanSchema = {
 		"paidGenerationEnabled",
 		"projectedCostCredits",
 		"budgetCapCredits",
+		"budgetCapScope",
 		"budgetStatus",
 		"humanReviewRequired",
 		"publishingAllowed",
@@ -350,6 +351,7 @@ export const frontGenerationPlanSchema = {
 		paidGenerationEnabled: { type: "boolean" },
 		projectedCostCredits: { type: ["number", "null"], minimum: 0 },
 		budgetCapCredits: { type: ["number", "null"], minimum: 0 },
+		budgetCapScope: { const: "per_provider_call" },
 		budgetStatus: {
 			type: "string",
 			enum: ["within_cap", "missing_cap", "quote_pending", "not_required"],
@@ -368,6 +370,7 @@ export const frontGenerationPlanSchema = {
 						type: "string",
 						enum: [
 							"soul_reference_image",
+							"soul_sexy_image",
 							"still_accept_gate",
 							"static_mp4",
 							"kling_video",
@@ -387,6 +390,7 @@ export const frontGenerationPlanSchema = {
 					},
 					result: { type: "object" },
 					reason: { type: "string" },
+					variantSpec: { type: "object" },
 				},
 			},
 		},

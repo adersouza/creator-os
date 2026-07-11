@@ -247,7 +247,11 @@ def main() -> int:
     )
     front_link.add_argument("--accepted-still")
     front_link.add_argument("--kling-selection-receipt")
-    front_link.add_argument("--budget-cap-credits", type=float)
+    front_link.add_argument(
+        "--budget-cap-credits",
+        type=float,
+        help="Maximum native Higgsfield credits allowed for each provider call.",
+    )
     front_link.add_argument("--enable-paid-generation", action="store_true")
     front_link.add_argument("--wait", action="store_true")
     front_link.add_argument("--download", action="store_true")
