@@ -257,7 +257,10 @@ def build_draft_payloads(
             draft = {
                 "userId": user_id,
                 "workspaceId": os.environ.get("THREADSDASH_WORKSPACE_ID"),
-                "accountId": account_id,
+                # ThreadsDashboard accounts.id owns Threads identities. Instagram
+                # drafts are scoped by instagram_account_id; never leak Campaign
+                # Factory's internal account key into that foreign-key column.
+                "accountId": account_id if not instagram_account_id else None,
                 "instagramAccountId": instagram_account_id,
                 "modelId": asset.get("modelId"),
                 "platform": "instagram",

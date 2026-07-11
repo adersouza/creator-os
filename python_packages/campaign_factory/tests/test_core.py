@@ -19105,6 +19105,36 @@ def test_account_assignment_drives_draft_destinations_and_metadata(
         cf.close()
 
 
+def test_instagram_distribution_plan_does_not_export_internal_account_id(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.conn.execute(
+            """INSERT INTO accounts
+            (id, handle, platform, created_at, updated_at)
+            VALUES ('acct_campaign_factory_internal', 'stacey_internal', 'instagram', ?, ?)""",
+            ("2026-07-11T00:00:00+00:00", "2026-07-11T00:00:00+00:00"),
+        )
+        cf.conn.commit()
+        cf.create_distribution_plan(
+            "asset_1",
+            account_id="acct_campaign_factory_internal",
+            instagram_account_id="ig_dashboard_canonical",
+        )
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        draft = payload["drafts"][0]
+
+        assert draft["accountId"] is None
+        assert draft["instagramAccountId"] == "ig_dashboard_canonical"
+    finally:
+        cf.close()
+
+
 def test_account_plan_warns_on_batch_volume_and_api_assigns(
     tmp_path: Path, monkeypatch
 ):
