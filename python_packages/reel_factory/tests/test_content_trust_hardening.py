@@ -721,9 +721,9 @@ def test_documented_env_names_match_active_code() -> None:
     sscd_code = (root / "python_packages/reel_factory/sscd_video.py").read_text(
         encoding="utf-8"
     )
-    smoke_script = (root / "apps/contentforge/scripts/e2e-smoke.mjs").read_text(
-        encoding="utf-8"
-    )
+    campaign_config = (
+        root / "python_packages/campaign_factory/campaign_factory/config.py"
+    ).read_text(encoding="utf-8")
 
     for name in (
         "CONTENTFORGE_BASE_URL",
@@ -745,8 +745,8 @@ def test_documented_env_names_match_active_code() -> None:
         assert name in env_template
     assert "CONTENTFORGE_URL=" not in env_template
     assert "CONTENTFORGE_SSCD_MODEL_PATH" in sscd_code
-    assert "CONTENTFORGE_BASE_URL" in smoke_script
-    assert "CONTENTFORGE_URL" not in smoke_script
+    assert "CONTENTFORGE_BASE_URL" in campaign_config
+    assert 'env_string("CONTENTFORGE_URL"' not in campaign_config
 
 
 def test_higgsfield_cost_preflight_blocks_over_default_budget(
