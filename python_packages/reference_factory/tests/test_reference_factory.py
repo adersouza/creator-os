@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import json
 import sqlite3
 import subprocess
@@ -57,6 +58,7 @@ from reference_factory.media import (
     sample_frames,
     thumbnail_batch,
 )
+from reference_factory.observed_prompts import register_observed_higgsfield_prompt
 from reference_factory.ocr import (
     normalize_text,
     ocr_cleanup,
@@ -69,6 +71,7 @@ from reference_factory.patterns import (
     apply_pattern_labels,
     export_patterns,
     pattern_summary,
+    refresh_measured_outcomes_for_references,
 )
 from reference_factory.proof_verifier import verify_proof_bundle
 from reference_factory.provider_doctor import provider_doctor
@@ -87,6 +90,7 @@ from reference_factory.reference_intake import (
     analyze_reference_local,
     compile_prompts_with_grok_api,
     export_video_analyses,
+    export_video_prompts,
     gemini_analysis_prompt,
     generate_video_prompts,
     import_gemini_app_response,
@@ -3649,6 +3653,108 @@ def test_public_post_ranking_prefers_measured_prompt_outcomes(tmp_path: Path) ->
     assert top["items"][0]["shortCode"] == "LOWRAW"
     assert top["items"][0]["measuredOutcome"]["rewardScore"] == 1.8
     assert top["items"][0]["publicRateScore"] > top["items"][1]["publicRateScore"]
+
+
+def test_observed_higgsfield_prompt_keeps_identity_and_pattern_attribution_distinct(
+    tmp_path: Path,
+) -> None:
+    conn = make_conn(tmp_path)
+    pattern_path = tmp_path / "pattern.mp4"
+    pattern_path.write_bytes(b"pattern")
+    conn.execute(
+        """
+        INSERT INTO source_files (
+          reference_id, path, file_name, extension, kind, size_bytes, mtime,
+          path_hash, created_at, updated_at
+        ) VALUES ('ref_pattern', ?, 'pattern.mp4', 'mp4', 'video', 7, 'now',
+                  'pattern_hash', 'now', 'now')
+        """,
+        (str(pattern_path),),
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_patterns (
+          id, reference_id, provider, analyzer_version, quality_score,
+          pattern_json, created_at, updated_at
+        ) VALUES ('pattern_1', 'ref_pattern', 'test', 'v1', 1.0, '{}', 'now', 'now')
+        """
+    )
+    output_path = tmp_path / "generated.png"
+    output_path.write_bytes(b"generated")
+    identity_path = tmp_path / "identity.png"
+    identity_path.write_bytes(b"identity")
+    captured_prompt = "Observed provider prompt for the accepted generated still."
+    prompt_sha = hashlib.sha256(captured_prompt.encode()).hexdigest()
+    prompt_id = f"prompt_higgsfield_{prompt_sha[:16]}"
+    lineage_path = tmp_path / "run.direct_reference_lineage.json"
+    lineage_path.write_text(
+        json.dumps(
+            {
+                "source": {"referenceImage": str(identity_path)},
+                "generation": {
+                    "imageJobId": "job_1",
+                    "capturedHiggsfieldPrompt": captured_prompt,
+                    "models": {"image": "text2image_soul_v2"},
+                    "params": {"imageAspectRatio": "9:16"},
+                },
+                "assets": {"localPaths": {"image": str(output_path)}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    registered = register_observed_higgsfield_prompt(
+        conn,
+        lineage_path=lineage_path,
+        expected_prompt_id=prompt_id,
+        expected_external_reference_id="identity_set:file_1",
+        pattern_reference_ids=["ref_pattern"],
+        source_pattern_id="pattern_cluster_1",
+    )
+    imported = import_prompt_outcomes(
+        conn,
+        [
+            {
+                "promptId": prompt_id,
+                "referenceId": "identity_set:file_1",
+                "postId": "post_1",
+                "rewardScore": 1.25,
+                "confidence": 1.0,
+                "sourceSnapshotAt": "2026-01-02T00:00:00+00:00",
+                "scoringVersion": "account_normalized_decay_shrinkage.v1",
+                "baselineProvenance": {"account": "ig_1"},
+            }
+        ],
+    )
+    refreshed = refresh_measured_outcomes_for_references(conn, ["ref_pattern"])
+    exported = export_video_prompts(conn, data_root=tmp_path / "exports")
+
+    prompt = conn.execute(
+        "SELECT reference_id, status, prompt_json FROM generated_video_prompts WHERE id = ?",
+        (prompt_id,),
+    ).fetchone()
+    links = conn.execute(
+        """
+        SELECT reference_id, role, attribution_weight
+        FROM generated_prompt_reference_links
+        WHERE prompt_id = ? ORDER BY role
+        """,
+        (prompt_id,),
+    ).fetchall()
+    pattern = json.loads(
+        conn.execute(
+            "SELECT pattern_json FROM reference_patterns WHERE id = 'pattern_1'"
+        ).fetchone()[0]
+    )
+    assert registered["status"] == "registered"
+    assert prompt["reference_id"] != "ref_pattern"
+    assert prompt["status"] == "outcome_observed"
+    assert json.loads(prompt["prompt_json"])["providerPromptSha256"] == prompt_sha
+    assert {row["role"] for row in links} == {"identity_reference", "pattern_member"}
+    assert imported["updated"] == 1
+    assert refreshed["patternIds"] == ["pattern_1"]
+    assert pattern["metrics"]["measuredOutcome"]["rewardScore"] == pytest.approx(1.25)
+    assert exported["count"] == 0
 
 
 def test_prompt_outcomes_retain_distinct_posts_and_recompute_aggregate(

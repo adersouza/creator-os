@@ -322,6 +322,27 @@ CREATE TABLE IF NOT EXISTS generated_video_prompts (
   UNIQUE(reference_id, target_tool, model_profile)
 );
 
+CREATE TABLE IF NOT EXISTS generated_prompt_reference_links (
+  prompt_id TEXT NOT NULL REFERENCES generated_video_prompts(id) ON DELETE CASCADE,
+  reference_id TEXT NOT NULL REFERENCES source_files(reference_id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  attribution_weight REAL NOT NULL DEFAULT 1.0,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(prompt_id, reference_id, role)
+);
+
+CREATE TABLE IF NOT EXISTS generated_prompt_external_references (
+  prompt_id TEXT NOT NULL REFERENCES generated_video_prompts(id) ON DELETE CASCADE,
+  external_reference_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(prompt_id, external_reference_id, role)
+);
+
 CREATE TABLE IF NOT EXISTS prompt_post_outcomes (
   prompt_id TEXT NOT NULL REFERENCES generated_video_prompts(id) ON DELETE CASCADE,
   post_id TEXT NOT NULL,
@@ -356,6 +377,8 @@ CREATE INDEX IF NOT EXISTS idx_reference_analysis_jobs_status ON reference_analy
 CREATE INDEX IF NOT EXISTS idx_viral_pattern_cards_status ON viral_pattern_cards(status, platform);
 CREATE INDEX IF NOT EXISTS idx_reference_video_analyses_provider ON reference_video_analyses(provider, status);
 CREATE INDEX IF NOT EXISTS idx_generated_video_prompts_tool ON generated_video_prompts(target_tool, status);
+CREATE INDEX IF NOT EXISTS idx_generated_prompt_links_reference ON generated_prompt_reference_links(reference_id, role);
+CREATE INDEX IF NOT EXISTS idx_generated_prompt_external_reference ON generated_prompt_external_references(external_reference_id, role);
 CREATE INDEX IF NOT EXISTS idx_prompt_post_outcomes_post ON prompt_post_outcomes(post_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_post_outcomes_snapshot ON prompt_post_outcomes(source_snapshot_at);
 """
