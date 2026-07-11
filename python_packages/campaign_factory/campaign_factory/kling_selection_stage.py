@@ -342,12 +342,21 @@ def _validate_ranking(
         for score in scores
     ):
         raise ValueError("Kling ranking scores must be finite numbers")
-    winner_score = float(winner["score"])
-    other_scores = [
-        float(row["score"]) for row in ranked if str(row.get("id")) != selected_id
+    ranking_keys: list[tuple[float, int]] = []
+    for row in ranked:
+        prediction = row.get("predictedEngagement")
+        matched = prediction.get("matched", 0) if isinstance(prediction, dict) else 0
+        if isinstance(matched, bool) or not isinstance(matched, int) or matched < 0:
+            raise ValueError("Kling ranking matched-signal counts must be integers")
+        ranking_keys.append((float(row["score"]), matched))
+    winner_key = ranking_keys[ranked.index(winner)]
+    other_keys = [
+        key
+        for row, key in zip(ranked, ranking_keys, strict=True)
+        if str(row.get("id")) != selected_id
     ]
-    if not other_scores or winner_score <= max(other_scores):
-        raise ValueError("Kling rank-one candidate is not a unique best score")
+    if not other_keys or winner_key <= max(other_keys):
+        raise ValueError("Kling rank-one candidate is not a unique best result")
 
 
 def _attach_receipt_to_asset(

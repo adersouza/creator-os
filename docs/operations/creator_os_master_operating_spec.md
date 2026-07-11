@@ -201,7 +201,7 @@ Creator OS must become a usable headless production system that:
    `--accepted-still` command, and an original fallback remains durable if the
    later sexy candidate or optional Kling generation fails.
 6. Best-only Kling receipt validation now proves that the selected candidate is
-   the unique finite-score rank-one result, that every eligible candidate is
+   the unique evidence-backed rank-one result, that every eligible candidate is
    present exactly once, and that ranking itself cannot authorize spending or
    publishing.
 

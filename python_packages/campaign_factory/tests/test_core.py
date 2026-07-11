@@ -5516,7 +5516,7 @@ def test_kling_selection_stage_registers_unique_best_approved_static(
                     {
                         **candidates[0],
                         "rank": 2,
-                        "score": 0.4,
+                        "score": 0.9,
                         "predictedEngagement": {"score": 0.4, "matched": 1},
                     },
                 ],
