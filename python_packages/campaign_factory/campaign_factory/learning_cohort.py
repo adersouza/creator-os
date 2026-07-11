@@ -680,6 +680,124 @@ def record_learning_cohort_publish(
     return _transition_result(conn, assignment_id, "publish_recorded")
 
 
+def sync_learning_cohort_publish_state(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Reconcile approved cohort drafts from canonical performance snapshots.
+
+    ThreadsDashboard keeps the draft row identity when a Notify Publish handoff
+    is marked posted. Performance sync therefore has enough durable evidence to
+    repair a cohort assignment that missed the explicit ``record-publish``
+    transition. Reconciliation is deliberately strict: draft/post identity,
+    rendered-asset identity, and any supplied cohort assignment metadata must
+    agree before the local ledger is changed.
+    """
+    ensure_learning_cohort_tables(conn)
+    cohort = conn.execute(
+        "SELECT 1 FROM learning_cohorts WHERE id = ?", (COHORT_ID,)
+    ).fetchone()
+    if cohort is None:
+        return {
+            "schema": "campaign_factory.learning_cohort.publish_sync.v1",
+            "cohortId": COHORT_ID,
+            "status": "cohort_not_prepared",
+            "assignmentsChecked": 0,
+            "assignmentsChanged": 0,
+            "conflicts": [],
+        }
+
+    assignments = _rows_to_dicts(
+        conn.execute(
+            """SELECT * FROM learning_cohort_assignments
+            WHERE cohort_id = ? AND approval_state = 'approved'
+              AND draft_id IS NOT NULL
+            ORDER BY day_index, surface""",
+            (COHORT_ID,),
+        ).fetchall()
+    )
+    changed = 0
+    candidates = 0
+    conflicts: list[dict[str, Any]] = []
+    now = _utc_now()
+    for assignment in assignments:
+        snapshot_row = conn.execute(
+            """SELECT * FROM performance_snapshots
+            WHERE post_id = ? AND status = 'published'
+              AND published_at IS NOT NULL
+            ORDER BY snapshot_at DESC LIMIT 1""",
+            (assignment["draft_id"],),
+        ).fetchone()
+        if snapshot_row is None:
+            continue
+        candidates += 1
+        snapshot = dict(snapshot_row)
+        reasons: list[str] = []
+        if str(snapshot.get("rendered_asset_id") or "") != str(
+            assignment.get("rendered_asset_id") or ""
+        ):
+            reasons.append("rendered_asset_mismatch")
+        prior_post_id = str(assignment.get("post_id") or "")
+        if prior_post_id and prior_post_id != str(snapshot["post_id"]):
+            reasons.append("existing_post_id_mismatch")
+        raw = _json_object(snapshot.get("raw_json"))
+        metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        metadata_assignment_id = str(metadata.get("trialGroupId") or "")
+        if metadata_assignment_id and metadata_assignment_id != str(assignment["id"]):
+            reasons.append("cohort_assignment_metadata_mismatch")
+        try:
+            published_at = datetime.fromisoformat(
+                str(snapshot["published_at"]).replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            reasons.append("invalid_published_at")
+            published_at = None
+        if published_at is not None and published_at.tzinfo is None:
+            reasons.append("published_at_missing_timezone")
+        if reasons:
+            conflicts.append(
+                {
+                    "assignmentId": assignment["id"],
+                    "draftId": assignment["draft_id"],
+                    "postId": snapshot.get("post_id"),
+                    "blockingReasons": reasons,
+                }
+            )
+            continue
+        next_published_at = published_at.isoformat() if published_at else None
+        row_changed = any(
+            (
+                assignment.get("post_id") != snapshot["post_id"],
+                assignment.get("published_at") != next_published_at,
+                assignment.get("publish_state") != "published",
+                assignment.get("schedule_state") != "published",
+            )
+        )
+        if not row_changed:
+            continue
+        conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET post_id = ?, published_at = ?, publish_state = 'published',
+                schedule_state = 'published', updated_at = ?
+            WHERE id = ? AND cohort_id = ?""",
+            (
+                snapshot["post_id"],
+                next_published_at,
+                now,
+                assignment["id"],
+                COHORT_ID,
+            ),
+        )
+        changed += 1
+    conn.commit()
+    return {
+        "schema": "campaign_factory.learning_cohort.publish_sync.v1",
+        "cohortId": COHORT_ID,
+        "status": "conflict" if conflicts else "synced",
+        "assignmentsChecked": len(assignments),
+        "publishedCandidates": candidates,
+        "assignmentsChanged": changed,
+        "conflicts": conflicts,
+    }
+
+
 def sync_learning_cohort_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
     """Project canonical metric-history snapshots into the cohort ledger.
 

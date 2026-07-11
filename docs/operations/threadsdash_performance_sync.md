@@ -49,6 +49,14 @@ ThreadsDashboard snapshots, then `scripts/learning_fanout.py` fans only
 `metrics_store.py refresh-outcomes` command; it bypasses cutover/provenance and
 the correction/retraction ledger.
 
+For the Stacey learning cohort, the import phase also reconciles an approved
+Notify Publish assignment when ThreadsDashboard's published post retains the
+recorded draft ID and rendered-asset identity. Any supplied cohort assignment
+metadata must agree. Conflicts fail closed and are reported; a verified match
+records the publish transition before projecting 1h, 24h, and 72h metric-window
+state. This makes a missed manual `record-publish` call self-healing without
+guessing from a permalink or account alone.
+
 Each run reports history-source fallback counts and errors, ineligibility
 reasons, per-destination `done` / `pending` / `reopenedByHash` / `retryCapped`
 counts, and current 50-post 1h+24h readiness in one
