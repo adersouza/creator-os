@@ -3635,9 +3635,11 @@ class CoreServices:
         return self.creative_planning.asset_creative_plan_id(asset)
 
     def import_reference_bank(
-        self, bank_path: Any, prompt_pack_path: Any | None = None
+        self, bank_path: Any, prompt_pack_path: Any | None = None, **kwargs: Any
     ) -> dict[str, Any]:
-        return self.reference.import_reference_bank(bank_path, prompt_pack_path)
+        return self.reference.import_reference_bank(
+            bank_path, prompt_pack_path, **kwargs
+        )
 
     def reference_prompt_pack_by_cluster(
         self, prompt_pack_path: Any | None

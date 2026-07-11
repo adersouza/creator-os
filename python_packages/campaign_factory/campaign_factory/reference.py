@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -38,7 +39,13 @@ class ReferenceRepository:
         self._reference_hook_fallbacks = reference_hook_fallbacks
 
     def import_reference_bank(
-        self, bank_path: Path, prompt_pack_path: Path | None = None
+        self,
+        bank_path: Path,
+        prompt_pack_path: Path | None = None,
+        *,
+        dry_run: bool = False,
+        campaign_slug: str | None = None,
+        require_local_paths: bool = False,
     ) -> dict[str, Any]:
         bank_path = Path(bank_path).expanduser().resolve()
         if not bank_path.exists():
@@ -49,15 +56,22 @@ class ReferenceRepository:
             raise ValueError("reference bank must contain a clusters array")
         prompt_by_key = self.reference_prompt_pack_by_cluster(prompt_pack_path)
         now = self._utc_now()
-        imported = 0
+        campaign = self._campaign_by_slug(campaign_slug) if campaign_slug else None
+        created = 0
+        updated = 0
+        unchanged = 0
+        linked = 0
+        missing_paths: list[str] = []
         for idx, cluster in enumerate(clusters, 1):
             cluster_key = str(
                 cluster.get("clusterKey") or cluster.get("label") or f"cluster_{idx}"
             )
             prompt = prompt_by_key.get(cluster_key) or {}
-            pattern_id = self._new_id("refpat")
+            pattern_id = (
+                "refpat_" + hashlib.sha256(cluster_key.encode("utf-8")).hexdigest()[:16]
+            )
             existing = self.conn.execute(
-                "SELECT id FROM reference_patterns WHERE cluster_key = ?",
+                "SELECT id, raw_json FROM reference_patterns WHERE cluster_key = ?",
                 (cluster_key,),
             ).fetchone()
             if existing:
@@ -68,6 +82,9 @@ class ReferenceRepository:
             local_paths = (
                 cluster.get("localPaths") or cluster.get("referenceFiles") or []
             )
+            for local_path in local_paths:
+                if not Path(str(local_path)).expanduser().exists():
+                    missing_paths.append(str(local_path))
             public_urls = prompt.get("publicUrls") or []
             prompt_template = cluster.get("promptTemplate") or {}
             higgsfield_json = prompt.get("higgsfieldJson") or {}
@@ -77,8 +94,33 @@ class ReferenceRepository:
                 or prompt.get("audioRecommendations")
                 or {}
             )
-            self.conn.execute(
-                """
+            source_payload = {"bank": cluster, "prompt": prompt}
+            source_hash = hashlib.sha256(
+                json.dumps(source_payload, ensure_ascii=False, sort_keys=True).encode(
+                    "utf-8"
+                )
+            ).hexdigest()
+            previous_raw = json_load(existing["raw_json"], {}) if existing else {}
+            previous_hash = previous_raw.get("sourceHash")
+            change = (
+                "unchanged"
+                if previous_hash == source_hash
+                else ("updated" if existing else "created")
+            )
+            if change == "created":
+                created += 1
+            elif change == "updated":
+                updated += 1
+            else:
+                unchanged += 1
+            raw_payload = {
+                **source_payload,
+                "sourceHash": source_hash,
+                "sourceRunId": bank.get("runId") or bank.get("run_id"),
+            }
+            if not dry_run and change != "unchanged":
+                self.conn.execute(
+                    """
                 INSERT INTO reference_patterns (
                   id, cluster_key, rank, label, visual_format, hook_type, caption_archetype,
                   reference_ids_json, local_paths_json, public_urls_json, prompt_template_json,
@@ -101,49 +143,95 @@ class ReferenceRepository:
                   raw_json = excluded.raw_json,
                   updated_at = excluded.updated_at
                 """,
-                (
-                    pattern_id,
-                    cluster_key,
-                    cluster.get("clusterRank") or cluster.get("rank") or idx,
-                    cluster.get("label") or cluster_key.replace("::", " / "),
-                    cluster.get("visualFormat"),
-                    cluster.get("hookType"),
-                    cluster.get("captionArchetype"),
-                    json.dumps(reference_ids, ensure_ascii=False),
-                    json.dumps(local_paths, ensure_ascii=False),
-                    json.dumps(public_urls, ensure_ascii=False),
-                    json.dumps(prompt_template, ensure_ascii=False, sort_keys=True),
-                    json.dumps(higgsfield_json, ensure_ascii=False, sort_keys=True),
-                    json.dumps(caption_formulas, ensure_ascii=False, sort_keys=True),
-                    json.dumps(
-                        audio_recommendations, ensure_ascii=False, sort_keys=True
+                    (
+                        pattern_id,
+                        cluster_key,
+                        cluster.get("clusterRank") or cluster.get("rank") or idx,
+                        cluster.get("label") or cluster_key.replace("::", " / "),
+                        cluster.get("visualFormat"),
+                        cluster.get("hookType"),
+                        cluster.get("captionArchetype"),
+                        json.dumps(reference_ids, ensure_ascii=False),
+                        json.dumps(local_paths, ensure_ascii=False),
+                        json.dumps(public_urls, ensure_ascii=False),
+                        json.dumps(prompt_template, ensure_ascii=False, sort_keys=True),
+                        json.dumps(higgsfield_json, ensure_ascii=False, sort_keys=True),
+                        json.dumps(
+                            caption_formulas, ensure_ascii=False, sort_keys=True
+                        ),
+                        json.dumps(
+                            audio_recommendations, ensure_ascii=False, sort_keys=True
+                        ),
+                        json.dumps(raw_payload, ensure_ascii=False, sort_keys=True),
+                        now,
+                        now,
                     ),
-                    json.dumps(
-                        {"bank": cluster, "prompt": prompt},
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
-                    now,
-                    now,
-                ),
+                )
+            if campaign:
+                plan = self.conn.execute(
+                    """
+                    SELECT id FROM campaign_reference_plans
+                    WHERE campaign_id = ? AND reference_pattern_id = ?
+                    LIMIT 1
+                    """,
+                    (campaign["id"], pattern_id),
+                ).fetchone()
+                if not plan:
+                    linked += 1
+                    if not dry_run:
+                        self.conn.execute(
+                            """
+                            INSERT INTO campaign_reference_plans
+                            (id, campaign_id, reference_pattern_id, variant_count, notes, created_at, updated_at)
+                            VALUES (?, ?, ?, 5, ?, ?, ?)
+                            """,
+                            (
+                                self._new_id("refplan"),
+                                campaign["id"],
+                                pattern_id,
+                                f"Imported from {bank_path.name}",
+                                now,
+                                now,
+                            ),
+                        )
+        if require_local_paths and missing_paths:
+            if not dry_run:
+                self.conn.rollback()
+            raise ValueError(
+                "reference bank contains missing local paths: "
+                + ", ".join(sorted(set(missing_paths))[:10])
             )
-            imported += 1
-        self.conn.commit()
-        self._record_event(
-            "reference_bank_imported",
-            status="success",
-            message=f"Reference bank imported: {imported} patterns",
-            metadata={
-                "bankPath": str(bank_path),
-                "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
-                "patterns": imported,
-            },
-        )
+        if not dry_run:
+            self.conn.commit()
+        if not dry_run and (created or updated or linked):
+            self._record_event(
+                "reference_bank_imported",
+                status="success",
+                message=f"Reference bank imported: {created} created, {updated} updated",
+                metadata={
+                    "bankPath": str(bank_path),
+                    "promptPackPath": str(prompt_pack_path)
+                    if prompt_pack_path
+                    else None,
+                    "created": created,
+                    "updated": updated,
+                    "unchanged": unchanged,
+                    "campaignLinks": linked,
+                },
+            )
         return {
             "schema": "campaign_factory.reference_bank_import.v1",
             "bankPath": str(bank_path),
             "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
-            "patternsImported": imported,
+            "dryRun": dry_run,
+            "wouldWrite": bool(created or updated or linked),
+            "patternsImported": created + updated,
+            "patternsCreated": created,
+            "patternsUpdated": updated,
+            "patternsUnchanged": unchanged,
+            "campaignLinksCreated": linked,
+            "campaign": campaign_slug,
+            "missingLocalPaths": sorted(set(missing_paths)),
         }
 
     def reference_prompt_pack_by_cluster(

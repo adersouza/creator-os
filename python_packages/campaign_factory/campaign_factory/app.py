@@ -516,6 +516,9 @@ def import_reference_bank(body: dict[str, Any] = Body(...)):
         return cf.import_reference_bank(
             Path(body.get("path") or default_bank),
             Path(body["promptPack"]) if body.get("promptPack") else None,
+            dry_run=bool(body.get("dryRun", True)),
+            campaign_slug=body.get("campaign"),
+            require_local_paths=bool(body.get("requireLocalPaths", False)),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
