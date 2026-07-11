@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from creator_os_core.fileops import atomic_write_text
+
+from .lineage_v2 import lineage_v2_is_learning_traceable
+
 COHORT_ID = "stacey_learning_cohort_v1"
 CREATOR = "Stacey"
 SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
@@ -71,6 +75,24 @@ def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
           ON learning_cohort_assignments(cohort_id, day_index, generation_state);
         """
     )
+    columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(learning_cohort_assignments)")
+    }
+    added_column = False
+    for name, definition in {
+        "rendered_asset_id": "TEXT",
+        "artifact_path": "TEXT",
+        "lineage_path": "TEXT",
+        "published_at": "TEXT",
+    }.items():
+        if name not in columns:
+            conn.execute(
+                f"ALTER TABLE learning_cohort_assignments ADD COLUMN {name} {definition}"
+            )
+            added_column = True
+    if added_column:
+        conn.commit()
 
 
 def prepare_learning_cohort(
@@ -437,6 +459,259 @@ def learning_cohort_assignment_metadata(
         "metric_24h_state": value["metric_24h_state"],
         "metric_72h_state": value["metric_72h_state"],
     }
+
+
+def record_learning_cohort_generation(
+    conn: sqlite3.Connection,
+    *,
+    assignment_id: str,
+    rendered_asset_id: str,
+    lineage_path: Path,
+    artifact_path: Path,
+    provider_reservation_id: str | None = None,
+) -> dict[str, Any]:
+    """Bind one real rendered asset and learning-traceable v2 lineage to its assignment."""
+    ensure_learning_cohort_tables(conn)
+    assignment = _assignment_row(conn, assignment_id)
+    if assignment["generation_state"] not in {
+        "queued",
+        "complete",
+        "draft_ingested",
+    }:
+        raise ValueError(
+            "learning cohort generation can only be recorded from queued, complete, or draft_ingested state"
+        )
+    prior_asset_id = str(assignment.get("rendered_asset_id") or "")
+    if prior_asset_id and prior_asset_id != rendered_asset_id:
+        raise ValueError(
+            "cohort assignment is already bound to a different rendered asset"
+        )
+    asset_row = conn.execute(
+        """SELECT ra.*, c.slug AS campaign_slug, sa.source_prompt
+        FROM rendered_assets ra
+        JOIN campaigns c ON c.id = ra.campaign_id
+        JOIN source_assets sa ON sa.id = ra.source_asset_id
+        WHERE ra.id = ?""",
+        (rendered_asset_id,),
+    ).fetchone()
+    if asset_row is None:
+        raise ValueError(f"unknown rendered asset: {rendered_asset_id}")
+    asset = dict(asset_row)
+    if asset["campaign_slug"] != COHORT_ID:
+        raise ValueError(
+            "rendered asset does not belong to the learning cohort campaign"
+        )
+
+    artifact = artifact_path.expanduser().resolve()
+    expected_artifact = Path(str(asset["output_path"])).expanduser().resolve()
+    if not artifact.is_file() or artifact != expected_artifact:
+        raise ValueError(
+            "artifact path must match the registered rendered asset output"
+        )
+    source_lineage = lineage_path.expanduser().resolve()
+    try:
+        lineage = json.loads(source_lineage.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("lineage path must contain valid JSON") from exc
+    if not lineage_v2_is_learning_traceable(
+        lineage,
+        campaign_id=asset["campaign_id"],
+        recipe_id=asset["recipe"],
+        caption_hash=asset["caption_hash"],
+        rendered_asset_id=rendered_asset_id,
+    ):
+        raise ValueError("generated asset lineage is not learning-traceable v2")
+    source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    if source.get("referenceId") != assignment["reference_id"]:
+        raise ValueError("lineage referenceId does not match the cohort assignment")
+    if lineage.get("contentFingerprint") != assignment["content_fingerprint"]:
+        raise ValueError(
+            "lineage contentFingerprint does not match the cohort assignment"
+        )
+    if lineage.get("sourceFamilyId") != assignment["source_family"]:
+        raise ValueError("lineage sourceFamilyId does not match the cohort assignment")
+    if lineage.get("perceptualClusterId") != assignment["perceptual_cluster"]:
+        raise ValueError(
+            "lineage perceptualClusterId does not match the cohort assignment"
+        )
+
+    source_prompt = _json_object(asset.get("source_prompt"))
+    source_prompt.update(
+        {
+            "generatedAssetLineage": lineage,
+            "promptId": source["promptId"],
+            "referenceId": source["referenceId"],
+            "referencePattern": assignment["source_family"],
+            "cohortAssignment": {
+                "cohortId": COHORT_ID,
+                "assignmentId": assignment_id,
+                "dayIndex": assignment["day_index"],
+                "arm": assignment["arm"],
+                "surface": assignment["surface"],
+            },
+        }
+    )
+    durable_lineage_path = artifact.with_suffix(
+        artifact.suffix + ".generated_asset_lineage.json"
+    )
+    atomic_write_text(
+        durable_lineage_path,
+        json.dumps(lineage, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    now = _utc_now()
+    conn.execute(
+        "UPDATE source_assets SET source_prompt = ?, updated_at = ? WHERE id = ?",
+        (
+            json.dumps(source_prompt, ensure_ascii=False, sort_keys=True),
+            now,
+            asset["source_asset_id"],
+        ),
+    )
+    conn.execute(
+        """UPDATE learning_cohort_assignments
+        SET rendered_asset_id = ?, artifact_path = ?, lineage_path = ?,
+            provider_reservation_id = COALESCE(?, provider_reservation_id),
+            generation_state = 'complete', updated_at = ?
+        WHERE id = ? AND cohort_id = ?""",
+        (
+            rendered_asset_id,
+            str(artifact),
+            str(durable_lineage_path),
+            provider_reservation_id,
+            now,
+            assignment_id,
+            COHORT_ID,
+        ),
+    )
+    conn.commit()
+    return _transition_result(conn, assignment_id, "generation_recorded")
+
+
+def record_learning_cohort_draft(
+    conn: sqlite3.Connection, *, assignment_id: str, draft_id: str
+) -> dict[str, Any]:
+    ensure_learning_cohort_tables(conn)
+    assignment = _assignment_row(conn, assignment_id)
+    if not assignment.get("rendered_asset_id") or assignment[
+        "generation_state"
+    ] not in {
+        "complete",
+        "draft_ingested",
+    }:
+        raise ValueError("cohort draft requires a completed generated asset")
+    prior = str(assignment.get("draft_id") or "")
+    draft_id = str(draft_id or "").strip()
+    if not draft_id:
+        raise ValueError("draft_id is required")
+    if prior and prior != draft_id:
+        raise ValueError("cohort assignment is already bound to a different draft")
+    now = _utc_now()
+    conn.execute(
+        """UPDATE learning_cohort_assignments
+        SET draft_id = ?, generation_state = 'draft_ingested',
+            schedule_state = 'blocked_pending_approval', updated_at = ?
+        WHERE id = ? AND cohort_id = ?""",
+        (draft_id, now, assignment_id, COHORT_ID),
+    )
+    conn.commit()
+    return _transition_result(conn, assignment_id, "draft_recorded")
+
+
+def record_learning_cohort_approval(
+    conn: sqlite3.Connection, *, assignment_id: str, decision: str
+) -> dict[str, Any]:
+    ensure_learning_cohort_tables(conn)
+    assignment = _assignment_row(conn, assignment_id)
+    decision = str(decision or "").strip().lower()
+    if decision not in {"approved", "rejected"}:
+        raise ValueError("decision must be approved or rejected")
+    if not assignment.get("draft_id"):
+        raise ValueError("cohort approval requires a recorded draft")
+    schedule_state = (
+        "ready_for_manual_publish" if decision == "approved" else "blocked_rejected"
+    )
+    now = _utc_now()
+    conn.execute(
+        """UPDATE learning_cohort_assignments
+        SET approval_state = ?, schedule_state = ?, updated_at = ?
+        WHERE id = ? AND cohort_id = ?""",
+        (decision, schedule_state, now, assignment_id, COHORT_ID),
+    )
+    conn.commit()
+    return _transition_result(conn, assignment_id, "approval_recorded")
+
+
+def record_learning_cohort_publish(
+    conn: sqlite3.Connection,
+    *,
+    assignment_id: str,
+    post_id: str,
+    published_at: str,
+) -> dict[str, Any]:
+    ensure_learning_cohort_tables(conn)
+    assignment = _assignment_row(conn, assignment_id)
+    if assignment["approval_state"] != "approved" or not assignment.get("draft_id"):
+        raise ValueError("cohort publish requires an approved recorded draft")
+    post_id = str(post_id or "").strip()
+    if not post_id:
+        raise ValueError("post_id is required")
+    parsed = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("published_at must include a timezone")
+    prior = str(assignment.get("post_id") or "")
+    if prior and prior != post_id:
+        raise ValueError("cohort assignment is already bound to a different post")
+    now = _utc_now()
+    conn.execute(
+        """UPDATE learning_cohort_assignments
+        SET post_id = ?, published_at = ?, publish_state = 'published',
+            schedule_state = 'published', updated_at = ?
+        WHERE id = ? AND cohort_id = ?""",
+        (post_id, parsed.isoformat(), now, assignment_id, COHORT_ID),
+    )
+    conn.commit()
+    return _transition_result(conn, assignment_id, "publish_recorded")
+
+
+def _assignment_row(conn: sqlite3.Connection, assignment_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM learning_cohort_assignments WHERE id = ? AND cohort_id = ?",
+        (assignment_id, COHORT_ID),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown learning cohort assignment: {assignment_id}")
+    return dict(row)
+
+
+def _transition_result(
+    conn: sqlite3.Connection, assignment_id: str, transition: str
+) -> dict[str, Any]:
+    row = _assignment_row(conn, assignment_id)
+    return {
+        "schema": "campaign_factory.learning_cohort.transition.v1",
+        "cohortId": COHORT_ID,
+        "assignmentId": assignment_id,
+        "transition": transition,
+        "renderedAssetId": row.get("rendered_asset_id"),
+        "draftId": row.get("draft_id"),
+        "postId": row.get("post_id"),
+        "generationState": row["generation_state"],
+        "approvalState": row["approval_state"],
+        "scheduleState": row["schedule_state"],
+        "publishState": row["publish_state"],
+        "publishedAt": row.get("published_at"),
+    }
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _run_day_blockers(conn: sqlite3.Connection, *, day_index: int) -> list[str]:

@@ -40,6 +40,10 @@ from .learning_cohort import (
     audit_learning_cohort,
     learning_cohort_status,
     prepare_learning_cohort,
+    record_learning_cohort_approval,
+    record_learning_cohort_draft,
+    record_learning_cohort_generation,
+    record_learning_cohort_publish,
     run_learning_cohort_day,
 )
 from .learning_readiness import closed_loop_learning_status
@@ -366,6 +370,24 @@ def main() -> int:
     cohort_assign = learning_cohort_sub.add_parser("assign-references")
     cohort_assign.add_argument("--identity-manifest", type=Path, required=True)
     cohort_assign.add_argument("--apply", action="store_true")
+    cohort_generation = learning_cohort_sub.add_parser("record-generation")
+    cohort_generation.add_argument("--assignment", required=True)
+    cohort_generation.add_argument("--rendered-asset-id", required=True)
+    cohort_generation.add_argument("--lineage", type=Path, required=True)
+    cohort_generation.add_argument("--artifact", type=Path, required=True)
+    cohort_generation.add_argument("--provider-reservation-id")
+    cohort_draft = learning_cohort_sub.add_parser("record-draft")
+    cohort_draft.add_argument("--assignment", required=True)
+    cohort_draft.add_argument("--draft-id", required=True)
+    cohort_approval = learning_cohort_sub.add_parser("record-approval")
+    cohort_approval.add_argument("--assignment", required=True)
+    cohort_approval.add_argument(
+        "--decision", choices=["approved", "rejected"], required=True
+    )
+    cohort_publish = learning_cohort_sub.add_parser("record-publish")
+    cohort_publish.add_argument("--assignment", required=True)
+    cohort_publish.add_argument("--post-id", required=True)
+    cohort_publish.add_argument("--published-at", required=True)
     learning_cohort_sub.add_parser("status")
     learning_cohort_sub.add_parser("audit")
 
@@ -2384,6 +2406,42 @@ def main() -> int:
                         cf.conn,
                         identity_manifest_path=args.identity_manifest,
                         apply=args.apply,
+                    )
+                )
+            elif args.learning_cohort_cmd == "record-generation":
+                print_json(
+                    record_learning_cohort_generation(
+                        cf.conn,
+                        assignment_id=args.assignment,
+                        rendered_asset_id=args.rendered_asset_id,
+                        lineage_path=args.lineage,
+                        artifact_path=args.artifact,
+                        provider_reservation_id=args.provider_reservation_id,
+                    )
+                )
+            elif args.learning_cohort_cmd == "record-draft":
+                print_json(
+                    record_learning_cohort_draft(
+                        cf.conn,
+                        assignment_id=args.assignment,
+                        draft_id=args.draft_id,
+                    )
+                )
+            elif args.learning_cohort_cmd == "record-approval":
+                print_json(
+                    record_learning_cohort_approval(
+                        cf.conn,
+                        assignment_id=args.assignment,
+                        decision=args.decision,
+                    )
+                )
+            elif args.learning_cohort_cmd == "record-publish":
+                print_json(
+                    record_learning_cohort_publish(
+                        cf.conn,
+                        assignment_id=args.assignment,
+                        post_id=args.post_id,
+                        published_at=args.published_at,
                     )
                 )
             elif args.learning_cohort_cmd == "status":
