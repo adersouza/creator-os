@@ -111,6 +111,7 @@ def test_disabled_tick_writes_report_without_creating_database(tmp_path: Path) -
 def test_operator_status_and_inbox_are_headless_read_surfaces(tmp_path: Path) -> None:
     status = orchestrator.operator_status(tmp_path)
     assert status["enabled"] is False
+    assert status["paidGenerationEnabled"] is False
     assert status["stateCounts"] == {}
 
     missing = orchestrator.operator_inbox(tmp_path)
@@ -403,6 +404,7 @@ def test_enabled_tick_blocks_generation_without_cost_estimate(
         "\n".join(
             [
                 "enabled = true",
+                "paid_generation_enabled = true",
                 "daily_candidate_target = 1",
                 'campaign = "campaign_a"',
                 'creator = "Stacey"',
@@ -423,7 +425,13 @@ def test_enabled_tick_blocks_generation_without_cost_estimate(
         lambda *args, **kwargs: pytest.fail("run_pipeline should not start"),
     )
 
-    report = orchestrator.tick(tmp_path, now=200, notify_user=False)
+    report = orchestrator.tick(
+        tmp_path,
+        now=200,
+        notify_user=False,
+        allow_paid_generation=True,
+        max_total_cost_usd=1.0,
+    )
 
     assert report["generation"]["reason"] == "cost_estimate_missing"
     assert report["stateCounts"] == {}
@@ -440,6 +448,7 @@ def test_enabled_tick_runs_pipeline_and_ingests_state(
         "\n".join(
             [
                 "enabled = true",
+                "paid_generation_enabled = true",
                 "daily_candidate_target = 1",
                 "top_k_for_approval = 1",
                 'campaign = "Campaign A"',
@@ -503,8 +512,72 @@ def test_enabled_tick_runs_pipeline_and_ingests_state(
     monkeypatch.setattr(orchestrator, "check_higgsfield_cost_preflight", fake_preflight)
     monkeypatch.setattr(orchestrator, "run_pipeline", fake_run_pipeline)
 
-    report = orchestrator.tick(tmp_path, now=200, notify_user=False)
+    report = orchestrator.tick(
+        tmp_path,
+        now=200,
+        notify_user=False,
+        allow_paid_generation=True,
+        max_total_cost_usd=1.0,
+    )
 
     assert report["generation"]["started"] is True
     assert report["promotedToApproval"] == 1
     assert report["stateCounts"] == {"awaiting_approval": 1}
+
+
+@pytest.mark.parametrize(
+    ("paid_enabled", "allow_paid", "maximum", "reason"),
+    [
+        (False, False, None, "paid_generation_disabled"),
+        (True, False, None, "paid_generation_cli_gate_missing"),
+        (True, True, None, "maximum_total_cost_missing"),
+        (True, True, 0.25, "maximum_total_cost_exceeded"),
+    ],
+)
+def test_paid_generation_requires_all_independent_gates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    paid_enabled: bool,
+    allow_paid: bool,
+    maximum: float | None,
+    reason: str,
+) -> None:
+    project_data = tmp_path / "project_data"
+    project_data.mkdir()
+    reference = tmp_path / "reference.jpg"
+    reference.write_bytes(b"reference")
+    (project_data / "orchestrator.toml").write_text(
+        "\n".join(
+            [
+                "enabled = true",
+                f"paid_generation_enabled = {str(paid_enabled).lower()}",
+                "daily_candidate_target = 1",
+                'campaign = "Campaign A"',
+                'creator = "Stacey"',
+                f'reference_image = "{reference}"',
+                "estimated_cost_per_asset_usd = 0.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "run_pipeline",
+        lambda *_args, **_kwargs: pytest.fail("provider pipeline must not start"),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "check_higgsfield_cost_preflight",
+        lambda **_kwargs: pytest.fail("preflight must not run before all gates"),
+    )
+
+    report = orchestrator.tick(
+        tmp_path,
+        now=200,
+        notify_user=False,
+        allow_paid_generation=allow_paid,
+        max_total_cost_usd=maximum,
+    )
+
+    assert report["generation"]["started"] is False
+    assert report["generation"]["reason"] == reason

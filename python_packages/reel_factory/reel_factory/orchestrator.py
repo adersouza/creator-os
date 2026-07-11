@@ -721,6 +721,7 @@ def load_config(root: Path) -> dict[str, Any]:
     )
     defaults: dict[str, Any] = {
         "enabled": False,
+        "paid_generation_enabled": False,
         "daily_candidate_target": 10,
         "top_k_for_approval": 3,
         "campaign": "",
@@ -756,6 +757,7 @@ def operator_status(root: Path) -> dict[str, Any]:
         "schema": "creator_os.reel_factory.operator_status.v1",
         "root": str(root),
         "enabled": bool(config.get("enabled", False)),
+        "paidGenerationEnabled": bool(config.get("paid_generation_enabled", False)),
         "campaign": str(config.get("campaign") or ""),
         "creator": str(config.get("creator") or ""),
         "dailyCandidateTarget": int(config.get("daily_candidate_target", 10)),
@@ -837,6 +839,8 @@ def tick(
     *,
     now: int | None = None,
     notify_user: bool = True,
+    allow_paid_generation: bool = False,
+    max_total_cost_usd: float | None = None,
 ) -> dict[str, Any]:
     root = Path(root).expanduser().resolve()
     ts = now_epoch() if now is None else now
@@ -873,8 +877,18 @@ def tick(
         estimate = config.get("estimated_cost_per_asset_usd")
         reference_image = _resolve_config_path(root, config.get("reference_image"))
         reference_reel = _resolve_config_path(root, config.get("reference_reel"))
+        paid_generation_enabled = bool(config.get("paid_generation_enabled", False))
         if shortfall <= 0:
             generation = {"started": False, "reason": "daily_target_met"}
+        elif not paid_generation_enabled:
+            generation = {"started": False, "reason": "paid_generation_disabled"}
+        elif not allow_paid_generation:
+            generation = {
+                "started": False,
+                "reason": "paid_generation_cli_gate_missing",
+            }
+        elif max_total_cost_usd is None or max_total_cost_usd <= 0:
+            generation = {"started": False, "reason": "maximum_total_cost_missing"}
         elif not config.get("campaign") or not config.get("creator"):
             generation = {"started": False, "reason": "campaign_or_creator_missing"}
         elif not reference_image and not reference_reel:
@@ -893,13 +907,23 @@ def tick(
             }
         else:
             total_estimate = float(estimate) * shortfall
-            preflight = check_higgsfield_cost_preflight(
-                asset_count=shortfall,
-                estimated_cost_usd=total_estimate,
-                root=root,
-                cost_db_path=campaign_factory_db_path(root),
-            )
-            if preflight.get("allowed"):
+            if total_estimate > float(max_total_cost_usd):
+                generation = {
+                    "started": False,
+                    "reason": "maximum_total_cost_exceeded",
+                    "estimatedTotalCostUsd": total_estimate,
+                    "maximumTotalCostUsd": float(max_total_cost_usd),
+                }
+            else:
+                preflight = check_higgsfield_cost_preflight(
+                    asset_count=shortfall,
+                    estimated_cost_usd=total_estimate,
+                    root=root,
+                    cost_db_path=campaign_factory_db_path(root),
+                )
+            if generation.get("reason") == "maximum_total_cost_exceeded":
+                pass
+            elif preflight.get("allowed"):
                 run_id = datetime.fromtimestamp(ts, UTC).strftime(
                     "orchestrator_%Y%m%d_%H%M%S"
                 )
@@ -971,6 +995,9 @@ def tick(
             "top_k_for_approval": int(config.get("top_k_for_approval", 3)),
             "campaign": str(config.get("campaign", "")),
             "creator": str(config.get("creator", "")),
+            "paid_generation_enabled": bool(
+                config.get("paid_generation_enabled", False)
+            ),
         },
         "stateCounts": state_counts,
         "recoveredStalled": recovered,
@@ -1010,6 +1037,9 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--reason", default=None)
         if name == "inbox":
             command.add_argument("--limit", type=int, default=100)
+        if name == "tick":
+            command.add_argument("--allow-paid-generation", action="store_true")
+            command.add_argument("--max-total-cost-usd", type=float)
     args = parser.parse_args(argv)
     if args.cmd == "init":
         with open_manifest(args.root):
@@ -1017,7 +1047,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"schema": "creator_os.reel_factory.orchestrator_init.v1"}))
         return 0
     if args.cmd == "tick":
-        print(json.dumps(tick(args.root), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                tick(
+                    args.root,
+                    allow_paid_generation=args.allow_paid_generation,
+                    max_total_cost_usd=args.max_total_cost_usd,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     if args.cmd == "status":
         print(json.dumps(operator_status(args.root), indent=2, sort_keys=True))
