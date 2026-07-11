@@ -22,6 +22,9 @@ test = ["pytest>=8"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "slow: heavy real-ffmpeg/real-render suites; deselect with -m 'not slow'",
+]
 
 [tool.uv.sources]
 creator-os-core = { workspace = true }

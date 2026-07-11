@@ -24,6 +24,9 @@ reel-factory = { workspace = true }
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
+markers = [
+  "slow: heavy real-ffmpeg/real-render suites; deselect with -m 'not slow'",
+]
 testpaths = [
   "packages/creator_os_core/tests",
   "packages/pipeline_contracts/tests",

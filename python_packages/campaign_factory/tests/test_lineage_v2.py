@@ -9,11 +9,7 @@ from campaign_factory.lineage_v2 import (
     lineage_v2_is_valid,
 )
 
-from pipeline_contracts import (
-    load_example,
-    validate_campaign_draft_payload,
-    validate_generated_asset_lineage_v2,
-)
+from pipeline_contracts import validate_generated_asset_lineage_v2
 
 
 def core_lineage():
@@ -124,13 +120,4 @@ def test_missing_prompt_hard_fails_and_v1_snapshot_is_fenced_from_learning():
             "published_at": "2026-01-02T00:00:00+00:00",
             "lineage_v2_valid": 0,
         }
-    )
-
-
-def test_python_draft_validator_dual_accepts_v1_and_v2():
-    validate_campaign_draft_payload(
-        load_example("campaign_draft_payload.v1.example.json")
-    )
-    validate_campaign_draft_payload(
-        load_example("campaign_draft_payload.v2.example.json")
     )

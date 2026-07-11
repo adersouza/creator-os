@@ -100,6 +100,7 @@ def test_motion_edit_contract_import_error_is_not_swallowed(monkeypatch) -> None
         _validate_result({})
 
 
+@pytest.mark.slow
 def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
     still = _still(tmp_path / "still.png")
     out = tmp_path / "out.mp4"
@@ -177,6 +178,7 @@ def test_motion_edit_low_resolution_requires_explicit_upscale(tmp_path: Path) ->
     assert result["quality"]["status"] == "planned"
 
 
+@pytest.mark.slow
 def test_motion_edit_optional_local_audio_is_explicit_licensed_music(
     tmp_path: Path,
 ) -> None:
