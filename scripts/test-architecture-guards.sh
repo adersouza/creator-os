@@ -37,7 +37,7 @@ FIXTURE
 
 if (cd "$ROOT" && pnpm check:arch:ts >/tmp/creator-os-arch-guard-ts.log 2>&1); then
   cat /tmp/creator-os-arch-guard-ts.log
-  echo "ERROR: dependency-cruiser did not reject pipeline_contracts -> app runtime import" >&2
+  echo "ERROR: dependency-cruiser did not reject pipeline_contracts -> runtime import" >&2
   exit 1
 fi
 
