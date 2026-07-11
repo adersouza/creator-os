@@ -196,8 +196,14 @@ Creator OS must become a usable headless production system that:
    The active path now reserves those native-credit quotes atomically; no live
    Kling result is present in current runtime evidence.
 5. Free static MP4 rendering now runs as a mandatory, idempotent transition in
-   the active accepted-still front path and remains durable if optional Kling
-   fails.
+   the same live front-generation invocation that downloads each QC-passing
+   original or sexy Soul still. It no longer waits for a second
+   `--accepted-still` command, and an original fallback remains durable if the
+   later sexy candidate or optional Kling generation fails.
+6. Best-only Kling receipt validation now proves that the selected candidate is
+   the unique evidence-backed rank-one result, that every eligible candidate is
+   present exactly once, and that ranking itself cannot authorize spending or
+   publishing.
 
 ## Required Completion Evidence
 
@@ -205,7 +211,7 @@ Creator OS must become a usable headless production system that:
 | --- | --- |
 | Reference-conditioned Soul still | Real provider result, captured prompt, local artifact, cost record, and lineage |
 | Original/sexy behavior | Exactly two provider charges total, distinct original and text-only sexy lineage, identity/anatomy QC, and selection explanation |
-| Automatic static MP4 | Accepted still transition creates valid 1080x1920 H.264 MP4 with audio intent and no manual command |
+| Automatic static MP4 | One live front-generation invocation creates a registered 1080x1920 H.264 MP4 plus audio intent for every QC-passing downloaded original/sexy still, with no second command; a later candidate failure leaves earlier fallbacks durable |
 | Best-only Kling | Ranking/approval evidence precedes a bounded paid request; rejected candidates cannot spend |
 | Kling generation | Real downloaded video, provider receipt, cost record, identity/visual QC, and static fallback retained |
 | Draft handoff | Signed HMAC request, durable draft record, and proof that no schedule or publish row was created |

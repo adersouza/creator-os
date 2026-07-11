@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -151,7 +154,17 @@ def run_front_generation_stage(
         }
         validate_front_generation_plan(plan)
         static_result = _stage_result(stages, "static_mp4")
-        registered_static_asset = static_result.get("registeredAsset")
+        registered_static_assets = static_result.get("registeredAssets")
+        if not isinstance(registered_static_assets, list):
+            registered_static_asset = static_result.get("registeredAsset")
+            registered_static_assets = (
+                [registered_static_asset]
+                if isinstance(registered_static_asset, dict)
+                else []
+            )
+        registered_static_asset = (
+            registered_static_assets[0] if registered_static_assets else None
+        )
         registered_asset = None
         variation = None
         if apply and not dry_run and accepted_still_path and animation_mode == "kling":
@@ -190,6 +203,7 @@ def run_front_generation_stage(
             "apply": bool(apply and not dry_run),
             "plan": plan,
             "registeredStaticAsset": registered_static_asset,
+            "registeredStaticAssets": registered_static_assets,
             "registeredAsset": registered_asset,
             "variation": variation,
             "promptPath": str(prompt_path),
@@ -273,6 +287,7 @@ def _build_stages(
 ) -> list[dict[str, Any]]:
     stages: list[dict[str, Any]] = []
     if accepted_still_path is None:
+        static_batches: list[dict[str, Any]] = []
         image_result = _invoke_generate_assets(
             factory,
             [
@@ -290,6 +305,14 @@ def _build_stages(
         )
         if not dry_run:
             _require_generation_ok(image_result, "Soul reference image")
+            static_batches.append(
+                _materialize_generated_static_candidates(
+                    factory,
+                    campaign_slug=campaign_slug,
+                    reference_image=reference_image,
+                    generated_candidates=(("original", image_result),),
+                )
+            )
         stages.append(
             {
                 "name": "soul_reference_image",
@@ -300,6 +323,7 @@ def _build_stages(
                 "result": image_result,
             }
         )
+        sexy_result: dict[str, Any] | None = None
         if dry_run:
             stages.append(
                 {
@@ -344,6 +368,14 @@ def _build_stages(
                 ],
             )
             _require_generation_ok(sexy_result, "text-only Soul sexy variant")
+            static_batches.append(
+                _materialize_generated_static_candidates(
+                    factory,
+                    campaign_slug=campaign_slug,
+                    reference_image=reference_image,
+                    generated_candidates=(("sexy", sexy_result),),
+                )
+            )
             stages.append(
                 {
                     "name": "soul_sexy_image",
@@ -355,29 +387,60 @@ def _build_stages(
                     "variantSpec": variant_spec,
                 }
             )
-        stages.append(
-            {
-                "name": "still_accept_gate",
-                "status": "waiting_for_review",
-                "paid": False,
-                "estimatedCostCredits": 0,
-                "commands": [],
-                "reason": (
-                    "Review the original and sexy still together, then supply the "
-                    "accepted still for its mandatory static MP4."
-                ),
-            }
-        )
-        stages.append(
-            {
-                "name": "static_mp4",
-                "status": "blocked",
-                "paid": False,
-                "estimatedCostCredits": 0,
-                "commands": [],
-                "reason": "Static MP4 requires the accepted still path.",
-            }
-        )
+        if dry_run:
+            stages.append(
+                {
+                    "name": "still_accept_gate",
+                    "status": "waiting_for_review",
+                    "paid": False,
+                    "estimatedCostCredits": 0,
+                    "commands": [],
+                    "reason": (
+                        "A live QC-passing original and sexy still will each receive "
+                        "a static MP4 before human review."
+                    ),
+                }
+            )
+            stages.append(
+                {
+                    "name": "static_mp4",
+                    "status": "blocked",
+                    "paid": False,
+                    "estimatedCostCredits": 0,
+                    "commands": [],
+                    "reason": "Static MP4 requires downloaded QC-passing stills.",
+                }
+            )
+        else:
+            if sexy_result is None:
+                raise RuntimeError("text-only Soul sexy variant result is missing")
+            static_batch = _combine_generated_static_candidate_batches(static_batches)
+            stages.append(
+                {
+                    "name": "still_accept_gate",
+                    "status": "waiting_for_review",
+                    "paid": False,
+                    "estimatedCostCredits": 0,
+                    "commands": [],
+                    "reason": (
+                        "QC-passing stills already have zero-cost static fallbacks; "
+                        "human review now selects handoff and optional Kling candidates."
+                    ),
+                }
+            )
+            stages.append(
+                {
+                    "name": "static_mp4",
+                    "status": "submitted",
+                    "paid": False,
+                    "estimatedCostCredits": 0,
+                    "commands": [
+                        candidate["staticMp4"]["render"].get("ffmpegCommand") or []
+                        for candidate in static_batch["candidates"]
+                    ],
+                    "result": static_batch,
+                }
+            )
         if animation_mode == "motion_edit":
             stages.append(
                 {
@@ -510,6 +573,284 @@ def _build_stages(
             }
         )
     return stages
+
+
+def _combine_generated_static_candidate_batches(
+    batches: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidates = [
+        candidate
+        for batch in batches
+        for candidate in batch.get("candidates", [])
+        if isinstance(candidate, dict)
+    ]
+    registered_assets = [
+        asset
+        for batch in batches
+        for asset in batch.get("registeredAssets", [])
+        if isinstance(asset, dict)
+    ]
+    if not candidates or len(candidates) != len(registered_assets):
+        raise RuntimeError("generated static candidate batches are incomplete")
+    return {
+        "schema": "campaign_factory.generated_static_candidate_batch.v1",
+        "paidGeneration": False,
+        "candidateCount": len(candidates),
+        "candidates": candidates,
+        "registeredAssets": registered_assets,
+    }
+
+
+def _materialize_generated_static_candidates(
+    factory: Any,
+    *,
+    campaign_slug: str,
+    reference_image: Path,
+    generated_candidates: tuple[tuple[str, dict[str, Any]], ...],
+) -> dict[str, Any]:
+    """Persist every QC-passing generated still and render its free fallback."""
+    campaign = factory.campaign_by_slug(campaign_slug)
+    candidates: list[dict[str, Any]] = []
+    registered_assets: list[dict[str, Any]] = []
+    for variant, generation_result in generated_candidates:
+        stills = _qc_passing_stills(generation_result, variant=variant)
+        for still in stills:
+            source_asset = _ensure_generated_still_source_asset(
+                factory,
+                campaign=campaign,
+                reference_image=reference_image,
+                still=still,
+                generation_result=generation_result,
+                variant=variant,
+            )
+            canonical_still = Path(source_asset["stored_path"]).expanduser().resolve()
+            if not canonical_still.is_file():
+                raise FileNotFoundError(
+                    f"registered {variant} Soul still is missing: {canonical_still}"
+                )
+            static_result = run_static_mp4_stage(
+                factory,
+                campaign_slug=campaign_slug,
+                still_path=canonical_still,
+                dry_run=False,
+                apply=True,
+            )
+            registered = static_result.get("registeredAsset")
+            if not isinstance(registered, dict):
+                raise RuntimeError(f"{variant} static MP4 was not registered")
+            registered_assets.append(registered)
+            candidates.append(
+                {
+                    "variant": variant,
+                    "stillPath": str(canonical_still),
+                    "sourceAssetId": source_asset["id"],
+                    "renderedAssetId": registered["id"],
+                    "staticMp4": static_result,
+                }
+            )
+    if not candidates:
+        raise RuntimeError(
+            "no QC-passing generated stills were available for static MP4"
+        )
+    return {
+        "schema": "campaign_factory.generated_static_candidate_batch.v1",
+        "paidGeneration": False,
+        "candidateCount": len(candidates),
+        "candidates": candidates,
+        "registeredAssets": registered_assets,
+    }
+
+
+def _qc_passing_stills(result: dict[str, Any], *, variant: str) -> list[Path]:
+    lineage = result.get("lineage")
+    review = lineage.get("review") if isinstance(lineage, dict) else None
+    qc = review.get("generatedImageQc") if isinstance(review, dict) else None
+    if not isinstance(qc, dict) or qc.get("status") != "passed":
+        raise RuntimeError(f"{variant} still lacks passing generated-image QC")
+    rows = qc.get("results")
+    if not isinstance(rows, list):
+        raise RuntimeError(f"{variant} still QC has no result rows")
+    paths: list[Path] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("postable") is not True:
+            continue
+        value = row.get("path")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        path = Path(value).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"{variant} QC-passing still not found: {path}")
+        if path not in paths:
+            paths.append(path)
+    if not paths:
+        raise RuntimeError(f"{variant} still QC has no postable local output")
+    return paths
+
+
+def _ensure_generated_still_source_asset(
+    factory: Any,
+    *,
+    campaign: dict[str, Any],
+    reference_image: Path,
+    still: Path,
+    generation_result: dict[str, Any],
+    variant: str,
+) -> dict[str, Any]:
+    lineage = generation_result.get("lineage")
+    if not isinstance(lineage, dict):
+        raise ValueError(f"{variant} generated still is missing lineage")
+    lineage = copy.deepcopy(lineage)
+    source = lineage.setdefault("source", {})
+    lineage_path = str(generation_result.get("path") or "").strip()
+    if lineage_path:
+        source["sourceLineagePath"] = str(Path(lineage_path).expanduser().resolve())
+    review = lineage.setdefault("review", {})
+    review["qcAcceptanceStatus"] = "accepted"
+    review.setdefault("humanReviewStatus", "pending")
+
+    digest = sha256_file(still)
+    existing = factory.conn.execute(
+        "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
+        (campaign["id"], digest),
+    ).fetchone()
+    model_row = factory.conn.execute(
+        "SELECT model_id FROM source_assets WHERE campaign_id = ? "
+        "ORDER BY created_at, id LIMIT 1",
+        (campaign["id"],),
+    ).fetchone()
+    if not model_row:
+        raise ValueError(
+            "front generation requires an existing campaign source to resolve its model"
+        )
+
+    prompt_text = _generated_prompt_text(lineage)
+    prompt_id = (
+        "prompt_higgsfield_"
+        + hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()[:16]
+    )
+    reference_id = str(source.get("referenceId") or "").strip() or (
+        "reference_file_" + sha256_file(reference_image)[:16]
+    )
+    source_prompt = {
+        "schema": "campaign_factory.generated_soul_still_source.v1",
+        "variant": variant,
+        "promptId": prompt_id,
+        "referenceId": reference_id,
+        "referenceImagePath": str(reference_image),
+        "generatedAssetLineage": lineage,
+    }
+    stored_source_prompt = json.dumps(
+        sanitize_for_storage(source_prompt), ensure_ascii=False, sort_keys=True
+    )
+
+    if existing:
+        row = dict(existing)
+        current: dict[str, Any] = {}
+        raw_current = row.get("source_prompt")
+        if isinstance(raw_current, str) and raw_current.strip():
+            try:
+                parsed = json.loads(raw_current)
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                current = parsed
+        if current.get("schema") != source_prompt["schema"]:
+            if current:
+                source_prompt["previousSourcePrompt"] = current
+            stored_source_prompt = json.dumps(
+                sanitize_for_storage(source_prompt),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            factory.conn.execute(
+                "UPDATE source_assets SET source_prompt = ?, status = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    stored_source_prompt,
+                    "generated_qc_passed",
+                    utc_now(),
+                    row["id"],
+                ),
+            )
+            factory.conn.commit()
+            row = dict(
+                factory.conn.execute(
+                    "SELECT * FROM source_assets WHERE id = ?", (row["id"],)
+                ).fetchone()
+            )
+        return row
+
+    model_slug = factory._model_slug_for_campaign(campaign["id"])
+    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    stored = dirs["sources"] / (
+        f"{slugify(still.stem)}_{digest[:10]}{still.suffix.lower()}"
+    )
+    if still != stored.resolve():
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(still, stored)
+    else:
+        stored = still
+    now = utc_now()
+    source_id = new_id("src")
+    factory.conn.execute(
+        """
+        INSERT INTO source_assets
+        (id, campaign_id, model_id, content_hash, original_path, stored_path,
+         filename, media_type, content_surface, platform, source_prompt, notes,
+         account_ids_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'image', 'reel', 'instagram', ?, ?, '[]',
+                'generated_qc_passed', ?, ?)
+        """,
+        (
+            source_id,
+            campaign["id"],
+            model_row["model_id"],
+            digest,
+            str(still),
+            str(stored),
+            stored.name,
+            stored_source_prompt,
+            f"QC-passing {variant} Soul still from front generation.",
+            now,
+            now,
+        ),
+    )
+    factory.conn.commit()
+    factory.record_event(
+        "source_imported",
+        campaign_id=campaign["id"],
+        source_asset_id=source_id,
+        status="success",
+        message=f"Registered QC-passing {variant} Soul still",
+        metadata={
+            "variant": variant,
+            "originalPath": str(still),
+            "storedPath": str(stored),
+            "contentHash": digest,
+            "sourceGenerationPaid": True,
+            "staticFallbackPaidGeneration": False,
+        },
+    )
+    return dict(
+        factory.conn.execute(
+            "SELECT * FROM source_assets WHERE id = ?", (source_id,)
+        ).fetchone()
+    )
+
+
+def _generated_prompt_text(lineage: dict[str, Any]) -> str:
+    generation = lineage.get("generation")
+    if not isinstance(generation, dict):
+        raise ValueError("generated still lineage is missing generation metadata")
+    captured = str(generation.get("capturedHiggsfieldPrompt") or "").strip()
+    if captured:
+        return captured
+    prompts = generation.get("prompts")
+    if isinstance(prompts, dict):
+        prompt = str(prompts.get("higgsfieldGridPrompt") or "").strip()
+        if prompt:
+            return prompt
+    raise ValueError("generated still lineage is missing its provider prompt")
 
 
 def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:

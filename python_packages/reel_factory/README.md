@@ -192,10 +192,12 @@ python3 static_mp4.py \
   --apply
 ```
 
-This produces a five-second 1080x1920 H.264 MP4 with no zoom, burned caption,
-or burned audio. Its audio-intent sidecar keeps native audio selection and
-publishing gated downstream. Campaign Factory invokes this renderer
-automatically for accepted stills in the unified front-generation flow.
+This produces a deterministic 5–7 second 1080x1920 H.264 MP4 with no zoom,
+burned caption, or burned audio. Its audio-intent sidecar keeps native audio
+selection and publishing gated downstream. Campaign Factory invokes this
+renderer automatically for every downloaded, QC-passing original and sexy
+still inside the same live front-generation run; the command above is for
+standalone/legacy reconciliation.
 
 Legacy prompt-json commands still exist for old experiments and tests, but they
 are not the normal operator path.

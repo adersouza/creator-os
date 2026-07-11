@@ -3990,6 +3990,7 @@ def patch_front_static_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
         assert allow_upscale is False
         if not dry_run:
             write_fake_static_mp4_outputs(output_path)
+            output_path.write_bytes(f"static:{still_path.name}".encode())
         return fake_static_mp4_render(still_path, output_path, dry_run=dry_run)
 
     monkeypatch.setattr(
@@ -4030,9 +4031,14 @@ def patch_front_kling_selection(
     return receipt_path
 
 
-def fake_front_generation_result(args: list[str]) -> dict:
+def fake_front_generation_result(
+    args: list[str], *, output_dir: Path | None = None
+) -> dict:
     mode = args[0]
     if mode.startswith("reference-image"):
+        still = output_dir / "original.png" if output_dir else None
+        if still:
+            still.write_bytes(b"original-still")
         return {
             "ok": True,
             "dry_run": mode.endswith("dry-run"),
@@ -4045,15 +4051,49 @@ def fake_front_generation_result(args: list[str]) -> dict:
                     "capturedHiggsfieldPrompt": "A mirror selfie in a fitted black top.",
                     "imageJobId": "image_original_1",
                 },
+                "assets": {
+                    "localPaths": {"image": str(still)} if still else {},
+                },
+                "review": {
+                    "generatedImageQc": {
+                        "status": "passed",
+                        "results": (
+                            [{"path": str(still), "postable": True}] if still else []
+                        ),
+                    }
+                },
             },
         }
     if mode.startswith("image"):
+        still = output_dir / "sexy.png" if output_dir else None
+        if still:
+            still.write_bytes(b"sexy-still")
         return {
             "ok": True,
             "dry_run": mode.endswith("dry-run"),
             "workflow": "higgsfield_soul_v2_image_only",
             "commands": [["higgsfield", "generate", "create", "text2image_soul_v2"]],
             "lineage_path": "/tmp/sexy_variant_lineage.json",
+            "lineage": {
+                "source": {"soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"},
+                "generation": {
+                    "prompts": {
+                        "higgsfieldGridPrompt": "A mirror selfie in a fitted black top, 19 years old."
+                    },
+                    "imageJobId": "image_sexy_1",
+                },
+                "assets": {
+                    "localPaths": {"image": str(still)} if still else {},
+                },
+                "review": {
+                    "generatedImageQc": {
+                        "status": "passed",
+                        "results": (
+                            [{"path": str(still), "postable": True}] if still else []
+                        ),
+                    }
+                },
+            },
         }
     if mode.startswith("video"):
         return {
@@ -4351,7 +4391,7 @@ def test_front_generation_live_paid_path_requires_wait_and_download(
         cf.close()
 
 
-def test_front_generation_apply_submits_still_only_before_review(
+def test_front_generation_apply_automatically_materializes_static_candidates_before_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     cf = make_factory(tmp_path)
@@ -4363,13 +4403,14 @@ def test_front_generation_apply_submits_still_only_before_review(
 
         def fake_invoke(_factory, args):
             calls.append(args)
-            return fake_front_generation_result(args)
+            return fake_front_generation_result(args, output_dir=tmp_path)
 
         monkeypatch.setattr(
             "campaign_factory.front_generation_stage._invoke_generate_assets",
             fake_invoke,
         )
         patch_front_variant_spec(monkeypatch)
+        patch_front_static_renderer(monkeypatch)
 
         result = run_front_generation_stage(
             cf,
@@ -4421,13 +4462,102 @@ def test_front_generation_apply_submits_still_only_before_review(
         assert plan["stages"][2]["name"] == "still_accept_gate"
         assert plan["stages"][2]["status"] == "waiting_for_review"
         assert plan["stages"][3]["name"] == "static_mp4"
-        assert plan["stages"][3]["status"] == "blocked"
+        assert plan["stages"][3]["status"] == "submitted"
+        assert plan["stages"][3]["result"]["candidateCount"] == 2
         assert plan["stages"][4]["name"] == "kling_video"
         assert plan["stages"][4]["status"] == "blocked"
         assert plan["publishingAllowed"] is False
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
+        assert len(result["registeredStaticAssets"]) == 2
+        assert {asset["recipe"] for asset in result["registeredStaticAssets"]} == {
+            "static_mp4"
+        }
+        assert {
+            candidate["variant"]
+            for candidate in plan["stages"][3]["result"]["candidates"]
+        } == {"original", "sexy"}
+        generated_sources = cf.conn.execute(
+            "SELECT source_prompt, status FROM source_assets "
+            "WHERE status = 'generated_qc_passed' ORDER BY created_at, id"
+        ).fetchall()
+        assert len(generated_sources) == 2
+        source_prompts = [json.loads(row["source_prompt"]) for row in generated_sources]
+        assert {prompt["variant"] for prompt in source_prompts} == {
+            "original",
+            "sexy",
+        }
+        assert all(
+            prompt["generatedAssetLineage"]["review"]["qcAcceptanceStatus"]
+            == "accepted"
+            for prompt in source_prompts
         )
+        assert all(
+            prompt["generatedAssetLineage"]["review"]["humanReviewStatus"] == "pending"
+            for prompt in source_prompts
+        )
+        assert (
+            cf.conn.execute(
+                "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'static_mp4'"
+            ).fetchone()[0]
+            == 2
+        )
+    finally:
+        cf.close()
+
+
+def test_front_generation_preserves_original_static_when_sexy_candidate_fails_qc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+
+        def fake_invoke(_factory, args):
+            result = fake_front_generation_result(args, output_dir=tmp_path)
+            if args[0] == "image":
+                result["ok"] = False
+                result["lineage"]["review"]["generatedImageQc"]["status"] = "failed"
+                result["error"] = {"reason": "generated_image_qc_failed"}
+            return result
+
+        monkeypatch.setattr(
+            "campaign_factory.front_generation_stage._invoke_generate_assets",
+            fake_invoke,
+        )
+        patch_front_variant_spec(monkeypatch)
+        patch_front_static_renderer(monkeypatch)
+
+        with pytest.raises(
+            RuntimeError, match="text-only Soul sexy variant generation blocked"
+        ):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                enable_paid_generation=True,
+                budget_cap_credits=10,
+                wait=True,
+                download=True,
+            )
+
+        rows = cf.conn.execute(
+            "SELECT recipe, review_state FROM rendered_assets ORDER BY created_at"
+        ).fetchall()
+        assert [(row["recipe"], row["review_state"]) for row in rows] == [
+            ("static_mp4", "review_ready")
+        ]
+        jobs = cf.conn.execute(
+            "SELECT job_type, status FROM pipeline_jobs "
+            "WHERE job_type IN ('front_generation', 'static_mp4') ORDER BY created_at"
+        ).fetchall()
+        assert {(row["job_type"], row["status"]) for row in jobs} == {
+            ("front_generation", "failed"),
+            ("static_mp4", "succeeded"),
+        }
     finally:
         cf.close()
 
@@ -5386,7 +5516,7 @@ def test_kling_selection_stage_registers_unique_best_approved_static(
                     {
                         **candidates[0],
                         "rank": 2,
-                        "score": 0.4,
+                        "score": 0.9,
                         "predictedEngagement": {"score": 0.4, "matched": 1},
                     },
                 ],
@@ -5484,6 +5614,56 @@ def test_kling_selection_stage_blocks_unapproved_or_ambiguous_batches(
                 campaign_slug="may",
                 rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
                 batch_id="ambiguous",
+                dry_run=False,
+                apply=True,
+            )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM kling_selection_receipts").fetchone()[
+                0
+            ]
+            == 0
+        )
+    finally:
+        cf.close()
+
+
+def test_kling_selection_stage_rejects_selected_candidate_that_is_not_unique_best(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        assets, _stills = create_approved_static_candidates(cf, tmp_path, monkeypatch)
+
+        def inconsistent(_factory, *, manifest_path: Path, ranking_path: Path):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            candidates = manifest["candidates"]
+            ranking = {
+                "schema": "reel_factory.kling_candidate_ranking.v1",
+                "batchId": manifest["batchId"],
+                "status": "selected",
+                "selectedCandidateId": candidates[1]["id"],
+                "candidateCount": 2,
+                "signalPresent": True,
+                "paidGenerationAuthorized": False,
+                "publishingAllowed": False,
+                "candidates": [
+                    {**candidates[0], "rank": 1, "score": 0.9},
+                    {**candidates[1], "rank": 2, "score": 0.4},
+                ],
+            }
+            ranking_path.write_text(json.dumps(ranking), encoding="utf-8")
+            return ranking
+
+        monkeypatch.setattr(
+            "campaign_factory.kling_selection_stage._invoke_reel_factory_rank",
+            inconsistent,
+        )
+        with pytest.raises(ValueError, match="rank-one"):
+            run_kling_selection_stage(
+                cf,
+                campaign_slug="may",
+                rendered_asset_ids=[assets[0]["id"], assets[1]["id"]],
+                batch_id="inconsistent",
                 dry_run=False,
                 apply=True,
             )
