@@ -10,8 +10,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .config import Settings
-from .fileops import atomic_write_text
 from .persistence import json_load
 
 

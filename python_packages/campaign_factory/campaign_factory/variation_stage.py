@@ -5,12 +5,12 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
 from repurposer.pipeline import VariantPipeline
 
 from pipeline_contracts import validate_variant_assignment
 
 from .adapters.contentforge import audit_variation_batch
-from .fileops import atomic_write_text
 
 CAMPAIGN_FACTORY_AUDIT_CONTRACTS = {
     "campaign_factory_audit.v1.7",

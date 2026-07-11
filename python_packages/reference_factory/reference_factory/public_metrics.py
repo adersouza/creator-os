@@ -8,9 +8,10 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .caption_archetypes import caption_archetype
 from .db import json_dump, json_load
-from .fileops import atomic_write_text
 from .identity import stable_id
 from .timeutil import now_iso
 

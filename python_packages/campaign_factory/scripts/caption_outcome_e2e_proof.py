@@ -26,8 +26,8 @@ from campaign_factory.adapters.threadsdash import (  # noqa: E402
 )
 from campaign_factory.config import Settings  # noqa: E402
 from campaign_factory.core import CampaignFactory  # noqa: E402
-from campaign_factory.fileops import atomic_write_text
 from campaign_factory.reel_ledger_promotion import promote_reel_ledger  # noqa: E402
+from creator_os_core.fileops import atomic_write_text
 from reel_pipeline import build_caption_outcome_context  # noqa: E402
 
 CAPTION_TEXT = "Hard launch energy."

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from campaign_factory.fileops import atomic_write_json, atomic_write_text, file_lock
+from creator_os_core.fileops import atomic_write_json, atomic_write_text, file_lock
 
 
 def test_atomic_write_text_creates_parents_and_content(tmp_path: Path) -> None:

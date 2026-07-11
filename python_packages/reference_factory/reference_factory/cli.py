@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
 from reel_factory.higgsfield_cost_preflight import (
     nonnegative_float_arg,
     positive_int_arg,
@@ -39,7 +40,6 @@ from .config import (
 from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
-from .fileops import atomic_write_text
 from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch

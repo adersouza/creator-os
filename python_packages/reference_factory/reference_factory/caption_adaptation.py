@@ -5,8 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
+
 from .config import DEFAULT_DATA_ROOT
-from .fileops import atomic_write_text
 from .identity import text_hash
 
 DEFAULT_PROFILE: dict[str, object] = {

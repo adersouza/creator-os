@@ -15,14 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
 from reel_factory.higgsfield_cost_preflight import (
     BalanceProvider,
     cancel_higgsfield_spend_reservation,
     consume_higgsfield_spend_reservation,
     reserve_higgsfield_spend,
 )
-
-from .fileops import atomic_write_text
 
 DEFAULT_STACEY_SOUL_ID = "5828d958-91dd-4d6d-8909-934503f47644"
 DEFAULT_SOUL_IDS = {

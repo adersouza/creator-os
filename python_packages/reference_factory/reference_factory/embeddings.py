@@ -8,10 +8,9 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
+from creator_os_core.fileops import atomic_write_text
 from creator_os_core.vectors import cosine_similarity as _cosine
 from creator_os_core.vectors import normalize_vector as _normalize
-
-from .fileops import atomic_write_text
 
 DEFAULT_EMBEDDING_MODEL = "vit_small_patch14_dinov2.lvd142m"
 DEFAULT_EMBEDDING_THRESHOLD = 0.86
