@@ -120,5 +120,5 @@ reel_factory/render_queue.py:__init__:191
 reel_factory/thumbnail_gen.py:generate_thumbnails:70
 reel_factory/whisper_sync.py:transcribe_clip:52
 reel_factory/whisper_sync.py:_has_audio_stream:158
-reel_factory/winner_dna.py:feature_text_for_output:297
-reel_factory/winner_dna.py:feature_text_for_output:309
+reel_factory/winner_dna.py:feature_text_for_output:299
+reel_factory/winner_dna.py:feature_text_for_output:311

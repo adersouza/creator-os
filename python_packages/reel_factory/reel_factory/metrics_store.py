@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import sqlite3
@@ -15,6 +16,7 @@ from audio_intent import read_audio_intent
 from campaign_store import ensure_campaign_schema, slugify
 from intelligence_store import ensure_intelligence_schema, winner_score
 
+from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 from reel_factory.sqlite_utils import connect_sqlite
 
 METRIC_COLUMNS = (
@@ -871,6 +873,11 @@ def upsert_bridge_outcome(
             now,
         ),
     )
+    feature_id = _upsert_snapshot_features(
+        conn,
+        snapshot=snapshot,
+        output_path=output_path,
+    )
     previous_outcome_id = _text((previous_identity or {}).get("outcomeId"))
     previous_filename = _text((previous_identity or {}).get("filename"))
     if previous_outcome_id and previous_outcome_id != outcome_id:
@@ -887,7 +894,88 @@ def upsert_bridge_outcome(
         "outcomeId": outcome_id,
         "filename": filename,
         "sourceSnapshotAt": source_snapshot_at,
+        "featureId": feature_id,
     }
+
+
+def _upsert_snapshot_features(
+    conn: sqlite3.Connection,
+    *,
+    snapshot: dict[str, Any],
+    output_path: str,
+) -> str | None:
+    raw = snapshot.get("raw_json")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = {}
+    if not isinstance(raw, dict):
+        return None
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    campaign_meta = (
+        metadata.get("campaign_factory")
+        if isinstance(metadata.get("campaign_factory"), dict)
+        else {}
+    )
+    lineage = campaign_meta.get("generated_asset_lineage")
+    if not isinstance(lineage, dict):
+        return None
+    features = features_from_lineage(lineage)
+    if not any(features.get(key) not in (None, "", "unknown") for key in FEATURE_KEYS):
+        return None
+    source = lineage.get("source") if isinstance(lineage.get("source"), dict) else {}
+    now = int(time.time())
+    feature_id = (
+        "feat_bridge_" + hashlib.sha256(output_path.encode("utf-8")).hexdigest()[:16]
+    )
+    conn.execute(
+        """
+        INSERT INTO reel_features (
+          feature_id, output_path, campaign_id, source_reference_id,
+          scene, camera, pose, motion, outfit, creator, grid_source,
+          caption_style, hook_type, audio_track_id, body_style,
+          features_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(output_path) DO UPDATE SET
+          campaign_id = COALESCE(excluded.campaign_id, reel_features.campaign_id),
+          source_reference_id = COALESCE(
+            excluded.source_reference_id, reel_features.source_reference_id
+          ),
+          scene = excluded.scene,
+          camera = excluded.camera,
+          pose = excluded.pose,
+          motion = excluded.motion,
+          outfit = excluded.outfit,
+          creator = excluded.creator,
+          caption_style = excluded.caption_style,
+          hook_type = excluded.hook_type,
+          audio_track_id = excluded.audio_track_id,
+          body_style = excluded.body_style,
+          features_json = excluded.features_json,
+          updated_at = excluded.updated_at
+        """,
+        (
+            feature_id,
+            output_path,
+            snapshot.get("campaign_id"),
+            source.get("referenceId"),
+            features.get("scene"),
+            features.get("camera"),
+            features.get("pose"),
+            features.get("motion"),
+            features.get("outfit"),
+            features.get("creator"),
+            features.get("caption_style"),
+            features.get("hook_type"),
+            features.get("audio_track_id"),
+            features.get("body_style"),
+            json.dumps(features, ensure_ascii=False, sort_keys=True),
+            now,
+            now,
+        ),
+    )
+    return feature_id
 
 
 def retract_bridge_outcome(

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from audio_intent import read_audio_intent
+from campaign_store import ensure_campaign_schema
 from caption_bank import caption_static_metadata
 from feature_extract import FEATURE_KEYS, extract_features, features_from_lineage
 from intelligence_store import (
@@ -31,6 +32,7 @@ _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 def connect(root: Path) -> sqlite3.Connection:
     conn = connect_sqlite(Path(root) / "manifest.sqlite")
     ensure_intelligence_schema(conn)
+    ensure_campaign_schema(conn)
     return conn
 
 
