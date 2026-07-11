@@ -1781,8 +1781,12 @@ def main() -> int:
                     winner_expansion_report=load_json_object(
                         args.winner_expansion_report_json
                     ),
-                    winner_expansion_plan=load_json_object(args.winner_expansion_plan_json),
-                    variant_metrics_rollup=load_json_object(args.variant_metrics_rollup_json),
+                    winner_expansion_plan=load_json_object(
+                        args.winner_expansion_plan_json
+                    ),
+                    variant_metrics_rollup=load_json_object(
+                        args.variant_metrics_rollup_json
+                    ),
                     date=args.date,
                 )
             )
@@ -2007,17 +2011,23 @@ def main() -> int:
             return 0
         if args.cmd == "discoverability-intake-gate":
             print_json(
-                cf.discoverability_intake_gate(load_json_object(args.payload_json) or {})
+                cf.discoverability_intake_gate(
+                    load_json_object(args.payload_json) or {}
+                )
             )
             return 0
         if args.cmd == "discoverability-generation-gate":
             print_json(
-                cf.discoverability_generation_gate(load_json_object(args.payload_json) or {})
+                cf.discoverability_generation_gate(
+                    load_json_object(args.payload_json) or {}
+                )
             )
             return 0
         if args.cmd == "discoverability-pre-render-gate":
             print_json(
-                cf.discoverability_pre_render_gate(load_json_object(args.payload_json) or {})
+                cf.discoverability_pre_render_gate(
+                    load_json_object(args.payload_json) or {}
+                )
             )
             return 0
         if args.cmd == "discoverability-violation-origin-map":
