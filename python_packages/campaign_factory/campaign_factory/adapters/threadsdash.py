@@ -39,7 +39,11 @@ from ..learning_score import (
     learning_ineligibility_reasons,
     learning_loop_cutover_iso,
 )
-from ..lineage_v2 import finalize_lineage_v2, lineage_v2_is_valid
+from ..lineage_v2 import (
+    finalize_lineage_v2,
+    lineage_v2_is_learning_traceable,
+    lineage_v2_is_valid,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -4036,7 +4040,10 @@ def sync_threadsdash_account_assignments(
             if not isinstance(meta, dict):
                 skipped += 1
                 continue
-            if meta.get("campaign_id") and meta.get("campaign_id") != campaign_slug:
+            if meta.get("campaign_id") and meta.get("campaign_id") not in {
+                campaign["id"],
+                campaign_slug,
+            }:
                 skipped += 1
                 continue
             rendered_asset_id = meta.get("rendered_asset_id")
@@ -4346,6 +4353,17 @@ def sync_performance_snapshots(
                     )
                 )
                 continue
+            row, meta, lineage_repair = _repair_learning_lineage_from_local_asset(
+                factory, row=row, meta=meta
+            )
+            if lineage_repair["repairedFields"] or lineage_repair["blockingReasons"]:
+                warning = {
+                    "postId": row.get("id"),
+                    "renderedAssetId": meta.get("rendered_asset_id"),
+                    "reason": "learning_lineage_repair",
+                    **lineage_repair,
+                }
+                warnings.append(warning)
             meta = _with_local_caption_outcome_context(factory, meta)
             eligibility = _metrics_eligibility_for_threadsdash_row(
                 factory, row=row, meta=meta
@@ -5217,7 +5235,8 @@ def _performance_snapshot_from_row(
         "metrics_eligible": 1 if meta.get("metrics_eligible") else 0,
         "history_source": row.get("history_source") or "post_row_fallback",
         "lineage_v2_valid": 1
-        if lineage_v2_is_valid(
+        if not meta.get("learning_lineage_blocking_reasons")
+        and lineage_v2_is_learning_traceable(
             meta.get("generated_asset_lineage"),
             campaign_id=meta.get("campaign_id"),
             recipe_id=meta.get("recipe"),
@@ -5226,9 +5245,163 @@ def _performance_snapshot_from_row(
             variant_id=meta.get("variant_asset_id"),
         )
         else 0,
+        "learning_lineage_blocking_reasons": meta.get(
+            "learning_lineage_blocking_reasons"
+        )
+        or [],
         "raw_json": json.dumps(raw_row, ensure_ascii=False, sort_keys=True),
         "created_at": utc_now(),
     }
+
+
+def _repair_learning_lineage_from_local_asset(
+    factory: CampaignFactory, *, row: dict[str, Any], meta: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, list[str]]]:
+    """Fill missing cohort identities from one canonical local rendered asset.
+
+    Conflicts are never overwritten. They remain visible in the stored raw row
+    and force the snapshot out of learning until an operator resolves them.
+    """
+    repaired_fields: list[str] = []
+    blockers: list[str] = []
+    rendered_asset_id = str(meta.get("rendered_asset_id") or "").strip()
+    if not rendered_asset_id:
+        return (
+            row,
+            meta,
+            {
+                "repairedFields": repaired_fields,
+                "blockingReasons": ["missing_rendered_asset_id"],
+            },
+        )
+    local = factory.conn.execute(
+        """
+        SELECT r.id, r.campaign_id, r.source_asset_id, r.recipe, r.caption_hash,
+               r.content_hash, r.caption_generation_json, s.source_prompt,
+               c.slug AS campaign_slug
+        FROM rendered_assets r
+        JOIN source_assets s ON s.id = r.source_asset_id
+        JOIN campaigns c ON c.id = r.campaign_id
+        WHERE r.id = ?
+        """,
+        (rendered_asset_id,),
+    ).fetchone()
+    if not local:
+        return (
+            row,
+            meta,
+            {
+                "repairedFields": repaired_fields,
+                "blockingReasons": ["rendered_asset_not_found"],
+            },
+        )
+
+    incoming_campaign = str(meta.get("campaign_id") or "").strip()
+    if incoming_campaign and incoming_campaign not in {
+        str(local["campaign_id"]),
+        str(local["campaign_slug"]),
+    }:
+        blockers.append("campaign_identity_conflict")
+
+    next_meta = dict(meta)
+    incoming_lineage = (
+        dict(meta.get("generated_asset_lineage"))
+        if isinstance(meta.get("generated_asset_lineage"), dict)
+        else {}
+    )
+    generation_payload = _json_mapping(local["caption_generation_json"])
+    stored_lineage = generation_payload.get("generatedAssetLineage")
+    if not isinstance(stored_lineage, dict):
+        stored_lineage = {}
+    lineage = {**stored_lineage, **incoming_lineage}
+    if stored_lineage and not incoming_lineage:
+        repaired_fields.append("generated_asset_lineage")
+    source_prompt = _json_mapping(local["source_prompt"])
+    stored_source = (
+        stored_lineage.get("source")
+        if isinstance(stored_lineage.get("source"), dict)
+        else {}
+    )
+    incoming_source = (
+        dict(lineage.get("source")) if isinstance(lineage.get("source"), dict) else {}
+    )
+
+    identity_sources = {
+        "promptId": _unique_identity(
+            stored_source.get("promptId"),
+            source_prompt.get("promptId"),
+            source_prompt.get("prompt_id"),
+        ),
+        "referenceId": _unique_identity(
+            stored_source.get("referenceId"),
+            source_prompt.get("referenceId"),
+            source_prompt.get("reference_id"),
+        ),
+    }
+    for field, candidates in identity_sources.items():
+        incoming = str(incoming_source.get(field) or "").strip()
+        if len(candidates) > 1:
+            blockers.append(f"ambiguous_local_{field}")
+        elif incoming and candidates and incoming not in candidates:
+            blockers.append(f"{field}_conflict")
+        elif not incoming and len(candidates) == 1:
+            incoming_source[field] = next(iter(candidates))
+            repaired_fields.append(f"source.{field}")
+    for field in ("promptId", "referenceId"):
+        if not str(incoming_source.get(field) or "").strip():
+            blockers.append(f"missing_{field}")
+
+    lineage_fields = {
+        "campaignId": str(local["campaign_slug"] or "").strip(),
+        "recipeId": str(local["recipe"] or meta.get("recipe") or "").strip(),
+        "captionHash": str(
+            local["caption_hash"] or meta.get("caption_hash") or ""
+        ).strip(),
+        "renderedAssetId": rendered_asset_id,
+        "contentFingerprint": str(local["content_hash"] or "").strip(),
+    }
+    for field, canonical in lineage_fields.items():
+        incoming = str(lineage.get(field) or "").strip()
+        if incoming and canonical and incoming != canonical:
+            blockers.append(f"{field}_conflict")
+        elif not incoming and canonical:
+            lineage[field] = canonical
+            repaired_fields.append(field)
+    if incoming_source:
+        lineage["source"] = incoming_source
+    next_meta["generated_asset_lineage"] = lineage
+    next_meta["learning_lineage_blocking_reasons"] = sorted(set(blockers))
+
+    next_row = dict(row)
+    metadata = (
+        dict(row.get("metadata")) if isinstance(row.get("metadata"), dict) else {}
+    )
+    metadata["campaign_factory"] = next_meta
+    next_row["metadata"] = metadata
+    return (
+        next_row,
+        next_meta,
+        {
+            "repairedFields": sorted(set(repaired_fields)),
+            "blockingReasons": sorted(set(blockers)),
+        },
+    )
+
+
+def _json_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _unique_identity(*values: Any) -> set[str]:
+    return {text for value in values if (text := str(value or "").strip())}
 
 
 def _metrics_eligibility_for_threadsdash_row(

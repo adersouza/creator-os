@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
-from campaign_factory.learning_score import learning_eligible
+from campaign_factory.learning_score import (
+    learning_eligible,
+    learning_ineligibility_reasons,
+)
 from campaign_factory.lineage_v2 import (
     audio_intent_fingerprint,
     build_lineage_v2_core,
     finalize_lineage_v2,
+    lineage_v2_is_learning_traceable,
     lineage_v2_is_valid,
 )
 
@@ -89,6 +95,46 @@ def test_base_and_varied_lineage_validate_with_null_late_bound_audio():
     assert base["audioId"] is None
     assert varied["variantId"] == "variant_assignment_1"
     assert lineage_v2_is_valid(varied, variant_id="variant_assignment_1")
+    assert lineage_v2_is_learning_traceable(
+        varied, rendered_asset_id="asset_1", variant_id="variant_assignment_1"
+    )
+
+
+def test_v2_contract_allows_null_reference_but_learning_traceability_does_not():
+    lineage = finalize_lineage_v2(
+        build_lineage_v2_core(
+            {
+                "source": {"promptId": "prompt_1"},
+                "generation": {"tool": "higgsfield"},
+                "review": {"status": "approved"},
+            },
+            campaign_id="may",
+            recipe_id="recipe_1",
+            caption_hash="caption_hash",
+            rendered_asset_id="asset_1",
+            content_fingerprint="a" * 64,
+        ),
+        audio_intent=audio_intent(),
+        variant_assignment=None,
+    )
+
+    assert lineage_v2_is_valid(lineage)
+    assert not lineage_v2_is_learning_traceable(lineage)
+
+
+def test_learning_ineligibility_reports_forward_lineage_blocker_from_raw_row():
+    reasons = learning_ineligibility_reasons(
+        {
+            "metrics_eligible": 1,
+            "history_source": "metric_history",
+            "published_at": "2026-06-02T00:00:00+00:00",
+            "lineage_v2_valid": 0,
+            "raw_json": '{"metadata":{"campaign_factory":{"learning_lineage_blocking_reasons":["missing_referenceId"]}}}',
+        },
+        cutover=datetime.fromisoformat("2026-06-01T00:00:00+00:00"),
+    )
+
+    assert reasons == ["lineage_missing_referenceId"]
 
 
 def test_varied_lineage_rejects_publishability_variant_instead_of_assignment():

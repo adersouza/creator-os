@@ -16848,6 +16848,65 @@ def test_metric_history_read_batches_the_captured_1000_post_request_shape():
     assert sum(post_filter.count(",") + 1 for post_filter in captured_filters) == 1000
 
 
+def test_learning_lineage_repairs_missing_reference_from_canonical_local_asset(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        meta = threadsdash_campaign_factory_metadata(source)
+        del meta["generated_asset_lineage"]["source"]["referenceId"]
+        row = {
+            "id": "post_repair_1",
+            "metadata": {"campaign_factory": meta},
+        }
+
+        repaired_row, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf, row=row, meta=meta
+            )
+        )
+
+        assert report == {
+            "repairedFields": ["source.referenceId"],
+            "blockingReasons": [],
+        }
+        assert (
+            repaired_meta["generated_asset_lineage"]["source"]["referenceId"]
+            == "reference_test_001"
+        )
+        assert (
+            repaired_row["metadata"]["campaign_factory"]["generated_asset_lineage"][
+                "source"
+            ]["referenceId"]
+            == "reference_test_001"
+        )
+    finally:
+        cf.close()
+
+
+def test_learning_lineage_refuses_conflicting_reference_identity(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        source, _ = add_rendered_asset(cf, tmp_path)
+        meta = threadsdash_campaign_factory_metadata(source)
+        meta["generated_asset_lineage"]["source"]["referenceId"] = "wrong_reference"
+
+        _, repaired_meta, report = (
+            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+                cf, row={"id": "post_conflict", "metadata": {}}, meta=meta
+            )
+        )
+
+        assert report["repairedFields"] == []
+        assert report["blockingReasons"] == ["referenceId_conflict"]
+        assert repaired_meta["learning_lineage_blocking_reasons"] == [
+            "referenceId_conflict"
+        ]
+    finally:
+        cf.close()
+
+
 def _slice_rows(rows, params):
     """Apply PostgREST-style limit/offset paging to a fake result set.
 
