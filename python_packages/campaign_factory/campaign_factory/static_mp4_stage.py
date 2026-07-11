@@ -30,13 +30,18 @@ def run_static_mp4_stage(
 ) -> dict[str, Any]:
     """Create the mandatory zero-cost static fallback for an accepted Soul still."""
     campaign = factory.campaign_by_slug(campaign_slug)
-    source_asset = _source_asset_for_campaign(factory, campaign["id"])
     model_slug = factory._model_slug_for_campaign(campaign["id"])
     dirs = factory.campaign_dirs(model_slug, campaign["slug"])
     still = Path(still_path).expanduser().resolve()
     if not still.exists() or not still.is_file():
         raise FileNotFoundError(f"accepted still not found: {still}")
     still_fingerprint = sha256_file(still)
+    source_asset = _source_asset_for_campaign(
+        factory,
+        campaign["id"],
+        still_path=still,
+        still_fingerprint=still_fingerprint,
+    )
     selected_duration = (
         float(duration_seconds)
         if duration_seconds is not None
@@ -50,6 +55,7 @@ def run_static_mp4_stage(
         campaign["id"],
         {
             "campaign": campaign_slug,
+            "sourceAssetId": source_asset["id"],
             "stillPath": str(still),
             "outputPath": str(output_path),
             "durationSeconds": selected_duration,
@@ -98,6 +104,7 @@ def run_static_mp4_stage(
             "dryRun": dry_run or not apply,
             "apply": bool(apply and not dry_run),
             "paidGeneration": False,
+            "sourceAssetId": source_asset["id"],
             "reused": reused,
             "render": render,
             "registeredAsset": registered_asset,
@@ -391,13 +398,66 @@ def _duration_for_still(still_fingerprint: str) -> float:
     return round(5.0 + milliseconds / 1000.0, 3)
 
 
-def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]:
-    row = factory.conn.execute(
-        "SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at, id LIMIT 1",
+def _source_asset_for_campaign(
+    factory: Any,
+    campaign_id: str,
+    *,
+    still_path: Path,
+    still_fingerprint: str,
+) -> dict[str, Any]:
+    rows = factory.conn.execute(
+        "SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at, id",
         (campaign_id,),
-    ).fetchone()
-    if not row:
+    ).fetchall()
+    if not rows:
         raise ValueError(
             "campaign must have at least one source asset before static MP4 registration"
         )
-    return dict(row)
+    assets = [dict(row) for row in rows]
+    matches = [
+        asset
+        for asset in assets
+        if _source_records_accepted_still(
+            asset,
+            still_path=still_path,
+            still_fingerprint=still_fingerprint,
+        )
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(
+            "accepted still lineage is ambiguous across multiple campaign source assets"
+        )
+    if len(assets) == 1:
+        return assets[0]
+    raise ValueError(
+        "accepted still does not match generated-image QC lineage for any campaign source asset"
+    )
+
+
+def _source_records_accepted_still(
+    source_asset: dict[str, Any],
+    *,
+    still_path: Path,
+    still_fingerprint: str,
+) -> bool:
+    prompt = _json_object(source_asset.get("source_prompt"))
+    lineage = prompt.get("generatedAssetLineage")
+    review = lineage.get("review") if isinstance(lineage, dict) else None
+    qc = review.get("generatedImageQc") if isinstance(review, dict) else None
+    results = qc.get("results") if isinstance(qc, dict) else None
+    if not isinstance(results, list):
+        return False
+    for result in results:
+        if not isinstance(result, dict) or result.get("postable") is not True:
+            continue
+        raw_path = result.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        candidate = Path(raw_path).expanduser().resolve()
+        if candidate == still_path:
+            return True
+        if candidate.is_file() and sha256_file(candidate) == still_fingerprint:
+            return True
+    return False
