@@ -89,22 +89,27 @@ Example `launchd` job, saved outside the repo as
   <string>com.creator-os.threadsdash-performance-sync</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>bash</string>
-    <string>-lc</string>
-    <string>cd /Users/aderdesouza/Developer/creator-os &amp;&amp; source ~/.creator-os/performance-sync.env &amp;&amp; python3 scripts/sync_threadsdash_performance.py</string>
+    <string>/Users/aderdesouza/.creator-os/run-job.sh</string>
+    <string>performance-sync</string>
+    <string>/Users/aderdesouza/Developer/creator-os-runtime/scripts/run_threadsdash_performance_sync.sh</string>
   </array>
   <key>StartInterval</key>
   <integer>3600</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/creator-os-performance-sync.out</string>
+  <string>/Users/aderdesouza/.creator-os/performance-sync.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/creator-os-performance-sync.err</string>
+  <string>/Users/aderdesouza/.creator-os/performance-sync.err.log</string>
 </dict>
 </plist>
 ```
 
 Keep `~/.creator-os/performance-sync.env` local-only and mode `0600`.
+
+The launcher deliberately clears inherited Python virtual-environment state,
+pins execution to the checkout containing the script, and verifies that the
+configured SQLite database contains exactly the scoped cohort before either
+sync phase starts. This prevents manual or launchd runs from silently using a
+different worktree or its gitignored database.
 
 `CAMPAIGN_FACTORY_SYNC_CAMPAIGNS` is an explicit JSON list. For this rollout it
 must contain only `stacey_learning_cohort_v1`; the old single-campaign setting is
