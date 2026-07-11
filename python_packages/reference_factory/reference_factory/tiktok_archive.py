@@ -12,7 +12,13 @@ from typing import Any
 
 from .db import json_dump
 from .identity import stable_id, stable_reference_id
-from .public_metrics import top_public_posts, write_top_public_posts
+from .public_metrics import (
+    _engagement_rate_from_counts,
+    _follower_count,
+    _rate_from_counts,
+    top_public_posts,
+    write_top_public_posts,
+)
 from .scan import timestamp_from_stat
 from .timeutil import now_iso
 
@@ -133,14 +139,28 @@ def import_tiktok_archive(
             "coverPath": cover_value,
             "archiveRoot": str(source_root),
         }
+        follower_count = _follower_count(raw_json)
+        public_rate_score = (
+            _rate_from_counts(follower_count, play_count) if follower_count else None
+        )
+        follower_engagement_rate = (
+            _engagement_rate_from_counts(
+                follower_count,
+                source_likes,
+                source_comments,
+            )
+            if follower_count
+            else None
+        )
         conn.execute(
             """
             INSERT INTO public_posts (
               id, owner_username, short_code, url, timestamp, product_type, post_type,
               caption, video_view_count, video_play_count, likes_count, comments_count,
+              owner_follower_count, public_rate_score, public_follower_engagement_rate,
               display_url, video_url, match_type, reference_id, local_path, raw_json, imported_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'exact_media_id', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'exact_media_id', ?, ?, ?, ?)
             ON CONFLICT(short_code) DO UPDATE SET
               owner_username = excluded.owner_username,
               url = excluded.url,
@@ -151,6 +171,10 @@ def import_tiktok_archive(
               video_view_count = excluded.video_view_count,
               video_play_count = excluded.video_play_count,
               likes_count = excluded.likes_count,
+              comments_count = excluded.comments_count,
+              owner_follower_count = excluded.owner_follower_count,
+              public_rate_score = excluded.public_rate_score,
+              public_follower_engagement_rate = excluded.public_follower_engagement_rate,
               display_url = excluded.display_url,
               video_url = excluded.video_url,
               match_type = excluded.match_type,
@@ -173,6 +197,10 @@ def import_tiktok_archive(
                 play_count,
                 play_count,
                 _int_or_none(video.get("diggCount")),
+                source_comments,
+                follower_count,
+                public_rate_score,
+                follower_engagement_rate,
                 cover_value,
                 str(video_path),
                 reference_id,
