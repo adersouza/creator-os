@@ -384,14 +384,6 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
         "", encoding="utf-8"
     )
     (reference_root / "reference_factory" / "cli.py").write_text("", encoding="utf-8")
-    (root / "schemas").mkdir(parents=True)
-    for name in [
-        "audio_intent.v1.schema.json",
-        "campaign_draft_payload.v1.schema.json",
-        "audio_catalog_export.v1.schema.json",
-        "performance_sync.v1.schema.json",
-    ]:
-        (root / "schemas" / name).write_text("{}", encoding="utf-8")
     settings = Settings(
         root=root,
         db_path=root / "campaign_factory.sqlite",
@@ -10718,7 +10710,7 @@ def test_caption_quality_repair_plan_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "caption-quality-repair-plan",
             "--creator",
             "Test",
@@ -10865,7 +10857,7 @@ def test_inventory_recovery_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "inventory-recovery-report",
             "--creator",
             "Test",
@@ -11124,7 +11116,7 @@ def test_schedule_safe_production_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "schedule-safe-production-report",
             "--creator",
             "Test",
@@ -11237,7 +11229,7 @@ def test_contentforge_visual_qc_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "contentforge-visual-qc-master-report",
             "--creator",
             "Test",
@@ -11347,7 +11339,7 @@ def test_multi_blocker_inventory_unlock_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "inventory-unlock-master-report",
             "--creator",
             "Test",
@@ -11438,7 +11430,7 @@ def test_operator_inventory_review_batch_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "operator-inventory-review-batch-summary",
             "--creator",
             "Test",
@@ -11525,7 +11517,7 @@ def test_operator_review_simulator_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "operator-review-minimum-certification-path",
             "--creator",
             "Test",
@@ -11631,7 +11623,7 @@ def test_fresh_schedule_safe_production_plan_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "fresh-schedule-safe-production-plan",
             "--creator",
             "Stacey",
@@ -18002,7 +17994,7 @@ def test_creator_os_lifecycle_dashboard_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "lifecycle-dashboard",
             "--campaign",
             "may",
@@ -19301,7 +19293,7 @@ def test_creator_os_daily_plan_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "daily-plan",
             "--creator",
             "Stacey",
@@ -19660,7 +19652,7 @@ def test_recommended_inventory_request_plan_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "recommended-inventory-request-plan",
             "--creator",
             "Stacey",
@@ -20049,7 +20041,7 @@ def test_creator_os_account_tiers_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "account-tiers",
             "--creator",
             "Stacey",
@@ -20095,7 +20087,7 @@ def test_creator_os_account_health_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "account-health-report",
             "--creator",
             "Stacey",
@@ -20810,7 +20802,7 @@ def test_creator_os_surface_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "creator-surface-summary",
             "--creator",
             "Stacey",
@@ -20997,7 +20989,7 @@ def test_creator_os_draft_inventory_gap_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "draft-inventory-gap",
             "--creator",
             "Stacey",
@@ -22193,7 +22185,7 @@ def test_tribev2_reel_analysis_cli_outputs_read_only_report(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "tribev2-reel-analysis",
             "--creator",
             "Stacey",
@@ -22383,7 +22375,7 @@ def test_tribev2_reel_review_cli_outputs_advisory_only_payload(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "tribev2-reel-review",
             "--creator",
             "Stacey",
@@ -22599,7 +22591,7 @@ def test_tribev2_holdout_pilot_review_cli_outputs_advisory_payload(tmp_path: Pat
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "tribev2-holdout-pilot-review",
             "--creator",
             "Stacey",
@@ -23400,7 +23392,7 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "execution-readiness",
             "--creator",
             "Stacey",
@@ -24528,7 +24520,7 @@ def test_creator_os_9_5_readiness_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "creator-os-9.5-readiness-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -24728,7 +24720,7 @@ def test_inventory_factory_master_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "inventory-factory-master-report",
             "--available-inventory",
             "1800",
@@ -24857,7 +24849,7 @@ def test_reel_factory_master_report_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "reel-factory-master-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -25408,7 +25400,7 @@ def test_parent_factory_53_parent_trial_cli_outputs_json(tmp_path: Path):
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "parent-factory-53-parent-trial",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -25497,7 +25489,7 @@ def test_parent_factory_post_gate_fresh_batch_proof_cli_outputs_json(tmp_path: P
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "parent-factory-post-gate-fresh-batch-proof",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -25524,7 +25516,7 @@ def test_parent_factory_master_optimization_report_cli_outputs_json(tmp_path: Pa
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "parent-factory-master-optimization-report",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -25551,7 +25543,7 @@ def test_parent_factory_discoverability_loss_analysis_cli_outputs_json(tmp_path:
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "parent-factory-discoverability-loss-analysis",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -25605,7 +25597,7 @@ def test_capture_publishability_rejection_evidence_cli_outputs_json(tmp_path: Pa
         [
             sys.executable,
             "-m",
-            "campaign_factory.creator_os_cli",
+            "campaign_factory.cli",
             "capture-publishability-rejection-evidence",
             "--asset-id",
             "asset_1",

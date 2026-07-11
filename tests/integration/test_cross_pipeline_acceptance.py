@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 
 from pipeline_contracts import (
     load_example,
@@ -12,22 +11,8 @@ from pipeline_contracts import (
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
     validate_repurposing_plan,
-    validate_schema_examples,
     validate_threadsdash_draft_payload_strict,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_MIRRORS = [
-    REPO_ROOT / "pipeline_contracts" / "schemas",
-    REPO_ROOT / "python_packages" / "campaign_factory" / "schemas",
-]
-TS_MIRRORS = [
-    REPO_ROOT / "pipeline_contracts" / "typescript" / "index.ts",
-]
-
-
-def _canonical_schema_dir() -> Path:
-    return schema_path("campaign_draft_payload").parent
 
 
 def _caption_context() -> dict:
@@ -239,32 +224,6 @@ def _feed_single_draft_payload() -> dict:
         }
     )
     return payload
-
-
-def test_contract_mirrors_match_canonical_package() -> None:
-    canonical_schema_dir = _canonical_schema_dir()
-    canonical_files = sorted(path.name for path in canonical_schema_dir.glob("*.json"))
-    assert canonical_files, "canonical schema package must expose JSON schemas"
-
-    for mirror in SCHEMA_MIRRORS:
-        assert mirror.exists(), f"missing schema mirror: {mirror}"
-        mirror_files = sorted(path.name for path in mirror.glob("*.json"))
-        assert mirror_files == canonical_files
-        for name in canonical_files:
-            assert (mirror / name).read_text(encoding="utf-8") == (
-                canonical_schema_dir / name
-            ).read_text(encoding="utf-8")
-
-    canonical_ts = (
-        REPO_ROOT / "packages" / "pipeline_contracts" / "typescript" / "index.ts"
-    )
-    for mirror in TS_MIRRORS:
-        assert mirror.exists(), f"missing TypeScript mirror: {mirror}"
-        assert mirror.read_text(encoding="utf-8") == canonical_ts.read_text(
-            encoding="utf-8"
-        )
-
-    assert len(validate_schema_examples()) >= 14
 
 
 def test_reel_factory_reference_still_and_motion_contracts_validate_for_campaign_handoff() -> (

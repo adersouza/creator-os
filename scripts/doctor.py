@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import time
 import tomllib
@@ -19,18 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_audit_fixture.json"
 BUSINESS_FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_business_audit_fixture.json"
 
-GENERATED_CONTRACT_PATHS = (
-    "packages/pipeline_contracts/pipeline_contracts/schemas/",
-    "pipeline_contracts/schemas/",
-    "python_packages/campaign_factory/schemas/",
-    "pipeline_contracts/typescript/",
-    "packages/pipeline_contracts/typescript/generated-schemas.ts",
-    "pipeline_contracts/typescript/generated-schemas.ts",
-)
-CANONICAL_CONTRACT_PATHS = (
-    "packages/pipeline_contracts/schemas/",
-    "packages/pipeline_contracts/typescript/index.ts",
-)
 CURRENT_DOC_ROOTS = (
     ROOT / "README.md",
     ROOT / "ARCHITECTURE.md",
@@ -132,9 +119,7 @@ def run_doctor(
     }
     audits: list[tuple[Callable[[dict[str, Any], bool], Result], dict[str, Any]]] = []
     technical_audits: list[tuple[str, Callable[[dict[str, Any], bool], Result]]] = [
-        ("architecture", architecture_audit),
         ("pipeline-determinism", determinism_audit),
-        ("contracts", contract_audit),
         ("lineage", lineage_audit),
         ("quality-gates", quality_gate_audit),
         ("promotion", promotion_audit),
@@ -146,12 +131,9 @@ def run_doctor(
         ("resource", resource_audit),
         ("failure-recovery", failure_recovery_audit),
         ("configuration", configuration_audit),
-        ("dependencies", dependency_audit),
-        ("security", security_audit),
         ("documentation", documentation_audit),
         ("technical-debt", technical_debt_audit),
         ("observability", observability_audit),
-        ("commercial-readiness", commercial_readiness_audit),
     ]
     business_audits: list[Callable[[dict[str, Any], bool], Result]] = [
         business_logic_audit,
@@ -185,9 +167,20 @@ def run_doctor(
         browser_runtime_proof_audit,
         release_gate_audit,
     ]
-    if not business_only:
+    business_regs: list[tuple[Callable[[dict[str, Any], bool], Result], dict[str, Any]]] = [
+        (audit, business_fixture) for audit in business_audits
+    ]
+    # commercial_readiness reads the technical fixture but is gated with the
+    # aspirational business suite, so pair it with `fixture` here.
+    business_regs.append((commercial_readiness_audit, fixture))
+    if business_only:
+        audits.extend(business_regs)
+    else:
         audits.extend((audit, fixture) for _, audit in technical_audits)
-    audits.extend((audit, business_fixture) for audit in business_audits)
+        # Proof/release flags drive the second-layer audits (TD snapshot, UI
+        # proof, release gates), so include them when those inputs are present.
+        if release or td_snapshot or ui_proof:
+            audits.extend(business_regs)
     results: list[Result] = []
     for audit, data in audits:
         started = time.perf_counter()
@@ -195,38 +188,6 @@ def run_doctor(
         result.duration_ms = int((time.perf_counter() - started) * 1000)
         results.append(result)
     return results
-
-
-def architecture_audit(_fixture: dict[str, Any], quick: bool) -> Result:
-    command = "pnpm check:arch"
-    if quick:
-        return Result(
-            "architecture",
-            "Architecture Audit",
-            "SKIP",
-            "quick mode skipped dependency-cruiser/import-linter execution",
-            command,
-            next_action="Run `pnpm doctor` without `--quick` before merge.",
-        )
-    check = command_check(command.split(), timeout=180)
-    status = "PASS" if check.returncode == 0 else "FAIL"
-    reason = (
-        "package boundaries, import direction, and dependency graph contracts passed"
-    )
-    if status == "FAIL":
-        reason = "architecture boundary command failed"
-    return Result(
-        "architecture",
-        "Architecture Audit",
-        status,
-        reason,
-        command,
-        evidence=tail(check.output, 10),
-        affected=["apps/", "packages/", "python_packages/"],
-        next_action="Fix reported dependency/import contract violations."
-        if status == "FAIL"
-        else "None.",
-    )
 
 
 def determinism_audit(fixture: dict[str, Any], _quick: bool) -> Result:
@@ -255,65 +216,6 @@ def determinism_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     )
 
 
-def contract_audit(_fixture: dict[str, Any], quick: bool) -> Result:
-    command = "pnpm check:contracts"
-    if quick:
-        drift = Result(
-            "contracts",
-            "Contract Audit",
-            "SKIP",
-            "quick mode skipped schema generation/mirror drift checks",
-            command,
-            next_action="Run full `pnpm doctor` before merge.",
-        )
-    else:
-        check = command_check(command.split(), timeout=180)
-        drift = Result(
-            "contracts",
-            "Contract Audit",
-            "PASS" if check.returncode == 0 else "FAIL",
-            "schema generation and mirrors are in sync"
-            if check.returncode == 0
-            else "contract drift command failed",
-            command,
-            evidence=tail(check.output, 8),
-            affected=["packages/pipeline_contracts/schemas"],
-            next_action="Run `pnpm sync:contracts` from canonical schemas."
-            if check.returncode
-            else "None.",
-        )
-        if drift.status == "FAIL":
-            return drift
-
-    ownership = contract_schema_ownership_failures()
-    threadsdash = threadsdash_contract_evidence()
-    usage = schema_usage()
-    warnings = []
-    if usage["unused"]:
-        warnings.append(
-            f"unused/static-unreferenced schemas: {', '.join(usage['unused'][:8])}"
-        )
-    if threadsdash.startswith("missing"):
-        warnings.append(threadsdash)
-    if ownership:
-        return Result(
-            "contracts",
-            "Contract Audit",
-            "FAIL",
-            "generated contract mirrors changed without canonical schema/source changes",
-            command,
-            evidence="\n".join(ownership),
-            affected=ownership,
-            next_action="Edit canonical schemas only, then run `pnpm sync:contracts`.",
-        )
-    if warnings and drift.status != "SKIP":
-        drift.status = "WARN"
-        drift.reason = "contract drift passed; static usage/mirror audit has findings"
-        drift.evidence = "\n".join([drift.evidence, *warnings]).strip()
-        drift.next_action = "Review WARN evidence; unused schema detection is static and may need owner confirmation."
-    return drift
-
-
 def lineage_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     required = (
         "reference",
@@ -337,7 +239,7 @@ def lineage_audit(fixture: dict[str, Any], _quick: bool) -> Result:
     if not has_ref(
         read_json(
             ROOT
-            / "packages/pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json"
+            / "packages/pipeline_contracts/pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json"
         ),
         "generated_asset_lineage.v1.schema.json",
     ):
@@ -697,87 +599,6 @@ def configuration_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
         evidence=evidence,
         affected=stale_terms[:10],
         next_action=next_action,
-    )
-
-
-def dependency_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
-    package = read_json(ROOT / "package.json")
-    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    failures = []
-    warnings = []
-    if not package.get("packageManager", "").startswith("pnpm@"):
-        failures.append("packageManager is not pinned to pnpm")
-    if not (ROOT / "pnpm-lock.yaml").exists():
-        warnings.append("pnpm-lock.yaml missing")
-    deps = {}
-    for key in ("dependencies", "devDependencies"):
-        deps.update(package.get(key, {}))
-    floating = [
-        name
-        for name, version in deps.items()
-        if str(version).strip() in {"*", "latest"}
-    ]
-    if floating:
-        failures.append(f"floating JS dependency versions: {', '.join(floating)}")
-    if 'requires-python = ">=3.11"' not in pyproject:
-        warnings.append("Python version floor not found")
-    status = "FAIL" if failures else ("WARN" if warnings else "PASS")
-    return Result(
-        "dependencies",
-        "Dependency Audit",
-        status,
-        "dependency metadata is pinned enough for local audit"
-        if status == "PASS"
-        else "dependency metadata audit has findings",
-        "pnpm doctor",
-        evidence="\n".join(failures + warnings)
-        or "packageManager, lockfile, JS versions, Python floor checked",
-        affected=["package.json", "pnpm-lock.yaml", "pyproject.toml"],
-        next_action="Fix dependency metadata findings."
-        if status != "PASS"
-        else "None.",
-    )
-
-
-def security_audit(_fixture: dict[str, Any], quick: bool) -> Result:
-    command = "pnpm security:secrets"
-    if quick:
-        secret = CommandResult(0, "quick mode skipped secret scanner", 0)
-    else:
-        secret = command_check(command.split(), timeout=240)
-    shell_hits = grep_repo(("shell=True", "shell = True"), suffixes=(".py",))
-    tracked_sensitive = command_check(
-        [
-            "bash",
-            "-lc",
-            "git ls-files | grep -E '(^|/)(\\.env($|\\.)|\\.mcp\\.json$|.*\\.sqlite($|-shm$|-wal$)|.*\\.db$)' | grep -v -E '(^|/)\\.env\\.example$'",
-        ],
-        timeout=30,
-    )
-    failures = []
-    if secret.returncode != 0:
-        failures.append("secret scan failed")
-    if shell_hits:
-        failures.extend(shell_hits)
-    if tracked_sensitive.returncode == 0 and tracked_sensitive.output.strip():
-        failures.append(
-            f"tracked sensitive/runtime files:\n{tracked_sensitive.output.strip()}"
-        )
-    scanner_note = (
-        "external scanner available"
-        if any(shutil.which(tool) for tool in ("gitleaks", "trufflehog"))
-        else "built-in patterns only; install gitleaks/trufflehog for deeper local scan"
-    )
-    return fixture_result(
-        name="security",
-        category="Security Audit",
-        failures=failures,
-        reason_ok="secret scan, tracked-sensitive file check, and unsafe shell subprocess scan passed",
-        affected=shell_hits,
-        evidence="\n".join([scanner_note, tail(secret.output, 6)]).strip(),
-        next_action="Install gitleaks/trufflehog locally for deeper scans."
-        if "built-in" in scanner_note
-        else "None.",
     )
 
 
@@ -2133,58 +1954,6 @@ def scale_projection(scenario: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def contract_schema_ownership_failures() -> list[str]:
-    status = git_porcelain()
-    generated = [
-        path for path in status if path_touches(path, GENERATED_CONTRACT_PATHS)
-    ]
-    canonical = [
-        path for path in status if path_touches(path, CANONICAL_CONTRACT_PATHS)
-    ]
-    if generated and not canonical:
-        return generated
-    return []
-
-
-def threadsdash_contract_evidence() -> str:
-    root = Path(
-        "/Users/aderdesouza/Developer/ThreadsDashboard/pipeline_contracts/schemas"
-    )
-    if not root.exists():
-        return "missing ThreadsDashboard contract mirror"
-    canonical = ROOT / "packages/pipeline_contracts/schemas"
-    common = sorted(
-        path.name
-        for path in root.glob("*.schema.json")
-        if (canonical / path.name).exists()
-    )
-    drift = [
-        name
-        for name in common
-        if (root / name).read_text(encoding="utf-8")
-        != (canonical / name).read_text(encoding="utf-8")
-    ]
-    if drift:
-        return f"ThreadsDashboard contract mirror drift: {', '.join(drift[:8])}"
-    return f"ThreadsDashboard mirror common schemas in sync: {len(common)}"
-
-
-def schema_usage() -> dict[str, list[str]]:
-    schema_dir = ROOT / "packages/pipeline_contracts/schemas"
-    schemas = sorted(path.name for path in schema_dir.glob("*.schema.json"))
-    repo_text = "\n".join(
-        path.read_text(encoding="utf-8", errors="ignore")
-        for path in repo_files((".py", ".js", ".ts", ".tsx", ".json", ".md", ".mjs"))
-        if "packages/pipeline_contracts/schemas" not in str(path.relative_to(ROOT))
-    )
-    unused = [
-        name
-        for name in schemas
-        if name not in repo_text and name.replace(".schema.json", "") not in repo_text
-    ]
-    return {"schemas": schemas, "unused": unused}
-
-
 def docs_risk_findings() -> list[str]:
     risky: list[str] = []
     for path in current_doc_files():
@@ -2227,17 +1996,6 @@ def current_doc_files() -> list[Path]:
     return files
 
 
-def git_porcelain() -> list[str]:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    return [line[3:] for line in completed.stdout.splitlines() if line]
-
-
 def repo_files(suffixes: tuple[str, ...] | None = None) -> list[Path]:
     completed = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
@@ -2274,12 +2032,6 @@ def grep_repo(
             if any(marker in line_lower for marker in lowered):
                 hits.append(f"{rel}:{line_no}: {line.strip()}")
     return hits
-
-
-def path_touches(path: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        path == prefix.rstrip("/") or path.startswith(prefix) for prefix in prefixes
-    )
 
 
 def repeated_keys(values: list[str]) -> set[str]:
@@ -2343,10 +2095,6 @@ def print_text(results: list[Result]) -> None:
 
 def self_check() -> int:
     assert tail("a\nb\n", limit=1) == "b"
-    assert path_touches(
-        "pipeline_contracts/schemas/x.schema.json", GENERATED_CONTRACT_PATHS
-    )
-    assert not path_touches("README.md", GENERATED_CONTRACT_PATHS)
     assert has_ref({"items": [{"$ref": "x.schema.json"}]}, "x.schema.json")
     assert repeated_keys(["A", "a", "b"]) == {"a"}
     fixture = load_fixture()
@@ -2354,15 +2102,22 @@ def self_check() -> int:
     assert fixture["replay_campaigns"]
     assert business_fixture["business_logic"]["decisions"]
     results = run_doctor(quick=True)
-    assert len(results) == 50
+    result_names = {result.name for result in results}
+    assert len(results) == 15
     business_results = run_doctor(quick=True, business_only=True)
-    assert len(business_results) == 30
-    assert {result.name for result in results} >= {
-        "architecture",
-        "commercial-readiness",
-        "business-logic",
-        "ceo-dashboard",
+    business_names = {result.name for result in business_results}
+    assert len(business_results) == 31
+    assert result_names >= {
+        "pipeline-determinism",
+        "lineage",
+        "configuration",
+        "observability",
     }
+    # Gate-duplicate audits are gone; aspirational audits run only with --business.
+    assert "architecture" not in result_names
+    assert "contracts" not in result_names
+    assert {"business-logic", "ceo-dashboard", "commercial-readiness"} <= business_names
+    assert "commercial-readiness" not in result_names
     print("doctor self-check passed")
     return 0
 

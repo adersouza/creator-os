@@ -6,6 +6,8 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from pipeline_contracts import schema_path
+
 from .config import CREATOR_OS_ROOT, Settings
 
 
@@ -84,22 +86,22 @@ def operator_control_check(
             ),
             _path_check(
                 "schema.audio_intent",
-                settings.root / "schemas" / "audio_intent.v1.schema.json",
+                schema_path("audio_intent"),
                 required=True,
             ),
             _path_check(
                 "schema.threadsdash_drafts",
-                settings.root / "schemas" / "campaign_draft_payload.v1.schema.json",
+                schema_path("campaign_draft_payload"),
                 required=True,
             ),
             _path_check(
                 "schema.audio_catalog_export",
-                settings.root / "schemas" / "audio_catalog_export.v1.schema.json",
+                schema_path("audio_catalog_export"),
                 required=True,
             ),
             _path_check(
                 "schema.performance_sync",
-                settings.root / "schemas" / "performance_sync.v1.schema.json",
+                schema_path("performance_sync"),
                 required=True,
             ),
             _command_check("ffmpeg", required=True),

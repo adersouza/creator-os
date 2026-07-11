@@ -8,9 +8,9 @@ non-blocking work, not that the audit is missing.
 
 | Audit category | Current coverage | Status | Gap / next safe command |
 | --- | --- | --- | --- |
-| Architecture | `pnpm check:arch`, dependency-cruiser, import-linter, repo-local Python boundary scan | Covered | Keep in doctor. |
+| Architecture | `pnpm check:arch` (dependency-cruiser, import-linter, repo-local Python boundary scan), run by the CI `architecture` job and `pnpm check:all` | Delegated | Removed from doctor to avoid duplicating the first-class gate; run `pnpm check:arch`. |
 | Pipeline determinism | Sanitized replay fixture compares lineage, contracts, promotion decision, export manifest, and randomness explanation | Covered | Add more historical fixtures as they are sanitized. |
-| Contracts | `pnpm check:contracts`, mirror sync, generated TypeScript check, mirror ownership guard, static unused-schema detection, ThreadsDashboard mirror check when present | Covered | Review static unused-schema WARNs before deleting anything. |
+| Contracts | `pnpm check:contracts` (schema generation + drift), run by the CI `contracts` job and `pnpm check:all` | Delegated | Removed from doctor to avoid duplicating the first-class gate; run `pnpm check:contracts`. |
 | Lineage | Fixture reconstructs reference -> winner DNA -> recipe -> generated media -> QC -> draft -> post -> metrics; schema ref is checked | Covered | Add DB-backed walker when stable fixture DB exists. |
 | Quality gates | Fixture approved/review-ready assets assert OCR/compression/readability/safe-zone/watchability/distinctness/PDQ/sibling uniqueness and explicit failure reasons | Covered | Add DB-backed approved-asset evidence check later. |
 | Promotion/state transitions | Fixture histories plus Reel orchestrator transition table and illegal-transition tests | Covered | Add new states here when orchestrator changes. |
@@ -22,12 +22,12 @@ non-blocking work, not that the audit is missing.
 | Resource/cost | Fixture disk/API/GPU/cost fields and paid-generation cost estimates are checked | Covered | Wire real tick reports when stable. |
 | Failure recovery | Mocked Higgsfield/Kling/OCR/SQLite/export/contract-validation scenarios plus orchestrator recovery tests | Covered | Replace fixture-only provider scenarios with adapter mock tests as providers change. |
 | Configuration | Local orchestrator config, required enabled fields, stale/deprecated config terms | Covered | Operator must still opt into `enabled = true`. |
-| Dependencies | Local package manager, lockfile, floating JS deps, Python floor | Covered | Add freshness policy only when owner defines one. |
-| Security | Secret scan, tracked sensitive/runtime file check, unsafe Python shell subprocess scan | Covered | Install gitleaks/trufflehog for deeper local scans if absent. |
+| Dependencies | OpenSSF Scorecard pinned-dependencies (`scorecard.yml`), Trivy vuln scan (`security.yml`), and `--frozen-lockfile` / `uv sync --frozen` installs in CI | Delegated | Removed from doctor; dependency pinning/freshness is enforced by CI, not the local gate. |
+| Security | Secret scan (`security.yml` secrets job + `hygiene` gitleaks, same `scripts/security/secret-scan.sh`), TruffleHog/Trivy, CodeQL, and tracked-runtime-artifact gate `scripts/check-runtime-artifacts.sh` (CI `hygiene` job) | Delegated | Removed from doctor; every slice (secret scan, tracked sensitive/db files, unsafe shell) is covered by CI. |
 | Documentation | Current docs risk grep, stale pipeline terms, archive exclusion check | Covered | Keep archive stale unless linked as current guidance. |
 | Technical debt | Live marker scan plus `creator_os_technical_debt_report.md` and `tests/fixtures/doctor/technical_debt_burndown.json` ownership | Covered | WARN inventory is not automatically a merge blocker. |
 | Observability | Fixture verifies stage, failure reason, approver, contract/schema, model/profile, references, metrics | Covered | Back with DB walker when fixture DB exists. |
-| Commercial readiness | Fixture customer journey covers onboard -> upload refs -> generate -> approve -> handoff -> analytics; checklist-backed manual actions reported | Covered with WARN findings | Close listed owner checklist items before claiming self-serve readiness. |
+| Commercial readiness | Fixture customer journey covers onboard -> upload refs -> generate -> approve -> handoff -> analytics; checklist-backed manual actions reported | Gated behind `--business` | WARN-only aspirational audit; runs with `pnpm doctor --business` (and under `--release`), not in a plain default run. Close listed owner checklist items before claiming self-serve readiness. |
 
 ## Proof inputs
 

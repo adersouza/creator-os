@@ -20,7 +20,6 @@ present. Legacy split-repo fallback paths are kept only for older checkouts.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -76,7 +75,6 @@ try:
     from pipeline_contracts import (
         example_names,
         load_example,
-        load_schema,
         validate_schema_examples,
     )
 
@@ -92,18 +90,6 @@ try:
         check("All schema examples validate", True)
     except Exception as e:
         check("All schema examples validate", False, str(e))
-
-    # Verify root and package schemas are in sync
-    root_schemas = pc_root / "schemas"
-    pkg_schemas = pc_root / "pipeline_contracts" / "schemas"
-    drift = []
-    for f in sorted(root_schemas.glob("*.json")):
-        pkg_file = pkg_schemas / f.name
-        if pkg_file.exists():
-            if f.read_bytes() != pkg_file.read_bytes():
-                drift.append(f.name)
-    check("Schema sync (root == package)", len(drift) == 0,
-          f"Drifted: {', '.join(drift)}" if drift else "")
 
 except Exception as e:
     check("pipeline_contracts importable", False, str(e))

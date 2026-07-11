@@ -121,7 +121,7 @@ For a Reel Factory review batch, create the batch-level Campaign Factory audit
 before importing the package:
 
 ```bash
-creator-os review-batch-contentforge-audit \
+campaign-factory review-batch-contentforge-audit \
   --manifest /path/to/review_manifest.json \
   --source /path/to/master_or_pre_overlay.mp4 \
   --contentforge-base-url http://127.0.0.1:3002

@@ -17,14 +17,12 @@ sys.modules[spec.name] = doctor
 spec.loader.exec_module(doctor)
 
 
-def test_doctor_runs_all_fifty_audits_in_quick_mode() -> None:
+def test_default_run_covers_only_technical_audits() -> None:
     results = doctor.run_doctor(quick=True)
 
-    assert len(results) == 50
+    assert len(results) == 15
     assert {result.name for result in results} == {
-        "architecture",
         "pipeline-determinism",
-        "contracts",
         "lineage",
         "quality-gates",
         "promotion",
@@ -36,43 +34,21 @@ def test_doctor_runs_all_fifty_audits_in_quick_mode() -> None:
         "resource",
         "failure-recovery",
         "configuration",
-        "dependencies",
-        "security",
         "documentation",
         "technical-debt",
         "observability",
-        "commercial-readiness",
-        "business-logic",
-        "cross-system-consistency",
-        "analytics-integrity",
-        "ui-consistency",
-        "business-state-machine",
-        "data-drift",
-        "recommendation",
-        "regression",
-        "cost",
-        "human-override",
-        "account-level",
-        "campaign-health",
-        "repository-health",
-        "operator-experience",
-        "chaos",
-        "scaling",
-        "product-quality",
-        "ceo-dashboard",
-        "release-readiness",
-        "deployment",
-        "backup-disaster-recovery",
-        "secret-rotation",
-        "oauth-authentication",
-        "incident-response",
-        "release-hygiene",
-        "operational-ownership",
-        "production-proof",
-        "live-snapshot",
-        "browser-runtime-proof",
-        "release-gate",
     }
+    # Gate-duplicate audits were deleted; aspirational audits are gated behind
+    # --business and must not appear in a plain default run.
+    assert not {
+        "architecture",
+        "contracts",
+        "dependencies",
+        "security",
+        "commercial-readiness",
+        "ceo-dashboard",
+        "chaos",
+    } & {result.name for result in results}
     assert all(result.category for result in results)
     assert all(result.command for result in results)
     assert all(result.reason for result in results)
@@ -82,7 +58,7 @@ def test_doctor_runs_all_fifty_audits_in_quick_mode() -> None:
 def test_business_only_runs_all_second_layer_audits() -> None:
     results = doctor.run_doctor(quick=True, business_only=True)
 
-    assert len(results) == 30
+    assert len(results) == 31
     assert {result.name for result in results} == {
         "business-logic",
         "cross-system-consistency",
@@ -114,8 +90,22 @@ def test_business_only_runs_all_second_layer_audits() -> None:
         "live-snapshot",
         "browser-runtime-proof",
         "release-gate",
+        "commercial-readiness",
     }
     assert all(result.category for result in results)
+
+
+def test_proof_inputs_pull_business_suite_into_default_run(tmp_path: Path) -> None:
+    snapshot = tmp_path / "td-snapshot.json"
+    snapshot.write_text(json.dumps({"drafts": []}), encoding="utf-8")
+
+    # Without --business, a proof/release input must still run the second-layer
+    # audits that read it, otherwise the flag would be a silent no-op.
+    results = doctor.run_doctor(quick=True, td_snapshot=snapshot)
+    names = {result.name for result in results}
+
+    assert "cross-system-consistency" in names
+    assert "pipeline-determinism" in names
 
 
 def test_duplicate_fixture_detects_exact_hash_and_semantic_duplicates() -> None:

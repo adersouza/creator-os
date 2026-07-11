@@ -11,9 +11,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
-_PACKAGE_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
-_REPO_SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
-SCHEMA_DIR = _PACKAGE_SCHEMA_DIR if _PACKAGE_SCHEMA_DIR.exists() else _REPO_SCHEMA_DIR
+SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
 ASSIGNMENT_ELIGIBILITY_SCHEMA = "assignment_eligibility.v1.schema.json"

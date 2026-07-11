@@ -24,9 +24,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Check schema sync (root vs package)
-        run: diff <(cd schemas && md5sum *.json | sort) <(cd pipeline_contracts/schemas && md5sum *.json | sort) || (echo "FAIL: schemas/ and pipeline_contracts/schemas/ are out of sync. Copy root → package." && exit 1)
-
       - name: Install Python deps
         run: pip install pytest
 

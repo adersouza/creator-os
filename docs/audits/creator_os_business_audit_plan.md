@@ -2,8 +2,10 @@
 
 Last updated: 2026-07-07.
 
-`pnpm doctor` now includes the second-layer business/product audit suite on top
-of the technical/platform audits. `pnpm doctor --business` runs only this layer.
+`pnpm doctor --business` runs the second-layer business/product audit suite.
+These WARN-first, aspirational audits no longer run in a plain `pnpm doctor`
+default run (which covers only the technical/platform audits); they are pulled
+in automatically by `--business`, `--release`, `--td-snapshot`, and `--ui-proof`.
 Use `--td-snapshot PATH` or `CREATOR_OS_TD_SNAPSHOT` for read-only
 ThreadsDashboard draft proof, and `--ui-proof PATH` or `CREATOR_OS_UI_PROOF`
 for browser proof.
