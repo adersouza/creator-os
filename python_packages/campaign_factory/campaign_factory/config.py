@@ -20,7 +20,7 @@ CREATOR_OS_CAMPAIGN_FACTORY_ROOT = (
     CREATOR_OS_ROOT / "python_packages" / "campaign_factory"
 )
 CREATOR_OS_REEL_FACTORY_ROOT = CREATOR_OS_ROOT / "python_packages" / "reel_factory"
-CREATOR_OS_CONTENTFORGE_ROOT = CREATOR_OS_ROOT / "apps" / "contentforge"
+CREATOR_OS_CONTENTFORGE_ROOT = CREATOR_OS_ROOT / "packages" / "contentforge"
 CREATOR_OS_REFERENCE_FACTORY_ROOT = (
     CREATOR_OS_ROOT / "python_packages" / "reference_factory"
 )
@@ -52,9 +52,9 @@ class Settings:
     reference_reels_root: Path = Path(
         os.environ.get("REFERENCE_REELS_ROOT", WORKSPACE_ROOT / "reference_reels")
     )
-    contentforge_base_url: str = os.environ.get(
-        "CONTENTFORGE_BASE_URL", "http://127.0.0.1:3002"
-    )
+    # Compatibility attribute for older call signatures. ContentForge is
+    # subprocess-only; no URL or HTTP mode is configurable.
+    contentforge_base_url: str = "cli://local"
     threadsdash_root: Path = Path(
         os.environ.get("THREADSDASH_ROOT", DEFAULT_THREADSDASH_ROOT)
     )
@@ -75,7 +75,7 @@ def resolve_repo_roots(projects_root: Path) -> dict[str, Path]:
     Supports two layouts:
     - flat: ``<projects_root>/{reel_factory,contentforge,reference_factory,ThreadsDashboard}``
       (used by tests with temp dirs)
-    - canonical: ``creator-os/python_packages/*``, ``creator-os/apps/contentforge``,
+    - canonical: ``creator-os/python_packages/*``, ``creator-os/packages/contentforge``,
       with ``ThreadsDashboard`` as a sibling of ``creator-os``.
 
     ``projects_root`` may be the workspace root (parent of ``creator-os``) or the

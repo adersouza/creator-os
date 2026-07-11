@@ -144,9 +144,7 @@ def main() -> int:
     sub.add_parser("init")
 
     doctor = sub.add_parser("doctor")
-    doctor.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    doctor.add_argument("--contentforge-base-url", default="cli://local")
     doctor.add_argument(
         "--check-http",
         action="store_true",
@@ -201,9 +199,7 @@ def main() -> int:
     variation_run.add_argument("--campaign", required=True)
     variation_run.add_argument("--preset", default="ig_subtle")
     variation_run.add_argument("--rendered-asset-id", action="append", default=[])
-    variation_run.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    variation_run.add_argument("--contentforge-base-url", default="cli://local")
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
 
@@ -277,9 +273,7 @@ def main() -> int:
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
     audit.add_argument("--min-score", type=int, default=85)
-    audit.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    audit.add_argument("--contentforge-base-url", default="cli://local")
     audit.add_argument("--layer", action="append", default=[])
 
     approve = sub.add_parser("approve")
@@ -812,9 +806,7 @@ def main() -> int:
     generate_variants.add_argument("--caption-version-id")
     generate_variants.add_argument("--count", type=int, default=10)
     generate_variants.add_argument("--contentforge-preset", default="caption_safe")
-    generate_variants.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    generate_variants.add_argument("--contentforge-base-url", default="cli://local")
     generate_variants.add_argument("--source-media-path")
     generate_variants.add_argument("--dry-run", action="store_true")
 
@@ -1127,9 +1119,7 @@ def main() -> int:
     execute_rec.add_argument("--force", action="store_true")
     execute_rec.add_argument("--dry-run-render", action="store_true")
     execute_rec.add_argument("--no-audit", action="store_true")
-    execute_rec.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    execute_rec.add_argument("--contentforge-base-url", default="cli://local")
 
     account_memory = sub.add_parser("account-memory")
     account_memory.add_argument("--campaign", required=True)
@@ -1278,9 +1268,7 @@ def main() -> int:
     )
     make_batch.add_argument("--variant-count", type=int, default=20)
     make_batch.add_argument("--reference-pattern", default="auto")
-    make_batch.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    make_batch.add_argument("--contentforge-base-url", default="cli://local")
     make_batch.add_argument("--dry-run-export", action="store_true")
     make_batch.add_argument("--user-id")
     make_batch.add_argument("--workers", type=int, default=3)
@@ -1294,9 +1282,7 @@ def main() -> int:
     finished.add_argument("--platform", default="instagram")
     finished.add_argument("--goal", default="reach")
     finished.add_argument("--reference-pattern", default="auto")
-    finished.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    finished.add_argument("--contentforge-base-url", default="cli://local")
     finished.add_argument("--dry-run-export", action="store_true", default=True)
     finished.add_argument("--user-id")
     finished.add_argument("--variant-count", type=int, default=10)
@@ -1390,9 +1376,7 @@ def main() -> int:
     smoke.add_argument("--hooks")
     smoke.add_argument("--recipes", nargs="*", default=None)
     smoke.add_argument("--account", action="append", default=[])
-    smoke.add_argument(
-        "--contentforge-base-url", default=os.environ.get("CONTENTFORGE_BASE_URL")
-    )
+    smoke.add_argument("--contentforge-base-url", default="cli://local")
     smoke.add_argument("--run-reel", action="store_true")
     smoke.add_argument("--workers", type=int, default=3)
     smoke.add_argument("--min-score", type=int, default=85)
@@ -3275,7 +3259,7 @@ def main() -> int:
                 plan["schema"] = "campaign_factory.generate_variants.preview.v1"
                 plan["status"] = "dry_run" if args.dry_run else "blocked"
                 plan["blockingReason"] = (
-                    None if args.dry_run else "contentforge_base_url_required"
+                    None if args.dry_run else "contentforge_cli_required"
                 )
                 print_json(plan)
             else:

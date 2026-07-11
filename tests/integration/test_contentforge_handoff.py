@@ -12,11 +12,11 @@ through campaign_factory's actual contract-assertion and decision functions.
 Scope (bounded honestly): this proves the campaign<->CF response contract and the
 block-path decision on genuine CF data. It is NOT a full reference->reel->campaign
 end-to-end run (the generation stages need external paid APIs), and CF's quality
-gate itself is already live-tested in apps/contentforge
+gate itself is already live-tested in packages/contentforge
 (campaign-factory-report.test.js).
 
 Refresh the goldens when CF's response shape changes:
-    node apps/contentforge/scripts/capture-cf-golden.mjs
+    node packages/contentforge/scripts/capture-cf-golden.mjs
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _load(name: str) -> dict:
 def test_real_cf_output_satisfies_campaign_contract(name: str) -> None:
     """The drift guard: real CF output must satisfy campaign's response contract.
 
-    Fails if apps/contentforge/app/api/similarity/route.js changes the response
+    Fails if packages/contentforge/lib/similarity.js changes the response
     shape (overallVerdict, readinessSummary.uploadReady, auditProfile, ...) in a
     way campaign_factory does not expect.
     """

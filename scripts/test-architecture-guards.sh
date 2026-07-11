@@ -30,7 +30,7 @@ fi
 
 # Negative fixture 1: pipeline_contracts (TS) must not import app runtime.
 cat > "$TS_FIXTURE" <<'FIXTURE'
-import { runPipeline } from "../../apps/contentforge/lib/pipeline.js";
+import { runPipeline } from "../../packages/contentforge/lib/pipeline.js";
 
 export const forbiddenArchitectureFixture = runPipeline;
 FIXTURE

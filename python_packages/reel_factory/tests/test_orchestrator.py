@@ -108,6 +108,33 @@ def test_disabled_tick_writes_report_without_creating_database(tmp_path: Path) -
     assert Path(report["reportPath"]).exists()
 
 
+def test_operator_status_and_inbox_are_headless_read_surfaces(tmp_path: Path) -> None:
+    status = orchestrator.operator_status(tmp_path)
+    assert status["enabled"] is False
+    assert status["stateCounts"] == {}
+
+    missing = orchestrator.operator_inbox(tmp_path)
+    assert missing["available"] is False
+    assert missing["items"] == []
+
+    _seed_awaiting_approval(tmp_path, "asset_low")
+    _seed_awaiting_approval(tmp_path, "asset_high")
+    conn = orchestrator.open_manifest(tmp_path)
+    conn.execute(
+        "UPDATE asset_pipeline_state SET rank_score = 0.2 WHERE asset_id = 'asset_low'"
+    )
+    conn.execute(
+        "UPDATE asset_pipeline_state SET rank_score = 0.9 WHERE asset_id = 'asset_high'"
+    )
+    conn.commit()
+    conn.close()
+
+    inbox = orchestrator.operator_inbox(tmp_path, limit=1)
+    assert inbox["available"] is True
+    assert inbox["count"] == 1
+    assert inbox["items"][0]["asset_id"] == "asset_high"
+
+
 def test_recover_stalled_assets_marks_old_in_flight_state_error(tmp_path: Path) -> None:
     conn = orchestrator.open_manifest(tmp_path)
     orchestrator.create_asset(

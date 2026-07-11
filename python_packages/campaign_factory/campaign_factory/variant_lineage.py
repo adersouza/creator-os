@@ -5,13 +5,10 @@ import json
 import os
 import shutil
 import sqlite3
-import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request
 
 from campaign_factory.learning_score import (
     learning_eligible_sql,
@@ -20,6 +17,7 @@ from campaign_factory.learning_score import (
 
 from .caption_outcome import load_context_json
 from .config import Settings
+from .contentforge_cli import run_contentforge
 from .fileops import atomic_write_text
 from .persistence import json_load
 
@@ -336,17 +334,6 @@ class VariantLineageRepository:
                 "plan": plan,
                 "registeredVariants": [],
             }
-        base_url = (
-            contentforge_base_url or self.settings.contentforge_base_url or ""
-        ).rstrip("/")
-        if not base_url:
-            return {
-                "schema": "campaign_factory.generate_variants.v1",
-                "status": "blocked",
-                "blockingReason": "contentforge_base_url_required",
-                "plan": plan,
-                "registeredVariants": [],
-            }
         parent = self.rendered_asset(parent_asset_id)
         source_path = (
             Path(source_media_path).expanduser()
@@ -384,159 +371,27 @@ class VariantLineageRepository:
             "preserveBurnedCaptions": True,
             "idempotencyKey": idempotency_key,
         }
-        body = json.dumps(body_payload).encode("utf-8")
-        endpoint = f"{base_url}/api/variant-pack/jobs"
-        request = Request(
-            endpoint,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         timeout_seconds = int(
             contentforge_timeout_seconds
             or os.environ.get("CONTENTFORGE_VARIANT_PACK_TIMEOUT_SECONDS")
             or 180
         )
-        poll_interval_seconds = float(
-            os.environ.get("CONTENTFORGE_VARIANT_PACK_POLL_INTERVAL_SECONDS") or 2
-        )
-        request_timeout_seconds = min(30, max(1, timeout_seconds))
         try:
-            with self._urlopen(request, timeout=request_timeout_seconds) as response:
-                job = json.loads(response.read().decode("utf-8"))
-        except TimeoutError as exc:
-            return self.contentforge_variant_pack_blocked_result(
-                plan=plan,
-                blocking_reason="contentforge_variant_pack_start_timeout",
-                endpoint=endpoint,
-                staged_source=staged_name,
-                timeout_seconds=request_timeout_seconds,
-                error=exc,
+            report = run_contentforge(
+                self.settings.contentforge_root,
+                "variant-pack",
+                body_payload,
+                timeout=timeout_seconds,
             )
-        except HTTPError as exc:
-            detail = ""
-            try:
-                detail = exc.read().decode("utf-8")[:500]
-            except Exception:
-                detail = str(exc)
+        except RuntimeError as exc:
             return self.contentforge_variant_pack_blocked_result(
                 plan=plan,
-                blocking_reason="contentforge_variant_pack_http_error",
-                endpoint=endpoint,
+                blocking_reason="contentforge_variant_pack_cli_error",
+                endpoint=str(self.settings.contentforge_root / "cli.mjs"),
                 staged_source=staged_name,
                 timeout_seconds=timeout_seconds,
                 error=exc,
-                extra={"statusCode": exc.code, "responseBody": detail},
             )
-        except URLError as exc:
-            return self.contentforge_variant_pack_blocked_result(
-                plan=plan,
-                blocking_reason="contentforge_variant_pack_start_url_error",
-                endpoint=endpoint,
-                staged_source=staged_name,
-                timeout_seconds=request_timeout_seconds,
-                error=exc,
-            )
-        if job.get("schema") in self._contentforge_variant_pack_schemas:
-            report = job
-        else:
-            run_id = job.get("runId")
-            poll_url = job.get("pollUrl")
-            if not run_id or not poll_url:
-                return {
-                    "schema": "campaign_factory.generate_variants.v1",
-                    "status": "blocked",
-                    "blockingReason": "contentforge_variant_pack_job_malformed",
-                    "plan": plan,
-                    "contentforgeJob": job,
-                    "registeredVariants": [],
-                    "retryOrResumeSafe": True,
-                    "partialCommitPrevented": True,
-                }
-            deadline = time.monotonic() + max(1, timeout_seconds)
-            terminal_job = job
-            report = None
-            while time.monotonic() < deadline:
-                if terminal_job.get("status") == "succeeded" and isinstance(
-                    terminal_job.get("report"), dict
-                ):
-                    report = terminal_job["report"]
-                    break
-                if terminal_job.get("status") in {
-                    "failed",
-                    "timed_out",
-                    "aborted",
-                    "cancelled",
-                }:
-                    return {
-                        "schema": "campaign_factory.generate_variants.v1",
-                        "status": "blocked",
-                        "blockingReason": f"contentforge_variant_pack_job_{terminal_job.get('status')}",
-                        "plan": plan,
-                        "contentforgeJob": terminal_job,
-                        "registeredVariants": [],
-                        "retryOrResumeSafe": True,
-                        "partialCommitPrevented": True,
-                    }
-                time.sleep(max(0.25, poll_interval_seconds))
-                poll_endpoint = (
-                    f"{base_url}{poll_url}"
-                    if str(poll_url).startswith("/")
-                    else str(poll_url)
-                )
-                poll_request = Request(
-                    poll_endpoint, headers={"Accept": "application/json"}, method="GET"
-                )
-                try:
-                    with self._urlopen(
-                        poll_request, timeout=request_timeout_seconds
-                    ) as response:
-                        terminal_job = json.loads(response.read().decode("utf-8"))
-                except TimeoutError as exc:
-                    return self.contentforge_variant_pack_blocked_result(
-                        plan=plan,
-                        blocking_reason="contentforge_variant_pack_poll_timeout",
-                        endpoint=poll_endpoint,
-                        staged_source=staged_name,
-                        timeout_seconds=request_timeout_seconds,
-                        error=exc,
-                        extra={"runId": run_id, "pollUrl": poll_url},
-                    )
-                except HTTPError as exc:
-                    return self.contentforge_variant_pack_blocked_result(
-                        plan=plan,
-                        blocking_reason="contentforge_variant_pack_poll_http_error",
-                        endpoint=poll_endpoint,
-                        staged_source=staged_name,
-                        timeout_seconds=request_timeout_seconds,
-                        error=exc,
-                        extra={
-                            "runId": run_id,
-                            "pollUrl": poll_url,
-                            "statusCode": exc.code,
-                        },
-                    )
-                except URLError as exc:
-                    return self.contentforge_variant_pack_blocked_result(
-                        plan=plan,
-                        blocking_reason="contentforge_variant_pack_poll_url_error",
-                        endpoint=poll_endpoint,
-                        staged_source=staged_name,
-                        timeout_seconds=request_timeout_seconds,
-                        error=exc,
-                        extra={"runId": run_id, "pollUrl": poll_url},
-                    )
-            if report is None:
-                return {
-                    "schema": "campaign_factory.generate_variants.v1",
-                    "status": "blocked",
-                    "blockingReason": "contentforge_variant_pack_job_running",
-                    "plan": plan,
-                    "contentforgeJob": terminal_job,
-                    "registeredVariants": [],
-                    "retryOrResumeSafe": True,
-                    "partialCommitPrevented": True,
-                }
         if report.get("schema") not in self._contentforge_variant_pack_schemas:
             return {
                 "schema": "campaign_factory.generate_variants.v1",

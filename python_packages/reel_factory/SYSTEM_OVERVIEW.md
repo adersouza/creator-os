@@ -41,7 +41,7 @@ Reel Factory owns creative asset creation:
 - `reel_motion_prompt.py`: deterministic Kling prompt compiler for accepted stills.
 - `asset_prompt_contract.py`: prompt contract parser/shape for legacy prompt-json flows.
 - `generate_prompts.py`: legacy prompt generation and compatibility tests.
-- `reel_gui.py`: local FastAPI GUI and direct reference-image API.
+- `operator_tools.py`: reusable headless direct-reference and operator utilities.
 - `reel_pipeline.py`, `qc_check.py`, `export_approved.py`: render, QC, and approved export sidecars.
 - `audio_provider.py`, `audio_refresh.py`, `audio_intent.py`: audio metadata selection and sidecars.
 

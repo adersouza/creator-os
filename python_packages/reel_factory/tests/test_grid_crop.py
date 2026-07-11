@@ -262,7 +262,7 @@ class GridCropTests(unittest.TestCase):
             self.assertTrue(out.exists())
 
     def test_gui_grid_crop_suggest_and_save_plan(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -309,7 +309,7 @@ class GridCropTests(unittest.TestCase):
             self.assertEqual(saved["plan"]["renderMode"], "fit_nocrop")
 
     def test_gui_grid_crop_returns_controlled_error_by_default(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(Exception) as ctx:
@@ -318,7 +318,7 @@ class GridCropTests(unittest.TestCase):
         self.assertIn("grid_crop is deprecated", str(ctx.exception.detail))
 
     def test_gui_grid_crop_blocks_prod_even_with_allow_flag(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with patch.dict(
             os.environ,

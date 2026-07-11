@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from shutil import which
 from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from pipeline_contracts import schema_path
 
@@ -18,7 +16,6 @@ def operator_control_check(
     check_http: bool = False,
 ) -> dict[str, Any]:
     """Verify that Campaign Factory can control the local pipeline repos."""
-    base_url = contentforge_base_url or settings.contentforge_base_url
     reference_bank = (
         settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
     )
@@ -49,17 +46,13 @@ def operator_control_check(
                 required=True,
             ),
             _path_check(
-                "contentforge.variant_pack_api",
-                settings.contentforge_root
-                / "app"
-                / "api"
-                / "variant-pack"
-                / "route.js",
+                "contentforge.cli",
+                settings.contentforge_root / "cli.mjs",
                 required=True,
             ),
             _path_check(
-                "contentforge.similarity_api",
-                settings.contentforge_root / "app" / "api" / "similarity" / "route.js",
+                "contentforge.similarity",
+                settings.contentforge_root / "lib" / "similarity.js",
                 required=True,
             ),
             _path_check(
@@ -119,7 +112,13 @@ def operator_control_check(
         ]
     )
     if check_http:
-        checks.append(_http_check("contentforge.http", base_url))
+        checks.append(
+            _path_check(
+                "contentforge.headless_contract",
+                settings.contentforge_root / "cli.mjs",
+                required=True,
+            )
+        )
 
     blocking = [item for item in checks if item["required"] and item["status"] != "ok"]
     warnings = [
@@ -128,19 +127,19 @@ def operator_control_check(
     return {
         "schema": "campaign_factory.operator_control_check.v1",
         "ok": not blocking,
-        "contentforgeBaseUrl": base_url,
+        "contentforgeMode": "local_cli",
         "checks": checks,
         "blockingCount": len(blocking),
         "warningCount": len(warnings),
         "commands": {
-            "startContentForge": f"{_run_script('contentforge')} dev -- -p 3002",
+            "checkContentForge": f"{_run_script('contentforge')} build",
             "startCampaignFactory": f"{_run_script('campaign-factory')} serve --host 127.0.0.1 --port 8877",
             "exportReferencePatterns": f"{_run_script('reference-factory')} export-patterns --limit 300 --for-campaign-factory",
             "makeBatch": (
                 f"{_run_script('campaign-factory')} make-batch "
                 "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
                 "--format auto --variant-count 20 --reference-pattern auto "
-                "--contentforge-base-url http://127.0.0.1:3002 --dry-run-export --user-id <user_id>"
+                "--dry-run-export --user-id <user_id>"
             ),
         },
     }
@@ -172,24 +171,3 @@ def _command_check(name: str, *, required: bool) -> dict[str, Any]:
         "required": required,
         "path": path,
     }
-
-
-def _http_check(name: str, url: str) -> dict[str, Any]:
-    try:
-        request = Request(url, method="GET")
-        with urlopen(request, timeout=2) as response:
-            return {
-                "name": name,
-                "status": "ok" if 200 <= response.status < 500 else "unavailable",
-                "required": False,
-                "url": url,
-                "httpStatus": response.status,
-            }
-    except (OSError, URLError) as exc:
-        return {
-            "name": name,
-            "status": "unavailable",
-            "required": False,
-            "url": url,
-            "error": str(exc),
-        }

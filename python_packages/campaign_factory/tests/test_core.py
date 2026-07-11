@@ -21,6 +21,7 @@ from urllib.error import HTTPError, URLError
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
 import campaign_factory.core as core_module
+import campaign_factory.variant_lineage as variant_lineage_module
 import pytest
 from campaign_factory.adapters import contentforge as contentforge_adapter
 from campaign_factory.adapters import threadsdash as threadsdash_adapter
@@ -367,8 +368,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     for path in [
         root / "campaign_factory",
         reel_root,
-        contentforge_root / "app" / "api" / "variant-pack",
-        contentforge_root / "app" / "api" / "similarity",
+        contentforge_root / "lib",
         reference_root / "reference_factory",
         threadsdash_root,
     ]:
@@ -377,12 +377,8 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     (reel_root / "reel_pipeline.py").write_text("", encoding="utf-8")
     (reel_root / "slideshow_factory.py").write_text("", encoding="utf-8")
     (contentforge_root / "package.json").write_text("{}", encoding="utf-8")
-    (contentforge_root / "app" / "api" / "variant-pack" / "route.js").write_text(
-        "", encoding="utf-8"
-    )
-    (contentforge_root / "app" / "api" / "similarity" / "route.js").write_text(
-        "", encoding="utf-8"
-    )
+    (contentforge_root / "cli.mjs").write_text("", encoding="utf-8")
+    (contentforge_root / "lib" / "similarity.js").write_text("", encoding="utf-8")
     (reference_root / "reference_factory" / "cli.py").write_text("", encoding="utf-8")
     settings = Settings(
         root=root,
@@ -402,10 +398,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
     assert "make-batch" in result["commands"]["makeBatch"]
-    assert (
-        result["commands"]["startContentForge"]
-        == f"{CREATOR_OS_ROOT / 'scripts' / 'run' / 'contentforge'} dev -- -p 3002"
-    )
+    assert result["commands"]["checkContentForge"].endswith(" build")
     assert result["commands"]["startCampaignFactory"].startswith(
         str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory")
     )
@@ -2076,7 +2069,7 @@ def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(
     )
 
     assert report["fileStatusCounts"] == {"blocked": 1}
-    assert report["blockingCodeFrequency"] == {"contentforge_http": 1}
+    assert report["blockingCodeFrequency"] == {"contentforge_cli": 1}
     assert report["fileResults"][0]["error"] == "ContentForge timed out"
 
 
@@ -6057,9 +6050,9 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        base_url, *, source, target_file=None, audit_profile=None, layers
+        contentforge_root, *, source, target_file=None, audit_profile=None, layers
     ):
-        assert base_url == "http://contentforge.test"
+        assert contentforge_root == cf.settings.contentforge_root
         assert source.startswith("campaign_factory_source_")
         assert target_file.startswith("campaign_factory_variant_")
         assert audit_profile == "campaign_factory_v1"
@@ -6119,8 +6112,8 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
     second.write_bytes(b"second")
     seen = {}
 
-    def fake_similarity(base_url, **kwargs):
-        seen["base_url"] = base_url
+    def fake_similarity(contentforge_root_arg, **kwargs):
+        seen["contentforge_root"] = contentforge_root_arg
         seen.update(kwargs)
         return {
             "contractVersion": "campaign_factory_audit.v1.7",
@@ -6141,7 +6134,7 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
         report_path=report_path,
     )
 
-    assert seen["base_url"] == "http://contentforge.test"
+    assert seen["contentforge_root"] == contentforge_root
     assert seen["layers"] == ["pdq", "sscd"]
     assert seen["target_file"].startswith("campaign_factory_variant_")
     assert len(seen["comparison_files"]) == 1
@@ -6302,9 +6295,7 @@ def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
         cf.close()
 
 
-def test_contentforge_http_audit_handles_server_unavailable(
-    tmp_path: Path, monkeypatch
-):
+def test_contentforge_cli_audit_handles_runner_unavailable(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -6318,9 +6309,9 @@ def test_contentforge_http_audit_handles_server_unavailable(
         result = audit_campaign(cf, campaign_slug="may")
         report = result["reports"][0]
         assert report["status"] == "needs_review"
-        assert "contentforge_http" in report["failedChecks"]
+        assert "contentforge_cli" in report["failedChecks"]
         assert report["error"] == "ContentForge is unavailable"
-        assert "contentforge_http: ContentForge is unavailable" in report["warnings"]
+        assert "contentforge_cli: ContentForge is unavailable" in report["warnings"]
         assert report["overallVerdict"] == "fail"
     finally:
         cf.close()
@@ -12271,18 +12262,10 @@ def test_generate_variants_accepts_contentforge_v2_pack(
             ],
         }
 
-        class FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(report).encode("utf-8")
-
         monkeypatch.setattr(
-            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+            variant_lineage_module,
+            "run_contentforge",
+            lambda *_args, **_kwargs: report,
         )
 
         result = cf.generate_variants(
@@ -13162,10 +13145,12 @@ def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
 
-        def fake_urlopen(*_args, **_kwargs):
-            raise TimeoutError("variant pack timed out")
+        def fake_contentforge(*_args, **_kwargs):
+            raise RuntimeError("variant pack timed out")
 
-        monkeypatch.setattr(core_module, "urlopen", fake_urlopen)
+        monkeypatch.setattr(
+            variant_lineage_module, "run_contentforge", fake_contentforge
+        )
 
         result = cf.generate_variants(
             parent_asset_id="asset_1",
@@ -13176,7 +13161,7 @@ def test_generate_variants_timeout_is_retry_safe_and_commits_no_variants(
         )
 
         assert result["status"] == "blocked"
-        assert result["blockingReason"] == "contentforge_variant_pack_start_timeout"
+        assert result["blockingReason"] == "contentforge_variant_pack_cli_error"
         assert result["retryOrResumeSafe"] is True
         assert result["partialCommitPrevented"] is True
         assert result["registeredVariants"] == []
@@ -13224,45 +13209,11 @@ def test_generate_variants_polls_job_and_registers_terminal_report(
                 }
             ],
         }
-        responses = [
-            {
-                "schema": "contentforge.variant_pack_job.v1",
-                "runId": "job_12345678",
-                "status": "running",
-                "pollUrl": "/api/variant-pack/jobs/job_12345678",
-                "startedAt": "2026-06-09T00:00:00Z",
-            },
-            {
-                "schema": "contentforge.variant_pack_job.v1",
-                "runId": "job_12345678",
-                "status": "succeeded",
-                "pollUrl": "/api/variant-pack/jobs/job_12345678",
-                "startedAt": "2026-06-09T00:00:00Z",
-                "report": report,
-                "artifacts": [{"filename": "variant_001.mp4"}],
-            },
-        ]
-        seen_urls = []
-
-        class FakeResponse:
-            def __init__(self, payload):
-                self.payload = payload
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(self.payload).encode("utf-8")
-
-        def fake_urlopen(request, **_kwargs):
-            seen_urls.append(request.full_url)
-            return FakeResponse(responses.pop(0))
-
-        monkeypatch.setattr(core_module, "urlopen", fake_urlopen)
-        monkeypatch.setattr(core_module.time, "sleep", lambda *_args: None)
+        monkeypatch.setattr(
+            variant_lineage_module,
+            "run_contentforge",
+            lambda *_args, **_kwargs: report,
+        )
 
         result = cf.generate_variants(
             parent_asset_id="asset_1",
@@ -13273,10 +13224,6 @@ def test_generate_variants_polls_job_and_registers_terminal_report(
         )
 
         assert result["status"] == "completed"
-        assert seen_urls == [
-            "http://contentforge.local/api/variant-pack/jobs",
-            "http://contentforge.local/api/variant-pack/jobs/job_12345678",
-        ]
         assert result["contentforgeReport"]["runId"] == "cf_job_inner_run"
         assert len(result["registeredVariants"]) == 1
         assert (
@@ -13290,7 +13237,7 @@ def test_generate_variants_polls_job_and_registers_terminal_report(
         cf.close()
 
 
-def test_generate_variants_running_job_is_resumable_and_commits_no_variants(
+def test_generate_variants_cli_failure_is_retry_safe_and_commits_no_variants(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     cf = make_factory(tmp_path)
@@ -13302,28 +13249,11 @@ def test_generate_variants_running_job_is_resumable_and_commits_no_variants(
         )
         cf.conn.commit()
         cf.register_parent_reel("asset_1", operator="tester")
-        running = {
-            "schema": "contentforge.variant_pack_job.v1",
-            "runId": "job_running",
-            "status": "running",
-            "pollUrl": "/api/variant-pack/jobs/job_running",
-            "startedAt": "2026-06-09T00:00:00Z",
-        }
-
-        class FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(running).encode("utf-8")
-
         monkeypatch.setattr(
-            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+            variant_lineage_module,
+            "run_contentforge",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("busy")),
         )
-        monkeypatch.setattr(core_module.time, "sleep", lambda *_args: None)
 
         result = cf.generate_variants(
             parent_asset_id="asset_1",
@@ -13334,10 +13264,9 @@ def test_generate_variants_running_job_is_resumable_and_commits_no_variants(
         )
 
         assert result["status"] == "blocked"
-        assert result["blockingReason"] == "contentforge_variant_pack_job_running"
+        assert result["blockingReason"] == "contentforge_variant_pack_cli_error"
         assert result["retryOrResumeSafe"] is True
         assert result["partialCommitPrevented"] is True
-        assert result["contentforgeJob"]["runId"] == "job_running"
         assert (
             cf.conn.execute(
                 "SELECT COUNT(*) FROM rendered_assets WHERE recipe = 'contentforge_variant_pack'"
@@ -13382,18 +13311,10 @@ def test_generate_variants_rolls_back_partial_registration_on_error(
             ],
         }
 
-        class FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(report).encode("utf-8")
-
         monkeypatch.setattr(
-            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+            variant_lineage_module,
+            "run_contentforge",
+            lambda *_args, **_kwargs: report,
         )
 
         def fail_register_variant_asset(**_kwargs):
@@ -13466,18 +13387,10 @@ def test_generate_variants_registers_caption_version_lineage(
             ],
         }
 
-        class FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self):
-                return json.dumps(report).encode("utf-8")
-
         monkeypatch.setattr(
-            core_module, "urlopen", lambda *_args, **_kwargs: FakeResponse()
+            variant_lineage_module,
+            "run_contentforge",
+            lambda *_args, **_kwargs: report,
         )
 
         result = cf.generate_variants(
