@@ -1374,9 +1374,14 @@ class CampaignFactory:
         )
 
     def import_reference_bank(
-        self, bank_path: Path, prompt_pack_path: Path | None = None
+        self,
+        bank_path: Path,
+        prompt_pack_path: Path | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
-        return self.services.import_reference_bank(bank_path, prompt_pack_path)
+        return self.services.import_reference_bank(
+            bank_path, prompt_pack_path, **kwargs
+        )
 
     def import_audio_catalog(self, catalog_path: Path) -> dict[str, Any]:
         return self.services.import_audio_catalog(catalog_path)

@@ -1153,6 +1153,9 @@ def main() -> int:
     ref_import.add_argument(
         "--prompt-pack", default=os.environ.get("HIGGSFIELD_PROMPT_PACK")
     )
+    ref_import.add_argument("--campaign")
+    ref_import.add_argument("--apply", action="store_true")
+    ref_import.add_argument("--require-local-paths", action="store_true")
 
     audio_import = sub.add_parser("import-audio-catalog")
     audio_import.add_argument("--path", required=True)
@@ -3910,7 +3913,11 @@ def main() -> int:
             )
             print_json(
                 cf.import_reference_bank(
-                    bank_path, prompt_pack if prompt_pack.exists() else None
+                    bank_path,
+                    prompt_pack if prompt_pack.exists() else None,
+                    dry_run=not args.apply,
+                    campaign_slug=args.campaign,
+                    require_local_paths=args.require_local_paths,
                 )
             )
         elif args.cmd == "import-audio-catalog":

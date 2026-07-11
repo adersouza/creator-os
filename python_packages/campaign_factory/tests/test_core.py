@@ -659,8 +659,21 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
     (folder / "a.mp4").write_bytes(b"video")
     cf = make_factory(tmp_path)
     try:
+        preview = cf.import_reference_bank(
+            bank_path,
+            prompt_pack_path,
+            dry_run=True,
+            require_local_paths=True,
+        )
+        assert preview["dryRun"] is True
+        assert preview["patternsCreated"] == 1
+        assert cf.reference_patterns()["patterns"] == []
         imported = cf.import_reference_bank(bank_path, prompt_pack_path)
         assert imported["patternsImported"] == 1
+        assert imported["patternsCreated"] == 1
+        repeated = cf.import_reference_bank(bank_path, prompt_pack_path)
+        assert repeated["patternsImported"] == 0
+        assert repeated["patternsUnchanged"] == 1
         patterns = cf.reference_patterns()
         assert (
             patterns["patterns"][0]["raw"]["bank"]["embeddingClusterId"]
@@ -675,6 +688,18 @@ def test_reference_bank_import_select_and_prepare(tmp_path: Path):
             == "light_trending_response_sound"
         )
         cf.import_folder(folder, campaign_slug="may", model_slug="model")
+        linked = cf.import_reference_bank(
+            bank_path,
+            prompt_pack_path,
+            campaign_slug="may",
+        )
+        assert linked["campaignLinksCreated"] == 1
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM campaign_reference_plans").fetchone()[
+                0
+            ]
+            == 1
+        )
         prepared = cf.prepare_reel_from_reference(
             campaign_slug="may",
             cluster_key="caption_led_visual::direct_response::question_hook",
