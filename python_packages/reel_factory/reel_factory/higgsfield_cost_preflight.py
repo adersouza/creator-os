@@ -656,9 +656,13 @@ def reserve_higgsfield_credits(
         raise ValueError("cohort_id is required")
 
     daily_budget = _required_positive_env("HIGGSFIELD_DAILY_BUDGET_CREDITS")
+    monthly_budget = _required_positive_env("HIGGSFIELD_MONTHLY_BUDGET_CREDITS")
     run_max_assets = _required_positive_int_env("HIGGSFIELD_RUN_MAX_ASSETS")
     cohort_cap = _required_positive_env("HIGGSFIELD_COHORT_MAX_CREDITS")
     min_balance = _required_nonnegative_env("HIGGSFIELD_MIN_BALANCE_CREDITS")
+    kling_daily_max = _required_positive_int_env(
+        "HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS"
+    )
     provider = provider or CliBalanceProvider()
     balance_raw, balance_error = provider.balance()
     balance = _parse_float(balance_raw)
@@ -680,7 +684,9 @@ def reserve_higgsfield_credits(
     timestamp = now or datetime.datetime.now(datetime.UTC)
     created_at = timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     reservation_id = f"hfr_{uuid.uuid4().hex}"
-    daily_spend = cohort_spend = 0.0
+    daily_spend = monthly_spend = cohort_spend = 0.0
+    daily_kling_count = 0
+    quoted_kling_count = _quoted_model_count(provider_quote, "kling")
     try:
         with connect_sqlite(db_path, wal=False) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -688,11 +694,21 @@ def reserve_higgsfield_credits(
             daily_spend = _credit_reservation_total(
                 conn, day=timestamp.date().isoformat()
             )
+            monthly_spend = _credit_reservation_total(
+                conn, month=timestamp.date().isoformat()[:7]
+            )
             cohort_spend = _credit_reservation_total(conn, cohort_id=cohort_id)
+            daily_kling_count = _credit_reservation_model_count(
+                conn, day=timestamp.date().isoformat(), model_fragment="kling"
+            )
             if daily_spend + amount > daily_budget:
                 reasons.append("projected_daily_credits_exceeded")
+            if monthly_spend + amount > monthly_budget:
+                reasons.append("projected_monthly_credits_exceeded")
             if cohort_spend + amount > cohort_cap:
                 reasons.append("projected_cohort_credits_exceeded")
+            if daily_kling_count + quoted_kling_count > kling_daily_max:
+                reasons.append("projected_daily_kling_generation_limit_exceeded")
             reasons = _dedupe_reasons(reasons)
             if not reasons:
                 compatibility_usd = _credits_to_compatibility_usd(amount)
@@ -730,12 +746,18 @@ def reserve_higgsfield_credits(
         "balanceCredits": balance,
         "budgetPolicy": {
             "dailyBudgetCredits": daily_budget,
+            "monthlyBudgetCredits": monthly_budget,
             "cohortMaxCredits": cohort_cap,
             "minimumBalanceCredits": min_balance,
             "perRunMaxAssets": run_max_assets,
+            "dailyKlingGenerationLimit": kling_daily_max,
             "spentTodayCredits": round(daily_spend, 4),
+            "spentThisMonthCredits": round(monthly_spend, 4),
             "cohortSpentCredits": round(cohort_spend, 4),
+            "klingGenerationsToday": daily_kling_count,
+            "quotedKlingGenerations": quoted_kling_count,
             "projectedDailyCredits": round(daily_spend + amount, 4),
+            "projectedMonthlyCredits": round(monthly_spend + amount, 4),
             "projectedCohortCredits": round(cohort_spend + amount, 4),
             "projectedBalanceCredits": None
             if balance is None
@@ -757,6 +779,7 @@ def _credit_reservation_total(
     conn: sqlite3.Connection,
     *,
     day: str | None = None,
+    month: str | None = None,
     cohort_id: str | None = None,
 ) -> float:
     clauses = ["unit = ?", "status IN ('reserved', 'consumed')"]
@@ -764,6 +787,9 @@ def _credit_reservation_total(
     if day is not None:
         clauses.append("substr(created_at, 1, 10) = ?")
         params.append(day)
+    if month is not None:
+        clauses.append("substr(created_at, 1, 7) = ?")
+        params.append(month)
     if cohort_id is not None:
         clauses.append("cohort_id = ?")
         params.append(cohort_id)
@@ -774,6 +800,40 @@ def _credit_reservation_total(
     return sum(
         _validated_ledger_amount(row[0], source=RESERVATION_TABLE) for row in rows
     )
+
+
+def _quoted_model_count(provider_quote: dict[str, Any], fragment: str) -> int:
+    items = provider_quote.get("items")
+    quotes = items if isinstance(items, list) and items else [provider_quote]
+    needle = fragment.lower()
+    return sum(
+        1
+        for quote in quotes
+        if isinstance(quote, dict) and needle in str(quote.get("model") or "").lower()
+    )
+
+
+def _credit_reservation_model_count(
+    conn: sqlite3.Connection, *, day: str, model_fragment: str
+) -> int:
+    rows = conn.execute(
+        f"""
+        SELECT provider_quote_json FROM {RESERVATION_TABLE}
+        WHERE unit = ?
+          AND status IN ('reserved', 'consumed')
+          AND substr(created_at, 1, 10) = ?
+        """,
+        (HIGGSFIELD_CREDIT_UNIT, day),
+    ).fetchall()
+    total = 0
+    for row in rows:
+        try:
+            quote = json.loads(str(row[0] or "{}"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(quote, dict):
+            total += _quoted_model_count(quote, model_fragment)
+    return total
 
 
 def _required_positive_env(name: str) -> float:

@@ -1746,6 +1746,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("high detail", example_block)
         self.assertNotIn("sharp focus", example_block)
         self.assertNotIn("face realism", example_block)
+        self.assertIn("19 years old", example_block)
+        for forbidden in ("adult", "woman", "girl", "teen", "young"):
+            self.assertNotIn(forbidden, example_block)
 
     def test_direct_higgsfield_instruction_supports_operator_grid_layouts_and_age(self):
         two_by_four = build_direct_higgsfield_prompt_instruction(
@@ -2004,7 +2007,9 @@ class AdvancedRoadmapTests(unittest.TestCase):
             shared_motion_prompt="subtle body sway and slow phone-camera push-in",
         )
 
-        self.assertIn("exact same stunning woman", parsed.higgsfieldGridPrompt)
+        self.assertIn("person, 19 years old", parsed.higgsfieldGridPrompt)
+        for forbidden in ("adult", "woman", "girl", "teen", "young"):
+            self.assertNotIn(forbidden, parsed.higgsfieldGridPrompt.lower())
         self.assertIn("casual iPhone mirror-selfie pose", parsed.higgsfieldGridPrompt)
         self.assertEqual(
             parsed.klingMotionPrompt, "subtle body sway and slow phone-camera push-in"
@@ -2074,7 +2079,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
             result["lineage"]["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE
         )
         self.assertEqual(result["lineage"]["raw_grok_prompt"], raw_prompt)
-        self.assertEqual(result["lineage"]["cleaned_prompt"], raw_prompt)
+        self.assertNotEqual(result["lineage"]["cleaned_prompt"], raw_prompt)
+        self.assertIn("19 years old", result["lineage"]["cleaned_prompt"])
+        for forbidden in ("adult", "woman", "girl", "teen", "young"):
+            self.assertNotIn(forbidden, result["lineage"]["cleaned_prompt"].lower())
         self.assertEqual(result["lineage"]["aspect_ratio"], "4:3")
         self.assertEqual(result["lineage"]["grid_layout"]["value"], "3x2")
         self.assertFalse(result["lineage"]["prompt_enhancement"])

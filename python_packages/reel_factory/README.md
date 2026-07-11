@@ -183,6 +183,20 @@ After a still is accepted, compile a Kling prompt with:
 python3 reel_motion_prompt.py --scene-type mirror_selfie --start-image /path/to/accepted_still.png
 ```
 
+Create the locked, zero-provider-cost static MP4 fallback with:
+
+```bash
+python3 static_mp4.py \
+  --still /path/to/accepted_still.png \
+  --out /path/to/accepted_still_static.mp4 \
+  --apply
+```
+
+This produces a five-second 1080x1920 H.264 MP4 with no zoom, burned caption,
+or burned audio. Its audio-intent sidecar keeps native audio selection and
+publishing gated downstream. Campaign Factory invokes this renderer
+automatically for accepted stills in the unified front-generation flow.
+
 Legacy prompt-json commands still exist for old experiments and tests, but they
 are not the normal operator path.
 

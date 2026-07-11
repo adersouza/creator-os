@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from creator_os_core.fileops import atomic_write_text
 
+from .learning_score import learning_eligible, learning_loop_cutover, snapshot_reward
 from .lineage_v2 import lineage_v2_is_learning_traceable
 
 COHORT_ID = "stacey_learning_cohort_v1"
@@ -20,6 +21,11 @@ SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 ACCOUNT_HANDLE = "staceyben101"
 TIMEZONE = "America/New_York"
 TOTAL_DAYS = 25
+METRIC_WINDOWS = {
+    "metric_1h_state": (1.0, 0.75, 3.0),
+    "metric_24h_state": (24.0, 20.0, 28.0),
+    "metric_72h_state": (72.0, 68.0, 76.0),
+}
 
 
 def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
@@ -672,6 +678,202 @@ def record_learning_cohort_publish(
     )
     conn.commit()
     return _transition_result(conn, assignment_id, "publish_recorded")
+
+
+def sync_learning_cohort_metrics(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Project canonical metric-history snapshots into the cohort ledger.
+
+    This is intentionally deterministic and reversible: every run derives the
+    assignment state from the currently eligible snapshots, so a retracted or
+    corrected snapshot removes stale completion/reward state on the next sync.
+    """
+    ensure_learning_cohort_tables(conn)
+    cohort = conn.execute(
+        "SELECT 1 FROM learning_cohorts WHERE id = ?", (COHORT_ID,)
+    ).fetchone()
+    if cohort is None:
+        return {
+            "schema": "campaign_factory.learning_cohort.metric_sync.v1",
+            "cohortId": COHORT_ID,
+            "status": "cohort_not_prepared",
+            "assignmentsChecked": 0,
+            "assignmentsChanged": 0,
+        }
+    cutover = learning_loop_cutover()
+    if cutover is None:
+        return {
+            "schema": "campaign_factory.learning_cohort.metric_sync.v1",
+            "cohortId": COHORT_ID,
+            "status": "blocked_cutover_unset",
+            "assignmentsChecked": 0,
+            "assignmentsChanged": 0,
+        }
+
+    assignments = _rows_to_dicts(
+        conn.execute(
+            """SELECT * FROM learning_cohort_assignments
+            WHERE cohort_id = ? AND publish_state = 'published'
+              AND post_id IS NOT NULL
+            ORDER BY day_index, surface""",
+            (COHORT_ID,),
+        ).fetchall()
+    )
+    post_ids = sorted({str(row["post_id"]) for row in assignments})
+    snapshots_by_post: dict[str, list[dict[str, Any]]] = {}
+    if post_ids:
+        placeholders = ",".join("?" for _ in post_ids)
+        snapshots = _rows_to_dicts(
+            conn.execute(
+                f"""SELECT * FROM performance_snapshots
+                WHERE post_id IN ({placeholders})
+                ORDER BY post_id, snapshot_at""",
+                post_ids,
+            ).fetchall()
+        )
+        for snapshot in snapshots:
+            if not learning_eligible(snapshot, cutover=cutover):
+                continue
+            hour = _snapshot_history_hour(snapshot)
+            if hour is None:
+                continue
+            snapshot["_history_hour"] = hour
+            snapshots_by_post.setdefault(str(snapshot["post_id"]), []).append(snapshot)
+
+    changed = 0
+    completed = {"oneHour": 0, "twentyFourHour": 0, "trialSeventyTwoHour": 0}
+    rewards_written = 0
+    now = _utc_now()
+    for assignment in assignments:
+        snapshots = snapshots_by_post.get(str(assignment["post_id"]), [])
+        one_hour = _snapshot_for_window(snapshots, "metric_1h_state")
+        twenty_four_hour = _snapshot_for_window(snapshots, "metric_24h_state")
+        seventy_two_hour = (
+            _snapshot_for_window(snapshots, "metric_72h_state")
+            if assignment["surface"] == "trial_reel"
+            else None
+        )
+        next_1h = "complete" if one_hour is not None else "pending"
+        next_24h = "complete" if twenty_four_hour is not None else "pending"
+        next_72h = (
+            "complete"
+            if seventy_two_hour is not None
+            else "pending"
+            if assignment["surface"] == "trial_reel"
+            else "not_required"
+        )
+        reward = (
+            snapshot_reward(_learning_score_snapshot(twenty_four_hour))
+            if twenty_four_hour is not None
+            else None
+        )
+        completed["oneHour"] += next_1h == "complete"
+        completed["twentyFourHour"] += next_24h == "complete"
+        completed["trialSeventyTwoHour"] += next_72h == "complete"
+        rewards_written += reward is not None
+        row_changed = any(
+            (
+                assignment["metric_1h_state"] != next_1h,
+                assignment["metric_24h_state"] != next_24h,
+                assignment["metric_72h_state"] != next_72h,
+                not _same_optional_float(assignment["reward_24h"], reward),
+            )
+        )
+        if not row_changed:
+            continue
+        conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET metric_1h_state = ?, metric_24h_state = ?, metric_72h_state = ?,
+                reward_24h = ?, updated_at = ?
+            WHERE id = ? AND cohort_id = ?""",
+            (
+                next_1h,
+                next_24h,
+                next_72h,
+                reward,
+                now,
+                assignment["id"],
+                COHORT_ID,
+            ),
+        )
+        changed += 1
+    conn.commit()
+    return {
+        "schema": "campaign_factory.learning_cohort.metric_sync.v1",
+        "cohortId": COHORT_ID,
+        "status": "synced",
+        "assignmentsChecked": len(assignments),
+        "assignmentsChanged": changed,
+        "metricWindows": completed,
+        "rewardsWritten": rewards_written,
+    }
+
+
+def _snapshot_history_hour(snapshot: dict[str, Any]) -> float | None:
+    payload = _json_object(snapshot.get("raw_json"))
+    metadata = payload.get("metadata") if isinstance(payload, dict) else None
+    history = (
+        metadata.get("threadsdash_metric_history")
+        if isinstance(metadata, dict)
+        else None
+    )
+    if isinstance(history, dict):
+        value = history.get("hoursSincePublish", history.get("hours_since_publish"))
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+    try:
+        snapshot_at = datetime.fromisoformat(
+            str(snapshot["snapshot_at"]).replace("Z", "+00:00")
+        )
+        published_at = datetime.fromisoformat(
+            str(snapshot["published_at"]).replace("Z", "+00:00")
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    if snapshot_at.tzinfo is None:
+        snapshot_at = snapshot_at.replace(tzinfo=ZoneInfo("UTC"))
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=ZoneInfo("UTC"))
+    return (snapshot_at - published_at).total_seconds() / 3600
+
+
+def _snapshot_for_window(
+    snapshots: list[dict[str, Any]], state: str
+) -> dict[str, Any] | None:
+    target, minimum, maximum = METRIC_WINDOWS[state]
+    candidates = [
+        row for row in snapshots if minimum <= float(row["_history_hour"]) <= maximum
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda row: (
+            abs(float(row["_history_hour"]) - target),
+            str(row.get("snapshot_at") or ""),
+        ),
+    )
+
+
+def _learning_score_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "metrics": {
+            "views": snapshot.get("views"),
+            "likes": snapshot.get("likes"),
+            "comments": snapshot.get("comments"),
+            "shares": snapshot.get("shares"),
+            "saves": snapshot.get("saves"),
+            "impressions": snapshot.get("impressions"),
+            "reach": snapshot.get("reach"),
+        }
+    }
+
+
+def _same_optional_float(left: Any, right: float | None) -> bool:
+    if left is None or right is None:
+        return left is None and right is None
+    return abs(float(left) - right) < 1e-12
 
 
 def _assignment_row(conn: sqlite3.Connection, assignment_id: str) -> dict[str, Any]:

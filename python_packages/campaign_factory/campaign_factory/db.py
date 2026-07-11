@@ -405,6 +405,21 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
   FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
 );
 
+CREATE TABLE IF NOT EXISTS kling_selection_receipts (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  selected_rendered_asset_id TEXT NOT NULL,
+  receipt_path TEXT NOT NULL,
+  receipt_hash TEXT NOT NULL,
+  ranking_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  UNIQUE(campaign_id, batch_id),
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
+  FOREIGN KEY(selected_rendered_asset_id) REFERENCES rendered_assets(id)
+);
+
 CREATE TABLE IF NOT EXISTS threadsdash_exports (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,

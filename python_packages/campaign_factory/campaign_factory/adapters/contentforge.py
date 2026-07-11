@@ -744,6 +744,8 @@ def _post_similarity(
     layers: list[str],
     originality_reference_files: list[str] | None = None,
     comparison_files: list[str] | None = None,
+    animation_mode: str | None = None,
+    allow_static_opening: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": source,
@@ -756,6 +758,10 @@ def _post_similarity(
         payload["originalityReferenceFiles"] = originality_reference_files
     if comparison_files:
         payload["comparisonFiles"] = comparison_files
+    if animation_mode:
+        payload["animationMode"] = animation_mode
+    if allow_static_opening:
+        payload["allowStaticOpening"] = True
     return run_contentforge(contentforge_root, "similarity", payload, timeout=240)
 
 

@@ -1399,7 +1399,7 @@ Return exactly this JSON-compatible shape:
       "constraints": "non-explicit, platform-safe notes"
     }},
     "body": {{
-      "build": "body silhouette only, adapted to my model/Soul ID; keep adult and non-explicit",
+      "build": "body silhouette only, adapted to my model/Soul ID; keep 19 years old and non-explicit",
       "pose_details": "how the pose emphasizes shape or movement without explicit nudity"
     }},
     "environment": {{

@@ -17,6 +17,8 @@ def test_build_mux_cmd_uses_hook_offset_and_loudnorm(tmp_path: Path) -> None:
 
     assert cmd[cmd.index("-ss") + 1] == "12.500"
     assert "loudnorm=I=-14:TP=-1.5:LRA=11" in cmd[cmd.index("-af") + 1]
+    assert cmd[cmd.index("-t") + 1] == "5.000"
+    assert "-shortest" not in cmd
 
 
 def test_build_mux_cmd_omits_offset_when_absent(tmp_path: Path) -> None:

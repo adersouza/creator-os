@@ -30,21 +30,20 @@ this repo without an explicit deployment instruction.
 
 ## Contract Ownership
 
-`packages/pipeline_contracts/schemas` is the ONLY hand-edited source for shared
-schemas. Everything else is a generated mirror, kept byte-for-byte in sync:
-- `packages/pipeline_contracts/pipeline_contracts/schemas` (in-package runtime copy)
-- `pipeline_contracts/schemas` (root compatibility copy)
-- `python_packages/campaign_factory/schemas` (campaign_factory runtime gate, see `control.py`)
-- `*/typescript/generated-schemas.ts` and the root `pipeline_contracts/typescript/index.ts`
+`packages/pipeline_contracts/pipeline_contracts/schemas` is the ONLY hand-edited
+source for shared schemas. The generated TypeScript bundle lives at
+`packages/pipeline_contracts/typescript/generated-schemas.ts`. The root
+`pipeline_contracts/__init__.py` is an import shim, not a schema mirror.
 
 Workflow for ANY schema/contract change:
-1. Edit only `packages/pipeline_contracts/schemas/<name>.schema.json`.
-2. Run `pnpm sync:contracts` — regenerates every mirror + TypeScript from canonical.
+1. Edit only `packages/pipeline_contracts/pipeline_contracts/schemas/<name>.schema.json`.
+2. Run `pnpm sync:contracts` — regenerates TypeScript from the canonical schemas.
 3. Run `pnpm check:contracts` to verify (this is what CI's `contracts` job enforces).
 
-NEVER hand-edit a mirror directory — `pnpm sync:contracts` overwrites it and
-`pnpm check:contracts` (CI) fails on drift. ThreadsDashboard consumes contracts
-from its own external checkout, not from a Creator OS mirror path.
+NEVER hand-edit generated TypeScript — `pnpm sync:contracts` overwrites it and
+`pnpm check:contracts` (CI) fails on drift. ThreadsDashboard consumes a snapshot
+from its own external checkout; the cross-repo contract test verifies that
+snapshot against Creator OS `main`.
 
 ## Tooling And PR Safety
 

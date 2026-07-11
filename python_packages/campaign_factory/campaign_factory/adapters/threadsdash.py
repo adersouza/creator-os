@@ -34,6 +34,7 @@ from ..core import (
     normalize_content_surface,
     utc_now,
 )
+from ..learning_cohort import COHORT_ID, sync_learning_cohort_metrics
 from ..learning_readiness import closed_loop_learning_status
 from ..learning_score import (
     learning_ineligibility_reasons,
@@ -4779,6 +4780,11 @@ def sync_performance_snapshots(
             },
         )
         factory.conn.commit()
+        cohort_metric_writeback = (
+            sync_learning_cohort_metrics(factory.conn)
+            if campaign_slug == COHORT_ID
+            else None
+        )
         summary = factory.performance_summary(campaign_slug)
         learning_readiness = closed_loop_learning_status(
             factory.conn, campaign_slug=campaign_slug
@@ -4800,6 +4806,7 @@ def sync_performance_snapshots(
             "learningIneligibleReasons": learning_ineligible_reasons,
             "learningLoopCutover": learning_loop_cutover_iso(),
             "learningReadiness": learning_readiness,
+            "learningCohortMetricWriteback": cohort_metric_writeback,
             "campaignFactorySnapshotsScanned": tracked_snapshot_count,
             "inserted": inserted,
             "updated": updated,
@@ -4828,6 +4835,7 @@ def sync_performance_snapshots(
                 "learningIneligiblePosts": len(learning_ineligible_post_ids),
                 "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
                 "learningIneligibleReasons": learning_ineligible_reasons,
+                "learningCohortMetricWriteback": cohort_metric_writeback,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,
@@ -4849,6 +4857,7 @@ def sync_performance_snapshots(
                 "learningIneligiblePosts": len(learning_ineligible_post_ids),
                 "learningIneligibleSnapshots": learning_ineligible_snapshot_count,
                 "learningIneligibleReasons": learning_ineligible_reasons,
+                "learningCohortMetricWriteback": cohort_metric_writeback,
                 "campaignFactorySnapshotsScanned": tracked_snapshot_count,
                 "inserted": inserted,
                 "updated": updated,

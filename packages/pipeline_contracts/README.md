@@ -2,25 +2,21 @@
 
 Shared JSON schemas and lightweight validators for Campaign Factory, Reference Factory, and ThreadsDashboard.
 
-In the `creator-os` monorepo, this package is the canonical shared contract
-source for the content pipeline:
-
-```text
-packages/pipeline_contracts
-```
-
-Compatibility mirrors may exist for consumers that still import local snapshots:
+In the `creator-os` monorepo, the canonical hand-edited JSON schemas live at:
 
 ```text
 packages/pipeline_contracts/pipeline_contracts/schemas
-pipeline_contracts/schemas
-python_packages/campaign_factory/schemas
 ```
 
-Those mirrors are not authoritative. Keep them byte-for-byte synchronized with
-`packages/pipeline_contracts` and run the root drift check before merging.
-ThreadsDashboard is external and does not receive a vendored copy through
-Creator OS.
+The generated TypeScript bundle lives at:
+
+```text
+packages/pipeline_contracts/typescript/generated-schemas.ts
+```
+
+The root `pipeline_contracts/__init__.py` is an import shim, not a schema mirror.
+ThreadsDashboard keeps its own consumer snapshot; the cross-repo contract test
+compares that snapshot with Creator OS `main`.
 
 ```bash
 pnpm check:contracts

@@ -53,14 +53,16 @@ class StructuredPromptGenerationTests(unittest.TestCase):
         self.assertIn("wardrobe", instruction)
         self.assertIn("qualityConstraints", instruction)
         self.assertIn("one native 6-panel grid", instruction)
-        self.assertIn("adult woman, age 20+", instruction)
+        self.assertIn("19 years old", instruction)
+        for forbidden in ("adult", "woman", "girl", "teen", "young"):
+            self.assertNotIn(forbidden, instruction.lower())
         self.assertIn("Do not describe identity-locked details", instruction)
         self.assertIn("preserve the outfit check pose", instruction)
 
     def test_normalizer_removes_identity_and_ui_fields(self):
         raw = {
             "schema": "reel_factory.reference_recreation_prompt.v1",
-            "adultSubject": True,
+            "ageYears": 19,
             "scene": {
                 "environment": "bedroom mirror selfie",
                 "username": "bad ui label",
@@ -86,7 +88,7 @@ class StructuredPromptGenerationTests(unittest.TestCase):
         spec = normalize_structured_recreation_spec(json.dumps(raw))
 
         self.assertEqual(spec["schema"], "reel_factory.reference_recreation_prompt.v1")
-        self.assertTrue(spec["adultSubject"])
+        self.assertEqual(spec["ageYears"], 19)
         self.assertNotIn("extra", spec)
         self.assertNotIn("username", spec["scene"])
         self.assertNotIn("hair", spec["subject"])
@@ -97,7 +99,7 @@ class StructuredPromptGenerationTests(unittest.TestCase):
             json.dumps(
                 {
                     "schema": "reel_factory.reference_recreation_prompt.v1",
-                    "adultSubject": True,
+                    "ageYears": 19,
                     "scene": {
                         "captureStyle": "mirror selfie",
                         "environment": "simple bedroom",
@@ -157,7 +159,7 @@ class StructuredPromptGenerationTests(unittest.TestCase):
                             "text": json.dumps(
                                 {
                                     "schema": "reel_factory.reference_recreation_prompt.v1",
-                                    "adultSubject": True,
+                                    "ageYears": 19,
                                     "scene": {
                                         "captureStyle": "mirror selfie",
                                         "environment": "bedroom",

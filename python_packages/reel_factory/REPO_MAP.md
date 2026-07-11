@@ -77,9 +77,8 @@ Primary role: shared schemas and validators.
 Important areas:
 
 - `packages/pipeline_contracts/pipeline_contracts/schemas/`
-- `packages/pipeline_contracts/schemas/`
-- `pipeline_contracts/validator.py`
-- `typescript/index.ts`
+- `packages/pipeline_contracts/pipeline_contracts/validator.py`
+- `packages/pipeline_contracts/typescript/index.ts`
 
 ## `/Users/aderdesouza/Developer/reference_factory`
 

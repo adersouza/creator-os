@@ -35,6 +35,7 @@ from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
 from .front_generation_stage import run_front_generation_stage
+from .kling_selection_stage import run_kling_selection_stage
 from .learning_cohort import (
     assign_learning_cohort_references,
     audit_learning_cohort,
@@ -56,6 +57,7 @@ from .reel_ledger_promotion import (
     promote_reel_ledger,
     promotion_reconciliation_report,
 )
+from .static_mp4_stage import run_static_mp4_stage
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -222,6 +224,13 @@ def main() -> int:
     motion_edit.add_argument("--allow-upscale", action="store_true")
     motion_edit.add_argument("--enable-variation", action="store_true")
     motion_edit.add_argument("--variation-preset", default="ig_subtle")
+    static_mp4 = animation_sub.add_parser("static-mp4")
+    static_mp4.add_argument("--campaign", required=True)
+    static_mp4.add_argument("--still", required=True)
+    static_mp4.add_argument("--duration", type=float)
+    static_mp4.add_argument("--dry-run", action="store_true")
+    static_mp4.add_argument("--apply", action="store_true")
+    static_mp4.add_argument("--allow-upscale", action="store_true")
 
     generation = sub.add_parser("generation")
     generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
@@ -237,9 +246,12 @@ def main() -> int:
         "--animation-mode", choices=["kling", "motion_edit"], default="kling"
     )
     front_link.add_argument("--accepted-still")
-    front_link.add_argument("--estimated-image-cost-usd", type=float, default=0.05)
-    front_link.add_argument("--estimated-video-cost-usd", type=float, default=0.10)
-    front_link.add_argument("--budget-cap-usd", type=float)
+    front_link.add_argument("--kling-selection-receipt")
+    front_link.add_argument(
+        "--budget-cap-credits",
+        type=float,
+        help="Maximum native Higgsfield credits allowed for each provider call.",
+    )
     front_link.add_argument("--enable-paid-generation", action="store_true")
     front_link.add_argument("--wait", action="store_true")
     front_link.add_argument("--download", action="store_true")
@@ -247,6 +259,12 @@ def main() -> int:
     front_link.add_argument("--variation-preset", default="ig_subtle")
     front_link.add_argument("--dry-run", action="store_true")
     front_link.add_argument("--apply", action="store_true")
+    select_kling = generation_sub.add_parser("select-kling")
+    select_kling.add_argument("--campaign", required=True)
+    select_kling.add_argument("--rendered-asset-id", action="append", required=True)
+    select_kling.add_argument("--batch-id")
+    select_kling.add_argument("--dry-run", action="store_true")
+    select_kling.add_argument("--apply", action="store_true")
 
     proactive = sub.add_parser("proactive-cycle")
     proactive_sub = proactive.add_subparsers(dest="proactive_cmd", required=True)
@@ -2522,6 +2540,18 @@ def main() -> int:
                         allow_upscale=args.allow_upscale,
                     )
                 )
+            elif args.animation_cmd == "static-mp4":
+                print_json(
+                    run_static_mp4_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        still_path=Path(args.still),
+                        duration_seconds=args.duration,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                        allow_upscale=args.allow_upscale,
+                    )
+                )
         elif args.cmd == "generation":
             if args.generation_cmd == "front-link":
                 print_json(
@@ -2537,14 +2567,26 @@ def main() -> int:
                         accepted_still_path=Path(args.accepted_still)
                         if args.accepted_still
                         else None,
-                        estimated_image_cost_usd=args.estimated_image_cost_usd,
-                        estimated_video_cost_usd=args.estimated_video_cost_usd,
-                        budget_cap_usd=args.budget_cap_usd,
+                        kling_selection_receipt_path=Path(args.kling_selection_receipt)
+                        if args.kling_selection_receipt
+                        else None,
+                        budget_cap_credits=args.budget_cap_credits,
                         enable_paid_generation=args.enable_paid_generation,
                         wait=args.wait,
                         download=args.download,
                         enable_variation=args.enable_variation,
                         variation_preset=args.variation_preset,
+                        dry_run=not args.apply or args.dry_run,
+                        apply=args.apply,
+                    )
+                )
+            elif args.generation_cmd == "select-kling":
+                print_json(
+                    run_kling_selection_stage(
+                        cf,
+                        campaign_slug=args.campaign,
+                        rendered_asset_ids=args.rendered_asset_id,
+                        batch_id=args.batch_id,
                         dry_run=not args.apply or args.dry_run,
                         apply=args.apply,
                     )

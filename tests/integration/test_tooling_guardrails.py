@@ -79,6 +79,10 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     arch_runs = [step.get("run", "") for step in jobs["architecture"]["steps"]]
     assert "pnpm check:arch" in arch_runs
 
+    javascript_runs = [step.get("run", "") for step in jobs["javascript"]["steps"]]
+    assert any("--filter contentforge test" in run for run in javascript_runs)
+    assert all("command-center" not in run for run in javascript_runs)
+
     assert "sbom" in jobs
     sbom_runs = "\n".join(step.get("run", "") for step in jobs["sbom"]["steps"])
     assert "@cyclonedx/cdxgen" in sbom_runs
@@ -92,6 +96,19 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
             step.get("uses") == "actions/attest-build-provenance@v4.1.1"
         for step in jobs["sbom"]["steps"]
     )
+
+
+def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
+    producer_paths = (
+        "python_packages/reel_factory/reel_factory/generate_assets.py",
+        "python_packages/reel_factory/reel_factory/reel_pipeline.py",
+        "python_packages/reel_factory/reel_factory/operator_tools.py",
+    )
+
+    for path in producer_paths:
+        source = (ROOT / path).read_text(encoding="utf-8")
+        assert '"schema": "campaign_factory.generated_asset_lineage.v2"' not in source
+        assert '"schema": "reel_factory.generated_asset_lineage.v2"' in source
 
 
 def test_scorecard_workflow_is_report_mode() -> None:

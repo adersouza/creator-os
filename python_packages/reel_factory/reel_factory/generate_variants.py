@@ -11,11 +11,13 @@ half that used to be done by hand and got done wrong:
                        (those fight the Soul identity / render fake app chrome).
   2. `sexy_variant`  - append-only body emphasis, house ceiling (cleavage[+butt]).
   3. `pick_aspect`   - 3:4 selfie / 2:3 full-body / 9:16 reel.
-  4. `build_spec`    - emit the exact two generations to run: original (reference
-                       -conditioned) + sexy (TEXT-ONLY so the edit sticks).
+  4. `build_spec`    - reuse the reference-pass output as the original and emit
+                       exactly one additional sexy generation (TEXT-ONLY so the
+                       edit sticks).
 
-The agent then runs the two `generate_image` calls from the spec and ranks the
-results with `virality_select.select_best`. Nothing here spends money or posts.
+The agent runs only the sexy `generate_image` call from the spec, then ranks the
+existing original and the sexy result with `virality_select.select_best`.
+Nothing here spends money or posts.
 """
 
 from __future__ import annotations
@@ -90,12 +92,35 @@ def autocrop_reference(
 
 # Phrases the reference-pass enhancer injects that must go before reuse.
 # Identity descriptors fight the Soul; UI/screenshot words render fake app chrome
-# (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Nouns like "woman" are
-# kept — only the offending adjective/phrase is removed.
+# (see AGENTS.md "Higgsfield Prompt UI Trigger Rule"). Creator-specific identity
+# guidance is appended later from an explicit allowlist.
+_IDENTITY_WITH_HAIR_RE = re.compile(
+    r"\b(?:a|an|the)\s+"
+    r"(?:(?:young|adult)\s+)*"
+    r"(?:(?:caucasian|latina|hispanic|middle[- ]eastern)\s+)?"
+    r"(?:woman|girl|teen)\s+with\s+"
+    r"(?:(?:long|short|shoulder-length|medium-length|voluminous|softly|wavy|straight|curly|damp|slightly|dark|light|jet|platinum|brown|blonde?|black|red|auburn|brunette|ginger)[,\s]+)+hair\b",
+    flags=re.IGNORECASE,
+)
+_IDENTITY_SUBJECT_RE = re.compile(
+    r"\b(?:a|an|the)\s+"
+    r"(?:(?:young|adult)\s+)*"
+    r"(?:(?:caucasian|latina|hispanic|middle[- ]eastern)\s+)?"
+    r"(?:woman|girl|teen)\b",
+    flags=re.IGNORECASE,
+)
+_HAND_HOLDING_PHONE_RE = re.compile(
+    r"(?P<hand>\b(?:her|his|their)\s+(?:right|left)\s+hand\b"
+    r"(?:,\s*[^,.]{1,80},)?\s*)"
+    r"holds?\s+(?:an?|the)\s+(?:iphone|smartphone|phone)\b",
+    flags=re.IGNORECASE,
+)
 _STRIP_PATTERNS = (
     # identity: ethnicity / age. NOTE "white" is deliberately NOT here -- it is a
     # common object color ("white lounge chairs", "blue and white sky").
     r"\byoung\b",
+    r"\badults?\b",
+    r"\b(?:adult\s+)?(?:woman|girl|teen)\b",
     r"\b(?:caucasian|latina|hispanic|middle[- ]eastern)\b",
     # age clause incl. the "(she) appears to be in her early 20s" lead-in
     r"\b(?:she )?appears to be(?: in her[^,.]*)?",
@@ -160,7 +185,14 @@ _REEL_CUES = ("reel", "story", "9:16", "vertical video", "tiktok")
 
 def clean_prompt(captured: str) -> str:
     """Remove identity descriptors + UI/screenshot words, tidy punctuation."""
-    text = _STRIP_RE.sub("", captured)
+    # Preserve sentence structure while removing provider-injected identity and
+    # fake-UI trigger words. These replacements run before the broad strip pass
+    # so real provider prose never degrades into fragments such as
+    # "features a with" or "holds an in front".
+    text = _IDENTITY_WITH_HAIR_RE.sub("a person", captured)
+    text = _IDENTITY_SUBJECT_RE.sub("a person", text)
+    text = _HAND_HOLDING_PHONE_RE.sub(r"\g<hand>rests", text)
+    text = _STRIP_RE.sub("", text)
     # drop orphaned subject-verbs left when their object was stripped ("She has.")
     text = re.sub(
         r"(?i)\b(?:she|he|the woman|her)\s+(?:has|is|wears|sports)\s*(?=[.,]|$)",
@@ -172,12 +204,29 @@ def clean_prompt(captured: str) -> str:
     text = re.sub(r"\s+([,.])", r"\1", text)  # space-before-punct
     text = re.sub(r",\s*\.", ".", text)  # ", ." -> "."
     text = re.sub(r"\.\s*,", ".", text)  # ". ," -> "."
+    text = re.sub(r"\b(?:of|featuring|showing)\s+(?:an?|the)?\s*(?=[,.])", "", text)
+    text = re.sub(r"(?i)\b(?:in|with|of|as|on)\s+(?:an?|the)?\s*(?=[,.]|$)", "", text)
+    text = re.sub(
+        r"(?i)^\s*(?:an?|the)\s+(?=(?:taking|posing|wearing|seated|standing|sitting|leaning)\b)",
+        "",
+        text,
+    )
+    text = re.sub(r"\s+([,.])", r"\1", text)
     text = re.sub(r"(?:^|(?<=\. ))\s*,\s*", "", text)  # leading comma in a clause
-    text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "a woman ", text)
+    text = re.sub(r"\ba\s+(?=wearing|posing|seated|standing|leaning)", "", text)
     return text.strip(" ,.\n") + ("." if text.strip(" ,.\n") else "")
 
 
-def sexy_variant(cleaned: str, *, include_butt: bool) -> str:
+_STACEY_SOUL_IDS = {
+    "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+    "5828d958-91dd-4d6d-8909-934503f47644",
+}
+_STACEY_IDENTITY_GUIDANCE = "19 years old, dark hair, no tattoos"
+
+
+def sexy_variant(
+    cleaned: str, *, include_butt: bool, identity_guidance: str | None = None
+) -> str:
     """Append-only body emphasis. House ceiling: cleavage (+ butt if full-body).
 
     Nothing else is amplified on purpose -- pose/expression/lighting edits degrade
@@ -187,7 +236,8 @@ def sexy_variant(cleaned: str, *, include_butt: bool) -> str:
     if include_butt:
         emphasis += " and a curvier rounder butt"
     base = cleaned.rstrip(" .")
-    return f"{base}, {emphasis}."
+    parts = [part for part in (base, identity_guidance, emphasis) if part]
+    return ", ".join(parts) + "."
 
 
 def pick_aspect(prompt: str) -> str:
@@ -204,45 +254,55 @@ def build_spec(
     *,
     soul_id: str,
     reference_media_id: str | None = None,
+    identity_guidance: str | None = None,
 ) -> dict[str, Any]:
-    """Two generations to run: original (reference-conditioned) + sexy (text-only).
+    """Reuse the reference result and plan one sexy text-only generation.
 
     `reference_media_id` is the Higgsfield media_id of the UI-free cropped ref
-    (the agent uploads it). The sexy variant is deliberately text-only: a ref
-    image re-triggers enhancement that wipes the body edit.
+    used by the already-completed reference pass. It remains lineage evidence;
+    it must not trigger a second original generation. The sexy variant is
+    deliberately text-only because a ref image re-triggers enhancement and
+    wipes the body edit.
     """
     cleaned = clean_prompt(captured_prompt)
     aspect = pick_aspect(cleaned)
     full_body = aspect == "2:3"
-    sexy = sexy_variant(cleaned, include_butt=full_body)
+    guidance = (
+        identity_guidance
+        if identity_guidance is not None
+        else _STACEY_IDENTITY_GUIDANCE
+        if soul_id in _STACEY_SOUL_IDS
+        else None
+    )
+    sexy = sexy_variant(cleaned, include_butt=full_body, identity_guidance=guidance)
     return {
         "soul_id": soul_id,
         "cleaned_prompt": cleaned,
+        "identity_guidance": guidance,
         "original": {
-            "model": "soul_2",
-            "soul_id": soul_id,
-            "prompt": cleaned,
+            "source": "reference_pass_result",
+            "generation_required": False,
             "aspect_ratio": aspect,
-            # original keeps the reference for composition; enhancer will re-run.
             "reference_media_id": reference_media_id,
-            "text_only": reference_media_id is None,
         },
         "sexy": {
             "model": "soul_2",
             "soul_id": soul_id,
             "prompt": sexy,
             "aspect_ratio": aspect,
+            "generation_required": True,
             # sexy MUST be text-only or the ref re-enhances and drops the edit.
             "reference_media_id": None,
             "text_only": True,
         },
-        "next": "run both generate_image calls, then virality_select.select_best on the results",
+        "provider_generation_count": 1,
+        "next": "run only the sexy generate_image call, then rank the existing original and sexy result with virality_select.select_best",
     }
 
 
 def _demo() -> None:
     sample = (
-        "A slightly high-angle, close-up selfie of a young Caucasian woman with "
+        "A slightly high-angle, close-up selfie of a subject with "
         "long dark hair, posing outdoors on a beach. She is wearing a black lace "
         "bikini top with thin straps. She has a small hoop nose ring. The image is "
         "framed as a digital screenshot of a social media post, with an oversized "
@@ -259,6 +319,8 @@ def _demo() -> None:
     assert "beach" in cleaned.lower(), cleaned  # scene survives
     spec = build_spec(cleaned, soul_id="soul-x", reference_media_id="ref-1")
     assert spec["sexy"]["text_only"] is True
+    assert spec["original"]["generation_required"] is False
+    assert spec["provider_generation_count"] == 1
     assert "cleavage" in spec["sexy"]["prompt"].lower()
     assert spec["original"]["aspect_ratio"] == "3:4"  # selfie
     boat = build_spec(
@@ -280,6 +342,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--soul-id", help="Creator Soul ID.")
     ap.add_argument(
         "--reference-media-id", help="Higgsfield media_id of the UI-free crop."
+    )
+    ap.add_argument(
+        "--identity-guidance",
+        help="Explicit creator guidance appended only to the text-only variant.",
     )
     ap.add_argument(
         "--autocrop", help="Path to a reference screenshot to trim (black bars/bezel)."
@@ -310,7 +376,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.soul_id:
         ap.error("--soul-id is required with --captured-prompt")
     spec = build_spec(
-        captured, soul_id=args.soul_id, reference_media_id=args.reference_media_id
+        captured,
+        soul_id=args.soul_id,
+        reference_media_id=args.reference_media_id,
+        identity_guidance=args.identity_guidance,
     )
     print(json.dumps(spec, indent=2, ensure_ascii=False))
     return 0

@@ -74,12 +74,13 @@ explicitly changes that boundary.
 
 ## Contract Source Of Truth
 
-Shared schemas live in ONE hand-edited place: `packages/pipeline_contracts/schemas`.
-Three mirror dirs and the generated TypeScript are produced from it, so several
-runtime paths (including `campaign_factory/control.py`'s required-schema health
-gate) can resolve schemas from their own root.
+Shared schemas live in ONE hand-edited place:
+`packages/pipeline_contracts/pipeline_contracts/schemas`. The generated
+TypeScript bundle is produced from it. The root `pipeline_contracts` package is
+an import shim and does not own a schema copy.
 
-Editing a schema: change only `packages/pipeline_contracts/schemas/*.schema.json`,
-then run `pnpm sync:contracts` to regenerate every mirror. `pnpm check:contracts`
-(CI `contracts` job) fails on any drift. Never hand-edit a mirror — see
-`AGENTS.md` "Contract Ownership" for the full mirror list.
+Editing a schema: change only
+`packages/pipeline_contracts/pipeline_contracts/schemas/*.schema.json`, then run
+`pnpm sync:contracts` to regenerate TypeScript. `pnpm check:contracts` (CI
+`contracts` job) fails on drift. ThreadsDashboard snapshot parity is verified by
+the cross-repo Pipeline Contracts test.

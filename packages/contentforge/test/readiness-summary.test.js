@@ -296,6 +296,26 @@ test("campaign profile blocks watchability warnings", function () {
   assert.equal(summary.warningCodes.includes("caption_text_too_small"), false);
 });
 
+test("campaign static-image mode keeps an explicitly allowed static opening advisory", function () {
+  var results = {
+    hookVisibility: {
+      verdict: "warn",
+      warnings: [
+        { code: "static_opening", message: "The first 3 seconds have little visual change", severity: "warn" },
+      ],
+    },
+  };
+  var summary = buildReadinessSummary(results, { hookVisibility: "warn" }, {
+    auditProfile: "campaign_factory_v1",
+    animationMode: "static_image_mp4",
+    allowStaticOpening: true,
+  });
+
+  assert.equal(summary.uploadReady, true);
+  assert.equal(summary.blockingCodes.includes("static_opening"), false);
+  assert.equal(summary.warningCodes.includes("static_opening"), true);
+});
+
 test("campaign profile keeps absent overlay and unavailable OCR advisory", function () {
   var results = {
     readability: {

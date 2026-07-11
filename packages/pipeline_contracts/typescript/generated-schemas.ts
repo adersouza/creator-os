@@ -1825,8 +1825,9 @@ export const generatedPipelineContractSchemas = {
 	    "animationMode",
 	    "dryRun",
 	    "paidGenerationEnabled",
-	    "projectedCostUsd",
-	    "budgetCapUsd",
+	    "projectedCostCredits",
+	    "budgetCapCredits",
+	    "budgetCapScope",
 	    "budgetStatus",
 	    "humanReviewRequired",
 	    "publishingAllowed",
@@ -1886,23 +1887,29 @@ export const generatedPipelineContractSchemas = {
 	    "paidGenerationEnabled": {
 	      "type": "boolean"
 	    },
-	    "projectedCostUsd": {
-	      "type": "number",
-	      "minimum": 0
-	    },
-	    "budgetCapUsd": {
+	    "projectedCostCredits": {
 	      "type": [
 	        "number",
 	        "null"
 	      ],
 	      "minimum": 0
 	    },
+	    "budgetCapCredits": {
+	      "type": [
+	        "number",
+	        "null"
+	      ],
+	      "minimum": 0
+	    },
+	    "budgetCapScope": {
+	      "const": "per_provider_call"
+	    },
 	    "budgetStatus": {
 	      "type": "string",
 	      "enum": [
 	        "within_cap",
 	        "missing_cap",
-	        "exceeds_cap",
+	        "quote_pending",
 	        "not_required"
 	      ]
 	    },
@@ -1922,7 +1929,7 @@ export const generatedPipelineContractSchemas = {
 	          "name",
 	          "status",
 	          "paid",
-	          "estimatedCostUsd",
+	          "estimatedCostCredits",
 	          "commands"
 	        ],
 	        "properties": {
@@ -1930,7 +1937,9 @@ export const generatedPipelineContractSchemas = {
 	            "type": "string",
 	            "enum": [
 	              "soul_reference_image",
+	              "soul_sexy_image",
 	              "still_accept_gate",
+	              "static_mp4",
 	              "kling_video",
 	              "motion_edit",
 	              "variation"
@@ -1949,8 +1958,11 @@ export const generatedPipelineContractSchemas = {
 	          "paid": {
 	            "type": "boolean"
 	          },
-	          "estimatedCostUsd": {
-	            "type": "number",
+	          "estimatedCostCredits": {
+	            "type": [
+	              "number",
+	              "null"
+	            ],
 	            "minimum": 0
 	          },
 	          "commands": {
@@ -1967,6 +1979,9 @@ export const generatedPipelineContractSchemas = {
 	          },
 	          "reason": {
 	            "type": "string"
+	          },
+	          "variantSpec": {
+	            "type": "object"
 	          }
 	        }
 	      }

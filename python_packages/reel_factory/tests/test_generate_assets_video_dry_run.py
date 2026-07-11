@@ -7,6 +7,7 @@ from asset_prompt_contract import AssetPromptSet
 from generate_assets import (
     AssetGenerationPlan,
     build_source_lineage,
+    dry_run_image_asset,
     dry_run_video_asset,
     reference_matched_video_duration,
 )
@@ -60,6 +61,28 @@ def test_video_dry_run_builds_single_kling_command(tmp_path: Path) -> None:
     assert command[command.index("--mode") + 1] == "pro"
 
 
+def test_image_dry_run_never_builds_a_video_command(tmp_path: Path) -> None:
+    result = dry_run_image_asset(
+        AssetGenerationPlan(
+            prompt_json=_prompt(tmp_path),
+            stem="sexy-variant",
+            reference=None,
+            soul_id="soul_1",
+            soul_name=None,
+            start_image=None,
+            out_dir=tmp_path,
+            source_dir=tmp_path / "sources",
+        ),
+        wait=False,
+    )
+
+    assert result["workflow"] == "higgsfield_soul_v2_image_only"
+    assert len(result["commands"]) == 1
+    command = result["commands"][0]
+    assert command[:4] == ["higgsfield", "generate", "create", "text2image_soul_v2"]
+    assert "--start-image" not in command
+
+
 def test_source_lineage_includes_aligned_winner_dna_features(tmp_path: Path) -> None:
     prompt = AssetPromptSet(
         higgsfieldGridPrompt="Stacey standing in a bathroom mirror selfie wearing a black bikini with curvy hourglass styling.",
@@ -85,6 +108,7 @@ def test_source_lineage_includes_aligned_winner_dna_features(tmp_path: Path) -> 
         commands=[],
     )
 
+    assert lineage["schema"] == "reel_factory.generated_asset_lineage.v2"
     assert lineage["features"]["creator"] == "stacey"
     assert lineage["features"]["scene"] == "bathroom_mirror"
     assert lineage["features"]["camera"] == "mirror_selfie"

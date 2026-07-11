@@ -699,7 +699,7 @@ def build_direct_higgsfield_prompt_instruction(
     if layout["kind"] == "single":
         grid_requirement = "For the final image: create one standalone image in the same old structured prompt style."
         example_prompt = (
-            "Create one high-quality Soul ID image featuring the same adult woman at least 20 years old with a voluptuous "
+            "Create one high-quality Soul ID image featuring the same person, 19 years old, with a voluptuous "
             "extreme hourglass figure from the reference image. She is seated looking over her shoulder in a casual indoor "
             "setting. Exact reference pose: seated position, turned to look over her shoulder, strong arched back pushing "
             "out her backside, seductive over-the-shoulder gaze. Strong sexual body emphasis: massive round plump juicy ass "
@@ -714,7 +714,7 @@ def build_direct_higgsfield_prompt_instruction(
         )
         example_prompt = (
             f"Create one high-quality native {layout['panel_label']} grid featuring {layout['variation_phrase']} of the "
-            "exact same stunning woman with a voluptuous extreme hourglass figure from the reference image. She is seated "
+            "exact same person, 19 years old, with a voluptuous extreme hourglass figure from the reference image. They are seated "
             "looking over her shoulder in a casual indoor setting. Exact reference pose in all panels: seated position, "
             "turned to look over her shoulder, strong arched back pushing out her backside, seductive over-the-shoulder gaze. "
             "Strong sexual body emphasis in every panel: massive round plump juicy ass taking center focus, deep side cleavage, "
@@ -776,7 +776,7 @@ def build_json_structured_recreation_instruction(
     reference, wardrobe, pose, camera, and QC constraints stay auditable.
     """
     direction = creative_direction.strip() or (
-        "make the result adult, confident, body-forward, amateur smartphone realistic, "
+        "make the result confident, body-forward, amateur smartphone realistic, "
         "with fitted wardrobe and tasteful glamour while preserving the reference pose and scene"
     )
     layout = normalize_grid_layout(grid_layout)
@@ -796,7 +796,7 @@ def build_json_structured_recreation_instruction(
         "Analyze the reference image and return a strict JSON object that can be used to recreate the image formula. "
         "Do not return prose outside JSON.\n\n"
         "Hard rules:\n"
-        "- The subject must be an adult woman, age 20+.\n"
+        "- Use the exact identity wording 19 years old and no alternative age or subject labels.\n"
         "- Soul ID owns the identity. Do not describe identity-locked details like hair color, hairstyle, eye color, ethnicity, tattoos, exact face, freckles, or skin texture.\n"
         "- Do not include captions, usernames, watermarks, UI, buttons, timestamps, app interface, text overlays, logos, or negative prompts.\n"
         "- Preserve the reference scene, camera angle, framing, pose, lighting, outfit family, and amateur smartphone feel.\n"
@@ -806,7 +806,7 @@ def build_json_structured_recreation_instruction(
         "Return only this JSON shape:\n"
         "{\n"
         '  "schema": "reel_factory.reference_recreation_prompt.v1",\n'
-        '  "adultSubject": true,\n'
+        '  "ageYears": 19,\n'
         '  "referenceSummary": "",\n'
         '  "scene": {\n'
         '    "environment": "",\n'
@@ -861,6 +861,8 @@ def build_json_structured_recreation_instruction(
 
 _STRUCTURED_ALLOWED_TOP_KEYS = {
     "schema",
+    "ageYears",
+    # Read-only backward compatibility for previously captured Grok responses.
     "adultSubject",
     "referenceSummary",
     "scene",
@@ -902,18 +904,16 @@ def normalize_structured_recreation_spec(raw_text: str) -> dict[str, Any]:
         raise ValueError("json-structured Grok response must be a JSON object")
     normalized: dict[str, Any] = {
         "schema": "reel_factory.reference_recreation_prompt.v1",
-        "adultSubject": bool(data.get("adultSubject", True)),
+        "ageYears": 19,
     }
     for key, value in data.items():
-        if key == "schema":
+        if key in {"schema", "adultSubject", "ageYears"}:
             continue
         if key not in _STRUCTURED_ALLOWED_TOP_KEYS:
             continue
         normalized[key] = _clean_structured_value(value)
     normalized["schema"] = "reel_factory.reference_recreation_prompt.v1"
-    normalized["adultSubject"] = bool(normalized.get("adultSubject", True))
-    if not normalized["adultSubject"]:
-        raise ValueError("json-structured prompt must confirm adultSubject=true")
+    normalized["ageYears"] = 19
     return normalized
 
 
@@ -997,11 +997,11 @@ def structured_recreation_spec_to_prompt(
         "two people" in scene_props_text or "second person" in scene_props_text
     )
     subject_opening = (
-        f"{opening} featuring the main adult woman age 20+ in a two-person casual snapshot."
+        f"{opening} featuring the main person, 19 years old, in a two-person casual snapshot."
         if layout["kind"] == "single" and has_multi_subject_scene
-        else f"{opening} featuring one adult woman age 20+."
+        else f"{opening} featuring one person, 19 years old."
         if layout["kind"] == "single"
-        else f"{opening} featuring the same adult woman age 20+ from the Soul ID."
+        else f"{opening} featuring the same person, 19 years old, from the Soul ID."
     )
     sentences = [
         subject_opening,
@@ -1063,11 +1063,21 @@ def _direct_prompt_from_response_text(raw_text: str) -> str:
 
 _DIRECT_FORBIDDEN_RESIDUAL_RE = re.compile(
     r"(?i)\b(?:hair|hairstyle|hair\s+color|tattoos?|eye\s+color|ethnicity|"
+    r"adult|adults|woman|women|girl|girls|teen|teens|young|"
     r"blue eyes?|green eyes?|brown eyes?|hazel eyes?|gray eyes?|grey eyes?|"
     r"freckles?|freckled|perfect face|skin texture|skin sheen|natural sheen|"
     r"high detail|sharp focus)\b"
 )
 _DIRECT_PROMPT_REPLACEMENTS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    (
+        "subject_identity_to_exact_age",
+        re.compile(
+            r"(?i)\b(?:(?:the|an?|same|exact|main|one)\s+)*"
+            r"(?:young\s+)?(?:adult\s+)?(?:woman|women|girl|girls|teen|teens)"
+            r"(?:\s*,?\s*(?:age|aged|at least)\s*\d+\+?(?:\s+years old)?)?\b"
+        ),
+        "person, 19 years old",
+    ),
     (
         "hair_contact_pose_to_hand_near_head",
         re.compile(
@@ -1080,6 +1090,10 @@ _DIRECT_PROMPT_REPLACEMENTS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
 )
 _DIRECT_PROMPT_REMOVALS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "forbidden_identity_word",
+        re.compile(r"(?i)\b(?:adult|adults|woman|women|girl|girls|teen|teens|young)\b"),
+    ),
     (
         "hair_descriptor",
         re.compile(
@@ -1170,6 +1184,16 @@ def clean_direct_higgsfield_prompt(prompt: str) -> dict[str, Any]:
         cleaned = replace_matches(label, pattern, replacement, cleaned)
     for label, pattern in _DIRECT_PROMPT_REMOVALS:
         cleaned = replace_matches(label, pattern, " ", cleaned)
+    if cleaned.strip() and not re.search(r"(?i)\b19\s+years\s+old\b", cleaned):
+        cleaned = f"{cleaned.rstrip(' .')}, 19 years old."
+        diff.append(
+            {
+                "action": "replace",
+                "label": "required_exact_age",
+                "text": "",
+                "replacement": "19 years old",
+            }
+        )
     repaired = _repair_cleanup_punctuation(cleaned)
     if repaired != cleaned:
         diff.append(

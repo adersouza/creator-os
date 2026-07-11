@@ -17,6 +17,7 @@ from campaign_factory.learning_cohort import (
     record_learning_cohort_generation,
     record_learning_cohort_publish,
     run_learning_cohort_day,
+    sync_learning_cohort_metrics,
 )
 from campaign_factory.lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
 from pipeline_contracts.validator import validate_contract
@@ -320,5 +321,105 @@ def test_audit_requires_complete_evidence_and_computes_lift(tmp_path: Path) -> N
         assert result["passed"] is True
         assert result["lift"]["overallLift"] == 0.2
         assert result["lift"]["bootstrapPositiveConfidence"] == 1.0
+    finally:
+        cf.close()
+
+
+def test_metric_sync_writes_real_windows_reward_and_retracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LEARNING_LOOP_CUTOVER", "2026-07-01T00:00:00Z")
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        assignment = dict(
+            cf.conn.execute(
+                """SELECT * FROM learning_cohort_assignments
+                WHERE surface = 'trial_reel' ORDER BY day_index LIMIT 1"""
+            ).fetchone()
+        )
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET post_id = 'post_metric_sync', published_at = ?,
+                publish_state = 'published'
+            WHERE id = ?""",
+            ("2026-07-10T12:00:00Z", assignment["id"]),
+        )
+        campaign_id = cf.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
+        ).fetchone()["id"]
+        for hour, views, likes in ((1.0, 100, 5), (24.0, 1000, 100), (72.0, 1500, 120)):
+            cf.conn.execute(
+                """INSERT INTO performance_snapshots
+                (id, campaign_id, post_id, published_at, snapshot_at, views,
+                 likes, comments, shares, saves, reach, metrics_eligible,
+                 history_source, lineage_v2_valid, raw_json, created_at)
+                VALUES (?, ?, 'post_metric_sync', ?, ?, ?, ?, 10, 5, 2, ?,
+                        1, 'metric_history', 1, ?, ?)""",
+                (
+                    f"snapshot_{int(hour)}",
+                    campaign_id,
+                    "2026-07-10T12:00:00Z",
+                    f"2026-07-{10 + int(hour // 24):02d}T12:00:00Z",
+                    views,
+                    likes,
+                    views,
+                    __import__("json").dumps(
+                        {
+                            "metadata": {
+                                "threadsdash_metric_history": {
+                                    "hoursSincePublish": hour
+                                }
+                            }
+                        }
+                    ),
+                    "2026-07-11T00:00:00Z",
+                ),
+            )
+        cf.conn.commit()
+
+        first = sync_learning_cohort_metrics(cf.conn)
+        second = sync_learning_cohort_metrics(cf.conn)
+        row = dict(
+            cf.conn.execute(
+                "SELECT * FROM learning_cohort_assignments WHERE id = ?",
+                (assignment["id"],),
+            ).fetchone()
+        )
+        assert first["assignmentsChanged"] == 1
+        assert second["assignmentsChanged"] == 0
+        assert row["metric_1h_state"] == "complete"
+        assert row["metric_24h_state"] == "complete"
+        assert row["metric_72h_state"] == "complete"
+        assert row["reward_24h"] == pytest.approx(
+            __import__("math").log1p(1000) * 0.117
+        )
+
+        cf.conn.execute("DELETE FROM performance_snapshots WHERE id = 'snapshot_24'")
+        cf.conn.commit()
+        retracted = sync_learning_cohort_metrics(cf.conn)
+        row = dict(
+            cf.conn.execute(
+                "SELECT * FROM learning_cohort_assignments WHERE id = ?",
+                (assignment["id"],),
+            ).fetchone()
+        )
+        assert retracted["assignmentsChanged"] == 1
+        assert row["metric_24h_state"] == "pending"
+        assert row["reward_24h"] is None
+    finally:
+        cf.close()
+
+
+def test_metric_sync_fails_closed_without_learning_cutover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LEARNING_LOOP_CUTOVER", raising=False)
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        result = sync_learning_cohort_metrics(cf.conn)
+        assert result["status"] == "blocked_cutover_unset"
+        assert result["assignmentsChanged"] == 0
     finally:
         cf.close()

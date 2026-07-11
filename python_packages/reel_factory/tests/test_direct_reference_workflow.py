@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from asset_prompt_contract import validate_kling_motion_prompt_text
 from generate_assets import (
     DirectReferenceImagePlan,
     create_direct_reference_image_asset,
@@ -272,6 +273,7 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
             self.assertIn("no", prompt)
             self.assertNotIn("grid", prompt)
             self.assertNotIn("cropped panel", prompt)
+            validate_kling_motion_prompt_text(compiled.klingMotionPrompt)
 
     def test_motion_prompt_rejects_unknown_scene_type(self):
         with self.assertRaisesRegex(ValueError, "unsupported scene_type"):

@@ -45,7 +45,7 @@ _PROMPT = (
 )
 
 _IMAGE_QC_PROMPT = (
-    "You are a postability QC gate for AI-generated photos of ONE adult person. "
+    "You are a postability QC gate for AI-generated photos of ONE person, 19 years old. "
     "Check two things only. anatomy: physical impossibilities like extra/missing "
     "limbs, fused fingers, impossible joints, warped face/eyes/teeth. exposure: "
     "block visible nipples, areola, genitals, explicit sexual contact, or explicit "

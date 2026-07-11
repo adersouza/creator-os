@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -29,7 +30,8 @@ from deprecated_generators import guard_deprecated_generator
 from higgsfield_cost_preflight import (
     consume_higgsfield_spend_reservation,
     nonnegative_float_arg,
-    reserve_higgsfield_spend,
+    quote_higgsfield_generation,
+    reserve_higgsfield_credits,
 )
 from identity_verification import verify_identity
 from PIL import Image
@@ -104,6 +106,10 @@ class AssetGenerationPlan:
     video_sound: str = "off"
     image_model: str = IMAGE_MODEL
     video_model: str = VIDEO_MODEL
+    cohort_id: str = "creator_os_default"
+    max_credits: float | None = None
+    # Compatibility-only report field. Paid provider authorization uses native
+    # Higgsfield credits and never this estimate.
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
     budget_override_ledger_error: bool = False
@@ -121,6 +127,9 @@ class DirectReferenceImagePlan:
     image_aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO
     image_quality: str = "2k"
     image_model: str = IMAGE_MODEL
+    cohort_id: str = "creator_os_default"
+    max_credits: float | None = None
+    # Compatibility-only report field; see AssetGenerationPlan.
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
     budget_override_ledger_error: bool = False
@@ -748,7 +757,7 @@ def _record_generation_costs(
                 lineage_path_text=lineage_path_text,
                 stem=plan.stem,
                 reservation_id=reservation_id,
-                cohort_id=getattr(plan, "campaign", None),
+                cohort_id=plan.cohort_id,
             )
             events.append(
                 {
@@ -993,6 +1002,33 @@ def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     }
 
 
+def dry_run_image_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
+    prompt = load_prompt(plan.prompt_json)
+    soul_id = _soul_id_for_plan(plan, dry=True)
+    image_prompts = (
+        _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
+    )
+    commands = [
+        build_image_cmd(
+            image_prompt,
+            reference=None,
+            soul_id=soul_id,
+            model=plan.image_model,
+            aspect_ratio=plan.image_aspect_ratio,
+            quality=plan.image_quality,
+            wait=wait,
+        )
+        for image_prompt in image_prompts
+    ]
+    return {
+        "ok": True,
+        "dry_run": True,
+        "workflow": "higgsfield_soul_v2_image_only",
+        "commands": commands,
+        "lineage_path": str(lineage_path(plan)),
+    }
+
+
 def direct_reference_lineage_path(plan: DirectReferenceImagePlan) -> Path:
     return plan.source_dir / f"{plan.stem}.direct_reference_lineage.json"
 
@@ -1108,26 +1144,108 @@ def _record_cost_preflight_block(
 def _cost_preflight_for_plan(
     plan: AssetGenerationPlan | DirectReferenceImagePlan,
     *,
-    include_video: bool = False,
-    asset_count: int | None = None,
+    prompt: AssetPromptSet,
+    generation_kind: str,
+    resolved_models: dict[str, str],
+    asset_count: int = 1,
+    soul_id: str | None = None,
 ) -> dict[str, Any]:
-    default_count = 2 if include_video else 1
-    if (
-        not include_video
-        and isinstance(plan, AssetGenerationPlan)
-        and plan.image_mode == "six-pack"
-    ):
-        default_count = 6
-    count = asset_count if asset_count is not None else default_count
-    return reserve_higgsfield_spend(
-        asset_count=count,
-        estimated_cost_usd=plan.estimated_cost_usd,
-        source=f"reel_factory:{type(plan).__name__}:{plan.stem}",
-        allow_unbudgeted_local_test=plan.allow_unbudgeted_local_test,
-        budget_override_ledger_error=plan.budget_override_ledger_error,
-        root=plan.source_dir.parent,
-        cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
-    )
+    """Quote the exact request in provider credits, then reserve atomically."""
+    if generation_kind not in {"image", "video", "image_and_video"}:
+        raise ValueError("generation_kind must be image, video, or image_and_video")
+    if asset_count <= 0:
+        raise ValueError("asset_count must be positive")
+    run_cap = plan.max_credits
+    if run_cap is None:
+        try:
+            run_cap = float(os.environ.get("HIGGSFIELD_RUN_MAX_CREDITS", ""))
+        except ValueError:
+            run_cap = None
+    if run_cap is None or not math.isfinite(run_cap) or not (run_cap > 0):
+        return _blocked_credit_preflight("missing_provider_credit_cap")
+
+    try:
+        quotes: list[dict[str, Any]] = []
+        if generation_kind in {"image", "image_and_video"}:
+            image_params = {
+                "prompt": prompt.higgsfieldGridPrompt,
+                "aspect_ratio": plan.image_aspect_ratio,
+                "quality": plan.image_quality,
+            }
+            if soul_id:
+                identity_key = (
+                    resolved_models["imageIdentityFlag"].lstrip("-").replace("-", "_")
+                )
+                image_params[identity_key] = soul_id
+            image_quote = quote_higgsfield_generation(
+                resolved_models["imageModel"],
+                params=image_params,
+            )
+            image_count = asset_count if generation_kind == "image" else 1
+            quotes.extend([image_quote] * image_count)
+        if generation_kind in {"video", "image_and_video"}:
+            if not isinstance(plan, AssetGenerationPlan):
+                raise ValueError("video generation requires AssetGenerationPlan")
+            video_params = {
+                "prompt": prompt.klingMotionPrompt,
+                "aspect_ratio": plan.video_aspect_ratio,
+                "duration": str(plan.video_duration),
+            }
+            if plan.video_mode:
+                video_params["mode"] = plan.video_mode
+            if plan.video_sound and resolved_models["videoModel"] in VIDEO_SOUND_MODELS:
+                video_params["sound"] = plan.video_sound
+            quotes.append(
+                quote_higgsfield_generation(
+                    resolved_models["videoModel"], params=video_params
+                )
+            )
+        provider_quote = _aggregate_provider_quotes(quotes)
+        if float(provider_quote["amount"]) > run_cap:
+            blocked = _blocked_credit_preflight("provider_quote_exceeds_run_cap")
+            blocked["providerQuote"] = provider_quote
+            blocked["runCapCredits"] = run_cap
+            return blocked
+        return reserve_higgsfield_credits(
+            provider_quote=provider_quote,
+            asset_count=len(quotes),
+            cohort_id=plan.cohort_id,
+            source=(
+                f"reel_factory:{type(plan).__name__}:{generation_kind}:{plan.stem}"
+            ),
+            root=plan.source_dir.parent,
+            cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
+        )
+    except (KeyError, RuntimeError, ValueError) as exc:
+        return _blocked_credit_preflight(str(exc) or "provider_credit_preflight_failed")
+
+
+def _aggregate_provider_quotes(quotes: list[dict[str, Any]]) -> dict[str, Any]:
+    if not quotes:
+        raise ValueError("provider quote set is empty")
+    amount = sum(float(quote["amount"]) for quote in quotes)
+    return {
+        "schema": "reel_factory.higgsfield_provider_quote.v1",
+        "provider": "higgsfield",
+        "model": "+".join(str(quote.get("model") or "unknown") for quote in quotes),
+        "amount": round(amount, 4),
+        "unit": "higgsfield_credits",
+        "items": quotes,
+    }
+
+
+def _blocked_credit_preflight(reason: str) -> dict[str, Any]:
+    return {
+        "schema": "reel_factory.higgsfield_cost_preflight.v1",
+        "allowed": False,
+        "blockingReason": reason,
+        "blockingReasons": [reason],
+        "reservation": {
+            "schema": "reel_factory.higgsfield_spend_reservation.v1",
+            "id": None,
+            "status": "not_created",
+        },
+    }
 
 
 def _cost_reservation_id(cost_preflight: dict[str, Any]) -> str:
@@ -1288,7 +1406,13 @@ def create_assets(
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
-    cost_preflight = _cost_preflight_for_plan(plan, include_video=True)
+    cost_preflight = _cost_preflight_for_plan(
+        plan,
+        prompt=prompt,
+        generation_kind="image_and_video",
+        resolved_models=resolved,
+        soul_id=soul_id,
+    )
     if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(
             plan,
@@ -1682,7 +1806,15 @@ def create_image_asset(
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
-    cost_preflight = _cost_preflight_for_plan(plan, include_video=False)
+    image_count = 6 if plan.image_mode == "six-pack" else 1
+    cost_preflight = _cost_preflight_for_plan(
+        plan,
+        prompt=prompt,
+        generation_kind="image",
+        resolved_models=resolved,
+        asset_count=image_count,
+        soul_id=soul_id,
+    )
     if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(
             plan,
@@ -1885,7 +2017,13 @@ def create_direct_reference_image_asset(
     commands: list[list[str]] = []
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
-    cost_preflight = _cost_preflight_for_plan(plan, asset_count=1)
+    cost_preflight = _cost_preflight_for_plan(
+        plan,
+        prompt=prompt,
+        generation_kind="image",
+        resolved_models=resolved,
+        soul_id=soul_id,
+    )
     if not cost_preflight.get("allowed"):
         payload = _direct_reference_lineage(
             plan,
@@ -2111,7 +2249,12 @@ def create_video_asset(
     commands: list[list[str]] = []
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
-    cost_preflight = _cost_preflight_for_plan(plan, asset_count=1)
+    cost_preflight = _cost_preflight_for_plan(
+        plan,
+        prompt=prompt,
+        generation_kind="video",
+        resolved_models=resolved,
+    )
     if not cost_preflight.get("allowed"):
         return _record_cost_preflight_block(
             plan,
@@ -2286,7 +2429,7 @@ def build_source_lineage(
     if creator:
         features["creator"] = creator
     return {
-        "schema": "campaign_factory.generated_asset_lineage.v2",
+        "schema": "reel_factory.generated_asset_lineage.v2",
         "createdAt": int(time.time()),
         "source": {
             "stem": plan.stem,
@@ -2398,6 +2541,8 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         video_sound=args.video_sound,
         image_model=args.image_model,
         video_model=args.video_model,
+        cohort_id=args.cohort_id,
+        max_credits=args.max_credits,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
         budget_override_ledger_error=args.budget_override_ledger_error,
@@ -2424,6 +2569,8 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         or DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO,
         image_quality=args.image_quality,
         image_model=args.image_model,
+        cohort_id=args.cohort_id,
+        max_credits=args.max_credits,
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
         budget_override_ledger_error=args.budget_override_ledger_error,
@@ -2437,6 +2584,8 @@ def main() -> int:
         choices=[
             "create",
             "dry-run",
+            "image",
+            "image-dry-run",
             "reference-image",
             "reference-image-dry-run",
             "video",
@@ -2484,6 +2633,17 @@ def main() -> int:
     ap.add_argument("--video-sound", default="off")
     ap.add_argument("--image-model", default=IMAGE_MODEL)
     ap.add_argument("--video-model", default=VIDEO_MODEL)
+    ap.add_argument(
+        "--cohort-id",
+        default="creator_os_default",
+        help="Credit-ledger cohort used for the hard provider cap.",
+    )
+    ap.add_argument(
+        "--max-credits",
+        type=nonnegative_float_arg,
+        help="Required per-run native-credit ceiling for every paid call.",
+    )
+    # Retained only so older callers fail over cleanly while reports migrate.
     ap.add_argument("--estimated-cost-usd", type=nonnegative_float_arg)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
     ap.add_argument("--budget-override-ledger-error", action="store_true")
@@ -2532,6 +2692,23 @@ def main() -> int:
             dry_run(plan, wait=args.wait)
             if args.mode == "dry-run"
             else create_assets(
+                plan,
+                wait=args.wait,
+                download=args.download,
+            )
+        )
+    elif args.mode in {"image", "image-dry-run"}:
+        if not args.prompt_json or not args.stem:
+            raise SystemExit("--prompt-json and --stem are required")
+        if not args.soul_id and not args.soul_name and not args.creator:
+            raise SystemExit(
+                "--creator, --soul-id, or --soul-name is required so Soul V2 uses the creator identity"
+            )
+        plan = _plan_from_args(args)
+        result = (
+            dry_run_image_asset(plan, wait=args.wait)
+            if args.mode == "image-dry-run"
+            else create_image_asset(
                 plan,
                 wait=args.wait,
                 download=args.download,

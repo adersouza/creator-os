@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from campaign_store import ensure_campaign_schema
-from virality_select import predict_engagement, rank_candidates, select_best
+from virality_select import (
+    predict_engagement,
+    rank_candidates,
+    rank_kling_candidate_manifest,
+    select_best,
+)
 from winner_dna import connect, refresh_winner_dna
 
 
@@ -51,6 +56,55 @@ def test_higher_engagement_candidate_wins(tmp_path: Path) -> None:
     ranked = rank_candidates(candidates, tmp_path)
     assert [c["id"] for c in ranked] == ["beach_one", "office_one"]
     assert ranked[0]["score"] > ranked[1]["score"]
+
+
+def test_kling_manifest_selects_unique_evidence_backed_winner(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    result = rank_kling_candidate_manifest(
+        {
+            "schema": "campaign_factory.kling_candidate_manifest.v1",
+            "batchId": "batch_1",
+            "candidates": [
+                {"id": "office", "features": {"scene": "office"}},
+                {"id": "beach", "features": {"scene": "beach"}},
+            ],
+        },
+        tmp_path,
+    )
+
+    assert result["status"] == "selected"
+    assert result["selectedCandidateId"] == "beach"
+    assert [row["rank"] for row in result["candidates"]] == [1, 2]
+    assert result["paidGenerationAuthorized"] is False
+    assert result["publishingAllowed"] is False
+
+
+def test_kling_manifest_refuses_no_signal_or_tied_top(tmp_path: Path) -> None:
+    no_signal = rank_kling_candidate_manifest(
+        {
+            "schema": "campaign_factory.kling_candidate_manifest.v1",
+            "batchId": "batch_none",
+            "candidates": [{"id": "a"}, {"id": "b"}],
+        },
+        tmp_path,
+    )
+    assert no_signal["status"] == "insufficient_signal"
+    assert no_signal["selectedCandidateId"] is None
+
+    _seed(tmp_path)
+    tied = rank_kling_candidate_manifest(
+        {
+            "schema": "campaign_factory.kling_candidate_manifest.v1",
+            "batchId": "batch_tied",
+            "candidates": [
+                {"id": "a", "features": {"scene": "beach"}},
+                {"id": "b", "features": {"scene": "beach"}},
+            ],
+        },
+        tmp_path,
+    )
+    assert tied["status"] == "ambiguous_top"
+    assert tied["selectedCandidateId"] is None
 
 
 def test_rate_reward_beats_higher_raw_view_volume(tmp_path: Path) -> None:

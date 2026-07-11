@@ -14,6 +14,7 @@ from asset_prompt_contract import AssetPromptSet
 from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
 from generate_assets import (
     AssetGenerationPlan,
+    _cost_preflight_for_plan,
     _record_cost_preflight_block,
     _record_generation_costs,
     create_image_asset,
@@ -818,9 +819,12 @@ def _set_higgsfield_guardrail_env(monkeypatch, db_path: Path) -> None:
 def _set_higgsfield_credit_guardrail_env(monkeypatch, db_path: Path) -> None:
     monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(db_path))
     monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_CREDITS", "8")
+    monkeypatch.setenv("HIGGSFIELD_MONTHLY_BUDGET_CREDITS", "1000")
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "2")
+    monkeypatch.setenv("HIGGSFIELD_RUN_MAX_CREDITS", "10")
     monkeypatch.setenv("HIGGSFIELD_COHORT_MAX_CREDITS", "150")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_CREDITS", "25")
+    monkeypatch.setenv("HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS", "10")
 
 
 def test_higgsfield_quote_preserves_cli_parameter_names(monkeypatch) -> None:
@@ -912,6 +916,65 @@ def test_higgsfield_native_credit_reservation_fails_closed_on_caps(
     )
     assert low_balance["allowed"] is False
     assert "projected_balance_below_minimum" in low_balance["blockingReasons"]
+
+
+def test_higgsfield_native_credit_reservation_enforces_monthly_and_kling_limits(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    monkeypatch.setenv("HIGGSFIELD_DAILY_BUDGET_CREDITS", "100")
+    monkeypatch.setenv("HIGGSFIELD_MONTHLY_BUDGET_CREDITS", "10")
+    monkeypatch.setenv("HIGGSFIELD_COHORT_MAX_CREDITS", "100")
+    monkeypatch.setenv("HIGGSFIELD_KLING_DAILY_MAX_GENERATIONS", "1")
+    now = datetime(2026, 7, 11, 12, tzinfo=UTC)
+    kling_quote = {
+        "amount": 9.0,
+        "unit": "higgsfield_credits",
+        "model": "kling3_0",
+    }
+    first = reserve_higgsfield_credits(
+        provider_quote=kling_quote,
+        asset_count=1,
+        cohort_id="stacey",
+        provider=FakeBalanceProvider(100),
+        root=tmp_path,
+        now=now,
+    )
+    assert first["allowed"] is True
+
+    second_kling = reserve_higgsfield_credits(
+        provider_quote={
+            "amount": 0.5,
+            "unit": "higgsfield_credits",
+            "model": "kling3_0",
+        },
+        asset_count=1,
+        cohort_id="stacey",
+        provider=FakeBalanceProvider(100),
+        root=tmp_path,
+        now=now,
+    )
+    assert second_kling["allowed"] is False
+    assert (
+        "projected_daily_kling_generation_limit_exceeded"
+        in second_kling["blockingReasons"]
+    )
+
+    next_day_image = reserve_higgsfield_credits(
+        provider_quote={
+            "amount": 2.0,
+            "unit": "higgsfield_credits",
+            "model": "text2image_soul_v2",
+        },
+        asset_count=1,
+        cohort_id="stacey",
+        provider=FakeBalanceProvider(100),
+        root=tmp_path,
+        now=datetime(2026, 7, 12, 12, tzinfo=UTC),
+    )
+    assert next_day_image["allowed"] is False
+    assert "projected_monthly_credits_exceeded" in next_day_image["blockingReasons"]
 
 
 def test_higgsfield_atomic_reservation_prevents_concurrent_overspend(
@@ -1145,10 +1208,20 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
     tmp_path: Path, monkeypatch
 ) -> None:
     db_path = tmp_path / "campaign_factory.sqlite"
-    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
     monkeypatch.setattr(
         "higgsfield_cost_preflight.CliBalanceProvider.balance",
-        lambda _self: (25.0, None),
+        lambda _self: (50.0, None),
+    )
+    monkeypatch.setattr(
+        "generate_assets.quote_higgsfield_generation",
+        lambda model, **_kwargs: {
+            "schema": "reel_factory.higgsfield_provider_quote.v1",
+            "provider": "higgsfield",
+            "model": model,
+            "amount": 6.0,
+            "unit": "higgsfield_credits",
+        },
     )
     prompt = tmp_path / "prompt.json"
     prompt.write_text(
@@ -1192,7 +1265,8 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
             start_image=None,
             out_dir=tmp_path / "out",
             source_dir=tmp_path / "sources",
-            estimated_cost_usd=6.0,
+            cohort_id="stacey_learning_cohort_v1",
+            max_credits=10.0,
         )
 
     first = create_image_asset(plan("first"), download=False)
@@ -1202,27 +1276,87 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
     assert second["ok"] is False
     assert second["lineage"]["generation"]["status"] == "cost_preflight_blocked"
     assert second["lineage"]["generation"]["costPreflight"]["blockingReasons"] == [
-        "estimated_cost_exceeds_daily_budget"
+        "projected_daily_credits_exceeded"
     ]
     assert len(calls) == 1
     with sqlite3.connect(db_path) as conn:
         reservation = conn.execute(
-            "SELECT id, status, estimated_cost_usd FROM higgsfield_spend_reservations"
+            "SELECT id, status, amount, unit, cohort_id FROM higgsfield_spend_reservations"
         ).fetchone()
         cost_event_reservation = conn.execute(
             "SELECT reservation_id FROM ai_cost_events"
         ).fetchone()[0]
-    assert reservation[1:] == ("consumed", 6.0)
+    assert reservation[1:] == (
+        "consumed",
+        6.0,
+        "higgsfield_credits",
+        "stacey_learning_cohort_v1",
+    )
     assert cost_event_reservation == reservation[0]
 
-    after = check_higgsfield_cost_preflight(
-        asset_count=1,
-        estimated_cost_usd=1.0,
-        provider=FakeBalanceProvider(25.0),
-        root=tmp_path,
+
+def test_video_preflight_quotes_exact_kling_settings_before_reservation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_quote(model: str, *, params: dict[str, str]):
+        captured["model"] = model
+        captured["params"] = params
+        return {
+            "schema": "reel_factory.higgsfield_provider_quote.v1",
+            "provider": "higgsfield",
+            "model": model,
+            "amount": 8,
+            "unit": "higgsfield_credits",
+        }
+
+    def fake_reserve(**kwargs):
+        captured["reservation"] = kwargs
+        return {"allowed": True, "providerQuote": kwargs["provider_quote"]}
+
+    monkeypatch.setattr("generate_assets.quote_higgsfield_generation", fake_quote)
+    monkeypatch.setattr("generate_assets.reserve_higgsfield_credits", fake_reserve)
+    plan = AssetGenerationPlan(
+        prompt_json=tmp_path / "prompt.json",
+        stem="candidate",
+        reference=None,
+        soul_id=None,
+        soul_name=None,
+        start_image="accepted.png",
+        out_dir=tmp_path / "out",
+        source_dir=tmp_path / "sources",
+        video_duration=5,
+        video_mode="pro",
+        video_sound="off",
+        cohort_id="stacey",
+        max_credits=10,
     )
-    assert after["budgetPolicy"]["spentTodayUsd"] == 6.0
-    assert after["budgetPolicy"]["legacyEventSpendTodayUsd"] == 0.0
+    prompt = AssetPromptSet(
+        higgsfieldGridPrompt="still prompt",
+        klingMotionPrompt="subtle natural motion",
+    )
+
+    result = _cost_preflight_for_plan(
+        plan,
+        prompt=prompt,
+        generation_kind="video",
+        resolved_models={"imageModel": "soul_2", "videoModel": "kling3_0"},
+    )
+
+    assert result["allowed"] is True
+    assert captured["model"] == "kling3_0"
+    assert captured["params"] == {
+        "prompt": "subtle natural motion",
+        "aspect_ratio": "9:16",
+        "duration": "5",
+        "mode": "pro",
+        "sound": "off",
+    }
+    reservation = captured["reservation"]
+    assert isinstance(reservation, dict)
+    assert reservation["provider_quote"]["amount"] == 8
+    assert reservation["cohort_id"] == "stacey"
 
 
 def test_higgsfield_cost_preflight_blocks_over_budget_without_estimate(
