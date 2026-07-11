@@ -37,6 +37,8 @@ behavioral similarity to a SHA is not provenance proof.
 - [x] Revert completion and reward state when metric evidence is retracted.
 - [x] Fail closed without `LEARNING_LOOP_CUTOVER`.
 - [x] Commit the metric-writeback slice locally as `eff6a67`.
+- [x] Replace FFmpeg's looping-audio `-shortest` termination with the exact
+  probed video duration, eliminating the CI-only 180-second mux hang.
 
 Verification:
 
@@ -96,8 +98,8 @@ Verification:
 ## Rollout status for completed code
 
 - [x] Reconcile the independent consolidated audit with the two local branches.
-- [ ] Push the Creator OS branch and open a focused PR.
-- [ ] Push the ThreadsDashboard branch and open a focused PR.
+- [x] Push the Creator OS branch and open draft PR `#400`.
+- [x] Push the ThreadsDashboard branch and open draft PR `#297`.
 - [ ] Obtain current-head CI evidence for both PRs.
 - [ ] Merge only after the independent audit does not invalidate the fixes.
 - [ ] Deploy the exact merged ThreadsDashboard SHA to production.
@@ -132,10 +134,12 @@ authoritative.
 ### Production deployment provenance and governance
 
 - [ ] Identify the exact source SHA of the active ThreadsDashboard deployment;
-  current Vercel metadata contains no Git source.
+  current deployment `dpl_61qLci4ZVs9PX4kdRH5jG3CfXtxH` is ready but its
+  Vercel metadata contains no Git source.
 - [ ] Prevent hand-CLI production deployment without recorded source SHA.
 - [ ] Restore GitHub Actions execution; current jobs fail before checkout due
-  billing/account state.
+  billing/account state. PR `#297` reproduced this with zero job logs for both
+  quality and secret-scan checks.
 - [ ] Require quality and secret-scan evidence before production deployment.
 - [ ] Prove a failing check cannot reach Vercel production.
 - [ ] Prove the exact green commit is the commit promoted to production.
