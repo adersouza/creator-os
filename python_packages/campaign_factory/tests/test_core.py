@@ -2093,6 +2093,8 @@ def test_review_batch_contentforge_audit_writes_per_file_results(
     )
 
     assert len(calls) == 3
+    assert all(call["animation_mode"] == "static_image_mp4" for call in calls)
+    assert all(call["allow_static_opening"] is True for call in calls)
     assert calls[1]["target_file"] == first.name
     assert calls[1]["comparison_files"] == []
     assert calls[2]["target_file"] == second.name

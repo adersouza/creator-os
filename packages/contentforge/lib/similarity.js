@@ -351,6 +351,8 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
 export function buildReadinessSummary(results, verdicts, options = {}) {
   var auditProfile = options.auditProfile || "default";
   var campaignProfile = auditProfile === "campaign_factory_v1";
+  var allowStaticOpening = options.allowStaticOpening === true &&
+    options.animationMode === "static_image_mp4";
   var requestedLayers = new Set(options.requestedLayers || []);
   var hasVariantCount = Object.prototype.hasOwnProperty.call(options, "variantCount");
   var fanoutDistinctness = !campaignProfile || !hasVariantCount || Number(options.variantCount || 0) > 1;
@@ -409,7 +411,15 @@ export function buildReadinessSummary(results, verdicts, options = {}) {
     }
   );
   addAdvisoryWarnings(warningItems, "cover", results.cover?.warnings);
-  addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "hook", results.hookVisibility?.warnings);
+  addProfileWarnings(
+    blockingItems,
+    warningItems,
+    "hook",
+    results.hookVisibility?.warnings,
+    function (warning) {
+      return campaignProfile && !(allowStaticOpening && warning.code === "static_opening");
+    }
+  );
   addAdvisoryWarnings(campaignProfile ? blockingItems : warningItems, "watchability", results.watchability?.warnings);
   addAdvisoryWarnings(
     campaignProfile && requestedLayers.has("creativeQuality") ? blockingItems : warningItems,
@@ -1848,6 +1858,8 @@ export async function POST(request) {
     var runId = body.runId || "latest";
     var layers = body.layers || ["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim"];
     var auditProfile = VALID_AUDIT_PROFILES.has(body.auditProfile) ? body.auditProfile : "default";
+    var animationMode = typeof body.animationMode === "string" ? body.animationMode : null;
+    var allowStaticOpening = body.allowStaticOpening === true && animationMode === "static_image_mp4";
     var targetFile = body.targetFile || body.target || body.variant || body.outputFile || null;
     var requestedComparisonFiles = body.comparisonFiles ?? [];
 
@@ -2090,6 +2102,8 @@ export async function POST(request) {
       auditProfile,
       variantCount: files.length,
       requestedLayers: layers,
+      animationMode,
+      allowStaticOpening,
     });
     var overallVerdict = readinessSummary.blockingReasons.length > 0 ? "fail"
       : readinessSummary.warnings.length > 0 ? "warn" : "pass";
@@ -2101,6 +2115,8 @@ export async function POST(request) {
     var responseBody = {
       contractVersion: auditProfile === "campaign_factory_v1" ? CAMPAIGN_FACTORY_CONTRACT_VERSION : null,
       auditProfile,
+      animationMode,
+      allowStaticOpening,
       targetFile: targetFile ? files[0] : null,
       comparisonFiles,
       layers: results,
