@@ -153,13 +153,16 @@ Secrets are redacted before job or event metadata is stored.
 
 ## Accepted Soul stills
 
-Every accepted Soul still that enters the active front-generation path gets a
-locked, five-second static MP4 before any optional animation step. The static
-render is local and zero-provider-cost, contains no burned audio, remains
-review-gated, and is retained if Kling is skipped or fails. Repeating the same
-accepted still reuses its registered static asset.
+Every downloaded, QC-passing Soul still from the active front-generation path
+gets a locked, deterministically varied 5–7 second static MP4 in the same live
+invocation, before human selection or optional animation. This applies to both
+the reference-conditioned original and the text-only sexy candidate. The
+static render is local and zero-provider-cost, contains no burned audio,
+remains review-gated, and is retained if a later candidate or Kling fails.
+Repeating the same still reuses its registered static asset.
 
-Create only the static fallback, with no paid-provider authorization:
+For a separately imported or legacy still, create/reconcile only the static
+fallback with no paid-provider authorization:
 
 ```bash
 campaign-factory animation static-mp4 \
@@ -168,10 +171,12 @@ campaign-factory animation static-mp4 \
   --apply
 ```
 
-The unified front path creates that same static fallback automatically when
-`--accepted-still` is supplied. `--animation-mode motion_edit` leaves the run
-zero-cost; `--animation-mode kling` is a separate paid upgrade and still
-requires both `--enable-paid-generation` and `--budget-cap-usd`.
+The normal unified live front path does not require this second command.
+`--accepted-still` remains an idempotent legacy/import reconciliation and the
+entry to a receipt-backed animation upgrade. `--animation-mode motion_edit`
+leaves that upgrade zero-cost; `--animation-mode kling` is a separate paid
+upgrade and still requires both `--enable-paid-generation` and
+`--budget-cap-credits`.
 
 Reference Factory integration is local-first. `import-reference-bank` imports
 the learning system's `campaign_reference_bank.json` plus the Higgsfield prompt

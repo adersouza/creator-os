@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -312,6 +313,41 @@ def _validate_ranking(
     actual = {str(row.get("id")) for row in ranked if isinstance(row, dict)}
     if actual != expected:
         raise ValueError("Kling ranking candidate ids do not match")
+    if ranking.get("status") != "selected":
+        return
+    if ranking.get("paidGenerationAuthorized") is not False:
+        raise ValueError("Kling ranking must not authorize paid generation")
+    if ranking.get("publishingAllowed") is not False:
+        raise ValueError("Kling ranking must not authorize publishing")
+    if ranking.get("signalPresent") is not True:
+        raise ValueError("Kling ranking cannot select without ranking signals")
+    if ranking.get("candidateCount") != len(candidates):
+        raise ValueError("Kling ranking candidate count does not match")
+    selected_id = str(ranking.get("selectedCandidateId") or "")
+    if selected_id not in expected:
+        raise ValueError("Kling ranking selected candidate is not eligible")
+    ranks = [row.get("rank") for row in ranked]
+    if any(isinstance(rank, bool) or not isinstance(rank, int) for rank in ranks):
+        raise ValueError("Kling ranking ranks must be integers")
+    if sorted(ranks) != list(range(1, len(ranked) + 1)):
+        raise ValueError("Kling ranking must contain unique consecutive ranks")
+    winner = next(row for row in ranked if row.get("rank") == 1)
+    if str(winner.get("id")) != selected_id:
+        raise ValueError("Kling selected candidate is not the rank-one candidate")
+    scores = [row.get("score") for row in ranked]
+    if any(
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(float(score))
+        for score in scores
+    ):
+        raise ValueError("Kling ranking scores must be finite numbers")
+    winner_score = float(winner["score"])
+    other_scores = [
+        float(row["score"]) for row in ranked if str(row.get("id")) != selected_id
+    ]
+    if not other_scores or winner_score <= max(other_scores):
+        raise ValueError("Kling rank-one candidate is not a unique best score")
 
 
 def _attach_receipt_to_asset(
