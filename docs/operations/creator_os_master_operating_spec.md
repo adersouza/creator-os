@@ -171,6 +171,10 @@ Creator OS must become a usable headless production system that:
 ## Current Safety State
 
 - Paid generation stays disabled except for an explicitly approved bounded run.
+- `CREATOR_OS_KILL_SWITCH=1` is the canonical emergency stop. It blocks every
+  Creator OS paid-generation reservation and outbound ThreadsDashboard draft
+  export while leaving read-only checks and local zero-cost static rendering
+  available for diagnosis and recovery.
 - Automatic publishing stays disabled.
 - Native audio is selected and verified in ThreadsDashboard, not burned into
   Creator OS MP4s.

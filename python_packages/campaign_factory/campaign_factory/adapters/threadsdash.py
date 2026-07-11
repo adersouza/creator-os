@@ -15,6 +15,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse, urlunparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
+from creator_os_core.runtime_guards import require_global_write_allowed
+
 from ..caption_outcome import (
     build_caption_outcome_context,
     column_values,
@@ -782,6 +784,8 @@ def export_threadsdash(
     variation_preset: str = "ig_subtle",
     publish_mode: str | None = None,
 ) -> dict[str, Any]:
+    if not dry_run:
+        require_global_write_allowed("ThreadsDashboard draft export")
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)

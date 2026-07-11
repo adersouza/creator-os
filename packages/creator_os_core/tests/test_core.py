@@ -8,6 +8,10 @@ import pytest
 from creator_os_core.fileops import atomic_write_json, atomic_write_text, file_lock
 from creator_os_core.local_api_auth import authorize_local_api_request
 from creator_os_core.media_probe import probe_video_stream
+from creator_os_core.runtime_guards import (
+    global_kill_switch_active,
+    require_global_write_allowed,
+)
 from creator_os_core.sqlite import connect_sqlite, ensure_columns
 from creator_os_core.vectors import cosine_similarity, normalize_vector
 from fastapi import HTTPException
@@ -76,3 +80,21 @@ def test_media_probe_parses_first_video_stream(
         "height": 1920,
         "duration": 4.5,
     }
+
+
+@pytest.mark.parametrize("value", ["1", "true", "YES", " on "])
+def test_global_kill_switch_blocks_state_changing_operations(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", value)
+    assert global_kill_switch_active() is True
+    with pytest.raises(PermissionError, match="CREATOR_OS_KILL_SWITCH is active"):
+        require_global_write_allowed("paid generation")
+
+
+def test_global_kill_switch_is_fail_open_only_when_explicitly_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "0")
+    assert global_kill_switch_active() is False
+    require_global_write_allowed("draft export")

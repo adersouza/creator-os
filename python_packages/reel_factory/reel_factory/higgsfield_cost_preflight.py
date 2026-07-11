@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from creator_os_core.runtime_guards import global_kill_switch_active
 from project_config import load_config
 
 from reel_factory.sqlite_utils import connect_sqlite
@@ -403,6 +404,18 @@ def _dedupe_reasons(reasons: list[str]) -> list[str]:
     return list(dict.fromkeys(reasons))
 
 
+def _apply_global_kill_switch(result: dict[str, Any]) -> dict[str, Any]:
+    if not global_kill_switch_active():
+        return result
+    reasons = _dedupe_reasons(
+        ["creator_os_global_kill_switch_active", *result.get("blockingReasons", [])]
+    )
+    result["allowed"] = False
+    result["blockingReason"] = reasons[0]
+    result["blockingReasons"] = reasons
+    return result
+
+
 def _build_preflight_result(
     *,
     asset_count: Any,
@@ -588,6 +601,7 @@ def reserve_higgsfield_spend(
                 reservation_mode=True,
                 balance_result=balance_result,
             )
+            result = _apply_global_kill_switch(result)
             if result["allowed"]:
                 conn.execute(
                     f"""
@@ -620,6 +634,7 @@ def reserve_higgsfield_spend(
             reservation_mode=True,
             balance_result=balance_result,
         )
+        result = _apply_global_kill_switch(result)
     result["reservation"] = {
         "schema": RESERVATION_SCHEMA,
         "id": reservation_id if result["allowed"] else None,
@@ -668,6 +683,8 @@ def reserve_higgsfield_credits(
     balance = _parse_float(balance_raw)
 
     reasons: list[str] = []
+    if global_kill_switch_active():
+        reasons.append("creator_os_global_kill_switch_active")
     if normalized_assets > run_max_assets:
         reasons.append("run_asset_limit_exceeded")
     if balance is None:
