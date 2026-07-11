@@ -4334,7 +4334,10 @@ def sync_performance_snapshots(
     try:
         client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
         rows, posts_truncated = _select_threadsdash_posts_paged(
-            client, user_id=user_id, campaign_id=campaign["id"], limit=limit
+            client,
+            user_id=user_id,
+            campaign_ids=[campaign["id"], campaign_slug],
+            limit=limit,
         )
         tracked_rows = []
         tracked_snapshot_count = 0
@@ -4926,7 +4929,7 @@ def _select_threadsdash_posts_paged(
     client: SupabaseRestClient,
     *,
     user_id: str,
-    campaign_id: str | None = None,
+    campaign_ids: list[str] | None = None,
     limit: int,
     page_size: int = THREADSDASH_POSTS_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -4934,11 +4937,15 @@ def _select_threadsdash_posts_paged(
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
     }
-    if campaign_id:
-        base_params["metadata->campaign_factory->>campaign_id"] = f"eq.{campaign_id}"
+    normalized_campaign_ids = list(
+        dict.fromkeys(value.strip() for value in campaign_ids or [] if value.strip())
+    )
+    if normalized_campaign_ids:
+        values = ",".join(json.dumps(value) for value in normalized_campaign_ids)
+        base_params["metadata->campaign_factory->>campaign_id"] = f"in.({values})"
     rich_select = (
         "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,updated_at,scheduled_for,"
-        "published_at,permalink,instagram_post_id,content,metadata,views_count,ig_views,"
+        "published_at,permalink,instagram_post_id,publish_mode,handoff_status,manual_publish_confirmed_at,content,metadata,views_count,ig_views,"
         "likes_count,replies_count,ig_comment_count,"
         "shares_count,ig_shares,ig_saved,"
         "ig_reach,ig_impressions,"
@@ -4964,7 +4971,7 @@ def _select_threadsdash_posts_paged(
             client,
             "posts",
             {
-                "select": "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,scheduled_for,content,metadata",
+                "select": "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,scheduled_for,published_at,permalink,instagram_post_id,publish_mode,handoff_status,manual_publish_confirmed_at,content,metadata",
                 **base_params,
             },
             limit=limit,
@@ -5563,7 +5570,23 @@ def _metrics_eligibility_for_threadsdash_row(
         blockers.append("asset_not_publishable_or_exportable")
     if meta.get("quarantined"):
         blockers.append("metadata_quarantined")
-    if meta.get("publishability_failure_reasons"):
+    publishability_failures = {
+        str(value).strip()
+        for value in meta.get("publishability_failure_reasons") or []
+        if str(value).strip()
+    }
+    notify_audio_resolved = (
+        status == "published"
+        and str(row.get("publish_mode") or "").lower() == "notify"
+        and str(row.get("handoff_status") or "").lower() == "completed"
+        and bool(row.get("manual_publish_confirmed_at"))
+        and bool(row.get("instagram_post_id"))
+        and bool(row.get("permalink"))
+        and publishability_failures.issubset(
+            {"embedded_audio_missing", "missing_audio"}
+        )
+    )
+    if publishability_failures and not notify_audio_resolved:
         blockers.append("publishability_failure_reasons_present")
     if post_id and blockers:
         return {"eligible": False, "blockingReasons": sorted(set(blockers))}
