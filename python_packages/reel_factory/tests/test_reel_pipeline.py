@@ -2017,6 +2017,21 @@ class ReelPipelineTests(unittest.TestCase):
 
         self.assertEqual(result["provider"], "insightface_arcface")
 
+        with tempfile.TemporaryDirectory() as tmp:
+            venv_python = Path(tmp) / ".venv" / "bin" / "python"
+            venv_python.parent.mkdir(parents=True)
+            venv_python.symlink_to(Path(sys.executable).resolve())
+            with (
+                patch("reel_pipeline.sys.executable", str(venv_python)),
+                patch(
+                    "reel_pipeline.get_identity_provider",
+                    return_value=FakeInsightFaceProvider(),
+                ),
+            ):
+                linked_result = enforce_production_identity_provider(True)
+
+        self.assertEqual(linked_result["provider"], "insightface_arcface")
+
     def test_phone_creation_time_uses_utc_mp4_timestamp_shape(self):
         created_at = phone_creation_time()
         self.assertIn("T", created_at)

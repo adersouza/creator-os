@@ -527,7 +527,9 @@ def normalize_rendered_mp4_metadata(path: Path) -> dict:
 def enforce_production_identity_provider(production_render: bool) -> dict:
     if not production_render:
         return {"required": False, "provider": "", "providerAvailable": None}
-    executable = Path(sys.executable).resolve()
+    # Keep the invoked path: uv and standard virtualenvs commonly symlink their
+    # Python executable to a shared runtime outside `.venv`.
+    executable = Path(sys.executable)
     if ".venv" not in executable.parts:
         raise RuntimeError("production_render_requires_venv_python")
     provider = get_identity_provider()

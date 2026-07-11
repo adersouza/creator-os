@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import pytest
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.learning_cohort import (
@@ -11,8 +12,13 @@ from campaign_factory.learning_cohort import (
     audit_learning_cohort,
     learning_cohort_assignment_metadata,
     prepare_learning_cohort,
+    record_learning_cohort_approval,
+    record_learning_cohort_draft,
+    record_learning_cohort_generation,
+    record_learning_cohort_publish,
     run_learning_cohort_day,
 )
+from campaign_factory.lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
 from pipeline_contracts.validator import validate_contract
 
 
@@ -33,6 +39,7 @@ def _reference_ready(cf: CampaignFactory) -> None:
     cf.conn.execute(
         """UPDATE learning_cohort_assignments
         SET reference_id = 'stacey_ref', source_family = 'pattern_1',
+            perceptual_cluster = 'cluster_1',
             content_fingerprint = id || '_fingerprint'"""
     )
     cf.conn.commit()
@@ -178,6 +185,120 @@ def test_run_day_blocks_when_reference_assignment_is_missing(tmp_path: Path) -> 
         result = run_learning_cohort_day(cf.conn, day_index=1)
         assert result["status"] == "paused"
         assert "reference_assignment_missing" in result["blockingReasons"]
+    finally:
+        cf.close()
+
+
+def test_real_artifact_draft_approval_and_publish_transitions(tmp_path: Path) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        _reference_ready(cf)
+        run_learning_cohort_day(cf.conn, day_index=1)
+        assignment = dict(
+            cf.conn.execute(
+                """SELECT * FROM learning_cohort_assignments
+                WHERE day_index = 1 AND surface = 'regular_reel'"""
+            ).fetchone()
+        )
+        model = cf.upsert_model("stacey")
+        campaign_id = cf.conn.execute(
+            "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
+        ).fetchone()["id"]
+        artifact = tmp_path / "approved.mp4"
+        artifact.write_bytes(b"real-rendered-artifact")
+        now = "2026-07-11T00:00:00+00:00"
+        cf.conn.execute(
+            """INSERT INTO source_assets
+            (id, campaign_id, model_id, content_hash, original_path, stored_path,
+             filename, source_prompt, created_at, updated_at)
+            VALUES ('source_1', ?, ?, 'source_hash', ?, ?, 'approved.mp4', '{}', ?, ?)""",
+            (campaign_id, model["id"], str(artifact), str(artifact), now, now),
+        )
+        cf.conn.execute(
+            """INSERT INTO rendered_assets
+            (id, campaign_id, source_asset_id, content_hash, output_path,
+             campaign_path, filename, caption, caption_hash, recipe,
+             created_at, updated_at)
+            VALUES ('asset_1', ?, 'source_1', 'render_hash', ?, ?, 'approved.mp4',
+             'caption', 'caption_hash', 'finished_video_registered', ?, ?)""",
+            (campaign_id, str(artifact), str(artifact), now, now),
+        )
+        cf.conn.commit()
+        lineage = build_lineage_v2_core(
+            {
+                "source": {
+                    "promptId": "prompt_1",
+                    "referenceId": assignment["reference_id"],
+                },
+                "generation": {"tool": "reel_factory.reel_pipeline"},
+                "review": {"humanReviewRequired": True},
+            },
+            campaign_id=campaign_id,
+            recipe_id="finished_video_registered",
+            caption_hash="caption_hash",
+            rendered_asset_id="asset_1",
+            content_fingerprint=assignment["content_fingerprint"],
+        )
+        lineage["sourceFamilyId"] = assignment["source_family"]
+        lineage["perceptualClusterId"] = assignment["perceptual_cluster"]
+        lineage = finalize_lineage_v2(
+            lineage,
+            audio_intent={
+                "schema": "pipeline.audio_intent.v1",
+                "mode": "native_trending_audio",
+            },
+            variant_assignment=None,
+        )
+        lineage_path = tmp_path / "lineage.json"
+        lineage_path.write_text(__import__("json").dumps(lineage), encoding="utf-8")
+
+        generation = record_learning_cohort_generation(
+            cf.conn,
+            assignment_id=assignment["id"],
+            rendered_asset_id="asset_1",
+            lineage_path=lineage_path,
+            artifact_path=artifact,
+            provider_reservation_id="reservation_1",
+        )
+        assert generation["generationState"] == "complete"
+        source_prompt = __import__("json").loads(
+            cf.conn.execute(
+                "SELECT source_prompt FROM source_assets WHERE id = 'source_1'"
+            ).fetchone()["source_prompt"]
+        )
+        assert source_prompt["generatedAssetLineage"]["renderedAssetId"] == "asset_1"
+        assert artifact.with_suffix(".mp4.generated_asset_lineage.json").is_file()
+
+        bad_lineage = dict(lineage)
+        bad_lineage["source"] = {**lineage["source"], "referenceId": "wrong_ref"}
+        bad_path = tmp_path / "bad-lineage.json"
+        bad_path.write_text(__import__("json").dumps(bad_lineage), encoding="utf-8")
+        with pytest.raises(ValueError, match="referenceId"):
+            record_learning_cohort_generation(
+                cf.conn,
+                assignment_id=assignment["id"],
+                rendered_asset_id="asset_1",
+                lineage_path=bad_path,
+                artifact_path=artifact,
+            )
+
+        draft = record_learning_cohort_draft(
+            cf.conn, assignment_id=assignment["id"], draft_id="draft_1"
+        )
+        assert draft["generationState"] == "draft_ingested"
+        approved = record_learning_cohort_approval(
+            cf.conn, assignment_id=assignment["id"], decision="approved"
+        )
+        assert approved["scheduleState"] == "ready_for_manual_publish"
+        published = record_learning_cohort_publish(
+            cf.conn,
+            assignment_id=assignment["id"],
+            post_id="post_1",
+            published_at="2026-07-11T12:00:00-04:00",
+        )
+        assert published["publishState"] == "published"
+        assert published["publishedAt"] == "2026-07-11T12:00:00-04:00"
     finally:
         cf.close()
 
