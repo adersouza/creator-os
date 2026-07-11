@@ -36,6 +36,7 @@ from .control import operator_control_check
 from .core import CampaignFactory
 from .front_generation_stage import run_front_generation_stage
 from .learning_cohort import (
+    assign_learning_cohort_references,
     audit_learning_cohort,
     learning_cohort_status,
     prepare_learning_cohort,
@@ -362,6 +363,9 @@ def main() -> int:
     cohort_prepare.add_argument("--seed", default="stacey_learning_cohort_v1")
     cohort_run_day = learning_cohort_sub.add_parser("run-day")
     cohort_run_day.add_argument("--day", type=int, required=True)
+    cohort_assign = learning_cohort_sub.add_parser("assign-references")
+    cohort_assign.add_argument("--identity-manifest", type=Path, required=True)
+    cohort_assign.add_argument("--apply", action="store_true")
     learning_cohort_sub.add_parser("status")
     learning_cohort_sub.add_parser("audit")
 
@@ -2373,6 +2377,14 @@ def main() -> int:
                 )
             elif args.learning_cohort_cmd == "run-day":
                 print_json(run_learning_cohort_day(cf.conn, day_index=args.day))
+            elif args.learning_cohort_cmd == "assign-references":
+                print_json(
+                    assign_learning_cohort_references(
+                        cf.conn,
+                        identity_manifest_path=args.identity_manifest,
+                        apply=args.apply,
+                    )
+                )
             elif args.learning_cohort_cmd == "status":
                 print_json(learning_cohort_status(cf.conn))
             elif args.learning_cohort_cmd == "audit":
