@@ -7,7 +7,7 @@ module.exports = {
       comment:
         "Shared contracts must stay below apps and runtime adapters; app/runtime imports here create circular ownership.",
       from: { path: "^packages/pipeline_contracts/" },
-      to: { path: "^(apps|python_packages)/" },
+      to: { path: "^(apps|python_packages|packages/contentforge)/" },
     },
     {
       name: "tribe-research-not-operational-gate",

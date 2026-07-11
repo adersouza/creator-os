@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import process from "node:process";
+import { POST as similarityPost } from "./lib/similarity.js";
+import { runVariantPack } from "./lib/variant-pack.js";
+import { PROJECT_ROOT, resolveUploadPath } from "./lib/paths.js";
+
+async function readPayload() {
+  var raw = process.argv[3]
+    ? await readFile(process.argv[3], "utf8")
+    : await new Promise(function (resolve, reject) {
+        var chunks = [];
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", function (chunk) { chunks.push(chunk); });
+        process.stdin.on("end", function () { resolve(chunks.join("")); });
+        process.stdin.on("error", reject);
+      });
+  var value = JSON.parse(raw || "{}");
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error("request must be a JSON object");
+  }
+  return value;
+}
+
+async function main() {
+  process.chdir(PROJECT_ROOT);
+  var command = process.argv[2];
+  var payload = await readPayload();
+  var result;
+  if (command === "similarity") {
+    var response = await similarityPost(
+      new Request("http://contentforge.local/api/similarity", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+    result = await response.json();
+    if (!response.ok) throw new Error(result.error || `similarity failed (${response.status})`);
+  } else if (command === "variant-pack") {
+    var source = payload.source || payload.inputFile;
+    if (!resolveUploadPath(source)) throw new Error("invalid source upload");
+    result = await runVariantPack(payload);
+  } else {
+    throw new Error("usage: contentforge <similarity|variant-pack> [request.json]");
+  }
+  process.stdout.write(JSON.stringify(result) + "\n");
+}
+
+main().catch(function (error) {
+  process.stderr.write(JSON.stringify({ error: error.message }) + "\n");
+  process.exitCode = 1;
+});

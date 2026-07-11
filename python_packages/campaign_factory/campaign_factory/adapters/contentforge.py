@@ -6,9 +6,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+from ..contentforge_cli import run_contentforge
 from ..core import CampaignFactory, new_id, utc_now
 
 SUPPORTED_EXTS = {".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png"}
@@ -89,7 +88,7 @@ def audit_campaign(
             reports.append(report)
             failed = report.get("failedChecks") or []
             warnings = report.get("warnings") or []
-            failed_event = bool(report.get("error")) or "contentforge_http" in failed
+            failed_event = bool(report.get("error")) or "contentforge_cli" in failed
             factory.record_event(
                 "contentforge_audit_failed"
                 if failed_event
@@ -133,7 +132,7 @@ def audit_campaign(
                     1
                     for report in reports
                     if report.get("error")
-                    or "contentforge_http" in (report.get("failedChecks") or [])
+                    or "contentforge_cli" in (report.get("failedChecks") or [])
                 ),
                 "warningCount": sum(
                     1
@@ -172,7 +171,7 @@ def audit_variation_batch(
         variant_paths,
     ) as (staged_source, staged_variants):
         response = _post_similarity(
-            contentforge_base_url,
+            contentforge_root,
             source=staged_source.name,
             target_file=staged_variants[0].name,
             comparison_files=[path.name for path in staged_variants[1:]],
@@ -237,7 +236,7 @@ def audit_review_batch_manifest(
         contentforge_root, source_path, variant_paths
     ) as (staged_source, staged_variants):
         response = _post_similarity(
-            contentforge_base_url,
+            contentforge_root,
             source=staged_source.name,
             target_file=staged_variants[0].name,
             comparison_files=[path.name for path in staged_variants[1:]],
@@ -252,7 +251,7 @@ def audit_review_batch_manifest(
             ):
                 try:
                     file_response = _post_similarity(
-                        contentforge_base_url,
+                        contentforge_root,
                         source=staged_source.name,
                         target_file=staged_path.name,
                         comparison_files=[],
@@ -392,9 +391,9 @@ def _missing_review_file_result(output_path: Path, error: str) -> dict[str, Any]
         "uploadReady": False,
         "recommendedAction": "block",
         "warningCodes": [],
-        "blockingCodes": ["contentforge_http"],
+        "blockingCodes": ["contentforge_cli"],
         "topWarnings": [
-            {"code": "contentforge_http", "severity": "block", "message": error}
+            {"code": "contentforge_cli", "severity": "block", "message": error}
         ],
         "safeZoneScore": None,
         "readabilityScore": None,
@@ -468,7 +467,9 @@ def _audit_asset(
                 post_kwargs["originality_reference_files"] = [
                     path.name for path in staged_references
                 ]
-            response = _post_similarity(contentforge_base_url, **post_kwargs)
+            response = _post_similarity(
+                factory.settings.contentforge_root, **post_kwargs
+            )
         failed, warnings = _extract_checks(response)
         overall = response.get("overallVerdict")
         if overall not in {"pass", "warn", "fail"}:
@@ -478,8 +479,8 @@ def _audit_asset(
     except Exception as exc:
         overall = "fail"
         error_message = str(exc)
-        failed.append("contentforge_http")
-        warnings.append(f"contentforge_http: {error_message}")
+        failed.append("contentforge_cli")
+        warnings.append(f"contentforge_cli: {error_message}")
         response = {
             "error": error_message,
             "layers": {},
@@ -735,7 +736,7 @@ def _stage_contentforge_variation_batch(
 
 
 def _post_similarity(
-    base_url: str,
+    contentforge_root: Path | str,
     *,
     source: str,
     target_file: str | None = None,
@@ -744,7 +745,6 @@ def _post_similarity(
     originality_reference_files: list[str] | None = None,
     comparison_files: list[str] | None = None,
 ) -> dict[str, Any]:
-    endpoint = f"{base_url.rstrip('/')}/api/similarity"
     payload: dict[str, Any] = {
         "source": source,
         "layers": layers,
@@ -756,33 +756,7 @@ def _post_similarity(
         payload["originalityReferenceFiles"] = originality_reference_files
     if comparison_files:
         payload["comparisonFiles"] = comparison_files
-    request = Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urlopen(request, timeout=240) as response:
-            raw = response.read()
-    except HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"ContentForge request failed {exc.code}: {body}") from exc
-    except URLError as exc:
-        raise RuntimeError(
-            f"ContentForge is unavailable at {endpoint}: {exc.reason}"
-        ) from exc
-    if not raw:
-        raise RuntimeError("ContentForge returned an empty response")
-    try:
-        parsed = json.loads(raw.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"ContentForge returned invalid JSON: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise RuntimeError("ContentForge returned a non-object response")
-    if parsed.get("error"):
-        raise RuntimeError(f"ContentForge error: {parsed['error']}")
-    return parsed
+    return run_contentforge(contentforge_root, "similarity", payload, timeout=240)
 
 
 def _extract_checks(response: dict[str, Any]) -> tuple[list[str], list[str]]:

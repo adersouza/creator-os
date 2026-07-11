@@ -5,7 +5,6 @@ description = "Local deterministic short-form reel rendering and review workflow
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
-  "uvicorn[standard]>=0.30,<1",
   "python-multipart>=0.0.9,<1",
   "Pillow>=10,<14",
   "pilmoji>=2.0,<3",
@@ -42,7 +41,6 @@ py-modules = [
   "anatomy_qc",
   "analysis_reports",
   "asset_prompt_contract",
-  "approval_board",
   "audio_intent",
   "audio_library_import",
   "audio_mux",
@@ -76,7 +74,6 @@ py-modules = [
   "higgsfield_cost_preflight",
   "identity_verification",
   "intelligence_store",
-  "local_api_auth",
   "manifest",
   "media_metadata",
   "metrics_import",
@@ -97,7 +94,7 @@ py-modules = [
   "rate_output",
   "readiness_check",
   "recipe_loader",
-  "reel_gui",
+  "operator_tools",
   "reel_motion_prompt",
   "reel_pipeline",
   "reel_url_import",

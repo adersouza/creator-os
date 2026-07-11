@@ -92,7 +92,7 @@ Historical decision: use GridCropperV2 seam detection before Kling.
 Evidence:
 
 - `$CREATOR_OS_ROOT/reel_factory/grid_crop.py`
-- `$CREATOR_OS_ROOT/reel_factory/reel_gui.py`
+- `$CREATOR_OS_ROOT/reel_factory/operator_tools.py` (headless compatibility utility)
 
 Reason:
 

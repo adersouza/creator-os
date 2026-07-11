@@ -12,20 +12,14 @@ reel-models:
 backup-runtime:
 	uv run python scripts/backup_runtime_state.py
 
-dev-web:
-	pnpm run dev
-
 dev-campaign:
 	uv run --package campaign-factory uvicorn campaign_factory.app:app --reload --port 8000
 
 dev-reference:
 	uv run --package reference-factory uvicorn --factory reference_factory.server:create_app --reload --port 8001
 
-dev-reel:
-	ALLOW_INSECURE_LOCAL=1 uv run --package reel-factory uvicorn reel_gui:app --reload --port 8002 --app-dir python_packages/reel_factory
-
 dev:
-	npx concurrently "make dev-web" "make dev-campaign" "make dev-reference" "make dev-reel"
+	npx concurrently "make dev-campaign" "make dev-reference"
 
 test:
 	pnpm run test

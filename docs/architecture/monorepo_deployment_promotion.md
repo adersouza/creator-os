@@ -100,7 +100,7 @@ Do not switch all runtime surfaces at once.
 
 1. Keep all current deployments running from split repos.
 2. Run monorepo CI in parallel on every migration branch.
-3. Promote `apps/contentforge` first because it has no publishing authority.
+3. Verify `packages/contentforge` first because it has no publishing authority.
 4. Keep ThreadsDashboard deployed from `/Users/aderdesouza/Developer/ThreadsDashboard`.
 5. Promote Python package workflows after CLI parity is documented for each package.
 6. Keep split repos available as rollback paths until staged operations prove no drift.

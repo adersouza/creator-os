@@ -726,7 +726,7 @@ def test_documented_env_names_match_active_code() -> None:
     ).read_text(encoding="utf-8")
 
     for name in (
-        "CONTENTFORGE_BASE_URL",
+        "CONTENTFORGE_ROOT",
         "CONTENTFORGE_REAL_SAMPLE_MANIFEST",
         "CONTENTFORGE_SSCD_MODEL_PATH",
         "HIGGSFIELD_DAILY_BUDGET_USD",
@@ -745,8 +745,8 @@ def test_documented_env_names_match_active_code() -> None:
         assert name in env_template
     assert "CONTENTFORGE_URL=" not in env_template
     assert "CONTENTFORGE_SSCD_MODEL_PATH" in sscd_code
-    assert "CONTENTFORGE_BASE_URL" in campaign_config
-    assert 'env_string("CONTENTFORGE_URL"' not in campaign_config
+    assert "CONTENTFORGE_ROOT" in campaign_config
+    assert "CONTENTFORGE_BASE_URL" not in campaign_config
 
 
 def test_higgsfield_cost_preflight_blocks_over_default_budget(

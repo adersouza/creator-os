@@ -103,10 +103,7 @@ from intelligence_store import (
 )
 from manifest import Manifest
 from metrics_store import import_metrics_csv, import_outcomes_csv, outcomes_summary
-from placement_scorer import score_lanes
-from qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
-from readiness_check import evaluate_output, run_readiness
-from reel_gui import (
+from operator_tools import (
     auto_hooks_api,
     clip_status_from_evidence,
     dashboard_summary_api,
@@ -114,6 +111,9 @@ from reel_gui import (
     queue_threadsdashboard_post,
     save_photo_post_asset,
 )
+from placement_scorer import score_lanes
+from qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
+from readiness_check import evaluate_output, run_readiness
 from reel_pipeline import Recipe
 from reel_url_import import download_reel_url, write_url_sidecar
 from reference_analyzer import (
@@ -895,7 +895,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_deprecated_grok_reference_analysis_returns_controlled_api_error_by_default(
         self,
     ):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(Exception) as ctx:
@@ -908,7 +908,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         )
 
     def test_reference_analysis_requires_explicit_model(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with self.assertRaises(Exception) as ctx:
             reel_gui.analyze_reference_api({"reference": "ref.png"})
@@ -918,7 +918,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_deprecated_grok_reference_analysis_allows_explicit_local_test_override(
         self,
     ):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with (
             patch.dict(
@@ -2870,7 +2870,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_auto_hooks_api_creates_caption_sidecar_without_manual_editing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            import reel_gui
+            import operator_tools as reel_gui
 
             old_root, old_cap = reel_gui.ROOT, reel_gui.CAP_DIR
             try:
@@ -2893,7 +2893,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_photo_save_and_threadsdashboard_queue_create_local_handoff_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            import reel_gui
+            import operator_tools as reel_gui
 
             root = Path(tmp)
             image = root / "project_data" / "generated_assets" / "image.png"
@@ -2956,7 +2956,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_threadsdashboard_queue_rejects_campaign_identity_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
-            import reel_gui
+            import operator_tools as reel_gui
             from campaign_store import create_campaign
 
             root = Path(tmp)
@@ -3237,7 +3237,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue((out.parent / "_readiness.json").exists())
 
     def test_gui_clip_detail_returns_ai_qc_and_safe_zone_metadata(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3315,7 +3315,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_asset_dry_run_uses_stacey_identity(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3351,7 +3351,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_panel_crop_and_full_image_fallback(self):
-        import reel_gui
+        import operator_tools as reel_gui
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3385,7 +3385,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("start_image_url", panel)
 
     def test_gui_create_image_response_exposes_normalized_fields(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3436,7 +3436,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_create_video_response_exposes_normalized_fields(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3491,7 +3491,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_create_video_async_job_returns_immediately_and_reports_done(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3556,7 +3556,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(status["result"]["video_job_id"], "vid_1")
 
     def test_run_progress_counts_qc_skips_as_rejected_not_completed(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         previous = dict(reel_gui._run_state)
         try:
@@ -3586,7 +3586,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(status["rejection_reasons"]["identity_mismatch"], 1)
 
     def test_request_subprocess_timeout_returns_gateway_timeout(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with patch.object(
             reel_gui.subprocess,
@@ -3599,7 +3599,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 504)
 
     def test_dashboard_summary_includes_pipeline_health_fields(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         previous_jobs = dict(reel_gui.ASSET_JOBS)
         try:
@@ -3639,7 +3639,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(summary["pipeline_health"]["campaign_jobs"]["stuck"], 1)
 
     def test_campaign_factory_job_health_counts_failed_and_stuck_jobs(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "campaign_factory.sqlite"
@@ -3672,7 +3672,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(health["stuck"], 1)
 
     def test_gui_paid_asset_idempotency_dedupes_in_flight_job(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3734,7 +3734,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(calls["count"], 1)
 
     def test_paid_asset_handlers_default_to_async_jobs_without_opt_in(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         previous_jobs = dict(reel_gui.ASSET_JOBS)
         previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
@@ -3783,7 +3783,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         )
 
     def test_render_pack_defaults_to_async_job_and_dedupes(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         previous_jobs = dict(reel_gui.ASSET_JOBS)
         previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
@@ -3824,7 +3824,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(status["result"]["log"], "render ok")
 
     def test_render_pack_sync_fallback_keeps_blocking_contract(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         def fake_run(args, *, timeout_seconds):
             return reel_gui.subprocess.CompletedProcess(
@@ -3845,15 +3845,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True, "log": "sync render ok"})
 
-    def test_launch_command_exports_loopback_dev_auth(self):
-        text = (REEL_ROOT / "Launch reel factory.command").read_text(encoding="utf-8")
-
-        self.assertIn("export ALLOW_INSECURE_LOCAL=1", text)
-        self.assertIn("loopback-only bypass enabled", text)
-        self.assertIn("CREATOR_OS_API_TOKEN", text)
-
     def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -3913,7 +3906,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["asset_generation_id"], "asset_existing")
 
     def test_gui_fanout_dry_run_crops_each_detected_panel_and_updates_lineage(self):
-        import reel_gui
+        import operator_tools as reel_gui
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -3998,7 +3991,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertIn("panelStartImages", updated["assets"]["localPaths"])
 
     def test_gui_fanout_honors_grid_layout_override(self):
-        import reel_gui
+        import operator_tools as reel_gui
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -4045,7 +4038,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["gridDetection"]["confidence"], "operator_override")
 
     def test_gui_fanout_create_records_partial_failures(self):
-        import reel_gui
+        import operator_tools as reel_gui
         from PIL import Image
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -4114,7 +4107,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_download_video_uses_stored_asset_generation_url(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4200,7 +4193,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_gui_prompt_generate_uses_live_grok_direct_prompt_preview(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4268,7 +4261,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(count, 0)
 
     def test_gui_active_action_labels_use_direct_reference_language(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         payload = json.dumps(reel_gui.next_action_for_status("Needs Soul")).lower()
         self.assertIn("reference still", payload)
@@ -4278,7 +4271,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertNotIn("cropped panel", payload)
 
     def test_gui_direct_reference_dry_run_uses_active_single_image_path(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4460,7 +4453,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["path"], str(existing))
 
     def test_gui_reel_url_import_downloads_adds_reference_and_prompt(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4857,7 +4850,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
 
     def test_save_hooks_preserves_generation_metadata(self):
-        import reel_gui
+        import operator_tools as reel_gui
 
         with tempfile.TemporaryDirectory() as tmp:
             cap_dir = Path(tmp)

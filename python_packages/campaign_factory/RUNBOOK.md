@@ -63,9 +63,9 @@ granting paid confirmation.
 Terminal A: ContentForge.
 
 ```bash
-cd $CREATOR_OS_ROOT/contentforge
-npm install
-npm run dev -- --port 3100
+cd $CREATOR_OS_ROOT/packages/contentforge
+pnpm install
+pnpm build
 ```
 
 Terminal B: Campaign Factory.
@@ -75,12 +75,10 @@ cd $CREATOR_OS_ROOT/campaign_factory
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
-export CONTENTFORGE_BASE_URL=http://127.0.0.1:3002
-export CONTENTFORGE_ROOT=$CREATOR_OS_ROOT/contentforge
+export CONTENTFORGE_ROOT=$CREATOR_OS_ROOT/packages/contentforge
 export REEL_FACTORY_ROOT=$CREATOR_OS_ROOT/reel_factory
 export REFERENCE_FACTORY_ROOT=$CREATOR_OS_ROOT/reference_factory
-python3 -m campaign_factory.cli doctor --check-http \
-  --contentforge-base-url http://127.0.0.1:3002
+python3 -m campaign_factory.cli doctor
 python3 -m campaign_factory.cli serve --host 127.0.0.1 --port 8877
 ```
 

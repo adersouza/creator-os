@@ -1,0 +1,32 @@
+{
+  "name": "contentforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "contentforge": "./cli.mjs"
+  },
+  "scripts": {
+    "build": "node --check cli.mjs && node --check lib/similarity.js",
+    "judge": "node cli.mjs similarity",
+    "test": "node --test --test-concurrency=1",
+    "fixtures:campaign-factory": "node scripts/generate-campaign-fixtures.mjs",
+    "fixtures:campaign-factory:real": "node scripts/import-campaign-real-samples.mjs",
+    "fixtures:campaign-factory:discover": "node scripts/campaign-corpus-discover.mjs",
+    "fixtures:campaign-factory:feedback": "node scripts/campaign-sample-feedback.mjs",
+    "audit:campaign-factory:calibrate": "node scripts/campaign-audit-report.mjs --json --fail-on-mismatch",
+    "audit:campaign-factory:report": "node scripts/campaign-audit-report.mjs --markdown",
+    "audit:campaign-factory:html": "node scripts/campaign-audit-report.mjs --html",
+    "audit:campaign-factory:record": "node scripts/campaign-audit-report.mjs --markdown --write-history",
+    "audit:campaign-factory:ocr-benchmark": "node scripts/campaign-ocr-benchmark.mjs",
+    "cleanup:local-media": "node scripts/cleanup-local-media.mjs",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "p-queue": "^9.3.1",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4"
+  }
+}

@@ -749,6 +749,62 @@ def read_counts_if_present(root: Path) -> dict[str, int]:
         return counts_by_state(conn)
 
 
+def operator_status(root: Path) -> dict[str, Any]:
+    root = Path(root).expanduser().resolve()
+    config = load_config(root)
+    return {
+        "schema": "creator_os.reel_factory.operator_status.v1",
+        "root": str(root),
+        "enabled": bool(config.get("enabled", False)),
+        "campaign": str(config.get("campaign") or ""),
+        "creator": str(config.get("creator") or ""),
+        "dailyCandidateTarget": int(config.get("daily_candidate_target", 10)),
+        "topKForApproval": int(config.get("top_k_for_approval", 3)),
+        "estimatedCostPerAssetUsd": config.get("estimated_cost_per_asset_usd"),
+        "stateCounts": read_counts_if_present(root),
+    }
+
+
+def operator_inbox(root: Path, *, limit: int = 100) -> dict[str, Any]:
+    root = Path(root).expanduser().resolve()
+    db_path = manifest_db_path(root)
+    if not db_path.exists():
+        return {
+            "schema": "creator_os.reel_factory.operator_inbox.v1",
+            "root": str(root),
+            "available": False,
+            "items": [],
+        }
+    safe_limit = max(1, min(int(limit), 500))
+    conn = connect_sqlite(db_path, readonly=True, wal=False)
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM asset_pipeline_state
+            WHERE state = 'awaiting_approval'
+            ORDER BY rank_score IS NULL, rank_score DESC, state_updated_at ASC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["predicted_engagement"] = json.loads(
+                item.pop("predicted_engagement_json") or "null"
+            )
+            items.append(item)
+        return {
+            "schema": "creator_os.reel_factory.operator_inbox.v1",
+            "root": str(root),
+            "available": True,
+            "count": len(items),
+            "items": items,
+        }
+    finally:
+        conn.close()
+
+
 def write_tick_report(root: Path, report: dict[str, Any]) -> Path:
     ticks_dir = (
         Path(root).expanduser().resolve() / "project_data" / "orchestrator_ticks"
@@ -938,7 +994,7 @@ def tick(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "tick", "decide"):
+    for name in ("init", "tick", "status", "inbox", "decide"):
         command = sub.add_parser(name)
         command.add_argument(
             "--root",
@@ -952,6 +1008,8 @@ def main(argv: list[str] | None = None) -> int:
                 "--decision", required=True, choices=sorted(APPROVAL_DECISIONS)
             )
             command.add_argument("--reason", default=None)
+        if name == "inbox":
+            command.add_argument("--limit", type=int, default=100)
     args = parser.parse_args(argv)
     if args.cmd == "init":
         with open_manifest(args.root):
@@ -960,6 +1018,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "tick":
         print(json.dumps(tick(args.root), indent=2, sort_keys=True))
+        return 0
+    if args.cmd == "status":
+        print(json.dumps(operator_status(args.root), indent=2, sort_keys=True))
+        return 0
+    if args.cmd == "inbox":
+        print(
+            json.dumps(
+                operator_inbox(args.root, limit=args.limit), indent=2, sort_keys=True
+            )
+        )
         return 0
     if args.cmd == "decide":
         try:

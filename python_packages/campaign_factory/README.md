@@ -80,7 +80,7 @@ campaign-factory export-readiness --campaign may_launch --user-id <supabaseUserI
 The default local paths are:
 
 - `../reel_factory`
-- `../contentforge`
+- `../../packages/contentforge`
 - `../ThreadsDashboard`
 
 Override them with environment variables:
@@ -88,19 +88,18 @@ Override them with environment variables:
 ```bash
 REEL_FACTORY_ROOT=/path/to/reel_factory
 CONTENTFORGE_ROOT=/path/to/contentforge
-CONTENTFORGE_BASE_URL=http://127.0.0.1:3002
 THREADSDASH_ROOT=/path/to/ThreadsDashboard
 REFERENCE_FACTORY_ROOT=/path/to/reference_factory
 CAMPAIGN_FACTORY_DB=/path/to/campaign_factory.sqlite
 ```
 
-Use `campaign-factory doctor --check-http --contentforge-base-url http://127.0.0.1:3002`
-to confirm Campaign Factory can see the local repos, renderer entrypoints,
-reference handoff file, and optional running ContentForge server before a batch.
+Use `campaign-factory doctor` to confirm Campaign Factory can see the local
+packages, renderer entrypoints, reference handoff file, and ContentForge CLI
+before a batch.
 
-ContentForge audit expects the ContentForge dev server to be running. The adapter
+ContentForge audit invokes the local JSON CLI. The adapter
 stages each source into ContentForge's `uploads/`, stages each rendered asset
-into ContentForge's `output/final/`, then calls `POST /api/similarity` with:
+into ContentForge's `output/final/`, then invokes `similarity` with:
 
 ```json
 {

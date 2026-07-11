@@ -8,7 +8,7 @@ Important files:
 
 - `generate_assets.py`: active direct reference-image Higgsfield still generation; legacy prompt-json image/video wrappers.
 - `reel_motion_prompt.py`: deterministic Kling motion prompts for accepted stills.
-- `reel_gui.py`: local FastAPI GUI, including `/api/assets/reference-image/dry-run` and `/api/assets/reference-image/create`.
+- `operator_tools.py`: headless direct-reference and operator utilities.
 - `asset_prompt_contract.py`: prompt contract parser/shape for legacy prompt-json flows.
 - `generate_prompts.py`: legacy Grok/reference prompt generation and regression support.
 - `grid_crop.py`: legacy grid crop/fanout helpers for explicit experiments.

@@ -73,7 +73,14 @@ uv run python -m reel_factory.orchestrator tick --root python_packages/reel_fact
 Tick reports are written to
 `python_packages/reel_factory/project_data/orchestrator_ticks/`.
 
-Record an operator decision (the approval inbox calls this under the hood;
+Inspect the headless operator state and approval inbox:
+
+```bash
+uv run python -m reel_factory.orchestrator status --root python_packages/reel_factory
+uv run python -m reel_factory.orchestrator inbox --root python_packages/reel_factory
+```
+
+Record an operator decision;
 `rejected` also writes `asset_rejection_evidence` in the campaign factory DB
 as training signal):
 
@@ -82,18 +89,10 @@ uv run python -m reel_factory.orchestrator decide --root python_packages/reel_fa
   --asset-id <stem> --decision approved|rejected|regenerate [--reason "..."]
 ```
 
-## Approval Inbox
-
-The operator UI lives in `apps/command-center` (port 4100): `/inbox` lists
-`awaiting_approval` assets with media preview, caption, and rank; keyboard
-flow is `j`/`k` navigate, `a` approve, `r` reject, `g` regenerate (reason
-optional, submitted with Enter). API routes: `GET /api/inbox`,
-`POST /api/inbox/:assetId/decision`, `GET /api/inbox/history`,
-`GET /api/inbox/:assetId/media` — same auth model as `/api/state`
-(`CREATOR_OS_API_TOKEN` or `ALLOW_INSECURE_LOCAL=1` on loopback). All writes
-go through the Python `decide` CLI so the single-writer discipline and legal
-transitions stay in one place. This inbox IS the operator UI — no general
-dashboard.
+`inbox` returns ranked `awaiting_approval` records as JSON. `decide` remains
+the only mutation path, preserving the single-writer and legal-transition
+rules. Creator OS has no approval web UI; ThreadsDashboard remains the only
+product UI.
 
 ## Launchd Template
 
