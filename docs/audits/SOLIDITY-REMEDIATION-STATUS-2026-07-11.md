@@ -8,6 +8,11 @@ This document separates implementation, repository rollout, deployment, runtime,
 and live-payload proof. A checked implementation item is not automatically
 merged or deployed.
 
+The six-lane consolidated read-only audit has now been reconciled. Its source
+baselines match the baselines above. ThreadsDashboard production provenance is
+still unknown because the active Vercel deployment has no Git source metadata;
+behavioral similarity to a SHA is not provenance proof.
+
 ## Completed locally
 
 ### Creator OS
@@ -25,6 +30,13 @@ merged or deployed.
   absent.
 - [x] Commit the slice locally as `710b54a0` on
   `codex/solidity-integrity-fixes`.
+- [x] Add deterministic cohort metric writeback to the hourly performance sync.
+- [x] Derive 1-hour, 24-hour, and trial 72-hour state only from eligible metric
+  history snapshots.
+- [x] Compute `reward_24h` from the actual selected 24-hour snapshot.
+- [x] Revert completion and reward state when metric evidence is retracted.
+- [x] Fail closed without `LEARNING_LOOP_CUTOVER`.
+- [x] Commit the metric-writeback slice locally as `eff6a67`.
 
 Verification:
 
@@ -33,7 +45,7 @@ Verification:
 - [x] Pipeline Contracts TypeScript: 21 passed
 - [x] Creator OS Core: 5 passed
 - [x] ContentForge: 128 passed
-- [x] Campaign Factory: 637 passed
+- [x] Campaign Factory: 639 passed
 - [x] Reference Factory: 149 passed
 - [x] Reel Factory: 606 passed
 - [x] Integration: 30 passed
@@ -50,10 +62,18 @@ Verification:
 - [x] Add a CI-cost regression test for the Vercel ignore script.
 - [x] Commit the slice locally as `a6a08fe66` on
   `codex/solidity-integrity-fixes`.
+- [x] Permit a newly fenced retry of failed Campaign Factory ingest claims.
+- [x] Reconcile durable Instagram publish evidence before declaring a live post
+  failed.
+- [x] Enforce the operator kill switch on new and container-retry Instagram cron
+  publishing.
+- [x] Fail loudly if a pending Instagram container cannot be persisted.
+- [x] Schedule the missing 72-hour account and direct Instagram metric jobs.
+- [x] Commit the ingest/publish hardening slice locally as `ad10d0102`.
 
 Verification:
 
-- [x] Vitest: 5,270 passed, 23 skipped, 3 todo
+- [x] Vitest: 5,276 passed, 23 skipped, 3 todo
 - [x] TypeScript typecheck
 - [x] Biome lint
 - [x] Compatibility and boundary checks
@@ -61,9 +81,21 @@ Verification:
 - [x] Bundle budgets
 - [x] Production build
 
+### Local runtime operations
+
+- [x] Wrap offsite backup, repository-check, and restore-drill launchd agents in
+  `~/.creator-os/run-job.sh`.
+- [x] Restrict Campaign Factory ingest credentials to the performance-sync job.
+- [x] Encode Discord alert JSON with a JSON serializer and record delivery
+  failures.
+- [x] Pin the offsite scripts to `/opt/homebrew/bin/supabase` version `2.90.0`.
+- [x] Reload all three launchd agents and verify their registered arguments.
+- [x] Run a real read-only offsite repository check through the wrapper; Restic
+  reported no errors at `2026-07-11T08:38:12Z`.
+
 ## Rollout status for completed code
 
-- [ ] Reconcile the independent Claude audit with the two local commits.
+- [x] Reconcile the independent consolidated audit with the two local branches.
 - [ ] Push the Creator OS branch and open a focused PR.
 - [ ] Push the ThreadsDashboard branch and open a focused PR.
 - [ ] Obtain current-head CI evidence for both PRs.
@@ -77,19 +109,18 @@ No code in this status section has been pushed, merged, or deployed yet.
 
 ### Production database authority
 
-- [ ] Recover the exact SQL for these production-only Supabase migrations:
-  - `20260710202159`
-  - `20260710202201`
-  - `20260710210155`
-  - `20260710210651`
-  - `20260710211000`
-  - `20260710211408`
-  - `20260710224309`
-  - `20260710233000`
-  - `20260710234500`
-  - `20260711014555`
-- [ ] Review recovered SQL for grants, RLS, views, storage policies, triggers,
-  and `SECURITY DEFINER` functions.
+The earlier ten-migration characterization was disproved by the consolidated
+audit. The confirmed divergence is one functionally equivalent ledger mismatch:
+source migration `20260711014400` is not recorded as applied, while production
+records remote migration `20260711014555`; their trigger statements are
+byte-identical.
+
+- [ ] Preserve source migration `20260711014400`; do not merge the branch that
+  deletes it.
+- [ ] Repair the production migration ledger for `20260711014400` only after an
+  exact dry-run review of the linked project.
+- [ ] Add and apply a reviewed migration revoking `authenticated` execution on
+  the five audited workspace-predicate `SECURITY DEFINER` functions.
 - [ ] Replay the complete migration chain on a clean database.
 - [ ] Require exact local/remote migration parity.
 - [ ] Compare critical production schema and policy checksums with the replayed
@@ -98,10 +129,13 @@ No code in this status section has been pushed, merged, or deployed yet.
 Do not apply additional production migrations until source control is again
 authoritative.
 
-### CI and production deployment governance
+### Production deployment provenance and governance
 
-- [ ] Restore ThreadsDashboard GitHub Actions execution; current jobs fail
-  before running steps or producing logs.
+- [ ] Identify the exact source SHA of the active ThreadsDashboard deployment;
+  current Vercel metadata contains no Git source.
+- [ ] Prevent hand-CLI production deployment without recorded source SHA.
+- [ ] Restore GitHub Actions execution; current jobs fail before checkout due
+  billing/account state.
 - [ ] Require quality and secret-scan evidence before production deployment.
 - [ ] Prove a failing check cannot reach Vercel production.
 - [ ] Prove the exact green commit is the commit promoted to production.
@@ -119,8 +153,10 @@ authoritative.
 - [ ] Complete 50 eligible posts with both required metric windows before any
   autonomy claim.
 
-Current cohort truth: 50 assignments, 2 approved drafts, 0 published cohort
-posts, and 0 completed 1-hour/24-hour pairs.
+Current cohort truth at audit time: 50 assignments, 2 ingested drafts, 48
+planned assignments, 0 published cohort posts, and 0 completed 1-hour/24-hour
+pairs. The missing writeback stage is now implemented locally, but no metrics
+were fabricated and readiness remains `0/50` until real posts mature.
 
 ## Remaining P1 work
 
@@ -132,10 +168,10 @@ posts, and 0 completed 1-hour/24-hour pairs.
   checkout.
 - [ ] Move generated evidence and models outside the code checkout or explicitly
   allowlist them in the runtime manifest.
-- [ ] Load credentials per job instead of sourcing Campaign Factory ingest
-  secrets for every wrapped launchd job.
-- [ ] Prove backup and ops-digest jobs cannot read ingest or Supabase
-  service-role credentials.
+- [x] Load Campaign Factory ingest credentials only for performance sync.
+- [x] Prove the offsite jobs do not receive the Campaign Factory ingest secret.
+- [ ] Split remaining job credentials so backup and ops-digest processes receive
+  only their exact required secrets.
 - [ ] Add non-overlap, sleep/wake, stale-environment, timeout, and partial-phase
   recovery tests for the hourly job.
 
@@ -148,9 +184,9 @@ posts, and 0 completed 1-hour/24-hour pairs.
   - tampered-body rejection;
   - stale-timestamp rejection;
   - zero schedule, queue, or publish side effects.
-- [ ] Replace raw shell interpolation in Discord alert JSON with a real JSON
+- [x] Replace raw shell interpolation in Discord alert JSON with a real JSON
   encoder.
-- [ ] Record webhook delivery failures instead of discarding them.
+- [x] Record webhook delivery failures instead of discarding them.
 - [ ] Test alert quotes, newlines, backslashes, redaction, and failed delivery.
 
 ### Learning and provider integrity
@@ -167,6 +203,10 @@ posts, and 0 completed 1-hour/24-hour pairs.
 
 ## Remaining P2 hardening
 
+- [ ] Resolve shared-fate offsite storage: the current backup bucket and
+  production database live in the same Supabase project.
+- [ ] Add a periodic logical production Postgres dump retained beyond the
+  platform's seven-day PITR window.
 - [ ] Monitor Supabase offsite backup, repository-check, and restore-drill
   freshness in ops digest.
 - [ ] Add a production Supabase recovery/reconciliation drill in addition to the
@@ -181,6 +221,11 @@ posts, and 0 completed 1-hour/24-hour pairs.
   external binary declarations before deleting anything.
 - [ ] Make Creator OS Doctor label fixture proof separately from live runtime
   proof and fail documentation checks on nonexistent canonical paths.
+- [ ] Make ContentForge unsafe-audit approval blocking by default.
+- [ ] Remove or strictly allowlist the `legacy_compat` lineage-validation escape.
+- [ ] Add retry/backoff and alerting for terminal `failed_capped` learning fanout.
+- [ ] Remove the legacy raw service-role write path after required backfills are
+  migrated to an audited tool.
 
 ## Safety holds
 
@@ -198,8 +243,7 @@ The solidity remediation is complete only when:
 1. Repository migrations reproduce production exactly.
 2. Failed CI cannot deploy to production.
 3. The completed code fixes are merged, deployed, and runtime-verified.
-4. One real post completes publish, 1-hour metrics, 24-hour metrics, and
-   idempotent learning fanout.
+4. One real post completes publish, 1-hour metrics, 24-hour metrics, cohort
+   writeback, and idempotent learning fanout.
 5. The full 50-post eligible cohort supplies the evidence required for any
    autonomy decision.
-
