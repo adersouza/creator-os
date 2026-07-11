@@ -99,6 +99,18 @@ def test_kill_switch_does_not_create_database_or_tick_report(
     assert not (tmp_path / "project_data" / "orchestrator_ticks").exists()
 
 
+def test_global_kill_switch_stops_orchestrator_before_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "on")
+
+    report = orchestrator.tick(tmp_path, now=100, notify_user=False)
+
+    assert report["disabledReason"] == "kill_switch"
+    assert not (tmp_path / "manifest.sqlite").exists()
+    assert not (tmp_path / "project_data" / "orchestrator_ticks").exists()
+
+
 def test_disabled_tick_writes_report_without_creating_database(tmp_path: Path) -> None:
     report = orchestrator.tick(tmp_path, now=100, notify_user=False)
 

@@ -4218,6 +4218,58 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
         cf.close()
 
 
+def test_front_generation_global_kill_switch_blocks_before_paid_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        reference = tmp_path / "reference.png"
+        reference.write_bytes(b"png")
+        monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "1")
+        jobs_before = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[
+            0
+        ]
+
+        with pytest.raises(
+            PermissionError, match="paid front generation blocked.*KILL_SWITCH"
+        ):
+            run_front_generation_stage(
+                cf,
+                campaign_slug="may",
+                reference_image_path=reference,
+                creator="Stacey",
+                dry_run=False,
+                apply=True,
+                enable_paid_generation=True,
+                budget_cap_credits=10,
+                wait=True,
+                download=True,
+            )
+
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == jobs_before
+        )
+    finally:
+        cf.close()
+
+
+def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "yes")
+    with pytest.raises(
+        PermissionError, match="ThreadsDashboard draft export blocked.*KILL_SWITCH"
+    ):
+        export_threadsdash(  # type: ignore[arg-type]
+            None,
+            campaign_slug="stacey_learning_cohort_v1",
+            user_id="operator",
+            dry_run=False,
+        )
+
+
 def test_front_generation_prompt_pack_uses_selected_reference_pattern(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -4583,6 +4635,7 @@ def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
             fake_invoke,
         )
         patch_front_static_renderer(monkeypatch)
+        monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "1")
 
         result = run_front_generation_stage(
             cf,

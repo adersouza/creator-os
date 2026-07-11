@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.runtime_guards import require_global_write_allowed
 
 from .contracts import validate_front_generation_plan
 from .core import (
@@ -75,6 +76,8 @@ def run_front_generation_stage(
         accepted_still_path=accepted_still_path,
         kling_selection_receipt_path=kling_selection_receipt_path,
     )
+    if apply and not dry_run and paid_generation_required:
+        require_global_write_allowed("paid front generation")
     pipeline_job = factory.create_pipeline_job(
         "front_generation",
         campaign["id"],

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.runtime_guards import global_kill_switch_active
 
 from .core import sanitize_for_storage, slugify
 from .cost_tracker import PROVIDER_PRICING
@@ -219,7 +220,7 @@ def _budget_status(projected_cost_usd: float, budget_cap_usd: float | None) -> s
 
 
 def _env_kill_switch_active() -> bool:
-    return os.environ.get(
+    return global_kill_switch_active() or os.environ.get(
         "CREATOR_OS_PROACTIVE_CYCLE_DISABLED", ""
     ).strip().lower() in {"1", "true", "yes", "on"}
 

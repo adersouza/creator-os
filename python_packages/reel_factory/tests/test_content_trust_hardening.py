@@ -882,6 +882,59 @@ def test_higgsfield_native_credit_reservation_tracks_cohort_and_quote(
     assert row == (1.5, "higgsfield_credits", "stacey_learning_cohort_v1", 0.0)
 
 
+def test_higgsfield_global_kill_switch_blocks_credit_reservation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "true")
+
+    result = reserve_higgsfield_credits(
+        provider_quote={
+            "amount": 8,
+            "unit": "higgsfield_credits",
+            "model": "kling3_0",
+        },
+        asset_count=1,
+        cohort_id="stacey_learning_cohort_v1",
+        provider=FakeBalanceProvider(100),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["blockingReason"] == "creator_os_global_kill_switch_active"
+    assert result["reservation"]["id"] is None
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM higgsfield_spend_reservations"
+        ).fetchone()[0]
+    assert count == 0
+
+
+def test_higgsfield_global_kill_switch_blocks_legacy_usd_reservation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "campaign_factory.sqlite"
+    _set_higgsfield_guardrail_env(monkeypatch, db_path)
+    monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "1")
+
+    result = reserve_higgsfield_spend(
+        asset_count=1,
+        estimated_cost_usd=0.05,
+        provider=FakeBalanceProvider(100),
+        root=tmp_path,
+    )
+
+    assert result["allowed"] is False
+    assert result["blockingReason"] == "creator_os_global_kill_switch_active"
+    assert result["reservation"]["id"] is None
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM higgsfield_spend_reservations"
+        ).fetchone()[0]
+    assert count == 0
+
+
 def test_higgsfield_native_credit_reservation_fails_closed_on_caps(
     tmp_path: Path, monkeypatch
 ) -> None:

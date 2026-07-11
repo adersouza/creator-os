@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.runtime_guards import global_kill_switch_active
 from higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
@@ -844,7 +845,10 @@ def tick(
 ) -> dict[str, Any]:
     root = Path(root).expanduser().resolve()
     ts = now_epoch() if now is None else now
-    if os.environ.get("CREATOR_OS_ORCHESTRATOR_DISABLED") == "1":
+    if (
+        global_kill_switch_active()
+        or os.environ.get("CREATOR_OS_ORCHESTRATOR_DISABLED") == "1"
+    ):
         return {
             "schema": "creator_os.reel_factory.orchestrator_tick.v1",
             "timestamp": ts,
