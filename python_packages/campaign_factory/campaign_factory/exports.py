@@ -222,19 +222,41 @@ def export_manifest(
                 if isinstance(caption_generation.get("generatedAssetLineage"), dict)
                 else caption_generation,
             )
-        generated_lineage = build_lineage_v2_core(
-            generated_lineage,
-            campaign_id=campaign["slug"],
-            recipe_id=row["recipe"],
-            caption_hash=caption_outcome_context.get("caption_hash")
-            or row.get("caption_hash"),
-            rendered_asset_id=row["id"],
-            content_fingerprint=row["content_hash"],
-            prompt_id=source_prompt.get("promptId") or source_prompt.get("prompt_id"),
-            reference_id=source_prompt.get("referenceId")
+        prompt_id = source_prompt.get("promptId") or source_prompt.get("prompt_id")
+        reference_id = (
+            source_prompt.get("referenceId")
             or source_prompt.get("reference_id")
-            or (reference_pattern or {}).get("referenceId"),
+            or (reference_pattern or {}).get("referenceId")
         )
+        if review_only and not prompt_id:
+            generated_lineage = {
+                "schema": "campaign_factory.owned_library_lineage.v1",
+                "sourceAssetId": row["source_asset_id"],
+                "renderedAssetId": row["id"],
+                "contentFingerprint": row["content_hash"],
+                "ownerAttestation": {
+                    "method": "local_hash_verified",
+                    "scope": "operator_owned_library",
+                    "contentSha256": row["source_content_hash"],
+                },
+                "learningEligible": False,
+                "ineligibilityReasons": [
+                    "missing_prompt_id",
+                    *([] if reference_id else ["missing_reference_id"]),
+                ],
+            }
+        else:
+            generated_lineage = build_lineage_v2_core(
+                generated_lineage,
+                campaign_id=campaign["slug"],
+                recipe_id=row["recipe"],
+                caption_hash=caption_outcome_context.get("caption_hash")
+                or row.get("caption_hash"),
+                rendered_asset_id=row["id"],
+                content_fingerprint=row["content_hash"],
+                prompt_id=prompt_id,
+                reference_id=reference_id,
+            )
         creative_plan = None
         creative_plan_id = source_prompt.get("creativePlanId") or source_prompt.get(
             "creative_plan_id"
