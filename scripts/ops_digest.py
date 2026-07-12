@@ -224,19 +224,21 @@ def digest(
     repo_root: Path,
     ops_log: Path,
     *,
+    data_root: Path | None = None,
     backup_log: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     timestamp = now or utc_now()
+    canonical_data_root = data_root or repo_root
     if backup_log is None:
         backup_log = Path.home() / ".creator-os" / "backup.log"
     checks = [
-        outcome_status(repo_root, timestamp),
+        outcome_status(canonical_data_root, timestamp),
         sync_status(ops_log, timestamp),
         backup_status(backup_log, timestamp),
         latest_orchestrator_tick(repo_root),
-        audio_status(repo_root, timestamp),
-        reference_status(repo_root),
+        audio_status(canonical_data_root, timestamp),
+        reference_status(canonical_data_root),
     ]
     level = "error" if any(check["level"] == "error" for check in checks) else "info"
     line = " | ".join(str(check["summary"]) for check in checks)
@@ -266,6 +268,13 @@ def main(argv: list[str] | None = None) -> int:
         "--repo-root",
         type=Path,
         default=Path(__file__).resolve().parents[1],
+        help="current runtime root used for runtime-owned evidence such as orchestrator ticks",
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="optional canonical data root when durable SQLite stores live outside the runtime checkout",
     )
     parser.add_argument(
         "--ops-log",
@@ -288,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     result = digest(
         args.repo_root.resolve(),
         args.ops_log.expanduser(),
+        data_root=args.data_root.expanduser().resolve() if args.data_root else None,
         backup_log=args.backup_log.expanduser(),
     )
     print(result["line"])
