@@ -1270,7 +1270,7 @@ def repository_health_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         "\n".join(warnings)
         if warnings
         else "repository health fixture and local git state are clean",
-        "git status --short --branch && git branch --format=%(refname:short)",
+        "git status --short --branch && git for-each-ref --format=%(refname:short) refs/heads",
         evidence=json.dumps(repo, sort_keys=True),
         affected=warnings,
         next_action="Resolve repo health warnings before release."
@@ -1563,7 +1563,7 @@ def release_hygiene_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         "\n".join(warnings)
         if warnings
         else "working tree and local release branch hygiene are clean",
-        "git status --short --branch && git branch --format=%(refname:short)",
+        "git status --short --branch && git for-each-ref --format=%(refname:short) refs/heads",
         evidence="docs/audits/creator_os_release_hygiene_checklist.md",
         affected=warnings,
         next_action="Resolve dirty tree and branch cleanup before tagging/merging."
