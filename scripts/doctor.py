@@ -167,9 +167,9 @@ def run_doctor(
         browser_runtime_proof_audit,
         release_gate_audit,
     ]
-    business_regs: list[tuple[Callable[[dict[str, Any], bool], Result], dict[str, Any]]] = [
-        (audit, business_fixture) for audit in business_audits
-    ]
+    business_regs: list[
+        tuple[Callable[[dict[str, Any], bool], Result], dict[str, Any]]
+    ] = [(audit, business_fixture) for audit in business_audits]
     # commercial_readiness reads the technical fixture but is gated with the
     # aspirational business suite, so pair it with `fixture` here.
     business_regs.append((commercial_readiness_audit, fixture))
@@ -1228,7 +1228,13 @@ def repository_health_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         ["git", "status", "--short", "--branch"], timeout=30
     ).output
     branch_output = command_check(
-        ["git", "branch", "--format=%(refname:short)"], timeout=30
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+        ],
+        timeout=30,
     ).output
     repo = fixture["repository_health"]
     warnings = []
@@ -1739,7 +1745,13 @@ def repo_hygiene_warnings() -> list[str]:
         ["git", "status", "--short", "--branch"], timeout=30
     ).output
     branch_output = command_check(
-        ["git", "branch", "--format=%(refname:short)"], timeout=30
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+        ],
+        timeout=30,
     ).output
     warnings = []
     dirty_lines = [
