@@ -326,6 +326,35 @@ def test_audit_requires_complete_evidence_and_computes_lift(tmp_path: Path) -> N
         cf.close()
 
 
+def test_review_ready_library_asset_can_record_review_draft(tmp_path: Path) -> None:
+    cf = _factory(tmp_path)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-08-01")
+        assignment = cf.conn.execute(
+            "SELECT id FROM learning_cohort_assignments ORDER BY day_index LIMIT 1"
+        ).fetchone()
+        cf.conn.execute(
+            """UPDATE learning_cohort_assignments
+            SET rendered_asset_id = 'asset_review_ready',
+                generation_state = 'review_ready'
+            WHERE id = ?""",
+            (assignment["id"],),
+        )
+        cf.conn.commit()
+
+        draft = record_learning_cohort_draft(
+            cf.conn,
+            assignment_id=assignment["id"],
+            draft_id="draft_review_only",
+        )
+
+        assert draft["draftId"] == "draft_review_only"
+        assert draft["generationState"] == "draft_ingested"
+        assert draft["scheduleState"] == "blocked_pending_approval"
+    finally:
+        cf.close()
+
+
 def test_metric_sync_writes_real_windows_reward_and_retracts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -610,6 +610,7 @@ def record_learning_cohort_draft(
         "generation_state"
     ] not in {
         "complete",
+        "review_ready",
         "draft_ingested",
     }:
         raise ValueError("cohort draft requires a completed generated asset")
