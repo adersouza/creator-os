@@ -30,8 +30,12 @@ class ExportSummaryRepository:
     def export_manifest(
         self, *, campaign_slug: str, review_only: bool = False
     ) -> dict[str, Any]:
+        if review_only:
+            return exports.export_manifest(
+                self._factory_context,
+                campaign_slug=campaign_slug,
+                review_only=True,
+            )
         return exports.export_manifest(
-            self._factory_context,
-            campaign_slug=campaign_slug,
-            review_only=review_only,
+            self._factory_context, campaign_slug=campaign_slug
         )
