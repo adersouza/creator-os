@@ -54,6 +54,11 @@ uv run python scripts/ops_digest.py --dry-run
 
 Without `--dry-run`, the script calls `~/.creator-os/notify.sh` if it exists.
 
+The installed job executes code from `creator-os-runtime`. When durable SQLite
+stores remain in the canonical data checkout, pass that path with
+`--data-root`; runtime-owned evidence such as orchestrator ticks continues to
+come from the current runtime checkout.
+
 ## Launchd Template
 
 Schedule after the operator confirms the local notification wrapper exists:
@@ -74,9 +79,11 @@ Schedule after the operator confirms the local notification wrapper exists:
     <string>run</string>
     <string>python</string>
     <string>scripts/ops_digest.py</string>
+    <string>--data-root</string>
+    <string>/Users/aderdesouza/Developer/creator-os</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/aderdesouza/Developer/creator-os</string>
+  <string>/Users/aderdesouza/Developer/creator-os-runtime</string>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
