@@ -101,8 +101,13 @@ def build_draft_payloads(
     schedule_mode: str = "draft",
     enable_variation: bool = False,
     publish_mode: str | None = None,
+    review_only: bool = False,
 ) -> dict[str, Any]:
-    manifest = factory.export_manifest(campaign_slug=campaign_slug)
+    if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
+        raise ValueError("review-only handoff requires schedule_mode='draft'")
+    manifest = factory.export_manifest(
+        campaign_slug=campaign_slug, review_only=review_only
+    )
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     variation_index: dict[str, dict[str, Any]] = {}
@@ -195,6 +200,17 @@ def build_draft_payloads(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
             )
+            if review_only:
+                publishability = {
+                    **publishability,
+                    "asset_state": "review_ready",
+                    "assetState": "review_ready",
+                    "approved": False,
+                    "scheduleSafe": False,
+                    "allowPublish": False,
+                    "approvalRequired": True,
+                    "handoffMode": "review_only",
+                }
             resolved_publish_mode = _resolve_publish_mode(
                 normalized_publish_mode,
                 normalize_content_surface(
@@ -209,7 +225,9 @@ def build_draft_payloads(
                 audio_intent=audio_intent,
                 publishability=publishability,
             )
-            if not (
+            if review_only:
+                publishability = dict(publishability)
+            elif not (
                 (publishability.get("publishableCandidate") or audio_deferred_to_notify)
                 and publishability.get("handoff_manifest")
             ):
@@ -311,6 +329,7 @@ def build_draft_payloads(
                 "distributionSurface": distribution_surface,
                 "contentSurface": content_surface,
                 "publishMode": resolved_publish_mode,
+                "handoffMode": "review_only" if review_only else "publishable_draft",
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
                 "trialGroupId": destination.get("trialGroupId"),
@@ -359,6 +378,7 @@ def build_draft_payloads(
     return {
         "schema": "campaign_factory.threadsdash_drafts.v2",
         "campaign": campaign_slug,
+        "handoffMode": "review_only" if review_only else "publishable_draft",
         "manifest": manifest,
         "drafts": drafts,
     }
@@ -440,7 +460,13 @@ def _campaign_factory_manifest_blockers(
             or f"draft_{idx}"
         )
         asset_state = str(meta.get("asset_state") or "").strip().lower()
-        if asset_state not in {"publishable_candidate", "exportable"}:
+        review_only = (
+            str(meta.get("handoffMode") or "").strip().lower() == "review_only"
+        )
+        allowed_states = (
+            {"review_ready"} if review_only else {"publishable_candidate", "exportable"}
+        )
+        if asset_state not in allowed_states:
             blockers.append(
                 f"{rendered_asset_id}:asset_state:{asset_state or 'missing'}"
             )
@@ -783,7 +809,10 @@ def export_threadsdash(
     enable_variation: bool = False,
     variation_preset: str = "ig_subtle",
     publish_mode: str | None = None,
+    review_only: bool = False,
 ) -> dict[str, Any]:
+    if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
+        raise ValueError("review-only handoff requires schedule_mode='draft'")
     if not dry_run:
         require_global_write_allowed("ThreadsDashboard draft export")
     campaign = factory.campaign_by_slug(campaign_slug)
@@ -814,6 +843,7 @@ def export_threadsdash(
             ),
             "enableVariation": enable_variation,
             "variationPreset": variation_preset,
+            "reviewOnly": review_only,
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -844,6 +874,7 @@ def export_threadsdash(
             schedule_mode=normalized_schedule_mode,
             enable_variation=enable_variation,
             publish_mode=normalized_publish_mode,
+            review_only=review_only,
         )
         if max_drafts is not None:
             payload["drafts"] = payload["drafts"][: max(0, max_drafts)]
@@ -859,6 +890,7 @@ def export_threadsdash(
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
             publish_mode=normalized_publish_mode,
+            review_only=review_only,
         )
         writes_non_draft_rows = normalized_schedule_mode in {"preview", "live"}
         publishability_blockers = [
@@ -867,7 +899,7 @@ def export_threadsdash(
             if str(reason).startswith("publishability:")
             or "threadsdash_draft_media_invalid_missing_burned_captions" in str(reason)
         ]
-        if not dry_run and publishability_blockers:
+        if not dry_run and publishability_blockers and not review_only:
             raise ValueError(
                 f"export blocked by publishability: {', '.join(publishability_blockers)}"
             )
@@ -1377,6 +1409,7 @@ def evaluate_export_readiness(
     rendered_asset_ids: list[str] | None = None,
     schedule_mode: str = "draft",
     publish_mode: str | None = None,
+    review_only: bool = False,
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -1395,6 +1428,7 @@ def evaluate_export_readiness(
             "language": language,
             "renderedAssetIds": rendered_asset_ids or [],
             "scheduleMode": normalized_schedule_mode,
+            "reviewOnly": review_only,
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -1410,6 +1444,7 @@ def evaluate_export_readiness(
             rendered_asset_ids=rendered_asset_ids,
             schedule_mode=normalized_schedule_mode,
             publish_mode=normalized_publish_mode,
+            review_only=review_only,
         )
         draft_asset_ids = {draft["renderedAssetId"] for draft in payload["drafts"]}
         drafts_by_asset: dict[str, list[dict[str, Any]]] = {}
@@ -3402,6 +3437,14 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "post_key": draft.get("campaignFactoryPostKey"),
             "audit_status": draft.get("auditStatus"),
             "publish_mode": draft.get("publishMode"),
+            "handoffMode": draft.get("handoffMode") or "publishable_draft",
+            "scheduleSafe": False
+            if draft.get("handoffMode") == "review_only"
+            else bool(publishability.get("scheduleSafe")),
+            "allowPublish": False
+            if draft.get("handoffMode") == "review_only"
+            else bool(publishability.get("allowPublish", True)),
+            "approvalRequired": draft.get("handoffMode") == "review_only",
             "asset_state": asset_state,
             "lifecycle_state": publishability.get("lifecycle_state")
             or (
@@ -3485,6 +3528,10 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
         metadata["campaign_factory_smart_link"] = draft.get("smartLink")
     if metadata["campaign_factory"].get("learning_cohort") is None:
         metadata["campaign_factory"].pop("learning_cohort", None)
+    if draft.get("handoffMode") != "review_only":
+        metadata["campaign_factory"].pop("scheduleSafe", None)
+        metadata["campaign_factory"].pop("allowPublish", None)
+        metadata["campaign_factory"].pop("approvalRequired", None)
     return metadata
 
 

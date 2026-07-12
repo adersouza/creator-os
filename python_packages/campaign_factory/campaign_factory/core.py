@@ -5758,8 +5758,12 @@ class CampaignFactory:
     ) -> list[dict[str, Any]]:
         return self.services.variant_pack_groups(rendered)
 
-    def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
-        return self.services.export_manifest(campaign_slug=campaign_slug)
+    def export_manifest(
+        self, *, campaign_slug: str, review_only: bool = False
+    ) -> dict[str, Any]:
+        return self.services.export_manifest(
+            campaign_slug=campaign_slug, review_only=review_only
+        )
 
     def dashboard(self, campaign_slug: str | None = None) -> dict[str, Any]:
         return self.services.dashboard(campaign_slug)

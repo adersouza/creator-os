@@ -1165,6 +1165,13 @@ export const generatedPipelineContractSchemas = {
 	    "userId": {
 	      "type": "string"
 	    },
+	    "handoffMode": {
+	      "type": "string",
+	      "enum": [
+	        "publishable_draft",
+	        "review_only"
+	      ]
+	    },
 	    "drafts": {
 	      "type": "array",
 	      "items": {
@@ -1217,8 +1224,25 @@ export const generatedPipelineContractSchemas = {
 	                    "enum": [
 	                      "approved_but_not_publishable",
 	                      "publishable_candidate",
-	                      "exportable"
+	                      "exportable",
+	                      "review_ready"
 	                    ]
+	                  },
+	                  "handoffMode": {
+	                    "type": "string",
+	                    "enum": [
+	                      "publishable_draft",
+	                      "review_only"
+	                    ]
+	                  },
+	                  "scheduleSafe": {
+	                    "type": "boolean"
+	                  },
+	                  "allowPublish": {
+	                    "type": "boolean"
+	                  },
+	                  "approvalRequired": {
+	                    "type": "boolean"
 	                  },
 	                  "approved": {
 	                    "type": "boolean"

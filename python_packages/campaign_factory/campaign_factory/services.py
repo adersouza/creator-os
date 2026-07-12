@@ -5933,8 +5933,12 @@ class CoreServices:
     ) -> list[dict[str, Any]]:
         return self.export_summary.variant_pack_groups(rendered)
 
-    def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
-        return self.export_summary.export_manifest(campaign_slug=campaign_slug)
+    def export_manifest(
+        self, *, campaign_slug: str, review_only: bool = False
+    ) -> dict[str, Any]:
+        return self.export_summary.export_manifest(
+            campaign_slug=campaign_slug, review_only=review_only
+        )
 
     def operator_review_simulator(self, **kwargs: Any) -> dict[str, Any]:
         return self.operator_review.operator_review_simulator(**kwargs)
