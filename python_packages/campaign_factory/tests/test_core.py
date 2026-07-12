@@ -18516,6 +18516,28 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
         cf.close()
 
 
+@pytest.mark.parametrize(
+    ("row", "meta", "expected"),
+    [
+        (
+            {
+                "watch_time_seconds": 14.5,
+                "ig_reels_video_view_total_time": 99_000,
+            },
+            {},
+            14.5,
+        ),
+        ({"ig_reels_video_view_total_time": 14_500}, {}, 14.5),
+        ({"ig_reels_avg_watch_time": 7_250, "views_count": 2}, {}, 14.5),
+        ({"ig_reels_avg_watch_time": 7_250}, {}, None),
+    ],
+)
+def test_threadsdash_watch_time_is_normalized_to_total_seconds(
+    row: dict, meta: dict, expected: float | None
+) -> None:
+    assert threadsdash_adapter._watch_time_seconds(row, meta) == expected
+
+
 def test_sync_performance_snapshots_imports_threadsdash_metric_history(
     tmp_path: Path, monkeypatch
 ):
