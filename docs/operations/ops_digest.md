@@ -31,6 +31,13 @@ database as the hourly performance sync. It only proposes a creative change
 when a leaderboard has at least three real measured samples; otherwise it says
 that no configuration change is justified yet.
 
+Each report includes campaign snapshot coverage, bounded caption/reference/
+timing/recipe recommendations, seven-day pipeline failures with later-success
+recovery evidence, provider spend, and an explicit Kling ROI state. A consumed
+provider reservation with no native-credit amount is reported as `unknown`,
+never as zero credits. Failed jobs are informational evidence; the digest does
+not retry or mutate them.
+
 The report writes JSON and Markdown under `~/.creator-os/reports/`. It never
 generates assets, spends credits, changes configuration, schedules, or
 publishes. Run it manually with:

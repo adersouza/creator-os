@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 from datetime import UTC, datetime, timedelta
@@ -128,32 +129,130 @@ def weekly_spend(db_path: Path, *, now: datetime) -> dict[str, Any]:
     kling_credits = 0.0
     consumed_calls = 0
     kling_calls = 0
+    unknown_credit_calls = 0
+    unknown_kling_credit_calls = 0
     for row in rows:
         if row["status"] != "consumed":
             continue
-        amount = float(row["amount"] or 0) if row["unit"] == "credits" else 0.0
-        consumed_credits += amount
         consumed_calls += 1
         quote = str(row["provider_quote_json"] or "").lower()
         source = str(row["source"] or "").lower()
-        if "kling" in quote or "kling" in source:
-            kling_credits += amount
+        is_kling = "kling" in quote or "kling" in source
+        if row["unit"] == "credits" and row["amount"] is not None:
+            amount = float(row["amount"])
+            consumed_credits += amount
+            if is_kling:
+                kling_credits += amount
+        else:
+            unknown_credit_calls += 1
+            if is_kling:
+                unknown_kling_credit_calls += 1
+        if is_kling:
             kling_calls += 1
     return {
         "windowDays": 7,
         "providerCalls": consumed_calls,
-        "credits": round(consumed_credits, 3),
+        "credits": round(consumed_credits, 3) if unknown_credit_calls == 0 else None,
+        "knownCredits": round(consumed_credits, 3),
+        "unknownCreditCalls": unknown_credit_calls,
+        "costStatus": "known" if unknown_credit_calls == 0 else "incomplete",
         "klingCalls": kling_calls,
-        "klingCredits": round(kling_credits, 3),
+        "klingCredits": round(kling_credits, 3)
+        if unknown_kling_credit_calls == 0
+        else None,
+        "knownKlingCredits": round(kling_credits, 3),
+        "unknownKlingCreditCalls": unknown_kling_credit_calls,
         "klingRoiStatus": "awaiting_measured_outcomes"
         if kling_calls and not consumed_credits
         else "not_measurable_without_published_outcomes",
     }
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _safe_failure_message(value: Any) -> str:
+    message = " ".join(str(value or "unknown failure").split())
+    message = re.sub(
+        r"(?i)\b(token|secret|password|service[_ -]?role[_ -]?key)\b\s*[:=]\s*\S+",
+        r"\1=<redacted>",
+        message,
+    )
+    return message[:240]
+
+
+def weekly_failures(db_path: Path, *, now: datetime) -> dict[str, Any]:
+    cutoff = (now - timedelta(days=7)).isoformat()
+    with sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        failed = conn.execute(
+            """SELECT id, job_type, error, updated_at
+               FROM pipeline_jobs
+               WHERE status = 'failed' AND updated_at >= ?
+               ORDER BY updated_at DESC, id
+               LIMIT 20""",
+            (cutoff,),
+        ).fetchall()
+        succeeded = conn.execute(
+            """SELECT job_type, MAX(updated_at) AS latest_success_at
+               FROM pipeline_jobs
+               WHERE status = 'succeeded' AND updated_at >= ?
+               GROUP BY job_type""",
+            (cutoff,),
+        ).fetchall()
+    success_by_type = {
+        str(row["job_type"]): _parse_timestamp(row["latest_success_at"])
+        for row in succeeded
+    }
+    items = []
+    for row in failed:
+        failed_at = _parse_timestamp(row["updated_at"])
+        success_at = success_by_type.get(str(row["job_type"]))
+        recovered = bool(failed_at and success_at and success_at > failed_at)
+        items.append(
+            {
+                "jobId": row["id"],
+                "jobType": row["job_type"],
+                "failedAt": row["updated_at"],
+                "error": _safe_failure_message(row["error"]),
+                "recoveredByLaterSuccess": recovered,
+                "latestSuccessAt": success_at.isoformat() if recovered else None,
+            }
+        )
+    recovered_count = sum(
+        1 for item in items if item["recoveredByLaterSuccess"] is True
+    )
+    return {
+        "windowDays": 7,
+        "count": len(items),
+        "recoveredCount": recovered_count,
+        "unrecoveredCount": len(items) - recovered_count,
+        "items": items[:8],
+    }
+
+
 def build_digest(
-    summaries: list[dict[str, Any]], spend: dict[str, Any], *, now: datetime
+    summaries: list[dict[str, Any]],
+    spend: dict[str, Any],
+    failures: dict[str, Any] | None = None,
+    *,
+    now: datetime,
 ) -> dict[str, Any]:
+    failures = failures or {
+        "windowDays": 7,
+        "count": 0,
+        "recoveredCount": 0,
+        "unrecoveredCount": 0,
+        "items": [],
+    }
+    spend = dict(spend)
     snapshot_count = sum(int(item.get("snapshotCount") or 0) for item in summaries)
     recommendations = [
         recommendation
@@ -176,10 +275,25 @@ def build_digest(
     else:
         status = "recommendations_ready"
         next_actions = ["review_bounded_recommendations_before_applying"]
+    if int(failures.get("unrecoveredCount") or 0) > 0:
+        next_actions.append("review_unrecovered_pipeline_failures")
+    kling_calls = int(spend.get("klingCalls") or 0)
+    spend["klingRoiStatus"] = (
+        "not_run_this_window"
+        if kling_calls == 0
+        else "awaiting_linked_published_outcomes"
+    )
+    kling_credit_summary = (
+        spend.get("klingCredits")
+        if spend.get("klingCredits") is not None
+        else "unknown"
+    )
     line = (
         f"weekly improvement: {snapshot_count} measured snapshots | "
         f"{len(recommendations)} evidence-backed changes | "
-        f"{spend.get('klingCredits', 0)} Kling credits | {status}"
+        f"{failures.get('count', 0)} failures "
+        f"({failures.get('recoveredCount', 0)} recovered) | "
+        f"{kling_credit_summary} Kling credits | {status}"
     )
     return {
         "schema": SCHEMA,
@@ -194,6 +308,7 @@ def build_digest(
             for summary in summaries
         ],
         "recommendations": recommendations,
+        "failures": failures,
         "nextActions": next_actions,
         "spend": spend,
         "automaticChangesApplied": 0,
@@ -210,9 +325,20 @@ def render_markdown(digest: dict[str, Any]) -> str:
         "",
         digest["line"],
         "",
-        "## Recommendations",
+        "## Performance evidence",
         "",
     ]
+    lines.extend(
+        f"- `{item['campaign']}`: {item['snapshotCount']} measured snapshots"
+        for item in digest["campaigns"]
+    )
+    lines.extend(
+        [
+            "",
+            "## Recommendations and bounded experiments",
+            "",
+        ]
+    )
     if digest["recommendations"]:
         for item in digest["recommendations"]:
             evidence = item["evidence"]
@@ -224,7 +350,44 @@ def render_markdown(digest: dict[str, Any]) -> str:
         lines.append(
             "- No creative configuration change is justified by real outcomes yet."
         )
-    lines.extend(["", "## Next actions", ""])
+        lines.append(
+            "- Wait for at least three measured samples in a pattern before proposing a caption, reference, timing, or recipe experiment."
+        )
+    failures = digest.get("failures") or {}
+    lines.extend(
+        [
+            "",
+            "## Pipeline failures",
+            "",
+            f"- Recent failures: {failures.get('count', 0)}",
+            f"- Recovered by a later successful job of the same type: {failures.get('recoveredCount', 0)}",
+            f"- Not followed by a later success of the same type: {failures.get('unrecoveredCount', 0)}",
+        ]
+    )
+    for item in failures.get("items") or []:
+        recovery = "recovered" if item["recoveredByLaterSuccess"] else "review"
+        lines.append(
+            f"- `{item['jobType']}:{item['jobId']}` ({recovery}): {item['error']}"
+        )
+    spend = digest.get("spend") or {}
+    lines.extend(
+        [
+            "",
+            "## Spend and Kling ROI",
+            "",
+            f"- Provider calls: {spend.get('providerCalls', 0)}",
+            f"- Total credits: {spend.get('credits') if spend.get('credits') is not None else 'unknown'}",
+            f"- Known credits: {spend.get('knownCredits', 0)}",
+            f"- Calls with unknown credit cost: {spend.get('unknownCreditCalls', 0)}",
+            f"- Cost evidence status: `{spend.get('costStatus', 'unknown')}`",
+            f"- Kling calls: {spend.get('klingCalls', 0)}",
+            f"- Kling credits: {spend.get('klingCredits') if spend.get('klingCredits') is not None else 'unknown'}",
+            f"- Kling ROI status: `{spend.get('klingRoiStatus')}`",
+            "",
+            "## Next bounded actions",
+            "",
+        ]
+    )
     lines.extend(f"- {item}" for item in digest["nextActions"])
     lines.extend(
         [
@@ -281,7 +444,12 @@ def main(argv: list[str] | None = None) -> int:
     campaigns = configured_campaigns(args.campaigns)
     now = utc_now()
     summaries = collect_performance_summaries(args.db, campaigns)
-    digest = build_digest(summaries, weekly_spend(args.db, now=now), now=now)
+    digest = build_digest(
+        summaries,
+        weekly_spend(args.db, now=now),
+        weekly_failures(args.db, now=now),
+        now=now,
+    )
     print(digest["line"])
     if not args.dry_run:
         stamp = now.date().isoformat()
