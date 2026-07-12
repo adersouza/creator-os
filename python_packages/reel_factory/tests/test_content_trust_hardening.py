@@ -41,6 +41,7 @@ from identity_verification import (
     build_reference_set,
     delete_reference_set,
     identity_health,
+    identity_model_root,
     verify_identity,
 )
 from media_metadata import normalize_media_metadata
@@ -109,6 +110,34 @@ def _write_reference_set(
 
 def _write_image(path: Path) -> None:
     Image.new("RGB", (24, 24), (120, 90, 80)).save(path)
+
+
+def test_identity_model_root_reuses_standard_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_root = tmp_path / "package"
+    home = tmp_path / "home"
+    standard = home / ".insightface" / "models" / "buffalo_l"
+    standard.mkdir(parents=True)
+    (standard / "w600k_r50.onnx").write_bytes(b"model")
+    monkeypatch.setattr(
+        "identity_verification.PACKAGE_IDENTITY_MODEL_ROOT", package_root
+    )
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    assert identity_model_root() == home / ".insightface"
+
+
+def test_identity_model_root_prefers_explicit_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = tmp_path / "configured"
+    model_dir = configured / "models" / "buffalo_l"
+    model_dir.mkdir(parents=True)
+    (model_dir / "det_10g.onnx").write_bytes(b"model")
+    monkeypatch.setenv("REEL_FACTORY_IDENTITY_MODEL_ROOT", str(configured))
+
+    assert identity_model_root() == configured
 
 
 def test_download_result_rejects_truncated_response_without_partial_file(

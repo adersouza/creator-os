@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import subprocess
+import sys
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +19,9 @@ from .persistence import json_load
 
 if TYPE_CHECKING:
     from .core import CampaignFactory
+
+
+IDENTITY_CACHE_VERSION = "arcface_v1_threshold_0.42"
 
 
 def run_daily_library_production(
@@ -50,7 +56,7 @@ def run_daily_library_production(
 
     blockers = _assignment_blockers(assignments)
     selections = _select_sources(
-        factory.conn,
+        factory,
         campaign_id=campaign["id"],
         cohort_id=cohort_id,
         assignments=assignments,
@@ -286,13 +292,14 @@ def _assignment_blockers(assignments: list[dict[str, Any]]) -> list[str]:
 
 
 def _select_sources(
-    conn: sqlite3.Connection,
+    factory: CampaignFactory,
     *,
     campaign_id: str,
     cohort_id: str,
     assignments: list[dict[str, Any]],
     library_root: Path,
 ) -> list[dict[str, Any]]:
+    conn = factory.conn
     candidates = [
         dict(row)
         for row in conn.execute(
@@ -314,7 +321,16 @@ def _select_sources(
             (cohort_id,),
         ).fetchall()
     )
+    identity_by_source: dict[str, dict[str, Any]] = {}
+
+    def identity_for(source: dict[str, Any]) -> dict[str, Any]:
+        source_id = str(source["id"])
+        if source_id not in identity_by_source:
+            identity_by_source[source_id] = _verify_library_identity(factory, source)
+        return identity_by_source[source_id]
+
     selections = []
+    selected_source_ids: set[str] = set()
     for assignment in assignments:
         assigned_id = str(assignment.get("source_asset_id") or "")
         if assigned_id:
@@ -322,10 +338,18 @@ def _select_sources(
                 raise ValueError(
                     f"assigned source asset is unavailable: {assignment['id']}:{assigned_id}"
                 )
+            if assigned_id in selected_source_ids:
+                raise ValueError(
+                    f"daily pair reuses assigned source: {assignment['id']}:{assigned_id}"
+                )
             source = candidate_by_id[assigned_id]
         else:
-            source = min(
-                candidates,
+            ranked = sorted(
+                [
+                    item
+                    for item in candidates
+                    if str(item["id"]) not in selected_source_ids
+                ],
                 key=lambda item: (
                     usage[str(item["id"])],
                     hashlib.sha256(
@@ -333,7 +357,26 @@ def _select_sources(
                     ).hexdigest(),
                 ),
             )
+            source = next(
+                (
+                    item
+                    for item in ranked
+                    if identity_for(item).get("status") == "passed"
+                ),
+                None,
+            )
+            if source is None:
+                raise ValueError(
+                    "no distinct identity-verified Stacey library source available "
+                    f"for {assignment['id']}"
+                )
             usage[str(source["id"])] += 1
+        identity = identity_for(source)
+        if identity.get("status") != "passed":
+            raise ValueError(
+                f"assigned source identity is not verified: {assignment['id']}:{source['id']}:{identity.get('status')}"
+            )
+        selected_source_ids.add(str(source["id"]))
         selections.append(
             {
                 "assignmentId": assignment["id"],
@@ -345,9 +388,79 @@ def _select_sources(
                 "selectionKey": hashlib.sha256(
                     f"{assignment['assignment_seed']}:{source['id']}".encode()
                 ).hexdigest(),
+                "identityVerification": identity,
             }
         )
     return selections
+
+
+def _verify_library_identity(
+    factory: CampaignFactory, source: dict[str, Any]
+) -> dict[str, Any]:
+    content_hash = str(source.get("content_hash") or "").strip()
+    cache_dir = factory.settings.root / ".cache" / "library_identity"
+    reference_fingerprint = _identity_reference_fingerprint(factory)
+    cache_key = hashlib.sha256(
+        f"{IDENTITY_CACHE_VERSION}:{content_hash}:{reference_fingerprint}".encode()
+    ).hexdigest()
+    cache_path = cache_dir / f"{cache_key}.json"
+    if content_hash and cache_path.exists():
+        cached = json_load(cache_path.read_text(encoding="utf-8"), {})
+        if isinstance(cached, dict) and cached.get("status") in {"passed", "failed"}:
+            return cached
+    command = [
+        sys.executable,
+        "-m",
+        "reel_factory.identity_verification",
+        "verify",
+        str(source["stored_path"]),
+        "--creator",
+        "Stacey",
+        "--root",
+        str(factory.settings.reel_factory_root),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    record: dict[str, Any] = {
+        "schema": "reel_factory.identity_verification.v1",
+        "creator": "Stacey",
+        "status": "unavailable",
+        "failureReason": "identity_verifier_failed",
+    }
+    for offset, character in enumerate(completed.stdout):
+        if character != "{":
+            continue
+        try:
+            candidate, _ = json.JSONDecoder().raw_decode(completed.stdout[offset:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict) and candidate.get("schema"):
+            record = candidate
+    if completed.returncode != 0 and record.get("status") == "passed":
+        record = {
+            **record,
+            "status": "unavailable",
+            "failureReason": "identity_verifier_failed",
+        }
+    if content_hash and record.get("status") in {"passed", "failed"}:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(cache_path, json.dumps(record, indent=2, sort_keys=True))
+    return record
+
+
+def _identity_reference_fingerprint(factory: CampaignFactory) -> str:
+    configured = os.environ.get("REEL_FACTORY_IDENTITY_REFERENCE_SET")
+    reference_path = (
+        Path(configured).expanduser()
+        if configured
+        else factory.settings.reel_factory_root / "identity_references" / "stacey.json"
+    )
+    if not reference_path.is_file():
+        return "missing"
+    digest = hashlib.sha256()
+    with reference_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _daily_hooks(

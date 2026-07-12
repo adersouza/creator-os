@@ -40,8 +40,8 @@ reel_factory/generate_prompts.py:generate_prompt:1783
 reel_factory/grid_crop.py:next_clip_stem:715
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131
-reel_factory/identity_verification.py:get_identity_provider:100
-reel_factory/identity_verification.py:_load_reference_embeddings:219
+reel_factory/identity_verification.py:get_identity_provider:117
+reel_factory/identity_verification.py:_load_reference_embeddings:236
 reel_factory/manifest.py:_import_json:201
 reel_factory/manifest.py:materialize_cached_job:276
 reel_factory/manifest.py:get_analysis:756

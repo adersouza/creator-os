@@ -33,7 +33,7 @@ HEALTH_SCHEMA = "reel_factory.identity_health.v1"
 DEFAULT_THRESHOLD = 0.42
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
-IDENTITY_MODEL_ROOT = Path(__file__).resolve().parent / "models" / "insightface"
+PACKAGE_IDENTITY_MODEL_ROOT = Path(__file__).resolve().parent / "models" / "insightface"
 
 
 class IdentityProvider(Protocol):
@@ -62,12 +62,13 @@ class InsightFaceIdentityProvider:
     def __init__(self) -> None:
         from insightface.app import FaceAnalysis  # type: ignore
 
-        model_dir = IDENTITY_MODEL_ROOT / "models" / "buffalo_l"
+        model_root = identity_model_root()
+        model_dir = model_root / "models" / "buffalo_l"
         if not any(model_dir.glob("*.onnx")):
             raise FileNotFoundError(f"identity_model_missing:{model_dir}")
         self._app = FaceAnalysis(
             name="buffalo_l",
-            root=str(IDENTITY_MODEL_ROOT),
+            root=str(model_root),
             allowed_modules=("detection", "recognition"),
             providers=["CPUExecutionProvider"],
         )
@@ -92,6 +93,22 @@ class InsightFaceIdentityProvider:
             ),
         )
         return [float(value) for value in face.normed_embedding]
+
+
+def identity_model_root() -> Path:
+    """Resolve existing ArcFace weights without duplicating the model cache."""
+    configured = os.environ.get("REEL_FACTORY_IDENTITY_MODEL_ROOT")
+    candidates = [
+        Path(configured).expanduser() if configured else None,
+        PACKAGE_IDENTITY_MODEL_ROOT,
+        Path.home() / ".insightface",
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if any((candidate / "models" / "buffalo_l").glob("*.onnx")):
+            return candidate
+    return candidates[0] or PACKAGE_IDENTITY_MODEL_ROOT
 
 
 def get_identity_provider() -> IdentityProvider:

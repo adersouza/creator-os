@@ -119,12 +119,23 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
     )
 
 
-def test_daily_library_plan_is_deterministic_and_zero_cost(tmp_path: Path):
+def test_daily_library_plan_is_deterministic_and_zero_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     cf = make_factory(tmp_path)
     folder = tmp_path / "library"
     folder.mkdir()
     (folder / "one.mp4").write_bytes(b"one")
     (folder / "two.mp4").write_bytes(b"two")
+    monkeypatch.setattr(
+        daily_library_module,
+        "_verify_library_identity",
+        lambda _factory, source: {
+            "schema": "reel_factory.identity_verification.v1",
+            "status": "passed",
+            "sourceAssetId": source["id"],
+        },
+    )
     try:
         prepare_learning_cohort(cf.conn, start_date="2026-07-12")
         cf.import_folder(
@@ -166,6 +177,15 @@ def test_daily_library_apply_stops_at_review_ready(
     folder.mkdir()
     (folder / "one.mp4").write_bytes(b"one")
     (folder / "two.mp4").write_bytes(b"two")
+    monkeypatch.setattr(
+        daily_library_module,
+        "_verify_library_identity",
+        lambda _factory, source: {
+            "schema": "reel_factory.identity_verification.v1",
+            "status": "passed",
+            "sourceAssetId": source["id"],
+        },
+    )
 
     def fake_run_reel_factory(**kwargs):
         runs = []
@@ -287,6 +307,86 @@ def test_daily_library_warning_only_upload_ready_is_review_ready():
             "readinessSummary": {"uploadReady": False},
         }
     )
+
+
+def test_daily_library_identity_does_not_cache_provider_outage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    source = {
+        "id": "src_1",
+        "content_hash": "abc123",
+        "stored_path": str(tmp_path / "clip.mp4"),
+    }
+    calls = 0
+
+    def unavailable(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                {
+                    "schema": "reel_factory.identity_verification.v1",
+                    "status": "unavailable",
+                    "failureReason": "identity_provider_unavailable",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(daily_library_module.subprocess, "run", unavailable)
+    try:
+        daily_library_module._verify_library_identity(cf, source)
+        daily_library_module._verify_library_identity(cf, source)
+        assert calls == 2
+        assert not list((tmp_path / ".cache" / "library_identity").glob("*.json"))
+    finally:
+        cf.close()
+
+
+def test_daily_library_identity_cache_tracks_reference_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    reference_set = (
+        cf.settings.reel_factory_root / "identity_references" / "stacey.json"
+    )
+    reference_set.parent.mkdir(parents=True)
+    reference_set.write_text('{"referenceSetId":"one"}', encoding="utf-8")
+    source = {
+        "id": "src_1",
+        "content_hash": "abc123",
+        "stored_path": str(tmp_path / "clip.mp4"),
+    }
+    calls = 0
+
+    def passed(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                {
+                    "schema": "reel_factory.identity_verification.v1",
+                    "status": "passed",
+                    "score": 0.9,
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(daily_library_module.subprocess, "run", passed)
+    try:
+        daily_library_module._verify_library_identity(cf, source)
+        daily_library_module._verify_library_identity(cf, source)
+        reference_set.write_text('{"referenceSetId":"two"}', encoding="utf-8")
+        daily_library_module._verify_library_identity(cf, source)
+        assert calls == 2
+    finally:
+        cf.close()
 
 
 def test_ai_cost_source_event_key_is_idempotent(tmp_path: Path):
