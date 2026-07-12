@@ -6,10 +6,12 @@ from pathlib import Path
 from campaign_factory.closed_loop_proof import (
     CONTEXT_KEYS,
     ClosedLoopProofRun,
+    account_from_existing_threadsdashboard_post,
     build_account_routing_audit,
     canonical_caption_context_for_fingerprint,
     context_fingerprint,
     discover_creator_account_context,
+    existing_threadsdashboard_post,
     run_stacey_closed_loop_proof,
     select_stacey_instagram_account,
 )
@@ -374,3 +376,182 @@ def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(
     assert result["stopReason"] == "ready_for_live_export"
     assert result["distributionPlanId"] == "plan_1"
     assert export_called["value"] is False
+
+
+def test_existing_post_resolves_actual_instagram_account():
+    post = {
+        "id": "post_1",
+        "user_id": "user_1",
+        "instagram_account_id": "ig_actual",
+    }
+    client = FakeClient(
+        {
+            "posts": [post],
+            "instagram_accounts": [
+                {
+                    "id": "ig_actual",
+                    "username": "bennett_s33",
+                    "user_id": "user_1",
+                    "instagram_access_token_encrypted": "must-not-escape",
+                }
+            ],
+        }
+    )
+
+    selected_post = existing_threadsdashboard_post(client, post_id="post_1")
+    account = account_from_existing_threadsdashboard_post(
+        client, post=selected_post, user_id="user_1"
+    )
+
+    assert selected_post == post
+    assert account["instagramAccountId"] == "ig_actual"
+    assert account["username"] == "bennett_s33"
+    assert "instagram_access_token_encrypted" not in account["raw"]
+    assert (
+        account["resolutionPath"]
+        == "existing_threadsdashboard_post.instagram_account_id"
+    )
+
+
+def test_read_only_proof_reconciles_post_retargeted_after_distribution_plan(
+    monkeypatch, tmp_path: Path
+):
+    prompt_path = tmp_path / "stacey_prompt.json"
+    output_path = tmp_path / "stacey.mp4"
+    prompt_path.write_text("{}", encoding="utf-8")
+    output_path.write_bytes(b"proof-render")
+    caption_context = {
+        "caption_hash": "caption_1",
+        "creator_mix": "Stacey",
+        "rendered_output": str(output_path),
+    }
+
+    class FakeSupabaseClient:
+        def __init__(self, url, key):
+            self.url = url
+            self.key = key
+
+        def select(self, table, params):
+            rows = {
+                "posts": [
+                    {
+                        "id": "post_1",
+                        "user_id": "user_1",
+                        "status": "published",
+                        "instagram_account_id": "ig_actual",
+                        "instagram_post_id": "ig_media_1",
+                        "permalink": "https://www.instagram.com/reel/example/",
+                        "manual_publish_confirmed_at": "2026-07-11T19:14:41Z",
+                        "campaign_factory_distribution_plan_id": "plan_1",
+                        "metadata": {
+                            "campaign_factory": {"distribution_plan_id": "plan_1"}
+                        },
+                    }
+                ],
+                "instagram_accounts": [
+                    {
+                        "id": "ig_actual",
+                        "username": "bennett_s33",
+                        "user_id": "user_1",
+                    }
+                ],
+            }
+            return rows.get(table, [])
+
+    class FakeFactory:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def campaign_by_slug(self, slug):
+            return {"id": "campaign_1", "slug": slug}
+
+        def export_manifest(self, *, campaign_slug):
+            return {
+                "assets": [
+                    {
+                        "renderedAssetId": "asset_1",
+                        "filePath": str(output_path),
+                        "contentHash": "content_1",
+                        "captionHash": "caption_1",
+                        "captionOutcomeContext": caption_context,
+                    }
+                ]
+            }
+
+        def distribution_plans_for_asset(self, rendered_asset_id):
+            return [
+                {
+                    "id": "plan_1",
+                    "renderedAssetId": rendered_asset_id,
+                    "instagramAccountId": "ig_planned",
+                }
+            ]
+
+        def caption_outcome_report(self, campaign_slug):
+            return {}
+
+        def performance_summary(self, campaign_slug):
+            return {}
+
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.SupabaseRestClient", FakeSupabaseClient
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.CampaignFactory", FakeFactory
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof.sync_performance_snapshots",
+        lambda *args, **kwargs: {"imported": 1},
+    )
+    monkeypatch.setattr(
+        "campaign_factory.closed_loop_proof._performance_snapshot_for_post",
+        lambda *args, **kwargs: {
+            "id": "snapshot_1",
+            "post_id": "post_1",
+            "status": "published",
+            "views": 2,
+            "content_hash": "content_1",
+            "caption_hash": "caption_1",
+            "caption_outcome_context_json": json.dumps(caption_context),
+        },
+    )
+
+    result = run_stacey_closed_loop_proof(
+        campaign_slug="stacey_closed_loop",
+        user_id="user_1",
+        output_dir=tmp_path,
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-key",
+        approved_rendered_asset_id="asset_1",
+        prompt_path=prompt_path,
+        read_only_verification=True,
+        existing_threadsdash_post_id="post_1",
+    )
+
+    assert result["result"] == "passed"
+    assert result["selectedAccount"]["instagramAccountId"] == "ig_actual"
+    assert result["distributionPlanId"] == "plan_1"
+    assert result["humanReviewReceipt"] == {
+        "operator": None,
+        "timestamp": "2026-07-11T19:14:41Z",
+        "approvedOutputPath": str(output_path),
+        "approvalReason": "existing_threadsdashboard_publish_confirmation",
+        "source": "existing_threadsdashboard_post",
+    }
+    assert result["reports"]["accountReconciliation"] == {
+        "status": "retargeted_after_distribution_plan",
+        "source": "existing_threadsdashboard_post",
+        "distributionPlanId": "plan_1",
+        "plannedInstagramAccountId": "ig_planned",
+        "actualInstagramAccountId": "ig_actual",
+        "actualUsername": "bennett_s33",
+    }
+    assert (
+        result["reports"]["threadsDashboardVerification"]["permalink"]
+        == "https://www.instagram.com/reel/example/"
+    )
+    markdown = (tmp_path / "CLOSED_LOOP_PROOF.md").read_text(encoding="utf-8")
+    assert "## Account Reconciliation" in markdown
+    assert '"actualUsername": "bennett_s33"' in markdown
+    assert "## ThreadsDashboard Verification" in markdown
+    assert "https://www.instagram.com/reel/example/" in markdown

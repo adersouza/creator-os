@@ -1,53 +1,82 @@
-# Closed Loop Proof
+# Stacey Closed-Loop Proof
 
-Result: **passed**
-Current state: **metrics_imported**
-Updated: 2026-06-05T05:48:48.720316+00:00
+- Result: `passed`
+- Stop reason: `None`
+- Campaign: `stacey_learning_cohort_v1`
+- Account: `bennett_s33` (`664bd680-1117-484c-bb92-0b449d983d34`)
+- Rendered asset: `asset_finished_a67df7c814a1`
+- Distribution plan: `dist_158cb800dbfe`
+- ThreadsDashboard post: `3a69a80f-dda1-4a04-95d6-f60271d4e2aa`
+- Performance snapshot: `perf_1df487ea5ddf`
+- Views: `2`
 
-## Chain
+## Fingerprints
 
-- Campaign: `stacey_closed_loop` / `camp_a7eb58aaa22a`
-- Rendered asset: `asset_b4c32ff38826`
-- Distribution plan: `dist_f6c5e308789f`
-- ThreadsDashboard post: `70ada22c-614f-4b17-aa70-eab62faded78`
-- Instagram media: `17932384674289549`
-- Permalink: https://www.instagram.com/reel/DZMU_4zj5Em/
-- Performance snapshot: `perf_88bd3ced5748`
+- Content fingerprint: `a67df7c814a18c6c61210b97f135b5f549e34de1c0f0d7999123023b809f7d07`
+- Caption hash: `d69213d90881c6ffb223004e88f830023135267f06a4397af2b8093cd7fe7337`
+- captionOutcomeContext fingerprint: `1175e47b236ecaecdd1492d36e5113c717b558713b55769e55489de14b70ac11`
 
-## Reconciliation
+## Costs
 
-- Content fingerprint: `0f1dd07a0c94e2ab453e214db342dff5d658655c00424586cd9f92704ce90c67`
-- Caption hash: `1e5d5d6e23353403bd69c93fe742ff2e7d702a78e2433ce2be4828cf1ed61241`
-- Caption outcome context fingerprint: `ea1319d305613e4238c303b638a460d126f12def149bcca17e4705609199c387`
-- Metrics eligible: `True`
+- Higgsfield image cost: `None`
+- Kling cost: `None`
+- Total generation cost: `None`
+- Render count: `None`
+- Final approved count: `1`
+- Cost per approved reel: `None`
 
-## Metrics
+## Human Review
 
-- Views: `0`
-- Likes: `0`
-- Comments: `0`
-- Shares: `0`
-- Saves: `0`
-- Impressions: `0`
-- Reach: `0`
-- Watch time seconds: `0.0`
-
-## Caption
-
-```text
-"I like your fit"
-bet, take it off then
+```json
+{
+  "approvalReason": "existing_threadsdashboard_publish_confirmation",
+  "approvedOutputPath": "/Users/aderdesouza/Developer/creator-os-runtime/python_packages/campaign_factory/campaigns/stacey/stacey_learning_cohort_v1/02_rendered/lca_56195fc393f9c201_h00_v01_original_light_25190bd7_a67df7c814.mp4",
+  "operator": null,
+  "source": "existing_threadsdashboard_post",
+  "timestamp": "2026-07-11T19:14:41.276+00:00"
+}
 ```
 
-Caption bank: `shared_girl_next_door`
-Creator mix: `Stacey`
-Frame type: `closeup`
-Length class: `short`
-Format class: `multiline`
+## Account Reconciliation
 
-## Notes
+```json
+{
+  "actualInstagramAccountId": "664bd680-1117-484c-bb92-0b449d983d34",
+  "actualUsername": "bennett_s33",
+  "distributionPlanId": "dist_158cb800dbfe",
+  "plannedInstagramAccountId": "a13d64c6-578e-4170-b4b1-4c485c07b260",
+  "source": "existing_threadsdashboard_post",
+  "status": "retargeted_after_distribution_plan"
+}
+```
 
-- The closed-loop proof reached Instagram publish and Campaign Factory metrics import.
-- The first metrics payload is zero-valued, which is expected immediately after publish and is not a performance judgment.
-- Reporting now excludes metrics-ineligible/retired proof candidates.
-- The retired bad draft `8ee460e1-4f4e-4298-9597-462223b3f5cb` is not counted in this proof.
+## ThreadsDashboard Verification
+
+```json
+{
+  "instagramAccountId": "664bd680-1117-484c-bb92-0b449d983d34",
+  "instagramPostId": "18094620473086400",
+  "mode": "read_only_existing_post",
+  "ok": true,
+  "permalink": "https://www.instagram.com/reel/DaqdKAqxUW3/",
+  "postId": "3a69a80f-dda1-4a04-95d6-f60271d4e2aa",
+  "rowCount": 1,
+  "status": "published"
+}
+```
+
+## Lineage By Stage
+
+```json
+{
+  "distribution_plans": "8184945c4e3285b1af5ccb41f0c2358e4b2c9bac4fa2c2fd4126619aa386e16d",
+  "performance_snapshots": "04521b1d3e1c9ff9cbcdcc165dc525f708fe362784aa0963a8f9cecd1825d3e8",
+  "rendered output": "23da071a4907a98d7edcd1d00f2eae7787f32b1da4492a0c3f1ae998ce964bd4"
+}
+```
+
+## Details
+
+```json
+{}
+```

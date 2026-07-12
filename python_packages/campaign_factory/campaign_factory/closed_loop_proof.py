@@ -129,6 +129,53 @@ def select_stacey_instagram_account(
     return discovery.get("selectedAccount")
 
 
+def existing_threadsdashboard_post(
+    client: Any, *, post_id: str
+) -> dict[str, Any] | None:
+    rows = client.select(
+        "posts",
+        {
+            "select": (
+                "id,status,scheduled_for,published_at,created_at,updated_at,"
+                "platform,instagram_account_id,account_id,user_id,metadata,"
+                "campaign_factory_distribution_plan_id,instagram_post_id,permalink,"
+                "publish_mode,handoff_status,manual_publish_confirmed_at"
+            ),
+            "id": f"eq.{post_id}",
+        },
+    )
+    return rows[0] if len(rows) == 1 else None
+
+
+def account_from_existing_threadsdashboard_post(
+    client: Any, *, post: dict[str, Any], user_id: str
+) -> dict[str, Any] | None:
+    if str(post.get("user_id") or "") != str(user_id):
+        return None
+    account_id = post.get("instagram_account_id") or post.get("account_id")
+    if not account_id:
+        return None
+    rows = client.select(
+        "instagram_accounts",
+        {
+            "select": "*",
+            "id": f"eq.{account_id}",
+            "user_id": f"eq.{user_id}",
+        },
+    )
+    account = rows[0] if len(rows) == 1 else {}
+    username = str(account.get("username") or account.get("handle") or account_id)
+    return {
+        "instagramAccountId": str(account_id),
+        "username": username,
+        "groupId": account.get("group_id"),
+        "groupName": None,
+        "resolutionPath": "existing_threadsdashboard_post.instagram_account_id",
+        "raw": _safe_account_summary(account or post),
+        "linkedAccountId": _linked_account_id(account),
+    }
+
+
 def discover_stacey_account_context(client: Any, *, user_id: str) -> dict[str, Any]:
     return discover_creator_account_context(client, user_id=user_id, creator="Stacey")
 
@@ -634,6 +681,7 @@ class ClosedLoopProofRun:
         record = self.record
         account = record.get("selectedAccount") or {}
         costs = record.get("generationCosts") or {}
+        reports = record.get("reports") or {}
         lines = [
             "# Stacey Closed-Loop Proof",
             "",
@@ -667,6 +715,28 @@ class ClosedLoopProofRun:
             "```json",
             json.dumps(
                 record.get("humanReviewReceipt"),
+                indent=2,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "```",
+            "",
+            "## Account Reconciliation",
+            "",
+            "```json",
+            json.dumps(
+                reports.get("accountReconciliation") or {},
+                indent=2,
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            "```",
+            "",
+            "## ThreadsDashboard Verification",
+            "",
+            "```json",
+            json.dumps(
+                reports.get("threadsDashboardVerification") or {},
                 indent=2,
                 ensure_ascii=False,
                 sort_keys=True,
@@ -763,8 +833,33 @@ def run_stacey_closed_loop_proof(
         )
 
     client = SupabaseRestClient(supabase_url.rstrip("/"), supabase_service_role_key)
-    account_discovery = discover_stacey_account_context(client, user_id=user_id)
-    selected_account = account_discovery.get("selectedAccount")
+    existing_post = None
+    if read_only_verification and existing_threadsdash_post_id:
+        existing_post = existing_threadsdashboard_post(
+            client, post_id=existing_threadsdash_post_id
+        )
+        if not existing_post:
+            return run.stop(
+                "threadsdash_export_verification_failed",
+                {
+                    "blockingReasons": ["existing_threadsdash_post_not_found"],
+                    "postId": existing_threadsdash_post_id,
+                },
+            )
+        selected_account = account_from_existing_threadsdashboard_post(
+            client, post=existing_post, user_id=user_id
+        )
+        account_discovery = {
+            "status": "ready" if selected_account else "blocked",
+            "blockingReasons": []
+            if selected_account
+            else ["existing_threadsdashboard_post_account_unresolved"],
+            "selectedAccount": selected_account,
+            "source": "existing_threadsdashboard_post",
+        }
+    else:
+        account_discovery = discover_stacey_account_context(client, user_id=user_id)
+        selected_account = account_discovery.get("selectedAccount")
     if not selected_account:
         return run.stop(
             "no_active_stacey_instagram_account",
@@ -803,12 +898,22 @@ def run_stacey_closed_loop_proof(
     rendered_output_path = asset.get("filePath")
     content_fp = file_fingerprint(rendered_output_path) or asset.get("contentHash")
     caption_hash = asset.get("captionHash") or caption_context.get("caption_hash")
-    human_review = {
-        "operator": operator or os.environ.get("USER"),
-        "timestamp": utc_now(),
-        "approvedOutputPath": rendered_output_path,
-        "approvalReason": approval_reason or "manual_closed_loop_stage_1_proof",
-    }
+    if read_only_verification and existing_post:
+        human_review = {
+            "operator": None,
+            "timestamp": existing_post.get("manual_publish_confirmed_at")
+            or existing_post.get("published_at"),
+            "approvedOutputPath": rendered_output_path,
+            "approvalReason": "existing_threadsdashboard_publish_confirmation",
+            "source": "existing_threadsdashboard_post",
+        }
+    else:
+        human_review = {
+            "operator": operator or os.environ.get("USER"),
+            "timestamp": utc_now(),
+            "approvedOutputPath": rendered_output_path,
+            "approvalReason": approval_reason or "manual_closed_loop_stage_1_proof",
+        }
     run.update(
         renderedAssetId=approved_rendered_asset_id,
         renderedOutputPath=rendered_output_path,
@@ -827,11 +932,34 @@ def run_stacey_closed_loop_proof(
         )
     )
 
+    asset_plans = factory.distribution_plans_for_asset(approved_rendered_asset_id)
     plans = [
         plan
-        for plan in factory.distribution_plans_for_asset(approved_rendered_asset_id)
+        for plan in asset_plans
         if plan.get("instagramAccountId") == selected_account["instagramAccountId"]
     ]
+    if not plans and existing_post:
+        metadata = _loads(existing_post.get("metadata"), {})
+        campaign_metadata = (
+            metadata.get("campaign_factory")
+            if isinstance(metadata.get("campaign_factory"), dict)
+            else {}
+        )
+        linked_plan_id = existing_post.get(
+            "campaign_factory_distribution_plan_id"
+        ) or campaign_metadata.get("distribution_plan_id")
+        plans = [
+            plan for plan in asset_plans if str(plan.get("id") or "") == linked_plan_id
+        ]
+        if plans:
+            run.record["reports"]["accountReconciliation"] = {
+                "status": "retargeted_after_distribution_plan",
+                "source": "existing_threadsdashboard_post",
+                "distributionPlanId": linked_plan_id,
+                "plannedInstagramAccountId": plans[0].get("instagramAccountId"),
+                "actualInstagramAccountId": selected_account["instagramAccountId"],
+                "actualUsername": selected_account.get("username"),
+            }
     if not plans:
         return run.stop(
             "promotion_preview_blocked",
@@ -866,19 +994,20 @@ def run_stacey_closed_loop_proof(
                     ],
                 },
             )
-        existing_rows = client.select(
-            "posts",
-            {
-                "select": "id,status,scheduled_for,published_at,created_at,updated_at,platform,instagram_account_id,account_id,user_id,metadata",
-                "id": f"eq.{existing_threadsdash_post_id}",
-            },
-        )
+        existing_rows = [existing_post] if existing_post else []
         run.record["reports"]["threadsDashboardVerification"] = {
             "ok": bool(existing_rows),
             "mode": "read_only_existing_post",
             "postId": existing_threadsdash_post_id,
             "rowCount": len(existing_rows),
             "status": existing_rows[0].get("status") if existing_rows else None,
+            "instagramAccountId": existing_rows[0].get("instagram_account_id")
+            if existing_rows
+            else None,
+            "instagramPostId": existing_rows[0].get("instagram_post_id")
+            if existing_rows
+            else None,
+            "permalink": existing_rows[0].get("permalink") if existing_rows else None,
         }
         if not existing_rows:
             return run.stop(
