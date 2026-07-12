@@ -1354,6 +1354,10 @@ export function validateCampaignFactoryDraftPayload(
 			errors.push(`drafts[${index}].metadata.campaign_factory must be an object`);
 			continue;
 		}
+		const handoffMode = String(
+			draft.handoffMode || campaignFactory.handoffMode || value.handoffMode || "publishable_draft",
+		).trim().toLowerCase();
+		const reviewOnly = handoffMode === "review_only";
 		if (options.strictGraphIds && campaignFactory.legacy_compat !== true) {
 			for (const field of STRICT_GRAPH_FIELDS) {
 				if (typeof campaignFactory[field] !== "string" || !campaignFactory[field]) {
@@ -1372,13 +1376,23 @@ export function validateCampaignFactoryDraftPayload(
 				}
 			}
 		}
-		if (!campaignFactoryAssetStateAllowsExport(campaignFactory.asset_state)) {
+		if (reviewOnly && String(campaignFactory.asset_state || "").trim().toLowerCase() !== "review_ready") {
+			errors.push(`drafts[${index}].metadata.campaign_factory.asset_state must be review_ready for review_only handoff`);
+		} else if (!reviewOnly && !campaignFactoryAssetStateAllowsExport(campaignFactory.asset_state)) {
 			const state = String(campaignFactory.asset_state || "").trim() || "missing";
 			errors.push(
 				`drafts[${index}].metadata.campaign_factory.asset_state must be publishable_candidate or exportable, got ${state}`,
 			);
 		}
-		const publishabilityFailures = draftAllowsDeferredNotifyAudio(draft, campaignFactory)
+		if (reviewOnly) {
+			if (campaignFactory.approved !== false) errors.push(`drafts[${index}].metadata.campaign_factory.approved must be false for review_only handoff`);
+			if (campaignFactory.scheduleSafe !== false) errors.push(`drafts[${index}].metadata.campaign_factory.scheduleSafe must be false for review_only handoff`);
+			if (campaignFactory.allowPublish !== false) errors.push(`drafts[${index}].metadata.campaign_factory.allowPublish must be false for review_only handoff`);
+			if (campaignFactory.approvalRequired !== true) errors.push(`drafts[${index}].metadata.campaign_factory.approvalRequired must be true for review_only handoff`);
+			if (String(draft.status || "").trim().toLowerCase() !== "draft") errors.push(`drafts[${index}].status must be draft for review_only handoff`);
+			if (draft.scheduledFor !== undefined && draft.scheduledFor !== null) errors.push(`drafts[${index}].scheduledFor must be null or absent for review_only handoff`);
+		}
+		const publishabilityFailures = reviewOnly || draftAllowsDeferredNotifyAudio(draft, campaignFactory)
 			? []
 			: campaignFactoryPublishabilityFailureReasons(campaignFactory);
 		for (const reason of publishabilityFailures) {

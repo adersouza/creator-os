@@ -145,18 +145,21 @@ def _variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str,
     return packs
 
 
-def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
+def export_manifest(
+    self, *, campaign_slug: str, review_only: bool = False
+) -> dict[str, Any]:
     campaign = self.campaign_by_slug(campaign_slug)
+    review_state = "review_ready" if review_only else "approved"
     rows = self.conn.execute(
         """
         SELECT r.*, s.account_ids_json, s.content_hash AS source_content_hash, s.source_prompt, m.slug AS model_slug
         FROM rendered_assets r
         JOIN source_assets s ON s.id = r.source_asset_id
         JOIN models m ON m.id = s.model_id
-        WHERE r.campaign_id = ? AND r.review_state = 'approved'
+        WHERE r.campaign_id = ? AND r.review_state = ?
         ORDER BY r.created_at
         """,
-        (campaign["id"],),
+        (campaign["id"], review_state),
     ).fetchall()
     assets = []
     campaign_graph_id = self.graph_id_for(
@@ -296,6 +299,7 @@ def export_manifest(self, *, campaign_slug: str) -> dict[str, Any]:
                 "accountIds": json_load(row["account_ids_json"], []),
                 "recipe": row["recipe"],
                 "auditStatus": row["audit_status"],
+                "reviewState": row["review_state"],
                 "auditSummary": audit_summary,
                 "referencePattern": reference_pattern,
                 "sourcePrompt": source_prompt,

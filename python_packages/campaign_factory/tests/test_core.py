@@ -2586,6 +2586,25 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert audit["overall_verdict"] == "pass"
         assert audit["report_path"] == str(contentforge_audit)
         assert cf.export_manifest(campaign_slug="batch")["assets"] == []
+        review_manifest = cf.export_manifest(campaign_slug="batch", review_only=True)
+        assert len(review_manifest["assets"]) == 1
+        assert review_manifest["assets"][0]["reviewState"] == "review_ready"
+        review_payload = build_draft_payloads(
+            cf,
+            campaign_slug="batch",
+            user_id="user_1",
+            review_only=True,
+        )
+        assert review_payload["handoffMode"] == "review_only"
+        review_draft = review_payload["drafts"][0]
+        assert review_draft["status"] == "draft"
+        assert "scheduledFor" not in review_draft
+        review_metadata = review_draft["metadata"]["campaign_factory"]
+        assert review_metadata["asset_state"] == "review_ready"
+        assert review_metadata["approved"] is False
+        assert review_metadata["scheduleSafe"] is False
+        assert review_metadata["allowPublish"] is False
+        assert review_metadata["approvalRequired"] is True
         cf.review_rendered_asset(
             rendered["id"], decision="approved", notes="certification smoke"
         )
