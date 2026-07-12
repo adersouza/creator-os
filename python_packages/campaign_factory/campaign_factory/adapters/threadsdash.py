@@ -5459,15 +5459,7 @@ def _performance_snapshot_from_row(
             "ig_impressions",
         ),
         "reach": _int_metric(row, metrics_meta, "reach", "ig_reach"),
-        "watch_time_seconds": _float_metric(
-            row,
-            metrics_meta,
-            "watch_time_seconds",
-            "watchTimeSeconds",
-            "watch_time",
-            "ig_reels_avg_watch_time",
-            "ig_reels_video_view_total_time",
-        ),
+        "watch_time_seconds": _watch_time_seconds(row, metrics_meta),
         "metrics_eligible": 1 if meta.get("metrics_eligible") else 0,
         "history_source": row.get("history_source") or "post_row_fallback",
         "lineage_v2_valid": 1
@@ -5963,6 +5955,33 @@ def _float_metric(
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _watch_time_seconds(row: dict[str, Any], meta: dict[str, Any]) -> float | None:
+    """Normalize ThreadsDashboard watch-time fields to total seconds.
+
+    Creator OS stores total watch time in ``performance_snapshots``. Explicit
+    normalized fields already use seconds. Meta's Reel insight fields are raw
+    milliseconds: prefer total view time, or derive it from average watch time
+    and views when the total is unavailable.
+    """
+    normalized = _float_metric(
+        row, meta, "watch_time_seconds", "watchTimeSeconds", "watch_time"
+    )
+    if normalized is not None:
+        return normalized
+
+    total_ms = _float_metric(row, meta, "ig_reels_video_view_total_time")
+    if total_ms is not None:
+        return total_ms / 1000.0
+
+    average_ms = _float_metric(row, meta, "ig_reels_avg_watch_time")
+    if average_ms is None:
+        return None
+    views = _int_metric(row, meta, "views", "view_count", "views_count", "ig_views")
+    if views is None:
+        return None
+    return average_ms * views / 1000.0
 
 
 def _metric_value(row: dict[str, Any], meta: dict[str, Any], *keys: str) -> Any:
