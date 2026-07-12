@@ -221,9 +221,28 @@ def run_daily_library_production(
         selection = assignments_by_source[str(asset["source_asset_id"])]
         safe = _audit_is_review_ready(audit)
         state = "review_ready" if safe else "needs_review"
+        metadata = json_load(asset.get("metadata_json"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        identity = selection["identityVerification"]
+        visual_qc = _contentforge_visual_qc_evidence(audit)
+        metadata.update(
+            {
+                "identityVerificationStatus": identity["status"],
+                "identityVerification": identity,
+                "visualQcStatus": visual_qc["status"],
+                "visualQc": visual_qc,
+            }
+        )
         factory.conn.execute(
-            "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
-            ("review_ready" if safe else "draft", _utc_now(), asset["id"]),
+            """UPDATE rendered_assets
+            SET review_state = ?, metadata_json = ?, updated_at = ? WHERE id = ?""",
+            (
+                "review_ready" if safe else "draft",
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                _utc_now(),
+                asset["id"],
+            ),
         )
         factory.conn.execute(
             """UPDATE learning_cohort_assignments
@@ -594,6 +613,19 @@ def _audit_is_review_ready(report: dict[str, Any]) -> bool:
         and not (readiness.get("blockingReasons") or [])
         and not (readiness.get("blockingCodes") or [])
     )
+
+
+def _contentforge_visual_qc_evidence(report: dict[str, Any]) -> dict[str, Any]:
+    readiness = report.get("readinessSummary") or {}
+    return {
+        "status": "passed" if _audit_is_review_ready(report) else "failed",
+        "source": "contentforge",
+        "auditStatus": report.get("status"),
+        "overallVerdict": report.get("overallVerdict"),
+        "uploadReady": readiness.get("uploadReady") is True,
+        "failedChecks": report.get("failedChecks") or [],
+        "warnings": report.get("warnings") or [],
+    }
 
 
 def _source_has_learning_lineage(
