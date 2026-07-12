@@ -108,6 +108,28 @@ def test_proof_inputs_pull_business_suite_into_default_run(tmp_path: Path) -> No
     assert "pipeline-determinism" in names
 
 
+def test_repo_hygiene_reads_only_real_local_branch_refs(monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    def fake_command_check(command: list[str], timeout: int = 180):
+        commands.append(command)
+        if command[:2] == ["git", "status"]:
+            return doctor.CommandResult(0, "## HEAD (no branch)\n", 0)
+        if command[:2] == ["git", "for-each-ref"]:
+            return doctor.CommandResult(0, "main\n", 0)
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(doctor, "command_check", fake_command_check)
+
+    assert doctor.repo_hygiene_warnings() == []
+    assert [
+        "git",
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/heads",
+    ] in commands
+
+
 def test_duplicate_fixture_detects_exact_hash_and_semantic_duplicates() -> None:
     fixture = doctor.load_fixture()
     result = doctor.duplicate_audit(fixture, True)
