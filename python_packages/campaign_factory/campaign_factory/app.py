@@ -973,6 +973,7 @@ def import_folder(body: dict[str, Any] = Body(...)):
             account_handles=body.get("accounts") or [],
             source_prompt=body.get("sourcePrompt"),
             notes=body.get("notes"),
+            storage_mode=body.get("storageMode", "copy"),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

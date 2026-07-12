@@ -1995,6 +1995,7 @@ class CampaignFactory:
         account_handles: list[str] | None = None,
         source_prompt: str | None = None,
         notes: str | None = None,
+        storage_mode: str = "copy",
     ) -> dict[str, Any]:
         return self.services.import_folder(
             folder,
@@ -2005,6 +2006,7 @@ class CampaignFactory:
             account_handles=account_handles,
             source_prompt=source_prompt,
             notes=notes,
+            storage_mode=storage_mode,
         )
 
     def list_campaigns(self) -> list[dict[str, Any]]:

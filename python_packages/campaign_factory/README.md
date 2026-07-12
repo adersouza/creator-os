@@ -36,6 +36,12 @@ campaign-factory import-folder /path/to/higgsfield/videos \
   --model-name "Model A" \
   --account ig_account_1
 
+# Large operator-owned libraries can stay in place instead of being duplicated.
+campaign-factory import-folder /path/to/library \
+  --campaign stacey_learning_cohort_v1 \
+  --model stacey \
+  --storage-mode reference
+
 campaign-factory prepare-reel --campaign may_launch \
   --hooks hooks.json \
   --recipes v01_original v05_hflip
@@ -73,6 +79,11 @@ campaign-factory readiness-report --campaign-id may_launch --days 7
 campaign-factory export-threadsdash --campaign may_launch --user-id <supabaseUserId> --dry-run
 campaign-factory export-readiness --campaign may_launch --user-id <supabaseUserId>
 ```
+
+`--storage-mode reference` still hashes and deduplicates every file and records
+its absolute source path, but it does not copy the media into the campaign
+directory. Keep the source folder stable; selected renders and review evidence
+are materialized separately by the normal pipeline.
 
 `run-reel` renders only `prepared` or `failed` jobs by default. Use
 `--rerender-all` for an intentional full rerender.

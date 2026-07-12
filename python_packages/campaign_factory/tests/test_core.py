@@ -464,6 +464,56 @@ def test_import_folder_dedupes_by_hash_and_ignores_unsupported(tmp_path: Path):
         cf.close()
 
 
+def test_import_folder_reference_mode_catalogs_without_copying(tmp_path: Path):
+    folder = tmp_path / "external_library"
+    folder.mkdir()
+    source = folder / "stacey.mp4"
+    source.write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        result = cf.import_folder(
+            folder,
+            campaign_slug="stacey_library",
+            model_slug="stacey",
+            storage_mode="reference",
+        )
+
+        assert result["storageMode"] == "reference"
+        assert len(result["imported"]) == 1
+        imported = result["imported"][0]
+        assert imported["original_path"] == str(source.resolve())
+        assert imported["stored_path"] == str(source.resolve())
+        campaign_sources = (
+            tmp_path / "campaigns" / "stacey" / "stacey_library" / "00_sources"
+        )
+        assert list(campaign_sources.iterdir()) == []
+        job = cf.conn.execute(
+            "SELECT input_json FROM pipeline_jobs WHERE job_type = 'import_folder'"
+        ).fetchone()
+        assert json.loads(job["input_json"])["storageMode"] == "reference"
+    finally:
+        cf.close()
+
+
+def test_import_folder_rejects_unknown_storage_mode_before_mutation(tmp_path: Path):
+    folder = tmp_path / "external_library"
+    folder.mkdir()
+    (folder / "stacey.mp4").write_bytes(b"video")
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="storage_mode must be copy or reference"):
+            cf.import_folder(
+                folder,
+                campaign_slug="stacey_library",
+                model_slug="stacey",
+                storage_mode="symlink",
+            )
+        assert cf.conn.execute("SELECT COUNT(*) FROM campaigns").fetchone()[0] == 0
+        assert cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0] == 0
+    finally:
+        cf.close()
+
+
 def test_import_folder_allows_same_source_in_different_campaigns(tmp_path: Path):
     folder = tmp_path / "inputs"
     folder.mkdir()

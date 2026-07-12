@@ -171,6 +171,12 @@ def main() -> int:
     imp.add_argument("--account", action="append", default=[])
     imp.add_argument("--source-prompt")
     imp.add_argument("--notes")
+    imp.add_argument(
+        "--storage-mode",
+        choices=["copy", "reference"],
+        default="copy",
+        help="copy media into the campaign or catalog the original paths in place",
+    )
 
     prep = sub.add_parser("prepare-reel")
     prep.add_argument("--campaign", required=True)
@@ -2477,6 +2483,7 @@ def main() -> int:
                     account_handles=args.account,
                     source_prompt=args.source_prompt,
                     notes=args.notes,
+                    storage_mode=args.storage_mode,
                 )
             )
         elif args.cmd == "prepare-reel":

@@ -221,10 +221,14 @@ class AssetImportRepository:
         account_handles: list[str] | None = None,
         source_prompt: str | None = None,
         notes: str | None = None,
+        storage_mode: str = "copy",
     ) -> dict[str, Any]:
         folder = Path(folder).expanduser().resolve()
         if not folder.exists() or not folder.is_dir():
             raise FileNotFoundError(f"input folder not found: {folder}")
+        normalized_storage_mode = str(storage_mode).strip().lower()
+        if normalized_storage_mode not in {"copy", "reference"}:
+            raise ValueError("storage_mode must be copy or reference")
         review_packages = self._enforce_reel_review_batch_package(folder)
         model = self._upsert_model(model_slug, model_name)
         campaign = self._upsert_campaign(
@@ -241,6 +245,7 @@ class AssetImportRepository:
                 "accounts": account_handles or [],
                 "source_prompt": source_prompt,
                 "notes": notes,
+                "storageMode": normalized_storage_mode,
             },
         )
         self._start_pipeline_job(pipeline_job["id"])
@@ -284,8 +289,11 @@ class AssetImportRepository:
                 dest_name = (
                     f"{self._slugify(src.stem)}_{digest[:10]}{src.suffix.lower()}"
                 )
-                dest = dirs["sources"] / dest_name
-                shutil.copy2(src, dest)
+                if normalized_storage_mode == "reference":
+                    dest = src
+                else:
+                    dest = dirs["sources"] / dest_name
+                    shutil.copy2(src, dest)
                 now = self._utc_now()
                 source_id = self._new_id("src")
                 self.conn.execute(
@@ -326,6 +334,7 @@ class AssetImportRepository:
                         "contentHash": digest,
                         "filename": dest.name,
                         "mediaType": media_type,
+                        "storageMode": normalized_storage_mode,
                     },
                 )
                 self._ensure_graph_edge(
@@ -355,6 +364,7 @@ class AssetImportRepository:
                         "storedPath": str(dest),
                         "contentHash": digest,
                         "mediaType": media_type,
+                        "storageMode": normalized_storage_mode,
                     },
                     commit=False,
                 )
@@ -375,6 +385,7 @@ class AssetImportRepository:
                 "renderedCount": len(rendered),
                 "campaign": campaign,
                 "model": model,
+                "storageMode": normalized_storage_mode,
             }
             self._record_event(
                 "source_imported",
@@ -389,6 +400,7 @@ class AssetImportRepository:
                     "duplicateCount": len(duplicates),
                     "ignoredCount": len(ignored),
                     "renderedCount": len(rendered),
+                    "storageMode": normalized_storage_mode,
                 },
                 commit=False,
             )
@@ -400,6 +412,7 @@ class AssetImportRepository:
                     "duplicateCount": len(duplicates),
                     "ignoredCount": len(ignored),
                     "renderedCount": len(rendered),
+                    "storageMode": normalized_storage_mode,
                 },
             )
             result["pipelineJobId"] = pipeline_job["id"]
