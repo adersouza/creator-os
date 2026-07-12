@@ -380,6 +380,10 @@ def build_draft_payloads(
             if normalized_schedule_mode == "draft":
                 draft.pop("scheduledFor", None)
                 draft.pop("previewScheduleOnly", None)
+            if review_only:
+                review_manifest = _review_only_handoff_manifest(draft)
+                draft["handoffManifest"] = review_manifest
+                draft["publishability"]["handoff_manifest"] = review_manifest
             draft["metadata"] = _draft_metadata(draft)
             drafts.append(draft)
     return {
@@ -478,7 +482,7 @@ def _campaign_factory_manifest_blockers(
                 f"{rendered_asset_id}:asset_state:{asset_state or 'missing'}"
             )
         failures = meta.get("publishability_failure_reasons") or []
-        if failures and not _draft_notify_audio_deferred(draft):
+        if failures and not review_only and not _draft_notify_audio_deferred(draft):
             blockers.extend(
                 f"{rendered_asset_id}:publishability:{reason}" for reason in failures
             )
@@ -602,6 +606,55 @@ def _campaign_factory_manifest_blockers(
                 _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)
             )
     return sorted(set(blockers))
+
+
+def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
+    """Build an integrity manifest that cannot authorize scheduling or publishing."""
+    _, ig_media_type = _draft_media_types(draft)
+    content_surface = normalize_content_surface(
+        draft.get("contentSurface") or draft.get("content_surface")
+    )
+    media_items = []
+    for index, item in enumerate(draft.get("media") or []):
+        media = item if isinstance(item, dict) else {}
+        media_items.append(
+            {
+                "componentIndex": index,
+                "type": media.get("type") or "video",
+                "url": media.get("url"),
+                "fileName": media.get("fileName"),
+                "size": media.get("size"),
+            }
+        )
+    return {
+        "manifest_version": 2,
+        "asset_id": draft.get("renderedAssetId"),
+        "rendered_asset_id": draft.get("renderedAssetId"),
+        "source_asset_id": draft.get("sourceAssetId"),
+        "content_fingerprint": draft.get("contentHash"),
+        "content_hash": draft.get("contentHash"),
+        "caption_hash": draft.get("captionHash"),
+        "captionOutcomeContext": draft.get("captionOutcomeContext") or {},
+        "instagram_post_caption": draft.get("instagramPostCaption") or "",
+        "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
+        "burned_caption_text": draft.get("burnedCaptionText"),
+        "burned_caption_hash": draft.get("burnedCaptionHash")
+        or draft.get("captionHash"),
+        "contentSurface": content_surface,
+        "igMediaType": ig_media_type,
+        "mediaItems": media_items,
+        "distribution_plan_id": draft.get("distributionPlanId"),
+        "instagram_trial_reels": bool(draft.get("instagramTrialReels")),
+        "trial_graduation_strategy": draft.get("trialGraduationStrategy"),
+        "trial_group_id": draft.get("trialGroupId"),
+        "handoffMode": "review_only",
+        "approvalRequired": True,
+        "approved": False,
+        "scheduleSafe": False,
+        "allowPublish": False,
+        "exported_by_system": "campaign_factory",
+        "exported_at": utc_now(),
+    }
 
 
 def _draft_payload_contract_blockers(payload: dict[str, Any]) -> list[str]:
