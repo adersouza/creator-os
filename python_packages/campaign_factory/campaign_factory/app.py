@@ -1107,6 +1107,7 @@ def export_readiness(body: dict[str, Any] = Body(...)):
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
             language=body.get("language"),
+            review_only=bool(body.get("reviewOnly")),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1142,6 +1143,7 @@ def export_td(body: dict[str, Any] = Body(...)):
             or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL"),
             threadsdash_ingest_secret=body.get("threadsdashIngestSecret")
             or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
+            review_only=bool(body.get("reviewOnly")),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

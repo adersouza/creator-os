@@ -525,6 +525,11 @@ def main() -> int:
     )
     export.add_argument("--enable-variation", action="store_true")
     export.add_argument("--variation-preset", default="ig_subtle")
+    export.add_argument(
+        "--review-only",
+        action="store_true",
+        help="Export review_ready assets as unapproved, unscheduled review drafts",
+    )
 
     preflight = sub.add_parser("supabase-preflight")
     preflight.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
@@ -2844,6 +2849,7 @@ def main() -> int:
                     enable_variation=args.enable_variation,
                     variation_preset=args.variation_preset,
                     publish_mode=args.publish_mode,
+                    review_only=args.review_only,
                 )
             )
         elif args.cmd == "supabase-preflight":

@@ -1492,7 +1492,14 @@ export const generatedPipelineContractSchemas = {
 	                    "$ref": "caption_outcome_context.v1.schema.json"
 	                  },
 	                  "generated_asset_lineage": {
-	                    "$ref": "generated_asset_lineage.v2.schema.json"
+	                    "oneOf": [
+	                      {
+	                        "$ref": "generated_asset_lineage.v2.schema.json"
+	                      },
+	                      {
+	                        "$ref": "owned_library_lineage.v1.schema.json"
+	                      }
+	                    ]
 	                  },
 	                  "learning_cohort": {
 	                    "$ref": "learning_cohort.v1.schema.json"
@@ -2633,6 +2640,72 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	ownedLibraryLineage: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "campaign_factory.owned_library_lineage.v1",
+	  "title": "Operator-owned library lineage",
+	  "type": "object",
+	  "additionalProperties": true,
+	  "required": [
+	    "schema",
+	    "sourceAssetId",
+	    "renderedAssetId",
+	    "contentFingerprint",
+	    "ownerAttestation",
+	    "learningEligible",
+	    "ineligibilityReasons"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.owned_library_lineage.v1"
+	    },
+	    "sourceAssetId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "renderedAssetId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "contentFingerprint": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "ownerAttestation": {
+	      "type": "object",
+	      "required": [
+	        "method",
+	        "scope",
+	        "contentSha256"
+	      ],
+	      "properties": {
+	        "method": {
+	          "const": "local_hash_verified"
+	        },
+	        "scope": {
+	          "const": "operator_owned_library"
+	        },
+	        "contentSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
+	    "learningEligible": {
+	      "const": false
+	    },
+	    "ineligibilityReasons": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "enum": [
+	          "missing_prompt_id",
+	          "missing_reference_id"
+	        ]
+	      }
+	    }
+	  }
+	} as const,
 	patternCard: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reference_factory.pattern_card.v1",
@@ -3607,6 +3680,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
 	{ key: "learningCohort", filename: "learning_cohort.v1.schema.json", id: "campaign_factory.learning_cohort.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },
+	{ key: "ownedLibraryLineage", filename: "owned_library_lineage.v1.schema.json", id: "campaign_factory.owned_library_lineage.v1" },
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },
 	{ key: "performanceSync", filename: "performance_sync.v1.schema.json", id: "campaign_factory.performance_sync.v1" },
 	{ key: "postMetricHistoryRead", filename: "post_metric_history.read.v1.schema.json", id: "threadsdashboard.post_metric_history.read.v1" },

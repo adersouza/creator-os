@@ -346,7 +346,10 @@
                     "$ref": "caption_outcome_context.v1.schema.json"
                   },
                   "generated_asset_lineage": {
-                    "$ref": "generated_asset_lineage.v2.schema.json"
+                    "oneOf": [
+                      { "$ref": "generated_asset_lineage.v2.schema.json" },
+                      { "$ref": "owned_library_lineage.v1.schema.json" }
+                    ]
                   },
                   "learning_cohort": {
                     "$ref": "learning_cohort.v1.schema.json"

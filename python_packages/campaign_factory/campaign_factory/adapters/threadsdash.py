@@ -190,10 +190,17 @@ def build_draft_payloads(
                 platform="instagram",
                 distribution_surface=distribution_surface,
             )
-            generated_asset_lineage = finalize_lineage_v2(
-                asset.get("generatedAssetLineage") or {},
-                audio_intent=audio_intent,
-                variant_assignment=variation_assignment,
+            source_lineage = asset.get("generatedAssetLineage") or {}
+            generated_asset_lineage = (
+                dict(source_lineage)
+                if review_only
+                and source_lineage.get("schema")
+                == "campaign_factory.owned_library_lineage.v1"
+                else finalize_lineage_v2(
+                    source_lineage,
+                    audio_intent=audio_intent,
+                    variant_assignment=variation_assignment,
+                )
             )
             learning_cohort = _learning_cohort_metadata(asset)
             publishability = factory.explain_publishability(

@@ -1358,6 +1358,12 @@ export function validateCampaignFactoryDraftPayload(
 			draft.handoffMode || campaignFactory.handoffMode || value.handoffMode || "publishable_draft",
 		).trim().toLowerCase();
 		const reviewOnly = handoffMode === "review_only";
+		const lineage = isRecord(campaignFactory.generated_asset_lineage)
+			? campaignFactory.generated_asset_lineage
+			: null;
+		if (!reviewOnly && lineage?.schema === "campaign_factory.owned_library_lineage.v1") {
+			errors.push(`drafts[${index}].metadata.campaign_factory.owned library lineage is review_only`);
+		}
 		if (options.strictGraphIds && campaignFactory.legacy_compat !== true) {
 			for (const field of STRICT_GRAPH_FIELDS) {
 				if (typeof campaignFactory[field] !== "string" || !campaignFactory[field]) {
