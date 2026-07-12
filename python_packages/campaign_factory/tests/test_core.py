@@ -279,6 +279,22 @@ def test_daily_library_apply_stops_at_review_ready(
         assert {row["generation_state"] for row in states} == {"review_ready"}
         assert {row["approval_state"] for row in states} == {"pending"}
         assert {row["schedule_state"] for row in states} == {"blocked_pending_approval"}
+        rendered_metadata = [
+            json.loads(row["metadata_json"])
+            for row in cf.conn.execute(
+                "SELECT metadata_json FROM rendered_assets ORDER BY id"
+            ).fetchall()
+        ]
+        assert {item["identityVerificationStatus"] for item in rendered_metadata} == {
+            "passed"
+        }
+        assert {item["visualQcStatus"] for item in rendered_metadata} == {"passed"}
+        assert all(
+            item["identityVerification"]["sourceAssetId"] for item in rendered_metadata
+        )
+        assert all(
+            item["visualQc"]["source"] == "contentforge" for item in rendered_metadata
+        )
     finally:
         cf.close()
 
