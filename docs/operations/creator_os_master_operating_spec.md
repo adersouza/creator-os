@@ -209,6 +209,27 @@ Creator OS must become a usable headless production system that:
    present exactly once, and that ranking itself cannot authorize spending or
    publishing.
 
+## Current Live Evidence Snapshot — 2026-07-12
+
+This table separates current runtime proof from code/test coverage. `PARTIAL`
+means the system must not claim the master goal is complete yet.
+
+| Requirement | Status | Current authoritative evidence | Remaining proof |
+| --- | --- | --- | --- |
+| Locked operating behavior | PROVEN | This specification records the operator's 101 answers and the active runtime implements the locked age, creative, approval, spend, and publishing boundaries | Reopen only when the operator changes a locked decision |
+| Free static fallback for an accepted Soul still | PROVEN | Apply-mode front-generation job `job_443a93c3f0a0` reused `asset_a1d5edab7bee` as the same 1080x1920 H.264 file (5.533s, 209,703 bytes) with its audio-intent sidecar and complete lineage; rendered/static/cost/reservation/receipt deltas were all zero | None for the accepted-still transition |
+| Persisted static fallback inventory | PROVEN | Two current Stacey static assets (`asset_a1d5edab7bee`, `asset_8e6348fd5fb0`) exist with distinct real Higgsfield provider job IDs, prompt/reference lineage, `paidGeneration=false`, `estimatedCostUsd=0`, locked/no-audio renders, and `review_ready` state | Continue enforcing the same invariant for every future accepted still |
+| Automatic original plus sexy pair materialization | PARTIAL | The active front-generation code and regression suite create a static fallback for every QC-passing downloaded original/sexy candidate before review and preserve an earlier fallback if a later candidate fails | One explicitly approved live paid Soul pair must prove both candidates and both static fallbacks were created by the same invocation; do not spend merely to satisfy this row |
+| Best-only Kling boundary | PROVEN | The live apply proof projected 0 credits, kept `publishingAllowed=false`, left `registeredAsset=null`, created no selection receipt, and blocked Kling because no approved multi-candidate rank-one receipt existed | None for fail-closed behavior |
+| Paid Kling generation | PENDING | No new paid Kling request was made; current receipt count remains zero | Requires a fresh explicit operator go, a bounded live quote/reservation, one downloaded winner, QC, cost evidence, and retained static fallback |
+| Signed review-only draft handoff | PROVEN | Day-2 Trial draft `a13b001d-97d6-49de-9c2b-71103a377b23` and regular draft `4ef9bd38-7a85-4283-be52-7205faa48b8f` were inserted exactly once for `bennett_s33`, with no schedule or QStash publish dispatch | Operator review remains separate from draft creation |
+| Notify Publish and post reconciliation | PROVEN | Trial post `3a69a80f-dda1-4a04-95d6-f60271d4e2aa` reconciles exactly once to Instagram media `18094620473086400` and permalink `https://www.instagram.com/reel/DaqdKAqxUW3/`; read-only closed-loop proof passes against `bennett_s33` | Preserve the same invariant for future posts |
+| Metrics learning loop | PARTIAL | One eligible post and one real 1h history row are reconciled; the current snapshot is 2 views and 1 reach | Real 24h and 72h rows must arrive and fan out through Campaign Factory and reference/reel learning before closure |
+
+No paid credits or publishing authority were granted by the static-fallback
+proof. The 24h/72h metric windows and the optional explicitly approved paid
+Kling smoke remain independent gates.
+
 ## Required Completion Evidence
 
 | Requirement | Authoritative proof |
