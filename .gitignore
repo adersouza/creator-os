@@ -67,3 +67,5 @@ graphify-out/
 /style_*_template.json
 .codex/
 /artifacts/
+python_packages/campaign_factory/CLOSED_LOOP_PROOF.json
+python_packages/campaign_factory/CLOSED_LOOP_PROOF.json.lock
