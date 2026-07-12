@@ -2721,6 +2721,31 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert review_metadata["scheduleSafe"] is False
         assert review_metadata["allowPublish"] is False
         assert review_metadata["approvalRequired"] is True
+        review_handoff = review_draft["handoffManifest"]
+        assert review_handoff["manifest_version"] == 2
+        assert review_handoff["asset_id"] == rendered["id"]
+        assert review_handoff["content_fingerprint"] == review_draft["contentHash"]
+        assert review_handoff["handoffMode"] == "review_only"
+        assert review_handoff["approvalRequired"] is True
+        assert review_handoff["approved"] is False
+        assert review_handoff["scheduleSafe"] is False
+        assert review_handoff["allowPublish"] is False
+        assert review_metadata["handoff_manifest"] == review_handoff
+        assert (
+            threadsdash_adapter._campaign_factory_manifest_blockers(review_payload)
+            == []
+        )
+        review_draft["media"][0]["url"] = "https://media.example/review.mp4"
+        threadsdash_adapter._hydrate_surface_media_items_for_uploaded_media(
+            review_draft,
+            {"publicUrl": "https://media.example/review.mp4"},
+        )
+        assert (
+            threadsdash_adapter._campaign_factory_manifest_blockers(
+                review_payload, require_remote_media_urls=True
+            )
+            == []
+        )
         cf.review_rendered_asset(
             rendered["id"], decision="approved", notes="certification smoke"
         )
