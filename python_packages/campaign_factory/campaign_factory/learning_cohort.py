@@ -59,6 +59,7 @@ def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
           source_family TEXT,
           perceptual_cluster TEXT,
           content_fingerprint TEXT,
+          source_asset_id TEXT,
           provider_reservation_id TEXT,
           draft_id TEXT,
           post_id TEXT,
@@ -87,6 +88,7 @@ def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
     }
     added_column = False
     for name, definition in {
+        "source_asset_id": "TEXT",
         "rendered_asset_id": "TEXT",
         "artifact_path": "TEXT",
         "lineage_path": "TEXT",
@@ -99,6 +101,11 @@ def ensure_learning_cohort_tables(conn: sqlite3.Connection) -> None:
             added_column = True
     if added_column:
         conn.commit()
+    conn.execute(
+        """CREATE INDEX IF NOT EXISTS idx_learning_cohort_assignment_source
+        ON learning_cohort_assignments(cohort_id, source_asset_id)"""
+    )
+    conn.commit()
 
 
 def prepare_learning_cohort(

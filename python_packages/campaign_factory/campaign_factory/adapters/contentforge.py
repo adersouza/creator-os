@@ -24,6 +24,15 @@ DEFAULT_LAYERS = [
 DEFAULT_AUDIT_PROFILE = "campaign_factory_v1"
 
 
+def _normalized_ids(values: list[str], name: str) -> list[str]:
+    normalized = [str(value).strip() for value in values]
+    if not normalized or any(not value for value in normalized):
+        raise ValueError(f"{name} must contain at least one non-empty id")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{name} must not contain duplicate ids")
+    return normalized
+
+
 def audit_campaign(
     factory: CampaignFactory,
     *,
@@ -31,6 +40,7 @@ def audit_campaign(
     min_score: int = 85,
     contentforge_base_url: str | None = None,
     layers: list[str] | None = None,
+    rendered_asset_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     campaign = factory.campaign_by_slug(campaign_slug)
     pipeline_job = factory.create_pipeline_job(
@@ -42,6 +52,7 @@ def audit_campaign(
             "contentforgeBaseUrl": contentforge_base_url
             or factory.settings.contentforge_base_url,
             "layers": layers or DEFAULT_LAYERS,
+            "renderedAssetIds": rendered_asset_ids or [],
         },
     )
     factory.start_pipeline_job(pipeline_job["id"])
@@ -49,6 +60,15 @@ def audit_campaign(
     dirs = factory.campaign_dirs(model_slug, campaign["slug"])
     try:
         rendered = factory.rendered_for_campaign(campaign["id"])
+        if rendered_asset_ids is not None:
+            requested = _normalized_ids(rendered_asset_ids, "rendered_asset_ids")
+            by_id = {str(asset["id"]): asset for asset in rendered}
+            missing = [asset_id for asset_id in requested if asset_id not in by_id]
+            if missing:
+                raise ValueError(
+                    "rendered assets not found in campaign: " + ", ".join(missing)
+                )
+            rendered = [by_id[asset_id] for asset_id in requested]
         reference_pattern = factory.active_reference_pattern_for_campaign(
             campaign["id"]
         )

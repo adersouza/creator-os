@@ -21,6 +21,7 @@ from urllib.error import HTTPError, URLError
 import campaign_factory.app as app_module
 import campaign_factory.asset_import as asset_import_module
 import campaign_factory.core as core_module
+import campaign_factory.daily_library_production as daily_library_module
 import campaign_factory.variant_lineage as variant_lineage_module
 import pytest
 from campaign_factory.adapters import contentforge as contentforge_adapter
@@ -68,6 +69,7 @@ from campaign_factory.contracts import (
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
+from campaign_factory.daily_library_production import run_daily_library_production
 from campaign_factory.db import _repair_source_asset_fk_references
 from campaign_factory.distribution import _normalize_schedule_mode
 from campaign_factory.front_generation_stage import (
@@ -78,6 +80,7 @@ from campaign_factory.kling_selection_stage import (
     run_kling_selection_stage,
     validate_kling_selection_receipt,
 )
+from campaign_factory.learning_cohort import prepare_learning_cohort
 from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
 from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
@@ -113,6 +116,176 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
             threadsdash_root=tmp_path / "ThreadsDashboard",
             campaigns_dir=tmp_path / "campaigns",
         )
+    )
+
+
+def test_daily_library_plan_is_deterministic_and_zero_cost(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    folder = tmp_path / "library"
+    folder.mkdir()
+    (folder / "one.mp4").write_bytes(b"one")
+    (folder / "two.mp4").write_bytes(b"two")
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-07-12")
+        cf.import_folder(
+            folder,
+            campaign_slug="stacey_learning_cohort_v1",
+            model_slug="stacey",
+            storage_mode="reference",
+        )
+        first = run_daily_library_production(cf, day_index=1, library_root=folder)
+        second = run_daily_library_production(cf, day_index=1, library_root=folder)
+        assert first["status"] == "planned"
+        assert first["selections"] == second["selections"]
+        assert len(first["selections"]) == 2
+        assert len({item["sourceAssetId"] for item in first["selections"]}) == 2
+        assert first["controls"] == {
+            "providerCalls": 0,
+            "creditsSpent": 0,
+            "paidGenerationAllowed": False,
+            "approvalActionsTaken": 0,
+            "draftActionsTaken": 0,
+            "scheduleActionsTaken": 0,
+            "publishActionsTaken": 0,
+            "humanApprovalRequired": True,
+        }
+        persisted = cf.conn.execute(
+            """SELECT COUNT(*) AS count FROM learning_cohort_assignments
+            WHERE source_asset_id IS NOT NULL"""
+        ).fetchone()
+        assert persisted["count"] == 0
+    finally:
+        cf.close()
+
+
+def test_daily_library_apply_stops_at_review_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    folder = tmp_path / "library"
+    folder.mkdir()
+    (folder / "one.mp4").write_bytes(b"one")
+    (folder / "two.mp4").write_bytes(b"two")
+
+    def fake_run_reel_factory(**kwargs):
+        runs = []
+        for job_id in kwargs["render_job_ids"]:
+            cf.conn.execute(
+                "UPDATE render_jobs SET status = 'rendered' WHERE id = ?", (job_id,)
+            )
+            runs.append({"renderJobId": job_id, "returncode": 0})
+        cf.conn.commit()
+        assert kwargs.get("caption_mix") is None
+        assert kwargs["creator_style_preset"] == "stacey_static_center"
+        return {"returncode": 0, "runs": runs}
+
+    def fake_sync_reel_outputs(**kwargs):
+        campaign = cf.campaign_by_slug(kwargs["campaign_slug"])
+        synced = []
+        for index, job_id in enumerate(kwargs["render_job_ids"]):
+            job = cf.conn.execute(
+                "SELECT * FROM render_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            asset_id = f"daily_asset_{index}"
+            output = tmp_path / f"daily_{index}.mp4"
+            output.write_bytes(b"rendered")
+            cf.conn.execute(
+                """INSERT INTO rendered_assets
+                (id, campaign_id, source_asset_id, render_job_id, content_hash,
+                 output_path, campaign_path, filename, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'now', 'now')""",
+                (
+                    asset_id,
+                    campaign["id"],
+                    job["source_asset_id"],
+                    job_id,
+                    f"daily_hash_{index}",
+                    str(output),
+                    str(output),
+                    output.name,
+                ),
+            )
+            synced.append({"id": asset_id})
+        cf.conn.commit()
+        return {"synced": synced}
+
+    def fake_audit(_factory, **kwargs):
+        return {
+            "reports": [
+                {
+                    "renderedAssetId": asset_id,
+                    "status": "approved_candidate",
+                    "overallVerdict": "pass",
+                    "failedChecks": [],
+                    "warnings": [],
+                    "error": None,
+                    "readinessSummary": {
+                        "uploadReady": True,
+                        "blockingReasons": [],
+                        "blockingCodes": [],
+                    },
+                }
+                for asset_id in kwargs["rendered_asset_ids"]
+            ]
+        }
+
+    monkeypatch.setattr(
+        daily_library_module,
+        "_daily_hooks",
+        lambda *_args, **_kwargs: [{"text": "pick one"}, {"text": "be honest"}],
+    )
+    monkeypatch.setattr(cf, "run_reel_factory", fake_run_reel_factory)
+    monkeypatch.setattr(cf, "sync_reel_outputs", fake_sync_reel_outputs)
+    monkeypatch.setattr(daily_library_module, "audit_campaign", fake_audit)
+    try:
+        prepare_learning_cohort(cf.conn, start_date="2026-07-12")
+        cf.import_folder(
+            folder,
+            campaign_slug="stacey_learning_cohort_v1",
+            model_slug="stacey",
+            storage_mode="reference",
+        )
+        result = run_daily_library_production(
+            cf, day_index=1, library_root=folder, apply=True
+        )
+        assert result["status"] == "review_ready"
+        assert len(result["reviewReady"]) == 2
+        assert result["controls"]["approvalActionsTaken"] == 0
+        assert result["controls"]["draftActionsTaken"] == 0
+        states = cf.conn.execute(
+            """SELECT generation_state, approval_state, schedule_state
+            FROM learning_cohort_assignments WHERE day_index = 1"""
+        ).fetchall()
+        assert {row["generation_state"] for row in states} == {"review_ready"}
+        assert {row["approval_state"] for row in states} == {"pending"}
+        assert {row["schedule_state"] for row in states} == {"blocked_pending_approval"}
+    finally:
+        cf.close()
+
+
+def test_daily_library_warning_only_upload_ready_is_review_ready():
+    assert daily_library_module._audit_is_review_ready(
+        {
+            "status": "needs_review",
+            "overallVerdict": "warn",
+            "failedChecks": [],
+            "warnings": ["audio_review"],
+            "error": None,
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "blockingCodes": [],
+            },
+        }
+    )
+    assert not daily_library_module._audit_is_review_ready(
+        {
+            "status": "needs_review",
+            "overallVerdict": "fail",
+            "failedChecks": ["caption_text_too_small"],
+            "error": None,
+            "readinessSummary": {"uploadReady": False},
+        }
     )
 
 
@@ -642,6 +815,34 @@ def test_prepare_reel_rotates_hook_order_across_sources(tmp_path: Path):
         )
         assert first["hooks"] == ["hook one", "hook two", "hook three"]
         assert second["hooks"] == ["hook two", "hook three", "hook one"]
+    finally:
+        cf.close()
+
+
+def test_prepare_reel_can_target_explicit_source_assets(tmp_path: Path):
+    folder = tmp_path / "inputs"
+    folder.mkdir()
+    (folder / "a.mp4").write_bytes(b"video a")
+    (folder / "b.mp4").write_bytes(b"video b")
+    cf = make_factory(tmp_path)
+    try:
+        cf.import_folder(folder, campaign_slug="may", model_slug="model")
+        sources = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])
+        selected = sources[1]
+        result = cf.prepare_reel_inputs(
+            campaign_slug="may",
+            hooks=["hook"],
+            source_asset_ids=[selected["id"]],
+        )
+        assert [job["source_asset_id"] for job in result["prepared"]] == [
+            selected["id"]
+        ]
+        with pytest.raises(ValueError, match="video source assets not found"):
+            cf.prepare_reel_inputs(
+                campaign_slug="may",
+                hooks=["hook"],
+                source_asset_ids=["missing_source"],
+            )
     finally:
         cf.close()
 
@@ -3626,6 +3827,49 @@ def test_run_reel_factory_can_cap_outputs_per_clip(tmp_path: Path, monkeypatch):
         assert result["returncode"] == 0
         assert "--per-clip" in calls[0]
         assert calls[0][calls[0].index("--per-clip") + 1] == "4"
+    finally:
+        cf.close()
+
+
+def test_run_reel_factory_can_target_explicit_render_jobs(tmp_path: Path, monkeypatch):
+    folder = tmp_path / "inputs"
+    folder.mkdir()
+    (folder / "a.mp4").write_bytes(b"video a")
+    (folder / "b.mp4").write_bytes(b"video b")
+    cf = make_factory(tmp_path)
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("campaign_factory.core.subprocess.run", fake_run)
+    try:
+        cf.import_folder(folder, campaign_slug="may", model_slug="model")
+        jobs = cf.prepare_reel_inputs(campaign_slug="may", hooks=["hook"])["prepared"]
+        selected = jobs[1]
+        result = cf.run_reel_factory(
+            campaign_slug="may",
+            render_job_ids=[selected["id"]],
+            caption_mix="Stacey",
+            creator_style_preset="stacey_static_center",
+        )
+        assert result["returncode"] == 0
+        assert [run["renderJobId"] for run in result["runs"]] == [selected["id"]]
+        assert len(calls) == 1
+        assert calls[0][calls[0].index("--caption-mix") + 1] == "Stacey"
+        assert (
+            calls[0][calls[0].index("--creator-style-preset") + 1]
+            == "stacey_static_center"
+        )
+        untouched = cf.conn.execute(
+            "SELECT status FROM render_jobs WHERE id = ?", (jobs[0]["id"],)
+        ).fetchone()
+        assert untouched["status"] == "prepared"
+        with pytest.raises(ValueError, match="render jobs not found"):
+            cf.run_reel_factory(
+                campaign_slug="may", render_job_ids=["missing_render_job"]
+            )
     finally:
         cf.close()
 
@@ -7367,6 +7611,70 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
         ).fetchone()
         assert row["overall_verdict"] == "pass"
         assert json.loads(row["verdicts_json"]) == {"pdq": "pass"}
+    finally:
+        cf.close()
+
+
+def test_contentforge_audit_can_target_explicit_rendered_assets(
+    tmp_path: Path, monkeypatch
+):
+    cf = make_factory(tmp_path)
+
+    def fake_similarity(*_args, **_kwargs):
+        return {
+            "layers": {"pdq": {}},
+            "verdicts": {"pdq": "pass"},
+            "overallVerdict": "pass",
+            "readinessSummary": {
+                "uploadReady": True,
+                "blockingReasons": [],
+                "warnings": [],
+                "blockingCodes": [],
+                "warningCodes": [],
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        original = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        original.update(
+            id="asset_2",
+            content_hash="hash_2",
+            filename="second.mp4",
+        )
+        columns = list(original)
+        cf.conn.execute(
+            f"INSERT INTO rendered_assets ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [original[column] for column in columns],
+        )
+        cf.conn.commit()
+
+        result = audit_campaign(
+            cf,
+            campaign_slug="may",
+            contentforge_base_url="http://contentforge.test",
+            rendered_asset_ids=["asset_2"],
+        )
+        assert [report["renderedAssetId"] for report in result["reports"]] == [
+            "asset_2"
+        ]
+        untouched = cf.conn.execute(
+            "SELECT COUNT(*) AS count FROM audit_reports WHERE rendered_asset_id = 'asset_1'"
+        ).fetchone()
+        assert untouched["count"] == 0
+        with pytest.raises(ValueError, match="rendered assets not found"):
+            audit_campaign(
+                cf,
+                campaign_slug="may",
+                rendered_asset_ids=["missing_asset"],
+            )
     finally:
         cf.close()
 

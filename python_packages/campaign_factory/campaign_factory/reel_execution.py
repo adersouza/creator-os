@@ -16,6 +16,15 @@ from .config import Settings
 from .persistence import json_load
 
 
+def _normalized_ids(values: list[str], name: str) -> list[str]:
+    normalized = [str(value).strip() for value in values]
+    if not normalized or any(not value for value in normalized):
+        raise ValueError(f"{name} must contain at least one non-empty id")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{name} must not contain duplicate ids")
+    return normalized
+
+
 class ReelExecutionRepository:
     def __init__(
         self,
@@ -79,6 +88,7 @@ class ReelExecutionRepository:
         caption_color: str | None = None,
         notes: str | None = None,
         force_new: bool = False,
+        source_asset_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         if not hooks:
             raise ValueError("at least one hook is required")
@@ -93,6 +103,7 @@ class ReelExecutionRepository:
                 "captionColor": caption_color or "auto",
                 "notes": notes,
                 "forceNew": force_new,
+                "sourceAssetIds": source_asset_ids or [],
             },
         )
         self._start_pipeline_job(pipeline_job["id"])
@@ -102,6 +113,18 @@ class ReelExecutionRepository:
                 for source in self._assets_for_campaign(campaign["id"])
                 if source.get("media_type") == "video"
             ]
+            if source_asset_ids is not None:
+                requested = _normalized_ids(source_asset_ids, "source_asset_ids")
+                by_id = {str(source["id"]): source for source in sources}
+                missing = [
+                    source_id for source_id in requested if source_id not in by_id
+                ]
+                if missing:
+                    raise ValueError(
+                        "video source assets not found in campaign: "
+                        + ", ".join(missing)
+                    )
+                sources = [by_id[source_id] for source_id in requested]
             if not sources:
                 raise ValueError(
                     "no video sources available for reel input preparation"
@@ -115,7 +138,8 @@ class ReelExecutionRepository:
             next_num = self.next_reel_clip_number(raw_dir)
             for source_index, source in enumerate(sources):
                 existing = self.conn.execute(
-                    "SELECT * FROM render_jobs WHERE source_asset_id = ?",
+                    """SELECT * FROM render_jobs WHERE source_asset_id = ?
+                    ORDER BY created_at DESC LIMIT 1""",
                     (source["id"],),
                 ).fetchone()
                 if existing and not force_new:
@@ -246,6 +270,7 @@ class ReelExecutionRepository:
                     "recipes": recipes or [],
                     "captionColor": caption_color or "auto",
                     "forceNew": force_new,
+                    "sourceAssetIds": source_asset_ids or [],
                 },
                 commit=False,
             )
@@ -321,6 +346,9 @@ class ReelExecutionRepository:
         phone_finalize: bool = True,
         rerender_all: bool = False,
         max_outputs_per_clip: int | None = None,
+        render_job_ids: list[str] | None = None,
+        caption_mix: str | None = None,
+        creator_style_preset: str | None = None,
     ) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
         pipeline_job = self._create_pipeline_job(
@@ -338,21 +366,44 @@ class ReelExecutionRepository:
                 "phoneFinalize": phone_finalize,
                 "rerenderAll": rerender_all,
                 "maxOutputsPerClip": max_outputs_per_clip,
+                "renderJobIds": render_job_ids or [],
+                "captionMix": caption_mix,
+                "creatorStylePreset": creator_style_preset,
             },
         )
         self._start_pipeline_job(pipeline_job["id"])
         started = time.time()
         try:
-            if rerender_all:
-                jobs = self.conn.execute(
-                    "SELECT * FROM render_jobs WHERE campaign_id = ? ORDER BY created_at",
-                    (campaign["id"],),
-                ).fetchall()
+            all_jobs = self.conn.execute(
+                "SELECT * FROM render_jobs WHERE campaign_id = ? ORDER BY created_at",
+                (campaign["id"],),
+            ).fetchall()
+            if render_job_ids is not None:
+                requested = _normalized_ids(render_job_ids, "render_job_ids")
+                by_id = {str(job["id"]): job for job in all_jobs}
+                missing = [job_id for job_id in requested if job_id not in by_id]
+                if missing:
+                    raise ValueError(
+                        "render jobs not found in campaign: " + ", ".join(missing)
+                    )
+                jobs = [by_id[job_id] for job_id in requested]
+                if not rerender_all:
+                    invalid = [
+                        str(job["id"])
+                        for job in jobs
+                        if job["status"] not in ("prepared", "failed")
+                    ]
+                    if invalid:
+                        raise ValueError(
+                            "render jobs are not runnable without rerender_all: "
+                            + ", ".join(invalid)
+                        )
+            elif rerender_all:
+                jobs = all_jobs
             else:
-                jobs = self.conn.execute(
-                    "SELECT * FROM render_jobs WHERE campaign_id = ? AND status IN ('prepared', 'failed') ORDER BY created_at",
-                    (campaign["id"],),
-                ).fetchall()
+                jobs = [
+                    job for job in all_jobs if job["status"] in ("prepared", "failed")
+                ]
             runs: list[dict[str, Any]] = []
             for job in jobs:
                 cmd = [
@@ -377,6 +428,10 @@ class ReelExecutionRepository:
                     cmd.extend(["--style", caption_style])
                 if caption_font:
                     cmd.extend(["--font", caption_font])
+                if caption_mix:
+                    cmd.extend(["--caption-mix", caption_mix])
+                if creator_style_preset:
+                    cmd.extend(["--creator-style-preset", creator_style_preset])
                 if caption_placement_qc:
                     cmd.append("--caption-placement-qc")
                 if max_outputs_per_clip is not None:
@@ -487,10 +542,14 @@ class ReelExecutionRepository:
             self._fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
 
-    def sync_reel_outputs(self, *, campaign_slug: str) -> dict[str, Any]:
+    def sync_reel_outputs(
+        self, *, campaign_slug: str, render_job_ids: list[str] | None = None
+    ) -> dict[str, Any]:
         campaign = self._campaign_by_slug(campaign_slug)
         pipeline_job = self._create_pipeline_job(
-            "sync_reel", campaign["id"], {"campaign": campaign_slug}
+            "sync_reel",
+            campaign["id"],
+            {"campaign": campaign_slug, "renderJobIds": render_job_ids or []},
         )
         self._start_pipeline_job(pipeline_job["id"])
         model_slug = self.model_slug_for_campaign(campaign["id"])
@@ -512,6 +571,15 @@ class ReelExecutionRepository:
             jobs = self.conn.execute(
                 "SELECT * FROM render_jobs WHERE campaign_id = ?", (campaign["id"],)
             ).fetchall()
+            if render_job_ids is not None:
+                requested = _normalized_ids(render_job_ids, "render_job_ids")
+                by_id = {str(job["id"]): job for job in jobs}
+                missing = [job_id for job_id in requested if job_id not in by_id]
+                if missing:
+                    raise ValueError(
+                        "render jobs not found in campaign: " + ", ".join(missing)
+                    )
+                jobs = [by_id[job_id] for job_id in requested]
             synced = []
             new_synced = 0
             for job in jobs:

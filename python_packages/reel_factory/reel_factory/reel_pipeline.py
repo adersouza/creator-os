@@ -1065,6 +1065,35 @@ def self_generated_source_lineage(source_video: Path) -> dict | None:
     return lineage
 
 
+def operator_owned_source_attestation(source_video: Path) -> dict | None:
+    sidecar = source_video.parent / f"{source_video.stem}.owned_source.json"
+    if not sidecar.exists():
+        return None
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("schema") != "reel_factory.operator_owned_source.v1":
+        return None
+    if not payload.get("sourceAssetId") or not payload.get("sourceContentHash"):
+        return None
+    original_path = Path(str(payload.get("originalPath") or ""))
+    library_root = Path(str(payload.get("libraryRoot") or ""))
+    try:
+        if not original_path.resolve(strict=True).is_relative_to(
+            library_root.resolve(strict=True)
+        ):
+            return None
+        expected_hash = str(payload["sourceContentHash"])
+        if sha256_file(source_video) != expected_hash:
+            return None
+        if sha256_file(original_path) != expected_hash:
+            return None
+    except OSError:
+        return None
+    return payload
+
+
 def write_required_similarity_audit(
     source_video: Path, clip_out: Path, audit_func=None
 ):
@@ -1076,11 +1105,30 @@ def write_required_similarity_audit(
     external content, not of our own assets. Similarity rows are still written
     for audit, downgraded to informational.
     """
-    if audit_func is None:
+    owned_source = operator_owned_source_attestation(source_video)
+    if owned_source:
+        rows = [
+            {
+                "schema": "reel_factory.sscd_similarity_row.v1",
+                "filename": output.name,
+                "recipe": None,
+                "mean_similarity": None,
+                "max_similarity": None,
+                "status": "info",
+                "verdict": "INFO (operator-owned source)",
+                "operatorOwnedSourceExempt": True,
+                "sourceAssetId": owned_source["sourceAssetId"],
+                "similarityAuditSkipped": True,
+            }
+            for output in sorted(clip_out.glob("*.mp4"))
+        ]
+    elif audit_func is None:
         from sscd_video import audit_video_dir
 
         audit_func = audit_video_dir
-    rows = audit_func(source_video, clip_out)
+        rows = audit_func(source_video, clip_out)
+    else:
+        rows = audit_func(source_video, clip_out)
     if self_generated_source_lineage(source_video):
         for row in rows:
             if row.get("status") == "fail" or str(row.get("verdict", "")).startswith(
