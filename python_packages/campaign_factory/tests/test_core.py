@@ -2725,12 +2725,18 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert review_handoff["manifest_version"] == 2
         assert review_handoff["asset_id"] == rendered["id"]
         assert review_handoff["content_fingerprint"] == review_draft["contentHash"]
+        assert review_handoff["render_file_id"]
+        assert review_handoff["visual_verification_id"]
+        assert review_handoff["caption_verification_id"]
+        assert review_handoff["audio_id"] == "pending_native_audio_review"
+        assert review_handoff["distribution_plan_id"] == "review_only_unassigned"
         assert review_handoff["handoffMode"] == "review_only"
         assert review_handoff["approvalRequired"] is True
         assert review_handoff["approved"] is False
         assert review_handoff["scheduleSafe"] is False
         assert review_handoff["allowPublish"] is False
         assert review_metadata["handoff_manifest"] == review_handoff
+        threadsdash_adapter.validate_threadsdash_draft_payload_strict(review_payload)
         assert (
             threadsdash_adapter._campaign_factory_manifest_blockers(review_payload)
             == []

@@ -611,6 +611,9 @@ def _campaign_factory_manifest_blockers(
 def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
     """Build an integrity manifest that cannot authorize scheduling or publishing."""
     _, ig_media_type = _draft_media_types(draft)
+    rendered_asset_id = str(draft.get("renderedAssetId") or "")
+    content_fingerprint = str(draft.get("contentHash") or "")
+    caption_hash = str(draft.get("captionHash") or _text_hash(""))
     content_surface = normalize_content_surface(
         draft.get("contentSurface") or draft.get("content_surface")
     )
@@ -628,13 +631,26 @@ def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "manifest_version": 2,
-        "asset_id": draft.get("renderedAssetId"),
-        "rendered_asset_id": draft.get("renderedAssetId"),
+        "asset_id": rendered_asset_id,
+        "rendered_asset_id": rendered_asset_id,
         "source_asset_id": draft.get("sourceAssetId"),
-        "content_fingerprint": draft.get("contentHash"),
-        "content_hash": draft.get("contentHash"),
-        "caption_hash": draft.get("captionHash"),
+        "render_file_id": _stable_export_key(
+            "render_file", rendered_asset_id, content_fingerprint
+        ),
+        "content_fingerprint": content_fingerprint,
+        "content_hash": content_fingerprint,
+        "caption_hash": caption_hash,
         "captionOutcomeContext": draft.get("captionOutcomeContext") or {},
+        "visual_verification_id": _stable_export_key(
+            "visual_verification", rendered_asset_id, content_fingerprint
+        ),
+        "caption_verification_id": _stable_export_key(
+            "caption_verification", rendered_asset_id, caption_hash
+        ),
+        # Native audio is deliberately selected later in ThreadsDashboard.
+        # The sentinel satisfies the shared integrity contract without claiming
+        # that an audio choice or proof exists.
+        "audio_id": "pending_native_audio_review",
         "instagram_post_caption": draft.get("instagramPostCaption") or "",
         "instagram_post_caption_hash": draft.get("instagramPostCaptionHash"),
         "burned_caption_text": draft.get("burnedCaptionText"),
@@ -643,7 +659,8 @@ def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
         "contentSurface": content_surface,
         "igMediaType": ig_media_type,
         "mediaItems": media_items,
-        "distribution_plan_id": draft.get("distributionPlanId"),
+        "distribution_plan_id": draft.get("distributionPlanId")
+        or "review_only_unassigned",
         "instagram_trial_reels": bool(draft.get("instagramTrialReels")),
         "trial_graduation_strategy": draft.get("trialGraduationStrategy"),
         "trial_group_id": draft.get("trialGroupId"),
