@@ -77,11 +77,25 @@ TARGET_DIMS = {
     "4:5": (1080, 1350),
 }
 
+# Keep short-form H.264 delivery files comfortably below the 50 MB upload
+# boundary used by the production media bucket. At 18 Mbps, a 15-second reel
+# is roughly 34 MB before container overhead. ProRes mezzanine outputs are not
+# delivery files and intentionally bypass this ceiling.
+MAX_SOCIAL_VIDEO_BITRATE_MBPS = 18
+
 
 def target_dimensions(target_ratio: str) -> tuple[int, int]:
     if target_ratio not in TARGET_DIMS:
         raise ValueError(f"unknown target ratio: {target_ratio}")
     return TARGET_DIMS[target_ratio]
+
+
+def target_social_bitrate_mbps(plan: RenderPlan) -> int:
+    """Return the bounded H.264 delivery bitrate for a render plan."""
+    target_mbps = plan.bitrate_mbps
+    if plan.src_bitrate_mbps and plan.src_bitrate_mbps > 0:
+        target_mbps = max(target_mbps, round(plan.src_bitrate_mbps * 1.05))
+    return min(target_mbps, MAX_SOCIAL_VIDEO_BITRATE_MBPS)
 
 
 def caption_overlay_enable(start: float, end: float | None) -> str:
@@ -225,6 +239,10 @@ def _encode_args(plan: RenderPlan, target_mbps: int) -> tuple[str, list[str]]:
             "high",
             "-level",
             "4.2",
+            "-maxrate",
+            f"{target_mbps + 2}M",
+            "-bufsize",
+            f"{target_mbps * 2}M",
             "-movflags",
             "+faststart",
         ]
@@ -272,10 +290,7 @@ def _encode_args(plan: RenderPlan, target_mbps: int) -> tuple[str, list[str]]:
 
 
 def build_ffmpeg_cmd(plan: RenderPlan, ffmpeg: str) -> list[str]:
-    if plan.src_bitrate_mbps and plan.src_bitrate_mbps > 0:
-        target_mbps = max(plan.bitrate_mbps, round(plan.src_bitrate_mbps * 1.05))
-    else:
-        target_mbps = plan.bitrate_mbps
+    target_mbps = target_social_bitrate_mbps(plan)
 
     vf = build_video_filter(plan)
     pix_fmt, encode_args = _encode_args(plan, target_mbps)

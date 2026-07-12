@@ -18,7 +18,12 @@ from caption_scene_fit import (
     classify_reel_scene_tags,
     infer_caption_topic_for_reel,
 )
-from graph_builder import build_ffmpeg_cmd, build_video_filter, caption_overlay_enable
+from graph_builder import (
+    build_ffmpeg_cmd,
+    build_video_filter,
+    caption_overlay_enable,
+    target_social_bitrate_mbps,
+)
 from placement_scorer import PlacementSummary, score_lanes
 from recipe_loader import load_recipes
 from reel_pipeline import (
@@ -1543,6 +1548,60 @@ class ReelPipelineTests(unittest.TestCase):
         cmd = build_ffmpeg_cmd(plan, "ffmpeg")
         self.assertEqual(cmd[-1], "tmp/out.mp4")
         self.assertIn("-filter_complex", cmd)
+
+    def test_social_delivery_bitrate_is_bounded_for_high_bitrate_sources(self):
+        plan = RenderPlan(
+            src=Path("in.mp4"),
+            caption_pngs=[],
+            recipe=Recipe("v01_original"),
+            out=Path("tmp/out.mp4"),
+            duration=15.0,
+            fonts_dir=Path("fonts"),
+            src_hash="abc",
+            src_dims=(1080, 1920),
+            bitrate_mbps=14,
+            src_bitrate_mbps=32,
+        )
+
+        self.assertEqual(target_social_bitrate_mbps(plan), 18)
+        cmd = build_ffmpeg_cmd(plan, "ffmpeg")
+        self.assertEqual(cmd[cmd.index("-b:v") + 1], "18M")
+        self.assertEqual(cmd[cmd.index("-maxrate") + 1], "20M")
+
+    def test_social_delivery_bitrate_preserves_lower_requested_rate(self):
+        plan = RenderPlan(
+            src=Path("in.mp4"),
+            caption_pngs=[],
+            recipe=Recipe("v01_original"),
+            out=Path("tmp/out.mp4"),
+            duration=15.0,
+            fonts_dir=Path("fonts"),
+            src_hash="abc",
+            src_dims=(1080, 1920),
+            bitrate_mbps=14,
+            src_bitrate_mbps=10,
+        )
+
+        self.assertEqual(target_social_bitrate_mbps(plan), 14)
+
+    def test_cpu_social_delivery_uses_the_same_bitrate_ceiling(self):
+        plan = RenderPlan(
+            src=Path("in.mp4"),
+            caption_pngs=[],
+            recipe=Recipe("v01_original"),
+            out=Path("tmp/out.mp4"),
+            duration=15.0,
+            fonts_dir=Path("fonts"),
+            src_hash="abc",
+            src_dims=(1080, 1920),
+            bitrate_mbps=14,
+            src_bitrate_mbps=32,
+            output_profile="cpu_h264_x264",
+        )
+
+        cmd = build_ffmpeg_cmd(plan, "ffmpeg")
+        self.assertEqual(cmd[cmd.index("-maxrate") + 1], "20M")
+        self.assertEqual(cmd[cmd.index("-bufsize") + 1], "36M")
 
     def test_camera_variation_seed_is_account_scoped(self):
         recipe = Recipe("v_seeded", camera_variation=True)
