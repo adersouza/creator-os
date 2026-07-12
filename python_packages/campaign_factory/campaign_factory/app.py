@@ -995,6 +995,7 @@ def prepare_reel(body: dict[str, Any] = Body(...)):
             caption_color=body.get("captionColor"),
             notes=body.get("notes"),
             force_new=bool(body.get("forceNew", False)),
+            source_asset_ids=body.get("sourceAssetIds") or None,
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1017,6 +1018,9 @@ def run_reel(body: dict[str, Any] = Body(...)):
             phone_finalize=bool(body.get("phoneFinalize", True)),
             rerender_all=bool(body.get("rerenderAll", False)),
             max_outputs_per_clip=body.get("maxOutputsPerClip"),
+            render_job_ids=body.get("renderJobIds") or None,
+            caption_mix=body.get("captionMix"),
+            creator_style_preset=body.get("creatorStylePreset"),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1028,7 +1032,10 @@ def run_reel(body: dict[str, Any] = Body(...)):
 def sync_reel(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.sync_reel_outputs(campaign_slug=body["campaign"])
+        return cf.sync_reel_outputs(
+            campaign_slug=body["campaign"],
+            render_job_ids=body.get("renderJobIds") or None,
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -1046,6 +1053,7 @@ def audit(body: dict[str, Any] = Body(...)):
             contentforge_base_url=body.get("contentforgeBaseUrl")
             or settings.contentforge_base_url,
             layers=body.get("layers") or None,
+            rendered_asset_ids=body.get("renderedAssetIds") or None,
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

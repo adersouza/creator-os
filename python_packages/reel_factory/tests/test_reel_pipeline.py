@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -1905,6 +1906,61 @@ class ReelPipelineTests(unittest.TestCase):
             self.assertTrue(rows[0]["selfSourceExempt"])
             written = json.loads((out_dir / "_similarity.json").read_text())
             self.assertEqual(written[0]["verdict"], "INFO (self-generated source)")
+
+    def test_required_similarity_audit_exempts_hash_verified_owned_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            library_root = root / "owned_library"
+            library_root.mkdir()
+            original = library_root / "owned.mp4"
+            original.write_bytes(b"operator owned source")
+            source = root / "clip_001.mp4"
+            source.write_bytes(original.read_bytes())
+            out_dir = root / "02_processed" / "clip_001"
+            out_dir.mkdir(parents=True)
+            (out_dir / "rendered.mp4").write_bytes(b"rendered")
+            sidecar = root / "clip_001.owned_source.json"
+            sidecar.write_text(
+                json.dumps(
+                    {
+                        "schema": "reel_factory.operator_owned_source.v1",
+                        "sourceAssetId": "source_1",
+                        "sourceContentHash": hashlib.sha256(
+                            source.read_bytes()
+                        ).hexdigest(),
+                        "originalPath": str(original),
+                        "libraryRoot": str(library_root),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            rows = write_required_similarity_audit(
+                source,
+                out_dir,
+                audit_func=lambda *_args: self.fail(
+                    "SSCD should not run for a verified operator-owned source"
+                ),
+            )
+            self.assertEqual(rows[0]["status"], "info")
+            self.assertTrue(rows[0]["operatorOwnedSourceExempt"])
+            self.assertTrue(rows[0]["similarityAuditSkipped"])
+
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+            payload["sourceContentHash"] = "wrong"
+            sidecar.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "SSCD copy gate failed"):
+                write_required_similarity_audit(
+                    source,
+                    out_dir,
+                    audit_func=lambda *_args: [
+                        {
+                            "filename": "rendered.mp4",
+                            "status": "fail",
+                            "verdict": "FAIL (copy detected)",
+                        }
+                    ],
+                )
 
     def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
         with tempfile.TemporaryDirectory() as tmp:

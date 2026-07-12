@@ -34,6 +34,7 @@ from .closed_loop_proof import (
 from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
+from .daily_library_production import run_daily_library_production
 from .front_generation_stage import run_front_generation_stage
 from .kling_selection_stage import run_kling_selection_stage
 from .learning_cohort import (
@@ -186,6 +187,7 @@ def main() -> int:
     prep.add_argument("--caption-color", default="auto")
     prep.add_argument("--notes")
     prep.add_argument("--force-new", action="store_true")
+    prep.add_argument("--source-asset-id", action="append", default=[])
 
     run = sub.add_parser("run-reel")
     run.add_argument("--campaign", required=True)
@@ -202,9 +204,25 @@ def main() -> int:
     run.add_argument("--no-phone-finalize", action="store_true")
     run.add_argument("--rerender-all", action="store_true")
     run.add_argument("--max-outputs-per-clip", type=int, default=None)
+    run.add_argument("--render-job-id", action="append", default=[])
+    run.add_argument("--caption-mix", choices=["Larissa", "Stacey", "Lola"])
+    run.add_argument(
+        "--creator-style-preset",
+        choices=["auto", "none", "stacey_static_center"],
+    )
 
     sync = sub.add_parser("sync-reel")
     sync.add_argument("--campaign", required=True)
+    sync.add_argument("--render-job-id", action="append", default=[])
+
+    daily_library = sub.add_parser("daily-library")
+    daily_library.add_argument("--day", type=int, required=True)
+    daily_library.add_argument("--cohort", default="stacey_learning_cohort_v1")
+    daily_library.add_argument("--campaign", default="stacey_learning_cohort_v1")
+    daily_library.add_argument("--workers", type=int, default=2)
+    daily_library.add_argument("--library-root", type=Path)
+    daily_library.add_argument("--contentforge-base-url", default="cli://local")
+    daily_library.add_argument("--apply", action="store_true")
 
     variation = sub.add_parser("variation")
     variation_sub = variation.add_subparsers(dest="variation_cmd", required=True)
@@ -304,6 +322,7 @@ def main() -> int:
     audit.add_argument("--min-score", type=int, default=85)
     audit.add_argument("--contentforge-base-url", default="cli://local")
     audit.add_argument("--layer", action="append", default=[])
+    audit.add_argument("--rendered-asset-id", action="append", default=[])
 
     approve = sub.add_parser("approve")
     approve.add_argument("--rendered-asset-id", required=True)
@@ -2495,6 +2514,7 @@ def main() -> int:
                     caption_color=args.caption_color,
                     notes=args.notes,
                     force_new=args.force_new,
+                    source_asset_ids=args.source_asset_id or None,
                 )
             )
         elif args.cmd == "run-reel":
@@ -2502,6 +2522,7 @@ def main() -> int:
                 cf.run_reel_factory(
                     campaign_slug=args.campaign,
                     workers=args.workers,
+                    library_root=args.library_root,
                     dry_run=args.dry_run,
                     caption_band=args.band,
                     caption_color=args.color,
@@ -2510,10 +2531,30 @@ def main() -> int:
                     phone_finalize=not args.no_phone_finalize,
                     rerender_all=args.rerender_all,
                     max_outputs_per_clip=args.max_outputs_per_clip,
+                    render_job_ids=args.render_job_id or None,
+                    caption_mix=args.caption_mix,
+                    creator_style_preset=args.creator_style_preset,
                 )
             )
         elif args.cmd == "sync-reel":
-            print_json(cf.sync_reel_outputs(campaign_slug=args.campaign))
+            print_json(
+                cf.sync_reel_outputs(
+                    campaign_slug=args.campaign,
+                    render_job_ids=args.render_job_id or None,
+                )
+            )
+        elif args.cmd == "daily-library":
+            print_json(
+                run_daily_library_production(
+                    cf,
+                    day_index=args.day,
+                    cohort_id=args.cohort,
+                    campaign_slug=args.campaign,
+                    workers=args.workers,
+                    contentforge_base_url=args.contentforge_base_url,
+                    apply=args.apply,
+                )
+            )
         elif args.cmd == "variation":
             if args.variation_cmd == "run":
                 print_json(
@@ -2632,6 +2673,7 @@ def main() -> int:
                     min_score=args.min_score,
                     contentforge_base_url=args.contentforge_base_url,
                     layers=args.layer or None,
+                    rendered_asset_ids=args.rendered_asset_id or None,
                 )
             )
         elif args.cmd == "approve":

@@ -3719,6 +3719,7 @@ class CoreServices:
         caption_color: str | None = None,
         notes: str | None = None,
         force_new: bool = False,
+        source_asset_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         return self.reel_execution.prepare_reel_inputs(
             campaign_slug=campaign_slug,
@@ -3727,6 +3728,7 @@ class CoreServices:
             caption_color=caption_color,
             notes=notes,
             force_new=force_new,
+            source_asset_ids=source_asset_ids,
         )
 
     def rotate_hooks_for_source(
@@ -3756,6 +3758,9 @@ class CoreServices:
         phone_finalize: bool = True,
         rerender_all: bool = False,
         max_outputs_per_clip: int | None = None,
+        render_job_ids: list[str] | None = None,
+        caption_mix: str | None = None,
+        creator_style_preset: str | None = None,
     ) -> dict[str, Any]:
         return self.reel_execution.run_reel_factory(
             campaign_slug=campaign_slug,
@@ -3769,10 +3774,17 @@ class CoreServices:
             phone_finalize=phone_finalize,
             rerender_all=rerender_all,
             max_outputs_per_clip=max_outputs_per_clip,
+            render_job_ids=render_job_ids,
+            caption_mix=caption_mix,
+            creator_style_preset=creator_style_preset,
         )
 
-    def sync_reel_outputs(self, *, campaign_slug: str) -> dict[str, Any]:
-        return self.reel_execution.sync_reel_outputs(campaign_slug=campaign_slug)
+    def sync_reel_outputs(
+        self, *, campaign_slug: str, render_job_ids: list[str] | None = None
+    ) -> dict[str, Any]:
+        return self.reel_execution.sync_reel_outputs(
+            campaign_slug=campaign_slug, render_job_ids=render_job_ids
+        )
 
     def model_slug_for_campaign(self, campaign_id: str) -> str:
         return self.reel_execution.model_slug_for_campaign(campaign_id)
