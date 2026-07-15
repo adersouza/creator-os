@@ -52,8 +52,8 @@ def run_front_generation_stage(
     variation_preset: str = "ig_subtle",
 ) -> dict[str, Any]:
     """Plan or submit the paid front-generation path behind fail-closed guards."""
-    if animation_mode not in {"kling", "motion_edit"}:
-        raise ValueError("animation_mode must be kling or motion_edit")
+    if animation_mode not in {"static", "kling", "motion_edit"}:
+        raise ValueError("animation_mode must be static, kling, or motion_edit")
     if not creator and not soul_id and not soul_name:
         raise ValueError("creator, soul_id, or soul_name is required")
     if kling_selection_receipt_path is not None and accepted_still_path is None:
@@ -444,7 +444,9 @@ def _build_stages(
                     "result": static_batch,
                 }
             )
-        if animation_mode == "motion_edit":
+        if animation_mode == "static":
+            pass
+        elif animation_mode == "motion_edit":
             stages.append(
                 {
                     "name": "motion_edit",
@@ -510,6 +512,8 @@ def _build_stages(
             "result": static_result,
         }
     )
+    if animation_mode == "static":
+        return stages
     if animation_mode == "motion_edit":
         stages.append(
             {

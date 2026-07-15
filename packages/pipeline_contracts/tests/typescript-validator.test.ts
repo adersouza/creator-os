@@ -11,6 +11,8 @@ import {
 	validateMotionEditRender,
 	validatePerformanceSync,
 	validatePostMetricHistoryRead,
+	validateReferenceVideoMotionAnalysis,
+	validateReferenceVideoRemixPlan,
 	validateRepurposingPlan,
 	validateRecommendationAccuracyReport,
 	validateVariantAssignment,
@@ -48,7 +50,42 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"owned_library_lineage.v1.schema.json",
 		);
-		expect(generatedPipelineContractSchemaManifest).toHaveLength(23);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"reference_video_motion_analysis.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"reference_video_remix_plan.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(25);
+	});
+
+	it("validates structural reference-video analysis and remix plans", () => {
+		expect(validateReferenceVideoMotionAnalysis(example("reference_video_motion_analysis"))).toEqual([]);
+		expect(validateReferenceVideoRemixPlan(example("reference_video_remix_plan"))).toEqual([]);
+	});
+
+	it("keeps paid generation and publishing blocked in remix plans", () => {
+		const payload = example("reference_video_remix_plan");
+		payload.animation.paidGenerationAuthorized = true;
+		payload.approval.publishingAllowed = true;
+
+		expect(validateReferenceVideoRemixPlan(payload)).toEqual(
+			expect.arrayContaining([
+				expect.stringContaining("paidGenerationAuthorized"),
+				expect.stringContaining("publishingAllowed"),
+			]),
+		);
+	});
+
+	it("requires integer provider duration while retaining fractional source timing", () => {
+		const payload = example("reference_video_remix_plan");
+		expect(payload.scope.sourceDurationSeconds).toBe(7.5);
+		expect(payload.scope.outputDurationSeconds).toBe(8);
+		payload.animation.inputs.durationSeconds = 7.5;
+
+		expect(validateReferenceVideoRemixPlan(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("durationSeconds")]),
+		);
 	});
 
 	it("rejects missing required fields through AJV", () => {

@@ -36,6 +36,16 @@ python3 generate_assets.py reference-image-dry-run \
   --wait
 ```
 
+## Opt-In Reference Video Structural Remix
+
+The default flow above is unchanged. When the operator explicitly selects a
+5–12 second, one-shot reference video, `reference_video_remix.py` can build a
+dry-run-only plan for two Higgsfield Soul endpoint frames and a Seedance/Kling
+animation. This is structural inspiration, not literal source copying, and it
+remains blocked on endpoint approvals, provider spend approval, ContentForge
+distinctness/QC, and final operator approval. See
+`../../docs/architecture/reference_video_structural_remix.md`.
+
 ## Active Defaults
 
 - Creator: `Stacey`

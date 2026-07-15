@@ -8,6 +8,9 @@ Important files:
 
 - `generate_assets.py`: active direct reference-image Higgsfield still generation; legacy prompt-json image/video wrappers.
 - `reel_motion_prompt.py`: deterministic Kling motion prompts for accepted stills.
+- `reference_video_remix.py`: dry-run planner for an operator-selected one-shot
+  reference video, paired Higgsfield Soul endpoint frames, and deterministic
+  Seedance/Kling routing.
 - `operator_tools.py`: headless direct-reference and operator utilities.
 - `asset_prompt_contract.py`: prompt contract parser/shape for legacy prompt-json flows.
 - `generate_prompts.py`: legacy Grok/reference prompt generation and regression support.

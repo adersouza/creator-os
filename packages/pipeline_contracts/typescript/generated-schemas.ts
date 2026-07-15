@@ -1908,6 +1908,7 @@ export const generatedPipelineContractSchemas = {
 	    "animationMode": {
 	      "type": "string",
 	      "enum": [
+	        "static",
 	        "kling",
 	        "motion_edit"
 	      ]
@@ -3453,6 +3454,981 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	referenceVideoMotionAnalysis: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.reference_video_motion_analysis.v1",
+	  "title": "Reference Video Structural Motion Analysis",
+	  "description": "Motion-only analysis for an operator-selected reference video. The contract preserves reusable structure while explicitly excluding literal identity, styling, and text copying.",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "analysisId",
+	    "referenceId",
+	    "provider",
+	    "model",
+	    "status",
+	    "source",
+	    "structure",
+	    "distinctness",
+	    "sourceTextPolicy",
+	    "motionPrompt",
+	    "requiresReferenceVideoConditioning"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.reference_video_motion_analysis.v1"
+	    },
+	    "analysisId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "referenceId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "provider": {
+	      "type": "string",
+	      "enum": [
+	        "gemini",
+	        "operator_supplied"
+	      ]
+	    },
+	    "model": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "status": {
+	      "const": "ready"
+	    },
+	    "source": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "durationSeconds",
+	        "shotCount",
+	        "hasCuts",
+	        "aspectRatio"
+	      ],
+	      "properties": {
+	        "durationSeconds": {
+	          "type": "number",
+	          "minimum": 5,
+	          "maximum": 12
+	        },
+	        "shotCount": {
+	          "const": 1
+	        },
+	        "hasCuts": {
+	          "const": false
+	        },
+	        "aspectRatio": {
+	          "const": "9:16"
+	        }
+	      }
+	    },
+	    "structure": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "hookDescription",
+	        "firstFrameDescription",
+	        "lastFrameDescription",
+	        "subjectMotion",
+	        "cameraMotion",
+	        "pacing",
+	        "timeline"
+	      ],
+	      "properties": {
+	        "hookDescription": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "firstFrameDescription": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "lastFrameDescription": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "subjectMotion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "cameraMotion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pacing": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "timeline": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": false,
+	            "required": [
+	              "startSeconds",
+	              "endSeconds",
+	              "action",
+	              "camera"
+	            ],
+	            "properties": {
+	              "startSeconds": {
+	                "type": "number",
+	                "minimum": 0
+	              },
+	              "endSeconds": {
+	                "type": "number",
+	                "exclusiveMinimum": 0,
+	                "maximum": 12
+	              },
+	              "action": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "camera": {
+	                "type": "string",
+	                "minLength": 1
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "distinctness": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "preserveElements",
+	        "transformElements",
+	        "literalCopyRisk"
+	      ],
+	      "properties": {
+	        "preserveElements": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "enum": [
+	              "pose_arc",
+	              "camera_path",
+	              "pacing",
+	              "framing",
+	              "motion_rhythm",
+	              "endpoint_composition"
+	            ]
+	          }
+	        },
+	        "transformElements": {
+	          "type": "array",
+	          "minItems": 3,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "enum": [
+	              "identity",
+	              "wardrobe",
+	              "setting",
+	              "surface_text",
+	              "styling",
+	              "props"
+	            ]
+	          },
+	          "contains": {
+	            "const": "identity"
+	          }
+	        },
+	        "literalCopyRisk": {
+	          "type": "string",
+	          "enum": [
+	            "low",
+	            "medium",
+	            "high"
+	          ]
+	        }
+	      }
+	    },
+	    "sourceTextPolicy": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "reuseVerbatim",
+	        "transcriptionUsedForMotionOnly"
+	      ],
+	      "properties": {
+	        "reuseVerbatim": {
+	          "const": false
+	        },
+	        "transcriptionUsedForMotionOnly": {
+	          "const": true
+	        }
+	      }
+	    },
+	    "motionPrompt": {
+	      "type": "string",
+	      "minLength": 20
+	    },
+	    "requiresReferenceVideoConditioning": {
+	      "type": "boolean"
+	    }
+	  }
+	} as const,
+	referenceVideoRemixPlan: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.reference_video_remix_plan.v1",
+	  "title": "Reference Video Structural Remix Plan",
+	  "description": "Dry-run-first plan for two Higgsfield Soul endpoint frames and one Seedance or Kling animation. Provider execution and publishing remain unauthorized.",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "planId",
+	    "status",
+	    "reference",
+	    "scope",
+	    "identity",
+	    "framePair",
+	    "animation",
+	    "lineageSeed",
+	    "qualityGates",
+	    "approval"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.reference_video_remix_plan.v1"
+	    },
+	    "planId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "status": {
+	      "type": "string",
+	      "enum": [
+	        "awaiting_endpoint_frames",
+	        "ready_for_paid_animation_approval"
+	      ]
+	    },
+	    "reference": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "referenceId",
+	        "videoPath",
+	        "videoSha256",
+	        "operatorSelected",
+	        "rightsConfirmed",
+	        "analysisId",
+	        "analysisSha256"
+	      ],
+	      "properties": {
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "videoPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "videoSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "operatorSelected": {
+	          "const": true
+	        },
+	        "rightsConfirmed": {
+	          "const": true
+	        },
+	        "analysisId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analysisSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
+	    "scope": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "sourceDurationSeconds",
+	        "outputDurationSeconds",
+	        "durationRoundingPolicy",
+	        "shotCount",
+	        "oneShotOnly",
+	        "outputAspectRatio"
+	      ],
+	      "properties": {
+	        "sourceDurationSeconds": {
+	          "type": "number",
+	          "minimum": 5,
+	          "maximum": 12
+	        },
+	        "outputDurationSeconds": {
+	          "type": "integer",
+	          "minimum": 5,
+	          "maximum": 12
+	        },
+	        "durationRoundingPolicy": {
+	          "const": "nearest_integer_half_up"
+	        },
+	        "shotCount": {
+	          "const": 1
+	        },
+	        "oneShotOnly": {
+	          "const": true
+	        },
+	        "outputAspectRatio": {
+	          "const": "9:16"
+	        }
+	      }
+	    },
+	    "identity": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "creator",
+	        "soulId"
+	      ],
+	      "properties": {
+	        "creator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "framePair": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "first",
+	        "last",
+	        "continuityReviewRequired"
+	      ],
+	      "properties": {
+	        "first": {
+	          "allOf": [
+	            {
+	              "$ref": "#/$defs/framePlan"
+	            },
+	            {
+	              "properties": {
+	                "role": {
+	                  "const": "first"
+	                }
+	              }
+	            }
+	          ]
+	        },
+	        "last": {
+	          "allOf": [
+	            {
+	              "$ref": "#/$defs/framePlan"
+	            },
+	            {
+	              "properties": {
+	                "role": {
+	                  "const": "last"
+	                }
+	              }
+	            }
+	          ]
+	        },
+	        "continuityReviewRequired": {
+	          "const": true
+	        }
+	      }
+	    },
+	    "animation": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "provider",
+	        "model",
+	        "routingReason",
+	        "status",
+	        "motionPrompt",
+	        "inputs",
+	        "command",
+	        "spendGuard",
+	        "paidGenerationAuthorized"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "type": "string",
+	          "enum": [
+	            "seedance",
+	            "kling"
+	          ]
+	        },
+	        "model": {
+	          "type": "string",
+	          "enum": [
+	            "seedance_2_0",
+	            "kling3_0"
+	          ]
+	        },
+	        "routingReason": {
+	          "type": "string",
+	          "enum": [
+	            "explicit_provider",
+	            "reference_video_conditioning",
+	            "prompt_and_endpoint_frames",
+	            "deterministic_fallback"
+	          ]
+	        },
+	        "status": {
+	          "type": "string",
+	          "enum": [
+	            "blocked_pending_endpoint_approval",
+	            "ready_for_paid_approval"
+	          ]
+	        },
+	        "motionPrompt": {
+	          "type": "string",
+	          "minLength": 20
+	        },
+	        "inputs": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "startFramePath",
+	            "endFramePath",
+	            "referenceVideoPath",
+	            "durationSeconds",
+	            "aspectRatio",
+	            "sound"
+	          ],
+	          "properties": {
+	            "startFramePath": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "endFramePath": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "referenceVideoPath": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "durationSeconds": {
+	              "type": "integer",
+	              "minimum": 5,
+	              "maximum": 12
+	            },
+	            "aspectRatio": {
+	              "const": "9:16"
+	            },
+	            "sound": {
+	              "const": "off"
+	            }
+	          }
+	        },
+	        "command": {
+	          "type": [
+	            "array",
+	            "null"
+	          ],
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "spendGuard": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "providerQuoteRequired",
+	            "atomicReservationRequired",
+	            "budgetCapCredits"
+	          ],
+	          "properties": {
+	            "providerQuoteRequired": {
+	              "const": true
+	            },
+	            "atomicReservationRequired": {
+	              "const": true
+	            },
+	            "budgetCapCredits": {
+	              "type": [
+	                "number",
+	                "null"
+	              ],
+	              "exclusiveMinimum": 0
+	            }
+	          }
+	        },
+	        "paidGenerationAuthorized": {
+	          "const": false
+	        }
+	      }
+	    },
+	    "lineageSeed": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "referenceId",
+	        "referenceVideoSha256",
+	        "analysisId",
+	        "analysisSha256",
+	        "firstSourceFrameSha256",
+	        "lastSourceFrameSha256",
+	        "firstAcceptedFrameSha256",
+	        "lastAcceptedFrameSha256",
+	        "generationTool",
+	        "providerModel",
+	        "sourceDurationSeconds",
+	        "outputDurationSeconds"
+	      ],
+	      "properties": {
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "referenceVideoSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "analysisId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analysisSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "firstSourceFrameSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "lastSourceFrameSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "firstAcceptedFrameSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "lastAcceptedFrameSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "generationTool": {
+	          "const": "higgsfield_endpoint_frames_then_video"
+	        },
+	        "providerModel": {
+	          "type": "string",
+	          "enum": [
+	            "seedance_2_0",
+	            "kling3_0"
+	          ]
+	        },
+	        "sourceDurationSeconds": {
+	          "type": "number",
+	          "minimum": 5,
+	          "maximum": 12
+	        },
+	        "outputDurationSeconds": {
+	          "type": "integer",
+	          "minimum": 5,
+	          "maximum": 12
+	        }
+	      }
+	    },
+	    "qualityGates": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "contentForgeRequired",
+	        "blockingChecks",
+	        "onFailure"
+	      ],
+	      "properties": {
+	        "contentForgeRequired": {
+	          "const": true
+	        },
+	        "blockingChecks": {
+	          "type": "array",
+	          "minItems": 5,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "enum": [
+	              "source_master_distinctness",
+	              "sibling_distinctness",
+	              "identity_verification",
+	              "endpoint_continuity",
+	              "readability",
+	              "safe_zone",
+	              "watchability",
+	              "visual_qc"
+	            ]
+	          },
+	          "allOf": [
+	            {
+	              "contains": {
+	                "const": "source_master_distinctness"
+	              }
+	            },
+	            {
+	              "contains": {
+	                "const": "visual_qc"
+	              }
+	            },
+	            {
+	              "contains": {
+	                "const": "endpoint_continuity"
+	              }
+	            }
+	          ]
+	        },
+	        "onFailure": {
+	          "const": "block_and_return_to_review"
+	        }
+	      }
+	    },
+	    "approval": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "endpointFrameApprovalRequired",
+	        "paidAnimationApprovalRequired",
+	        "finalAssetApprovalRequired",
+	        "publishingAllowed"
+	      ],
+	      "properties": {
+	        "endpointFrameApprovalRequired": {
+	          "const": true
+	        },
+	        "paidAnimationApprovalRequired": {
+	          "const": true
+	        },
+	        "finalAssetApprovalRequired": {
+	          "const": true
+	        },
+	        "publishingAllowed": {
+	          "const": false
+	        }
+	      }
+	    }
+	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "status": {
+	            "const": "ready_for_paid_animation_approval"
+	          }
+	        },
+	        "required": [
+	          "status"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "framePair": {
+	            "properties": {
+	              "first": {
+	                "properties": {
+	                  "acceptedFrame": {
+	                    "properties": {
+	                      "status": {
+	                        "const": "accepted"
+	                      },
+	                      "path": {
+	                        "type": "string",
+	                        "minLength": 1
+	                      },
+	                      "sha256": {
+	                        "type": "string",
+	                        "pattern": "^[0-9a-f]{64}$"
+	                      },
+	                      "approvalDecisionId": {
+	                        "type": "string",
+	                        "minLength": 1
+	                      }
+	                    }
+	                  }
+	                }
+	              },
+	              "last": {
+	                "properties": {
+	                  "acceptedFrame": {
+	                    "properties": {
+	                      "status": {
+	                        "const": "accepted"
+	                      },
+	                      "path": {
+	                        "type": "string",
+	                        "minLength": 1
+	                      },
+	                      "sha256": {
+	                        "type": "string",
+	                        "pattern": "^[0-9a-f]{64}$"
+	                      },
+	                      "approvalDecisionId": {
+	                        "type": "string",
+	                        "minLength": 1
+	                      }
+	                    }
+	                  }
+	                }
+	              }
+	            }
+	          },
+	          "animation": {
+	            "properties": {
+	              "status": {
+	                "const": "ready_for_paid_approval"
+	              },
+	              "command": {
+	                "type": "array",
+	                "minItems": 1
+	              }
+	            }
+	          }
+	        }
+	      },
+	      "else": {
+	        "properties": {
+	          "animation": {
+	            "properties": {
+	              "status": {
+	                "const": "blocked_pending_endpoint_approval"
+	              },
+	              "command": {
+	                "type": "null"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "animation": {
+	            "properties": {
+	              "provider": {
+	                "const": "seedance"
+	              }
+	            },
+	            "required": [
+	              "provider"
+	            ]
+	          }
+	        }
+	      },
+	      "then": {
+	        "properties": {
+	          "animation": {
+	            "properties": {
+	              "model": {
+	                "const": "seedance_2_0"
+	              },
+	              "inputs": {
+	                "properties": {
+	                  "referenceVideoPath": {
+	                    "type": "string",
+	                    "minLength": 1
+	                  }
+	                }
+	              }
+	            }
+	          }
+	        }
+	      },
+	      "else": {
+	        "properties": {
+	          "animation": {
+	            "properties": {
+	              "model": {
+	                "const": "kling3_0"
+	              },
+	              "inputs": {
+	                "properties": {
+	                  "referenceVideoPath": {
+	                    "type": "null"
+	                  }
+	                }
+	              }
+	            }
+	          }
+	        }
+	      }
+	    }
+	  ],
+	  "$defs": {
+	    "framePlan": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "role",
+	        "sourceFramePath",
+	        "sourceFrameSha256",
+	        "sourceTimestampSeconds",
+	        "description",
+	        "generation",
+	        "acceptedFrame"
+	      ],
+	      "properties": {
+	        "role": {
+	          "type": "string",
+	          "enum": [
+	            "first",
+	            "last"
+	          ]
+	        },
+	        "sourceFramePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sourceFrameSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "sourceTimestampSeconds": {
+	          "type": "number",
+	          "minimum": 0,
+	          "maximum": 12
+	        },
+	        "description": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "generation": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "provider",
+	            "model",
+	            "workflow",
+	            "referenceConditioned",
+	            "soulId",
+	            "aspectRatio",
+	            "promptPolicy",
+	            "dryRunCommand"
+	          ],
+	          "properties": {
+	            "provider": {
+	              "const": "higgsfield"
+	            },
+	            "model": {
+	              "const": "text2image_soul_v2"
+	            },
+	            "workflow": {
+	              "const": "reference_conditioned_endpoint_frame"
+	            },
+	            "referenceConditioned": {
+	              "const": true
+	            },
+	            "soulId": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "aspectRatio": {
+	              "const": "9:16"
+	            },
+	            "promptPolicy": {
+	              "type": "object",
+	              "additionalProperties": false,
+	              "required": [
+	                "capturedPromptReused",
+	                "promptAppendUsed",
+	                "appUiTermsForbidden",
+	                "distinctnessAcceptanceRequired"
+	              ],
+	              "properties": {
+	                "capturedPromptReused": {
+	                  "const": false
+	                },
+	                "promptAppendUsed": {
+	                  "const": false
+	                },
+	                "appUiTermsForbidden": {
+	                  "const": true
+	                },
+	                "distinctnessAcceptanceRequired": {
+	                  "const": true
+	                }
+	              }
+	            },
+	            "dryRunCommand": {
+	              "type": "array",
+	              "minItems": 1,
+	              "items": {
+	                "type": "string"
+	              }
+	            }
+	          }
+	        },
+	        "acceptedFrame": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "status",
+	            "path",
+	            "sha256",
+	            "approvalDecisionId"
+	          ],
+	          "properties": {
+	            "status": {
+	              "type": "string",
+	              "enum": [
+	                "pending",
+	                "accepted"
+	              ]
+	            },
+	            "path": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "sha256": {
+	              "type": [
+	                "string",
+	                "null"
+	              ],
+	              "pattern": "^[0-9a-f]{64}$"
+	            },
+	            "approvalDecisionId": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            }
+	          }
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	repurposingPlan: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.repurposing_plan.v1",
@@ -3686,6 +4662,8 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "postMetricHistoryRead", filename: "post_metric_history.read.v1.schema.json", id: "threadsdashboard.post_metric_history.read.v1" },
 	{ key: "recommendationAccuracyReport", filename: "recommendation_accuracy_report.v1.schema.json", id: "campaign_factory.recommendation_accuracy_report.v1" },
 	{ key: "recommendationNextBatch", filename: "recommendation_next_batch.v1.schema.json", id: "campaign_factory.recommendations.next_batch.v1" },
+	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
+	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
 	{ key: "variantAssignment", filename: "variant_assignment.v1.schema.json", id: "campaign_factory.variant_assignment.v1" },
 	{ key: "videoAnalysis", filename: "video_analysis.v1.schema.json", id: "reference_factory.video_analysis.v1" },

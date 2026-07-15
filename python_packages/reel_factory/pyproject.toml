@@ -103,6 +103,7 @@ py-modules = [
   "reel_url_import",
   "reference_analyzer",
   "reference_grid_production",
+  "reference_video_remix",
   "render_plan",
   "render_queue",
   "review_truth",

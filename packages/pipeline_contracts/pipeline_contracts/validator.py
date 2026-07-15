@@ -24,6 +24,10 @@ POST_METRIC_HISTORY_READ_SCHEMA = "post_metric_history.read.v1.schema.json"
 CAPTION_OUTCOME_CONTEXT_SCHEMA = "caption_outcome_context.v1.schema.json"
 PATTERN_CARD_SCHEMA = "pattern_card.v1.schema.json"
 VIDEO_ANALYSIS_SCHEMA = "video_analysis.v1.schema.json"
+REFERENCE_VIDEO_MOTION_ANALYSIS_SCHEMA = (
+    "reference_video_motion_analysis.v1.schema.json"
+)
+REFERENCE_VIDEO_REMIX_PLAN_SCHEMA = "reference_video_remix_plan.v1.schema.json"
 HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA = "higgsfield_soul_image_prompt.v1.schema.json"
 KLING_3_VIDEO_PROMPT_SCHEMA = "kling_3_video_prompt.v1.schema.json"
 GENERATED_ASSET_LINEAGE_V1_SCHEMA = "generated_asset_lineage.v1.schema.json"
@@ -51,6 +55,8 @@ SCHEMA_NAMES = {
     "campaign_factory_caption_outcome_context": CAPTION_OUTCOME_CONTEXT_SCHEMA,
     "pattern_card": PATTERN_CARD_SCHEMA,
     "video_analysis": VIDEO_ANALYSIS_SCHEMA,
+    "reference_video_motion_analysis": REFERENCE_VIDEO_MOTION_ANALYSIS_SCHEMA,
+    "reference_video_remix_plan": REFERENCE_VIDEO_REMIX_PLAN_SCHEMA,
     "higgsfield_soul_image_prompt": HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA,
     "kling_3_video_prompt": KLING_3_VIDEO_PROMPT_SCHEMA,
     "generated_asset_lineage": GENERATED_ASSET_LINEAGE_SCHEMA,
@@ -207,6 +213,14 @@ def validate_video_analysis(value: Any) -> None:
     validate_contract(value, VIDEO_ANALYSIS_SCHEMA)
 
 
+def validate_reference_video_motion_analysis(value: Any) -> None:
+    validate_contract(value, REFERENCE_VIDEO_MOTION_ANALYSIS_SCHEMA)
+
+
+def validate_reference_video_remix_plan(value: Any) -> None:
+    validate_contract(value, REFERENCE_VIDEO_REMIX_PLAN_SCHEMA)
+
+
 def validate_higgsfield_soul_image_prompt(value: Any) -> None:
     validate_contract(value, HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA)
 
@@ -302,6 +316,8 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "caption_outcome_context.v1.example.json": validate_caption_outcome_context,
         "pattern_card.v1.example.json": validate_pattern_card,
         "video_analysis.v1.example.json": validate_video_analysis,
+        "reference_video_motion_analysis.v1.example.json": validate_reference_video_motion_analysis,
+        "reference_video_remix_plan.v1.example.json": validate_reference_video_remix_plan,
         "higgsfield_soul_image_prompt.v1.example.json": validate_higgsfield_soul_image_prompt,
         "kling_3_video_prompt.v1.example.json": validate_kling_3_video_prompt,
         "generated_asset_lineage.v1.example.json": validate_generated_asset_lineage,

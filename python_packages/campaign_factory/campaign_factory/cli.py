@@ -34,6 +34,7 @@ from .closed_loop_proof import (
 from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
+from .creative_modes import creative_workflow_modes
 from .daily_library_production import run_daily_library_production
 from .front_generation_stage import run_front_generation_stage
 from .kling_selection_stage import run_kling_selection_stage
@@ -258,6 +259,7 @@ def main() -> int:
 
     generation = sub.add_parser("generation")
     generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
+    generation_sub.add_parser("modes")
     front_link = generation_sub.add_parser("front-link")
     front_link.add_argument("--campaign", required=True)
     front_link.add_argument("--reference-image", required=True)
@@ -267,7 +269,7 @@ def main() -> int:
     soul_group.add_argument("--soul-name")
     front_link.add_argument("--scene-type", default="room_selfie")
     front_link.add_argument(
-        "--animation-mode", choices=["kling", "motion_edit"], default="kling"
+        "--animation-mode", choices=["static", "kling", "motion_edit"], default="static"
     )
     front_link.add_argument("--accepted-still")
     front_link.add_argument("--kling-selection-receipt")
@@ -299,7 +301,12 @@ def main() -> int:
     proactive_run.add_argument("--reference-image")
     proactive_run.add_argument(
         "--generation-mode",
-        choices=["existing_asset", "motion_edit", "front_generation_kling"],
+        choices=[
+            "existing_asset",
+            "front_generation_static",
+            "motion_edit",
+            "front_generation_kling",
+        ],
         default="existing_asset",
     )
     proactive_run.add_argument("--enable-variation", action="store_true")
@@ -2606,7 +2613,9 @@ def main() -> int:
                     )
                 )
         elif args.cmd == "generation":
-            if args.generation_cmd == "front-link":
+            if args.generation_cmd == "modes":
+                print_json(creative_workflow_modes())
+            elif args.generation_cmd == "front-link":
                 print_json(
                     run_front_generation_stage(
                         cf,

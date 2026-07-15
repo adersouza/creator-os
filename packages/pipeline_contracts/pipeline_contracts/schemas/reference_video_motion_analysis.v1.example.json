@@ -1,0 +1,47 @@
+{
+  "schema": "reel_factory.reference_video_motion_analysis.v1",
+  "analysisId": "analysis_ref_video_001",
+  "referenceId": "ref_video_001",
+  "provider": "gemini",
+  "model": "gemini-video-analysis",
+  "status": "ready",
+  "source": {
+    "durationSeconds": 7.5,
+    "shotCount": 1,
+    "hasCuts": false,
+    "aspectRatio": "9:16"
+  },
+  "structure": {
+    "hookDescription": "Immediate eye contact followed by one readable pose change.",
+    "firstFrameDescription": "Centered waist-up framing with the subject still.",
+    "lastFrameDescription": "The same framing after a small shoulder and hip shift.",
+    "subjectMotion": "Small shoulder turn, hip weight transfer, and expression change.",
+    "cameraMotion": "Restrained handheld drift with no cut or zoom jump.",
+    "pacing": "One continuous slow movement with a clear final hold.",
+    "timeline": [
+      {
+        "startSeconds": 0.0,
+        "endSeconds": 3.0,
+        "action": "Hold eye contact and begin the shoulder turn.",
+        "camera": "Tiny handheld drift only."
+      },
+      {
+        "startSeconds": 3.0,
+        "endSeconds": 7.5,
+        "action": "Complete the hip shift and settle into the ending pose.",
+        "camera": "Maintain the same framing and settle."
+      }
+    ]
+  },
+  "distinctness": {
+    "preserveElements": ["pose_arc", "camera_path", "pacing"],
+    "transformElements": ["identity", "wardrobe", "setting", "surface_text"],
+    "literalCopyRisk": "medium"
+  },
+  "sourceTextPolicy": {
+    "reuseVerbatim": false,
+    "transcriptionUsedForMotionOnly": true
+  },
+  "motionPrompt": "Create one continuous vertical shot with a restrained shoulder turn, a small hip weight transfer, subtle handheld drift, and a stable final hold.",
+  "requiresReferenceVideoConditioning": true
+}

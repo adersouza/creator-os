@@ -52,6 +52,24 @@ ThreadsDashboard
   -> performance_sync.v1 back to Campaign Factory / Reference Factory
 ```
 
+## Creative Workflow Modes
+
+Creator OS exposes additive modes; structural reference-video remixing does not
+replace the library-first or static paths:
+
+- `library_reuse`: select approved existing media; no provider generation.
+- `soul_static`: create Soul original/sexy still candidates and a free static
+  MP4 for every QC-passing still; this is the default for a new reference image.
+- `motion_edit`: create a deterministic local motion edit from an approved still
+  while retaining its static fallback.
+- `best_only_kling`: animate only an approved rank-one candidate with a durable
+  selection receipt and a separate spend approval.
+- `reference_video_remix`: analyze an operator-selected short video as motion
+  structure, create new Soul endpoint frames, then plan Seedance or Kling.
+
+`campaign-factory generation modes` prints the machine-readable catalog. Every
+mode requires human review and none grants publishing authority.
+
 ## Reel Text And Audio Rules
 
 - Burned overlay text is visible text inside the video. Reel Factory owns it.
