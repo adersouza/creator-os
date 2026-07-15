@@ -122,7 +122,7 @@ def _isolated_higgsfield_spend_policy(
     monkeypatch.setenv("HIGGSFIELD_RUN_MAX_ASSETS", "100")
     monkeypatch.setenv("HIGGSFIELD_MIN_BALANCE_USD", "0")
     monkeypatch.setattr(
-        "higgsfield_cost_preflight.CliBalanceProvider.balance",
+        "reel_factory.higgsfield_cost_preflight.CliBalanceProvider.balance",
         lambda _self: (1000.0, None),
     )
 
