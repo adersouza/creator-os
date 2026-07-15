@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,7 +19,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
+sys.path.insert(0, str(ROOT / "packages/pipeline_contracts"))
+sys.path.insert(0, str(ROOT / "python_packages/campaign_factory"))
 
+from campaign_factory.adapters.threadsdash_handshake import (
+    configured_handshake_url,
+    run_threadsdash_handshake,
+)
+from campaign_factory.provider_probe import run_provider_probe
 from creator_os_core.runtime_paths import RuntimePaths, resolve_runtime_paths
 
 FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_audit_fixture.json"
@@ -134,6 +142,9 @@ def run_live_status(
     generation_env = config_root / "generation.env"
     ops_log = config_root / "ops.log"
     performance_values = _read_env_assignments(performance_env)
+    generation_values = _read_env_assignments(generation_env)
+    probe_env = {**os.environ, **performance_values, **generation_values}
+    trace_id = f"trace_{uuid.uuid4().hex}"
 
     repository = _repository_status(resolved.source_root)
     contracts = _contracts_status(resolved.source_root)
@@ -141,30 +152,30 @@ def run_live_status(
     canonical_roots = _canonical_roots_status(resolved)
     runtime = _runtime_status(resolved, performance_values, ops_log)
     database = _campaign_database_status(performance_values)
-    provider = Result(
-        name="provider-readiness",
-        category="Provider readiness",
-        status="NOT_RUN",
-        reason="no provider or paid-credit API probe was run",
-        command="creator-os status --live-read-only",
-        evidence=(
-            f"requested={live_read_only}; generation_policy={generation_env}; "
-            f"present={generation_env.is_file()}"
-        ),
-        next_action="Configure the zero-cost provider probe before relying on this seam.",
-    )
-    handshake = Result(
-        name="threadsdashboard-handshake",
-        category="ThreadsDashboard handshake",
-        status="NOT_RUN",
-        reason="no network or production handshake was run",
-        command="creator-os status --live-read-only",
-        evidence=(
-            f"requested={live_read_only}; "
-            f"threadsdash_checkout={resolved.threadsdash_root}"
-        ),
-        next_action="Configure the zero-write handshake endpoint before relying on this seam.",
-    )
+    if live_read_only:
+        provider = _provider_probe_status(resolved, trace_id=trace_id)
+        handshake = _threadsdash_handshake_status(
+            resolved, probe_env=probe_env, trace_id=trace_id
+        )
+    else:
+        provider = Result(
+            name="provider-readiness",
+            category="Provider readiness",
+            status="NOT_RUN",
+            reason="zero-generation provider probe was not requested",
+            command="creator-os status --live-read-only",
+            evidence=f"requested=false; trace_id={trace_id}",
+            next_action="Run the explicit live-read-only status command when needed.",
+        )
+        handshake = Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="NOT_RUN",
+            reason="zero-product-write network handshake was not requested",
+            command="creator-os status --live-read-only",
+            evidence=f"requested=false; trace_id={trace_id}",
+            next_action="Run the explicit live-read-only status command when needed.",
+        )
     return [
         repository,
         contracts,
@@ -175,6 +186,79 @@ def run_live_status(
         provider,
         handshake,
     ]
+
+
+def _provider_probe_status(paths: RuntimePaths, *, trace_id: str) -> Result:
+    started = time.monotonic()
+    try:
+        evidence = run_provider_probe(
+            artifact_root=paths.artifact_root, trace_id=trace_id
+        )
+    except Exception as exc:  # noqa: BLE001 - read-only diagnostic boundary
+        return Result(
+            name="provider-readiness",
+            category="Provider readiness",
+            status="FAIL",
+            reason="zero-generation provider probe failed closed",
+            command="creator-os status --live-read-only",
+            evidence=f"trace_id={trace_id}; error={type(exc).__name__}: {exc}",
+            next_action="Repair provider auth/model/workspace access; do not run generation.",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    return Result(
+        name="provider-readiness",
+        category="Provider readiness",
+        status="PASS",
+        reason="provider account, workspace, models, balance, and free quote passed",
+        command="creator-os status --live-read-only",
+        evidence=json.dumps(evidence, sort_keys=True),
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def _threadsdash_handshake_status(
+    paths: RuntimePaths, *, probe_env: dict[str, str], trace_id: str
+) -> Result:
+    started = time.monotonic()
+    url = configured_handshake_url(probe_env)
+    secret = probe_env.get("CAMPAIGN_FACTORY_INGEST_SECRET", "").strip()
+    if not url or not secret:
+        return Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="NOT_RUN",
+            reason="handshake URL or local HMAC secret is not configured",
+            command="creator-os status --live-read-only",
+            evidence=(
+                f"trace_id={trace_id}; url_configured={bool(url)}; "
+                f"secret_configured={bool(secret)}; threadsdash_checkout={paths.threadsdash_root}"
+            ),
+            next_action="Configure the handshake URL and machine-local secret, then retry.",
+        )
+    try:
+        evidence = run_threadsdash_handshake(
+            url=url, secret=secret, trace_id=trace_id, env=probe_env
+        )
+    except Exception as exc:  # noqa: BLE001 - read-only diagnostic boundary
+        return Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="FAIL",
+            reason="zero-product-write ThreadsDashboard handshake failed closed",
+            command="creator-os status --live-read-only",
+            evidence=f"trace_id={trace_id}; error={type(exc).__name__}: {exc}",
+            next_action="Repair HMAC, contract, endpoint, or network state; do not hand off drafts.",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    return Result(
+        name="threadsdashboard-handshake",
+        category="ThreadsDashboard handshake",
+        status="PASS",
+        reason="HMAC and contract handshake passed with zero product rows written",
+        command="creator-os status --live-read-only",
+        evidence=json.dumps(evidence, sort_keys=True),
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
 
 
 def _canonical_roots_status(paths: RuntimePaths) -> Result:

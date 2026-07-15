@@ -28,6 +28,7 @@ from pipeline_contracts import (
     validate_reference_video_remix_plan,
     validate_repurposing_plan,
     validate_schema_examples,
+    validate_threadsdash_handshake,
     validate_variant_assignment,
     validate_video_analysis,
 )
@@ -71,6 +72,15 @@ def test_named_validators_accept_examples():
     validate_recommendation_accuracy_report(
         load_example("recommendation_accuracy_report")
     )
+    validate_threadsdash_handshake(load_example("threadsdash_handshake"))
+
+
+def test_threadsdash_handshake_rejects_publish_authority() -> None:
+    payload = load_example("threadsdash_handshake")
+    payload["capabilities"]["publishingAllowed"] = True
+
+    with pytest.raises(ContractValidationError, match="publishingAllowed"):
+        validate_threadsdash_handshake(payload)
 
 
 def test_validator_reports_nested_required_field():

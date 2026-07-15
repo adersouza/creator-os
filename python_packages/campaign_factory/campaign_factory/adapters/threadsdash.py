@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import ipaddress
 import json
 import mimetypes
@@ -51,6 +50,7 @@ from ..lineage_v2 import (
     lineage_v2_is_learning_traceable,
     lineage_v2_is_valid,
 )
+from .threadsdash_hmac import sign_body
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -67,7 +67,6 @@ DASHBOARD_INGEST_BACKOFF_SECONDS = (1.0, 3.0)
 THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
-CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION = "v1"
 _STDLIB_URLOPEN = urlopen
 
 
@@ -2108,11 +2107,12 @@ def _validate_threadsdash_ingest_url(url: str) -> str:
 def _threadsdash_ingest_signature(
     body: bytes, *, secret: str, timestamp: str, nonce: str
 ) -> str:
-    signing_input = (
-        timestamp.encode("ascii") + b"." + nonce.encode("ascii") + b"." + body
+    return sign_body(
+        body,
+        secret=secret,
+        timestamp=timestamp,
+        nonce=nonce,
     )
-    digest = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).hexdigest()
-    return f"{CAMPAIGN_FACTORY_INGEST_SIGNATURE_VERSION}={digest}"
 
 
 def _post_threadsdash_draft_ingest(

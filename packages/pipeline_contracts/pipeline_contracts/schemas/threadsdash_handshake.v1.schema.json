@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json",
+  "title": "Campaign Factory ThreadsDashboard Read-Only Handshake v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "traceId", "contracts", "capabilities"],
+  "properties": {
+    "schema": {
+      "const": "campaign_factory.threadsdash_handshake.v1"
+    },
+    "traceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draftPayload",
+        "generatedAssetLineage",
+        "audioIntent",
+        "performanceMetrics"
+      ],
+      "properties": {
+        "draftPayload": {
+          "const": "campaign_factory.threadsdash_drafts.v2"
+        },
+        "generatedAssetLineage": {
+          "const": "reel_factory.generated_asset_lineage.v2"
+        },
+        "audioIntent": {
+          "const": "pipeline.audio_intent.v1"
+        },
+        "performanceMetrics": {
+          "const": "threadsdashboard.post_metric_history.read.v1"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftOnly", "schedulingAllowed", "publishingAllowed"],
+      "properties": {
+        "draftOnly": { "const": true },
+        "schedulingAllowed": { "const": false },
+        "publishingAllowed": { "const": false }
+      }
+    }
+  }
+}

@@ -63,6 +63,9 @@ workflows:
 # Read-only: repository, contracts, config, runtime, DB, and explicit NOT_RUN checks
 scripts/creator-os status
 
+# Networked but zero-product-write/no-generation: HMAC seam + provider probes
+scripts/creator-os status --live-read-only
+
 # Read-only fixture-backed integrity audit
 scripts/creator-os doctor --quick
 

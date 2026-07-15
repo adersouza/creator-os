@@ -1,0 +1,15 @@
+{
+  "schema": "campaign_factory.threadsdash_handshake.v1",
+  "traceId": "trace_handshake_example_001",
+  "contracts": {
+    "draftPayload": "campaign_factory.threadsdash_drafts.v2",
+    "generatedAssetLineage": "reel_factory.generated_asset_lineage.v2",
+    "audioIntent": "pipeline.audio_intent.v1",
+    "performanceMetrics": "threadsdashboard.post_metric_history.read.v1"
+  },
+  "capabilities": {
+    "draftOnly": true,
+    "schedulingAllowed": false,
+    "publishingAllowed": false
+  }
+}
