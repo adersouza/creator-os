@@ -31,7 +31,7 @@ BOUNDARIES: tuple[
     (
         ROOT / "python_packages/reference_factory/reference_factory",
         "reference_factory",
-        ("campaign_factory", "repurposer"),
+        ("campaign_factory", "reel_factory", "repurposer"),
         {},
     ),
     (

@@ -112,11 +112,12 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "reference_factory does not import runtime campaign ownership"
+name = "reference_factory remains a knowledge worker"
 type = "forbidden"
 source_modules = ["reference_factory"]
 forbidden_modules = [
   "campaign_factory",
+  "reel_factory",
   "repurposer",
 ]
 
