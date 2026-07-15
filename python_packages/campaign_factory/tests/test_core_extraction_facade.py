@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import inspect
 
 from campaign_factory import audit_payload, exports
@@ -71,44 +70,20 @@ from campaign_factory.surface_inventory import SurfaceInventoryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.surface_requirements import SurfaceRequirementsRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
-from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.variant_lineage import VariantLineageRepository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
 
 
-def test_campaign_factory_core_stays_composition_root_facade() -> None:
+def test_campaign_factory_core_is_composition_root_without_forwarders() -> None:
     source = inspect.getsource(CampaignFactory)
-    parsed = ast.parse(source)
-    cls = parsed.body[0]
-    allowed = {"__init__", "close", "_load_source_lineage"}
-    simple_compat = {
-        "_reel_caption_account_safety_violations": "discoverability_safe_content_contract"
+    methods = {
+        name
+        for name, value in CampaignFactory.__dict__.items()
+        if inspect.isfunction(value)
     }
-    non_facade: list[str] = []
 
-    for method in [node for node in cls.body if isinstance(node, ast.FunctionDef)]:
-        body = [
-            stmt
-            for stmt in method.body
-            if not (
-                isinstance(stmt, ast.Expr)
-                and isinstance(stmt.value, ast.Constant)
-                and isinstance(stmt.value.value, str)
-            )
-        ]
-        if method.name in allowed:
-            continue
-        if len(body) != 1:
-            non_facade.append(method.name)
-            continue
-        stmt_source = ast.get_source_segment(source, body[0]) or ""
-        compat_call = simple_compat.get(method.name)
-        if "self.domains." not in stmt_source and (
-            not compat_call or compat_call not in stmt_source
-        ):
-            non_facade.append(method.name)
-
-    assert non_facade == []
+    assert methods == {"__init__", "close"}
+    assert "__getattr__" not in source
 
 
 def test_campaign_factory_initializes_explicit_domain_services(tmp_path) -> None:
@@ -180,8 +155,6 @@ def test_campaign_factory_initializes_explicit_domain_services(tmp_path) -> None
             factory.domains.creative_knowledge, CreativeKnowledgeRepository
         )
         assert factory.domains.creative_knowledge.conn is factory.conn
-        assert isinstance(factory.domains.tribev2, TribeV2Repository)
-        assert factory.domains.tribev2.conn is factory.conn
         assert isinstance(factory.domains.operator_review, OperatorReviewRepository)
         assert factory.domains.operator_review.conn is factory.conn
         assert isinstance(factory.domains.story_management, StoryManagementRepository)
@@ -468,7 +441,7 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
     )()
 
     assert (
-        factory._validate_instagram_trial_reel_intent(
+        factory.domains.distribution.validate_instagram_trial_reel_intent(
             content_surface="reel",
             distribution_surface="trial_reel",
             media_type="video",
@@ -477,7 +450,7 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
         )
         == "MANUAL"
     )
-    assert factory._record_lineage_costs(lineage) is None
+    assert factory.domains.finished_video.record_lineage_costs(lineage) is None
 
     assert calls == [
         (
@@ -496,8 +469,19 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
 
 
 def test_export_summary_repository_preserves_export_module_seam(monkeypatch) -> None:
-    factory = object()
-    repository = ExportSummaryRepository(factory)
+    repository = ExportSummaryRepository(
+        object(),
+        dashboard=lambda *_args, **_kwargs: {},
+        audio_workflow_summary=lambda *_args, **_kwargs: {},
+        creative_plan_for_campaign=lambda *_args, **_kwargs: None,
+        active_reference_pattern_for_campaign=lambda *_args, **_kwargs: None,
+        generated_asset_lineage=lambda *_args, **_kwargs: {},
+        creative_plan_payload=lambda *_args, **_kwargs: {},
+        audio_recommendations_for_asset=lambda *_args, **_kwargs: {},
+        campaign_by_slug=lambda *_args, **_kwargs: {},
+        graph_id_for=lambda *_args, **_kwargs: None,
+        ensure_graph_edge=lambda *_args, **_kwargs: "edge_1",
+    )
     calls = []
 
     def fake_batch_summary(self, campaign_slug):
@@ -539,10 +523,10 @@ def test_export_summary_repository_preserves_export_module_seam(monkeypatch) -> 
         == "campaign_factory.export.v1"
     )
     assert calls == [
-        ("batch", factory, "campaign"),
-        ("daily", factory, "campaign", {"rendered": []}),
-        ("groups", factory, [{"id": "asset_1"}]),
-        ("manifest", factory, "campaign"),
+        ("batch", repository, "campaign"),
+        ("daily", repository, "campaign", {"rendered": []}),
+        ("groups", repository, [{"id": "asset_1"}]),
+        ("manifest", repository, "campaign"),
     ]
 
 
@@ -658,24 +642,24 @@ def test_core_services_audit_report_delegates_to_audit_payload_module(
     monkeypatch,
 ) -> None:
     services = object.__new__(CampaignDomainServices)
-    factory = object.__new__(CampaignFactory)
-    services.factory_context = factory
+    conn = object()
+    services.conn = conn
     calls = []
 
-    def fake_audit_report(self, audit_report_id):
-        calls.append(("audit", self, audit_report_id))
+    def fake_audit_report(db, audit_report_id):
+        calls.append(("audit", db, audit_report_id))
         return {"id": audit_report_id}
 
-    def fake_payload(self, row):
-        calls.append(("payload", self, row))
+    def fake_payload(row):
+        calls.append(("payload", row))
         return {"id": row["id"]}
 
     monkeypatch.setattr(audit_payload, "audit_report", fake_audit_report)
-    monkeypatch.setattr(audit_payload, "_audit_report_payload", fake_payload)
+    monkeypatch.setattr(audit_payload, "audit_report_payload", fake_payload)
 
     assert services.audit_report("audit_1") == {"id": "audit_1"}
     assert services.audit_report_payload({"id": "audit_2"}) == {"id": "audit_2"}
     assert calls == [
-        ("audit", factory, "audit_1"),
-        ("payload", factory, {"id": "audit_2"}),
+        ("audit", conn, "audit_1"),
+        ("payload", {"id": "audit_2"}),
     ]

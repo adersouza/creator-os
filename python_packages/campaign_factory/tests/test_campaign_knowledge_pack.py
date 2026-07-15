@@ -23,12 +23,12 @@ def test_campaign_imports_versioned_pack_without_recalculating_status(tmp_path: 
 
     cf = make_factory(tmp_path)
     try:
-        preview = cf.import_reference_bank(
+        preview = cf.domains.reference.import_reference_bank(
             pack_path, dry_run=True, require_local_paths=True
         )
         assert preview["schema"] == "campaign_factory.knowledge_pack_import.v1"
         assert preview["knowledgePackId"] == pack["packId"]
-        assert cf.reference_patterns()["patterns"] == []
+        assert cf.domains.reference.reference_patterns()["patterns"] == []
         assert (
             cf.conn.execute(
                 "SELECT COUNT(*) FROM reference_knowledge_packs"
@@ -36,10 +36,12 @@ def test_campaign_imports_versioned_pack_without_recalculating_status(tmp_path: 
             == 0
         )
 
-        imported = cf.import_reference_bank(pack_path, require_local_paths=True)
+        imported = cf.domains.reference.import_reference_bank(
+            pack_path, require_local_paths=True
+        )
         assert imported["patternsCreated"] == 1
         assert imported["knowledgePackSourceFingerprint"] == pack["sourceFingerprint"]
-        pattern = cf.reference_patterns()["patterns"][0]
+        pattern = cf.domains.reference.reference_patterns()["patterns"][0]
         assert pattern["knowledge"]["packId"] == pack["packId"]
         assert pattern["recommendationStatus"] == "advisory"
         assert pattern["measuredExampleCount"] == 1
@@ -56,7 +58,7 @@ def test_campaign_imports_versioned_pack_without_recalculating_status(tmp_path: 
             == pack["sourceFingerprint"]
         )
 
-        repeated = cf.import_reference_bank(pack_path)
+        repeated = cf.domains.reference.import_reference_bank(pack_path)
         assert repeated["patternsUnchanged"] == 1
         assert repeated["patternsImported"] == 0
     finally:
@@ -72,7 +74,7 @@ def test_campaign_rejects_tampered_knowledge_pack(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         with pytest.raises(ValueError, match="sourceFingerprint"):
-            cf.import_reference_bank(pack_path, dry_run=True)
+            cf.domains.reference.import_reference_bank(pack_path, dry_run=True)
     finally:
         cf.close()
 
@@ -90,7 +92,7 @@ def test_reference_pattern_recommendations_require_three_measured_examples(
     cf = make_factory(tmp_path)
     try:
         selected = {"id": "refpat_1", "clusterKey": "mirror::question"}
-        evidence = cf.services.recommendation_reference_pattern_evidence(
+        evidence = cf.domains.recommendations.recommendation_reference_pattern_evidence(
             [
                 {
                     "patternId": "refpat_1",

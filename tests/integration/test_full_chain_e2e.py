@@ -510,24 +510,28 @@ def drive_real_render_and_sync(
     folder = tmp_path / f"inputs_{campaign_slug}"
     folder.mkdir()
     (folder / "a.mp4").write_bytes(b"source-e2e")
-    cf.import_folder(
+    cf.domains.asset_import.import_folder(
         folder,
         campaign_slug=campaign_slug,
         model_slug="model",
         account_handles=["ig_1"],
     )
-    source = cf.assets_for_campaign(cf.campaign_by_slug(campaign_slug)["id"])[0]
+    source = cf.domains.asset_import.assets_for_campaign(
+        cf.domains.campaign_by_slug(campaign_slug)["id"]
+    )[0]
     set_source_prompt(cf, source["id"], prompt_id=prompt_id, reference_id=reference_id)
 
-    job = cf.prepare_reel_inputs(
+    job = cf.domains.reel_execution.prepare_reel_inputs(
         campaign_slug=campaign_slug, hooks=[caption], recipes=["v01_original"]
     )["prepared"][0]
     simulate_reel_render(cf, job, caption=caption)
-    result = cf.sync_reel_outputs(campaign_slug=campaign_slug)
+    result = cf.domains.reel_execution.sync_reel_outputs(campaign_slug=campaign_slug)
     assert len(result["synced"]) == 1, result
     asset_id = result["synced"][0]["id"] if "id" in result["synced"][0] else None
     if asset_id is None:
-        asset_id = cf.dashboard(campaign_slug)["rendered"][0]["id"]
+        asset_id = cf.domains.campaign_overview.dashboard(campaign_slug)["rendered"][0][
+            "id"
+        ]
     return dict(
         cf.conn.execute(
             "SELECT * FROM rendered_assets WHERE id = ?", (asset_id,)
@@ -563,8 +567,8 @@ def export_real_asset(
         ).fetchone()
     )
     final_context = json.loads(final_asset["caption_outcome_context_json"])
-    cf.review_rendered_asset(asset["id"], decision="approved")
-    cf.create_distribution_plan(
+    cf.domains.finished_video.review_rendered_asset(asset["id"], decision="approved")
+    cf.domains.distribution.create_distribution_plan(
         asset["id"],
         instagram_account_id="ig_1",
         planned_window_start="2026-01-02T10:00:00+00:00",
@@ -1096,7 +1100,7 @@ def _cluster_rank(bank_path: Path, cluster_key: str) -> int:
 
 
 def _imported_pattern_rank(cf: CampaignFactory, cluster_key: str) -> int:
-    patterns = cf.reference_patterns(limit=20)["patterns"]
+    patterns = cf.domains.reference.reference_patterns(limit=20)["patterns"]
     for pattern in patterns:
         if pattern["clusterKey"] == cluster_key:
             return int(pattern["rank"])
@@ -1244,13 +1248,13 @@ def test_seam_d_reference_bank_imports_and_ranks(
 
     cf = _reopen_factory(chain)
     try:
-        imported = cf.import_reference_bank(bank_path)
+        imported = cf.domains.reference.import_reference_bank(bank_path)
         assert imported["patternsImported"] >= 2
         assert _imported_pattern_rank(cf, cluster_key) < _imported_pattern_rank(
             cf, loser_cluster_key
         )
 
-        recommendation = cf.recommend_next_batch("may", count=3)
+        recommendation = cf.domains.recommendations.recommend_next_batch("may", count=3)
         # THE seam assertion: recommend_next_batch surfaces the imported pattern
         # (populated only via import_reference_bank, no raw reference_patterns SQL).
         assert recommendation["items"]
@@ -1278,12 +1282,14 @@ def test_seam_d_reference_bank_imports_and_ranks(
         assert _cluster_rank(swapped_bank_path, loser_cluster_key) < _cluster_rank(
             swapped_bank_path, cluster_key
         )
-        swapped_import = cf.import_reference_bank(swapped_bank_path)
+        swapped_import = cf.domains.reference.import_reference_bank(swapped_bank_path)
         assert swapped_import["patternsImported"] >= 2
         assert _imported_pattern_rank(cf, loser_cluster_key) < _imported_pattern_rank(
             cf, cluster_key
         )
-        swapped_recommendation = cf.recommend_next_batch("may", count=3)
+        swapped_recommendation = cf.domains.recommendations.recommend_next_batch(
+            "may", count=3
+        )
         assert swapped_recommendation["items"]
         assert (
             swapped_recommendation["items"][0]["referencePattern"]["clusterKey"]
@@ -1387,8 +1393,8 @@ def test_seam_e_full_chain_spine_is_identical_at_every_hop(
             == chain["final_context"]
         )
 
-        cf.import_reference_bank(bank_path)
-        recommendation = cf.recommend_next_batch("may", count=3)
+        cf.domains.reference.import_reference_bank(bank_path)
+        recommendation = cf.domains.recommendations.recommend_next_batch("may", count=3)
         assert recommendation["items"]
         assert (
             recommendation["items"][0]["referencePattern"]["clusterKey"] == cluster_key

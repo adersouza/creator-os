@@ -72,7 +72,6 @@ from .surface_inventory import SurfaceInventoryRepository
 from .surface_registration import SurfaceRegistrationRepository
 from .surface_requirements import SurfaceRequirementsRepository
 from .surface_summary import SurfaceSummaryRepository
-from .tribev2 import TribeV2Repository
 from .variant_lineage import VariantLineageRepository
 from .winner_expansion import WinnerExpansionRepository
 
@@ -88,7 +87,10 @@ class CampaignDomainServices:
         self,
         context: CampaignContext,
         *,
-        factory_context: Any,
+        domain_constructor: Callable[[Settings], Any],
+        audit_campaign: Callable[..., dict[str, Any]],
+        evaluate_export_readiness: Callable[..., dict[str, Any]],
+        export_threadsdash: Callable[..., dict[str, Any]],
         new_id: Callable[[str], str],
         new_graph_id: Callable[[str], str],
         slugify: Callable[[str], str],
@@ -245,7 +247,6 @@ class CampaignDomainServices:
         self.context = context
         self.conn = conn
         self.settings = settings
-        self.factory_context = factory_context
         self._new_id = new_id
         self._new_graph_id = new_graph_id
         self._slugify = slugify
@@ -300,7 +301,33 @@ class CampaignDomainServices:
             campaign_by_slug=self.campaign_by_slug,
             slugify=slugify,
         )
-        self.export_summary = ExportSummaryRepository(factory_context)
+        self.export_summary = ExportSummaryRepository(
+            conn,
+            dashboard=lambda *args, **kwargs: self.campaign_overview.dashboard(
+                *args, **kwargs
+            ),
+            audio_workflow_summary=lambda *args, **kwargs: (
+                self.audio_operations.audio_workflow_summary(*args, **kwargs)
+            ),
+            creative_plan_for_campaign=lambda *args, **kwargs: (
+                self.creative_planning.creative_plan_for_campaign(*args, **kwargs)
+            ),
+            active_reference_pattern_for_campaign=lambda *args, **kwargs: (
+                self.reference.active_reference_pattern_for_campaign(*args, **kwargs)
+            ),
+            generated_asset_lineage=lambda *args, **kwargs: (
+                self.account_planning.generated_asset_lineage(*args, **kwargs)
+            ),
+            creative_plan_payload=lambda *args, **kwargs: (
+                self.creative_planning.creative_plan_payload(*args, **kwargs)
+            ),
+            audio_recommendations_for_asset=lambda *args, **kwargs: (
+                self.account_planning.audio_recommendations_for_asset(*args, **kwargs)
+            ),
+            campaign_by_slug=self.campaign_by_slug,
+            graph_id_for=self.graph.graph_id_for,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+        )
         self.reel_execution = ReelExecutionRepository(
             conn,
             settings,
@@ -353,7 +380,9 @@ class CampaignDomainServices:
         self.make_batch_repo = MakeBatchRepository(
             conn,
             settings,
-            factory_context=factory_context,
+            audit_campaign=audit_campaign,
+            evaluate_export_readiness=evaluate_export_readiness,
+            export_threadsdash=export_threadsdash,
             new_id=new_id,
             utc_now=utc_now,
             sha256_file=sha256_file,
@@ -807,9 +836,7 @@ class CampaignDomainServices:
         self.parent_factory_trials = ParentFactoryTrialRepository(
             conn,
             settings=settings,
-            factory_constructor=lambda sandbox_settings: factory_context.__class__(
-                sandbox_settings
-            ),
+            domain_constructor=domain_constructor,
             reel_factory_parent_metrics=self.reel_factory_reports.reel_factory_parent_metrics,
             operator_review_minutes_per_parent=self.reel_factory_reports.operator_review_minutes_per_parent,
             parent_factory_yield_waterfall=self.parent_factory_reports.parent_factory_yield_waterfall,
@@ -1038,17 +1065,6 @@ class CampaignDomainServices:
             recommendation_explainability=recommendation_explainability,
             recommendation_quality_bucket=recommendation_quality_bucket,
         )
-        self.tribev2 = TribeV2Repository(
-            conn,
-            settings,
-            slugify=slugify,
-            creator_label=self.creator_label,
-            normalize_content_surface=normalize_content_surface,
-            creative_knowledge_rows=creative_knowledge_rows,
-            creative_knowledge_result=creative_knowledge_result,
-            image_exts=image_exts,
-            video_exts=video_exts,
-        )
         self.operator_review = OperatorReviewRepository(
             conn,
             normalize_content_surface=normalize_content_surface,
@@ -1186,137 +1202,10 @@ class CampaignDomainServices:
         )
         return None
 
-    def events_for_campaign(
-        self, campaign_slug: str, limit: int = 200
-    ) -> list[dict[str, Any]]:
-        return self.events.events_for_campaign(campaign_slug, limit=limit)
-
-    def events_for_asset(
-        self, rendered_asset_id: str, limit: int = 100
-    ) -> list[dict[str, Any]]:
-        return self.events.events_for_asset(rendered_asset_id, limit=limit)
-
-    def jobs_for_campaign(
-        self,
-        campaign_slug: str | None = None,
-        limit: int = 100,
-        statuses: list[str] | None = None,
-        stuck_hours: float | None = None,
-    ) -> list[dict[str, Any]]:
-        return self.events.jobs_for_campaign(
-            campaign_slug, limit=limit, statuses=statuses, stuck_hours=stuck_hours
-        )
-
     def account_reward_baselines(
         self, snapshots: list[dict[str, Any]]
     ) -> dict[str, float]:
         return _account_reward_baselines(snapshots)
-
-    def audio_catalog(
-        self, platform: str | None = None, limit: int = 100
-    ) -> dict[str, Any]:
-        return self.audio_recommendations.audio_catalog(platform=platform, limit=limit)
-
-    def audio_memory(
-        self, platform: str | None = None, account: str | None = None, limit: int = 100
-    ) -> dict[str, Any]:
-        return self.audio_recommendations.audio_memory(
-            platform=platform, account=account, limit=limit
-        )
-
-    def cover_frame_for_asset(
-        self, asset: dict[str, Any], caption_context: dict[str, Any] | None = None
-    ) -> dict[str, Any] | None:
-        return self.audio_operations.cover_frame_for_asset(
-            asset, caption_context=caption_context
-        )
-
-    def upsert_model(
-        self, slug: str, name: str | None = None, notes: str | None = None
-    ) -> dict[str, Any]:
-        return self.models.upsert_model(slug, name=name, notes=notes)
-
-    def upsert_campaign(
-        self,
-        slug: str,
-        model_slug: str,
-        name: str | None = None,
-        platform: str = "instagram",
-    ) -> dict[str, Any]:
-        return self.models.upsert_campaign(
-            slug, model_slug, name=name, platform=platform
-        )
-
-    def upsert_account(
-        self,
-        handle: str,
-        platform: str = "instagram",
-        external_id: str | None = None,
-        model_id: str | None = None,
-        account_group_id: str | None = None,
-    ) -> dict[str, Any]:
-        kwargs = {
-            "platform": platform,
-            "external_id": external_id,
-            "model_id": model_id,
-        }
-        if account_group_id is not None:
-            kwargs["account_group_id"] = account_group_id
-        return self.models.upsert_account(handle, **kwargs)
-
-    def account_memory_report(
-        self, campaign_slug: str, account: str | None = None
-    ) -> dict[str, Any]:
-        return self.account_memory.account_memory(campaign_slug, account=account)
-
-    def reference_patterns(self, limit: int = 50) -> dict[str, Any]:
-        return self.reference.reference_patterns(limit=limit)
-
-    def reference_hooks(
-        self, pattern: dict[str, Any], count: int = 5
-    ) -> list[dict[str, Any]]:
-        return self.reference.reference_hooks(pattern, count=count)
-
-    def finished_video_hooks(
-        self, format_type: str, pattern: dict[str, Any], count: int = 5
-    ) -> list[dict[str, Any]]:
-        return self.finished_video.finished_video_hooks(
-            format_type, pattern, count=count
-        )
-
-    def create_distribution_plan(
-        self,
-        rendered_asset_id: str,
-        *,
-        surface: str = "regular_reel",
-        account_id: str | None = None,
-        instagram_account_id: str | None = None,
-        planned_window_start: str | None = None,
-        planned_window_end: str | None = None,
-        paired_rendered_asset_id: str | None = None,
-        reason_code: str | None = None,
-        smart_link: str | None = None,
-        cta_text: str | None = None,
-        instagram_trial_reels: bool = False,
-        trial_graduation_strategy: str | None = None,
-        trial_group_id: str | None = None,
-    ) -> dict[str, Any]:
-        kwargs = {
-            "surface": surface,
-            "account_id": account_id,
-            "instagram_account_id": instagram_account_id,
-            "planned_window_start": planned_window_start,
-            "planned_window_end": planned_window_end,
-            "paired_rendered_asset_id": paired_rendered_asset_id,
-            "reason_code": reason_code,
-            "smart_link": smart_link,
-            "cta_text": cta_text,
-            "instagram_trial_reels": instagram_trial_reels,
-            "trial_graduation_strategy": trial_graduation_strategy,
-        }
-        if trial_group_id is not None:
-            kwargs["trial_group_id"] = trial_group_id
-        return self.distribution.create_distribution_plan(rendered_asset_id, **kwargs)
 
     def campaign_by_slug(self, slug: str) -> dict[str, Any]:
         row = self.conn.execute(
@@ -1447,9 +1336,12 @@ class CampaignDomainServices:
     def audit_report(self, audit_report_id: str) -> dict[str, Any]:
         from . import audit_payload as _audit_payload
 
-        return _audit_payload.audit_report(self.factory_context, audit_report_id)
+        return _audit_payload.audit_report(self.conn, audit_report_id)
 
     def audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         from . import audit_payload as _audit_payload
 
-        return _audit_payload._audit_report_payload(self.factory_context, row)
+        return _audit_payload.audit_report_payload(row)
+
+    def close(self) -> None:
+        self.conn.close()

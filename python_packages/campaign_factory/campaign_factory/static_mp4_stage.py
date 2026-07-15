@@ -31,9 +31,9 @@ def run_static_mp4_stage(
     allow_upscale: bool = False,
 ) -> dict[str, Any]:
     """Create the mandatory zero-cost static fallback for an accepted Soul still."""
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     still = Path(still_path).expanduser().resolve()
     if not still.exists() or not still.is_file():
         raise FileNotFoundError(f"accepted still not found: {still}")
@@ -52,7 +52,7 @@ def run_static_mp4_stage(
     output_path = (
         dirs["rendered"] / f"{slugify(still.stem)}_{still_fingerprint[:12]}_static.mp4"
     )
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "static_mp4",
         campaign["id"],
         {
@@ -66,7 +66,7 @@ def run_static_mp4_stage(
             "paidGeneration": False,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         registered_asset = (
             _existing_static_asset(
@@ -119,10 +119,12 @@ def run_static_mp4_stage(
             "registeredAsset": registered_asset,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(result))
+        factory.domains.events.finish_pipeline_job(
+            pipeline_job["id"], sanitize_for_storage(result)
+        )
         return result
     except Exception as exc:
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -221,7 +223,7 @@ def _register_rendered_asset(
     ).fetchone()
     if existing:
         return dict(existing)
-    caption_hash = factory._text_hash("")
+    caption_hash = factory.domains.publishability.text_hash("")
     source_prompt = _source_prompt(source_asset)
     upstream_lineage = _enriched_upstream_lineage(
         source_prompt, output_still=Path(render["stillPath"])

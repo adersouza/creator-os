@@ -127,6 +127,11 @@ Package-local CLIs remain thin implementation boundaries:
 - `python -m reel_factory.<module>`
 - `packages/contentforge/cli.mjs`
 
+`CampaignFactory` is only the connection/settings composition root. Callers use
+`factory.domains.<repository>` directly; it has no forwarding facade or dynamic
+compatibility fallback. Repositories receive explicit callbacks/context rather
+than a full `CampaignFactory` instance.
+
 Deleted `scripts/run/*` aliases and flat Reel module facades no longer create
 wrapper-calling-wrapper chains. The root surface deliberately has no generic
 package escape hatch: advanced package CLIs are invoked directly by developers,

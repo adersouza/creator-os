@@ -33,9 +33,9 @@ def run_kling_selection_stage(
         raise ValueError(
             "best-only Kling selection requires at least two unique assets"
         )
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     resolved_batch_id = slugify(batch_id or new_id("kling_batch"))
     selection_dir = dirs["root"] / "kling_selection"
     selection_dir.mkdir(parents=True, exist_ok=True)

@@ -84,7 +84,7 @@ def run_generation_workflow(
                 "draftExportAllowed": False,
             }
         else:
-            result = factory.make_batch(
+            result = factory.domains.make_batch_repo.make_batch(
                 folder=folder,
                 campaign_slug=campaign_slug,
                 model_slug=model_slug,

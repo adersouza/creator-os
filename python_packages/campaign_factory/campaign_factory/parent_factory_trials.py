@@ -15,7 +15,7 @@ class ParentFactoryTrialRepository:
         conn: sqlite3.Connection,
         *,
         settings: Settings,
-        factory_constructor: Callable[[Settings], Any],
+        domain_constructor: Callable[[Settings], Any],
         reel_factory_parent_metrics: Callable[[], dict[str, int]],
         operator_review_minutes_per_parent: Callable[[dict[str, int]], float],
         parent_factory_yield_waterfall: Callable[..., dict[str, Any]],
@@ -28,7 +28,7 @@ class ParentFactoryTrialRepository:
     ) -> None:
         self.conn = conn
         self.settings = settings
-        self._factory_constructor = factory_constructor
+        self._domain_constructor = domain_constructor
         self._reel_factory_parent_metrics = reel_factory_parent_metrics
         self._operator_review_minutes_per_parent = operator_review_minutes_per_parent
         self._parent_factory_yield_waterfall = parent_factory_yield_waterfall
@@ -258,7 +258,7 @@ class ParentFactoryTrialRepository:
             prefix="campaign_factory_post_gate_proof_"
         ) as tmp:
             root = Path(tmp)
-            sandbox = self._factory_constructor(
+            sandbox = self._domain_constructor(
                 Settings(
                     root=root,
                     db_path=root / "campaign_factory.sqlite",
@@ -282,7 +282,7 @@ class ParentFactoryTrialRepository:
                     video.write_bytes(
                         f"fresh-candidate-{index}:{candidate['caption']}".encode()
                     )
-                    result = sandbox.register_finished_video(
+                    result = sandbox.finished_video.register_finished_video(
                         input_path=video,
                         campaign_slug="post_gate_fresh_batch_proof",
                         model_slug="stacey",

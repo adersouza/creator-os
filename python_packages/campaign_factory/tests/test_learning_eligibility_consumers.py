@@ -135,7 +135,9 @@ def test_readiness_counts_only_forward_metric_history_with_v2_lineage(
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_eligibility", "instagram")
+        campaign = cf.domains.models.upsert_campaign(
+            "learning_eligibility", "instagram"
+        )
         cases = [
             ("eligible", ELIGIBLE_PUBLISHED_AT, "metric_history", 1, 1),
             ("pre_cutover", "2026-05-31T00:00:00+00:00", "metric_history", 1, 1),
@@ -193,7 +195,7 @@ def test_readiness_counts_only_forward_metric_history_with_v2_lineage(
 def test_readiness_reaches_the_50_post_dual_window_gate(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_fifty", "instagram")
+        campaign = cf.domains.models.upsert_campaign("learning_fifty", "instagram")
         for post_index in range(50):
             for hour, snapshot_at in (
                 (1, f"2026-06-02T01:{post_index:02d}:00+00:00"),
@@ -240,7 +242,9 @@ def test_performance_summary_asset_planning_and_baselines_exclude_poison_rows(
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_performance", "instagram")
+        campaign = cf.domains.models.upsert_campaign(
+            "learning_performance", "instagram"
+        )
         insert_snapshot(
             cf,
             campaign_id=campaign["id"],
@@ -261,8 +265,10 @@ def test_performance_summary_asset_planning_and_baselines_exclude_poison_rows(
         )
         cf.conn.commit()
 
-        summary = cf.performance_summary(campaign["slug"])
-        asset_performance = cf._performance_for_asset(
+        summary = cf.domains.performance_summary_repo.performance_summary(
+            campaign["slug"]
+        )
+        asset_performance = cf.domains.performance_summary_repo.performance_for_asset(
             {
                 "id": "asset_learning",
                 "source_asset_id": "source_learning",
@@ -286,7 +292,9 @@ def test_recommendation_rankings_and_measurement_exclude_ineligible_rows(
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_recommendations", "instagram")
+        campaign = cf.domains.models.upsert_campaign(
+            "learning_recommendations", "instagram"
+        )
         insert_reference_pattern(
             cf, pattern_id="refpat_eligible", cluster_key="eligible_pattern", rank=20
         )
@@ -328,8 +336,16 @@ def test_recommendation_rankings_and_measurement_exclude_ineligible_rows(
         )
         cf.conn.commit()
 
-        reference_rankings = cf._ranked_reference_patterns_for_campaign(campaign["id"])
-        preset_rankings = cf._ranked_variation_presets_for_campaign(campaign["id"])
+        reference_rankings = (
+            cf.domains.recommendations.ranked_reference_patterns_for_campaign(
+                campaign["id"]
+            )
+        )
+        preset_rankings = (
+            cf.domains.recommendations.ranked_variation_presets_for_campaign(
+                campaign["id"]
+            )
+        )
         measurement_rows = cf.domains.recommendations.recommendation_performance_rows(
             {"rendered_asset_id": "asset_measurement", "evidence_json": "{}"}
         )
@@ -355,7 +371,7 @@ def test_recommendation_rankings_and_measurement_exclude_ineligible_rows(
 def test_account_memory_excludes_ineligible_accounts(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_memory", "instagram")
+        campaign = cf.domains.models.upsert_campaign("learning_memory", "instagram")
         insert_snapshot(
             cf,
             campaign_id=campaign["id"],
@@ -386,13 +402,16 @@ def test_account_memory_excludes_ineligible_accounts(tmp_path: Path) -> None:
         )
         cf.conn.commit()
 
-        report = cf.rebuild_account_memory(campaign["slug"])
+        report = cf.domains.account_memory.rebuild_account_memory(campaign["slug"])
 
         assert report["accountCount"] == 1
         assert report["snapshotCount"] == 1
         assert [row["accountId"] for row in report["accounts"]] == ["ig_eligible"]
         assert (
-            cf.account_memory(campaign["slug"], account="ig_poison")["accounts"] == []
+            cf.domains.account_memory.account_memory(
+                campaign["slug"], account="ig_poison"
+            )["accounts"]
+            == []
         )
     finally:
         cf.close()
@@ -401,7 +420,7 @@ def test_account_memory_excludes_ineligible_accounts(tmp_path: Path) -> None:
 def test_creative_knowledge_excludes_pre_cutover_rows(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_creative", "instagram")
+        campaign = cf.domains.models.upsert_campaign("learning_creative", "instagram")
         insert_snapshot(
             cf,
             campaign_id=campaign["id"],
@@ -421,7 +440,7 @@ def test_creative_knowledge_excludes_pre_cutover_rows(tmp_path: Path) -> None:
         )
         cf.conn.commit()
 
-        report = cf.creative_knowledge_base(
+        report = cf.domains.creative_knowledge.creative_knowledge_base(
             creator="Stacey", campaign_slug=campaign["slug"], minimum_sample_size=1
         )
 
@@ -434,7 +453,7 @@ def test_creative_knowledge_excludes_pre_cutover_rows(tmp_path: Path) -> None:
 def test_winner_expansion_excludes_fallback_winners(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_winners", "instagram")
+        campaign = cf.domains.models.upsert_campaign("learning_winners", "instagram")
         insert_snapshot(
             cf,
             campaign_id=campaign["id"],
@@ -454,7 +473,9 @@ def test_winner_expansion_excludes_fallback_winners(tmp_path: Path) -> None:
         )
         cf.conn.commit()
 
-        report = cf.winner_expansion_report(campaign["slug"], min_views=1_000)
+        report = cf.domains.winner_expansion.winner_expansion_report(
+            campaign["slug"], min_views=1_000
+        )
 
         assert [row["postId"] for row in report["winners"]] == ["post_winner_eligible"]
     finally:
@@ -466,7 +487,7 @@ def test_variant_rollup_excludes_null_published_and_invalid_lineage_rows(
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        campaign = cf.upsert_campaign("learning_variants", "instagram")
+        campaign = cf.domains.models.upsert_campaign("learning_variants", "instagram")
         insert_snapshot(
             cf,
             campaign_id=campaign["id"],
@@ -497,7 +518,7 @@ def test_variant_rollup_excludes_null_published_and_invalid_lineage_rows(
         )
         cf.conn.commit()
 
-        report = cf.variant_metrics_rollup(campaign["slug"])
+        report = cf.domains.variant_lineage.variant_metrics_rollup(campaign["slug"])
 
         assert report["summary"]["variantsPosted"] == 1
         assert report["summary"]["totalViews"] == 100

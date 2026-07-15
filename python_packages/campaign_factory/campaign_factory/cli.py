@@ -934,29 +934,6 @@ def main() -> int:
     add_creative_kb_args(surface_comparison)
     recommendation_audit = sub.add_parser("recommendation-quality-audit")
     add_creative_kb_args(recommendation_audit)
-    tribev2_analysis = sub.add_parser("tribev2-reel-analysis")
-    add_creative_kb_args(tribev2_analysis)
-    tribev2_review = sub.add_parser("tribev2-reel-review")
-    tribev2_review.add_argument("--creator", required=True)
-    tribev2_review.add_argument("--campaign")
-    tribev2_review.add_argument(
-        "--sort-by",
-        default="meanAbsActivation",
-        choices=["meanAbsActivation", "peakAbsActivation", "stdActivation"],
-    )
-    tribev2_review.add_argument(
-        "--bucket", default="top", choices=["top", "bottom", "both"]
-    )
-    tribev2_review.add_argument("--limit", type=int, default=12)
-    tribev2_review.add_argument("--contact-sheet", action="store_true")
-    tribev2_review.add_argument("--show-metrics", action="store_true")
-    tribev2_review.add_argument("--hide-tribe-score", action="store_true")
-    tribev2_review.add_argument("--blind-mode", action="store_true")
-    tribev2_holdout = sub.add_parser("tribev2-holdout-pilot-review")
-    tribev2_holdout.add_argument("--creator", required=True)
-    tribev2_holdout.add_argument("--campaign")
-    tribev2_holdout.add_argument("--limit", type=int, default=20)
-    tribev2_holdout.add_argument("--contact-sheet", action="store_true")
     caption_repair = sub.add_parser("caption-quality-repair-plan")
     caption_repair.add_argument("--creator", required=True)
     caption_repair.add_argument("--campaign")
@@ -1749,7 +1726,7 @@ def main() -> int:
     try:
         if args.cmd == "daily-plan":
             print_json(
-                cf.creator_os_daily_plan(
+                cf.domains.daily_plan.creator_os_daily_plan(
                     creators=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                     schedule_plan=load_json_object(args.schedule_plan_json),
@@ -1769,7 +1746,7 @@ def main() -> int:
             return 0
         if args.cmd == "200-account-acceptance-suite":
             print_json(
-                cf.creator_os_200_account_acceptance_suite(
+                cf.domains.acceptance_suite.creator_os_200_account_acceptance_suite(
                     accounts=args.accounts,
                     creators=args.creators,
                     daily_obligations=args.daily_obligations,
@@ -1800,7 +1777,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-slo-report":
             print_json(
-                cf.inventory_slo_report(
+                cf.domains.inventory_planning.inventory_slo_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     creators=args.creators,
@@ -1811,7 +1788,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-buffer-report":
             print_json(
-                cf.inventory_buffer_report(
+                cf.domains.inventory_planning.inventory_buffer_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     creators=args.creators,
@@ -1822,7 +1799,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-factory-audit":
             print_json(
-                cf.inventory_factory_audit(
+                cf.domains.inventory_planning.inventory_factory_audit(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     accounts=args.accounts,
@@ -1832,7 +1809,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-yield-analysis":
             print_json(
-                cf.inventory_yield_analysis(
+                cf.domains.inventory_planning.inventory_yield_analysis(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
@@ -1840,7 +1817,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-buffer-policy-plan":
             print_json(
-                cf.inventory_buffer_policy_plan(
+                cf.domains.inventory_planning.inventory_buffer_policy_plan(
                     creator=args.creator,
                     surface=args.surface,
                     daily_demand=args.daily_demand,
@@ -1851,7 +1828,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-slo-enforcement-audit":
             print_json(
-                cf.inventory_slo_enforcement_audit(
+                cf.domains.inventory_planning.inventory_slo_enforcement_audit(
                     creators=args.creator,
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
@@ -1861,7 +1838,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-consumption-simulation":
             print_json(
-                cf.inventory_consumption_simulation(
+                cf.domains.inventory_planning.inventory_consumption_simulation(
                     available_inventory=args.available_inventory,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                 )
@@ -1869,7 +1846,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-production-requirements":
             print_json(
-                cf.inventory_production_requirements(
+                cf.domains.inventory_planning.inventory_production_requirements(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                 )
@@ -1877,14 +1854,14 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-exception-audit":
             print_json(
-                cf.inventory_exception_audit(
+                cf.domains.inventory_planning.inventory_exception_audit(
                     execution_readiness=load_json_object(args.execution_readiness_json),
                 )
             )
             return 0
         if args.cmd == "inventory-factory-readiness-report":
             print_json(
-                cf.inventory_factory_readiness_report(
+                cf.domains.inventory_planning.inventory_factory_readiness_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     available_inventory=args.available_inventory,
@@ -1894,7 +1871,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-factory-master-report":
             print_json(
-                cf.inventory_factory_master_report(
+                cf.domains.inventory_planning.inventory_factory_master_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     available_inventory=args.available_inventory,
@@ -1904,7 +1881,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-autopilot-plan":
             print_json(
-                cf.inventory_autopilot_plan(
+                cf.domains.inventory_planning.inventory_autopilot_plan(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     available_inventory=args.available_inventory,
@@ -1915,7 +1892,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-shortage-repair-plan":
             print_json(
-                cf.inventory_shortage_repair_plan(
+                cf.domains.inventory_planning.inventory_shortage_repair_plan(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     available_inventory=args.available_inventory,
@@ -1926,7 +1903,7 @@ def main() -> int:
             return 0
         if args.cmd == "inventory-buffer-protection-report":
             print_json(
-                cf.inventory_buffer_protection_report(
+                cf.domains.inventory_planning.inventory_buffer_protection_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                     available_inventory=args.available_inventory,
@@ -1936,123 +1913,151 @@ def main() -> int:
             )
             return 0
         if args.cmd == "road-to-200-accounts":
-            print_json(cf.road_to_200_accounts())
+            print_json(cf.domains.inventory_planning.road_to_200_accounts())
             return 0
         if args.cmd == "reel-factory-parent-throughput-proof":
             print_json(
-                cf.reel_factory_parent_throughput_proof(
+                cf.domains.reel_factory_reports.reel_factory_parent_throughput_proof(
                     required_parents_per_day=args.required_parents_per_day,
                     lookback_days=args.lookback_days,
                 )
             )
             return 0
         if args.cmd == "reel-factory-yield-analysis":
-            print_json(cf.reel_factory_yield_analysis())
+            print_json(cf.domains.reel_factory_reports.reel_factory_yield_analysis())
             return 0
         if args.cmd == "reel-factory-failure-analysis":
-            print_json(cf.reel_factory_failure_analysis())
+            print_json(cf.domains.reel_factory_reports.reel_factory_failure_analysis())
             return 0
         if args.cmd == "reel-factory-capacity-model":
             print_json(
-                cf.reel_factory_capacity_model(
+                cf.domains.reel_factory_reports.reel_factory_capacity_model(
                     required_parents_per_day=args.required_parents_per_day,
                 )
             )
             return 0
         if args.cmd == "reel-factory-200-account-readiness":
-            print_json(cf.reel_factory_200_account_readiness())
+            print_json(
+                cf.domains.reel_factory_reports.reel_factory_200_account_readiness()
+            )
             return 0
         if args.cmd == "reel-factory-master-report":
-            print_json(cf.reel_factory_master_report())
+            print_json(cf.domains.reel_factory_reports.reel_factory_master_report())
             return 0
         if args.cmd == "parent-factory-yield-waterfall":
             print_json(
-                cf.parent_factory_yield_waterfall(
+                cf.domains.parent_factory_reports.parent_factory_yield_waterfall(
                     required_parents_per_day=args.required_parents_per_day,
                 )
             )
             return 0
         if args.cmd == "parent-factory-loss-analysis":
             print_json(
-                cf.parent_factory_loss_analysis(
+                cf.domains.parent_factory_reports.parent_factory_loss_analysis(
                     required_parents_per_day=args.required_parents_per_day,
                 )
             )
             return 0
         if args.cmd == "parent-factory-rejection-report":
-            print_json(cf.parent_factory_rejection_report())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_rejection_report()
+            )
             return 0
         if args.cmd == "parent-factory-discoverability-loss-analysis":
-            print_json(cf.parent_factory_discoverability_loss_analysis())
+            print_json(
+                cf.domains.discoverability.parent_factory_discoverability_loss_analysis()
+            )
             return 0
         if args.cmd == "discoverability-intake-gate":
             print_json(
-                cf.discoverability_intake_gate(
+                cf.domains.discoverability.discoverability_intake_gate(
                     load_json_object(args.payload_json) or {}
                 )
             )
             return 0
         if args.cmd == "discoverability-generation-gate":
             print_json(
-                cf.discoverability_generation_gate(
+                cf.domains.discoverability.discoverability_generation_gate(
                     load_json_object(args.payload_json) or {}
                 )
             )
             return 0
         if args.cmd == "discoverability-pre-render-gate":
             print_json(
-                cf.discoverability_pre_render_gate(
+                cf.domains.discoverability.discoverability_pre_render_gate(
                     load_json_object(args.payload_json) or {}
                 )
             )
             return 0
         if args.cmd == "discoverability-violation-origin-map":
-            print_json(cf.discoverability_violation_origin_map())
+            print_json(
+                cf.domains.discoverability.discoverability_violation_origin_map()
+            )
             return 0
         if args.cmd == "parent-factory-recoverable-yield":
-            print_json(cf.parent_factory_recoverable_yield())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_recoverable_yield()
+            )
             return 0
         if args.cmd == "parent-factory-throughput-recovery-plan":
-            print_json(cf.parent_factory_throughput_recovery_plan())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_throughput_recovery_plan()
+            )
             return 0
         if args.cmd == "parent-factory-53-parent-feasibility":
-            print_json(cf.parent_factory_53_parent_feasibility())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_53_parent_feasibility()
+            )
             return 0
         if args.cmd == "parent-factory-secondary-loss-analysis":
-            print_json(cf.parent_factory_secondary_loss_analysis())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_secondary_loss_analysis()
+            )
             return 0
         if args.cmd == "parent-factory-waterfall-after-discoverability":
-            print_json(cf.parent_factory_waterfall_after_discoverability())
+            print_json(
+                cf.domains.discoverability.parent_factory_waterfall_after_discoverability()
+            )
             return 0
         if args.cmd == "parent-factory-true-yield-model":
-            print_json(cf.parent_factory_true_yield_model())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_true_yield_model()
+            )
             return 0
         if args.cmd == "parent-factory-realistic-53-parent-plan":
-            print_json(cf.parent_factory_realistic_53_parent_plan())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_realistic_53_parent_plan()
+            )
             return 0
         if args.cmd == "capture-publishability-rejection-evidence":
-            print_json(cf.capture_publishability_rejection_evidence(args.asset_id))
+            print_json(
+                cf.domains.publishability.capture_publishability_rejection_evidence(
+                    args.asset_id
+                )
+            )
             return 0
         if args.cmd == "parent-factory-quality-gate-analysis":
-            print_json(cf.parent_factory_quality_gate_analysis())
+            print_json(
+                cf.domains.parent_factory_reports.parent_factory_quality_gate_analysis()
+            )
             return 0
         if args.cmd == "parent-factory-optimization-plan":
             print_json(
-                cf.parent_factory_optimization_plan(
+                cf.domains.parent_factory_reports.parent_factory_optimization_plan(
                     required_parents_per_day=args.required_parents_per_day,
                 )
             )
             return 0
         if args.cmd == "parent-factory-master-optimization-report":
             print_json(
-                cf.parent_factory_master_optimization_report(
+                cf.domains.parent_factory_reports.parent_factory_master_optimization_report(
                     required_parents_per_day=args.required_parents_per_day,
                 )
             )
             return 0
         if args.cmd == "parent-factory-autopilot-plan":
             print_json(
-                cf.parent_factory_autopilot_plan(
+                cf.domains.parent_factory_planning.parent_factory_autopilot_plan(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                 )
@@ -2060,7 +2065,7 @@ def main() -> int:
             return 0
         if args.cmd == "parent-factory-shortfall-report":
             print_json(
-                cf.parent_factory_shortfall_report(
+                cf.domains.parent_factory_planning.parent_factory_shortfall_report(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                 )
@@ -2068,7 +2073,7 @@ def main() -> int:
             return 0
         if args.cmd == "parent-factory-production-targets":
             print_json(
-                cf.parent_factory_production_targets(
+                cf.domains.parent_factory_planning.parent_factory_production_targets(
                     accounts=args.accounts,
                     posts_per_account_per_day=args.posts_per_account_per_day,
                 )
@@ -2076,7 +2081,7 @@ def main() -> int:
             return 0
         if args.cmd == "exception-queue-report":
             print_json(
-                cf.exception_queue_report(
+                cf.domains.exceptions.exception_queue_report(
                     daily_plan=load_json_object(args.daily_plan_json),
                     execution_readiness=load_json_object(args.execution_readiness_json),
                 )
@@ -2084,7 +2089,7 @@ def main() -> int:
             return 0
         if args.cmd == "exception-queue-summary":
             print_json(
-                cf.exception_queue_summary(
+                cf.domains.exceptions.exception_queue_summary(
                     daily_plan=load_json_object(args.daily_plan_json),
                     execution_readiness=load_json_object(args.execution_readiness_json),
                 )
@@ -2092,7 +2097,7 @@ def main() -> int:
             return 0
         if args.cmd == "exception-queue-priority-report":
             print_json(
-                cf.exception_queue_priority_report(
+                cf.domains.exceptions.exception_queue_priority_report(
                     daily_plan=load_json_object(args.daily_plan_json),
                     execution_readiness=load_json_object(args.execution_readiness_json),
                 )
@@ -2100,51 +2105,51 @@ def main() -> int:
             return 0
         if args.cmd == "exception-queue-owner-report":
             print_json(
-                cf.exception_queue_owner_report(
+                cf.domains.exceptions.exception_queue_owner_report(
                     daily_plan=load_json_object(args.daily_plan_json),
                     execution_readiness=load_json_object(args.execution_readiness_json),
                 )
             )
             return 0
         if args.cmd == "failure-injection-suite":
-            print_json(cf.failure_injection_suite())
+            print_json(cf.domains.operational_proofs.failure_injection_suite())
             return 0
         if args.cmd == "idempotency-proof":
-            print_json(cf.idempotency_proof())
+            print_json(cf.domains.operational_proofs.idempotency_proof())
             return 0
         if args.cmd == "surface-maturity-audit":
-            print_json(cf.surface_maturity_audit())
+            print_json(cf.domains.operational_proofs.surface_maturity_audit())
             return 0
         if args.cmd == "surface-readiness-scorecard":
-            print_json(cf.surface_readiness_scorecard())
+            print_json(cf.domains.readiness_report.surface_readiness_scorecard())
             return 0
         if args.cmd == "operator-load-audit":
-            print_json(cf.operator_load_audit())
+            print_json(cf.domains.operational_proofs.operator_load_audit())
             return 0
         if args.cmd == "single-source-of-truth-audit":
-            print_json(cf.single_source_of_truth_audit())
+            print_json(cf.domains.core_complexity.single_source_of_truth_audit())
             return 0
         if args.cmd == "core-complexity-reduction-plan":
-            print_json(cf.core_complexity_reduction_plan())
+            print_json(cf.domains.core_complexity.core_complexity_reduction_plan())
             return 0
         if args.cmd == "creator-os-100-account-proof":
-            print_json(cf.creator_os_100_account_proof())
+            print_json(cf.domains.readiness_report.creator_os_100_account_proof())
             return 0
         if args.cmd == "creator-os-volume-acceptance-suite":
-            print_json(cf.creator_os_volume_acceptance_suite())
+            print_json(cf.domains.readiness_report.creator_os_volume_acceptance_suite())
             return 0
         if args.cmd == "creator-os-9.5-readiness-report":
-            print_json(cf.creator_os_9_5_readiness_report())
+            print_json(cf.domains.readiness_report.creator_os_9_5_readiness_report())
             return 0
         if args.cmd == "creator-os-10.0-readiness-report":
-            print_json(cf.creator_os_10_0_readiness_report())
+            print_json(cf.domains.readiness_report.creator_os_10_0_readiness_report())
             return 0
         if args.cmd == "creator-os-live-100-account-readiness":
-            print_json(cf.creator_os_live_100_account_readiness())
+            print_json(cf.domains.live_scale.creator_os_live_100_account_readiness())
             return 0
         if args.cmd == "creator-os-live-account-acceptance":
             print_json(
-                cf.creator_os_live_account_acceptance(
+                cf.domains.live_acceptance.creator_os_live_account_acceptance(
                     account_target=args.account_target,
                     content_surface=args.content_surface,
                 )
@@ -2152,7 +2157,7 @@ def main() -> int:
             return 0
         if args.cmd == "creator-os-staged-live-acceptance":
             print_json(
-                cf.creator_os_staged_live_acceptance(
+                cf.domains.live_acceptance.creator_os_staged_live_acceptance(
                     content_surface=args.content_surface
                 )
             )
@@ -2172,68 +2177,82 @@ def main() -> int:
             )
             return 0
         if args.cmd == "creator-os-live-scale-runbook":
-            print_json(cf.creator_os_live_scale_runbook())
+            print_json(cf.domains.live_scale.creator_os_live_scale_runbook())
             return 0
         if args.cmd == "creator-os-live-scale-scorecard":
-            print_json(cf.creator_os_live_scale_scorecard())
+            print_json(cf.domains.live_scale.creator_os_live_scale_scorecard())
             return 0
         if args.cmd == "parent-factory-production-trial":
-            print_json(cf.parent_factory_production_trial())
+            print_json(
+                cf.domains.parent_factory_trials.parent_factory_production_trial()
+            )
             return 0
         if args.cmd == "parent-factory-production-scorecard":
-            print_json(cf.parent_factory_production_scorecard())
+            print_json(
+                cf.domains.parent_factory_trials.parent_factory_production_scorecard()
+            )
             return 0
         if args.cmd == "parent-factory-real-yield-report":
-            print_json(cf.parent_factory_real_yield_report())
+            print_json(
+                cf.domains.parent_factory_trials.parent_factory_real_yield_report()
+            )
             return 0
         if args.cmd == "parent-factory-53-parent-trial":
-            print_json(cf.parent_factory_53_parent_trial())
+            print_json(
+                cf.domains.parent_factory_trials.parent_factory_53_parent_trial()
+            )
             return 0
         if args.cmd == "parent-factory-trial-results":
-            print_json(cf.parent_factory_trial_results())
+            print_json(cf.domains.parent_factory_trials.parent_factory_trial_results())
             return 0
         if args.cmd == "parent-factory-trial-analysis":
-            print_json(cf.parent_factory_trial_analysis())
+            print_json(cf.domains.parent_factory_trials.parent_factory_trial_analysis())
             return 0
         if args.cmd == "parent-factory-post-gate-fresh-batch-proof":
-            print_json(cf.parent_factory_post_gate_fresh_batch_proof())
+            print_json(
+                cf.domains.parent_factory_trials.parent_factory_post_gate_fresh_batch_proof()
+            )
             return 0
         if args.cmd == "discoverability-prevention-audit":
-            print_json(cf.discoverability_prevention_audit())
+            print_json(cf.domains.discoverability.discoverability_prevention_audit())
             return 0
         if args.cmd == "discoverability-prevention-scorecard":
-            print_json(cf.discoverability_prevention_scorecard())
+            print_json(
+                cf.domains.discoverability.discoverability_prevention_scorecard()
+            )
             return 0
         if args.cmd == "story-certification-proof":
             print_json(
-                cf.story_certification_proof(rendered_asset_id=args.rendered_asset_id)
+                cf.domains.story_management.story_certification_proof(
+                    rendered_asset_id=args.rendered_asset_id
+                )
             )
             return 0
         if args.cmd == "story-production-readiness":
-            print_json(cf.story_production_readiness())
+            print_json(cf.domains.story_management.story_production_readiness())
             return 0
         if args.cmd == "story-proof-gap-analysis":
-            print_json(cf.story_proof_gap_analysis())
+            print_json(cf.domains.story_management.story_proof_gap_analysis())
             return 0
         if args.cmd == "carousel-certification-proof":
             print_json(
-                cf.carousel_certification_proof(
+                cf.domains.carousel_integrity.carousel_certification_proof(
                     rendered_asset_id=args.rendered_asset_id
                 )
             )
             return 0
         if args.cmd == "carousel-production-readiness":
-            print_json(cf.carousel_production_readiness())
+            print_json(cf.domains.carousel_integrity.carousel_production_readiness())
             return 0
         if args.cmd == "carousel-proof-gap-analysis":
-            print_json(cf.carousel_proof_gap_analysis())
+            print_json(cf.domains.carousel_integrity.carousel_proof_gap_analysis())
             return 0
         if args.cmd == "creator-os-certification-report":
-            print_json(cf.creator_os_certification_report())
+            print_json(cf.domains.certification.creator_os_certification_report())
             return 0
         if args.cmd == "draft-inventory-gap":
             print_json(
-                cf.creator_os_draft_inventory_gap(
+                cf.domains.draft_inventory_gap.creator_os_draft_inventory_gap(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                     schedule_plan=load_json_object(args.schedule_plan_json),
@@ -2243,7 +2262,7 @@ def main() -> int:
             return 0
         if args.cmd == "execution-readiness":
             print_json(
-                cf.creator_os_execution_readiness(
+                cf.domains.execution_readiness.creator_os_execution_readiness(
                     creator=args.creator,
                     requested_count=args.requested_count,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
@@ -2254,7 +2273,7 @@ def main() -> int:
             return 0
         if args.cmd == "account-tiers":
             print_json(
-                cf.creator_os_account_tiers(
+                cf.domains.account_health.creator_os_account_tiers(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                 )
@@ -2262,7 +2281,7 @@ def main() -> int:
             return 0
         if args.cmd == "account-health-report":
             print_json(
-                cf.creator_os_account_health_report(
+                cf.domains.account_health.creator_os_account_health_report(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                 )
@@ -2270,7 +2289,7 @@ def main() -> int:
             return 0
         if args.cmd == "restricted-account-report":
             print_json(
-                cf.creator_os_restricted_account_report(
+                cf.domains.account_health.creator_os_restricted_account_report(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                 )
@@ -2278,7 +2297,7 @@ def main() -> int:
             return 0
         if args.cmd == "manual-review-queue":
             print_json(
-                cf.creator_os_manual_review_queue(
+                cf.domains.account_health.creator_os_manual_review_queue(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                 )
@@ -2286,7 +2305,7 @@ def main() -> int:
             return 0
         if args.cmd == "account-warmup-report":
             print_json(
-                cf.creator_os_account_warmup_report(
+                cf.domains.account_health.creator_os_account_warmup_report(
                     creator=args.creator,
                     threadsdash_report=load_json_object(args.threadsdash_report_json),
                 )
@@ -2304,7 +2323,7 @@ def main() -> int:
                 if isinstance(raw_posts, list):
                     posts = [item for item in raw_posts if isinstance(item, dict)]
             print_json(
-                cf.creator_os_lifecycle_dashboard(
+                cf.domains.lifecycle_reporting.creator_os_lifecycle_dashboard(
                     campaign=args.campaign,
                     user_id=args.user_id,
                     threadsdash_posts=posts,
@@ -2314,7 +2333,7 @@ def main() -> int:
             return 0
         if args.cmd == "creator-surface-summary":
             print_json(
-                cf.creator_surface_summary(
+                cf.domains.surface_summary.creator_surface_summary(
                     creator=args.creator,
                     date=args.date,
                 )
@@ -2322,7 +2341,7 @@ def main() -> int:
             return 0
         if args.cmd == "account-surface-summary":
             print_json(
-                cf.account_surface_summary(
+                cf.domains.surface_summary.account_surface_summary(
                     creator=args.creator,
                     date=args.date,
                     account_id=args.account_id,
@@ -2331,7 +2350,7 @@ def main() -> int:
             return 0
         if args.cmd == "creator-surface-gap-report":
             print_json(
-                cf.creator_surface_gap_report(
+                cf.domains.surface_summary.creator_surface_gap_report(
                     creator=args.creator,
                     date=args.date,
                 )
@@ -2406,7 +2425,7 @@ def main() -> int:
                 print_json(audit_learning_cohort(cf.conn))
         elif args.cmd == "import-folder":
             print_json(
-                cf.import_folder(
+                cf.domains.asset_import.import_folder(
                     Path(args.folder),
                     campaign_slug=args.campaign,
                     model_slug=args.model,
@@ -2420,7 +2439,7 @@ def main() -> int:
             )
         elif args.cmd == "prepare-reel":
             print_json(
-                cf.prepare_reel_inputs(
+                cf.domains.reel_execution.prepare_reel_inputs(
                     campaign_slug=args.campaign,
                     hooks=load_hooks(args.hooks, args.hook),
                     recipes=args.recipes,
@@ -2432,7 +2451,7 @@ def main() -> int:
             )
         elif args.cmd == "run-reel":
             print_json(
-                cf.run_reel_factory(
+                cf.domains.reel_execution.run_reel_factory(
                     campaign_slug=args.campaign,
                     workers=args.workers,
                     library_root=args.library_root,
@@ -2451,7 +2470,7 @@ def main() -> int:
             )
         elif args.cmd == "sync-reel":
             print_json(
-                cf.sync_reel_outputs(
+                cf.domains.reel_execution.sync_reel_outputs(
                     campaign_slug=args.campaign,
                     render_job_ids=args.render_job_id or None,
                 )
@@ -2545,7 +2564,7 @@ def main() -> int:
             )
         elif args.cmd == "approve":
             print_json(
-                cf.approve_rendered_asset(
+                cf.domains.finished_video.approve_rendered_asset(
                     args.rendered_asset_id,
                     notes=args.notes,
                     require_safe_audit=not args.force_unsafe_audit,
@@ -2553,7 +2572,7 @@ def main() -> int:
             )
         elif args.cmd == "review-decision":
             print_json(
-                cf.review_rendered_asset(
+                cf.domains.finished_video.review_rendered_asset(
                     args.rendered_asset_id,
                     decision=args.decision,
                     notes=args.notes,
@@ -2562,7 +2581,7 @@ def main() -> int:
             )
         elif args.cmd == "attest-publishability":
             print_json(
-                cf.attest_publishability_evidence(
+                cf.domains.finished_video.attest_publishability_evidence(
                     args.rendered_asset_id,
                     instagram_post_caption=args.instagram_post_caption,
                     visual_qc_status=args.visual_qc_status,
@@ -2694,7 +2713,7 @@ def main() -> int:
                 )
             )
         elif args.cmd == "supabase-preflight":
-            pipeline_job = cf.create_pipeline_job(
+            pipeline_job = cf.domains.events.create_pipeline_job(
                 "supabase_preflight",
                 None,
                 {
@@ -2703,7 +2722,7 @@ def main() -> int:
                     "supabaseStorageBucket": args.supabase_storage_bucket,
                 },
             )
-            cf.start_pipeline_job(pipeline_job["id"])
+            cf.domains.events.start_pipeline_job(pipeline_job["id"])
             try:
                 result = preflight_supabase(
                     supabase_url=args.supabase_url,
@@ -2711,7 +2730,7 @@ def main() -> int:
                     supabase_storage_bucket=args.supabase_storage_bucket,
                 )
                 result["pipelineJobId"] = pipeline_job["id"]
-                cf.record_event(
+                cf.domains.events.record_event(
                     "supabase_preflight_checked",
                     pipeline_job_id=pipeline_job["id"],
                     status="success" if result["ok"] else "failure",
@@ -2722,7 +2741,7 @@ def main() -> int:
                     },
                 )
                 if result["ok"]:
-                    cf.finish_pipeline_job(
+                    cf.domains.events.finish_pipeline_job(
                         pipeline_job["id"],
                         {
                             "ok": result["ok"],
@@ -2730,7 +2749,7 @@ def main() -> int:
                         },
                     )
                 else:
-                    cf.fail_pipeline_job(
+                    cf.domains.events.fail_pipeline_job(
                         pipeline_job["id"],
                         "Supabase preflight failed",
                         {
@@ -2748,23 +2767,23 @@ def main() -> int:
                     "blockingReasons": [str(exc)],
                     "pipelineJobId": pipeline_job["id"],
                 }
-                cf.record_event(
+                cf.domains.events.record_event(
                     "supabase_preflight_checked",
                     pipeline_job_id=pipeline_job["id"],
                     status="failure",
                     message=f"Supabase preflight failed: {exc}",
                     metadata={"error": str(exc)},
                 )
-                cf.fail_pipeline_job(pipeline_job["id"], str(exc))
+                cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
                 print_json(result)
                 return 1
         elif args.cmd == "verify-threadsdash-export":
-            pipeline_job = cf.create_pipeline_job(
+            pipeline_job = cf.domains.events.create_pipeline_job(
                 "verify_threadsdash_export",
                 None,
                 {"exportManifest": args.export_manifest},
             )
-            cf.start_pipeline_job(pipeline_job["id"])
+            cf.domains.events.start_pipeline_job(pipeline_job["id"])
             try:
                 result = verify_threadsdash_export(
                     export_result_or_path=Path(args.export_manifest),
@@ -2772,7 +2791,7 @@ def main() -> int:
                     supabase_service_role_key=args.supabase_service_role_key,
                 )
                 result["pipelineJobId"] = pipeline_job["id"]
-                cf.record_event(
+                cf.domains.events.record_event(
                     "threadsdash_export_verified",
                     pipeline_job_id=pipeline_job["id"],
                     status="success" if result["ok"] else "failure",
@@ -2785,7 +2804,7 @@ def main() -> int:
                     },
                 )
                 if result["ok"]:
-                    cf.finish_pipeline_job(
+                    cf.domains.events.finish_pipeline_job(
                         pipeline_job["id"],
                         {
                             "ok": result["ok"],
@@ -2794,7 +2813,7 @@ def main() -> int:
                         },
                     )
                 else:
-                    cf.fail_pipeline_job(
+                    cf.domains.events.fail_pipeline_job(
                         pipeline_job["id"],
                         "ThreadsDash export verification failed",
                         {
@@ -2805,14 +2824,14 @@ def main() -> int:
                     )
                 print_json(result)
             except Exception as exc:
-                cf.record_event(
+                cf.domains.events.record_event(
                     "threadsdash_export_verified",
                     pipeline_job_id=pipeline_job["id"],
                     status="failure",
                     message=f"ThreadsDash export verification failed: {exc}",
                     metadata={"error": str(exc)},
                 )
-                cf.fail_pipeline_job(pipeline_job["id"], str(exc))
+                cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
                 raise
         elif args.cmd == "threadsdash-usage":
             print_json(
@@ -2848,24 +2867,26 @@ def main() -> int:
                 )
             )
         elif args.cmd == "performance-summary":
-            print_json(cf.performance_summary(args.campaign))
+            print_json(
+                cf.domains.performance_summary_repo.performance_summary(args.campaign)
+            )
         elif args.cmd == "multi-surface-inventory-audit":
             print_json(
-                cf.multi_surface_inventory_audit(
+                cf.domains.surface_inventory.multi_surface_inventory_audit(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
             )
         elif args.cmd == "account-surface-obligations-plan":
             print_json(
-                cf.account_surface_obligations_plan(
+                cf.domains.surface_requirements.account_surface_obligations_plan(
                     creator=args.creator,
                     date=args.date,
                 )
             )
         elif args.cmd == "account-content-needs":
             print_json(
-                cf.account_content_needs(
+                cf.domains.surface_requirements.account_content_needs(
                     account_id=args.account_id,
                     creator=args.creator,
                     date=args.date,
@@ -2873,7 +2894,7 @@ def main() -> int:
             )
         elif args.cmd == "account-surface-status":
             print_json(
-                cf.account_surface_status(
+                cf.domains.surface_requirements.account_surface_status(
                     account_id=args.account_id,
                     creator=args.creator,
                     date=args.date,
@@ -2881,14 +2902,14 @@ def main() -> int:
             )
         elif args.cmd == "creator-content-needs":
             print_json(
-                cf.creator_content_needs(
+                cf.domains.surface_requirements.creator_content_needs(
                     creator=args.creator,
                     date=args.date,
                 )
             )
         elif args.cmd == "surface-gap-report":
             print_json(
-                cf.surface_gap_report(
+                cf.domains.surface_requirements.surface_gap_report(
                     creator=args.creator,
                     date=args.date,
                 )
@@ -2909,13 +2930,27 @@ def main() -> int:
                 "buffer_days": args.buffer_days,
             }
             if args.cmd == "inventory-recovery-report":
-                print_json(cf.inventory_recovery_report(**payload))
+                print_json(
+                    cf.domains.inventory_recovery.inventory_recovery_report(**payload)
+                )
             elif args.cmd == "inventory-recovery-priority-report":
-                print_json(cf.inventory_recovery_priority_report(**payload))
+                print_json(
+                    cf.domains.inventory_recovery.inventory_recovery_priority_report(
+                        **payload
+                    )
+                )
             elif args.cmd == "inventory-recovery-by-blocker":
-                print_json(cf.inventory_recovery_by_blocker(**payload))
+                print_json(
+                    cf.domains.inventory_recovery.inventory_recovery_by_blocker(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.inventory_recovery_master_report(**payload))
+                print_json(
+                    cf.domains.inventory_recovery.inventory_recovery_master_report(
+                        **payload
+                    )
+                )
         elif args.cmd in {
             "schedule-safe-production-report",
             "schedule-safe-production-waterfall",
@@ -2932,15 +2967,35 @@ def main() -> int:
                 "current_inventory": args.current_inventory,
             }
             if args.cmd == "schedule-safe-production-report":
-                print_json(cf.schedule_safe_production_report(**payload))
+                print_json(
+                    cf.domains.schedule_safe_production.schedule_safe_production_report(
+                        **payload
+                    )
+                )
             elif args.cmd == "schedule-safe-production-waterfall":
-                print_json(cf.schedule_safe_production_waterfall(**payload))
+                print_json(
+                    cf.domains.schedule_safe_production.schedule_safe_production_waterfall(
+                        **payload
+                    )
+                )
             elif args.cmd == "schedule-safe-production-loss-analysis":
-                print_json(cf.schedule_safe_production_loss_analysis(**payload))
+                print_json(
+                    cf.domains.schedule_safe_production.schedule_safe_production_loss_analysis(
+                        **payload
+                    )
+                )
             elif args.cmd == "schedule-safe-production-capacity-model":
-                print_json(cf.schedule_safe_production_capacity_model(**payload))
+                print_json(
+                    cf.domains.schedule_safe_production.schedule_safe_production_capacity_model(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.schedule_safe_production_master_report(**payload))
+                print_json(
+                    cf.domains.schedule_safe_production.schedule_safe_production_master_report(
+                        **payload
+                    )
+                )
         elif args.cmd in {
             "contentforge-visual-qc-failure-report",
             "contentforge-visual-qc-loss-analysis",
@@ -2957,15 +3012,35 @@ def main() -> int:
                 "current_inventory": args.current_inventory,
             }
             if args.cmd == "contentforge-visual-qc-failure-report":
-                print_json(cf.contentforge_visual_qc_failure_report(**payload))
+                print_json(
+                    cf.domains.contentforge_visual_qc.contentforge_visual_qc_failure_report(
+                        **payload
+                    )
+                )
             elif args.cmd == "contentforge-visual-qc-loss-analysis":
-                print_json(cf.contentforge_visual_qc_loss_analysis(**payload))
+                print_json(
+                    cf.domains.contentforge_visual_qc.contentforge_visual_qc_loss_analysis(
+                        **payload
+                    )
+                )
             elif args.cmd == "contentforge-visual-qc-waterfall":
-                print_json(cf.contentforge_visual_qc_waterfall(**payload))
+                print_json(
+                    cf.domains.contentforge_visual_qc.contentforge_visual_qc_waterfall(
+                        **payload
+                    )
+                )
             elif args.cmd == "contentforge-visual-qc-repair-plan":
-                print_json(cf.contentforge_visual_qc_repair_plan(**payload))
+                print_json(
+                    cf.domains.contentforge_visual_qc.contentforge_visual_qc_repair_plan(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.contentforge_visual_qc_master_report(**payload))
+                print_json(
+                    cf.domains.contentforge_visual_qc.contentforge_visual_qc_master_report(
+                        **payload
+                    )
+                )
         elif args.cmd in {
             "multi-blocker-inventory-unlock-report",
             "multi-blocker-inventory-unlock-plan",
@@ -2980,13 +3055,29 @@ def main() -> int:
                 "current_inventory": args.current_inventory,
             }
             if args.cmd == "multi-blocker-inventory-unlock-report":
-                print_json(cf.multi_blocker_inventory_unlock_report(**payload))
+                print_json(
+                    cf.domains.multi_blocker_unlock.multi_blocker_inventory_unlock_report(
+                        **payload
+                    )
+                )
             elif args.cmd == "multi-blocker-inventory-unlock-plan":
-                print_json(cf.multi_blocker_inventory_unlock_plan(**payload))
+                print_json(
+                    cf.domains.multi_blocker_unlock.multi_blocker_inventory_unlock_plan(
+                        **payload
+                    )
+                )
             elif args.cmd == "inventory-unlock-minimal-fix-set":
-                print_json(cf.inventory_unlock_minimal_fix_set(**payload))
+                print_json(
+                    cf.domains.multi_blocker_unlock.inventory_unlock_minimal_fix_set(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.inventory_unlock_master_report(**payload))
+                print_json(
+                    cf.domains.multi_blocker_unlock.inventory_unlock_master_report(
+                        **payload
+                    )
+                )
         elif args.cmd in {
             "operator-inventory-review-batch-plan",
             "operator-inventory-review-batch-summary",
@@ -3001,9 +3092,17 @@ def main() -> int:
                 "max_batch_size": args.max_batch_size,
             }
             if args.cmd == "operator-inventory-review-batch-plan":
-                print_json(cf.operator_inventory_review_batch_plan(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_inventory_review_batch_plan(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.operator_inventory_review_batch_summary(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_inventory_review_batch_summary(
+                        **payload
+                    )
+                )
         elif args.cmd in {
             "operator-review-simulator",
             "operator-review-scenarios",
@@ -3019,15 +3118,29 @@ def main() -> int:
                 "current_inventory": args.current_inventory,
             }
             if args.cmd == "operator-review-simulator":
-                print_json(cf.operator_review_simulator(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_review_simulator(**payload)
+                )
             elif args.cmd == "operator-review-scenarios":
-                print_json(cf.operator_review_scenarios(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_review_scenarios(**payload)
+                )
             elif args.cmd == "operator-review-efficiency-report":
-                print_json(cf.operator_review_efficiency_report(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_review_efficiency_report(
+                        **payload
+                    )
+                )
             elif args.cmd == "operator-review-minimum-certification-path":
-                print_json(cf.operator_review_minimum_certification_path(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_review_minimum_certification_path(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.operator_review_master_report(**payload))
+                print_json(
+                    cf.domains.operator_review.operator_review_master_report(**payload)
+                )
         elif args.cmd in {
             "fresh-schedule-safe-production-plan",
             "fresh-reel-production-batch-plan",
@@ -3044,89 +3157,121 @@ def main() -> int:
                 "batch_schedule_safe_target": args.batch_schedule_safe_target,
             }
             if args.cmd == "fresh-schedule-safe-production-plan":
-                print_json(cf.fresh_schedule_safe_production_plan(**payload))
+                print_json(
+                    cf.domains.fresh_reel_production.fresh_schedule_safe_production_plan(
+                        **payload
+                    )
+                )
             elif args.cmd == "fresh-reel-production-batch-plan":
-                print_json(cf.fresh_reel_production_batch_plan(**payload))
+                print_json(
+                    cf.domains.fresh_reel_production.fresh_reel_production_batch_plan(
+                        **payload
+                    )
+                )
             elif args.cmd == "fresh-reel-production-capacity-plan":
-                print_json(cf.fresh_reel_production_capacity_plan(**payload))
+                print_json(
+                    cf.domains.fresh_reel_production.fresh_reel_production_capacity_plan(
+                        **payload
+                    )
+                )
             else:
-                print_json(cf.fresh_reel_production_master_report(**payload))
+                print_json(
+                    cf.domains.fresh_reel_production.fresh_reel_production_master_report(
+                        **payload
+                    )
+                )
         elif args.cmd == "story-inventory-report":
             print_json(
-                cf.story_inventory_report(
+                cf.domains.story_management.story_inventory_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
             )
         elif args.cmd == "story-gap-report":
             print_json(
-                cf.story_gap_report(
+                cf.domains.story_management.story_gap_report(
                     creator=args.creator,
                     date=args.date,
                 )
             )
         elif args.cmd == "story-quality-report":
             print_json(
-                cf.story_quality_report(
+                cf.domains.story_management.story_quality_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
             )
         elif args.cmd == "story-intent-report":
             print_json(
-                cf.story_intent_report(
+                cf.domains.story_management.story_intent_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
             )
         elif args.cmd == "story-mix-plan":
             print_json(
-                cf.story_mix_plan(
+                cf.domains.story_management.story_mix_plan(
                     creator=args.creator,
                 )
             )
         elif args.cmd == "story-calendar-plan":
             print_json(
-                cf.story_calendar_plan(
+                cf.domains.story_management.story_calendar_plan(
                     creator=args.creator,
                 )
             )
         elif args.cmd == "story-intent-summary":
             print_json(
-                cf.story_intent_summary(
+                cf.domains.story_management.story_intent_summary(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                 )
             )
         elif args.cmd == "decision-ledger-preview":
-            print_json(cf.decision_ledger_preview(**decision_ledger_kwargs(args)))
+            print_json(
+                cf.domains.decision_ledger.decision_ledger_preview(
+                    **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-report":
-            print_json(cf.decision_ledger_report(**decision_ledger_kwargs(args)))
+            print_json(
+                cf.domains.decision_ledger.decision_ledger_report(
+                    **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-summary":
-            print_json(cf.decision_ledger_summary(**decision_ledger_kwargs(args)))
+            print_json(
+                cf.domains.decision_ledger.decision_ledger_summary(
+                    **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-by-creator":
-            print_json(cf.decision_ledger_by_creator(**decision_ledger_kwargs(args)))
+            print_json(
+                cf.domains.decision_ledger.decision_ledger_by_creator(
+                    **decision_ledger_kwargs(args)
+                )
+            )
         elif args.cmd == "decision-ledger-by-account":
             print_json(
-                cf.decision_ledger_by_account(
+                cf.domains.decision_ledger.decision_ledger_by_account(
                     account_id=args.account_id, **decision_ledger_kwargs(args)
                 )
             )
         elif args.cmd == "decision-ledger-by-surface":
             print_json(
-                cf.decision_ledger_by_surface(
+                cf.domains.decision_ledger.decision_ledger_by_surface(
                     surface=args.surface, **decision_ledger_kwargs(args)
                 )
             )
         elif args.cmd == "decision-ledger-by-decision-type":
             print_json(
-                cf.decision_ledger_by_decision_type(
+                cf.domains.decision_ledger.decision_ledger_by_decision_type(
                     decision_type=args.decision_type, **decision_ledger_kwargs(args)
                 )
             )
         elif args.cmd == "account-story-status":
             print_json(
-                cf.account_story_status(
+                cf.domains.story_management.account_story_status(
                     account_id=args.account_id,
                     creator=args.creator,
                     date=args.date,
@@ -3134,14 +3279,14 @@ def main() -> int:
             )
         elif args.cmd == "creator-story-summary":
             print_json(
-                cf.creator_story_summary(
+                cf.domains.story_management.creator_story_summary(
                     creator=args.creator,
                     date=args.date,
                 )
             )
         elif args.cmd == "surface-handoff-readiness-report":
             print_json(
-                cf.surface_handoff_readiness_report(
+                cf.domains.surface_handoff.surface_handoff_readiness_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     rendered_asset_id=args.rendered_asset_id,
@@ -3149,7 +3294,7 @@ def main() -> int:
             )
         elif args.cmd == "surface-draft-proof":
             print_json(
-                cf.surface_draft_proof(
+                cf.domains.surface_handoff.surface_draft_proof(
                     creator=args.creator,
                     campaign=args.campaign,
                     rendered_asset_id=args.rendered_asset_id,
@@ -3157,7 +3302,7 @@ def main() -> int:
             )
         elif args.cmd == "carousel-integrity-report":
             print_json(
-                cf.carousel_integrity_report(
+                cf.domains.carousel_integrity.carousel_integrity_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     rendered_asset_id=args.rendered_asset_id,
@@ -3165,7 +3310,7 @@ def main() -> int:
             )
         elif args.cmd == "carousel-child-metrics-plan":
             print_json(
-                cf.carousel_child_metrics_plan(
+                cf.domains.carousel_integrity.carousel_child_metrics_plan(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     rendered_asset_id=args.rendered_asset_id,
@@ -3174,7 +3319,7 @@ def main() -> int:
         elif args.cmd == "register-surface-asset":
             inputs = [Path(item) for item in args.input]
             print_json(
-                cf.register_surface_asset(
+                cf.domains.surface_registration.register_surface_asset(
                     input_path=inputs if args.surface == "feed_carousel" else inputs[0],
                     surface=args.surface,
                     creator=args.creator,
@@ -3196,9 +3341,17 @@ def main() -> int:
                 )
             )
         elif args.cmd == "caption-outcome-report":
-            print_json(cf.caption_outcome_report(args.campaign))
+            print_json(
+                cf.domains.performance_summary_repo.caption_outcome_report(
+                    args.campaign
+                )
+            )
         elif args.cmd == "reference-outcome-report":
-            print_json(cf.reference_outcome_report(args.campaign))
+            print_json(
+                cf.domains.performance_summary_repo.reference_outcome_report(
+                    args.campaign
+                )
+            )
         elif args.cmd == "track-q-calibration-status":
             print_json(
                 track_q_calibration_status(
@@ -3211,7 +3364,7 @@ def main() -> int:
             )
         elif args.cmd == "lifecycle-report":
             print_json(
-                cf.lifecycle_report(
+                cf.domains.lifecycle_reporting.lifecycle_report(
                     args.campaign,
                     user_id=args.user_id,
                     include_threadsdash=args.include_threadsdash,
@@ -3222,7 +3375,7 @@ def main() -> int:
             )
         elif args.cmd == "explain-publishability":
             print_json(
-                cf.explain_publishability(
+                cf.domains.publishability.explain_publishability(
                     args.rendered_asset_id,
                     distribution_plan_id=args.distribution_plan_id,
                 )
@@ -3230,7 +3383,7 @@ def main() -> int:
         elif args.cmd == "register-parent-reel":
             metadata = json.loads(args.metadata_json) if args.metadata_json else None
             print_json(
-                cf.register_parent_reel(
+                cf.domains.variant_lineage.register_parent_reel(
                     args.rendered_asset_id,
                     operator=args.operator,
                     status=args.status,
@@ -3238,10 +3391,12 @@ def main() -> int:
                 )
             )
         elif args.cmd == "parent-variant-inventory":
-            print_json(cf.parent_variant_inventory(args.campaign))
+            print_json(
+                cf.domains.variant_lineage.parent_variant_inventory(args.campaign)
+            )
         elif args.cmd == "variant-plan":
             print_json(
-                cf.variant_plan(
+                cf.domains.variant_lineage.variant_plan(
                     parent_asset_id=args.parent_asset_id,
                     count=args.count,
                     contentforge_preset=args.contentforge_preset,
@@ -3250,7 +3405,7 @@ def main() -> int:
             )
         elif args.cmd == "generate-variants":
             if args.dry_run or not args.contentforge_base_url:
-                plan = cf.variant_plan(
+                plan = cf.domains.variant_lineage.variant_plan(
                     parent_asset_id=args.parent_asset_id,
                     caption_version_id=args.caption_version_id,
                     count=args.count,
@@ -3264,7 +3419,7 @@ def main() -> int:
                 print_json(plan)
             else:
                 print_json(
-                    cf.generate_variants(
+                    cf.domains.variant_lineage.generate_variants(
                         parent_asset_id=args.parent_asset_id,
                         caption_version_id=args.caption_version_id,
                         count=args.count,
@@ -3289,7 +3444,7 @@ def main() -> int:
             if not parent_asset_id:
                 raise ValueError("parentAssetId is required")
             print_json(
-                cf.winner_expansion_plan(
+                cf.domains.winner_expansion.winner_expansion_plan(
                     creator=args.creator or payload.get("creator"),
                     parent_asset_id=parent_asset_id,
                     target_variants=args.target_variants
@@ -3328,7 +3483,7 @@ def main() -> int:
             }
             if args.cmd == "caption-family-plan":
                 print_json(
-                    cf.caption_family_plan(
+                    cf.domains.caption_family.caption_family_plan(
                         **common,
                         dry_run=bool(
                             args.dry_run or payload.get("dryRun") is not False
@@ -3337,7 +3492,7 @@ def main() -> int:
                 )
             else:
                 print_json(
-                    cf.caption_family_create(
+                    cf.domains.caption_family.caption_family_create(
                         **common,
                         dry_run=bool(args.dry_run or payload.get("dryRun") is True),
                     )
@@ -3357,7 +3512,7 @@ def main() -> int:
             if not campaign:
                 raise ValueError("campaign is required")
             print_json(
-                cf.variant_inventory_plan(
+                cf.domains.winner_expansion.variant_inventory_plan(
                     creator=creator,
                     campaign=campaign,
                     target_draft_shortfall=(
@@ -3387,7 +3542,7 @@ def main() -> int:
             )
         elif args.cmd == "winner-expansion-report":
             print_json(
-                cf.winner_expansion_report(
+                cf.domains.winner_expansion.winner_expansion_report(
                     args.campaign,
                     min_views=args.min_views,
                     min_reach=args.min_reach,
@@ -3396,7 +3551,7 @@ def main() -> int:
             )
         elif args.cmd == "concept-registry":
             print_json(
-                cf.concept_registry(
+                cf.domains.creative_knowledge.concept_registry(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     min_views=args.min_views,
@@ -3406,7 +3561,7 @@ def main() -> int:
             )
         elif args.cmd == "winner-registry":
             print_json(
-                cf.winner_registry(
+                cf.domains.creative_knowledge.winner_registry(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     min_views=args.min_views,
@@ -3416,7 +3571,7 @@ def main() -> int:
             )
         elif args.cmd == "winner-patterns":
             print_json(
-                cf.winner_patterns(
+                cf.domains.creative_knowledge.winner_patterns(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     min_views=args.min_views,
@@ -3426,7 +3581,7 @@ def main() -> int:
             )
         elif args.cmd == "winner-knowledge-base":
             print_json(
-                cf.winner_knowledge_base(
+                cf.domains.creative_knowledge.winner_knowledge_base(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     min_views=args.min_views,
@@ -3436,7 +3591,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-knowledge-base":
             print_json(
-                cf.creative_knowledge_base(
+                cf.domains.creative_knowledge.creative_knowledge_base(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3445,7 +3600,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-pattern-report":
             print_json(
-                cf.creative_pattern_report(
+                cf.domains.creative_knowledge.creative_pattern_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3454,7 +3609,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-surface-report":
             print_json(
-                cf.creative_surface_report(
+                cf.domains.creative_knowledge.creative_surface_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3463,7 +3618,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-account-tier-report":
             print_json(
-                cf.creative_account_tier_report(
+                cf.domains.creative_knowledge.creative_account_tier_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3472,7 +3627,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-caption-report":
             print_json(
-                cf.creative_caption_report(
+                cf.domains.creative_knowledge.creative_caption_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3481,7 +3636,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-audio-report":
             print_json(
-                cf.creative_audio_report(
+                cf.domains.creative_knowledge.creative_audio_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3490,7 +3645,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-window-report":
             print_json(
-                cf.creative_window_report(
+                cf.domains.creative_knowledge.creative_window_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3499,7 +3654,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-performance-analysis":
             print_json(
-                cf.creative_performance_analysis(
+                cf.domains.creative_knowledge.creative_performance_analysis(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3508,7 +3663,7 @@ def main() -> int:
             )
         elif args.cmd == "creator-learning-summary":
             print_json(
-                cf.creator_learning_summary(
+                cf.domains.creative_knowledge.creator_learning_summary(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3517,7 +3672,7 @@ def main() -> int:
             )
         elif args.cmd == "next-content-recommendations":
             print_json(
-                cf.next_content_recommendations(
+                cf.domains.creative_knowledge.next_content_recommendations(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3526,7 +3681,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-learning-confidence-model":
             print_json(
-                cf.creative_learning_confidence_model(
+                cf.domains.creative_knowledge.creative_learning_confidence_model(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
@@ -3534,7 +3689,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-fatigue-report":
             print_json(
-                cf.creative_fatigue_report(
+                cf.domains.creative_knowledge.creative_fatigue_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     limit=args.limit,
@@ -3542,7 +3697,7 @@ def main() -> int:
             )
         elif args.cmd == "creative-surface-comparison-report":
             print_json(
-                cf.creative_surface_comparison_report(
+                cf.domains.creative_knowledge.creative_surface_comparison_report(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     limit=args.limit,
@@ -3550,50 +3705,16 @@ def main() -> int:
             )
         elif args.cmd == "recommendation-quality-audit":
             print_json(
-                cf.recommendation_quality_audit(
+                cf.domains.creative_knowledge.recommendation_quality_audit(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     minimum_sample_size=args.minimum_sample_size,
                     limit=args.limit,
-                )
-            )
-        elif args.cmd == "tribev2-reel-analysis":
-            print_json(
-                cf.tribev2_reel_analysis(
-                    creator=args.creator,
-                    campaign_slug=args.campaign,
-                    minimum_sample_size=args.minimum_sample_size,
-                    limit=args.limit,
-                )
-            )
-        elif args.cmd == "tribev2-reel-review":
-            print_json(
-                cf.tribev2_reel_review(
-                    creator=args.creator,
-                    campaign_slug=args.campaign,
-                    sort_by=args.sort_by,
-                    bucket=args.bucket,
-                    limit=args.limit,
-                    contact_sheet=args.contact_sheet,
-                    show_metrics=True
-                    if args.show_metrics or not args.blind_mode
-                    else False,
-                    show_tribe_score=not args.hide_tribe_score,
-                    blind_mode=args.blind_mode,
-                )
-            )
-        elif args.cmd == "tribev2-holdout-pilot-review":
-            print_json(
-                cf.tribev2_holdout_pilot_review(
-                    creator=args.creator,
-                    campaign_slug=args.campaign,
-                    limit=args.limit,
-                    contact_sheet=args.contact_sheet,
                 )
             )
         elif args.cmd == "caption-quality-repair-plan":
             print_json(
-                cf.caption_quality_repair_plan(
+                cf.domains.publishability.caption_quality_repair_plan(
                     creator=args.creator,
                     campaign_slug=args.campaign,
                     content_surface=args.content_surface,
@@ -3602,7 +3723,7 @@ def main() -> int:
             )
         elif args.cmd == "recommended-inventory-request-plan":
             print_json(
-                cf.recommended_inventory_request_plan(
+                cf.domains.recommended_inventory_request.recommended_inventory_request_plan(
                     creator=args.creator,
                     target_count=args.target_count,
                     daily_plan=load_json_object(args.daily_plan_json),
@@ -3612,7 +3733,7 @@ def main() -> int:
                 )
             )
         elif args.cmd == "variant-metrics-rollup":
-            print_json(cf.variant_metrics_rollup(args.campaign))
+            print_json(cf.domains.variant_lineage.variant_metrics_rollup(args.campaign))
         elif args.cmd == "account-routing-audit":
             if not args.supabase_url or not args.supabase_service_role_key:
                 print_json(
@@ -3675,14 +3796,20 @@ def main() -> int:
                 )
             )
         elif args.cmd == "campaign-health":
-            print_json(cf.campaign_health(args.campaign))
+            print_json(cf.domains.campaign_overview.campaign_health(args.campaign))
         elif args.cmd == "asset-detail":
-            print_json(cf.asset_detail(args.rendered_asset_id))
+            print_json(
+                cf.domains.campaign_overview.asset_detail(args.rendered_asset_id)
+            )
         elif args.cmd == "campaign-readiness":
-            print_json(cf.campaign_readiness(args.campaign, user_id=args.user_id))
+            print_json(
+                cf.domains.lifecycle_reporting.campaign_readiness(
+                    args.campaign, user_id=args.user_id
+                )
+            )
         elif args.cmd == "assign-account":
             print_json(
-                cf.assign_asset_account(
+                cf.domains.campaign_overview.assign_asset_account(
                     args.rendered_asset_id,
                     account_id=args.account_id,
                     instagram_account_id=args.instagram_account_id,
@@ -3693,7 +3820,7 @@ def main() -> int:
             )
         elif args.cmd == "model-account-profile":
             print_json(
-                cf.upsert_model_account_profile(
+                cf.domains.models.upsert_model_account_profile(
                     args.model,
                     label=args.label,
                     allowed_instagram_account_ids=args.instagram_account_id,
@@ -3705,7 +3832,7 @@ def main() -> int:
             )
         elif args.cmd == "distribution-plan":
             print_json(
-                cf.create_distribution_plan(
+                cf.domains.distribution.create_distribution_plan(
                     args.rendered_asset_id,
                     surface=args.surface,
                     account_id=args.account_id,
@@ -3738,7 +3865,7 @@ def main() -> int:
             print_json(decision)
         elif args.cmd == "plan-distribution":
             print_json(
-                cf.plan_distribution(
+                cf.domains.distribution.plan_distribution(
                     args.campaign,
                     user_id=args.user_id,
                     mode=args.mode,
@@ -3757,32 +3884,34 @@ def main() -> int:
                     supabase_service_role_key=args.supabase_service_role_key,
                 )
             print_json(
-                cf.account_plan(args.campaign, user_id=args.user_id, usage=usage_result)
+                cf.domains.account_planning.account_plan(
+                    args.campaign, user_id=args.user_id, usage=usage_result
+                )
             )
         elif args.cmd == "ranking":
-            print_json(cf.ranking(args.campaign))
+            print_json(cf.domains.account_planning.ranking(args.campaign))
         elif args.cmd == "autonomy-policy":
             if args.set_level:
-                print_json(cf.set_autonomy_level(args.set_level))
+                print_json(cf.domains.autonomy.set_autonomy_level(args.set_level))
             else:
-                print_json(cf.autonomy_policy())
+                print_json(cf.domains.autonomy.autonomy_policy())
         elif args.cmd == "trust-summary":
-            print_json(cf.trust_summary(args.campaign))
+            print_json(cf.domains.exceptions.trust_summary(args.campaign))
         elif args.cmd == "recommendation-accuracy":
             print_json(
-                cf.recommendation_accuracy(
+                cf.domains.recommendation_accuracy_repo.recommendation_accuracy(
                     args.campaign, account=args.account, window_days=args.window_days
                 )
             )
         elif args.cmd == "rebuild-recommendation-accuracy":
             print_json(
-                cf.rebuild_recommendation_accuracy(
+                cf.domains.recommendation_accuracy_repo.rebuild_recommendation_accuracy(
                     args.campaign, account=args.account, window_days=args.window_days
                 )
             )
         elif args.cmd == "recommend-next-batch":
             print_json(
-                cf.recommend_next_batch(
+                cf.domains.recommendations.recommend_next_batch(
                     args.campaign,
                     count=args.count,
                     account=args.account,
@@ -3791,7 +3920,7 @@ def main() -> int:
             )
         elif args.cmd == "accept-recommendation":
             print_json(
-                cf.accept_recommendation_item(
+                cf.domains.recommendations.accept_recommendation_item(
                     args.id,
                     operator=args.operator,
                     notes=args.notes,
@@ -3801,7 +3930,7 @@ def main() -> int:
             )
         elif args.cmd == "reject-recommendation":
             print_json(
-                cf.reject_recommendation_item(
+                cf.domains.recommendations.reject_recommendation_item(
                     args.id,
                     reason=args.reason,
                     operator=args.operator,
@@ -3813,7 +3942,7 @@ def main() -> int:
         elif args.cmd == "link-recommendation":
             evidence = json.loads(args.evidence_json) if args.evidence_json else None
             print_json(
-                cf.link_recommendation_item(
+                cf.domains.recommendations.link_recommendation_item(
                     args.id,
                     source_asset_id=args.source_asset_id,
                     render_job_id=args.render_job_id,
@@ -3827,7 +3956,7 @@ def main() -> int:
             )
         elif args.cmd == "measure-recommendation":
             print_json(
-                cf.measure_recommendation_item(
+                cf.domains.recommendations.measure_recommendation_item(
                     args.id,
                     performance_snapshot_id=args.performance_snapshot_id,
                     admin_override=args.admin_override,
@@ -3836,7 +3965,7 @@ def main() -> int:
             )
         elif args.cmd == "execute-recommendation":
             print_json(
-                cf.execute_accepted_recommendation(
+                cf.domains.recommendations.execute_accepted_recommendation(
                     args.id,
                     mode=args.mode,
                     force=args.force,
@@ -3846,20 +3975,26 @@ def main() -> int:
                 )
             )
         elif args.cmd == "account-memory":
-            print_json(cf.account_memory(args.campaign, account=args.account))
+            print_json(
+                cf.domains.account_memory.account_memory(
+                    args.campaign, account=args.account
+                )
+            )
         elif args.cmd == "rebuild-account-memory":
-            print_json(cf.rebuild_account_memory(args.campaign))
+            print_json(cf.domains.account_memory.rebuild_account_memory(args.campaign))
         elif args.cmd == "exceptions":
-            print_json(cf.exceptions(args.campaign, status=args.status))
+            print_json(
+                cf.domains.exceptions.exceptions(args.campaign, status=args.status)
+            )
         elif args.cmd == "resolve-exception":
             print_json(
-                cf.resolve_exception(
+                cf.domains.exceptions.resolve_exception(
                     args.id, resolution=args.resolution, operator=args.operator
                 )
             )
         elif args.cmd == "snooze-exception":
             print_json(
-                cf.snooze_exception(
+                cf.domains.exceptions.snooze_exception(
                     args.id,
                     until=args.until,
                     reason=args.reason,
@@ -3868,7 +4003,9 @@ def main() -> int:
             )
         elif args.cmd == "reopen-exception":
             print_json(
-                cf.reopen_exception(args.id, reason=args.reason, operator=args.operator)
+                cf.domains.exceptions.reopen_exception(
+                    args.id, reason=args.reason, operator=args.operator
+                )
             )
         elif args.cmd == "import-reference-bank":
             bank_path = (
@@ -3886,7 +4023,7 @@ def main() -> int:
                 / "higgsfield_prompt_pack_top300.json"
             )
             print_json(
-                cf.import_reference_bank(
+                cf.domains.reference.import_reference_bank(
                     bank_path,
                     prompt_pack if prompt_pack.exists() else None,
                     dry_run=not args.apply,
@@ -3896,14 +4033,22 @@ def main() -> int:
                 )
             )
         elif args.cmd == "import-audio-catalog":
-            print_json(cf.import_audio_catalog(Path(args.path)))
+            print_json(
+                cf.domains.audio_recommendations.import_audio_catalog(Path(args.path))
+            )
         elif args.cmd == "import-audio-memory":
-            print_json(cf.import_audio_memory(Path(args.path)))
+            print_json(
+                cf.domains.audio_recommendations.import_audio_memory(Path(args.path))
+            )
         elif args.cmd == "audio-catalog":
-            print_json(cf.audio_catalog(platform=args.platform, limit=args.limit))
+            print_json(
+                cf.domains.audio_recommendations.audio_catalog(
+                    platform=args.platform, limit=args.limit
+                )
+            )
         elif args.cmd == "audio-memory":
             print_json(
-                cf.audio_memory(
+                cf.domains.audio_recommendations.audio_memory(
                     platform=args.platform, account=args.account, limit=args.limit
                 )
             )
@@ -3918,7 +4063,7 @@ def main() -> int:
                 if value is not None
             }
             print_json(
-                cf.recommend_audio(
+                cf.domains.audio_recommendations.recommend_audio(
                     platform=args.platform,
                     campaign_slug=args.campaign,
                     recommendation_item_id=args.recommendation_item,
@@ -3939,7 +4084,7 @@ def main() -> int:
             )
         elif args.cmd == "select-audio":
             print_json(
-                cf.select_audio_for_recommendation(
+                cf.domains.audio_operations.select_audio_for_recommendation(
                     args.recommendation_item,
                     args.audio_id,
                     operator=args.operator,
@@ -3948,7 +4093,7 @@ def main() -> int:
             )
         elif args.cmd == "attach-audio":
             print_json(
-                cf.attach_audio_to_distribution_plan(
+                cf.domains.audio_operations.attach_audio_to_distribution_plan(
                     args.distribution_plan_id,
                     track_id=args.track_id,
                     track_name=args.track_name,
@@ -3967,7 +4112,7 @@ def main() -> int:
             )
         elif args.cmd == "attach-cover-frame":
             print_json(
-                cf.attach_cover_frame_to_rendered_asset(
+                cf.domains.audio_operations.attach_cover_frame_to_rendered_asset(
                     args.rendered_asset_id,
                     seconds=args.seconds,
                     cover_image_path=args.cover_image_path,
@@ -3988,7 +4133,7 @@ def main() -> int:
                 if value is not None
             }
             print_json(
-                cf.decide_audio(
+                cf.domains.audio_recommendations.decide_audio(
                     platform=args.platform,
                     campaign_slug=args.campaign,
                     recommendation_item_id=args.recommendation_item,
@@ -4011,7 +4156,7 @@ def main() -> int:
             )
         elif args.cmd == "verify-audio":
             print_json(
-                cf.verify_audio_for_post(
+                cf.domains.audio_operations.verify_audio_for_post(
                     args.post_id,
                     proof_url=args.proof_url,
                     proof_note=args.proof_note,
@@ -4019,10 +4164,10 @@ def main() -> int:
                 )
             )
         elif args.cmd == "reference-patterns":
-            print_json(cf.reference_patterns(args.limit))
+            print_json(cf.domains.reference.reference_patterns(args.limit))
         elif args.cmd == "select-reference-pattern":
             print_json(
-                cf.select_reference_pattern(
+                cf.domains.reference.select_reference_pattern(
                     args.campaign,
                     cluster_key=args.cluster_key,
                     reference_pattern_id=args.reference_pattern_id,
@@ -4031,10 +4176,10 @@ def main() -> int:
                 )
             )
         elif args.cmd == "reference-plan":
-            print_json(cf.campaign_reference_plan(args.campaign))
+            print_json(cf.domains.reference.campaign_reference_plan(args.campaign))
         elif args.cmd == "prepare-from-reference":
             print_json(
-                cf.prepare_reel_from_reference(
+                cf.domains.reference.prepare_reel_from_reference(
                     campaign_slug=args.campaign,
                     cluster_key=args.cluster_key,
                     reference_pattern_id=args.reference_pattern_id,
@@ -4047,7 +4192,7 @@ def main() -> int:
             )
         elif args.cmd == "make-batch":
             print_json(
-                cf.make_batch(
+                cf.domains.make_batch_repo.make_batch(
                     folder=Path(args.folder),
                     campaign_slug=args.campaign,
                     model_slug=args.model,
@@ -4064,7 +4209,7 @@ def main() -> int:
             )
         elif args.cmd == "intake-finished-video":
             print_json(
-                cf.intake_finished_video(
+                cf.domains.finished_video.intake_finished_video(
                     input_path=Path(args.input),
                     model_slug=args.model,
                     platform=args.platform,
@@ -4093,7 +4238,7 @@ def main() -> int:
                         "--caption-placement-decision-json must be a JSON object"
                     )
             print_json(
-                cf.register_finished_video(
+                cf.domains.finished_video.register_finished_video(
                     input_path=Path(args.input),
                     campaign_slug=args.campaign,
                     model_slug=args.model,
@@ -4115,7 +4260,7 @@ def main() -> int:
             )
         elif args.cmd == "archive-inventory":
             print_json(
-                cf.archive_inventory_report(
+                cf.domains.archive_quality.archive_inventory_report(
                     folder=Path(args.folder),
                     campaign_slug=args.campaign,
                     creator=args.creator,
@@ -4126,7 +4271,7 @@ def main() -> int:
             )
         elif args.cmd == "archive-candidate-quality":
             print_json(
-                cf.archive_candidate_quality_report(
+                cf.domains.archive_quality.archive_candidate_quality_report(
                     inventory_report_path=Path(args.inventory_report),
                     requested_count=args.requested_count,
                     exclude_indices=args.exclude_index,
@@ -4134,7 +4279,7 @@ def main() -> int:
             )
         elif args.cmd == "create-creative-plan":
             print_json(
-                cf.create_creative_plan(
+                cf.domains.creative_planning.create_creative_plan(
                     name=args.name,
                     platform=args.platform,
                     target_account=args.target_account,
@@ -4155,14 +4300,16 @@ def main() -> int:
                 )
             )
         elif args.cmd == "creative-plan":
-            print_json(cf.creative_plan(args.name))
+            print_json(cf.domains.creative_planning.creative_plan(args.name))
         elif args.cmd == "update-creative-plan-status":
             print_json(
-                cf.update_creative_plan_status(name=args.name, status=args.status)
+                cf.domains.creative_planning.update_creative_plan_status(
+                    name=args.name, status=args.status
+                )
             )
         elif args.cmd == "sync-creative-plan-progress":
             print_json(
-                cf.sync_creative_plan_progress(
+                cf.domains.creative_planning.sync_creative_plan_progress(
                     name=args.name, prompt_export_path=Path(args.prompt_export)
                 )
             )
@@ -4171,7 +4318,9 @@ def main() -> int:
                 {
                     "schema": "campaign_factory.activity_log.v1",
                     "campaign": args.campaign,
-                    "events": cf.events_for_campaign(args.campaign, limit=args.limit),
+                    "events": cf.domains.events.events_for_campaign(
+                        args.campaign, limit=args.limit
+                    ),
                 }
             )
         elif args.cmd == "jobs":
@@ -4180,7 +4329,7 @@ def main() -> int:
                 if args.status
                 else None
             )
-            jobs = cf.jobs_for_campaign(
+            jobs = cf.domains.events.jobs_for_campaign(
                 args.campaign,
                 limit=args.limit,
                 statuses=statuses,
@@ -4202,9 +4351,9 @@ def main() -> int:
                 }
             )
         elif args.cmd == "job":
-            print_json(cf.pipeline_job(args.id))
+            print_json(cf.domains.events.pipeline_job(args.id))
         elif args.cmd == "pipeline-smoke":
-            pipeline_job = cf.create_pipeline_job(
+            pipeline_job = cf.domains.events.create_pipeline_job(
                 "pipeline_smoke",
                 None,
                 {
@@ -4222,10 +4371,10 @@ def main() -> int:
                     "minScore": args.min_score,
                 },
             )
-            cf.start_pipeline_job(pipeline_job["id"])
+            cf.domains.events.start_pipeline_job(pipeline_job["id"])
             hooks = load_hooks(args.hooks, args.hook)
             if not hooks:
-                cf.fail_pipeline_job(
+                cf.domains.events.fail_pipeline_job(
                     pipeline_job["id"], "pipeline-smoke requires --hook or --hooks"
                 )
                 raise SystemExit("pipeline-smoke requires --hook or --hooks")
@@ -4234,7 +4383,7 @@ def main() -> int:
                     "schema": "campaign_factory.pipeline_smoke.v1",
                     "campaign": args.campaign,
                     "pipelineJobId": pipeline_job["id"],
-                    "import": cf.import_folder(
+                    "import": cf.domains.asset_import.import_folder(
                         Path(args.folder),
                         campaign_slug=args.campaign,
                         model_slug=args.model,
@@ -4249,10 +4398,10 @@ def main() -> int:
                     "dryRunExport": None,
                     "readiness": None,
                 }
-                cf.set_pipeline_job_campaign(
+                cf.domains.events.set_pipeline_job_campaign(
                     pipeline_job["id"], result["import"]["campaign"]["id"]
                 )
-                result["prepare"] = cf.prepare_reel_inputs(
+                result["prepare"] = cf.domains.reel_execution.prepare_reel_inputs(
                     campaign_slug=args.campaign,
                     hooks=hooks,
                     recipes=args.recipes,
@@ -4260,7 +4409,7 @@ def main() -> int:
                     notes="pipeline smoke render",
                 )
                 if args.run_reel:
-                    result["run"] = cf.run_reel_factory(
+                    result["run"] = cf.domains.reel_execution.run_reel_factory(
                         campaign_slug=args.campaign,
                         workers=args.workers,
                         dry_run=False,
@@ -4270,7 +4419,9 @@ def main() -> int:
                         caption_font="Instagram Sans Condensed",
                         phone_finalize=True,
                     )
-                result["sync"] = cf.sync_reel_outputs(campaign_slug=args.campaign)
+                result["sync"] = cf.domains.reel_execution.sync_reel_outputs(
+                    campaign_slug=args.campaign
+                )
                 result["audit"] = audit_campaign(
                     cf,
                     campaign_slug=args.campaign,
@@ -4288,7 +4439,7 @@ def main() -> int:
                     campaign_slug=args.campaign,
                     user_id=args.user_id,
                 )
-                cf.finish_pipeline_job(
+                cf.domains.events.finish_pipeline_job(
                     pipeline_job["id"],
                     {
                         "campaign": args.campaign,
@@ -4305,14 +4456,14 @@ def main() -> int:
                 )
                 print_json(result)
             except Exception as exc:
-                cf.record_event(
+                cf.domains.events.record_event(
                     "pipeline_smoke_failed",
                     pipeline_job_id=pipeline_job["id"],
                     status="failure",
                     message=f"Pipeline smoke failed: {exc}",
                     metadata={"error": str(exc)},
                 )
-                cf.fail_pipeline_job(pipeline_job["id"], str(exc))
+                cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
                 raise
     finally:
         cf.close()

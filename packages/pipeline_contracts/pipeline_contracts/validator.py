@@ -346,6 +346,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "motion_edit_render.v1.example.json": validate_motion_edit_render,
         "front_generation_plan.v1.example.json": validate_front_generation_plan,
         "reference_factory_knowledge_pack.v1.example.json": validate_reference_factory_knowledge_pack,
+        "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
     }
     checks = []
     for filename, validator in validators.items():

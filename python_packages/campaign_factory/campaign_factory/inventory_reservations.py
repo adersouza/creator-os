@@ -11,6 +11,8 @@ from .assignment_eligibility import (
     persist_assignment_origin,
 )
 
+DEFAULT_REUSE_COOLDOWN_DAYS = 14
+
 
 class InventoryReservationRepository:
     def __init__(
@@ -46,7 +48,7 @@ class InventoryReservationRepository:
         expires_at: str | None = None,
         idempotency_key: str | None = None,
         metadata: dict[str, Any] | None = None,
-        reuse_cooldown_days: int,
+        reuse_cooldown_days: int = DEFAULT_REUSE_COOLDOWN_DAYS,
         override_reason: str | None = None,
     ) -> dict[str, Any]:
         asset = self._ensure_rendered_asset_perceptual_metadata(asset_id)

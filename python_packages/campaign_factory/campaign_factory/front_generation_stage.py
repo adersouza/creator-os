@@ -59,14 +59,16 @@ def run_front_generation_stage(
         raise ValueError("creator, soul_id, or soul_name is required")
     if kling_selection_receipt_path is not None and accepted_still_path is None:
         raise ValueError("Kling selection receipt requires an accepted still")
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     reference_image = Path(reference_image_path).expanduser().resolve()
     if not reference_image.exists() or not reference_image.is_file():
         raise FileNotFoundError(f"reference image not found: {reference_image}")
     stem = slugify(reference_image.stem)
-    reference_pattern = factory.active_reference_pattern_for_campaign(campaign["id"])
+    reference_pattern = factory.domains.reference.active_reference_pattern_for_campaign(
+        campaign["id"]
+    )
     prompt_path = _write_prompt_pack(
         dirs["reel_inputs"] / f"{stem}.front_generation_prompt.json",
         scene_type=scene_type,
@@ -79,7 +81,7 @@ def run_front_generation_stage(
     )
     if apply and not dry_run and paid_generation_required:
         require_global_write_allowed("paid front generation")
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "front_generation",
         campaign["id"],
         {
@@ -102,7 +104,7 @@ def run_front_generation_stage(
             "enableVariation": enable_variation,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         if apply and not dry_run and paid_generation_required:
             _enforce_paid_generation_guard(
@@ -213,10 +215,12 @@ def run_front_generation_stage(
             "promptPath": str(prompt_path),
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(result))
+        factory.domains.events.finish_pipeline_job(
+            pipeline_job["id"], sanitize_for_storage(result)
+        )
         return result
     except Exception as exc:
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -624,7 +628,7 @@ def _materialize_generated_static_candidates(
     generated_candidates: tuple[tuple[str, dict[str, Any]], ...],
 ) -> dict[str, Any]:
     """Persist every QC-passing generated still and render its free fallback."""
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     candidates: list[dict[str, Any]] = []
     registered_assets: list[dict[str, Any]] = []
     for variant, generation_result in generated_candidates:
@@ -795,8 +799,8 @@ def _ensure_generated_still_source_asset(
             )
         return row
 
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     stored = dirs["sources"] / (
         f"{slugify(still.stem)}_{digest[:10]}{still.suffix.lower()}"
     )
@@ -831,7 +835,7 @@ def _ensure_generated_still_source_asset(
         ),
     )
     factory.conn.commit()
-    factory.record_event(
+    factory.domains.events.record_event(
         "source_imported",
         campaign_id=campaign["id"],
         source_asset_id=source_id,

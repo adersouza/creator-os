@@ -75,9 +75,9 @@ def graduate_trial_reel(
         (f"trial_graduation:{trial_post_id}",),
     ).fetchone()
     regular = (
-        factory.distribution_plan(regular_row["id"])
+        factory.domains.distribution.distribution_plan(regular_row["id"])
         if regular_row
-        else factory.create_distribution_plan(
+        else factory.domains.distribution.create_distribution_plan(
             trial["rendered_asset_id"],
             surface="regular_reel",
             account_id=account_id or None,

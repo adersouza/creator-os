@@ -36,7 +36,9 @@ def recommend_next_batch_from_env(
     campaign, count = next_batch_request_from_env(environ)
     cf = CampaignFactory(get_settings())
     try:
-        return cf.recommend_next_batch(campaign, count=count, persist=False)
+        return cf.domains.recommendations.recommend_next_batch(
+            campaign, count=count, persist=False
+        )
     finally:
         cf.close()
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from campaign_factory.closed_loop_proof import (
     CONTEXT_KEYS,
@@ -312,6 +313,13 @@ def test_closed_loop_proof_stops_before_live_export_without_explicit_approval(
     class FakeFactory:
         def __init__(self, settings):
             self.settings = settings
+            self.domains = SimpleNamespace(
+                campaign_by_slug=self.campaign_by_slug,
+                distribution=SimpleNamespace(
+                    distribution_plans_for_asset=self.distribution_plans_for_asset
+                ),
+                export_summary=SimpleNamespace(export_manifest=self.export_manifest),
+            )
 
         def campaign_by_slug(self, slug):
             return {"id": "campaign_1", "slug": slug}
@@ -461,6 +469,17 @@ def test_read_only_proof_reconciles_post_retargeted_after_distribution_plan(
     class FakeFactory:
         def __init__(self, settings):
             self.settings = settings
+            self.domains = SimpleNamespace(
+                campaign_by_slug=self.campaign_by_slug,
+                distribution=SimpleNamespace(
+                    distribution_plans_for_asset=self.distribution_plans_for_asset
+                ),
+                export_summary=SimpleNamespace(export_manifest=self.export_manifest),
+                performance_summary_repo=SimpleNamespace(
+                    caption_outcome_report=self.caption_outcome_report,
+                    performance_summary=self.performance_summary,
+                ),
+            )
 
         def campaign_by_slug(self, slug):
             return {"id": "campaign_1", "slug": slug}

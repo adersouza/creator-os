@@ -282,9 +282,9 @@ def run_reference_video_remix_stage(
     # paid/provider seam. A multi-shot source is not eligible for the one-shot
     # structural-remix contract and must fail without side effects.
     probe = probe_reference_video(reference_video)
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     remix_dir = (
         dirs["reel_inputs"]
         / "reference_video_remix"
@@ -292,7 +292,7 @@ def run_reference_video_remix_stage(
     )
     remix_dir.mkdir(parents=True, exist_ok=True)
     seams = seams or JsonCommandReferenceVideoRemixSeams()
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "reference_video_remix",
         campaign["id"],
         {
@@ -310,7 +310,7 @@ def run_reference_video_remix_stage(
             "publishingAllowed": False,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         source_first, source_last = extract_reference_endpoints(
             reference_video, remix_dir, probe=probe
@@ -487,10 +487,12 @@ def run_reference_video_remix_stage(
             "publishingAllowed": False,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(result))
+        factory.domains.events.finish_pipeline_job(
+            pipeline_job["id"], sanitize_for_storage(result)
+        )
         return result
     except Exception as exc:
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
