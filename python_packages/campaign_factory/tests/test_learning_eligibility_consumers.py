@@ -330,16 +330,18 @@ def test_recommendation_rankings_and_measurement_exclude_ineligible_rows(
 
         reference_rankings = cf._ranked_reference_patterns_for_campaign(campaign["id"])
         preset_rankings = cf._ranked_variation_presets_for_campaign(campaign["id"])
-        measurement_rows = cf.services.recommendation_performance_rows(
+        measurement_rows = cf.domains.recommendations.recommendation_performance_rows(
             {"rendered_asset_id": "asset_measurement", "evidence_json": "{}"}
         )
-        explicitly_linked_poison = cf.services.recommendation_performance_rows(
-            {
-                "rendered_asset_id": None,
-                "evidence_json": json.dumps(
-                    {"links": {"performanceSnapshotId": "snap_rec_poison"}}
-                ),
-            }
+        explicitly_linked_poison = (
+            cf.domains.recommendations.recommendation_performance_rows(
+                {
+                    "rendered_asset_id": None,
+                    "evidence_json": json.dumps(
+                        {"links": {"performanceSnapshotId": "snap_rec_poison"}}
+                    ),
+                }
+            )
         )
 
         assert [row["patternId"] for row in reference_rankings] == ["refpat_eligible"]

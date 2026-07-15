@@ -553,7 +553,7 @@ def test_finished_video_lineage_cost_recorder_ensures_table_once(
         record_kwargs.append(kwargs)
         return str(kwargs["source_event_key"])
 
-    repo = factory.services.finished_video
+    repo = factory.domains.finished_video
     monkeypatch.setattr(repo, "_ensure_cost_table", fake_ensure)
     monkeypatch.setattr(repo, "_record_ai_cost", fake_record)
     try:
@@ -11141,7 +11141,7 @@ def test_plan_distribution_empty_history_uses_first_slot(
         cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
         first_slot = datetime(2026, 1, 2, 10, tzinfo=UTC)
         monkeypatch.setattr(
-            cf.services.distribution,
+            cf.domains.distribution,
             "distribution_slots",
             lambda _hours, _count: [
                 first_slot,
@@ -11167,7 +11167,7 @@ def test_plan_distribution_hydrates_account_day_counts_across_runs(
         cf.upsert_model_account_profile("model", allowed_instagram_account_ids=["ig_1"])
         day_one = datetime(2026, 1, 2, 10, tzinfo=UTC)
         monkeypatch.setattr(
-            cf.services.distribution,
+            cf.domains.distribution,
             "distribution_slots",
             lambda _hours, _count: [
                 day_one,
@@ -11206,7 +11206,7 @@ def test_plan_distribution_hydrates_min_gap_from_existing_plan(
             planned_window_start=existing.isoformat(),
         )
         monkeypatch.setattr(
-            cf.services.distribution,
+            cf.domains.distribution,
             "distribution_slots",
             lambda _hours, _count: [too_close, valid],
         )
@@ -11254,7 +11254,7 @@ def test_plan_distribution_hydrates_window_from_max_min_gap_hours(
             planned_window_start=existing.isoformat(),
         )
         monkeypatch.setattr(
-            cf.services.distribution,
+            cf.domains.distribution,
             "distribution_slots",
             lambda _hours, _count: [too_close, valid],
         )
@@ -11298,7 +11298,7 @@ def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: P
         source_counts: dict[tuple[str, str], int] = {}
         warnings: list[dict[str, Any]] = []
 
-        first, index = cf.services.distribution.next_valid_distribution_slot(
+        first, index = cf.domains.distribution.next_valid_distribution_slot(
             slots,
             0,
             "ig_1",
@@ -11309,7 +11309,7 @@ def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: P
             source_counts,
             warnings,
         )
-        second, _ = cf.services.distribution.next_valid_distribution_slot(
+        second, _ = cf.domains.distribution.next_valid_distribution_slot(
             slots,
             index,
             "ig_1",
@@ -24961,14 +24961,14 @@ def test_phase2_decision_ledger_wrappers_share_query_helper(
         )
         cf.conn.commit()
         calls: list[dict[str, Any]] = []
-        original = cf.services.decision_ledger.query_decision_ledger
+        original = cf.domains.decision_ledger.query_decision_ledger
 
         def tracking_query(*args, **kwargs):
             calls.append(dict(kwargs))
             return original(*args, **kwargs)
 
         monkeypatch.setattr(
-            cf.services.decision_ledger, "query_decision_ledger", tracking_query
+            cf.domains.decision_ledger, "query_decision_ledger", tracking_query
         )
         source = {
             "creator": "Stacey",
