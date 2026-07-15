@@ -3,7 +3,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reel_factory.campaign_store import create_campaign
 from reel_factory.manifest import Manifest
 from reel_factory.pipeline_run import (
     PipelineRunConfig,
@@ -19,21 +18,37 @@ class PipelineRunTests(unittest.TestCase):
     def _root(self) -> tempfile.TemporaryDirectory:
         return tempfile.TemporaryDirectory()
 
-    def _seed_campaign(self, root: Path) -> str:
+    def _campaign_plan(self, root: Path, *, count: int) -> Path:
         Manifest(root / "manifest.json")
-        result = create_campaign(
-            root,
-            name="Test Campaign",
-            creator="Stacey",
-            account="stacey_a",
-            platform="ig",
+        example = (
+            Path(__file__).resolve().parents[3]
+            / "packages"
+            / "pipeline_contracts"
+            / "pipeline_contracts"
+            / "schemas"
+            / "recommendation_next_batch.v1.example.json"
         )
-        return result["campaign_id"]
+        plan = json.loads(example.read_text(encoding="utf-8"))
+        plan["campaign"] = "Test Campaign"
+        plan["count"] = count
+        plan["requestedCount"] = count
+        base_item = plan["items"][0]
+        plan["items"] = [
+            base_item
+            | {
+                "recommendationId": f"recitem_test_{idx}",
+                "rank": idx + 1,
+            }
+            for idx in range(count)
+        ]
+        path = root / "campaign_plan.json"
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        return path
 
     def test_pipeline_run_plans_dry_end_to_end_commands_without_publish(self):
         with self._root() as tmp:
             root = Path(tmp)
-            self._seed_campaign(root)
+            plan_path = self._campaign_plan(root, count=2)
             reference = root / "reference.jpg"
             reference.write_bytes(b"reference")
 
@@ -42,6 +57,7 @@ class PipelineRunTests(unittest.TestCase):
                     root=root,
                     campaign="Test Campaign",
                     creator="Stacey",
+                    plan_path=plan_path,
                     count=2,
                     run_id="dry_plan",
                     reference_image=reference,
@@ -74,7 +90,7 @@ class PipelineRunTests(unittest.TestCase):
     def test_pipeline_run_requires_explicit_paid_generation_opt_in(self):
         with self._root() as tmp:
             root = Path(tmp)
-            self._seed_campaign(root)
+            plan_path = self._campaign_plan(root, count=1)
             reference = root / "reference.jpg"
             reference.write_bytes(b"reference")
 
@@ -83,6 +99,7 @@ class PipelineRunTests(unittest.TestCase):
                     root=root,
                     campaign="Test Campaign",
                     creator="Stacey",
+                    plan_path=plan_path,
                     count=1,
                     run_id="safe_asset_plan",
                     reference_image=reference,
@@ -98,6 +115,7 @@ class PipelineRunTests(unittest.TestCase):
                     root=root,
                     campaign="Test Campaign",
                     creator="Stacey",
+                    plan_path=plan_path,
                     count=1,
                     run_id="live_asset_plan",
                     reference_image=reference,
@@ -118,13 +136,14 @@ class PipelineRunTests(unittest.TestCase):
     def test_pipeline_run_resume_ranks_candidates_for_campaign_import(self):
         with self._root() as tmp:
             root = Path(tmp)
-            self._seed_campaign(root)
+            plan_path = self._campaign_plan(root, count=1)
             reference = root / "reference.jpg"
             reference.write_bytes(b"reference")
             config = PipelineRunConfig(
                 root=root,
                 campaign="Test Campaign",
                 creator="Stacey",
+                plan_path=plan_path,
                 count=1,
                 run_id="resume_plan",
                 reference_image=reference,

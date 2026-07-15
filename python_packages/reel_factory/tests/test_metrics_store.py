@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from reel_factory.campaign_store import ensure_campaign_schema
+from reel_factory.evidence_store import ensure_evidence_schema
 from reel_factory.manifest import Manifest
 from reel_factory.metrics_store import (
     _variation_for_filename,
@@ -113,7 +113,7 @@ class MetricsStoreSoulAttributionTests(unittest.TestCase):
     def test_campaign_output_metrics_filename_lookup_uses_index(self):
         with tempfile.TemporaryDirectory() as tmp:
             conn = connect_metrics_db(Path(tmp) / "manifest.sqlite")
-            ensure_campaign_schema(conn)
+            ensure_evidence_schema(conn)
             ensure_metrics_schema(conn)
 
             plan = "\n".join(

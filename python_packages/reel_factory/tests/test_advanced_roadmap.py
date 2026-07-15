@@ -16,22 +16,6 @@ from reel_factory.asset_prompt_contract import (
 )
 from reel_factory.audio_intent import write_audio_intent
 from reel_factory.audio_mux import audio_id, output_path_for
-from reel_factory.campaign_store import (
-    add_reference,
-    campaign_leaderboard,
-    create_campaign,
-    next_batch_plan,
-    record_asset_generation,
-    record_prompt_run,
-    retry_helper_direction,
-    validate_generation_soul,
-)
-from reel_factory.campaign_store import (
-    connect as campaign_connect,
-)
-from reel_factory.campaign_store import (
-    rate_output as store_rate_output,
-)
 from reel_factory.caption_generation_log import (
     caption_library,
     rank_clip_sidecar,
@@ -41,6 +25,17 @@ from reel_factory.caption_render import render_caption_png
 from reel_factory.embedding_index import duplicate_risk, upsert_embedding
 from reel_factory.embedding_index import similar as similar_media
 from reel_factory.embedding_provider import HashEmbeddingProvider
+from reel_factory.evidence_store import (
+    connect as campaign_connect,
+)
+from reel_factory.evidence_store import (
+    rate_output as store_rate_output,
+)
+from reel_factory.evidence_store import (
+    record_asset_generation,
+    record_prompt_run,
+    validate_generation_soul,
+)
 from reel_factory.generate_assets import (
     AssetGenerationPlan,
     HiggsfieldCommandError,
@@ -105,6 +100,7 @@ from reel_factory.metrics_store import (
     outcomes_summary,
 )
 from reel_factory.placement_scorer import score_lanes
+from reel_factory.prompt_guidance import retry_helper_direction
 from reel_factory.qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
 from reel_factory.readiness_check import evaluate_output, run_readiness
 from reel_factory.reel_pipeline import Recipe
@@ -123,9 +119,7 @@ from reel_factory.winner_dna import (
     assign_experiment,
     baseline_vs_recommended_report,
     cost_analytics,
-    decision_log,
     experiment_report,
-    persist_recommendation_decision,
     record_cost,
     refresh_winner_dna,
     upsert_reel_feature,
@@ -1003,7 +997,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         self.assertIsNone(extract_url(response))
 
-    def test_campaign_schema_and_creator_defaults(self):
+    def test_reel_evidence_schema_excludes_campaign_planner_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             conn = campaign_connect(Path(tmp))
             tables = {
@@ -1013,35 +1007,19 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 )
             }
             for table in {
-                "creators",
-                "campaigns",
-                "campaign_references",
                 "prompt_runs",
                 "asset_generations",
                 "operator_ratings",
                 "campaign_outputs",
             }:
                 self.assertIn(table, tables)
-            stacey = conn.execute(
-                "SELECT * FROM creators WHERE name='Stacey'"
-            ).fetchone()
-            self.assertEqual(stacey["soul_id"], "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36")
+            self.assertTrue(
+                {"creators", "campaigns", "campaign_references"}.isdisjoint(tables)
+            )
 
-    def test_campaign_prompt_asset_rating_and_next_batch_flow(self):
+    def test_explicit_campaign_keys_flow_through_render_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            create_campaign(
-                root,
-                name="Test Campaign",
-                creator="Stacey",
-                account="acct",
-                platform="instagram_reels",
-            )
-            ref = root / "ref.mp4"
-            ref.write_bytes(b"video")
-            add_reference(
-                root, campaign="Test Campaign", source_path=ref, visual_tags=["mirror"]
-            )
             prompt_path = root / "prompt.json"
             prompt_fields = {
                 "higgsfieldGridPrompt": "grid prompt",
@@ -1056,6 +1034,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 prompt_json_path=prompt_path,
                 model="grok-test",
                 prompt_fields=prompt_fields,
+                reference_id="reference_factory:gold:mirror-1",
             )
             lineage = {
                 "source": {"stem": "clip_001"},
@@ -1102,24 +1081,24 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 },
                 labels=["pose_drift", "hand_bad"],
             )
-            board = campaign_leaderboard(root, campaign="Test Campaign")
-            plan = next_batch_plan(root, campaign="Test Campaign", count=2)
-            before_persist = decision_log(root, campaign="Test Campaign")
-            persisted_plan = next_batch_plan(
-                root, campaign="Test Campaign", count=1, persist=True
-            )
-            logged = decision_log(root, campaign="Test Campaign")
             self.assertTrue(prompt_rec["prompt_run_id"])
             self.assertEqual(asset_rec["identity"]["status"], "valid")
             self.assertTrue(rating["rating_id"])
-            self.assertIn("hand_bad", plan["ideas"][0]["avoid_labels"])
-            self.assertIn("data_quality", plan["ideas"][0]["recommendation"])
-            self.assertEqual(before_persist["decisions"], [])
-            self.assertTrue(persisted_plan["decision_id"])
+            conn = campaign_connect(root)
+            prompt_row = conn.execute("SELECT * FROM prompt_runs").fetchone()
+            asset_row = conn.execute("SELECT * FROM asset_generations").fetchone()
+            rating_row = conn.execute("SELECT * FROM operator_ratings").fetchone()
+            output_row = conn.execute("SELECT * FROM campaign_outputs").fetchone()
+            self.assertEqual(prompt_row["campaign_key"], "Test Campaign")
+            self.assertEqual(prompt_row["creator_key"], "Stacey")
             self.assertEqual(
-                logged["decisions"][0]["decision_id"], persisted_plan["decision_id"]
+                prompt_row["reference_key"], "reference_factory:gold:mirror-1"
             )
-            self.assertTrue(board["worst_failure_patterns"])
+            self.assertEqual(asset_row["campaign_key"], "Test Campaign")
+            self.assertEqual(asset_row["creator_key"], "Stacey")
+            self.assertEqual(rating_row["campaign_key"], "Test Campaign")
+            self.assertEqual(output_row["campaign_key"], "Test Campaign")
+            self.assertEqual(output_row["creator_key"], "Stacey")
 
     def test_outcome_import_links_variation_campaign_output_and_legacy_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2397,31 +2376,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
     def test_winner_dna_derives_creator_and_caption_style_from_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            create_campaign(
-                root,
-                name="Larissa Metadata",
-                creator="Larissa",
-                account="larissa_acct",
-                platform="instagram_reels",
-            )
             conn = campaign_connect(root)
-            campaign_id = conn.execute(
-                "SELECT campaign_id FROM campaigns WHERE name=?",
-                ("Larissa Metadata",),
-            ).fetchone()["campaign_id"]
             now = int(time.time())
             out = root / "generic_render_name.mp4"
             out.write_bytes(b"video")
             conn.execute(
                 """
                 INSERT INTO campaign_outputs (
-                    campaign_output_id, campaign_id, output_path, recipe,
+                    campaign_output_id, campaign_key, creator_key, output_path, recipe,
                     caption_text, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "co_larissa_metadata",
-                    campaign_id,
+                    "Larissa Metadata",
+                    "Larissa",
                     str(out.resolve()),
                     "v09_caption_bg",
                     "1. Smooth\n2. Nervous\n3. Playful\n4. Honest\n5. Bold",
@@ -2519,7 +2488,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             confidence_for_sample_size(30, total_outcomes=80)["level"], "high"
         )
 
-    def test_proof_reports_fatigue_duplicate_and_decision_log(self):
+    def test_proof_reports_fatigue_and_duplicate_risk(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest = Manifest(root / "manifest.json")
@@ -2625,35 +2594,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             fatigue = account_fatigue_report(root, account="acct", window=30)
             duplicate = duplicate_risk(root, candidate, account="acct")
-            plan = {
-                "ideas": [
-                    {
-                        "prompt_focus": "fix_hands",
-                        "avoid_labels": ["hands_bad"],
-                        "winner_dna_focus": [
-                            {
-                                "feature_key": "scene",
-                                "feature_value": "bathroom_mirror",
-                                "sample_size": 2,
-                            }
-                        ],
-                        "recommendation": {
-                            "pattern": "bathroom_mirror",
-                            "confidence": "low",
-                            "confidence_reason": "based on 2 matching outcome rows",
-                            "data_quality": {"score": 20},
-                        },
-                    }
-                ]
-            }
-            decision_id = persist_recommendation_decision(
-                root,
-                campaign="Test Campaign",
-                plan=plan,
-                rejection_patterns=[{"label": "hands_bad", "count": 1}],
-            )
-            decisions = decision_log(root, campaign="Test Campaign")
-
             self.assertGreater(
                 baseline["recommended"]["avg_winner_score"],
                 baseline["manual"]["avg_winner_score"],
@@ -2668,10 +2608,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 duplicate["nearest_prior_output"]["path"], str(candidate.resolve())
             )
             self.assertIn(duplicate["recommended_action"], {"safe", "review", "avoid"})
-            self.assertEqual(decisions["decisions"][0]["decision_id"], decision_id)
-            self.assertEqual(
-                decisions["decisions"][0]["recommendation_pattern"], "bathroom_mirror"
-            )
 
     def test_duplicate_risk_accepts_legacy_similarity_list_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3157,59 +3093,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue(result["skipped"])
             self.assertEqual(result["reason"], "already_imported_url")
             self.assertEqual(result["path"], str(existing))
-
-    def test_campaign_reference_metrics_backfill_from_reel_url_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / "00_source_videos" / "clip_001.mp4"
-            source.parent.mkdir(parents=True)
-            source.write_bytes(b"mp4")
-            write_url_sidecar(
-                source.with_suffix(".reel_url_import.json"),
-                {
-                    "schema": "reel_factory.reel_url_import.v1",
-                    "url": "https://www.instagram.com/reel/example/",
-                    "stem": "clip_001",
-                    "sourceVideoPath": str(source),
-                    "sourceMetrics": {
-                        "view_count": 99,
-                        "like_count": 8,
-                        "comment_count": 7,
-                        "timestamp": 1782864000,
-                    },
-                },
-            )
-            create_campaign(
-                root,
-                name="Backfill Campaign",
-                creator="Stacey",
-                account="acct",
-                platform="instagram_reels",
-            )
-            ref = add_reference(
-                root,
-                campaign="Backfill Campaign",
-                source_path=source,
-                source_type="reel",
-            )
-
-            conn = campaign_connect(root)
-            try:
-                row = conn.execute(
-                    """
-                    SELECT source_views, source_likes, source_comments, source_posted_at
-                    FROM campaign_references
-                    WHERE reference_id = ?
-                    """,
-                    (ref["reference_id"],),
-                ).fetchone()
-            finally:
-                conn.close()
-
-            self.assertEqual(row["source_views"], 99)
-            self.assertEqual(row["source_likes"], 8)
-            self.assertEqual(row["source_comments"], 7)
-            self.assertEqual(row["source_posted_at"], "2026-07-01T00:00:00+00:00")
 
     def test_ollama_parser_accepts_valid_json(self):
         self.assertEqual(parse_hook_response('{"hooks":["one","two"]}'), ["one", "two"])

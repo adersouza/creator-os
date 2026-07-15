@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from reel_factory.campaign_store import ensure_campaign_schema
+from reel_factory.evidence_store import ensure_evidence_schema
 from reel_factory.virality_select import (
     predict_engagement,
     rank_candidates,
@@ -109,7 +109,7 @@ def test_kling_manifest_refuses_no_signal_or_tied_top(tmp_path: Path) -> None:
 
 def test_rate_reward_beats_higher_raw_view_volume(tmp_path: Path) -> None:
     conn = connect(tmp_path)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     for output_path, scene, views, likes in [
         ("high_rate.mp4", "high_rate", 10, 10),
         ("high_volume.mp4", "high_volume", 100000, 100),

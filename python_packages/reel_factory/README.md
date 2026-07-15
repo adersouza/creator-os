@@ -49,9 +49,13 @@ Package modules remain available for development and focused inspection:
 uv run --package reel-factory python -m reel_factory.generate_assets --help
 uv run --package reel-factory python -m reel_factory.reel_pipeline --help
 uv run --package reel-factory python -m reel_factory.caption_bank --help
-uv run --package reel-factory python -m reel_factory.next_batch --help
+uv run --package reel-factory python -m reel_factory.pipeline_run --help
 uv run --package reel-factory python -m reel_factory.review_batch_guard --help
 ```
+
+`pipeline_run` never calculates campaign strategy. It requires `--plan` with a
+validated `campaign_factory.recommendations.next_batch.v1` export and preserves
+that Campaign Factory payload in the run state as its decision provenance.
 
 There are no flat top-level Python facade modules and no Reel browser/API
 operator surface.
@@ -84,10 +88,13 @@ fail-closed guard proves a caller:
 
 ## State And Source
 
-Canonical code is under `reel_factory/`. Generated media, model weights,
-provider receipts, render queues, manifests, and local lineage output remain
-outside Git. Curated caption banks, font files, schemas/examples, and sanitized
-fixtures are committed source.
+Canonical code is under `reel_factory/`. Its manifest retains render attempts,
+prompt/asset lineage, operator ratings, output links, metrics evidence, and
+derived media intelligence only; it does not create campaigns, creators,
+references, or next-batch plans. Generated media, model weights, provider
+receipts, render queues, manifests, and local lineage output remain outside Git.
+Curated caption banks, font files, schemas/examples, and sanitized fixtures are
+committed source.
 
 See [`PIPELINE_BOUNDARIES.md`](PIPELINE_BOUNDARIES.md) for ownership constraints,
 [`CANONICAL_DATA_OWNERS.md`](CANONICAL_DATA_OWNERS.md) for data ownership, and

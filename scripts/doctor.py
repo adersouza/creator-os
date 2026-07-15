@@ -842,17 +842,20 @@ def learning_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(f"{key} did not increase")
     if learning.get("silent_degradation_detected"):
         failures.append("fixture reports silent degradation")
-    tests = (
-        ROOT / "python_packages/reel_factory/tests/test_campaign_store_bandit.py"
-    ).read_text(encoding="utf-8")
-    if "reel_outcomes" not in tests:
-        failures.append("bandit feedback test does not cover reel_outcomes")
+    learning_test = (
+        ROOT / "python_packages/campaign_factory/tests/test_learning_fanout.py"
+    )
+    tests = learning_test.read_text(encoding="utf-8")
+    if "performance_snapshots" not in tests or "reel_outcomes" not in tests:
+        failures.append(
+            "Campaign learning fan-out test does not cover performance_snapshots and reel_outcomes"
+        )
     return fixture_result(
         name="learning",
         category="Learning Audit",
         failures=failures,
-        reason_ok="fixture learning signals improve and reel_outcomes feedback tests are present",
-        affected=["python_packages/reel_factory/tests/test_campaign_store_bandit.py"],
+        reason_ok="fixture learning signals improve and Campaign-owned learning fan-out tests are present",
+        affected=["python_packages/campaign_factory/tests/test_learning_fanout.py"],
         evidence=json.dumps(learning, sort_keys=True),
         next_action="Point this audit at a copied campaign DB once more real outcomes exist.",
     )

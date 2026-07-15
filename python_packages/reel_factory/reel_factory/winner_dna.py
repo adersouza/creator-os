@@ -14,14 +14,13 @@ from typing import Any
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .audio_intent import read_audio_intent
-from .campaign_store import ensure_campaign_schema
 from .caption_bank import caption_static_metadata
+from .evidence_store import ensure_evidence_schema
 from .feature_extract import FEATURE_KEYS, extract_features, features_from_lineage
 from .intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
     ensure_intelligence_schema,
-    json_dumps,
     low_data_warning,
     winner_score,
 )
@@ -33,7 +32,7 @@ _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 def connect(root: Path) -> sqlite3.Connection:
     conn = connect_sqlite(manifest_db_path(root))
     ensure_intelligence_schema(conn)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     return conn
 
 
@@ -105,28 +104,11 @@ def _creator_from_metadata(
     asset_generation_id: str | None,
     campaign_id: str | None,
 ) -> str | None:
-    if not (_table_exists(conn, "creators") and _table_exists(conn, "campaigns")):
-        return None
-    if campaign_id:
-        row = conn.execute(
-            """
-            SELECT cr.name
-            FROM campaigns c
-            JOIN creators cr ON cr.creator_id = c.creator_id
-            WHERE c.campaign_id=?
-            LIMIT 1
-            """,
-            (campaign_id,),
-        ).fetchone()
-        if row and row["name"]:
-            return str(row["name"]).lower()
     if _table_exists(conn, "campaign_outputs"):
         row = conn.execute(
             """
-            SELECT cr.name
+            SELECT co.creator_key
             FROM campaign_outputs co
-            JOIN campaigns c ON c.campaign_id = co.campaign_id
-            JOIN creators cr ON cr.creator_id = c.creator_id
             WHERE co.output_path=?
                OR (? IS NOT NULL AND co.asset_generation_id=?)
             ORDER BY co.updated_at DESC
@@ -134,21 +116,20 @@ def _creator_from_metadata(
             """,
             (str(output_path), asset_generation_id, asset_generation_id),
         ).fetchone()
-        if row and row["name"]:
-            return str(row["name"]).lower()
+        if row and row["creator_key"]:
+            return str(row["creator_key"]).lower()
     if asset_generation_id and _table_exists(conn, "asset_generations"):
         row = conn.execute(
             """
-            SELECT cr.name
+            SELECT creator_key
             FROM asset_generations ag
-            JOIN creators cr ON cr.creator_id = ag.creator_id
             WHERE ag.asset_generation_id=?
             LIMIT 1
             """,
             (asset_generation_id,),
         ).fetchone()
-        if row and row["name"]:
-            return str(row["name"]).lower()
+        if row and row["creator_key"]:
+            return str(row["creator_key"]).lower()
     return None
 
 
@@ -394,7 +375,9 @@ def refresh_features(root: Path, *, limit: int | None = None) -> dict[str, Any]:
     conn = connect(root)
     rows = conn.execute(
         """
-        SELECT co.output_path, co.asset_generation_id, co.campaign_id, ag.reference_id
+        SELECT co.output_path, co.asset_generation_id,
+               COALESCE(co.campaign_key, co.campaign_id) AS campaign_key,
+               COALESCE(ag.reference_key, ag.reference_id) AS reference_key
         FROM campaign_outputs co
         LEFT JOIN asset_generations ag ON ag.asset_generation_id = co.asset_generation_id
         ORDER BY co.created_at DESC
@@ -413,8 +396,8 @@ def refresh_features(root: Path, *, limit: int | None = None) -> dict[str, Any]:
             root,
             Path(row["output_path"]),
             asset_generation_id=row["asset_generation_id"],
-            campaign_id=row["campaign_id"],
-            source_reference_id=row["reference_id"],
+            campaign_id=row["campaign_key"],
+            source_reference_id=row["reference_key"],
         )
         count += 1
     return {"ok": True, "features_refreshed": count}
@@ -843,88 +826,6 @@ def account_fatigue_report(
     }
 
 
-def persist_recommendation_decision(
-    root: Path,
-    *,
-    campaign: str,
-    plan: dict[str, Any],
-    rejection_patterns: list[dict[str, Any]] | None = None,
-) -> str | None:
-    ideas = plan.get("ideas") or []
-    if not ideas:
-        return None
-    first = ideas[0]
-    rec = first.get("recommendation") or {}
-    decision_id = f"decision_{time.time_ns()}"
-    data_quality = rec.get("data_quality") or first.get("data_quality") or {}
-    conn = connect(root)
-    conn.execute(
-        """
-        INSERT INTO recommendation_decisions (
-            decision_id, campaign, recommendation_pattern, prompt_focus,
-            avoid_labels_json, confidence, confidence_reason, winner_dna_json,
-            rejection_patterns_json, data_quality_json, plan_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            decision_id,
-            campaign,
-            rec.get("pattern", ""),
-            first.get("prompt_focus"),
-            json_dumps(first.get("avoid_labels") or []),
-            rec.get("confidence") or first.get("confidence"),
-            rec.get("confidence_reason"),
-            json_dumps(first.get("winner_dna_focus") or []),
-            json_dumps(rejection_patterns or []),
-            json_dumps(data_quality),
-            json_dumps(plan),
-            int(time.time()),
-        ),
-    )
-    conn.commit()
-    return decision_id
-
-
-def decision_log(
-    root: Path, *, campaign: str | None = None, limit: int = 50
-) -> dict[str, Any]:
-    conn = connect(root)
-    where = ""
-    params: list[Any] = []
-    if campaign:
-        where = "WHERE campaign=?"
-        params.append(campaign)
-    params.append(limit)
-    rows = conn.execute(
-        f"""
-        SELECT * FROM recommendation_decisions
-        {where}
-        ORDER BY created_at DESC
-        LIMIT ?
-        """,
-        params,
-    ).fetchall()
-    decisions = []
-    for row in rows:
-        item = dict(row)
-        for key in (
-            "avoid_labels_json",
-            "winner_dna_json",
-            "rejection_patterns_json",
-            "data_quality_json",
-            "plan_json",
-        ):
-            try:
-                item[key.replace("_json", "")] = json.loads(item[key] or "{}")
-            except json.JSONDecodeError:
-                item[key.replace("_json", "")] = None
-        decisions.append(item)
-    return {
-        "schema": "reel_factory.recommendation_decisions.v1",
-        "decisions": decisions,
-    }
-
-
 def refresh_winner_dna(root: Path) -> dict[str, Any]:
     refresh_features(root)
     conn = connect(root)
@@ -1144,9 +1045,6 @@ def main() -> int:
     fatigue = sub.add_parser("account-fatigue")
     fatigue.add_argument("--account", required=True)
     fatigue.add_argument("--window", type=int, default=30)
-    decisions = sub.add_parser("decision-log")
-    decisions.add_argument("--campaign")
-    decisions.add_argument("--limit", type=int, default=50)
     args = ap.parse_args()
     root = Path(args.root)
     if args.cmd == "refresh":
@@ -1164,8 +1062,6 @@ def main() -> int:
         result = baseline_vs_recommended_report(root, experiment=args.experiment)
     elif args.cmd == "account-fatigue":
         result = account_fatigue_report(root, account=args.account, window=args.window)
-    elif args.cmd == "decision-log":
-        result = decision_log(root, campaign=args.campaign, limit=args.limit)
     elif args.cmd == "record-cost":
         result = record_cost(
             root,

@@ -16,7 +16,7 @@ from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .audio_intent import read_audio_intent
-from .campaign_store import ensure_campaign_schema, slugify
+from .evidence_store import ensure_evidence_schema, slugify
 from .intelligence_store import ensure_intelligence_schema, winner_score
 from .state_paths import manifest_db_path
 
@@ -88,7 +88,7 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
 
     known = {
         Path(row["output_path"]).name
@@ -267,7 +267,12 @@ def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                     campaign_output_row["campaign_output_id"]
                     if campaign_output_row
                     else campaign_output_id,
-                    campaign_output_row["campaign_id"] if campaign_output_row else None,
+                    (
+                        campaign_output_row["campaign_key"]
+                        or campaign_output_row["campaign_id"]
+                    )
+                    if campaign_output_row
+                    else None,
                     campaign_output_row["asset_generation_id"]
                     if campaign_output_row
                     else None,
@@ -349,7 +354,7 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     ensure_intelligence_schema(conn)
 
     imported = 0
@@ -415,7 +420,9 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 ).fetchone()
                 if asset:
                     prompt_run_id = prompt_run_id or asset["prompt_run_id"]
-                    source_reference_id = asset["reference_id"]
+                    source_reference_id = (
+                        asset["reference_key"] or asset["reference_id"]
+                    )
             platform = _text(row.get("platform")) or "instagram_reels"
             account = _outcome_dimension(row.get("account"))
             posted_at = _outcome_dimension(
@@ -433,7 +440,9 @@ def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
                 (campaign_output["job_key"] if campaign_output else None)
                 or (variation["job_key"] if variation else None),
                 campaign_output["campaign_output_id"] if campaign_output else None,
-                campaign_output["campaign_id"] if campaign_output else None,
+                (campaign_output["campaign_key"] or campaign_output["campaign_id"])
+                if campaign_output
+                else None,
                 campaign_output["asset_generation_id"] if campaign_output else None,
                 prompt_run_id,
                 source_reference_id,
@@ -560,7 +569,7 @@ def refresh_outcomes_from_performance_sync(
         raise FileNotFoundError(f"campaign factory DB not found: {source_db}")
     conn = connect_metrics_db(db_path)
     ensure_metrics_schema(conn)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     ensure_intelligence_schema(conn)
 
     source = connect_sqlite(source_db, readonly=True, wal=False)
@@ -622,11 +631,11 @@ def refresh_outcomes_from_performance_sync(
         conn.execute(
             """
             INSERT INTO campaign_outputs (
-                campaign_output_id, campaign_id, output_path, caption_text, recipe,
+                campaign_output_id, campaign_key, output_path, caption_text, recipe,
                 review_state, metrics_filename, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(output_path) DO UPDATE SET
-                campaign_id=COALESCE(campaign_outputs.campaign_id, excluded.campaign_id),
+                campaign_key=COALESCE(campaign_outputs.campaign_key, excluded.campaign_key),
                 caption_text=COALESCE(campaign_outputs.caption_text, excluded.caption_text),
                 recipe=COALESCE(campaign_outputs.recipe, excluded.recipe),
                 review_state=COALESCE(campaign_outputs.review_state, excluded.review_state),
@@ -776,7 +785,7 @@ def upsert_bridge_outcome(
 ) -> dict[str, Any]:
     """Ledger-controlled single-snapshot Reel outcome write with monotonic guards."""
     ensure_metrics_schema(conn)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     output_path = _text(snapshot.get("rendered_output_path"))
     filename = _text(snapshot.get("rendered_filename")) or (
         Path(output_path).name if output_path else None

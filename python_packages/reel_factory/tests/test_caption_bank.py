@@ -7,7 +7,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reel_factory.campaign_store import ensure_campaign_schema
 from reel_factory.caption_bank import (
     ACTIVE_BANKS,
     CaptionBankStore,
@@ -21,6 +20,7 @@ from reel_factory.discoverability_safety import (
     audit_caption_sources,
     discoverability_safe_content_contract,
 )
+from reel_factory.evidence_store import ensure_evidence_schema
 from reel_factory.intelligence_store import ensure_intelligence_schema
 
 
@@ -169,7 +169,7 @@ class CaptionBankTests(unittest.TestCase):
         )
         conn = sqlite3.connect(root / "manifest.sqlite")
         conn.row_factory = sqlite3.Row
-        ensure_campaign_schema(conn)
+        ensure_evidence_schema(conn)
         ensure_intelligence_schema(conn)
         now = 1
         conn.executemany(

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from reel_factory.metrics_store import ensure_metrics_schema
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .campaign_store import ensure_campaign_schema
+from .evidence_store import ensure_evidence_schema
 from .intelligence_store import ensure_intelligence_schema
 
 try:
@@ -160,7 +160,7 @@ class Manifest:
         CREATE INDEX IF NOT EXISTS idx_review_history_output ON review_decision_history(output_path, changed_at);
         """)
         ensure_metrics_schema(self.conn)
-        ensure_campaign_schema(self.conn)
+        ensure_evidence_schema(self.conn)
         ensure_intelligence_schema(self.conn)
         cols = {
             row["name"]

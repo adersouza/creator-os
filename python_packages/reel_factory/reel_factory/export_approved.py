@@ -12,7 +12,7 @@ from typing import Any
 from reel_factory.perceptual import enrich_lineage_identity
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .campaign_store import ensure_campaign_schema
+from .evidence_store import ensure_evidence_schema
 from .readiness_check import load_readiness_for_output, normalize_platform
 from .state_paths import manifest_db_path
 
@@ -35,7 +35,7 @@ def export_approved(
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_sqlite(db_path)
-    ensure_campaign_schema(conn)
+    ensure_evidence_schema(conn)
     _ensure_variations_filename(conn)
     rows = conn.execute("""
         SELECT
@@ -45,7 +45,7 @@ def export_approved(
             v.caption_text,
             v.output_path,
             v.review_state,
-            co.campaign_id,
+            COALESCE(co.campaign_key, co.campaign_id) AS campaign_id,
             co.asset_generation_id,
             m.views,
             m.likes,

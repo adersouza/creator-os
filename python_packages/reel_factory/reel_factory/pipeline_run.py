@@ -18,9 +18,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import validate_recommendation_next_batch
 from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 
-from .campaign_store import next_batch_plan
 from .export_approved import _load_generated_asset_lineage_sidecar
 from .virality_select import rank_candidates
 
@@ -46,6 +46,8 @@ class PipelineRunConfig:
     root: Path
     campaign: str
     creator: str
+    plan_path: Path
+    soul_id: str | None = None
     count: int = 3
     run_id: str | None = None
     reference_image: Path | None = None
@@ -130,12 +132,15 @@ def _primary_reference(config: PipelineRunConfig) -> Path | None:
 
 
 def _prompt_command(
-    config: PipelineRunConfig, prompt_path: Path, reference: Path
+    config: PipelineRunConfig,
+    prompt_path: Path,
+    reference: Path,
+    idea: dict[str, Any],
 ) -> dict[str, Any]:
     reference_flag = (
         "--reference-image" if config.reference_image else "--reference-reel"
     )
-    return _command(
+    args: list[str | Path] = [
         config.root,
         "generate_prompts",
         "--root",
@@ -151,7 +156,15 @@ def _prompt_command(
         "--prompt-mode",
         config.prompt_mode,
         "--dry-run",
+    ]
+    direction = "\n".join(
+        str(value).strip()
+        for value in (idea.get("hookGuidance"), idea.get("captionGuidance"))
+        if str(value or "").strip()
     )
+    if direction:
+        args.extend(["--creative-direction", direction])
+    return _command(*args)
 
 
 def _asset_command(
@@ -181,6 +194,8 @@ def _asset_command(
         args.append("--download")
     if config.estimated_cost_per_asset_usd is not None:
         args.extend(["--estimated-cost-usd", str(config.estimated_cost_per_asset_usd)])
+    if config.soul_id:
+        args.extend(["--soul-id", config.soul_id])
     return _command(
         *args,
     )
@@ -290,6 +305,24 @@ def write_approved_export(
     return path
 
 
+def load_campaign_plan(path: Path, *, campaign: str, count: int) -> dict[str, Any]:
+    """Load a canonical Campaign Factory plan without recalculating decisions."""
+
+    plan_path = Path(path).expanduser().resolve()
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    validate_recommendation_next_batch(plan)
+    if str(plan.get("campaign")) != campaign:
+        raise ValueError(
+            f"Campaign plan is for {plan.get('campaign')!r}, not {campaign!r}"
+        )
+    items = plan.get("items") or []
+    if len(items) < count:
+        raise ValueError(
+            f"Campaign plan contains {len(items)} items but this run requested {count}"
+        )
+    return plan
+
+
 def run_pipeline(
     config: PipelineRunConfig,
     *,
@@ -299,6 +332,9 @@ def run_pipeline(
     run_id = config.run_id or _default_run_id()
     run_dir = pipeline_run_dir(root, config.campaign, run_id)
     state_path = run_dir / "pipeline_run.json"
+    campaign_plan = load_campaign_plan(
+        config.plan_path, campaign=config.campaign, count=config.count
+    )
     state = _load_state(state_path) or {
         "schema": PIPELINE_SCHEMA,
         "run_id": run_id,
@@ -323,25 +359,31 @@ def run_pipeline(
         _write_state(state_path, state)
 
     if not _stage_done(state, "next_batch", config.force_stages):
-        plan = next_batch_plan(root, campaign=config.campaign, count=config.count)
-        state["next_batch"] = plan
+        state["next_batch"] = campaign_plan
         state["stages"]["next_batch"] = {
             "status": "completed",
-            "ideas": len(plan.get("ideas") or []),
+            "ideas": len(campaign_plan.get("items") or []),
+            "source": "campaign_factory",
+            "plan_path": str(Path(config.plan_path).expanduser().resolve()),
         }
         _write_state(state_path, state)
+    elif (state.get("next_batch") or {}).get("inputHash") != campaign_plan.get(
+        "inputHash"
+    ):
+        raise ValueError(
+            "resumed run does not match the supplied Campaign Factory plan"
+        )
 
     reference = _primary_reference(config)
-    ideas = (state.get("next_batch") or {}).get("ideas") or []
+    ideas = ((state.get("next_batch") or {}).get("items") or [])[: config.count]
     prompt_dir = run_dir / "prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_jobs = []
     asset_jobs = []
     recipes: list[str] = []
-    for idea in ideas:
-        idx = int(idea.get("index") or len(prompt_jobs))
+    for idx, idea in enumerate(ideas):
         stem = f"{_slug(config.campaign)}_{run_id}_{idx:03d}"
-        recipe = str(idea.get("recipe_hint") or "").strip()
+        recipe = str(idea.get("suggestedRecipe") or "").strip()
         if recipe and recipe not in recipes:
             recipes.append(recipe)
         prompt_path = prompt_dir / f"{stem}.prompt.json"
@@ -351,7 +393,7 @@ def run_pipeline(
                     "idea_index": idx,
                     "stem": stem,
                     "prompt_path": str(prompt_path),
-                    "command": _prompt_command(config, prompt_path, reference),
+                    "command": _prompt_command(config, prompt_path, reference, idea),
                 }
             )
             asset_jobs.append(
@@ -437,6 +479,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".")
     parser.add_argument("--campaign", required=True)
     parser.add_argument("--creator", required=True)
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="Validated campaign_factory.recommendations.next_batch.v1 JSON.",
+    )
+    parser.add_argument("--soul-id")
     parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--run-id")
     parser.add_argument("--reference-image", type=Path)
@@ -463,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
         root=Path(args.root),
         campaign=args.campaign,
         creator=args.creator,
+        plan_path=args.plan,
+        soul_id=args.soul_id,
         count=args.count,
         run_id=args.run_id,
         reference_image=args.reference_image,

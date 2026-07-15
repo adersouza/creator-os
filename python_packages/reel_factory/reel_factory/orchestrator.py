@@ -729,6 +729,8 @@ def load_config(root: Path) -> dict[str, Any]:
         "top_k_for_approval": 3,
         "campaign": "",
         "creator": "",
+        "soul_id": "",
+        "campaign_plan": "",
         "caption_mix": "",
         "reference_image": "",
         "reference_reel": "",
@@ -763,6 +765,8 @@ def operator_status(root: Path) -> dict[str, Any]:
         "paidGenerationEnabled": bool(config.get("paid_generation_enabled", False)),
         "campaign": str(config.get("campaign") or ""),
         "creator": str(config.get("creator") or ""),
+        "soulId": str(config.get("soul_id") or ""),
+        "campaignPlan": str(config.get("campaign_plan") or ""),
         "dailyCandidateTarget": int(config.get("daily_candidate_target", 10)),
         "topKForApproval": int(config.get("top_k_for_approval", 3)),
         "estimatedCostPerAssetUsd": config.get("estimated_cost_per_asset_usd"),
@@ -883,6 +887,7 @@ def tick(
         estimate = config.get("estimated_cost_per_asset_usd")
         reference_image = _resolve_config_path(root, config.get("reference_image"))
         reference_reel = _resolve_config_path(root, config.get("reference_reel"))
+        campaign_plan = _resolve_config_path(root, config.get("campaign_plan"))
         paid_generation_enabled = bool(config.get("paid_generation_enabled", False))
         if shortfall <= 0:
             generation = {"started": False, "reason": "daily_target_met"}
@@ -899,6 +904,8 @@ def tick(
             generation = {"started": False, "reason": "campaign_or_creator_missing"}
         elif not reference_image and not reference_reel:
             generation = {"started": False, "reason": "reference_missing"}
+        elif not campaign_plan or not campaign_plan.is_file():
+            generation = {"started": False, "reason": "campaign_plan_missing"}
         elif estimate is None:
             preflight = check_higgsfield_cost_preflight(
                 asset_count=shortfall,
@@ -938,6 +945,8 @@ def tick(
                         root=root,
                         campaign=str(config.get("campaign") or ""),
                         creator=str(config.get("creator") or ""),
+                        plan_path=campaign_plan,
+                        soul_id=str(config.get("soul_id") or "") or None,
                         count=shortfall,
                         run_id=run_id,
                         reference_image=reference_image,

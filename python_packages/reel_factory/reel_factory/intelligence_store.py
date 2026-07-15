@@ -199,22 +199,6 @@ def ensure_intelligence_schema(conn: sqlite3.Connection) -> None:
         UNIQUE(feature_key, feature_value)
     );
 
-    CREATE TABLE IF NOT EXISTS recommendation_decisions (
-        decision_id TEXT PRIMARY KEY,
-        campaign TEXT NOT NULL,
-        recommendation_pattern TEXT,
-        prompt_focus TEXT,
-        avoid_labels_json TEXT NOT NULL DEFAULT '[]',
-        confidence TEXT,
-        confidence_reason TEXT,
-        winner_dna_json TEXT NOT NULL DEFAULT '[]',
-        rejection_patterns_json TEXT NOT NULL DEFAULT '[]',
-        data_quality_json TEXT NOT NULL DEFAULT '{}',
-        plan_json TEXT NOT NULL DEFAULT '{}',
-        created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_recommendation_decisions_campaign
-        ON recommendation_decisions(campaign, created_at);
     """)
     _ensure_columns(
         conn,

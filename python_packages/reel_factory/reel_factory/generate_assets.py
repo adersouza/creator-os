@@ -25,13 +25,11 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 from .anatomy_qc import assess_image_qc, is_image_postable
 from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
-from .campaign_store import (
-    connect,
-    creator_by_name,
+from .deprecated_generators import guard_deprecated_generator
+from .evidence_store import (
     record_asset_generation,
     validate_generation_soul,
 )
-from .deprecated_generators import guard_deprecated_generator
 from .higgsfield_cost_preflight import (
     consume_higgsfield_spend_reservation,
     nonnegative_float_arg,
@@ -817,18 +815,8 @@ def _soul_id_for_plan(plan: AssetGenerationPlan, *, dry: bool) -> str | None:
     if not name:
         return None
     if dry:
-        if name.lower() == "stacey":
-            return "5828d958-91dd-4d6d-8909-934503f47644"
-        try:
-            conn = connect(Path.cwd())
-            return str(creator_by_name(conn, name)["soul_id"])
-        except Exception:
-            return f"<soul_id:{name}>"
-    try:
-        conn = connect(plan.source_dir.parent)
-        return str(creator_by_name(conn, name)["soul_id"])
-    except Exception:
-        return resolve_soul_id(name)
+        return f"<soul_id:{name}>"
+    return resolve_soul_id(name)
 
 
 def _soul_id_for_direct_plan(
@@ -840,18 +828,8 @@ def _soul_id_for_direct_plan(
     if not name:
         return None
     if dry:
-        if name.lower() == "stacey":
-            return "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
-        try:
-            conn = connect(Path.cwd())
-            return str(creator_by_name(conn, name)["soul_id"])
-        except Exception:
-            return f"<soul_id:{name}>"
-    try:
-        conn = connect(plan.source_dir.parent)
-        return str(creator_by_name(conn, name)["soul_id"])
-    except Exception:
-        return resolve_soul_id(name)
+        return f"<soul_id:{name}>"
+    return resolve_soul_id(name)
 
 
 def direct_reference_prompt(

@@ -412,6 +412,8 @@ def test_enabled_tick_blocks_generation_without_cost_estimate(
     project_data.mkdir()
     reference = tmp_path / "reference.jpg"
     reference.write_bytes(b"reference")
+    plan = tmp_path / "campaign_plan.json"
+    plan.write_text("{}", encoding="utf-8")
     (project_data / "orchestrator.toml").write_text(
         "\n".join(
             [
@@ -421,6 +423,7 @@ def test_enabled_tick_blocks_generation_without_cost_estimate(
                 'campaign = "campaign_a"',
                 'creator = "Stacey"',
                 f'reference_image = "{reference}"',
+                f'campaign_plan = "{plan}"',
             ]
         ),
         encoding="utf-8",
@@ -456,6 +459,8 @@ def test_enabled_tick_runs_pipeline_and_ingests_state(
     project_data.mkdir()
     reference = tmp_path / "reference.jpg"
     reference.write_bytes(b"reference")
+    plan = tmp_path / "campaign_plan.json"
+    plan.write_text("{}", encoding="utf-8")
     (project_data / "orchestrator.toml").write_text(
         "\n".join(
             [
@@ -466,6 +471,7 @@ def test_enabled_tick_runs_pipeline_and_ingests_state(
                 'campaign = "Campaign A"',
                 'creator = "Stacey"',
                 f'reference_image = "{reference}"',
+                f'campaign_plan = "{plan}"',
                 "estimated_cost_per_asset_usd = 0.5",
             ]
         ),
@@ -558,6 +564,8 @@ def test_paid_generation_requires_all_independent_gates(
     project_data.mkdir()
     reference = tmp_path / "reference.jpg"
     reference.write_bytes(b"reference")
+    plan = tmp_path / "campaign_plan.json"
+    plan.write_text("{}", encoding="utf-8")
     (project_data / "orchestrator.toml").write_text(
         "\n".join(
             [
@@ -567,6 +575,7 @@ def test_paid_generation_requires_all_independent_gates(
                 'campaign = "Campaign A"',
                 'creator = "Stacey"',
                 f'reference_image = "{reference}"',
+                f'campaign_plan = "{plan}"',
                 "estimated_cost_per_asset_usd = 0.5",
             ]
         ),
