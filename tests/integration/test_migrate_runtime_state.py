@@ -47,10 +47,20 @@ def test_state_migration_copies_and_verifies_without_deleting_sources(
     artifacts.mkdir(parents=True)
     (artifacts / "reel.mp4").write_bytes(b"media")
     (artifacts / "secrets.toml").write_text("secret", encoding="utf-8")
+    shared_fonts = tmp_path / "legacy/fonts"
+    shared_fonts.mkdir()
+    (shared_fonts / "caption.woff2").write_bytes(b"font")
+    (artifacts / "fonts").symlink_to(shared_fonts, target_is_directory=True)
+    (artifacts / "backup-fonts").symlink_to(shared_fonts, target_is_directory=True)
+    log = tmp_path / "legacy/ops.log"
+    log.write_text("runtime proof\n", encoding="utf-8")
 
     plan = migration.migration_plan(
         database_sources=sources,
-        directory_sources=[("artifact", "accepted", artifacts)],
+        directory_sources=[
+            ("artifact", "accepted", artifacts),
+            ("log", "ops", log),
+        ],
         paths=paths,
     )
     result = migration.apply_migration(plan, tmp_path / "evidence", timestamp="test")
@@ -64,7 +74,12 @@ def test_state_migration_copies_and_verifies_without_deleting_sources(
     assert paths.reel_manifest_db.exists()
     assert paths.reel_render_queue_db.exists()
     assert (paths.artifact_root / "media/accepted/reel.mp4").exists()
+    assert (paths.artifact_root / "media/accepted/fonts/caption.woff2").exists()
+    assert (paths.artifact_root / "media/accepted/backup-fonts/caption.woff2").exists()
     assert not (paths.artifact_root / "media/accepted/secrets.toml").exists()
+    assert (paths.log_root / "ops/ops.log").read_text(encoding="utf-8") == (
+        "runtime proof\n"
+    )
 
 
 def test_state_migration_refuses_existing_canonical_database(tmp_path: Path) -> None:
@@ -81,3 +96,20 @@ def test_state_migration_refuses_existing_canonical_database(tmp_path: Path) -> 
 
     with pytest.raises(FileExistsError, match="database destinations"):
         migration.apply_migration(plan, tmp_path / "evidence", timestamp="test")
+
+
+def test_state_migration_refuses_destination_nested_inside_source(
+    tmp_path: Path,
+) -> None:
+    paths = resolve_runtime_paths(
+        tmp_path / "creator-os", env={"HOME": str(tmp_path / "home")}
+    )
+    sources = _sources(tmp_path)
+    paths.config_root.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="destination cannot be nested"):
+        migration.migration_plan(
+            database_sources=sources,
+            directory_sources=[("log", "ops", paths.config_root)],
+            paths=paths,
+        )

@@ -140,15 +140,24 @@ def run_live_status(
     config_root = home_root / ".creator-os"
     performance_env = config_root / "performance-sync.env"
     generation_env = config_root / "generation.env"
+    campaign_ingest_env = config_root / "campaign-ingest.env"
     ops_log = config_root / "ops.log"
     performance_values = _read_env_assignments(performance_env)
     generation_values = _read_env_assignments(generation_env)
-    probe_env = {**os.environ, **performance_values, **generation_values}
+    campaign_ingest_values = _read_env_assignments(campaign_ingest_env)
+    probe_env = {
+        **os.environ,
+        **performance_values,
+        **generation_values,
+        **campaign_ingest_values,
+    }
     trace_id = f"trace_{uuid.uuid4().hex}"
 
     repository = _repository_status(resolved.source_root)
     contracts = _contracts_status(resolved.source_root)
-    local_config = _local_config_status(performance_env, generation_env)
+    local_config = _local_config_status(
+        performance_env, generation_env, campaign_ingest_env
+    )
     canonical_roots = _canonical_roots_status(resolved)
     runtime = _runtime_status(resolved, performance_values, ops_log)
     database = _campaign_database_status(performance_values)
