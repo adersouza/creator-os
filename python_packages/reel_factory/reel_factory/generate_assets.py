@@ -56,6 +56,16 @@ DOWNLOAD_TIMEOUT_SECONDS = 60
 MIN_IMAGE_RESULT_BYTES = 10_000
 MIN_VIDEO_RESULT_BYTES = 100_000
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+POLICY_BOUND_WORKER_MODES = frozenset(
+    {
+        "reference-image",
+        "reference-image-dry-run",
+        "image",
+        "image-dry-run",
+        "video",
+        "video-dry-run",
+    }
+)
 
 
 def nonnegative_float_arg(value: str) -> float:
@@ -2346,6 +2356,12 @@ def main() -> int:
     )
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
+
+    if args.mode in POLICY_BOUND_WORKER_MODES and not args.execution_plan_file:
+        ap.error(
+            "--execution-plan-file is required for canonical "
+            f"{args.mode} worker actions"
+        )
 
     execution_plan = None
     if args.execution_plan_file:
