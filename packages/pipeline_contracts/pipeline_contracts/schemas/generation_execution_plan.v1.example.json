@@ -4,7 +4,7 @@
   "stillStrategy": "accepted_rank_one_still",
   "motionStrategy": "kling_best_only",
   "costClassification": "paid_video",
-  "providers": ["higgsfield"],
+  "providers": ["higgsfield", "kling"],
   "models": ["kling3_0", "static_mp4"],
   "requiredApprovals": [
     "human_still_approval",

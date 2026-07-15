@@ -8,7 +8,7 @@ import shlex
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 from creator_os_core.fileops import atomic_write_text
 from creator_os_core.runtime_guards import require_global_write_allowed
@@ -19,6 +19,11 @@ from reel_factory.reference_video_remix import (
 from scenedetect import ContentDetector, detect
 
 from .core import new_id, sanitize_for_storage, sha256_file
+from .generation_execution_plan import (
+    GenerationExecutionPlan,
+    authorize_paid_generation,
+    require_generation_execution_mode,
+)
 from .persistence import utc_now
 from .static_mp4_stage import run_static_mp4_stage
 
@@ -46,7 +51,13 @@ class ReferenceVideoRemixSeams(Protocol):
     ) -> dict[str, Any]: ...
 
     def quote(
-        self, *, operation: str, provider: str, model: str, soul_id: str
+        self,
+        *,
+        operation: str,
+        provider: str,
+        model: str,
+        soul_id: str,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]: ...
 
     def reserve(
@@ -66,6 +77,7 @@ class ReferenceVideoRemixSeams(Protocol):
         creator: str,
         soul_id: str,
         workspace: Path,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]: ...
 
     def verify_endpoint_approval(
@@ -84,6 +96,7 @@ class ReferenceVideoRemixSeams(Protocol):
         model: str,
         command: list[str],
         workspace: Path,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]: ...
 
     def contentforge_qc(
@@ -140,7 +153,13 @@ class JsonCommandReferenceVideoRemixSeams:
         )
 
     def quote(
-        self, *, operation: str, provider: str, model: str, soul_id: str
+        self,
+        *,
+        operation: str,
+        provider: str,
+        model: str,
+        soul_id: str,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]:
         return self._call(
             "quote",
@@ -148,6 +167,7 @@ class JsonCommandReferenceVideoRemixSeams:
             provider=provider,
             model=model,
             soulId=soul_id,
+            executionPlan=execution_plan,
         )
 
     def reserve(
@@ -175,6 +195,7 @@ class JsonCommandReferenceVideoRemixSeams:
         creator: str,
         soul_id: str,
         workspace: Path,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]:
         return self._call(
             "generate_soul_endpoint",
@@ -184,6 +205,7 @@ class JsonCommandReferenceVideoRemixSeams:
             creator=creator,
             soulId=soul_id,
             workspace=str(workspace),
+            executionPlan=execution_plan,
         )
 
     def verify_endpoint_approval(
@@ -209,6 +231,7 @@ class JsonCommandReferenceVideoRemixSeams:
         model: str,
         command: list[str],
         workspace: Path,
+        execution_plan: dict[str, Any],
     ) -> dict[str, Any]:
         return self._call(
             "animate",
@@ -216,6 +239,7 @@ class JsonCommandReferenceVideoRemixSeams:
             model=model,
             command=command,
             workspace=str(workspace),
+            executionPlan=execution_plan,
         )
 
     def contentforge_qc(
@@ -251,6 +275,7 @@ def run_reference_video_remix_stage(
     rights_confirmed: bool,
     first_frame_approval_id: str,
     last_frame_approval_id: str,
+    execution_plan: GenerationExecutionPlan,
     paid_confirmation: bool,
     max_credits: float,
     preferred_provider: str = "auto",
@@ -258,6 +283,27 @@ def run_reference_video_remix_stage(
     seams: ReferenceVideoRemixSeams | None = None,
 ) -> dict[str, Any]:
     """Execute the paid structural remix through fail-closed injected seams."""
+    execution_plan_contract = require_generation_execution_mode(
+        execution_plan, "reference_video_remix"
+    )
+    authorize_paid_generation(
+        execution_plan,
+        expected_mode="reference_video_remix",
+        media_kind="image",
+        required_approvals=("reference_rights", "paid_generation"),
+    )
+    authorize_paid_generation(
+        execution_plan,
+        expected_mode="reference_video_remix",
+        media_kind="video",
+        required_approvals=(
+            "reference_rights",
+            "both_endpoint_frames",
+            "paid_generation",
+            "contentforge_approval",
+            "final_human_review",
+        ),
+    )
     if not paid_confirmation:
         raise ValueError("explicit paid confirmation is required")
     cap = _positive_finite(max_credits, "max_credits")
@@ -307,6 +353,7 @@ def run_reference_video_remix_stage(
             "maxCredits": cap,
             "preferredProvider": preferred_provider,
             "availableProviders": list(available_providers),
+            "executionPlan": execution_plan_contract,
             "publishingAllowed": False,
         },
     )
@@ -330,6 +377,9 @@ def run_reference_video_remix_stage(
             model="soul_2",
             soul_id=soul_id,
             idempotency_key=f"{reference_id}:endpoint:first",
+            execution_plan=execution_plan,
+            media_kind="image",
+            required_approvals=("reference_rights", "paid_generation"),
             call=lambda: seams.generate_soul_endpoint(
                 role="first",
                 source_frame=source_first,
@@ -337,6 +387,7 @@ def run_reference_video_remix_stage(
                 creator=creator,
                 soul_id=soul_id,
                 workspace=remix_dir,
+                execution_plan=execution_plan_contract,
             ),
         )
         last_generation, last_spend = _paid_call(
@@ -347,6 +398,9 @@ def run_reference_video_remix_stage(
             model="soul_2",
             soul_id=soul_id,
             idempotency_key=f"{reference_id}:endpoint:last",
+            execution_plan=execution_plan,
+            media_kind="image",
+            required_approvals=("reference_rights", "paid_generation"),
             call=lambda: seams.generate_soul_endpoint(
                 role="last",
                 source_frame=source_last,
@@ -354,6 +408,7 @@ def run_reference_video_remix_stage(
                 creator=creator,
                 soul_id=soul_id,
                 workspace=remix_dir,
+                execution_plan=execution_plan_contract,
             ),
         )
         first_endpoint = _endpoint_path(first_generation, "first")
@@ -418,11 +473,21 @@ def run_reference_video_remix_stage(
             model=model,
             soul_id=soul_id,
             idempotency_key=f"{plan['planId']}:animation",
+            execution_plan=execution_plan,
+            media_kind="video",
+            required_approvals=(
+                "reference_rights",
+                "both_endpoint_frames",
+                "paid_generation",
+                "contentforge_approval",
+                "final_human_review",
+            ),
             call=lambda: seams.animate(
                 provider=provider,
                 model=model,
                 command=[str(value) for value in command],
                 workspace=remix_dir,
+                execution_plan=execution_plan_contract,
             ),
         )
         final_video = _final_video_path(
@@ -457,6 +522,7 @@ def run_reference_video_remix_stage(
             spend=[first_spend, last_spend, animation_spend],
             max_credits=cap,
             credits_spent=ledger.spent,
+            execution_plan=execution_plan_contract,
         )
         lineage_path = remix_dir / f"{plan['planId']}.generated_asset_lineage.json"
         atomic_write_text(
@@ -481,6 +547,7 @@ def run_reference_video_remix_stage(
             "lineagePath": str(lineage_path),
             "creditsSpent": ledger.spent,
             "maxCredits": cap,
+            "executionPlan": execution_plan_contract,
             "handoffStatus": "blocked_pending_final_human_review",
             "humanReviewRequired": True,
             "schedulingAllowed": False,
@@ -505,8 +572,12 @@ def plan_reference_video_remix_stage(
     operator_selected: bool,
     rights_confirmed: bool,
     max_credits: float | None,
+    execution_plan: GenerationExecutionPlan,
 ) -> dict[str, Any]:
     """Return a provider-free preflight plan without extracting or generating media."""
+    execution_plan_contract = require_generation_execution_mode(
+        execution_plan, "reference_video_remix"
+    )
     reference_video = _reference_video(reference_video_path)
     probe = probe_reference_video(reference_video)
     workspace = Path(workspace).expanduser().resolve()
@@ -528,6 +599,7 @@ def plan_reference_video_remix_stage(
             if max_credits is not None
             else None
         ),
+        "executionPlan": execution_plan_contract,
         "providerCalls": 0,
         "paidGenerationAuthorized": False,
         "requiredBeforeApply": [
@@ -711,10 +783,25 @@ def _paid_call(
     model: str,
     soul_id: str,
     idempotency_key: str,
+    execution_plan: GenerationExecutionPlan,
+    media_kind: Literal["image", "video"],
+    required_approvals: tuple[str, ...],
     call: Callable[[], _T],
 ) -> tuple[_T, dict[str, Any]]:
+    execution_plan_contract = authorize_paid_generation(
+        execution_plan,
+        expected_mode="reference_video_remix",
+        media_kind=media_kind,
+        required_approvals=required_approvals,
+        provider=provider,
+        model=model,
+    )
     quote = seams.quote(
-        operation=operation, provider=provider, model=model, soul_id=soul_id
+        operation=operation,
+        provider=provider,
+        model=model,
+        soul_id=soul_id,
+        execution_plan=execution_plan_contract,
     )
     amount = _quote_amount(quote, provider=provider, model=model)
     remaining = round(ledger.max_credits - ledger.spent, 6)
@@ -883,6 +970,7 @@ def _build_lineage(**values: Any) -> dict[str, Any]:
     return {
         "schema": "campaign_factory.reference_video_remix_lineage.v1",
         "planId": plan["planId"],
+        "generationExecutionPlan": values["execution_plan"],
         "reference": {
             "path": str(values["reference_video"]),
             "sha256": sha256_file(values["reference_video"]),

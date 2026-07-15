@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from campaign_factory.generation_workflow import run_generation_workflow
+from campaign_factory.generation_execution_plan import build_generation_execution_plan
+from campaign_factory.generation_workflow import (
+    _run_library_reuse_mode,
+    _run_motion_edit_mode,
+    run_generation_workflow,
+)
 
 
 def test_workflow_builds_and_passes_one_canonical_plan(
@@ -136,4 +141,47 @@ def test_library_reuse_requires_explicit_folder_and_model(tmp_path: Path) -> Non
             library_folder=folder,
             dry_run=True,
             apply=False,
+        )
+
+
+def test_library_handler_rejects_cross_mode_plan_before_folder_access() -> None:
+    with pytest.raises(
+        PermissionError,
+        match="motion_edit execution plan does not authorize library_reuse handler",
+    ):
+        _run_library_reuse_mode(
+            object(),
+            execution_plan=build_generation_execution_plan("motion_edit"),
+            campaign_slug="campaign",
+            library_folder=Path("/definitely/missing"),
+            model_slug="stacey",
+            output_format="reel",
+            variant_count=1,
+            workers=1,
+            dry_run=True,
+        )
+
+
+def test_motion_handler_rejects_cross_mode_plan_before_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.generation_workflow.run_static_mp4_stage",
+        lambda *_args, **_kwargs: pytest.fail("render must not be reached"),
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="library_reuse execution plan does not authorize motion_edit handler",
+    ):
+        _run_motion_edit_mode(
+            object(),
+            execution_plan=build_generation_execution_plan("library_reuse"),
+            campaign_slug="campaign",
+            accepted_still_path=Path("/definitely/missing.png"),
+            caption="caption",
+            duration_seconds=5.0,
+            dry_run=True,
+            apply=False,
+            allow_upscale=False,
         )

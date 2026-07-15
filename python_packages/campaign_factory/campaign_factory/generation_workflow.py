@@ -6,7 +6,11 @@ from typing import Any
 
 from .creative_modes import creative_workflow_mode
 from .front_generation_stage import run_front_generation_stage
-from .generation_execution_plan import build_generation_execution_plan
+from .generation_execution_plan import (
+    GenerationExecutionPlan,
+    build_generation_execution_plan,
+    require_generation_execution_mode,
+)
 from .motion_edit_stage import run_motion_edit_stage
 from .reference_video_remix_stage import (
     JsonCommandReferenceVideoRemixSeams,
@@ -62,41 +66,19 @@ def run_generation_workflow(
         raise ValueError("choose exactly one of dry_run or apply")
 
     if mode_id == "library_reuse":
-        _require(library_folder, "library_folder")
-        folder = Path(library_folder).expanduser().resolve()
-        if not folder.is_dir():
-            raise FileNotFoundError(f"library folder not found: {folder}")
-        _require(model_slug, "model_slug")
-        if variant_count <= 0 or workers <= 0:
-            raise ValueError("variant_count and workers must be positive")
-        if output_format not in {"reel", "slideshow", "auto"}:
-            raise ValueError("output_format must be reel, slideshow, or auto")
-        if dry_run:
-            result = {
-                "schema": "campaign_factory.library_reuse_preflight.v1",
-                "status": "planned",
-                "folder": str(folder),
-                "model": model_slug,
-                "format": output_format,
-                "variantCount": variant_count,
-                "workers": workers,
-                "providerCalls": 0,
-                "paidGenerationAllowed": False,
-                "autoApprovalAllowed": False,
-                "draftExportAllowed": False,
-            }
-        else:
-            result = factory.domains.make_batch_repo.make_batch(
-                folder=folder,
-                campaign_slug=campaign_slug,
-                model_slug=model_slug,
-                output_format=output_format,
-                variant_count=variant_count,
-                dry_run_export=True,
-                workers=workers,
-                auto_approve_warning_only=False,
-            )
+        result = _run_library_reuse_mode(
+            factory,
+            execution_plan=execution_plan,
+            campaign_slug=campaign_slug,
+            library_folder=library_folder,
+            model_slug=model_slug,
+            output_format=output_format,
+            variant_count=variant_count,
+            workers=workers,
+            dry_run=dry_run,
+        )
     elif mode_id == "soul_static":
+        require_generation_execution_mode(execution_plan, "soul_static")
         if accepted_still_path is not None:
             result = run_static_mp4_stage(
                 factory,
@@ -134,31 +116,19 @@ def run_generation_workflow(
                 download=download,
             )
     elif mode_id == "motion_edit":
-        _require(accepted_still_path, "accepted_still_path")
-        caption = str(caption or "").strip()
-        if not caption:
-            raise ValueError("caption is required for local motion edit")
-        static_fallback = run_static_mp4_stage(
+        result = _run_motion_edit_mode(
             factory,
+            execution_plan=execution_plan,
             campaign_slug=campaign_slug,
-            still_path=accepted_still_path,
+            accepted_still_path=accepted_still_path,
+            caption=caption,
             duration_seconds=duration_seconds,
             dry_run=dry_run,
             apply=apply,
             allow_upscale=allow_upscale,
         )
-        motion = run_motion_edit_stage(
-            factory,
-            campaign_slug=campaign_slug,
-            still_path=accepted_still_path,
-            caption=caption,
-            duration_seconds=duration_seconds or 5.0,
-            dry_run=dry_run,
-            apply=apply,
-            allow_upscale=allow_upscale,
-        )
-        result = {"staticFallback": static_fallback, "motionEdit": motion}
     elif mode_id == "best_only_kling":
+        require_generation_execution_mode(execution_plan, "best_only_kling")
         _require(reference_image_path, "reference_image_path")
         _require(accepted_still_path, "accepted_still_path")
         _require(kling_selection_receipt_path, "kling_selection_receipt_path")
@@ -213,6 +183,7 @@ def run_generation_workflow(
                 rights_confirmed=rights_confirmed,
                 first_frame_approval_id=first_frame_approval_id,
                 last_frame_approval_id=last_frame_approval_id,
+                execution_plan=execution_plan,
                 paid_confirmation=True,
                 max_credits=float(max_credits),
                 preferred_provider=preferred_provider,
@@ -228,6 +199,7 @@ def run_generation_workflow(
                 operator_selected=operator_selected,
                 rights_confirmed=rights_confirmed,
                 max_credits=max_credits,
+                execution_plan=execution_plan,
             )
     return {
         "schema": "campaign_factory.generation_workflow_run.v1",
@@ -263,6 +235,93 @@ def _paid_inputs_if_live(
         or float(max_credits) <= 0
     ):
         raise ValueError("paid generation requires a finite positive --max-credits")
+
+
+def _run_library_reuse_mode(
+    factory: Any,
+    *,
+    execution_plan: GenerationExecutionPlan,
+    campaign_slug: str,
+    library_folder: Path | None,
+    model_slug: str | None,
+    output_format: str,
+    variant_count: int,
+    workers: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    require_generation_execution_mode(execution_plan, "library_reuse")
+    _require(library_folder, "library_folder")
+    folder = Path(library_folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise FileNotFoundError(f"library folder not found: {folder}")
+    _require(model_slug, "model_slug")
+    if variant_count <= 0 or workers <= 0:
+        raise ValueError("variant_count and workers must be positive")
+    if output_format not in {"reel", "slideshow", "auto"}:
+        raise ValueError("output_format must be reel, slideshow, or auto")
+    if dry_run:
+        return {
+            "schema": "campaign_factory.library_reuse_preflight.v1",
+            "status": "planned",
+            "folder": str(folder),
+            "model": model_slug,
+            "format": output_format,
+            "variantCount": variant_count,
+            "workers": workers,
+            "providerCalls": 0,
+            "paidGenerationAllowed": False,
+            "autoApprovalAllowed": False,
+            "draftExportAllowed": False,
+        }
+    return factory.domains.make_batch_repo.make_batch(
+        folder=folder,
+        campaign_slug=campaign_slug,
+        model_slug=model_slug,
+        output_format=output_format,
+        variant_count=variant_count,
+        dry_run_export=True,
+        workers=workers,
+        auto_approve_warning_only=False,
+    )
+
+
+def _run_motion_edit_mode(
+    factory: Any,
+    *,
+    execution_plan: GenerationExecutionPlan,
+    campaign_slug: str,
+    accepted_still_path: Path | None,
+    caption: str | None,
+    duration_seconds: float | None,
+    dry_run: bool,
+    apply: bool,
+    allow_upscale: bool,
+) -> dict[str, Any]:
+    require_generation_execution_mode(execution_plan, "motion_edit")
+    _require(accepted_still_path, "accepted_still_path")
+    caption = str(caption or "").strip()
+    if not caption:
+        raise ValueError("caption is required for local motion edit")
+    static_fallback = run_static_mp4_stage(
+        factory,
+        campaign_slug=campaign_slug,
+        still_path=accepted_still_path,
+        duration_seconds=duration_seconds,
+        dry_run=dry_run,
+        apply=apply,
+        allow_upscale=allow_upscale,
+    )
+    motion = run_motion_edit_stage(
+        factory,
+        campaign_slug=campaign_slug,
+        still_path=accepted_still_path,
+        caption=caption,
+        duration_seconds=duration_seconds or 5.0,
+        dry_run=dry_run,
+        apply=apply,
+        allow_upscale=allow_upscale,
+    )
+    return {"staticFallback": static_fallback, "motionEdit": motion}
 
 
 def _require(value: Any, label: str) -> None:

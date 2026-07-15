@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.reference_video_remix_stage import (
     REQUIRED_CONTENTFORGE_CHECKS,
     plan_reference_video_remix_stage,
@@ -30,6 +32,7 @@ class FakeStructuralSeams:
         self.calls: list[str] = []
         self.reference_id = ""
         self.reservations = 0
+        self.execution_plans: list[dict] = []
 
     def analyze_motion(self, reference_video: Path, instruction: str) -> dict:
         self.calls.append("gemini")
@@ -85,7 +88,16 @@ class FakeStructuralSeams:
             "requiresReferenceVideoConditioning": self.requires_conditioning,
         }
 
-    def quote(self, *, operation: str, provider: str, model: str, soul_id: str) -> dict:
+    def quote(
+        self,
+        *,
+        operation: str,
+        provider: str,
+        model: str,
+        soul_id: str,
+        execution_plan: dict,
+    ) -> dict:
+        self.execution_plans.append(execution_plan)
         self.calls.append(f"quote:{operation}")
         return {
             "schema": "reel_factory.higgsfield_provider_quote.v1",
@@ -122,7 +134,9 @@ class FakeStructuralSeams:
         creator: str,
         soul_id: str,
         workspace: Path,
+        execution_plan: dict,
     ) -> dict:
+        self.execution_plans.append(execution_plan)
         self.calls.append(f"generate:{role}")
         path = workspace / f"generated_{role}.png"
         Image.new("RGB", (720, 1280), "#bd5b63" if role == "first" else "#375da8").save(
@@ -153,7 +167,9 @@ class FakeStructuralSeams:
         model: str,
         command: list[str],
         workspace: Path,
+        execution_plan: dict,
     ) -> dict:
+        self.execution_plans.append(execution_plan)
         self.calls.append(f"animate:{provider}")
         if self.animation_fails:
             raise RuntimeError("simulated animation provider failure")
@@ -202,6 +218,7 @@ def test_fake_provider_e2e_runs_full_structural_chain_and_records_lineage(
             rights_confirmed=True,
             first_frame_approval_id="approval_first",
             last_frame_approval_id="approval_last",
+            execution_plan=build_generation_execution_plan("reference_video_remix"),
             paid_confirmation=True,
             max_credits=3.0,
             seams=seams,
@@ -222,10 +239,18 @@ def test_fake_provider_e2e_runs_full_structural_chain_and_records_lineage(
         assert "animate:seedance" in seams.calls
         assert "contentforge" in seams.calls
         assert len([call for call in seams.calls if call.startswith("reserve:")]) == 3
+        assert len(seams.execution_plans) == 6
+        assert {plan["creativeMode"] for plan in seams.execution_plans} == {
+            "reference_video_remix"
+        }
         lineage_text = Path(result["lineagePath"]).read_text(encoding="utf-8")
         lineage = json.loads(lineage_text)
         assert "must-not-persist" not in lineage_text
         assert lineage["staticFallback"]["lockedStatic"] is True
+        assert (
+            lineage["generationExecutionPlan"]["creativeMode"]
+            == "reference_video_remix"
+        )
         assert set(lineage["contentForge"]["checks"]) == set(
             REQUIRED_CONTENTFORGE_CHECKS
         )
@@ -253,6 +278,7 @@ def test_structural_chain_routes_kling_when_conditioning_is_not_required(
             rights_confirmed=True,
             first_frame_approval_id="approval_first",
             last_frame_approval_id="approval_last",
+            execution_plan=build_generation_execution_plan("reference_video_remix"),
             paid_confirmation=True,
             max_credits=3.0,
             seams=seams,
@@ -293,6 +319,7 @@ def test_multishot_reference_is_rejected_before_campaign_or_paid_seams(
                 rights_confirmed=True,
                 first_frame_approval_id="approval_first",
                 last_frame_approval_id="approval_last",
+                execution_plan=build_generation_execution_plan("reference_video_remix"),
                 paid_confirmation=True,
                 max_credits=3.0,
                 seams=seams,
@@ -316,7 +343,80 @@ def test_provider_free_plan_rejects_multishot_reference(tmp_path: Path) -> None:
             operator_selected=True,
             rights_confirmed=True,
             max_credits=None,
+            execution_plan=build_generation_execution_plan("reference_video_remix"),
         )
+
+
+def test_remix_handler_rejects_cross_mode_plan_before_source_or_provider_access(
+    tmp_path: Path,
+) -> None:
+    seams = FakeStructuralSeams()
+    factory = make_factory(tmp_path)
+    try:
+        with pytest.raises(
+            PermissionError,
+            match="motion_edit execution plan does not authorize reference_video_remix",
+        ):
+            run_reference_video_remix_stage(
+                factory,
+                campaign_slug="may",
+                reference_video_path=tmp_path / "missing.mp4",
+                creator="Stacey",
+                soul_id="soul",
+                workspace=tmp_path,
+                operator_selected=True,
+                rights_confirmed=True,
+                first_frame_approval_id="first",
+                last_frame_approval_id="last",
+                execution_plan=build_generation_execution_plan("motion_edit"),
+                paid_confirmation=True,
+                max_credits=3.0,
+                seams=seams,
+            )
+        assert seams.calls == []
+        assert (
+            factory.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == 0
+        )
+    finally:
+        factory.close()
+
+
+def test_remix_handler_rejects_incomplete_paid_policy_before_provider_access(
+    tmp_path: Path,
+) -> None:
+    seams = FakeStructuralSeams()
+    factory = make_factory(tmp_path)
+    plan = build_generation_execution_plan("reference_video_remix")
+    incomplete_plan = replace(
+        plan,
+        required_approvals=tuple(
+            approval
+            for approval in plan.required_approvals
+            if approval != "both_endpoint_frames"
+        ),
+    )
+    try:
+        with pytest.raises(PermissionError, match="both_endpoint_frames"):
+            run_reference_video_remix_stage(
+                factory,
+                campaign_slug="may",
+                reference_video_path=tmp_path / "missing.mp4",
+                creator="Stacey",
+                soul_id="soul",
+                workspace=tmp_path,
+                operator_selected=True,
+                rights_confirmed=True,
+                first_frame_approval_id="first",
+                last_frame_approval_id="last",
+                execution_plan=incomplete_plan,
+                paid_confirmation=True,
+                max_credits=3.0,
+                seams=seams,
+            )
+        assert seams.calls == []
+    finally:
+        factory.close()
 
 
 @pytest.mark.parametrize("failure", ["provider", "qc"])
@@ -342,6 +442,7 @@ def test_structural_failures_preserve_static_fallback_and_block_handoff(
                 rights_confirmed=True,
                 first_frame_approval_id="approval_first",
                 last_frame_approval_id="approval_last",
+                execution_plan=build_generation_execution_plan("reference_video_remix"),
                 paid_confirmation=True,
                 max_credits=3.0,
                 seams=seams,
@@ -384,6 +485,7 @@ def test_structural_paid_run_fails_before_any_seam_without_both_approvals(
                 rights_confirmed=True,
                 first_frame_approval_id="approval_first",
                 last_frame_approval_id="",
+                execution_plan=build_generation_execution_plan("reference_video_remix"),
                 paid_confirmation=True,
                 max_credits=3.0,
                 seams=seams,
@@ -412,6 +514,7 @@ def test_structural_paid_run_requires_finite_positive_credit_cap(
                 rights_confirmed=True,
                 first_frame_approval_id="first",
                 last_frame_approval_id="last",
+                execution_plan=build_generation_execution_plan("reference_video_remix"),
                 paid_confirmation=True,
                 max_credits=max_credits,
                 seams=seams,
