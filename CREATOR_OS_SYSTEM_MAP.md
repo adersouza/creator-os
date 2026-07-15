@@ -18,13 +18,15 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-As of 2026-07-15, Creator OS `main` and the clean detached runtime checkout both
-resolve to merge `bd96be81830be7139177c7e9f2723e18ef91d3b4` (PR #444). The
+As of 2026-07-15, the current code-bearing baseline is merge `bd96be81` (PR
+#444), and subsequent status-only documentation changes have been promoted to
+the clean detached runtime in lockstep with `main`. `creator-os status
+--live-read-only` is the authority for the exact current source/runtime SHA. The
 canonical private roots, state migration, clean restore, fresh local backup,
 live HMAC handshake, and Higgsfield account/workspace/model/balance/free-quote
-probes are verified. The promoted runtime also completed the normal
-performance/learning sync at `2026-07-15T22:45:29Z`. A future source repair must
-still earn its own merge, CI proof, and exact-SHA runtime promotion.
+probes are verified. The promoted code-bearing runtime also completed the
+normal performance/learning sync at `2026-07-15T22:45:29Z`. A future source
+repair must still earn its own merge, CI proof, and exact-SHA runtime promotion.
 
 The operational learning loop is healthy but not yet statistically proven. A
 post-promotion LaunchAgent run scanned four posts, imported/updated one eligible
