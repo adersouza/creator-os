@@ -41,13 +41,14 @@ Pixabay Music is a good manual source, but its music downloads are not exposed
 through the official Pixabay image/video API. Download selected tracks manually
 from the track page, then import the local file or URL.
 
-Use `audio_library_import.py` to validate the audio stream, install it
-atomically, and write the SHA-256-addressed license/provenance sidecar. Repeating
+Use the canonical `reel_factory.audio_library_import` module to validate the
+audio stream, install it atomically, and write the SHA-256-addressed
+license/provenance sidecar. Repeating
 the same import is idempotent. Pass either `--url` for a direct HTTP(S) audio
 download or `--file` for a local track:
 
 ```bash
-uv run --package reel-factory python python_packages/reel_factory/audio_library_import.py \
+uv run --package reel-factory python -m reel_factory.audio_library_import \
   --root python_packages/reel_factory \
   --url "https://example.com/track.mp3" \
   --title "Track Title" \

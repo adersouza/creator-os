@@ -83,6 +83,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument("--variant-count", type=int, default=20)
 
+    sub.add_parser(
+        "generation-modes",
+        help="read-only catalog of supported creative workflow modes",
+    )
+
     static_reel = sub.add_parser(
         "static-reel", help="preview or create one free static MP4 from an accepted still"
     )
@@ -188,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
                 "--no-auto-approve",
             )
         )
+    if args.command == "generation-modes":
+        return _run(_campaign_command("generation", "modes"))
     if args.command == "static-reel":
         command = _campaign_command(
             "animation",

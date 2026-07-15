@@ -74,6 +74,9 @@ scripts/creator-os reference-refresh --apply --source ~/Downloads/tiktok
 scripts/creator-os campaign-prepare --confirm-write \
   --folder /path/to/media --campaign campaign_slug --model model_slug
 
+# Read-only catalog of library, static, motion, Kling, and structural-remix modes
+scripts/creator-os generation-modes
+
 # Free accepted-still fallback
 scripts/creator-os static-reel --dry-run \
   --campaign campaign_slug --still /path/to/accepted.png

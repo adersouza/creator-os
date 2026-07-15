@@ -27,6 +27,7 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert result.returncode == 0
     assert "component" not in result.stdout
     assert "campaign-prepare" in result.stdout
+    assert "generation-modes" in result.stdout
     assert "draft-export" in result.stdout
     assert "paid-generation" in result.stdout
 
@@ -101,3 +102,30 @@ def test_draft_export_forces_draft_mode(monkeypatch: pytest.MonkeyPatch) -> None
     assert command[command.index("--schedule-mode") + 1] == "draft"
     assert "live" not in command
     assert "publish" not in " ".join(command)
+
+
+def test_generation_modes_uses_read_only_campaign_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"](["generation-modes"]) == 0
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "campaign-factory",
+            "campaign-factory",
+            "generation",
+            "modes",
+        ]
+    ]
