@@ -4,29 +4,19 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEVELOPER_ROOT = PROJECT_ROOT.parent
-
-
-def _default_creator_os_root() -> Path:
-    if PROJECT_ROOT.parent.name == "python_packages":
-        return PROJECT_ROOT.parent.parent
-    return DEVELOPER_ROOT / "creator-os"
-
-
-CREATOR_OS_ROOT = Path(os.environ.get("CREATOR_OS_ROOT", _default_creator_os_root()))
-WORKSPACE_ROOT = CREATOR_OS_ROOT.parent
-CREATOR_OS_CAMPAIGN_FACTORY_ROOT = (
-    CREATOR_OS_ROOT / "python_packages" / "campaign_factory"
+from creator_os_core.runtime_paths import (
+    resolve_component_roots,
+    resolve_runtime_paths,
 )
-CREATOR_OS_REEL_FACTORY_ROOT = CREATOR_OS_ROOT / "python_packages" / "reel_factory"
-CREATOR_OS_CONTENTFORGE_ROOT = CREATOR_OS_ROOT / "packages" / "contentforge"
-CREATOR_OS_REFERENCE_FACTORY_ROOT = (
-    CREATOR_OS_ROOT / "python_packages" / "reference_factory"
-)
-# ThreadsDashboard is an external sibling repo; default to <workspace>/ThreadsDashboard,
-# override with THREADSDASH_ROOT. Avoids a hardcoded personal path.
-DEFAULT_THREADSDASH_ROOT = WORKSPACE_ROOT / "ThreadsDashboard"
+
+_PATHS = resolve_runtime_paths()
+CREATOR_OS_ROOT = _PATHS.source_root
+WORKSPACE_ROOT = _PATHS.workspace_root
+CREATOR_OS_CAMPAIGN_FACTORY_ROOT = _PATHS.campaign_factory_root
+CREATOR_OS_REEL_FACTORY_ROOT = _PATHS.reel_factory_root
+CREATOR_OS_CONTENTFORGE_ROOT = _PATHS.contentforge_root
+CREATOR_OS_REFERENCE_FACTORY_ROOT = _PATHS.reference_factory_root
+DEFAULT_THREADSDASH_ROOT = _PATHS.threadsdash_root
 
 
 @dataclass(frozen=True)
@@ -70,62 +60,4 @@ def get_settings() -> Settings:
 
 
 def resolve_repo_roots(projects_root: Path) -> dict[str, Path]:
-    """Resolve sibling repo roots for smoke fixtures.
-
-    Supports two layouts:
-    - flat: ``<projects_root>/{reel_factory,contentforge,reference_factory,ThreadsDashboard}``
-      (used by tests with temp dirs)
-    - canonical: ``creator-os/python_packages/*``, ``creator-os/packages/contentforge``,
-      with ``ThreadsDashboard`` as a sibling of ``creator-os``.
-
-    ``projects_root`` may be the workspace root (parent of ``creator-os``) or the
-    ``creator-os`` checkout itself. Env overrides (``REEL_FACTORY_ROOT`` etc.) win.
-    """
-    root = Path(projects_root).expanduser().resolve()
-    if (root / "creator-os").is_dir():
-        creator_os = root / "creator-os"
-    elif root.name == "python_packages":
-        # Legacy default from the smoke scripts: <creator-os>/python_packages
-        creator_os = root.parent
-    else:
-        creator_os = root
-
-    def pick(env_var: str, candidates: list[Path]) -> Path:
-        env = os.environ.get(env_var)
-        if env:
-            return Path(env).expanduser().resolve()
-        for candidate in candidates:
-            if candidate.is_dir():
-                return candidate
-        return candidates[-1]
-
-    return {
-        "reel_factory": pick(
-            "REEL_FACTORY_ROOT",
-            [
-                root / "reel_factory",
-                creator_os / "python_packages" / "reel_factory",
-            ],
-        ),
-        "contentforge": pick(
-            "CONTENTFORGE_ROOT",
-            [
-                root / "contentforge",
-                creator_os / "apps" / "contentforge",
-            ],
-        ),
-        "reference_factory": pick(
-            "REFERENCE_FACTORY_ROOT",
-            [
-                root / "reference_factory",
-                creator_os / "python_packages" / "reference_factory",
-            ],
-        ),
-        "ThreadsDashboard": pick(
-            "THREADSDASH_ROOT",
-            [
-                root / "ThreadsDashboard",
-                creator_os.parent / "ThreadsDashboard",
-            ],
-        ),
-    }
+    return resolve_component_roots(projects_root)

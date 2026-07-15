@@ -863,7 +863,8 @@ def _generated_prompt_text(lineage: dict[str, Any]) -> str:
 def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
     cmd = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "generate_assets.py",
+        "-m",
+        "reel_factory.generate_assets",
         *args,
         "--root",
         str(factory.settings.reel_factory_root),
@@ -946,7 +947,8 @@ def _invoke_generate_variant_spec(
         raise ValueError("completed Soul original is missing its Soul ID")
     command = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "generate_variants.py",
+        "-m",
+        "reel_factory.generate_variants",
         "--captured-prompt",
         captured_prompt,
         "--soul-id",

@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from intelligence_store import winner_score
-
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .intelligence_store import winner_score
 
 try:
     from .fileops import atomic_write_text

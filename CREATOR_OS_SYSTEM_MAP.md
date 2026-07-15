@@ -1,104 +1,221 @@
 # Creator OS System Map
 
-This is the durable operator map. Keep this file aligned with `AGENTS.md`,
-`creator_os_map.html`, and `ARCHITECTURE.md`.
+This is the durable source and runtime map. It describes ownership and
+available evidence; it does not imply deployment or a successful live run.
 
-## Repos
+## Four Truth Levels
 
-- `/Users/aderdesouza/Developer/creator-os`: Creator OS runtime source for
-  Campaign Factory, Reel Factory, Reference Factory, ContentForge, Pipeline
-  Contracts, docs, maps, and local generated evidence.
-- `/Users/aderdesouza/Developer/ThreadsDashboard`: real dashboard product and
-  runtime. Owns composer, drafts, native audio selection, scheduling,
-  publishing, analytics, and Supabase runtime behavior.
-- Creator OS has no committed `apps/dashboard` source mirror. Do not restore it.
+1. **Implemented locally**: code exists in a checkout and local tests may pass.
+2. **Merged to `main`**: GitHub `main` contains the exact commit and its required
+   CI passed.
+3. **Promoted to runtime**: the separate `creator-os-runtime` checkout was
+   explicitly updated to a recorded Git SHA.
+4. **Proven operationally**: a bounded real run produced receipts, state
+   transitions, and downstream evidence.
 
-## Components
+Never collapse these into “working” or “deployed.” Source, runtime, machine
+state, paid providers, and ThreadsDashboard production have separate evidence.
 
-- Reference Factory teaches: reference intake, winner DNA, pattern cards, audio
-  catalog exports, measured outcome signals.
-- Reel Factory creates: Higgsfield/Stacey stills, Kling or motion-edit videos,
-  burned overlay text, caption rendering, readiness evidence.
-- Campaign Factory decides: planning, account assignment, readiness, variation,
-  quality gates, draft export, learning, execution proof.
-- ContentForge judges and blocks: Campaign Factory uses it for PDQ/SSCD
-  collisions, sibling distinctness, OCR safe zones, readability, watchability,
-  and quality-floor evidence. Do not use safety work to add platform-avoidance
-  behavior.
-- Pipeline Contracts validate: shared JSON schemas and Python/TypeScript
-  validators for cross-repo payloads.
-- ThreadsDashboard publishes: operator UI, native audio proof, schedule,
-  publish, publish proof, metrics, and feedback sync.
+## Ownership And Dependencies
 
-## Main Flow
+| Component | Responsibility | Canonical source | Depends on | Primary state |
+|---|---|---|---|---|
+| Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts, Creator OS Core; selected Reel cost guards | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
+| Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, manifests, queue, caption banks, lineage sidecars |
+| Campaign Factory | creative plans, inventory, assignment, readiness, spend gates, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
+| ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |
+| Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
+| Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
+| ThreadsDashboard | product UI, accounts, Supabase, approvals, scheduling, publishing, inbox, analytics, posting infrastructure | external `/Users/aderdesouza/Developer/ThreadsDashboard` | its own services and consumer contract snapshot | Supabase and deployed services |
+
+Dependency direction is inward toward Pipeline Contracts and Creator OS Core.
+Reel and Reference do not import Campaign ownership. Campaign may invoke
+package-owned Reel/ContentForge commands but remains the only campaign brain.
+
+## Active End-To-End Flow
 
 ```text
-Reference Factory
-  -> pattern cards / prompt packs / audio catalog
-  -> Campaign Factory
-
-Reel Factory
-  -> guarded review package + generated_asset_lineage.v1 + audio_intent.v1
-  -> Campaign Factory
-
-Campaign Factory
-  -> ContentForge campaign_factory_v1 audit + rendered_assets promotion
-  -> passing draft payloads
-  -> ThreadsDashboard
-
-ThreadsDashboard
-  -> operator review + native audio verification
-  -> schedule/publish
-  -> performance_sync.v1 back to Campaign Factory / Reference Factory
+reference intake
+  -> Reference Factory local analysis and operator labels
+  -> canonical reference bank / pattern cards / audio recommendations
+  -> Campaign Factory creative plan and account assignment
+  -> Reel Factory direct Higgsfield Soul still + lineage
+  -> mandatory local static MP4 for accepted stills
+  -> optional motion edit or explicitly approved best-only Kling
+  -> placement.py -> caption_render.py when an overlay has a safe lane
+  -> ContentForge headless JSON QC and distinctness verdict
+  -> Campaign Factory readiness and pipeline-contract validation
+  -> HMAC-signed draft-only ingest request
+  -> ThreadsDashboard approval, native-audio proof, scheduling, publishing
+  -> post metric history
+  -> performance sync
+  -> Campaign/Reel/Reference learning fan-out
 ```
 
-## Creative Workflow Modes
+ThreadsDashboard is the only scheduling and publishing owner. Creator OS stops
+at validated draft handoff.
 
-Creator OS exposes additive modes; structural reference-video remixing does not
-replace the library-first or static paths:
+## Creative Modes
 
-- `library_reuse`: select approved existing media; no provider generation.
-- `soul_static`: create Soul original/sexy still candidates and a free static
-  MP4 for every QC-passing still; this is the default for a new reference image.
-- `motion_edit`: create a deterministic local motion edit from an approved still
-  while retaining its static fallback.
-- `best_only_kling`: animate only an approved rank-one candidate with a durable
-  selection receipt and a separate spend approval.
-- `reference_video_remix`: analyze an operator-selected short video as motion
-  structure, create new Soul endpoint frames, then plan Seedance or Kling.
+- `library_reuse`: select approved existing media without provider generation.
+- `soul_static`: direct Soul still plus local static MP4.
+- `motion_edit`: deterministic local motion while retaining the static fallback.
+- `best_only_kling`: paid animation of one separately approved rank-one still.
+- `reference_video_remix`: reference motion analysis plus new Soul endpoints,
+  followed by an explicitly selected motion provider.
 
-`campaign-factory generation modes` prints the machine-readable catalog. Every
-mode requires human review and none grants publishing authority.
+All modes are review-gated. The active default is direct reference-image Soul
+generation. Soul ID owns identity. Prompt and asset lineage are retained.
+Native audio remains an intent, not a burned track.
 
-## Reel Text And Audio Rules
+## QC, Readiness, And Draft Handoff
 
-- Burned overlay text is visible text inside the video. Reel Factory owns it.
-- Post captions are Instagram captions under the post. Campaign Factory and
-  ThreadsDashboard own them.
-- Overlay text comes from
-  `python_packages/reel_factory/caption_banks/`, never from freehand chat text
-  or Higgsfield prompt text.
-- Canonical overlay font is Instagram Sans Condensed:
-  `python_packages/reel_factory/fonts/InstagramSansCondensed-Bold.woff2`.
-- Native platform audio is not burned into MP4s. Campaign Factory recommends via
-  `audio_intent.v1`; ThreadsDashboard selects/verifies native audio and blocks
-  publish until proof exists.
+Campaign Factory invokes ContentForge's local stdin/stdout JSON CLI. ContentForge
+returns evidence and `pass`, `warn`, or `fail`; it does not change campaign
+policy. Campaign Factory combines that evidence with approval, lineage,
+assignment, collision, publishability, and contract checks.
 
-## Hard Boundary
+Draft payloads validate against Pipeline Contracts before an HMAC-signed request
+to ThreadsDashboard's draft-ingest endpoint. HMAC tests cover signature,
+timestamp, and rejection behavior without sending real drafts. The supported
+root command forces draft schedule mode and exposes explicit `--dry-run` versus
+`--apply`; it has no scheduling or publishing command.
 
-Creator OS can create, validate, recommend, and export drafts. ThreadsDashboard
-is the only production surface for scheduling and publishing unless the user
-explicitly changes that boundary.
+## Learning Return Path
 
-## Contract Source Of Truth
+The pinned performance launcher:
 
-Shared schemas live in ONE hand-edited place:
-`packages/pipeline_contracts/pipeline_contracts/schemas`. The generated
-TypeScript bundle is produced from it. The root `pipeline_contracts` package is
-an import shim and does not own a schema copy.
+1. clears inherited virtualenv/Python state and pins PATH;
+2. loads the private performance-sync environment;
+3. verifies the exact campaign scope and SQLite database;
+4. imports bounded ThreadsDashboard metric history;
+5. runs `scripts/learning_fanout.py` into Campaign, Reel, and Reference ledgers.
 
-Editing a schema: change only
-`packages/pipeline_contracts/pipeline_contracts/schemas/*.schema.json`, then run
-`pnpm sync:contracts` to regenerate TypeScript. `pnpm check:contracts` (CI
-`contracts` job) fails on drift. ThreadsDashboard snapshot parity is verified by
-the cross-repo Pipeline Contracts test.
+`learning_fanout.py` remains active. A successful command or queue receipt is
+not equivalent to real metric history; learning proof requires measured rows.
+
+## Operator Command Surface
+
+`scripts/creator-os` is the supported operator entrypoint:
+
+| Command | Boundary |
+|---|---|
+| `status` | read-only live source/runtime/config/DB report; unprobed systems are `NOT_RUN` |
+| `doctor` | read-only fixture-backed integrity audit |
+| `reference-refresh --dry-run|--apply` | local Reference/Audio database and export workflow |
+| `campaign-prepare --confirm-write` | local review batch only; no export or auto-approval |
+| `generation-modes` | read-only creative workflow mode catalog |
+| `static-reel --dry-run|--apply` | free local accepted-still MP4 |
+| `readiness` | read-only campaign readiness |
+| `draft-export --dry-run|--apply` | bounded validated drafts only; never schedule/publish |
+| `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
+| `paid-generation` | requires paid confirmation, target identity, exact workspace, and finite credit cap |
+
+Package-local CLIs remain thin implementation boundaries:
+
+- `campaign-factory`
+- `python -m reference_factory.cli`
+- `python -m reel_factory.<module>`
+- `packages/contentforge/cli.mjs`
+
+Deleted `scripts/run/*` aliases and flat Reel module facades no longer create
+wrapper-calling-wrapper chains. The root surface deliberately has no generic
+package escape hatch: advanced package CLIs are invoked directly by developers,
+so scheduling and publishing operations cannot be hidden behind a normal
+Creator OS operator command.
+
+## Repository And Automation Entrypoints
+
+- Make: `install`, `reel-models`, `test`, `verify`, `backup-runtime`, and local
+  Campaign API/Reference review development targets.
+- pnpm: contract sync/check, static checks, architecture, artifacts, Graphify,
+  secret scan, and the root operator command.
+- LaunchAgent-facing scripts retained because machine automation calls them:
+  `run_threadsdash_performance_sync.sh`, `run_learning_cohort_daily.sh`,
+  `run_weekly_improvement_digest.sh`, and `run_campaign_factory.sh`.
+- The real LaunchAgents and private environment files are machine-local and are
+  not stored or modified here.
+
+## Runtime And Configuration Resolution
+
+`creator_os_core.runtime_paths` is the canonical resolver for source,
+workspace, runtime, package, reference-data, and ThreadsDashboard paths.
+Campaign and Reference configuration reuse it. Environment overrides remain
+explicit.
+
+```text
+/Users/aderdesouza/Developer/creator-os          source integration checkout
+/Users/aderdesouza/Developer/creator-os-runtime  pinned runtime checkout
+/Users/aderdesouza/Developer/ThreadsDashboard    external product checkout
+~/.creator-os/                                   private config and logs
+```
+
+Runtime launchers keep deterministic checkout/database selection. Repository
+changes never update or restart the runtime automatically.
+
+## Browser Surfaces
+
+- ContentForge has no browser application or HTTP server.
+- Campaign Factory retains an authenticated headless JSON API for tested local
+  integrations, but no committed HTML/CSS/JS dashboard. `/` identifies the
+  service as headless.
+- Reference Factory retains `review-server` because gold/maybe/ignore labeling
+  is an active human workflow. It is not a product or publishing dashboard.
+- Reel Factory has no operator HTTP/browser surface.
+- ThreadsDashboard remains the only product UI.
+
+## Active, Compatibility, And Legacy Generation Code
+
+### Active
+
+- `generate_assets.py`: direct reference-image Soul generation, lineage, paid
+  quote/reservation/consumption gates, optional Kling.
+- `generate_variants.py`: captured-prompt original/sexy candidate contract.
+- `static_mp4.py` and motion-edit modules: local fallback/upgrade.
+- `reel_motion_prompt.py`: deterministic accepted-still Kling prompt.
+- `placement.py`, `caption_render.py`, and caption-bank modules: safe overlays.
+- ContentForge and Campaign readiness/export adapters.
+
+### Compatibility-required or legacy-but-called
+
+- `deprecated_generators.py`: active fail-closed guard; do not delete.
+- selected Grok/prompt helpers imported by anatomy/reference compatibility and
+  orchestrator paths; hidden from the root operator command.
+- grid crop utilities with active tests/imports; not a default generation path.
+- FFmpeg-dependent probe/render/QC paths; active infrastructure.
+- root `pipeline_contracts/__init__.py`: import shim for current callers.
+
+### Removed
+
+- flat Reel package facades and delegation-only tests;
+- Reel `operator_tools`, metrics HTTP routes, and unserved static browser assets;
+- Campaign static dashboard assets;
+- unused ContentForge golden-capture script;
+- orphaned overnight-grid, reference-grid-production, and visual benchmark
+  harnesses/tests/docs.
+
+## State, Artifacts, And Contracts
+
+| Kind | Owner/location | Git policy |
+|---|---|---|
+| Campaign decisions and learning | configured Campaign SQLite and campaign directories | machine/runtime state; ignored |
+| Reference corpus and labels | configured Reference SQLite/data root | machine/operator state; ignored |
+| media, provider receipts, render queues, lineage sidecars | Reel data/output directories | generated/runtime; ignored except curated source fixtures |
+| ContentForge reports | request-scoped output | generated/runtime; ignored except sanitized seam fixtures |
+| machine config and logs | `~/.creator-os` | never committed |
+| canonical schemas | `packages/pipeline_contracts/pipeline_contracts/schemas` | committed hand-edited source |
+| generated TypeScript | `packages/pipeline_contracts/typescript/generated-schemas.ts` | committed generated output; regenerate only |
+| ThreadsDashboard consumer snapshot | external repository | read-only parity check from this repo |
+
+## Safety Coverage
+
+Retained suites protect contracts, HMAC signing, paid quote/reservation/
+consumption/cancellation, provider failures, global kill switch, QC and
+distinctness, campaign readiness, legal state transitions, lineage, eligibility,
+learning, poisoned/ambiguous rows, draft-export safety, runtime launchers, and
+cross-package architecture. Deleted tests covered only removed facades or
+orphaned experiments.
+
+Use `make verify` for the full local matrix. Passing tests prove source behavior,
+not provider readiness, production handshake, runtime promotion, or live
+performance evidence.

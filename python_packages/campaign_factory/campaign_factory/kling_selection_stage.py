@@ -273,7 +273,8 @@ def _invoke_reel_factory_rank(
 ) -> dict[str, Any]:
     command = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "virality_select.py",
+        "-m",
+        "reel_factory.virality_select",
         "--rank-kling-candidates",
         str(manifest_path),
         "--root",

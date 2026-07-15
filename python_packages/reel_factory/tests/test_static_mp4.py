@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from static_mp4 import StaticMp4Request, render_static_mp4
+from reel_factory.static_mp4 import StaticMp4Request, render_static_mp4
 
 
 def _still(path: Path) -> Path:

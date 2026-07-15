@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != "--dry-run" ]; }; then
+  echo "usage: $0 [--dry-run]" >&2
+  exit 2
+fi
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${CREATOR_OS_PERFORMANCE_SYNC_ENV:-$HOME/.creator-os/performance-sync.env}"
 
@@ -37,4 +42,4 @@ if ! sqlite3 "$CAMPAIGN_FACTORY_DB" \
   exit 2
 fi
 
-exec python3 scripts/sync_threadsdash_performance.py
+exec python3 scripts/sync_threadsdash_performance.py "$@"

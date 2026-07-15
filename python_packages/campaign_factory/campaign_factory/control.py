@@ -11,9 +11,6 @@ from .config import CREATOR_OS_ROOT, Settings
 
 def operator_control_check(
     settings: Settings,
-    *,
-    contentforge_base_url: str | None = None,
-    check_http: bool = False,
 ) -> dict[str, Any]:
     """Verify that Campaign Factory can control the local pipeline repos."""
     reference_bank = (
@@ -31,12 +28,12 @@ def operator_control_check(
             _path_check("reel_factory", settings.reel_factory_root, required=True),
             _path_check(
                 "reel_factory.reel_pipeline",
-                settings.reel_factory_root / "reel_pipeline.py",
+                settings.reel_factory_root / "reel_factory" / "reel_pipeline.py",
                 required=True,
             ),
             _path_check(
                 "reel_factory.slideshow_factory",
-                settings.reel_factory_root / "slideshow_factory.py",
+                settings.reel_factory_root / "reel_factory" / "slideshow_factory.py",
                 required=True,
             ),
             _path_check("contentforge", settings.contentforge_root, required=True),
@@ -111,15 +108,6 @@ def operator_control_check(
             ),
         ]
     )
-    if check_http:
-        checks.append(
-            _path_check(
-                "contentforge.headless_contract",
-                settings.contentforge_root / "cli.mjs",
-                required=True,
-            )
-        )
-
     blocking = [item for item in checks if item["required"] and item["status"] != "ok"]
     warnings = [
         item for item in checks if not item["required"] and item["status"] != "ok"
@@ -132,21 +120,23 @@ def operator_control_check(
         "blockingCount": len(blocking),
         "warningCount": len(warnings),
         "commands": {
-            "checkContentForge": f"{_run_script('contentforge')} build",
-            "startCampaignFactory": f"{_run_script('campaign-factory')} serve --host 127.0.0.1 --port 8877",
-            "exportReferencePatterns": f"{_run_script('reference-factory')} export-patterns --limit 300 --for-campaign-factory",
+            "checkContentForge": (f"pnpm --dir {settings.contentforge_root} build"),
+            "startCampaignFactory": (
+                "uv run --package campaign-factory campaign-factory "
+                "serve --host 127.0.0.1 --port 8877"
+            ),
+            "exportReferencePatterns": (
+                "uv run --package reference-factory python -m reference_factory.cli "
+                "export-patterns --limit 300 --for-campaign-factory"
+            ),
             "makeBatch": (
-                f"{_run_script('campaign-factory')} make-batch "
+                f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} campaign-prepare "
+                "--confirm-write "
                 "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
-                "--format auto --variant-count 20 --reference-pattern auto "
-                "--dry-run-export --user-id <user_id>"
+                "--format auto --variant-count 20"
             ),
         },
     }
-
-
-def _run_script(name: str) -> str:
-    return str(CREATOR_OS_ROOT / "scripts" / "run" / name)
 
 
 def _path_check(name: str, path: Path, *, required: bool) -> dict[str, Any]:

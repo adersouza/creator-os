@@ -12,12 +12,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from audio_intent import read_audio_intent
-from campaign_store import ensure_campaign_schema, slugify
-from intelligence_store import ensure_intelligence_schema, winner_score
-
 from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .audio_intent import read_audio_intent
+from .campaign_store import ensure_campaign_schema, slugify
+from .intelligence_store import ensure_intelligence_schema, winner_score
 
 METRIC_COLUMNS = (
     "filename",
@@ -751,9 +751,9 @@ def refresh_outcomes_from_performance_sync(
     conn.commit()
     source.close()
 
-    from winner_dna import refresh_winner_dna
-
     from reel_factory.caption_bank import refresh_caption_weights
+
+    from .winner_dna import refresh_winner_dna
 
     winner_dna = refresh_winner_dna(Path(root))
     caption_weights = refresh_caption_weights(Path(root))

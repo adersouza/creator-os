@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from audio_intent import write_audio_intent
 from PIL import Image
+
+from .audio_intent import write_audio_intent
 
 SCHEMA = "reel_factory.static_mp4_render.v1"
 CANVAS_W = 1080

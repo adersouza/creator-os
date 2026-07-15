@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from PIL import Image
-from slideshow_factory import (
+from reel_factory.slideshow_factory import (
     build_slideshow,
     discover_media,
     render_grid_preview,

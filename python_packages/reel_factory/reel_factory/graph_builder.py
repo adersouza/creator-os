@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from render_plan import RenderPlan
+from .render_plan import RenderPlan
 
 
 @dataclass(frozen=True)

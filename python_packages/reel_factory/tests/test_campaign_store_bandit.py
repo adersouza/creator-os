@@ -5,7 +5,12 @@ import time
 import unittest
 from pathlib import Path
 
-from campaign_store import campaign_by_name, connect, create_campaign, next_batch_plan
+from reel_factory.campaign_store import (
+    campaign_by_name,
+    connect,
+    create_campaign,
+    next_batch_plan,
+)
 
 from pipeline_contracts import validate_recommendation_next_batch
 

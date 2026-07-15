@@ -3,7 +3,7 @@ dump captions on faces (the forehead bug)."""
 
 import logging
 
-import placement
+import reel_factory.placement as placement
 
 
 def test_face_detection_available_true_when_deps_present(monkeypatch, tmp_path):

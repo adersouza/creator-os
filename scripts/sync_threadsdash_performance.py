@@ -19,13 +19,16 @@ REQUIRED_ENV = (
 DEFAULT_SYNC_LIMIT = 10_000
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "packages/creator_os_core"))
+
+from creator_os_core.runtime_paths import resolve_runtime_paths  # noqa: E402
+
+_PATHS = resolve_runtime_paths(REPO_ROOT)
 DEFAULT_CAMPAIGN_FACTORY_DB = (
-    REPO_ROOT / "python_packages" / "campaign_factory" / "campaign_factory.sqlite"
+    _PATHS.campaign_factory_root / "campaign_factory.sqlite"
 )
-DEFAULT_REEL_FACTORY_ROOT = REPO_ROOT / "python_packages" / "reel_factory"
-DEFAULT_REFERENCE_FACTORY_DB = (
-    Path.home() / "Developer" / "reference_reels" / "reference_factory.sqlite"
-)
+DEFAULT_REEL_FACTORY_ROOT = _PATHS.reel_factory_root
+DEFAULT_REFERENCE_FACTORY_DB = _PATHS.reference_data_root / "reference_factory.sqlite"
 
 
 def configured_campaigns(env: Mapping[str, str]) -> list[str]:

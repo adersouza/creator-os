@@ -6,8 +6,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from audio_provider import local_winners_path, trending_cml_path, watch_list_path
-from audio_refresh import (
+from reel_factory.audio_provider import (
+    local_winners_path,
+    trending_cml_path,
+    watch_list_path,
+)
+from reel_factory.audio_refresh import (
     refresh_cml_from_export,
     refresh_from_review,
     refresh_latest_cml_export,

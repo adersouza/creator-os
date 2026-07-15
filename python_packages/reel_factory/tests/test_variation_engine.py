@@ -1,6 +1,10 @@
 import unittest
 
-from variation_engine import VariationConfig, get_pack_version, vary_caption_text
+from reel_factory.variation_engine import (
+    VariationConfig,
+    get_pack_version,
+    vary_caption_text,
+)
 
 
 class VariationEngineTests(unittest.TestCase):

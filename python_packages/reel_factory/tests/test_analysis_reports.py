@@ -9,9 +9,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from analysis_reports import request_analysis_reports, write_operator_reports
-from readiness_check import run_readiness
-from winner_dna import upsert_reel_feature
+from reel_factory.analysis_reports import (
+    request_analysis_reports,
+    write_operator_reports,
+)
+from reel_factory.readiness_check import run_readiness
+from reel_factory.winner_dna import upsert_reel_feature
 
 
 def _output(root: Path) -> Path:

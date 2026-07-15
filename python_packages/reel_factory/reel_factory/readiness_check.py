@@ -11,12 +11,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from audio_intent import read_audio_intent
-from post_render_acceptance import acceptance_from_readiness
-from safe_zone import score_safe_zone
-from virality_qc import evaluate_output_virality
-
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .audio_intent import read_audio_intent
+from .post_render_acceptance import acceptance_from_readiness
+from .safe_zone import score_safe_zone
+from .virality_qc import evaluate_output_virality
 
 try:
     from .fileops import atomic_write_text

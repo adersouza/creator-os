@@ -13,11 +13,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from campaign_store import ensure_campaign_schema
-from intelligence_store import ensure_intelligence_schema
-
 from reel_factory.metrics_store import ensure_metrics_schema
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .campaign_store import ensure_campaign_schema
+from .intelligence_store import ensure_intelligence_schema
 
 try:
     from .fileops import atomic_write_text
@@ -27,7 +27,7 @@ except ImportError:  # script mode: package dir itself is on sys.path
 log = logging.getLogger("reel")
 
 if TYPE_CHECKING:
-    from reel_pipeline import Recipe
+    from .reel_pipeline import Recipe
 
 
 def sha256_file(p: Path, chunk: int = 1 << 20) -> str:

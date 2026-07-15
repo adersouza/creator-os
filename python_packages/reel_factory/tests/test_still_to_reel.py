@@ -6,9 +6,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from audio_intent import read_audio_intent
 from PIL import Image
-from still_to_reel import MotionEditRequest, _validate_result, render_motion_edit
+from reel_factory.audio_intent import read_audio_intent
+from reel_factory.still_to_reel import (
+    MotionEditRequest,
+    _validate_result,
+    render_motion_edit,
+)
 
 
 def _still(path: Path, *, size: tuple[int, int] = (1080, 1920)) -> Path:

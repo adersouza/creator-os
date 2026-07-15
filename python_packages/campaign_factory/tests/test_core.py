@@ -669,8 +669,11 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     ]:
         path.mkdir(parents=True, exist_ok=True)
     (root / "campaign_factory" / "cli.py").write_text("", encoding="utf-8")
-    (reel_root / "reel_pipeline.py").write_text("", encoding="utf-8")
-    (reel_root / "slideshow_factory.py").write_text("", encoding="utf-8")
+    (reel_root / "reel_factory").mkdir()
+    (reel_root / "reel_factory" / "reel_pipeline.py").write_text("", encoding="utf-8")
+    (reel_root / "reel_factory" / "slideshow_factory.py").write_text(
+        "", encoding="utf-8"
+    )
     (contentforge_root / "package.json").write_text("{}", encoding="utf-8")
     (contentforge_root / "cli.mjs").write_text("", encoding="utf-8")
     (contentforge_root / "lib" / "similarity.js").write_text("", encoding="utf-8")
@@ -692,13 +695,16 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "reference_bank" for check in result["checks"])
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
-    assert "make-batch" in result["commands"]["makeBatch"]
+    assert "campaign-prepare" in result["commands"]["makeBatch"]
     assert result["commands"]["checkContentForge"].endswith(" build")
     assert result["commands"]["startCampaignFactory"].startswith(
-        str(CREATOR_OS_ROOT / "scripts" / "run" / "campaign-factory")
+        "uv run --package campaign-factory campaign-factory serve"
     )
     assert result["commands"]["exportReferencePatterns"].startswith(
-        str(CREATOR_OS_ROOT / "scripts" / "run" / "reference-factory")
+        "uv run --package reference-factory python -m reference_factory.cli"
+    )
+    assert result["commands"]["makeBatch"].startswith(
+        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} campaign-prepare --confirm-write"
     )
     assert "cd " not in "\n".join(result["commands"].values())
 

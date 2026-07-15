@@ -55,6 +55,26 @@ def test_default_run_covers_only_technical_audits() -> None:
     assert all(result.next_action for result in results)
 
 
+def test_live_status_keeps_unprobed_external_systems_not_run(tmp_path: Path) -> None:
+    config = tmp_path / "performance-sync.env"
+    config.write_text(
+        'export CAMPAIGN_FACTORY_DB="/tmp/example.sqlite"\n'
+        'export SUPABASE_SERVICE_ROLE_KEY="never-print-me"\n',
+        encoding="utf-8",
+    )
+
+    values = doctor._read_env_assignments(config)
+
+    assert values["CAMPAIGN_FACTORY_DB"] == "/tmp/example.sqlite"
+    assert values["SUPABASE_SERVICE_ROLE_KEY"] == "never-print-me"
+    results = doctor.run_live_status(home=tmp_path)
+    provider = next(row for row in results if row.name == "provider-readiness")
+    handshake = next(row for row in results if row.name == "threadsdashboard-handshake")
+    assert provider.status == "NOT_RUN"
+    assert handshake.status == "NOT_RUN"
+    assert "never-print-me" not in provider.evidence
+
+
 def test_business_only_runs_all_second_layer_audits() -> None:
     results = doctor.run_doctor(quick=True, business_only=True)
 

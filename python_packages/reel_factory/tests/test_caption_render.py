@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 class CaptionRenderTests(unittest.TestCase):
     def test_long_caption_renders_inside_canvas(self):
         try:
-            from caption_render import render_caption_png
+            from reel_factory.caption_render import render_caption_png
         except ModuleNotFoundError as e:
             if e.name == "pilmoji":
                 self.skipTest("pilmoji is not installed in this interpreter")
@@ -40,7 +40,7 @@ class CaptionRenderTests(unittest.TestCase):
 
     def test_wrapped_caption_pixels_stay_out_of_reels_safe_zones(self):
         try:
-            from caption_render import render_caption_png
+            from reel_factory.caption_render import render_caption_png
         except ModuleNotFoundError as e:
             if e.name == "pilmoji":
                 self.skipTest("pilmoji is not installed in this interpreter")
@@ -70,7 +70,7 @@ class CaptionRenderTests(unittest.TestCase):
 
     def test_unrenderable_caption_truncates_instead_of_crashing(self):
         try:
-            from caption_render import render_caption_png
+            from reel_factory.caption_render import render_caption_png
         except ModuleNotFoundError as e:
             if e.name == "pilmoji":
                 self.skipTest("pilmoji is not installed in this interpreter")

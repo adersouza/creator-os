@@ -1,7 +1,7 @@
 """Whole-clip subject union: hard blockers (face/pose) use max across frames so a
 static caption never lands where the subject appears on ANY frame."""
 
-from placement_scorer import _max3, _mean3, score_lanes
+from reel_factory.placement_scorer import _max3, _mean3, score_lanes
 
 
 def test_max3_is_worst_case_per_lane():
@@ -27,7 +27,7 @@ def test_no_regression_when_static_single_frame():
 
 
 def test_head_seg_blocks_head_lane_but_not_torso():
-    from placement_scorer import score_lanes
+    from reel_factory.placement_scorer import score_lanes
 
     # head silhouette only in TOP lane; torso (not a blocker) fills bottom.
     head = [(9.0, 0.0, 0.0), (9.0, 0.0, 0.0)]

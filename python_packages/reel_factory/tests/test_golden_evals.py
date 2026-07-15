@@ -6,7 +6,7 @@ unless the function behavior intentionally changes.
 """
 
 import pytest
-from generate_prompts import (
+from reel_factory.generate_prompts import (
     clean_direct_higgsfield_prompt,
     normalize_grid_layout,
 )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from generate_variants import autocrop_reference
+from reel_factory.generate_variants import autocrop_reference
 
 Image = pytest.importorskip("PIL.Image")
 

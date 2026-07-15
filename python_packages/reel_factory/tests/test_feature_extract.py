@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from feature_extract import extract_features
+from reel_factory.feature_extract import extract_features
 
 
 def test_extract_features_uses_captured_prompt_and_caption_lineage() -> None:

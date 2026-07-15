@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from campaign_store import ensure_campaign_schema
-from manifest import Manifest
-from metrics_store import (
+from reel_factory.campaign_store import ensure_campaign_schema
+from reel_factory.manifest import Manifest
+from reel_factory.metrics_store import (
     _variation_for_filename,
     connect_metrics_db,
     ensure_metrics_schema,
@@ -20,8 +20,8 @@ from metrics_store import (
     soul_metrics_report,
     upsert_bridge_outcome,
 )
-from reel_pipeline import Recipe
-from winner_dna import upsert_reel_feature
+from reel_factory.reel_pipeline import Recipe
+from reel_factory.winner_dna import upsert_reel_feature
 
 STACEY_SOUL = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
 STACEY1_SOUL = "5828d958-91dd-4d6d-8909-934503f47644"

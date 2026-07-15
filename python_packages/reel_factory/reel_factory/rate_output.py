@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from campaign_store import rate_output
+from .campaign_store import rate_output
 
 
 def _score(value: str | None) -> int | None:

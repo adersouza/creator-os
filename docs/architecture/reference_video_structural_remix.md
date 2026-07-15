@@ -115,7 +115,7 @@ safe zone, watchability, and visual QC. Any failure returns the asset to review.
 ## Dry-Run Planner
 
 ```bash
-python3 python_packages/reel_factory/reference_video_remix.py \
+uv run --package reel-factory python -m reel_factory.reference_video_remix \
   --reference-video /path/reference.mp4 \
   --source-first-frame /path/reference.first.png \
   --source-last-frame /path/reference.last.png \

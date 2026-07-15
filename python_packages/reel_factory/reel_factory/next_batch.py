@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from campaign_store import next_batch_plan
+from .campaign_store import next_batch_plan
 
 CAMPAIGN_FACTORY_REQUEST_ENV = "CAMPAIGN_FACTORY_NEXT_BATCH_REQUEST"
 CAMPAIGN_FACTORY_TIMEOUT_ENV = "REEL_FACTORY_CAMPAIGN_FACTORY_TIMEOUT_SECONDS"

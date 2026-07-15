@@ -7,7 +7,7 @@ install:
 
 reel-models:
 	uv sync --package reel-factory --extra vision --extra ai --extra identity --inexact
-	uv run --package reel-factory --extra vision --extra ai --extra identity python python_packages/reel_factory/fetch_models.py
+	uv run --package reel-factory --extra vision --extra ai --extra identity python -m reel_factory.fetch_models
 
 backup-runtime:
 	uv run python scripts/backup_runtime_state.py

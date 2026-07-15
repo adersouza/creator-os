@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from generate_prompts import (
+from PIL import Image
+from reel_factory.generate_prompts import (
     JSON_STRUCTURED_RECREATION_MODE,
     build_json_structured_recreation_instruction,
     clean_direct_higgsfield_prompt,
@@ -12,7 +13,6 @@ from generate_prompts import (
     normalize_structured_recreation_spec,
     structured_recreation_spec_to_prompt,
 )
-from PIL import Image
 
 
 class StructuredPromptGenerationTests(unittest.TestCase):
@@ -208,8 +208,13 @@ class StructuredPromptGenerationTests(unittest.TestCase):
             out = root / "prompt.json"
 
             with (
-                patch("generate_prompts.load_xai_api_key", return_value="test-key"),
-                patch("generate_prompts.call_grok", return_value=grok_payload),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key",
+                    return_value="test-key",
+                ),
+                patch(
+                    "reel_factory.generate_prompts.call_grok", return_value=grok_payload
+                ),
             ):
                 result = generate_prompt(
                     out_path=out,
@@ -260,11 +265,16 @@ class StructuredPromptGenerationTests(unittest.TestCase):
             Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
 
             with (
-                patch("generate_prompts.taste_memory", return_value=""),
-                patch("generate_prompts.next_batch_plan", return_value=plan),
-                patch("generate_prompts.load_xai_api_key", return_value="test-key"),
+                patch("reel_factory.generate_prompts.taste_memory", return_value=""),
                 patch(
-                    "generate_prompts.call_grok",
+                    "reel_factory.generate_prompts.next_batch_plan", return_value=plan
+                ),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key",
+                    return_value="test-key",
+                ),
+                patch(
+                    "reel_factory.generate_prompts.call_grok",
                     return_value=self._fake_prompt_response(),
                 ) as grok,
             ):
@@ -303,11 +313,16 @@ class StructuredPromptGenerationTests(unittest.TestCase):
             Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
 
             with (
-                patch("generate_prompts.taste_memory", return_value=""),
-                patch("generate_prompts.next_batch_plan", return_value=plan),
-                patch("generate_prompts.load_xai_api_key", return_value="test-key"),
+                patch("reel_factory.generate_prompts.taste_memory", return_value=""),
                 patch(
-                    "generate_prompts.call_grok",
+                    "reel_factory.generate_prompts.next_batch_plan", return_value=plan
+                ),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key",
+                    return_value="test-key",
+                ),
+                patch(
+                    "reel_factory.generate_prompts.call_grok",
                     return_value=self._fake_prompt_response(),
                 ) as grok,
             ):

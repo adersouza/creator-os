@@ -14,7 +14,7 @@ Usage:
     # → JSON list of 8-12 stylistic variations on stdout
 
 Or from another module:
-    from hook_spinner import spin_hooks
+    from .hook_spinner import spin_hooks
     variations = spin_hooks("POV you wear oversized clothes and he still notices", n=10)
 """
 

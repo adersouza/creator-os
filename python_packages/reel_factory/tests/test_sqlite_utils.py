@@ -1,7 +1,7 @@
 import threading
 from pathlib import Path
 
-import sqlite_utils as sqlite_utils_shim
+import reel_factory.sqlite_utils as sqlite_utils_shim
 from reel_factory import sqlite_utils as packaged_sqlite_utils
 from reel_factory.sqlite_utils import connect_sqlite
 

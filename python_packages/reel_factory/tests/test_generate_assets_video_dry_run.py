@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asset_prompt_contract import AssetPromptSet
-from generate_assets import (
+from reel_factory.asset_prompt_contract import AssetPromptSet
+from reel_factory.generate_assets import (
     AssetGenerationPlan,
     build_source_lineage,
     dry_run_image_asset,
@@ -200,7 +200,7 @@ def test_reference_matched_video_duration_caps_probe_result(
     reference = tmp_path / "reference.mp4"
     reference.write_bytes(b"video")
     monkeypatch.setattr(
-        "generate_assets.subprocess.check_output",
+        "reel_factory.generate_assets.subprocess.check_output",
         lambda *args, **kwargs: b"12.4",
     )
 

@@ -1,49 +1,84 @@
 # Pipeline State
 
-**Last updated:** 2026-07-09. This is the single source of truth for the current state of the Creator OS pipeline. It supersedes the old one-shot planning/runbook/audit docs (removed). Operational details live in `ARCHITECTURE.md`, `AGENTS.md`, and `docs/`.
+**Last updated:** 2026-07-15.
 
-## Architecture (two active product repos)
+This ledger separates source capability from runtime and live proof. The
+durable architecture is in [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md).
 
+## Source Architecture
+
+Creator OS is a headless monorepo:
+
+```text
+Reference Factory teaches
+Reel Factory creates
+Campaign Factory decides
+ContentForge judges and blocks
+Pipeline Contracts validates
+ThreadsDashboard receives drafts, publishes, and reports performance
 ```
-creator-os (this monorepo) — canonical runtime for the whole pipeline
-├── packages/contentforge              headless judging + variant CLI
-├── python_packages/reel_factory       canonical
-├── python_packages/campaign_factory   canonical
-├── python_packages/reference_factory  canonical
-├── packages/pipeline_contracts        shared contracts (canonical here; also its own repo)
-└── tests/integration                  cross-tool integration
 
-ThreadsDashboard (separate repo) ──deploys──▶ juno33.com   (the standalone product; permanently NOT in the monorepo)
-```
+ThreadsDashboard is a separate product repository. Creator OS has no product
+dashboard and no scheduling or publishing command.
 
-## Current state (2026-07-07)
+The supported operator surface is `scripts/creator-os`. Flat Reel module
+facades, `scripts/run/*` aliases, orphaned browser/operator code, and unused
+grid/benchmark experiments have been removed. Campaign Factory retains a
+headless authenticated JSON API; Reference Factory retains its manual labeling
+review server.
 
-- **All plan-doc work is COMPLETE and the docs are deleted** (61 items + 12 gap-closure edges, PRs #323–#345, adversarially verified). Do not re-audit or recreate them; content is in git history.
-- **Learning loop is closed and armed** (PRs #354/#355/#356): shared feature vocabulary (`reel_factory/feature_extract.py`), rank scoping + QC filtering, caption weights preserved on empty sync, `next_batch_plan` uses the full feature-key set. Hourly `sync_threadsdash_performance` runs via launchd on the operator Mac. Outcomes are 0 until posts flow — expected, not a bug.
-- **Reference Factory teach loops are fed** (2026-07-02): 266 TikTok references imported, 1,330 frames OCR'd, audio patterns analyzed, 80-track audio catalog imported into Campaign Factory. Remaining: pattern export + `build-learning-system`; gold labeling is operator-only.
-- **Instagram is the reel outlet (owner decision 2026-07-02), and the IG publish pipeline is BUILT and PROVEN** (35 reels published 2026-06-05..09; TD campaign scheduler is Instagram-only by design; licensed-embedded-audio path shipped CF #284 + TD #224). Do not re-declare IG "unbuilt".
-- **Orchestrator + approval inbox wiring is merged** (PR #370 and prerequisites): the gated tick can run `pipeline_run`, require an estimated cost before paid generation, ingest pipeline evidence, promote top-ranked assets into `awaiting_approval`, and export approved sidecars. It remains disabled until the operator sets local config with `enabled = true`.
-- **Recipe bandit reads `reel_outcomes`** (`campaign_store.py` `_recipe_bandit_state`): the legacy `publish_metrics` table remains only in compatibility/write/export/test paths and must not be deleted until those references are retired.
-- **Headless migration complete**: ContentForge is a local JSON CLI package; Creator OS GUI shells are removed. ThreadsDashboard remains the only product UI.
-- **ThreadsDashboard autoposter is OFF deliberately** (owner, 2026-06-30). Separate system from the reel pipeline; do not treat as an incident or restart unasked.
+## Capability State
 
-## Open work
+- Direct Higgsfield reference-image Soul generation and asset lineage remain
+  the active still path.
+- Every accepted still can receive a local zero-provider-cost static MP4.
+- Motion edit is local and optional. Kling is separately approved, paid, and
+  capped.
+- Caption overlays remain placement-scored and fail closed when no safe lane
+  exists.
+- ContentForge remains the separate headless QC/evidence boundary.
+- Campaign Factory remains the only campaign control brain.
+- Draft payloads remain contract-validated and HMAC-signed; export stops at
+  draft handoff.
+- Performance sync and `learning_fanout.py` remain the measured return path.
+- Canonical schemas remain only under
+  `packages/pipeline_contracts/pipeline_contracts/schemas`; the root Python
+  package is an import shim only.
 
-1. **Operator enablement**: create local orchestrator config and flip `enabled = true` only after confirming campaign, creator, reference image, and cost estimate.
-2. **Gold labeling**: reference labels remain operator-only; do not force coverage with uncertain labels.
-3. **Time Machine backup destination**: still unconfigured on the operator Mac.
-4. **ThreadsDashboard hosted reliance remains external**: local `main` contains the `fix/mobile-verification-findings` merge; hosted/mobile reliance still belongs to the external ThreadsDashboard repo.
-5. **Frontend decomposition debt** (ThreadsDashboard): `Composer.tsx` + `Autopilot.tsx` monoliths — tracked in TD issue #120; e2e for deep-link paths is the prerequisite.
-6. **Archived standalone repos**: soak completed; deleting them is owner-gated and optional (archived is harmless).
+## Runtime Snapshot At This Update
 
-## Owner-only (out of scope for automated agents)
+The cleanup work is source-only and is not a runtime promotion.
 
-- Secret rotation / OAuth re-encryption / git-history purge (P0) — provider consoles. See `docs/security/`.
-- Scale proof (50/100/200 load, QStash-outage/reconciliation-drain).
-- IG audio title resolution (optional), autoposter restart decision (30 accounts need reauth), and provider-console work.
+- Source base `origin/main`: `2d605a3bc2ce7bd9997d55517c1f3fcb03647dcb`.
+- Pinned runtime checkout observed at the same SHA.
+- Latest recorded performance sync observed successful at
+  `2026-07-15T07:42:38Z`.
+- The configured Campaign SQLite database was readable in read-only mode and
+  contained `stacey_learning_cohort_v1`.
+- Provider readiness was **not run**.
+- A live ThreadsDashboard handshake was **not run**.
+- No runtime checkout, LaunchAgent, environment file, database, provider,
+  draft, schedule, publish state, or production service was changed.
 
-## How to work here
+Use `scripts/creator-os status` for a fresh report. This snapshot will become
+stale; do not use it as later runtime proof.
 
-- Fix a tool: edit it in creator-os (it's canonical now), open a PR, green checks, merge.
-- Dashboard work: fix it in `/Users/aderdesouza/Developer/ThreadsDashboard`; Creator OS has no committed dashboard mirror.
-- See `AGENTS.md` for agent conventions and `ARCHITECTURE.md` for system design.
+## Still Operator-Gated
+
+- Paid generation and provider smokes require an explicit target, workspace,
+  confirmation, and finite credit cap.
+- Reference gold/maybe/ignore labels remain human decisions.
+- Draft export requires explicit apply and remains draft-only.
+- ThreadsDashboard approval, native-audio proof, scheduling, and publishing
+  remain external product actions.
+- Real performance-learning closure requires measured platform rows, not only
+  queue or command success.
+- Scale, outage, OAuth/provider-console, and other production proofs remain
+  separate operational work.
+
+## Verification Boundary
+
+`make verify`, contract checks, architecture checks, artifact checks, and secret
+scans prove the source tree. CI proves the exact PR SHA. Neither proves paid
+providers, runtime promotion, production handshake, publishing, or metric
+collection unless those checks are separately and explicitly run.

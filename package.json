@@ -7,10 +7,11 @@
     "node": "22.x || 24.x || >=26"
   },
   "scripts": {
+    "creator-os": "python3 scripts/creator-os",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
-    "doctor": "python3 scripts/doctor.py",
+    "doctor": "python3 scripts/creator-os doctor",
     "sync:contracts": "node scripts/generate-pipeline-contract-schemas.mjs",
     "lint:py": "uv run ruff check python_packages packages && uv run ruff format --check python_packages packages",
     "typecheck:py": "uv run mypy packages/pipeline_contracts/pipeline_contracts",

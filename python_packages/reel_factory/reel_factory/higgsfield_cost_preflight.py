@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from creator_os_core.runtime_guards import global_kill_switch_active
-from project_config import load_config
 
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .project_config import load_config
 
 SCHEMA = "reel_factory.higgsfield_cost_preflight.v1"
 RESERVATION_SCHEMA = "reel_factory.higgsfield_spend_reservation.v1"

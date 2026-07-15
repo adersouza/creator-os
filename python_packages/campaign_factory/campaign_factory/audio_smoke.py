@@ -670,9 +670,9 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, {str(reel_root)!r})
-from export_approved import export_approved
-from manifest import Manifest, sha256_str
-from reel_pipeline import Recipe
+from reel_factory.export_approved import export_approved
+from reel_factory.manifest import Manifest, sha256_str
+from reel_factory.reel_pipeline import Recipe
 
 root = Path({str(fixture_root)!r})
 root.mkdir(parents=True, exist_ok=True)

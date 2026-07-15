@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from intelligence_store import winner_score
+from .intelligence_store import winner_score
 
 
 def utc_now() -> str:

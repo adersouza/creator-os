@@ -15,8 +15,8 @@ end-to-end run (the generation stages need external paid APIs), and CF's quality
 gate itself is already live-tested in packages/contentforge
 (campaign-factory-report.test.js).
 
-Refresh the goldens when CF's response shape changes:
-    node packages/contentforge/scripts/capture-cf-golden.mjs
+The fixtures are checked-in seam evidence. Replace them only with a reviewed,
+sanitized result from the normal ContentForge CLI when its response shape changes.
 """
 
 from __future__ import annotations

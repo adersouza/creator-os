@@ -11,7 +11,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from generate_prompts import (
+from pipeline_contracts.llm_resilience import decode_json_object
+
+from reel_factory.sqlite_utils import connect_sqlite
+
+from .generate_prompts import (
     DEFAULT_MODEL,
     build_xai_payload,
     call_grok,
@@ -22,10 +26,7 @@ from generate_prompts import (
     strip_json_fence,
     video_duration,
 )
-from intelligence_store import ensure_intelligence_schema
-from pipeline_contracts.llm_resilience import decode_json_object
-
-from reel_factory.sqlite_utils import connect_sqlite
+from .intelligence_store import ensure_intelligence_schema
 
 try:
     from .fileops import atomic_write_text
@@ -230,7 +231,7 @@ def media_dimensions(path: Path) -> dict[str, Any]:
     if path.suffix.lower() in {".mp4", ".mov", ".m4v"}:
         import subprocess
 
-        from generate_prompts import FFPROBE
+        from .generate_prompts import FFPROBE
 
         result = subprocess.run(
             [

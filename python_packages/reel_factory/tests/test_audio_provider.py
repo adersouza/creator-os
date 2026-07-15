@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from audio_intent import read_audio_intent, write_audio_intent
-from audio_provider import (
+from reel_factory.audio_intent import read_audio_intent, write_audio_intent
+from reel_factory.audio_provider import (
     curated_winners_path,
     eligible_trending_tracks,
     local_winners_path,

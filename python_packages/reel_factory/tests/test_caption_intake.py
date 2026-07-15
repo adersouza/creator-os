@@ -6,12 +6,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from caption_bank import (
+from reel_factory.caption_bank import (
     CaptionBankStore,
     caption_hash,
     load_or_build_caption_bank_store,
 )
-from caption_intake import (
+from reel_factory.caption_intake import (
     build_inventory,
     import_external,
     plan_placement,

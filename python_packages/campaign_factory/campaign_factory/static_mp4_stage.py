@@ -137,7 +137,8 @@ def _invoke_reel_factory_static_mp4(
 ) -> dict[str, Any]:
     command = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "static_mp4.py",
+        "-m",
+        "reel_factory.static_mp4",
         "--still",
         str(still_path),
         "--out",

@@ -3,9 +3,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import hook_ai
-import preflight
 import pytest
+import reel_factory.hook_ai as hook_ai
+import reel_factory.preflight as preflight
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = (

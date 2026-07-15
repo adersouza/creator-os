@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from campaign_store import ensure_campaign_schema
-from caption_bank import (
+from reel_factory.campaign_store import ensure_campaign_schema
+from reel_factory.caption_bank import (
     ACTIVE_BANKS,
     CaptionBankStore,
     caption_hash,
@@ -17,11 +17,11 @@ from caption_bank import (
     load_or_build_caption_bank_store,
     refresh_caption_weights,
 )
-from discoverability_safety import (
+from reel_factory.discoverability_safety import (
     audit_caption_sources,
     discoverability_safe_content_contract,
 )
-from intelligence_store import ensure_intelligence_schema
+from reel_factory.intelligence_store import ensure_intelligence_schema
 
 
 class CaptionBankTests(unittest.TestCase):

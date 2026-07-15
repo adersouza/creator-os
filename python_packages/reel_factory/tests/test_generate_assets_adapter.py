@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from generate_assets import HiggsfieldCliAdapter, HiggsfieldCommandError
+from reel_factory.generate_assets import HiggsfieldCliAdapter, HiggsfieldCommandError
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "higgsfield_adapter"
 
