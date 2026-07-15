@@ -277,7 +277,6 @@ def select_animation_provider(
     available_providers: tuple[str, ...] | list[str],
     requires_reference_video_conditioning: bool,
 ) -> tuple[Provider, str]:
-    """Route deterministically without probing or invoking a paid provider."""
     preferred = str(preferred_provider or "auto").strip().lower()
     if preferred not in {"auto", *PROVIDER_MODELS}:
         raise ValueError("preferred_provider must be auto, seedance, or kling")
@@ -428,7 +427,8 @@ def _frame_plan(
             },
             "dryRunCommand": [
                 "python3",
-                "generate_assets.py",
+                "-m",
+                "reel_factory.generate_assets",
                 "reference-image-dry-run",
                 "--reference",
                 str(source_path),
@@ -463,8 +463,8 @@ def _positive_optional_credit_cap(value: float | None) -> float | None:
     if value is None:
         return None
     resolved = float(value)
-    if resolved <= 0:
-        raise ValueError("budget_cap_credits must be positive")
+    if not math.isfinite(resolved) or resolved <= 0:
+        raise ValueError("budget_cap_credits must be finite and positive")
     return resolved
 
 

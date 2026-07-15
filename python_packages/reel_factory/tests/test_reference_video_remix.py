@@ -52,7 +52,12 @@ def test_builds_blocked_seedance_plan_without_provider_execution(tmp_path):
     assert plan["animation"]["paidGenerationAuthorized"] is False
     assert plan["approval"]["publishingAllowed"] is False
     frame_command = plan["framePair"]["first"]["generation"]["dryRunCommand"]
-    assert frame_command[2] == "reference-image-dry-run"
+    assert frame_command[:4] == [
+        "python3",
+        "-m",
+        "reel_factory.generate_assets",
+        "reference-image-dry-run",
+    ]
     assert frame_command[frame_command.index("--creator") + 1] == "Stacey"
     assert frame_command[frame_command.index("--creator") + 2] == "--soul-id"
     assert plan["framePair"]["last"]["generation"]["referenceConditioned"] is True
