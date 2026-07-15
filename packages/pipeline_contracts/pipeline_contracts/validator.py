@@ -44,6 +44,7 @@ THREADSDASH_HANDSHAKE_SCHEMA = "threadsdash_handshake.v1.schema.json"
 REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA = (
     "reference_factory_knowledge_pack.v1.schema.json"
 )
+PROVIDER_SPEND_AUTHORIZATION_SCHEMA = "provider_spend_authorization.v1.schema.json"
 
 SCHEMA_NAMES = {
     "audio_intent": AUDIO_INTENT_SCHEMA,
@@ -83,6 +84,8 @@ SCHEMA_NAMES = {
     "campaign_factory_threadsdash_handshake": THREADSDASH_HANDSHAKE_SCHEMA,
     "reference_factory_knowledge_pack": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
     "reference_factory_knowledge_pack_v1": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
+    "provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
+    "campaign_factory_provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
 }
 
 
@@ -123,6 +126,10 @@ def validate_contract(value: Any, schema_name: str) -> None:
         raise ContractValidationError(
             "; ".join(_format_error(error) for error in errors)
         )
+
+
+def validate_provider_spend_authorization(value: Any) -> None:
+    validate_contract(value, PROVIDER_SPEND_AUTHORIZATION_SCHEMA)
 
 
 def validate_audio_intent(value: Any) -> None:
@@ -346,6 +353,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "motion_edit_render.v1.example.json": validate_motion_edit_render,
         "front_generation_plan.v1.example.json": validate_front_generation_plan,
         "reference_factory_knowledge_pack.v1.example.json": validate_reference_factory_knowledge_pack,
+        "provider_spend_authorization.v1.example.json": validate_provider_spend_authorization,
         "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
     }
     checks = []

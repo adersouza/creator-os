@@ -1,0 +1,37 @@
+{
+  "schema": "campaign_factory.provider_spend_authorization.v1",
+  "authorizationId": "spauth_example",
+  "reservationId": "spres_example",
+  "issuer": "campaign_factory",
+  "status": "authorized",
+  "issuedAt": "2026-07-15T12:00:00Z",
+  "expiresAt": "2026-07-15T12:05:00Z",
+  "scope": {
+    "mode": "reference-image",
+    "provider": "higgsfield",
+    "campaign": "stacey",
+    "cohortId": "creator_os_default",
+    "stem": "reference-1",
+    "soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+    "providerModels": ["text2image_soul_v2"],
+    "providerCallCount": 1,
+    "promptSha256": null,
+    "referenceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "startImageSha256": null,
+    "endImageSha256": null,
+    "videoReferenceSha256": null,
+    "imageAspectRatio": "3:4",
+    "imageQuality": "2k",
+    "videoAspectRatio": "9:16",
+    "videoDuration": 5,
+    "videoMode": "pro",
+    "videoSound": "off",
+    "requestFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "providerQuote": {
+    "provider": "higgsfield",
+    "amount": 10,
+    "unit": "higgsfield_credits"
+  },
+  "signature": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

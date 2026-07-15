@@ -110,6 +110,7 @@ def run_generation_workflow(
             _require(creator or soul_id, "creator or soul_id")
             if live:
                 _require(creator, "target creator")
+                _require(soul_id, "Campaign-selected soul_id")
             _paid_inputs_if_live(
                 live=live,
                 paid_confirmation=paid_confirmation,
@@ -162,6 +163,7 @@ def run_generation_workflow(
         _require(creator or soul_id, "creator or soul_id")
         if live:
             _require(creator, "target creator")
+            _require(soul_id, "Campaign-selected soul_id")
         _paid_inputs_if_live(
             live=live,
             paid_confirmation=paid_confirmation,

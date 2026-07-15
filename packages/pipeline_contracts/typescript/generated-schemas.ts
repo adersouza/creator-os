@@ -3026,6 +3026,201 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	providerSpendAuthorization: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/provider_spend_authorization.v1.schema.json",
+	  "title": "Campaign Factory Provider Spend Authorization",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "authorizationId",
+	    "reservationId",
+	    "issuer",
+	    "status",
+	    "issuedAt",
+	    "expiresAt",
+	    "scope",
+	    "providerQuote",
+	    "signature"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.provider_spend_authorization.v1"
+	    },
+	    "authorizationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "reservationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "issuer": {
+	      "const": "campaign_factory"
+	    },
+	    "status": {
+	      "const": "authorized"
+	    },
+	    "issuedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "expiresAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "scope": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "mode",
+	        "provider",
+	        "campaign",
+	        "cohortId",
+	        "stem",
+	        "soulId",
+	        "providerModels",
+	        "providerCallCount",
+	        "promptSha256",
+	        "referenceSha256",
+	        "startImageSha256",
+	        "endImageSha256",
+	        "videoReferenceSha256",
+	        "imageAspectRatio",
+	        "imageQuality",
+	        "videoAspectRatio",
+	        "videoDuration",
+	        "videoMode",
+	        "videoSound",
+	        "requestFingerprint"
+	      ],
+	      "properties": {
+	        "mode": {
+	          "enum": [
+	            "create",
+	            "image",
+	            "reference-image",
+	            "video"
+	          ]
+	        },
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "campaign": {
+	          "type": "string"
+	        },
+	        "cohortId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "stem": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "providerModels": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "providerCallCount": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "promptSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "referenceSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "startImageSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "endImageSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "videoReferenceSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "imageAspectRatio": {
+	          "type": "string"
+	        },
+	        "imageQuality": {
+	          "type": "string"
+	        },
+	        "videoAspectRatio": {
+	          "type": "string"
+	        },
+	        "videoDuration": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "videoMode": {
+	          "type": "string"
+	        },
+	        "videoSound": {
+	          "type": "string"
+	        },
+	        "requestFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
+	    "providerQuote": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "provider",
+	        "amount",
+	        "unit"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "amount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "unit": {
+	          "const": "higgsfield_credits"
+	        }
+	      }
+	    },
+	    "signature": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
 	recommendationAccuracyReport: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.recommendation_accuracy_report.v1",
@@ -5285,6 +5480,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },
 	{ key: "performanceSync", filename: "performance_sync.v1.schema.json", id: "campaign_factory.performance_sync.v1" },
 	{ key: "postMetricHistoryRead", filename: "post_metric_history.read.v1.schema.json", id: "threadsdashboard.post_metric_history.read.v1" },
+	{ key: "providerSpendAuthorization", filename: "provider_spend_authorization.v1.schema.json", id: "https://creator-os.local/schemas/provider_spend_authorization.v1.schema.json" },
 	{ key: "recommendationAccuracyReport", filename: "recommendation_accuracy_report.v1.schema.json", id: "campaign_factory.recommendation_accuracy_report.v1" },
 	{ key: "recommendationNextBatch", filename: "recommendation_next_batch.v1.schema.json", id: "campaign_factory.recommendations.next_batch.v1" },
 	{ key: "referenceFactoryKnowledgePack", filename: "reference_factory_knowledge_pack.v1.schema.json", id: "reference_factory.knowledge_pack.v1" },

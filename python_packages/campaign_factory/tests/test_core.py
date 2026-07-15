@@ -5050,6 +5050,8 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
             str(reference.resolve()),
             "--stem",
             "reference",
+            "--campaign",
+            "may",
             "--cohort-id",
             "may",
             "--max-credits",

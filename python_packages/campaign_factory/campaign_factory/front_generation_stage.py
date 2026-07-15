@@ -8,10 +8,12 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.provider_spend import build_generate_assets_spend_scope
 from creator_os_core.runtime_guards import require_global_write_allowed
 
 from .contracts import validate_front_generation_plan
@@ -24,6 +26,11 @@ from .core import (
 )
 from .kling_selection_stage import validate_kling_selection_receipt
 from .persistence import utc_now
+from .provider_spend import (
+    consume_provider_spend_authorization,
+    issue_provider_spend_authorization,
+    record_provider_execution,
+)
 from .static_mp4_stage import run_static_mp4_stage
 from .variation_stage import run_variation_stage
 
@@ -873,6 +880,44 @@ def _generated_prompt_text(lineage: dict[str, Any]) -> str:
 
 
 def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
+    authorization: dict[str, Any] | None = None
+    authorization_path: Path | None = None
+    if args and args[0] in {"create", "image", "reference-image", "video"}:
+        secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
+        scope = build_generate_assets_spend_scope(
+            args, root=factory.settings.reel_factory_root
+        )
+        campaign_slug = str(scope.get("campaign") or "")
+        campaign = (
+            factory.domains.campaign_by_slug(campaign_slug) if campaign_slug else None
+        )
+        max_credits = _option_float(args, "--max-credits")
+        authorization = issue_provider_spend_authorization(
+            factory.conn,
+            scope=scope,
+            campaign_id=str(campaign["id"]) if campaign else None,
+            max_credits=max_credits,
+            secret=secret,
+        )
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            prefix="creator-os-spend-",
+            suffix=".json",
+            delete=False,
+        ) as handle:
+            json.dump(authorization, handle, sort_keys=True)
+            handle.write("\n")
+            authorization_path = Path(handle.name)
+        authorization_path.chmod(0o600)
+        try:
+            consume_provider_spend_authorization(
+                factory.conn, authorization["authorizationId"]
+            )
+        except Exception:
+            authorization_path.unlink(missing_ok=True)
+            raise
+        args = [*args, "--spend-authorization-file", str(authorization_path)]
     cmd = [
         reel_factory_python(factory.settings.reel_factory_root),
         "-m",
@@ -882,15 +927,19 @@ def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
         str(factory.settings.reel_factory_root),
     ]
     env = os.environ.copy()
-    proc = subprocess.run(
-        cmd,
-        cwd=factory.settings.reel_factory_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=240,
-        env=env,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=factory.settings.reel_factory_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            env=env,
+        )
+    finally:
+        if authorization_path is not None:
+            authorization_path.unlink(missing_ok=True)
     if proc.returncode != 0:
         raise RuntimeError(
             proc.stderr[-2000:] or proc.stdout[-2000:] or "generate_assets failed"
@@ -903,7 +952,39 @@ def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
         ) from exc
     if not isinstance(payload, dict):
         raise RuntimeError("generate_assets returned non-object JSON")
+    if authorization is not None:
+        generation = (
+            payload.get("lineage", {}).get("generation", {})
+            if isinstance(payload.get("lineage"), dict)
+            else {}
+        )
+        execution = (
+            generation.get("providerExecution")
+            if isinstance(generation, dict)
+            else None
+        )
+        event_ids = record_provider_execution(
+            factory.conn,
+            authorization=authorization,
+            execution=execution,
+        )
+        payload["campaignSpendReceipt"] = {
+            "schema": "campaign_factory.provider_spend_receipt.v1",
+            "authorizationId": authorization["authorizationId"],
+            "reservationId": authorization["reservationId"],
+            "requestFingerprint": authorization["scope"]["requestFingerprint"],
+            "providerQuote": authorization["providerQuote"],
+            "costEventIds": event_ids,
+        }
     return payload
+
+
+def _option_float(args: list[str], name: str) -> float:
+    try:
+        index = args.index(name)
+        return float(args[index + 1])
+    except (ValueError, IndexError) as exc:
+        raise ValueError(f"paid generation requires {name}") from exc
 
 
 def _soul_args(
@@ -920,7 +1001,7 @@ def _soul_args(
 
 
 def _credit_args(campaign_slug: str, budget_cap_credits: float | None) -> list[str]:
-    args = ["--cohort-id", campaign_slug]
+    args = ["--campaign", campaign_slug, "--cohort-id", campaign_slug]
     if budget_cap_credits is not None:
         args += ["--max-credits", str(budget_cap_credits)]
     return args
@@ -929,10 +1010,14 @@ def _credit_args(campaign_slug: str, budget_cap_credits: float | None) -> list[s
 def _provider_quote_amount(result: dict[str, Any]) -> float | None:
     lineage = result.get("lineage")
     generation = lineage.get("generation") if isinstance(lineage, dict) else None
-    preflight = (
-        generation.get("costPreflight") if isinstance(generation, dict) else None
+    authorization = (
+        generation.get("spendAuthorization") if isinstance(generation, dict) else None
     )
-    quote = preflight.get("providerQuote") if isinstance(preflight, dict) else None
+    if authorization is None and isinstance(generation, dict):
+        authorization = generation.get("costPreflight")
+    quote = (
+        authorization.get("providerQuote") if isinstance(authorization, dict) else None
+    )
     amount = quote.get("amount") if isinstance(quote, dict) else None
     return (
         float(amount)

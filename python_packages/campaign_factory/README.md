@@ -57,7 +57,11 @@ UI.
 Campaign Factory delegates media work to canonical Reel Factory modules. The
 active path is direct Higgsfield Soul still generation, a local static MP4 for
 accepted stills, and optional explicitly approved motion. Paid execution
-requires opt-in plus a finite credit cap.
+requires opt-in, an explicit Soul ID, a finite credit cap, and a machine-local
+`CREATOR_OS_SPEND_AUTH_SECRET`. Campaign Factory owns provider quotes, balance
+and budget policy, reservations, and the authoritative cost ledger. Reel
+Factory receives a short-lived one-time signed authorization and records only
+worker execution evidence; invoking its paid modes directly fails closed.
 
 ContentForge runs as a local stdin/stdout JSON CLI. Campaign Factory stages the
 source and candidate, requests the `campaign_factory_v1` audit profile, and
