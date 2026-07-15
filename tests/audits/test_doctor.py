@@ -75,6 +75,40 @@ def test_live_status_keeps_unprobed_external_systems_not_run(tmp_path: Path) -> 
     assert "never-print-me" not in provider.evidence
 
 
+def test_canonical_roots_reject_campaign_artifacts_inside_checkout(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "creator-os"
+    runtime = tmp_path / "creator-os-runtime"
+    for path in (
+        source,
+        runtime,
+        tmp_path / "state",
+        tmp_path / "artifacts",
+        tmp_path / "models",
+        tmp_path / "logs",
+    ):
+        path.mkdir(parents=True)
+    paths = doctor.resolve_runtime_paths(
+        source,
+        env={
+            "HOME": str(tmp_path / "home"),
+            "CREATOR_OS_RUNTIME_ROOT": str(runtime),
+            "CREATOR_OS_STATE_ROOT": str(tmp_path / "state"),
+            "CREATOR_OS_ARTIFACT_ROOT": str(tmp_path / "artifacts"),
+            "CREATOR_OS_MODEL_ROOT": str(tmp_path / "models"),
+            "CREATOR_OS_LOG_ROOT": str(tmp_path / "logs"),
+        },
+    )
+
+    result = doctor._canonical_roots_status(
+        paths, campaign_artifacts=source / "python_packages/campaign_factory/campaigns"
+    )
+
+    assert result.status == "FAIL"
+    assert "campaignArtifacts=" in result.affected[0]
+
+
 def test_live_status_records_shared_trace_and_zero_write_probe_results(
     tmp_path: Path, monkeypatch
 ) -> None:

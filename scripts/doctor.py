@@ -158,7 +158,13 @@ def run_live_status(
     local_config = _local_config_status(
         performance_env, generation_env, campaign_ingest_env
     )
-    canonical_roots = _canonical_roots_status(resolved)
+    configured_campaigns_dir = Path(
+        probe_env.get("CAMPAIGN_FACTORY_CAMPAIGNS")
+        or resolved.artifact_root / "campaign_factory" / "campaigns"
+    ).expanduser().resolve()
+    canonical_roots = _canonical_roots_status(
+        resolved, campaign_artifacts=configured_campaigns_dir
+    )
     runtime = _runtime_status(resolved, performance_values, ops_log)
     database = _campaign_database_status(performance_values)
     if live_read_only:
@@ -270,7 +276,9 @@ def _threadsdash_handshake_status(
     )
 
 
-def _canonical_roots_status(paths: RuntimePaths) -> Result:
+def _canonical_roots_status(
+    paths: RuntimePaths, *, campaign_artifacts: Path | None = None
+) -> Result:
     roots = {
         "state": paths.state_root,
         "artifacts": paths.artifact_root,
@@ -295,7 +303,15 @@ def _canonical_roots_status(paths: RuntimePaths) -> Result:
         for name, path in database_paths.items()
         if any(path == root or path.is_relative_to(root) for root in checkout_roots)
     ]
-    if unsafe or checkout_databases:
+    configured_artifacts = campaign_artifacts or (
+        paths.artifact_root / "campaign_factory" / "campaigns"
+    )
+    checkout_artifacts = [
+        f"campaignArtifacts={configured_artifacts}"
+        for root in checkout_roots
+        if configured_artifacts == root or configured_artifacts.is_relative_to(root)
+    ]
+    if unsafe or checkout_databases or checkout_artifacts:
         status = "FAIL"
         reason = "one or more canonical runtime paths resolve inside a Git checkout"
     elif missing:
@@ -314,9 +330,10 @@ def _canonical_roots_status(paths: RuntimePaths) -> Result:
             [
                 *(f"{name}={path}" for name, path in roots.items()),
                 *(f"{name}Db={path}" for name, path in database_paths.items()),
+                f"campaignArtifacts={configured_artifacts}",
             ]
         ),
-        affected=[*unsafe, *checkout_databases, *missing],
+        affected=[*unsafe, *checkout_databases, *checkout_artifacts, *missing],
         next_action=(
             "Run the verified state migration before switching runtime configuration."
             if status != "PASS"
