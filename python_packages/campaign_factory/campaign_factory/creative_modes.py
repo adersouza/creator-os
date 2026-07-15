@@ -10,7 +10,7 @@ _MODES: tuple[dict[str, Any], ...] = (
         "id": "library_reuse",
         "label": "Library reuse",
         "costLabel": "free",
-        "input": "approved existing image or video",
+        "input": "explicit media folder and model slug",
         "output": "review-ready library asset or safe variation",
         "requiredApprovals": ["human_asset_approval"],
         "entrypoint": "generation run --mode library_reuse",

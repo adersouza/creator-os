@@ -7,7 +7,6 @@ from typing import Any
 from .creative_modes import creative_workflow_mode
 from .front_generation_stage import run_front_generation_stage
 from .motion_edit_stage import run_motion_edit_stage
-from .proactive_cycle_stage import run_proactive_cycle_stage
 from .reference_video_remix_stage import (
     JsonCommandReferenceVideoRemixSeams,
     ReferenceVideoRemixSeams,
@@ -61,54 +60,39 @@ def run_generation_workflow(
         raise ValueError("choose exactly one of dry_run or apply")
 
     if mode_id == "library_reuse":
-        if library_folder is not None:
-            folder = Path(library_folder).expanduser().resolve()
-            if not folder.is_dir():
-                raise FileNotFoundError(f"library folder not found: {folder}")
-            _require(model_slug, "model_slug")
-            if variant_count <= 0 or workers <= 0:
-                raise ValueError("variant_count and workers must be positive")
-            if output_format not in {"reel", "slideshow", "auto"}:
-                raise ValueError("output_format must be reel, slideshow, or auto")
-            if dry_run:
-                result = {
-                    "schema": "campaign_factory.library_reuse_preflight.v1",
-                    "status": "planned",
-                    "folder": str(folder),
-                    "model": model_slug,
-                    "format": output_format,
-                    "variantCount": variant_count,
-                    "workers": workers,
-                    "providerCalls": 0,
-                    "paidGenerationAllowed": False,
-                    "autoApprovalAllowed": False,
-                    "draftExportAllowed": False,
-                }
-            else:
-                result = factory.make_batch(
-                    folder=folder,
-                    campaign_slug=campaign_slug,
-                    model_slug=model_slug,
-                    output_format=output_format,
-                    variant_count=variant_count,
-                    dry_run_export=True,
-                    workers=workers,
-                    auto_approve_warning_only=False,
-                )
+        _require(library_folder, "library_folder")
+        folder = Path(library_folder).expanduser().resolve()
+        if not folder.is_dir():
+            raise FileNotFoundError(f"library folder not found: {folder}")
+        _require(model_slug, "model_slug")
+        if variant_count <= 0 or workers <= 0:
+            raise ValueError("variant_count and workers must be positive")
+        if output_format not in {"reel", "slideshow", "auto"}:
+            raise ValueError("output_format must be reel, slideshow, or auto")
+        if dry_run:
+            result = {
+                "schema": "campaign_factory.library_reuse_preflight.v1",
+                "status": "planned",
+                "folder": str(folder),
+                "model": model_slug,
+                "format": output_format,
+                "variantCount": variant_count,
+                "workers": workers,
+                "providerCalls": 0,
+                "paidGenerationAllowed": False,
+                "autoApprovalAllowed": False,
+                "draftExportAllowed": False,
+            }
         else:
-            result = run_proactive_cycle_stage(
-                factory,
+            result = factory.make_batch(
+                folder=folder,
                 campaign_slug=campaign_slug,
-                count=count,
-                account=account,
-                generation_mode="existing_asset",
-                enable_export=False,
-                enable_schedule=False,
-                dry_run=dry_run,
-                apply=apply,
-                enable_live=live,
-                enable_paid_generation=False,
-                budget_cap_usd=0,
+                model_slug=model_slug,
+                output_format=output_format,
+                variant_count=variant_count,
+                dry_run_export=True,
+                workers=workers,
+                auto_approve_warning_only=False,
             )
     elif mode_id == "soul_static":
         if accepted_still_path is not None:

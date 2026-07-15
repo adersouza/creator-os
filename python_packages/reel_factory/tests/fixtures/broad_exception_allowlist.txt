@@ -9,7 +9,7 @@ reel_factory/anatomy_qc.py:assess_image_qc:186
 reel_factory/audio_mux.py:audio_stream_count:44
 reel_factory/audio_mux.py:_audio_meta:71
 reel_factory/audio_mux.py:mux_root:246
-reel_factory/campaign_store.py:get_asset_generation:815
+reel_factory/campaign_store.py:get_asset_generation:812
 reel_factory/caption_bank.py:build:339
 reel_factory/caption_bank.py:_history_captions:695
 reel_factory/caption_bank.py:_history_captions:706

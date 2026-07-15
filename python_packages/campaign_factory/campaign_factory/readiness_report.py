@@ -4,7 +4,6 @@ import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .assignment_eligibility import asset_identity
@@ -443,7 +442,7 @@ def build_mass_production_readiness_report(
         "bySourceReferenceOrFamily": _duplicate_groups(source_family_groups),
     }
     metrics = _metrics_status(asset_reports, snapshots_by_asset)
-    posting_ledger_audit = _external_posting_ledger_audit(factory, campaign, days=days)
+    posting_ledger_audit = _retired_reel_posting_ledger_status()
     readiness_state = _readiness_score(
         approved_count=len(approved_assets),
         missing=missing,
@@ -451,7 +450,6 @@ def build_mass_production_readiness_report(
         schedule=schedule,
         duplicate_risk=duplicate_risk,
         threadsdash_readiness=threadsdash_readiness,
-        posting_ledger_audit=posting_ledger_audit,
     )
     blockers = _blocker_ranking(
         approved_count=len(approved_assets),
@@ -462,7 +460,6 @@ def build_mass_production_readiness_report(
         metrics=metrics,
         snapshots_missing_caption_context=snapshots_missing_caption_context,
         threadsdash_readiness=threadsdash_readiness,
-        posting_ledger_audit=posting_ledger_audit,
     )
     scale_readiness = _scale_readiness(
         readiness_state=readiness_state,
@@ -472,7 +469,6 @@ def build_mass_production_readiness_report(
         schedule=schedule,
         duplicate_risk=duplicate_risk,
         threadsdash_readiness=threadsdash_readiness,
-        posting_ledger_audit=posting_ledger_audit,
     )
     summary = _markdown_summary(
         campaign=campaign,
@@ -484,7 +480,6 @@ def build_mass_production_readiness_report(
         schedule=schedule,
         blockers=blockers,
         scale_readiness=scale_readiness,
-        posting_ledger_audit=posting_ledger_audit,
     )
     return {
         "schema": "campaign_factory.mass_production_readiness_report.v1",
@@ -537,6 +532,12 @@ def build_mass_production_readiness_report(
         "schedule": schedule,
         "scaleReadiness": scale_readiness,
         "duplicateRisk": duplicate_risk,
+        "stateOwnership": {
+            "assetLifecycle": "Campaign Factory",
+            "accountEligibility": "Campaign Factory policy over ThreadsDashboard account state",
+            "schedulingPublishingMetrics": "ThreadsDashboard",
+            "mediaGenerationRendering": "Reel Factory",
+        },
         "externalPostingLedgerAudit": posting_ledger_audit,
         "threadDashExportReadiness": threadsdash_readiness
         or {
@@ -814,7 +815,6 @@ def _readiness_score(
     schedule: dict[str, Any],
     duplicate_risk: dict[str, Any],
     threadsdash_readiness: dict[str, Any] | None,
-    posting_ledger_audit: dict[str, Any],
 ) -> str:
     if (
         approved_count <= 0
@@ -822,7 +822,6 @@ def _readiness_score(
         or missing["renderedOutputPath"]
         or missing["assignmentIdentity"]
         or unresolved_audio_count
-        or posting_ledger_audit.get("matchingSlotCount")
         or (threadsdash_readiness and threadsdash_readiness.get("blockingReasons"))
     ):
         return "NOT_READY"
@@ -845,7 +844,6 @@ def _blocker_ranking(
     metrics: dict[str, Any],
     snapshots_missing_caption_context: int,
     threadsdash_readiness: dict[str, Any] | None,
-    posting_ledger_audit: dict[str, Any],
 ) -> dict[str, list[dict[str, Any]]]:
     blockers: dict[str, list[dict[str, Any]]] = {
         "preventsProduction": [],
@@ -904,17 +902,6 @@ def _blocker_ranking(
                 {"blockingReasons": threadsdash_readiness.get("blockingReasons")},
             )
         )
-    if posting_ledger_audit.get("matchingSlotCount"):
-        blockers["preventsProduction"].append(
-            _blocker(
-                "external_schedule_state_not_canonical",
-                "Matching schedule/account slots exist in Reel Factory posting_ledger; mirror or migrate them into Campaign Factory before production.",
-                {
-                    "matchingSlotCount": posting_ledger_audit.get("matchingSlotCount"),
-                    "ledgerPath": posting_ledger_audit.get("ledgerDbPath"),
-                },
-            )
-        )
     if missing["canonicalIds"]:
         blockers["risksLosingTracking"].append(
             _blocker(
@@ -963,17 +950,6 @@ def _blocker_ranking(
                 f"{snapshots_missing_caption_context} performance snapshots are missing caption outcome context.",
             )
         )
-    if posting_ledger_audit.get("matchingSlotCount"):
-        blockers["risksLosingTracking"].append(
-            _blocker(
-                "external_posting_ledger_slots",
-                f"{posting_ledger_audit['matchingSlotCount']} matching posting slots exist in Reel Factory's local ledger outside Campaign Factory.",
-                {
-                    "canonicalOwner": posting_ledger_audit.get("canonicalOwner"),
-                    "ledgerPath": posting_ledger_audit.get("ledgerDbPath"),
-                },
-            )
-        )
     for key, label in (
         ("byRenderedAsset", "rendered_asset_reuse"),
         ("byContentFingerprint", "content_fingerprint_reuse"),
@@ -1017,7 +993,6 @@ def _scale_readiness(
     schedule: dict[str, Any],
     duplicate_risk: dict[str, Any],
     threadsdash_readiness: dict[str, Any] | None,
-    posting_ledger_audit: dict[str, Any],
 ) -> dict[str, Any]:
     common_blockers = _common_scale_blockers(
         approved_count=approved_count,
@@ -1025,7 +1000,6 @@ def _scale_readiness(
         unresolved_audio_count=unresolved_audio_count,
         duplicate_risk=duplicate_risk,
         threadsdash_readiness=threadsdash_readiness,
-        posting_ledger_audit=posting_ledger_audit,
     )
     pilot_blockers = list(common_blockers)
     if schedule["scheduleGaps"]["pilot"]["gap"] > 0:
@@ -1068,7 +1042,6 @@ def _common_scale_blockers(
     unresolved_audio_count: int,
     duplicate_risk: dict[str, Any],
     threadsdash_readiness: dict[str, Any] | None,
-    posting_ledger_audit: dict[str, Any],
 ) -> list[str]:
     reasons = []
     if approved_count <= 0:
@@ -1105,144 +1078,29 @@ def _common_scale_blockers(
         )
     if threadsdash_readiness and threadsdash_readiness.get("blockingReasons"):
         reasons.append("ThreadDash export readiness has blocking reasons")
-    if posting_ledger_audit.get("matchingSlotCount"):
-        reasons.append(
-            "Reel Factory posting_ledger has matching external slots; migrate or mirror schedule state into Campaign Factory"
-        )
     return reasons
 
 
-def _external_posting_ledger_audit(
-    factory: CampaignFactory, campaign: dict[str, Any], *, days: int
-) -> dict[str, Any]:
-    ledger_db = Path(factory.settings.reel_manifest_db)
-    base = {
+def _retired_reel_posting_ledger_status() -> dict[str, Any]:
+    """Keep the legacy report field stable while recording its retired owner."""
+    return {
         "schema": "campaign_factory.external_posting_ledger_audit.v1",
-        "ownership": "external_local_tooling_only",
-        "canonicalOwner": "Campaign Factory distribution_plans, asset_account_assignments, ThreadDash exports, and performance_snapshots",
-        "ledgerDbPath": str(ledger_db),
-        "exists": ledger_db.exists(),
+        "ownership": "retired",
+        "canonicalOwner": "Campaign Factory owns lifecycle and assignment; ThreadsDashboard owns scheduling, publishing, and metrics",
+        "ledgerDbPath": None,
+        "exists": False,
         "matchingSlotCount": 0,
+        "promotedSlotCount": 0,
+        "totalExternalSlotCount": 0,
         "statusCounts": {},
         "slotTypeCounts": {},
         "accountDayCounts": [],
         "requiresMigrationToCampaignFactory": False,
         "notes": [
-            "Reel Factory posting_ledger.py is not canonical schedule/account state.",
-            "If operators use it for planning, mirror or migrate those slots into Campaign Factory before pilot or scale reporting.",
+            "Reel Factory no longer initializes or reads posting ledger tables.",
+            "The source manifest contained zero posting slots and zero posting-slot events at retirement, so no evidence migration was required.",
         ],
     }
-    if not ledger_db.exists():
-        return base
-    conn: sqlite3.Connection | None = None
-    try:
-        conn = sqlite3.connect(f"file:{ledger_db}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        table = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='posting_slots'"
-        ).fetchone()
-        if not table:
-            return {
-                **base,
-                "exists": True,
-                "notes": [
-                    *base["notes"],
-                    "manifest.sqlite exists but has no posting_slots table.",
-                ],
-            }
-        campaign_keys = (campaign["id"], campaign["slug"])
-        rows = [
-            dict(row)
-            for row in conn.execute(
-                """
-                SELECT posting_slot_id, account_id, account_handle, campaign_id, date, slot_type, post_status, content_fingerprint, rendered_output_path
-                FROM posting_slots
-                WHERE campaign_id IN (?, ?)
-                """,
-                campaign_keys,
-            ).fetchall()
-        ]
-    except sqlite3.Error as exc:
-        return {
-            **base,
-            "exists": True,
-            "error": str(exc),
-            "requiresMigrationToCampaignFactory": True,
-        }
-    finally:
-        if conn is not None:
-            conn.close()
-    promoted_slot_ids = _promoted_reel_slot_ids(factory, rows)
-    unpromoted_rows = [
-        row for row in rows if row.get("posting_slot_id") not in promoted_slot_ids
-    ]
-    status_counts = Counter(
-        row.get("post_status") or "unknown" for row in unpromoted_rows
-    )
-    slot_type_counts = Counter(
-        row.get("slot_type") or "unknown" for row in unpromoted_rows
-    )
-    account_day: dict[str, dict[str, Any]] = {}
-    for row in unpromoted_rows:
-        key = f"{row.get('account_id') or row.get('account_handle')}|{row.get('date')}"
-        item = account_day.setdefault(
-            key,
-            {
-                "account": row.get("account_id")
-                or row.get("account_handle")
-                or "unknown",
-                "day": row.get("date"),
-                "total": 0,
-            },
-        )
-        item["total"] += 1
-    return {
-        **base,
-        "matchingSlotCount": len(unpromoted_rows),
-        "promotedSlotCount": len(promoted_slot_ids),
-        "totalExternalSlotCount": len(rows),
-        "statusCounts": dict(status_counts),
-        "slotTypeCounts": dict(slot_type_counts),
-        "accountDayCounts": sorted(
-            account_day.values(), key=lambda row: (row["day"] or "", row["account"])
-        ),
-        "requiresMigrationToCampaignFactory": bool(unpromoted_rows),
-    }
-
-
-def _promoted_reel_slot_ids(
-    factory: CampaignFactory, rows: list[dict[str, Any]]
-) -> set[str]:
-    slot_ids = [
-        str(row.get("posting_slot_id") or "")
-        for row in rows
-        if row.get("posting_slot_id")
-    ]
-    if not slot_ids:
-        return set()
-    placeholders = ",".join("?" for _ in slot_ids)
-    graph_rows = factory.conn.execute(
-        f"""
-        SELECT external_id FROM content_graph_nodes
-        WHERE external_system = 'reel_factory.posting_ledger'
-          AND external_id IN ({placeholders})
-        """,
-        tuple(slot_ids),
-    ).fetchall()
-    graph_slot_ids = {row["external_id"] for row in graph_rows}
-    reason_rows = factory.conn.execute(
-        f"""
-        SELECT reason_code FROM distribution_plans
-        WHERE reason_code IN ({placeholders})
-        """,
-        tuple(f"reel_ledger:{slot_id}" for slot_id in slot_ids),
-    ).fetchall()
-    reason_slot_ids = {
-        str(row["reason_code"]).split(":", 1)[1]
-        for row in reason_rows
-        if ":" in str(row["reason_code"])
-    }
-    return graph_slot_ids | reason_slot_ids
 
 
 def _blocker(
@@ -1262,7 +1120,6 @@ def _markdown_summary(
     schedule: dict[str, Any],
     blockers: dict[str, list[dict[str, Any]]],
     scale_readiness: dict[str, Any],
-    posting_ledger_audit: dict[str, Any],
 ) -> str:
     lines = [
         f"# Mass Production Readiness: {campaign['slug']}",
@@ -1276,7 +1133,7 @@ def _markdown_summary(
         f"- Missing canonical IDs: {missing['canonicalIds']}",
         f"- Missing lineage: {missing['lineage']}",
         f"- Missing account assignment: {missing['accountAssignment']}",
-        f"- External Reel Factory posting ledger slots: {posting_ledger_audit.get('matchingSlotCount', 0)}",
+        "- State ownership: Campaign Factory lifecycle/assignment; ThreadsDashboard scheduling/publishing/metrics",
         "",
         "## Scale Answers",
         f"- 5-account pilot: {'ready' if scale_readiness['pilot5Accounts']['ready'] else 'blocked'}",

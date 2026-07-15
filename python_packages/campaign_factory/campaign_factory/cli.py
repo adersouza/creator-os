@@ -49,11 +49,6 @@ from .learning_cohort import (
 from .learning_readiness import closed_loop_learning_status
 from .quality_calibration import track_q_calibration_status
 from .readiness_report import build_mass_production_readiness_report
-from .reel_ledger_promotion import (
-    backfill_promotions,
-    promote_reel_ledger,
-    promotion_reconciliation_report,
-)
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -435,15 +430,6 @@ def main() -> int:
     closed_loop.add_argument("--existing-threadsdash-post-id")
     closed_loop.add_argument("--limit", type=int, default=1000)
 
-    promote_reel = sub.add_parser("promote-reel-ledger")
-    promote_reel.add_argument("--campaign", required=True)
-    promote_reel.add_argument("--reel-factory-root", default=None)
-    promote_reel.add_argument("--days", type=int, default=7)
-    promote_reel.add_argument("--apply", action="store_true")
-    promote_reel.add_argument("--format", choices=["json"], default="json")
-    promotion_backfill = sub.add_parser("backfill-promotions")
-    promotion_backfill.add_argument("--report-path")
-    sub.add_parser("reconcile-promotions")
     graduate_trial = sub.add_parser("graduate-trial-reel")
     graduate_trial.add_argument("--trial-post-id", required=True)
     graduate_trial.add_argument("--distribution-plan-id", required=True)
@@ -2654,27 +2640,6 @@ def main() -> int:
                 print(report["markdownSummary"])
             else:
                 print_json(report)
-        elif args.cmd == "promote-reel-ledger":
-            print_json(
-                promote_reel_ledger(
-                    cf,
-                    campaign_id=args.campaign,
-                    reel_factory_root=Path(args.reel_factory_root)
-                    if args.reel_factory_root
-                    else settings.reel_factory_root,
-                    days=args.days,
-                    apply=args.apply,
-                )
-            )
-        elif args.cmd == "backfill-promotions":
-            print_json(
-                backfill_promotions(
-                    cf,
-                    report_path=Path(args.report_path) if args.report_path else None,
-                )
-            )
-        elif args.cmd == "reconcile-promotions":
-            print_json(promotion_reconciliation_report(cf))
         elif args.cmd == "graduate-trial-reel":
             print_json(
                 graduate_trial_reel(

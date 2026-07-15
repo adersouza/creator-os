@@ -1400,9 +1400,7 @@ def _resolve_metrics_soul_id(
         soul_id = _soul_id_from_source_stem(root, source_stem)
         if soul_id:
             return soul_id
-    # ponytail: slot identity is a last-resort campaign/account hint, not the
-    # true variant on shared-account Stacey/Stacey1 tests.
-    return _soul_id_from_posting_slot(conn, rendered)
+    return None
 
 
 def _audio_track_id_for_output(output_path: str | None) -> str | None:
@@ -1449,39 +1447,6 @@ def _soul_id_from_source_stem(root: Path, source_stem: str | None) -> str | None
     return None
 
 
-def _soul_id_from_posting_slot(
-    conn: sqlite3.Connection, rendered: Path | None
-) -> str | None:
-    if not rendered:
-        return None
-    try:
-        row = conn.execute(
-            """
-            SELECT soul_id FROM posting_slots
-            WHERE rendered_output_path=? AND soul_id IS NOT NULL
-            ORDER BY updated_at DESC LIMIT 1
-            """,
-            (str(rendered.resolve()),),
-        ).fetchone()
-        if row and row["soul_id"]:
-            return row["soul_id"]
-        if rendered.exists():
-            fp = _sha256_file(rendered)
-            row = conn.execute(
-                """
-                SELECT soul_id FROM posting_slots
-                WHERE content_fingerprint=? AND soul_id IS NOT NULL
-                ORDER BY updated_at DESC LIMIT 1
-                """,
-                (fp,),
-            ).fetchone()
-            if row and row["soul_id"]:
-                return row["soul_id"]
-    except sqlite3.OperationalError:
-        return None
-    return None
-
-
 def _source_stem_from_rendered(stem: str) -> str | None:
     match = re.match(r"^(.+?)_h\d+_v.+?_[^_]+_[A-Za-z0-9]{6,}$", stem)
     if match:
@@ -1517,16 +1482,6 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 def _project_path(root: Path, value: str) -> Path:
     path = Path(value)
     return path if path.is_absolute() else root / path
-
-
-def _sha256_file(path: Path) -> str:
-    import hashlib
-
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _ensure_columns(

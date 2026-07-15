@@ -5,6 +5,9 @@ MP4s, optional motion/Kling, safe caption placement/rendering, audio intent, and
 asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
 owns publishing.
 
+Reel Factory does not initialize or maintain a posting ledger. Its pipeline ends
+at a ranked approved-export artifact for Campaign Factory intake.
+
 ## Active Path
 
 ```text

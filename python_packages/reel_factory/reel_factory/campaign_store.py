@@ -285,9 +285,6 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)
-    from .posting_ledger import ensure_posting_ledger_schema
-
-    ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
     _ensure_columns(
         conn,

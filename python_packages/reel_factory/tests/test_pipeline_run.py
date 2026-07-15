@@ -13,7 +13,6 @@ from reel_factory.pipeline_run import (
     run_pipeline,
     write_approved_export,
 )
-from reel_factory.posting_ledger import create_posting_plan
 
 
 class PipelineRunTests(unittest.TestCase):
@@ -116,18 +115,10 @@ class PipelineRunTests(unittest.TestCase):
             self.assertIn("--estimated-cost-usd", live_argv)
             self.assertIn("0.5", live_argv)
 
-    def test_pipeline_run_resume_ranks_candidates_and_dry_assigns(self):
+    def test_pipeline_run_resume_ranks_candidates_for_campaign_import(self):
         with self._root() as tmp:
             root = Path(tmp)
-            campaign_id = self._seed_campaign(root)
-            create_posting_plan(
-                root,
-                creator="Stacey",
-                campaign_id=campaign_id,
-                accounts=["stacey_a"],
-                start_date="2026-07-02",
-                days=1,
-            )
+            self._seed_campaign(root)
             reference = root / "reference.jpg"
             reference.write_bytes(b"reference")
             config = PipelineRunConfig(
@@ -141,7 +132,16 @@ class PipelineRunTests(unittest.TestCase):
 
             first = run_pipeline(config)
             self.assertEqual(first["stages"]["rank"]["status"], "waiting")
-            self.assertEqual(first["stages"]["assign"]["status"], "waiting")
+            self.assertNotIn("assign", first["stages"])
+            state_path = pipeline_run_dir(root, "Test Campaign", "resume_plan") / (
+                "pipeline_run.json"
+            )
+            legacy_state = json.loads(state_path.read_text(encoding="utf-8"))
+            legacy_state["stages"]["assign"] = {
+                "status": "completed",
+                "result": {"assigned": 1},
+            }
+            state_path.write_text(json.dumps(legacy_state), encoding="utf-8")
 
             rendered_dir = root / "02_processed"
             rendered_dir.mkdir()
@@ -173,9 +173,7 @@ class PipelineRunTests(unittest.TestCase):
                 Path(payload["items"][0]["output_path"]),
                 rendered.resolve(),
             )
-            self.assertEqual(second["stages"]["assign"]["status"], "completed")
-            self.assertTrue(second["stages"]["assign"]["dry_run"])
-            self.assertEqual(second["stages"]["assign"]["result"]["assigned"], 1)
+            self.assertNotIn("assign", second["stages"])
 
     def test_candidate_features_prefer_aligned_lineage_features(self):
         lineage = {

@@ -85,9 +85,7 @@ from campaign_factory.kling_selection_stage import (
 from campaign_factory.learning_cohort import prepare_learning_cohort
 from campaign_factory.motion_edit_stage import run_motion_edit_stage
 from campaign_factory.pipeline_smoke import _run_mocked_generation_intake_smoke
-from campaign_factory.proactive_cycle_stage import run_proactive_cycle_stage
 from campaign_factory.readiness_report import build_mass_production_readiness_report
-from campaign_factory.reel_ledger_promotion import promote_reel_ledger
 from campaign_factory.static_mp4_stage import _duration_for_still, run_static_mp4_stage
 from campaign_factory.variation_stage import (
     load_variant_assignment_index,
@@ -5479,38 +5477,6 @@ def test_front_generation_kling_failure_preserves_static_fallback(
         cf.close()
 
 
-def test_proactive_cycle_dry_run_plans_draft_first_report(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-
-        result = run_proactive_cycle_stage(
-            cf,
-            campaign_slug="may",
-            count=1,
-            account="ig_1",
-            generation_mode="existing_asset",
-            dry_run=True,
-        )
-
-        assert result["schema"] == "campaign_factory.proactive_cycle_run.v1"
-        assert result["dryRun"] is True
-        assert result["publishingAllowed"] is False
-        assert result["autonomousSchedulingAllowed"] is False
-        assert result["liveGuard"]["allowed"] is True
-        assert result["generation"]["mode"] == "existing_asset"
-        assert result["generation"]["willCallPaidProvider"] is False
-        assert result["variation"]["enabled"] is False
-        assert result["export"]["enabled"] is False
-        assert result["scheduleIntent"]["effectiveMode"] == "draft"
-        assert result["executedActions"] == []
-        assert Path(result["reportPath"]).exists()
-    finally:
-        cf.close()
-
-
 def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -5520,6 +5486,8 @@ def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
     finally:
         cf.close()
 
+    library = tmp_path / "library"
+    library.mkdir()
     result = subprocess.run(
         [
             sys.executable,
@@ -5531,8 +5499,10 @@ def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
             "library_reuse",
             "--campaign",
             "may",
-            "--count",
-            "1",
+            "--folder",
+            str(library),
+            "--model",
+            "model",
             "--dry-run",
         ],
         cwd=PACKAGE_ROOT,
@@ -5555,144 +5525,8 @@ def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
     assert payload["schema"] == "campaign_factory.generation_workflow_run.v1"
     assert payload["mode"] == "library_reuse"
     assert payload["dryRun"] is True
-    assert payload["result"]["schema"] == "campaign_factory.proactive_cycle_run.v1"
+    assert payload["result"]["schema"] == "campaign_factory.library_reuse_preflight.v1"
     assert payload["publishingAllowed"] is False
-
-
-def test_proactive_cycle_live_apply_fails_closed_without_required_flags(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-
-        with pytest.raises(PermissionError, match="missing_enable_live"):
-            run_proactive_cycle_stage(
-                cf,
-                campaign_slug="may",
-                count=1,
-                generation_mode="existing_asset",
-                dry_run=False,
-                apply=True,
-            )
-        failed = cf.conn.execute(
-            "SELECT status FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
-        ).fetchone()
-        assert failed["status"] == "failed"
-    finally:
-        cf.close()
-
-
-def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-
-        first = run_proactive_cycle_stage(
-            cf,
-            campaign_slug="may",
-            count=1,
-            generation_mode="existing_asset",
-            idempotency_key="cycle-dry-1",
-            dry_run=True,
-        )
-        job_count = cf.conn.execute(
-            "SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
-        ).fetchone()[0]
-        second = run_proactive_cycle_stage(
-            cf,
-            campaign_slug="may",
-            count=1,
-            generation_mode="existing_asset",
-            idempotency_key="cycle-dry-1",
-            dry_run=True,
-        )
-
-        assert second["idempotentReplay"] is True
-        assert second["reportPath"] == first["reportPath"]
-        assert (
-            cf.conn.execute(
-                "SELECT COUNT(*) FROM pipeline_jobs WHERE job_type = 'proactive_cycle'"
-            ).fetchone()[0]
-            == job_count
-        )
-    finally:
-        cf.close()
-
-
-def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    captured = {"variation": None, "export": None}
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-
-        def fake_variation(_factory, **kwargs):
-            captured["variation"] = kwargs
-            return {
-                "schema": "campaign_factory.variation_stage_run.v1",
-                "campaign": kwargs["campaign_slug"],
-                "dryRun": kwargs["dry_run"],
-                "presetName": kwargs["preset_name"],
-                "assignments": [],
-            }
-
-        def fake_export(_factory, **kwargs):
-            captured["export"] = kwargs
-            return {
-                "schema": "threadsdash.export_result.v1",
-                "dryRun": kwargs["dry_run"],
-                "created": [],
-                "updated": [],
-                "skipped": [],
-                "errors": [],
-            }
-
-        monkeypatch.setattr(
-            "campaign_factory.proactive_cycle_stage.run_variation_stage", fake_variation
-        )
-        monkeypatch.setattr(
-            "campaign_factory.adapters.threadsdash.export_threadsdash", fake_export
-        )
-
-        result = run_proactive_cycle_stage(
-            cf,
-            campaign_slug="may",
-            count=1,
-            generation_mode="existing_asset",
-            dry_run=False,
-            apply=True,
-            enable_live=True,
-            budget_cap_usd=0,
-            idempotency_key="cycle-live-1",
-            enable_variation=True,
-            enable_export=True,
-            enable_schedule=True,
-            schedule_mode="preview",
-            user_id="user_1",
-        )
-
-        assert result["dryRun"] is False
-        assert result["liveGuard"]["allowed"] is True
-        assert result["executedActions"] == [
-            {"action": "variation_dry_run", "status": "completed"},
-            {"action": "export_draft_preview", "status": "completed"},
-        ]
-        assert captured["variation"]["dry_run"] is True
-        assert captured["variation"]["rendered_asset_ids"] == ["asset_1"]
-        assert captured["export"]["dry_run"] is True
-        assert captured["export"]["schedule_mode"] == "draft"
-        assert result["scheduleIntent"]["requestedMode"] == "preview"
-        assert result["scheduleIntent"]["effectiveMode"] == "draft"
-    finally:
-        cf.close()
 
 
 def test_static_mp4_stage_dry_run_is_free_and_does_not_register_asset(
@@ -7120,596 +6954,22 @@ def test_mass_production_readiness_report_detects_duplicate_content_risk(
         cf.close()
 
 
-def test_mass_production_readiness_report_blocks_external_posting_ledger_state(
-    tmp_path: Path,
-):
+def test_mass_production_readiness_reports_canonical_state_owners(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        ledger = cf.settings.reel_factory_root / "manifest.sqlite"
-        conn = sqlite3.connect(ledger)
-        conn.execute(
-            """
-            CREATE TABLE posting_slots (
-                posting_slot_id TEXT PRIMARY KEY,
-                account_id TEXT,
-                account_handle TEXT,
-                campaign_id TEXT,
-                date TEXT,
-                slot_type TEXT,
-                post_status TEXT,
-                content_fingerprint TEXT,
-                rendered_output_path TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            INSERT INTO posting_slots
-            (posting_slot_id, account_id, account_handle, campaign_id, date, slot_type, post_status, content_fingerprint, rendered_output_path)
-            VALUES ('slot_1', 'stacey_1', 'stacey_1', 'may', '2026-06-03', 'main', 'approved', 'fp_1', '/tmp/out.mp4')
-            """
-        )
-        conn.commit()
-        conn.close()
 
         report = build_mass_production_readiness_report(cf, campaign_id="may", days=7)
 
-        assert report["externalPostingLedgerAudit"]["matchingSlotCount"] == 1
-        assert (
-            report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"]
-            is True
-        )
-        assert report["readinessScore"] == "NOT_READY"
-        assert any(
-            item["code"] == "external_schedule_state_not_canonical"
-            for item in report["blockerRanking"]["preventsProduction"]
-        )
-        assert any(
-            "posting_ledger" in reason
-            for reason in report["scaleReadiness"]["pilot5Accounts"]["blockingReasons"]
-        )
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_dry_run_writes_nothing(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        rendered_path = tmp_path / "ready.mp4"
-        rendered_path.write_bytes(b"ready rendered bytes")
-        campaign = cf.upsert_campaign("may", "model")
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_ready",
-            campaign_id=campaign["slug"],
-            rendered_output_path=rendered_path,
-            content_fingerprint="fp_ready",
-            lineage={
-                "schema": "reel_factory.generated_asset_lineage.v1",
-                "source": {"referenceId": "ref_ready"},
-            },
-            audio_track_id="audio_1",
-            post_status="approved",
-        )
-
-        preview = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-        )
-
-        assert preview["apply"] is False
-        assert preview["summary"]["rowsToCreate"] == 1
-        assert preview["summary"]["rowsToUpdate"] == 0
-        assert preview["blocked"] == []
-        assert preview["conflicts"] == []
-        assert (
-            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
-            == 0
-        )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()[
-                "c"
-            ]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_apply_is_idempotent_and_readiness_sees_distribution(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        rendered_path = tmp_path / "ready.mp4"
-        rendered_path.write_bytes(b"ready rendered bytes")
-        campaign = cf.upsert_campaign("may", "model")
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_ready",
-            campaign_id=campaign["slug"],
-            account_id="stacey_1",
-            account_handle="stacey_1",
-            rendered_output_path=rendered_path,
-            content_fingerprint="fp_ready",
-            lineage={
-                "schema": "reel_factory.generated_asset_lineage.v1",
-                "source": {"referenceId": "ref_ready"},
-            },
-            audio_track_id="audio_1",
-            post_status="approved",
-            date=(datetime.now(UTC) + timedelta(days=2)).date().isoformat(),
-        )
-
-        applied = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-            apply=True,
-        )
-        second = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-            apply=True,
-        )
-        report = build_mass_production_readiness_report(cf, campaign_id="may", days=7)
-
-        assert applied["applied"] is True
-        assert second["summary"]["rowsToCreate"] == 0
-        assert second["summary"]["rowsToUpdate"] == 1
-        assert (
-            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
-            == 1
-        )
-        assert (
-            cf.conn.execute(
-                "SELECT COUNT(*) AS c FROM asset_account_assignments"
-            ).fetchone()["c"]
-            == 1
-        )
-        assert (
-            cf.conn.execute("SELECT COUNT(*) AS c FROM distribution_plans").fetchone()[
-                "c"
-            ]
-            == 1
-        )
-        assert (
-            cf.conn.execute(
-                "SELECT COUNT(*) AS c FROM content_graph_nodes WHERE external_system = 'reel_factory.posting_ledger'"
-            ).fetchone()["c"]
-            == 1
-        )
-        assert (
-            cf.conn.execute(
-                "SELECT COUNT(*) AS c FROM activity_events WHERE event_type = 'reel_ledger_promoted'"
-            ).fetchone()["c"]
-            >= 1
-        )
-        assert report["schedule"]["scheduledMainTrialSlots"] == 1
+        assert report["externalPostingLedgerAudit"]["ownership"] == "retired"
         assert report["externalPostingLedgerAudit"]["matchingSlotCount"] == 0
-        assert report["externalPostingLedgerAudit"]["promotedSlotCount"] == 1
+        assert report["stateOwnership"]["assetLifecycle"] == "Campaign Factory"
         assert (
-            report["externalPostingLedgerAudit"]["requiresMigrationToCampaignFactory"]
-            is False
+            report["stateOwnership"]["schedulingPublishingMetrics"]
+            == "ThreadsDashboard"
         )
     finally:
         cf.close()
-
-
-def test_reel_ledger_promotion_copies_caption_outcome_context_to_render_plan_and_export(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        rendered_path = tmp_path / "caption_outcome.mp4"
-        rendered_path.write_bytes(b"caption outcome bytes")
-        campaign = cf.upsert_campaign("may", "lola")
-        caption_lineage = {
-            "schema": "reel_factory.caption_lineage.v1",
-            "captionHash": "caption_hash_rendered",
-            "rawCaptionText": "caption",
-            "sourceBanks": ["question_bank"],
-            "selectedBanks": ["question_bank"],
-            "selectedMix": "Lola",
-            "sourceClip": "clip_010",
-            "lengthClass": "very_short",
-            "formatClass": "single_line",
-            "frameType": "mirror_fullbody",
-            "captionFitVersion": "v1",
-            "suitabilityDecision": "allowed",
-            "suitabilityReason": "very_short static caption allowed for mirror_fullbody",
-        }
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_caption_outcome",
-            campaign_id=campaign["slug"],
-            account_id="lola_1",
-            account_handle="lola_1",
-            rendered_output_path=rendered_path,
-            content_fingerprint="fp_caption_outcome",
-            lineage={
-                "schema": "reel_factory.render_lineage.v1",
-                "sourceClip": "clip_010",
-                "captionHash": "caption_hash_rendered",
-                "captionBank": caption_lineage,
-                "recipe": "v09_caption_bg",
-            },
-            audio_track_id="audio_1",
-            post_status="approved",
-            date="2026-06-05",
-        )
-
-        promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-            apply=True,
-        )
-
-        asset = cf.conn.execute(
-            "SELECT * FROM rendered_assets WHERE content_hash = 'fp_caption_outcome'"
-        ).fetchone()
-        plan = cf.conn.execute(
-            "SELECT * FROM distribution_plans WHERE rendered_asset_id = ?",
-            (asset["id"],),
-        ).fetchone()
-        payload = build_draft_payloads(
-            cf, campaign_slug="may", user_id="user_1", schedule_mode="preview"
-        )
-        draft = payload["drafts"][0]
-        metadata = draft["metadata"]["campaign_factory"]
-
-        assert asset["caption_hash"] == "caption_hash_rendered"
-        assert asset["caption_bank"] == "question_bank"
-        assert asset["creator_mix"] == "Lola"
-        assert asset["creator_model"] == "lola"
-        assert asset["frame_type"] == "mirror_fullbody"
-        assert asset["length_class"] == "very_short"
-        assert asset["format_class"] == "single_line"
-        assert asset["caption_fit_version"] == "v1"
-        assert asset["source_clip"] == "clip_010"
-        assert (
-            json.loads(asset["caption_outcome_context_json"])["suitability_decision"]
-            == "allowed"
-        )
-        assert plan["caption_hash"] == "caption_hash_rendered"
-        assert plan["caption_bank"] == "question_bank"
-        assert json.loads(plan["caption_outcome_context_json"])[
-            "rendered_output"
-        ] == str(rendered_path.resolve())
-        assert draft["captionHash"] == "caption_hash_rendered"
-        assert draft["captionOutcomeContext"]["creator_mix"] == "Lola"
-        assert metadata["captionOutcomeContext"]["caption_fit_version"] == "v1"
-        assert metadata["caption_outcome_context"]["caption_fit_version"] == "v1"
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_loads_caption_context_from_render_sidecar(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        rendered_path = tmp_path / "sidecar_caption_outcome.mp4"
-        rendered_path.write_bytes(b"caption outcome sidecar bytes")
-        caption_sidecar = {
-            "schema": "reel_factory.caption_lineage.v1",
-            "captionHash": "caption_hash_sidecar",
-            "rawCaptionText": "caption from sidecar",
-            "selectedBanks": ["girl_next_door"],
-            "selectedMix": "Stacey",
-            "sourceClip": "clip_011",
-            "lengthClass": "short",
-            "formatClass": "single_line",
-            "frameType": "closeup",
-            "captionFitVersion": "v1",
-            "captionOutcomeContext": {
-                "schema": "campaign_factory.caption_outcome_context.v1",
-                "caption_hash": "caption_hash_sidecar",
-                "caption_text": "caption from sidecar",
-                "caption_bank": "girl_next_door",
-                "caption_banks": ["girl_next_door"],
-                "creator_mix": "Stacey",
-                "creator_model": None,
-                "frame_type": "closeup",
-                "length_class": "short",
-                "format_class": "single_line",
-                "caption_fit_version": "v1",
-                "render_recipe": "v00_passthrough",
-                "source_clip": "clip_011",
-                "rendered_output": str(rendered_path.resolve()),
-            },
-        }
-        rendered_path.with_suffix(
-            rendered_path.suffix + ".caption_lineage.json"
-        ).write_text(
-            json.dumps(caption_sidecar),
-            encoding="utf-8",
-        )
-        campaign = cf.upsert_campaign("may", "stacey")
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_caption_sidecar",
-            campaign_id=campaign["slug"],
-            rendered_output_path=rendered_path,
-            content_fingerprint="fp_caption_sidecar",
-            lineage={
-                "schema": "reel_factory.generated_asset_lineage.v1",
-                "render": {"renderJobKey": "job_1"},
-            },
-            audio_track_id=None,
-            post_status="ready_for_review",
-            date="2026-06-05",
-        )
-
-        preview = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-        )
-
-        assert preview["blocked"] == []
-        assert preview["summary"]["rowsToCreate"] == 1
-        context = preview["creates"][0]["captionOutcomeContext"]
-        assert context["caption_hash"] == "caption_hash_sidecar"
-        assert context["caption_bank"] == "girl_next_door"
-        assert context["creator_mix"] == "Stacey"
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_blocks_duplicate_missing_lineage_and_audio(
-    tmp_path: Path,
-):
-    cf = make_factory(tmp_path)
-    try:
-        campaign = cf.upsert_campaign("may", "model")
-        first = tmp_path / "first.mp4"
-        second = tmp_path / "second.mp4"
-        third = tmp_path / "third.mp4"
-        for path in (first, second, third):
-            path.write_bytes(path.name.encode("utf-8"))
-        lineage = {
-            "schema": "reel_factory.generated_asset_lineage.v1",
-            "source": {"referenceId": "ref"},
-        }
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_dup_1",
-            campaign_id=campaign["slug"],
-            rendered_output_path=first,
-            content_fingerprint="same_fp",
-            lineage=lineage,
-            audio_track_id="audio_1",
-            post_status="approved",
-        )
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_dup_2",
-            campaign_id=campaign["slug"],
-            rendered_output_path=second,
-            content_fingerprint="same_fp",
-            lineage=lineage,
-            audio_track_id="audio_2",
-            post_status="approved",
-            slot_type="trial_1",
-        )
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_no_lineage",
-            campaign_id=campaign["slug"],
-            rendered_output_path=third,
-            content_fingerprint="third_fp",
-            lineage={},
-            audio_track_id="audio_3",
-            post_status="approved",
-            slot_type="trial_2",
-        )
-        missing_audio = tmp_path / "missing_audio.mp4"
-        missing_audio.write_bytes(b"missing audio")
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_no_audio",
-            campaign_id=campaign["slug"],
-            rendered_output_path=missing_audio,
-            content_fingerprint="audio_fp",
-            lineage=lineage,
-            audio_track_id=None,
-            manual_audio_needed=True,
-            post_status="approved",
-            account_id="stacey_2",
-            account_handle="stacey_2",
-        )
-
-        preview = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-        )
-        applied = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-            apply=True,
-        )
-
-        assert preview["summary"]["duplicateFingerprintRiskCount"] == 2
-        assert preview["summary"]["missingLineageCount"] == 1
-        assert preview["summary"]["missingAudioCount"] == 1
-        assert {item["reason"] for item in preview["conflicts"]} == {
-            "duplicate_content_fingerprint"
-        }
-        assert {"missing_lineage", "missing_audio"} <= {
-            item["reason"] for item in preview["blocked"]
-        }
-        assert applied["applyBlocked"] is True
-        assert (
-            cf.conn.execute("SELECT COUNT(*) AS c FROM rendered_assets").fetchone()["c"]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_marks_posted_without_proof_unverified(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        rendered_path = tmp_path / "posted.mp4"
-        rendered_path.write_bytes(b"posted rendered bytes")
-        campaign = cf.upsert_campaign("may", "model")
-        _write_reel_posting_slot(
-            cf,
-            posting_slot_id="slot_posted",
-            campaign_id=campaign["slug"],
-            rendered_output_path=rendered_path,
-            content_fingerprint="fp_posted",
-            lineage={
-                "schema": "reel_factory.generated_asset_lineage.v1",
-                "source": {"referenceId": "ref_posted"},
-            },
-            audio_track_id="audio_1",
-            post_status="posted",
-        )
-
-        promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-            apply=True,
-        )
-        asset = cf.conn.execute("SELECT * FROM rendered_assets").fetchone()
-        caption_generation = json.loads(asset["caption_generation_json"])
-
-        assert (
-            caption_generation["reelLedger"]["status"]["promotedPostState"]
-            == "unverified_platform_post"
-        )
-        assert (
-            cf.conn.execute(
-                "SELECT COUNT(*) AS c FROM performance_snapshots"
-            ).fetchone()["c"]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_reel_ledger_promotion_reports_account_day_quota_issue(tmp_path: Path):
-    cf = make_factory(tmp_path)
-    try:
-        campaign = cf.upsert_campaign("may", "model")
-        lineage = {
-            "schema": "reel_factory.generated_asset_lineage.v1",
-            "source": {"referenceId": "ref"},
-        }
-        for idx in range(4):
-            rendered_path = tmp_path / f"quota_{idx}.mp4"
-            rendered_path.write_bytes(f"quota {idx}".encode())
-            _write_reel_posting_slot(
-                cf,
-                posting_slot_id=f"slot_quota_{idx}",
-                campaign_id=campaign["slug"],
-                rendered_output_path=rendered_path,
-                content_fingerprint=f"fp_quota_{idx}",
-                lineage=lineage,
-                audio_track_id=f"audio_{idx}",
-                post_status="approved",
-                account_id="stacey_1",
-                account_handle="stacey_1",
-                slot_type=("main" if idx == 0 else f"trial_{idx}"),
-                date="2026-06-05",
-            )
-
-        preview = promote_reel_ledger(
-            cf,
-            campaign_id="may",
-            reel_factory_root=cf.settings.reel_factory_root,
-        )
-
-        assert preview["summary"]["accountDayQuotaIssueCount"] == 4
-        assert {item["reason"] for item in preview["conflicts"]} == {
-            "account_day_quota_exceeded"
-        }
-    finally:
-        cf.close()
-
-
-def _write_reel_posting_slot(
-    cf: CampaignFactory,
-    *,
-    posting_slot_id: str,
-    campaign_id: str,
-    rendered_output_path: Path,
-    content_fingerprint: str,
-    lineage: dict,
-    audio_track_id: str | None,
-    post_status: str,
-    account_id: str = "stacey_1",
-    account_handle: str = "stacey_1",
-    slot_type: str = "main",
-    date: str = "2026-06-05",
-    manual_audio_needed: bool = False,
-) -> None:
-    if lineage:
-        lineage = {**lineage, "contentFingerprint": content_fingerprint}
-    db_path = cf.settings.reel_factory_root / "manifest.sqlite"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS posting_slots (
-            posting_slot_id TEXT PRIMARY KEY,
-            account_id TEXT,
-            account_handle TEXT,
-            platform TEXT,
-            campaign_id TEXT,
-            date TEXT,
-            slot_type TEXT,
-            planned_slot_time TEXT,
-            rendered_output_path TEXT,
-            content_fingerprint TEXT,
-            caption TEXT,
-            audio_track_id TEXT,
-            audio_source TEXT,
-            audio_selected_reason TEXT,
-            manual_audio_needed INTEGER DEFAULT 0,
-            lineage_path TEXT,
-            lineage_json TEXT,
-            post_status TEXT,
-            review_status TEXT,
-            post_url TEXT
-        )
-        """
-    )
-    conn.execute(
-        """
-        INSERT INTO posting_slots
-        (posting_slot_id, account_id, account_handle, platform, campaign_id, date, slot_type,
-         planned_slot_time, rendered_output_path, content_fingerprint, caption, audio_track_id,
-         audio_source, audio_selected_reason, manual_audio_needed, lineage_json, post_status, review_status)
-        VALUES (?, ?, ?, 'ig', ?, ?, ?, '10:00', ?, ?, 'caption', ?, 'native_platform_audio',
-                'test selection', ?, ?, ?, 'approved')
-        """,
-        (
-            posting_slot_id,
-            account_id,
-            account_handle,
-            campaign_id,
-            date,
-            slot_type,
-            str(rendered_output_path),
-            content_fingerprint,
-            audio_track_id,
-            1 if manual_audio_needed else 0,
-            json.dumps(lineage),
-            post_status,
-        ),
-    )
-    conn.commit()
-    conn.close()
 
 
 def add_audit_report(
@@ -19147,12 +18407,12 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
         )
         cf.conn.commit()
         remote_context = dict(context)
-        remote_context["render_recipe"] = "reel_ledger_promotion"
+        remote_context["render_recipe"] = "caption_outcome_fixture"
         remote_context["creator_model"] = "stacey"
         metadata = threadsdash_campaign_factory_metadata(
             source,
             caption_hash="caption_hash_rendered",
-            recipe="reel_ledger_promotion",
+            recipe="caption_outcome_fixture",
             context=remote_context,
         )
         metadata["model_slug"] = "stacey"
@@ -19181,7 +18441,7 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
             "SELECT * FROM performance_snapshots WHERE post_id = 'post_transport_recipe'"
         ).fetchone()
         stored_context = json.loads(snapshot["caption_outcome_context_json"])
-        assert snapshot["recipe"] == "reel_ledger_promotion"
+        assert snapshot["recipe"] == "caption_outcome_fixture"
         assert stored_context["render_recipe"] is None
         assert snapshot["creator_model"] is None
         assert stored_context["creator_model"] is None

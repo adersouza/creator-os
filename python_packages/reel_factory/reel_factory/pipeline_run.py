@@ -2,8 +2,8 @@
 
 This module coordinates the existing stage CLIs without publishing or scheduling.
 The default mode is dry and resumable: it writes a run state file with commands,
-discovers any already-produced local outputs, ranks candidates, writes an
-approved-export draft, and dry-runs posting ledger assignment.
+discovers any already-produced local outputs, ranks candidates, and writes an
+approved-export draft for Campaign Factory to import.
 """
 
 from __future__ import annotations
@@ -20,9 +20,8 @@ from typing import Any
 
 from reel_factory.feature_extract import FEATURE_KEYS, features_from_lineage
 
-from .campaign_store import campaign_by_name, connect, next_batch_plan
+from .campaign_store import next_batch_plan
 from .export_approved import _load_generated_asset_lineage_sidecar
-from .posting_ledger import assign_approved_reels
 from .virality_select import rank_candidates
 
 try:
@@ -39,7 +38,6 @@ STAGES = (
     "rank",
     "caption_render",
     "approved_export",
-    "assign",
 )
 
 
@@ -57,7 +55,6 @@ class PipelineRunConfig:
     execute_commands: bool = False
     allow_paid_generation: bool = False
     download_assets: bool = False
-    write_ledger: bool = False
     estimated_cost_per_asset_usd: float | None = None
     force_stages: set[str] = field(default_factory=set)
 
@@ -293,16 +290,6 @@ def write_approved_export(
     return path
 
 
-def _campaign_id(root: Path, campaign: str) -> str | None:
-    conn = connect(root)
-    try:
-        return str(campaign_by_name(conn, campaign)["campaign_id"])
-    except ValueError:
-        return None
-    finally:
-        conn.close()
-
-
 def run_pipeline(
     config: PipelineRunConfig,
     *,
@@ -320,6 +307,9 @@ def run_pipeline(
         "created_at": int(time.time()),
         "stages": {},
     }
+    # Older run files may contain Reel Factory's retired posting-ledger stage.
+    # Never carry that state back into an active run.
+    retired_assign_stage = state.setdefault("stages", {}).pop("assign", None)
     state["run_dir"] = str(run_dir)
     state["dry_run"] = not config.execute_commands
     state["paid_generation"] = {
@@ -329,6 +319,8 @@ def run_pipeline(
     state["publishing"] = {"publish": False, "schedule": False}
     runner = command_runner or _run_command
     run_dir.mkdir(parents=True, exist_ok=True)
+    if retired_assign_stage is not None:
+        _write_state(state_path, state)
 
     if not _stage_done(state, "next_batch", config.force_stages):
         plan = next_batch_plan(root, campaign=config.campaign, count=config.count)
@@ -437,27 +429,6 @@ def run_pipeline(
         raw_path = (state.get("stages") or {}).get("approved_export", {}).get("path")
         approved_export = Path(raw_path) if raw_path else None
 
-    if not _stage_done(state, "assign", config.force_stages):
-        campaign_id = _campaign_id(root, config.campaign)
-        if approved_export and campaign_id:
-            assignment = assign_approved_reels(
-                root,
-                campaign_id=campaign_id,
-                approved_export=approved_export,
-                dry_run=not config.write_ledger,
-            )
-            status = "completed"
-        else:
-            assignment = None
-            status = "waiting"
-        state["stages"]["assign"] = {
-            "status": status,
-            "dry_run": not config.write_ledger,
-            "campaign_id": campaign_id,
-            "result": assignment,
-        }
-        _write_state(state_path, state)
-
     return state
 
 
@@ -484,7 +455,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Pass --download to paid asset generation; ignored without --allow-paid-generation.",
     )
     parser.add_argument("--estimated-cost-per-asset-usd", type=float)
-    parser.add_argument("--write-ledger", action="store_true")
     parser.add_argument("--force-stage", action="append", default=[])
     args = parser.parse_args(argv)
     if not args.reference_image and not args.reference_reel:
@@ -503,7 +473,6 @@ def main(argv: list[str] | None = None) -> int:
         allow_paid_generation=args.allow_paid_generation,
         download_assets=args.download_assets,
         estimated_cost_per_asset_usd=args.estimated_cost_per_asset_usd,
-        write_ledger=args.write_ledger,
         force_stages=set(args.force_stage or []),
     )
     result = run_pipeline(config)

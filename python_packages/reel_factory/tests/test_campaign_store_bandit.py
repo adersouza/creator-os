@@ -37,6 +37,21 @@ class CampaignStoreBanditTests(unittest.TestCase):
         )
         return self._campaign_id(root)
 
+    def test_manifest_initialization_does_not_create_posting_state(self) -> None:
+        conn = connect(self._root())
+        try:
+            tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+
+        self.assertNotIn("posting_slots", tables)
+        self.assertNotIn("posting_slot_events", tables)
+
     def _add_post(
         self,
         root: Path,

@@ -58,7 +58,9 @@ at validated draft handoff.
 
 ## Creative Modes
 
-- `library_reuse`: select approved existing media without provider generation.
+- `library_reuse`: import an explicit media folder for an explicit model without
+  provider generation. Folder and model are required; there is no proactive
+  recommendation alias.
 - `soul_static`: direct Soul still plus local static MP4.
 - `motion_edit`: deterministic local motion while retaining the static fallback.
 - `best_only_kling`: paid animation of one separately approved rank-one still.
@@ -178,6 +180,9 @@ Repository changes never update or restart the runtime automatically.
 - Reference Factory retains `review-server` because gold/maybe/ignore labeling
   is an active human workflow. It is not a product or publishing dashboard.
 - Reel Factory has no operator HTTP/browser surface.
+- Reel Factory has no posting ledger. Its manifest is limited to generation,
+  render, cache, and derived-media evidence; Campaign Factory owns asset
+  lifecycle and assignment, while ThreadsDashboard owns real post state.
 - ThreadsDashboard remains the only product UI.
 
 ## Active, Compatibility, And Legacy Generation Code
