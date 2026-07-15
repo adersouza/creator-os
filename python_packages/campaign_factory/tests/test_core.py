@@ -718,7 +718,34 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
 
 def test_contract_schema_examples_validate():
     checks = validate_schema_examples()
-    assert checks
+    assert {check["name"] for check in checks} == {
+        "audio_intent.v1.example.json",
+        "assignment_eligibility.v1.example.json",
+        "audio_catalog_export.v1.example.json",
+        "campaign_draft_payload.v1.example.json",
+        "campaign_draft_payload.v2.example.json",
+        "caption_outcome_context.v1.example.json",
+        "creative_plan.v1.example.json",
+        "front_generation_plan.v1.example.json",
+        "generated_asset_lineage.v1.example.json",
+        "generated_asset_lineage.v2.example.json",
+        "higgsfield_soul_image_prompt.v1.example.json",
+        "kling_3_video_prompt.v1.example.json",
+        "motion_edit_render.v1.example.json",
+        "performance_sync.v1.example.json",
+        "post_metric_history.read.v1.example.json",
+        "pattern_card.v1.example.json",
+        "provider_spend_authorization.v1.example.json",
+        "repurposing_plan.v1.example.json",
+        "recommendation_accuracy_report.v1.example.json",
+        "recommendation_next_batch.v1.example.json",
+        "reference_video_motion_analysis.v1.example.json",
+        "reference_video_remix_plan.v1.example.json",
+        "reference_factory_knowledge_pack.v1.example.json",
+        "threadsdash_handshake.v1.example.json",
+        "variant_assignment.v1.example.json",
+        "video_analysis.v1.example.json",
+    }
     assert {check["status"] for check in checks} == {"ok"}
 
 
