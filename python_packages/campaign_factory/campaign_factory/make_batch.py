@@ -22,7 +22,9 @@ class MakeBatchRepository:
         conn: sqlite3.Connection,
         settings: Settings,
         *,
-        factory_context: Any,
+        audit_campaign: Callable[..., dict[str, Any]],
+        evaluate_export_readiness: Callable[..., dict[str, Any]],
+        export_threadsdash: Callable[..., dict[str, Any]],
         new_id: Callable[[str], str],
         utc_now: Callable[[], str],
         sha256_file: Callable[[Any], str],
@@ -56,7 +58,9 @@ class MakeBatchRepository:
     ) -> None:
         self.conn = conn
         self.settings = settings
-        self._factory_context = factory_context
+        self._audit_campaign = audit_campaign
+        self._evaluate_export_readiness = evaluate_export_readiness
+        self._export_threadsdash = export_threadsdash
         self._new_id = new_id
         self._utc_now = utc_now
         self._sha256_file = sha256_file
@@ -106,10 +110,6 @@ class MakeBatchRepository:
         source_prompt: str | None = None,
         import_notes: str | None = None,
     ) -> dict[str, Any]:
-        from .adapters.contentforge import audit_campaign
-        from .adapters.threadsdash import evaluate_export_readiness, export_threadsdash
-
-        factory = self._factory_context
         selected_format = (
             output_format if output_format in {"reel", "slideshow", "auto"} else "auto"
         )
@@ -152,7 +152,7 @@ class MakeBatchRepository:
                 "format": selected_format,
                 "reviewReady": [],
             }
-            imported = factory.import_folder(
+            imported = self._import_folder(
                 Path(folder),
                 campaign_slug=campaign_slug,
                 model_slug=model_slug,
@@ -168,11 +168,11 @@ class MakeBatchRepository:
                 "campaignSlug": imported["campaign"]["slug"],
                 "modelSlug": imported["model"]["slug"],
             }
-            factory.set_pipeline_job_campaign(
+            self._set_pipeline_job_campaign(
                 pipeline_job["id"], imported["campaign"]["id"]
             )
 
-            if not factory.reference_patterns(limit=1)["patterns"]:
+            if not self._reference_patterns(limit=1)["patterns"]:
                 bank_path = (
                     self.settings.reference_reels_root
                     / "learning"
@@ -184,7 +184,7 @@ class MakeBatchRepository:
                     / "higgsfield_prompt_pack_top300.json"
                 )
                 if bank_path.exists():
-                    reference_import = factory.import_reference_bank(
+                    reference_import = self._import_reference_bank(
                         bank_path,
                         prompt_pack_path if prompt_pack_path.exists() else None,
                     )
@@ -198,10 +198,8 @@ class MakeBatchRepository:
                 if not reference_pattern or reference_pattern == "auto"
                 else reference_pattern
             )
-            source_mix = factory._campaign_source_media_summary(
-                imported["campaign"]["id"]
-            )
-            formats_to_run = factory._formats_for_batch(selected_format, source_mix)
+            source_mix = self.campaign_source_media_summary(imported["campaign"]["id"])
+            formats_to_run = self.formats_for_batch(selected_format, source_mix)
             result["sourceMix"] = source_mix
             result["formatsRun"] = formats_to_run
             source_prompt_payload = (
@@ -215,12 +213,12 @@ class MakeBatchRepository:
                 else None
             )
             reel_caption_band = (
-                factory._finished_video_caption_band(str(finished_format_type))
+                self._finished_video_caption_band(str(finished_format_type))
                 if finished_format_type
                 else "auto"
             )
             reel_caption_font = (
-                factory._finished_video_caption_font(str(finished_format_type))
+                self._finished_video_caption_font(str(finished_format_type))
                 if finished_format_type
                 else "Instagram Sans Condensed"
             )
@@ -229,7 +227,7 @@ class MakeBatchRepository:
             pattern: dict[str, Any] = {}
             for format_name in formats_to_run:
                 if format_name == "slideshow":
-                    prepared = factory._run_slideshow_pack(
+                    prepared = self.run_slideshow_pack(
                         campaign_slug=campaign_slug,
                         variant_count=max(1, min(int(variant_count or 20), 100)),
                         title=campaign_slug.replace("_", " ").title(),
@@ -241,19 +239,19 @@ class MakeBatchRepository:
                     prepared_by_format["slideshow"] = prepared
                 else:
                     if finished_format_type:
-                        selection = factory.select_reference_pattern(
+                        selection = self._select_reference_pattern(
                             campaign_slug,
                             cluster_key=cluster_key,
                             variant_count=max(1, min(int(variant_count or 20), 100)),
                             notes="make-batch finished-video reference render",
                         )
                         pattern = selection["pattern"]
-                        hooks = factory.finished_video_hooks(
+                        hooks = self._finished_video_hooks(
                             str(finished_format_type),
                             pattern,
                             count=max(1, min(int(variant_count or 20), 100)),
                         )
-                        prepare = factory.prepare_reel_inputs(
+                        prepare = self._prepare_reel_inputs(
                             campaign_slug=campaign_slug,
                             hooks=hooks,
                             recipes=recipes,
@@ -268,7 +266,7 @@ class MakeBatchRepository:
                             "prepare": prepare,
                         }
                     else:
-                        prepared = factory.prepare_reel_from_reference(
+                        prepared = self._prepare_reel_from_reference(
                             campaign_slug=campaign_slug,
                             cluster_key=cluster_key,
                             variant_count=max(1, min(int(variant_count or 20), 100)),
@@ -278,7 +276,7 @@ class MakeBatchRepository:
                             force_new=True,
                         )
                     prepared_by_format["reel"] = prepared
-                    run_result = factory.run_reel_factory(
+                    run_result = self._run_reel_factory(
                         campaign_slug=campaign_slug,
                         workers=workers,
                         dry_run=False,
@@ -289,7 +287,7 @@ class MakeBatchRepository:
                         phone_finalize=True,
                         max_outputs_per_clip=max(1, min(int(variant_count or 20), 100)),
                     )
-                    sync_result = factory.sync_reel_outputs(campaign_slug=campaign_slug)
+                    sync_result = self._sync_reel_outputs(campaign_slug=campaign_slug)
                     sync_retries: list[dict[str, Any]] = []
                     prepared_jobs = (
                         (prepared.get("prepare") or {}).get("prepared")
@@ -302,7 +300,7 @@ class MakeBatchRepository:
                         and len(sync_result.get("synced") or []) < expected_sync_count
                     ):
                         time.sleep(1.0)
-                        sync_retry = factory.sync_reel_outputs(
+                        sync_retry = self._sync_reel_outputs(
                             campaign_slug=campaign_slug
                         )
                         sync_retry_count = len(sync_retry.get("synced") or [])
@@ -316,7 +314,7 @@ class MakeBatchRepository:
                         if sync_retry_count >= expected_sync_count:
                             sync_result = sync_retry
                         else:
-                            rerun_result = factory.run_reel_factory(
+                            rerun_result = self._run_reel_factory(
                                 campaign_slug=campaign_slug,
                                 workers=workers,
                                 dry_run=False,
@@ -330,7 +328,7 @@ class MakeBatchRepository:
                                     1, min(int(variant_count or 20), 100)
                                 ),
                             )
-                            sync_retry = factory.sync_reel_outputs(
+                            sync_retry = self._sync_reel_outputs(
                                 campaign_slug=campaign_slug
                             )
                             sync_retry_count = len(sync_retry.get("synced") or [])
@@ -416,8 +414,7 @@ class MakeBatchRepository:
                     for format_name, payload in prepared_by_format.items()
                 },
             }
-            audit_result = audit_campaign(
-                factory,
+            audit_result = self._audit_campaign(
                 campaign_slug=campaign_slug,
                 min_score=85,
                 contentforge_base_url=contentforge_base_url,
@@ -436,7 +433,7 @@ class MakeBatchRepository:
             }
 
             if auto_approve_warning_only:
-                for asset in factory.dashboard(campaign_slug).get("rendered") or []:
+                for asset in self._dashboard(campaign_slug).get("rendered") or []:
                     if asset.get("review_state") == "approved":
                         continue
                     latest = asset.get("latest_audit") or {}
@@ -449,7 +446,7 @@ class MakeBatchRepository:
                             "UPDATE rendered_assets SET review_state = ?, updated_at = ? WHERE id = ?",
                             ("review_ready", self._utc_now(), asset["id"]),
                         )
-                        factory.record_event(
+                        self._record_event(
                             "asset_review_ready",
                             campaign_id=asset["campaign_id"],
                             source_asset_id=asset["source_asset_id"],
@@ -469,8 +466,8 @@ class MakeBatchRepository:
                 self.conn.commit()
 
             if user_id:
-                readiness_result = evaluate_export_readiness(
-                    factory, campaign_slug=campaign_slug, user_id=user_id
+                readiness_result = self._evaluate_export_readiness(
+                    campaign_slug=campaign_slug, user_id=user_id
                 )
                 result["readiness"] = {
                     "expectedDraftCount": readiness_result.get("expectedDraftCount"),
@@ -481,8 +478,7 @@ class MakeBatchRepository:
                     "warningCount": len(readiness_result.get("warnings") or []),
                 }
                 if dry_run_export:
-                    export_result = export_threadsdash(
-                        factory,
+                    export_result = self._export_threadsdash(
                         campaign_slug=campaign_slug,
                         user_id=user_id,
                         dry_run=True,
@@ -492,8 +488,8 @@ class MakeBatchRepository:
                         "path": export_result.get("path"),
                         "dryRun": export_result.get("dryRun"),
                     }
-            health = factory.campaign_health(campaign_slug)
-            ranking = factory.ranking(campaign_slug)["assets"][:5]
+            health = self._campaign_health(campaign_slug)
+            ranking = self._ranking(campaign_slug)["assets"][:5]
             result["dashboard"] = {
                 "health": health,
                 "topRanked": [
@@ -506,7 +502,7 @@ class MakeBatchRepository:
                     for item in ranking
                 ],
             }
-            factory.record_event(
+            self._record_event(
                 "make_batch_completed",
                 campaign_id=imported["campaign"]["id"],
                 pipeline_job_id=pipeline_job["id"],
@@ -519,7 +515,7 @@ class MakeBatchRepository:
                     "draftCount": (result.get("dryRunExport") or {}).get("draftCount"),
                 },
             )
-            factory.finish_pipeline_job(
+            self._finish_pipeline_job(
                 pipeline_job["id"],
                 {
                     "campaign": campaign_slug,
@@ -531,14 +527,14 @@ class MakeBatchRepository:
             )
             return result
         except Exception as exc:
-            factory.record_event(
+            self._record_event(
                 "make_batch_failed",
                 pipeline_job_id=pipeline_job["id"],
                 status="failure",
                 message=f"Make batch failed: {exc}",
                 metadata={"error": str(exc)},
             )
-            factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+            self._fail_pipeline_job(pipeline_job["id"], str(exc))
             raise
 
     def run_slideshow_pack(

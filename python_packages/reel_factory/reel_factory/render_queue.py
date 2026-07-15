@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from reel_factory.sqlite_utils import connect_sqlite
+from reel_factory.state_paths import render_queue_db_path
 
 QUEUE_STATES = {"queued", "claimed", "running", "succeeded", "failed", "interrupted"}
 
@@ -18,7 +19,7 @@ QUEUE_STATES = {"queued", "claimed", "running", "succeeded", "failed", "interrup
 class RenderQueue:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
-        self.db_path = self.root / "render_queue.sqlite"
+        self.db_path = render_queue_db_path(self.root)
         self.conn = connect_sqlite(self.db_path)
         self._init_db()
 

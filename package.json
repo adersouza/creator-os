@@ -15,9 +15,10 @@
     "sync:contracts": "node scripts/generate-pipeline-contract-schemas.mjs",
     "lint:py": "uv run ruff check python_packages packages && uv run ruff format --check python_packages packages",
     "typecheck:py": "uv run mypy packages/pipeline_contracts/pipeline_contracts",
-    "check:all": "pnpm check:contracts && pnpm lint:py && pnpm typecheck:py && pnpm --filter contentforge lint && pnpm check:arch && pnpm check:artifacts",
+    "check:all": "pnpm check:contracts && pnpm check:prompts && pnpm lint:py && pnpm typecheck:py && pnpm --filter contentforge lint && pnpm check:arch && pnpm check:artifacts",
     "check:contracts": "node scripts/generate-pipeline-contract-schemas.mjs --check",
     "check:integration": "uv run pytest tests/integration",
+    "check:prompts": "bash scripts/check-prompt-regressions.sh",
     "check:artifacts": "bash scripts/check-runtime-artifacts.sh",
     "check:arch": "pnpm check:arch:ts && pnpm check:arch:py",
     "check:arch:fixtures": "bash scripts/test-architecture-guards.sh",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "dependency-cruiser": "^18.0.0",
     "knip": "^6.25.0",
+    "promptfoo": "0.121.19",
     "turbo": "^2.10.4"
   }
 }

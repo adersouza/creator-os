@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 from .persistence import json_load
 
 
-def audit_report(self, audit_report_id: str) -> dict[str, Any]:
-    row = self.conn.execute(
+def audit_report(conn: sqlite3.Connection, audit_report_id: str) -> dict[str, Any]:
+    row = conn.execute(
         "SELECT * FROM audit_reports WHERE id = ?", (audit_report_id,)
     ).fetchone()
     if not row:
         raise ValueError(f"audit report not found: {audit_report_id}")
     row_dict = dict(row)
-    report = self._audit_report_payload(row_dict)
+    report = audit_report_payload(row_dict)
     report["id"] = audit_report_id
     path = Path(row_dict["report_path"])
     if path.exists():
@@ -25,7 +26,7 @@ def audit_report(self, audit_report_id: str) -> dict[str, Any]:
     return report
 
 
-def _audit_report_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+def audit_report_payload(row: dict[str, Any]) -> dict[str, Any]:
     report = {
         "id": row["id"],
         "contentForgeRunId": row["contentforge_run_id"],

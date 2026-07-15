@@ -1,20 +1,14 @@
-import csv
-import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from reel_factory.export_approved import export_approved
 from reel_factory.hook_tools import find_near_duplicates, normalize_hook_text
-from reel_factory.metrics_store import import_metrics_csv, metrics_summary
 from reel_factory.placement_scorer import PlacementSummary, score_lanes
 from reel_factory.reel_pipeline import (
     CaptionSegmentPlan,
-    Manifest,
     Recipe,
     compute_job_key,
     resolve_segment_bands,
@@ -53,84 +47,6 @@ class NextSliceTests(unittest.TestCase):
         self.assertEqual(dupes[0]["first"], 0)
         self.assertEqual(dupes[0]["duplicate"], 1)
         self.assertEqual(normalize_hook_text(hooks[0]), "when he says he misses you")
-
-    def test_review_state_persists_to_manifest_export(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manifest = Manifest(root / "manifest.json")
-            src = root / "clip_001.mp4"
-            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            recipe = Recipe("v01_original")
-            key = compute_job_key("src-hash", "caption", recipe)
-            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-            manifest.add_variation("clip_001", recipe, "caption", out, key, 2.5)
-            self.assertTrue(manifest.set_review_state(out.name, "approved"))
-            manifest.save()
-            row = manifest.to_json_data()["videos"]["clip_001"]["variations"][0]
-            self.assertEqual(row["review_state"], "approved")
-
-    def test_review_decision_history_undo_and_integrity(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manifest = Manifest(root / "manifest.json")
-            src = root / "clip_001.mp4"
-            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            recipe = Recipe("v01_original")
-            key = compute_job_key("src-hash", "caption", recipe)
-            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-            manifest.add_variation("clip_001", recipe, "caption", out, key, 2.5)
-
-            self.assertTrue(
-                manifest.record_review_decision(
-                    out.name,
-                    "maybe",
-                    reviewer="ader",
-                    reason="needs second look",
-                    deck_id="deck_1",
-                    reference_hash="reference_hash_1",
-                    soul_id="stacey",
-                    aspect_ratio="3:4",
-                    visual_qc_status="passed",
-                    identity_verification_status="passed",
-                )
-            )
-            self.assertTrue(
-                manifest.record_review_decision(
-                    out.name, "approved", reviewer="ader", deck_id="deck_1"
-                )
-            )
-            history_count = manifest.conn.execute(
-                "SELECT COUNT(*) AS n FROM review_decision_history"
-            ).fetchone()["n"]
-            self.assertEqual(history_count, 2)
-            self.assertTrue(manifest.undo_review_decision(out.name, reviewer="ader"))
-            row = manifest.conn.execute(
-                "SELECT decision FROM review_decisions WHERE filename = ?", (out.name,)
-            ).fetchone()
-            self.assertEqual(row["decision"], "maybe")
-
-            review_root = root / "review_views"
-            counts = manifest.regenerate_review_folders(review_root, deck_id="deck_1")
-            self.assertEqual(counts["maybe"], 1)
-            self.assertTrue((review_root / "maybe" / out.name).exists())
-            self.assertTrue(
-                manifest.review_integrity_check(
-                    deck_id="deck_1", folder_root=review_root
-                )["ok"]
-            )
-
-            out.write_bytes(b"tampered")
-            integrity = manifest.review_integrity_check(
-                deck_id="deck_1", folder_root=review_root
-            )
-            self.assertFalse(integrity["ok"])
-            self.assertIn(
-                "hash_mismatch", {issue["type"] for issue in integrity["issues"]}
-            )
 
     def test_segment_mode_keeps_single_segment_on_source_band(self):
         async def fake_probe(*args, **kwargs):
@@ -365,145 +281,6 @@ class NextSliceTests(unittest.TestCase):
         )
         self.assertEqual(default_key, explicit_source_key)
         self.assertNotEqual(default_key, segment_key)
-
-    def test_metrics_import_and_summary(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manifest = Manifest(root / "manifest.json")
-            src = root / "clip_001.mp4"
-            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            recipe = Recipe("v01_original")
-            key = compute_job_key("src-hash", "caption", recipe)
-            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-            manifest.add_variation("clip_001", recipe, "caption", out, key, 2.5)
-            manifest.save()
-
-            metrics = root / "metrics.csv"
-            with metrics.open("w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(
-                    f, fieldnames=["filename", "views", "likes", "platform"]
-                )
-                writer.writeheader()
-                writer.writerow(
-                    {
-                        "filename": out.name,
-                        "views": "1000",
-                        "likes": "50",
-                        "platform": "ig",
-                    }
-                )
-                writer.writerow(
-                    {
-                        "filename": "unknown.mp4",
-                        "views": "5",
-                        "likes": "1",
-                        "platform": "ig",
-                    }
-                )
-
-            result = import_metrics_csv(root, metrics)
-            self.assertEqual(result["imported"], 1)
-            self.assertEqual(result["ignored"], ["unknown.mp4"])
-            summary = metrics_summary(root)
-            self.assertEqual(summary[0]["avg_views"], 1000.0)
-            self.assertEqual(summary[0]["avg_likes"], 50.0)
-
-    def test_export_approved_outputs_json_manifest(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manifest = Manifest(root / "manifest.json")
-            src = root / "clip_001.mp4"
-            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            recipe = Recipe("v01_original")
-            key = compute_job_key("src-hash", "caption", recipe, target_ratio="4:5")
-            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-            manifest.add_variation(
-                "clip_001", recipe, "caption", out, key, 2.5, target_ratio="4:5"
-            )
-            manifest.set_review_state(out.name, "approved")
-            manifest.save()
-
-            with patch(
-                "reel_factory.export_approved.enrich_lineage_identity",
-                side_effect=_fixture_lineage_identity,
-            ):
-                result = export_approved(
-                    root, account="acct", platform="ig", date="2026-05-13"
-                )
-
-            self.assertEqual(result["count"], 1)
-            self.assertEqual(result["items"][0]["target_ratio"], "4:5")
-            self.assertEqual(
-                result["items"][0]["audio_workflow"]["warning"], "missing_audio_intent"
-            )
-            self.assertTrue(Path(result["path"]).exists())
-
-    def test_export_approved_preserves_audio_intent_sidecar(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manifest = Manifest(root / "manifest.json")
-            src = root / "clip_001.mp4"
-            out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            out.with_suffix(out.suffix + ".audio_intent.json").write_text(
-                '{"schema":"pipeline.audio_intent.v1","required":true,"status":"recommended"}',
-                encoding="utf-8",
-            )
-            out.with_suffix(out.suffix + ".generated_asset_lineage.json").write_text(
-                '{"schema":"reel_factory.generated_asset_lineage.v1","source":{"patternCardId":"pattern_1"},"generation":{"tool":"higgsfield_kling_manual"},"review":{"humanReviewRequired":true}}',
-                encoding="utf-8",
-            )
-            (root / "_readiness.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "reel_factory.readiness.v1",
-                        "platform": "instagram_reels",
-                        "records": [
-                            {
-                                "filename": out.name,
-                                "status": "warn",
-                                "score": 90,
-                                "warnings": ["missing_audio_intent"],
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            recipe = Recipe("v01_original")
-            key = compute_job_key("src-hash", "caption", recipe)
-            manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-            manifest.add_variation("clip_001", recipe, "caption", out, key, 2.5)
-            manifest.set_review_state(out.name, "approved")
-            manifest.save()
-
-            with patch(
-                "reel_factory.export_approved.enrich_lineage_identity",
-                side_effect=_fixture_lineage_identity,
-            ):
-                result = export_approved(
-                    root, account="acct", platform="ig", date="2026-05-13"
-                )
-
-            self.assertEqual(
-                result["items"][0]["audio_intent"]["status"], "recommended"
-            )
-            self.assertEqual(
-                result["items"][0]["generated_asset_lineage"]["source"][
-                    "patternCardId"
-                ],
-                "pattern_1",
-            )
-            self.assertEqual(result["items"][0]["platform_readiness"]["status"], "warn")
-            self.assertTrue(
-                result["items"][0]["audio_workflow"]["local_muxing_is_preview_only"]
-            )
-            self.assertNotIn("warning", result["items"][0]["audio_workflow"])
 
 
 if __name__ == "__main__":

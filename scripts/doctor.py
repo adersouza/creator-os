@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,7 +19,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
+sys.path.insert(0, str(ROOT / "packages/pipeline_contracts"))
+sys.path.insert(0, str(ROOT / "python_packages/campaign_factory"))
 
+from campaign_factory.adapters.threadsdash_handshake import (
+    configured_handshake_url,
+    run_threadsdash_handshake,
+)
+from campaign_factory.provider_probe import run_provider_probe
 from creator_os_core.runtime_paths import RuntimePaths, resolve_runtime_paths
 
 FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_audit_fixture.json"
@@ -91,12 +99,17 @@ def main() -> int:
         action="store_true",
         help="report read-only live repository/runtime status instead of fixture audits",
     )
+    parser.add_argument(
+        "--live-read-only",
+        action="store_true",
+        help="run only explicitly configured zero-write external probes with status",
+    )
     args = parser.parse_args()
     if args.self_check:
         return self_check()
 
     results = (
-        run_live_status()
+        run_live_status(live_read_only=args.live_read_only)
         if args.status
         else run_doctor(
             quick=args.quick,
@@ -116,7 +129,10 @@ def main() -> int:
 
 
 def run_live_status(
-    *, paths: RuntimePaths | None = None, home: Path | None = None
+    *,
+    paths: RuntimePaths | None = None,
+    home: Path | None = None,
+    live_read_only: bool = False,
 ) -> list[Result]:
     """Return live, read-only status without treating unprobed systems as healthy."""
     resolved = paths or resolve_runtime_paths(ROOT)
@@ -126,41 +142,178 @@ def run_live_status(
     generation_env = config_root / "generation.env"
     ops_log = config_root / "ops.log"
     performance_values = _read_env_assignments(performance_env)
+    generation_values = _read_env_assignments(generation_env)
+    probe_env = {**os.environ, **performance_values, **generation_values}
+    trace_id = f"trace_{uuid.uuid4().hex}"
 
     repository = _repository_status(resolved.source_root)
     contracts = _contracts_status(resolved.source_root)
     local_config = _local_config_status(performance_env, generation_env)
+    canonical_roots = _canonical_roots_status(resolved)
     runtime = _runtime_status(resolved, performance_values, ops_log)
     database = _campaign_database_status(performance_values)
-    provider = Result(
-        name="provider-readiness",
-        category="Provider readiness",
-        status="NOT_RUN",
-        reason="no provider or paid-credit API probe was run",
-        command="creator-os generate --mode soul_static --apply --confirm-paid ...",
-        evidence=(
-            f"generation_policy={generation_env}; present={generation_env.is_file()}"
-        ),
-        next_action="Run a separately approved, bounded provider smoke only when needed.",
-    )
-    handshake = Result(
-        name="threadsdashboard-handshake",
-        category="ThreadsDashboard handshake",
-        status="NOT_RUN",
-        reason="no network or production handshake was run",
-        command="external read-only production verification",
-        evidence=f"threadsdash_checkout={resolved.threadsdash_root}",
-        next_action="Verify the live handshake separately when production evidence is required.",
-    )
+    if live_read_only:
+        provider = _provider_probe_status(resolved, trace_id=trace_id)
+        handshake = _threadsdash_handshake_status(
+            resolved, probe_env=probe_env, trace_id=trace_id
+        )
+    else:
+        provider = Result(
+            name="provider-readiness",
+            category="Provider readiness",
+            status="NOT_RUN",
+            reason="zero-generation provider probe was not requested",
+            command="creator-os status --live-read-only",
+            evidence=f"requested=false; trace_id={trace_id}",
+            next_action="Run the explicit live-read-only status command when needed.",
+        )
+        handshake = Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="NOT_RUN",
+            reason="zero-product-write network handshake was not requested",
+            command="creator-os status --live-read-only",
+            evidence=f"requested=false; trace_id={trace_id}",
+            next_action="Run the explicit live-read-only status command when needed.",
+        )
     return [
         repository,
         contracts,
         local_config,
+        canonical_roots,
         runtime,
         database,
         provider,
         handshake,
     ]
+
+
+def _provider_probe_status(paths: RuntimePaths, *, trace_id: str) -> Result:
+    started = time.monotonic()
+    try:
+        evidence = run_provider_probe(
+            artifact_root=paths.artifact_root, trace_id=trace_id
+        )
+    except Exception as exc:  # noqa: BLE001 - read-only diagnostic boundary
+        return Result(
+            name="provider-readiness",
+            category="Provider readiness",
+            status="FAIL",
+            reason="zero-generation provider probe failed closed",
+            command="creator-os status --live-read-only",
+            evidence=f"trace_id={trace_id}; error={type(exc).__name__}: {exc}",
+            next_action="Repair provider auth/model/workspace access; do not run generation.",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    return Result(
+        name="provider-readiness",
+        category="Provider readiness",
+        status="PASS",
+        reason="provider account, workspace, models, balance, and free quote passed",
+        command="creator-os status --live-read-only",
+        evidence=json.dumps(evidence, sort_keys=True),
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def _threadsdash_handshake_status(
+    paths: RuntimePaths, *, probe_env: dict[str, str], trace_id: str
+) -> Result:
+    started = time.monotonic()
+    url = configured_handshake_url(probe_env)
+    secret = probe_env.get("CAMPAIGN_FACTORY_INGEST_SECRET", "").strip()
+    if not url or not secret:
+        return Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="NOT_RUN",
+            reason="handshake URL or local HMAC secret is not configured",
+            command="creator-os status --live-read-only",
+            evidence=(
+                f"trace_id={trace_id}; url_configured={bool(url)}; "
+                f"secret_configured={bool(secret)}; threadsdash_checkout={paths.threadsdash_root}"
+            ),
+            next_action="Configure the handshake URL and machine-local secret, then retry.",
+        )
+    try:
+        evidence = run_threadsdash_handshake(
+            url=url, secret=secret, trace_id=trace_id, env=probe_env
+        )
+    except Exception as exc:  # noqa: BLE001 - read-only diagnostic boundary
+        return Result(
+            name="threadsdashboard-handshake",
+            category="ThreadsDashboard handshake",
+            status="FAIL",
+            reason="zero-product-write ThreadsDashboard handshake failed closed",
+            command="creator-os status --live-read-only",
+            evidence=f"trace_id={trace_id}; error={type(exc).__name__}: {exc}",
+            next_action="Repair HMAC, contract, endpoint, or network state; do not hand off drafts.",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+    return Result(
+        name="threadsdashboard-handshake",
+        category="ThreadsDashboard handshake",
+        status="PASS",
+        reason="HMAC and contract handshake passed with zero product rows written",
+        command="creator-os status --live-read-only",
+        evidence=json.dumps(evidence, sort_keys=True),
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def _canonical_roots_status(paths: RuntimePaths) -> Result:
+    roots = {
+        "state": paths.state_root,
+        "artifacts": paths.artifact_root,
+        "models": paths.model_root,
+        "logs": paths.log_root,
+    }
+    checkout_roots = (paths.source_root, paths.runtime_root)
+    unsafe = [
+        f"{name}={path}"
+        for name, path in roots.items()
+        if any(path == root or path.is_relative_to(root) for root in checkout_roots)
+    ]
+    missing = [f"{name}={path}" for name, path in roots.items() if not path.is_dir()]
+    database_paths = {
+        "campaign": paths.campaign_factory_db,
+        "reference": paths.reference_factory_db,
+        "reelManifest": paths.reel_manifest_db,
+        "renderQueue": paths.reel_render_queue_db,
+    }
+    checkout_databases = [
+        f"{name}={path}"
+        for name, path in database_paths.items()
+        if any(path == root or path.is_relative_to(root) for root in checkout_roots)
+    ]
+    if unsafe or checkout_databases:
+        status = "FAIL"
+        reason = "one or more canonical runtime paths resolve inside a Git checkout"
+    elif missing:
+        status = "NOT_RUN"
+        reason = "canonical roots are configured but have not all been created"
+    else:
+        status = "PASS"
+        reason = "canonical runtime roots exist outside source and runtime checkouts"
+    return Result(
+        name="canonical-roots",
+        category="Runtime state roots",
+        status=status,
+        reason=reason,
+        command="creator-os status",
+        evidence="\n".join(
+            [
+                *(f"{name}={path}" for name, path in roots.items()),
+                *(f"{name}Db={path}" for name, path in database_paths.items()),
+            ]
+        ),
+        affected=[*unsafe, *checkout_databases, *missing],
+        next_action=(
+            "Run the verified state migration before switching runtime configuration."
+            if status != "PASS"
+            else "None."
+        ),
+    )
 
 
 def _repository_status(root: Path) -> Result:
@@ -252,10 +405,18 @@ def _runtime_status(
     root = paths.runtime_root
     sha = _git_output(root, "rev-parse", "HEAD") if root.is_dir() else ""
     branch = _git_output(root, "branch", "--show-current") if sha else ""
+    dirty = _git_output(root, "status", "--short") if sha else ""
+    source_sha = _git_output(paths.source_root, "rev-parse", "HEAD")
     last_line = _latest_matching_line(ops_log, "performance-sync")
     if not sha:
         status = "NOT_RUN"
         reason = "runtime checkout is absent or not a readable Git checkout"
+    elif dirty:
+        status = "FAIL"
+        reason = "runtime checkout contains uncommitted or untracked files"
+    elif not source_sha or sha != source_sha:
+        status = "WARN"
+        reason = "runtime checkout does not match the reviewed source revision"
     elif not last_line:
         status = "WARN"
         reason = "runtime revision is known, but no performance-sync run is recorded"
@@ -283,9 +444,11 @@ def _runtime_status(
         command="creator-os status",
         evidence=(
             f"checkout={root}\nbranch={branch or '(detached/not available)'}\n"
-            f"sha={sha or 'unknown'}\ndatabase={db_path}\ncampaigns={campaign}\n"
+            f"source_sha={source_sha or 'unknown'}\nruntime_sha={sha or 'unknown'}\n"
+            f"clean={not bool(dirty)}\ndatabase={db_path}\ncampaigns={campaign}\n"
             f"last_run={last_run}\nexit_status={exit_status}\nlog={ops_log}"
         ),
+        affected=dirty.splitlines()[:8] if dirty else [],
         next_action="Repair or run the pinned runtime job before claiming operational health."
         if status != "PASS"
         else "None.",
@@ -647,18 +810,16 @@ def promotion_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(
                 f"{asset['asset_id']}: non-terminal final state {states[-1]}"
             )
-    test_text = (
-        ROOT / "python_packages/reel_factory/tests/test_orchestrator.py"
-    ).read_text(encoding="utf-8")
-    if "illegal transition" not in test_text:
-        failures.append("orchestrator illegal-transition test is missing")
+    retired = ROOT / "python_packages/reel_factory/reel_factory/orchestrator.py"
+    if retired.exists():
+        failures.append("Reel Factory still owns campaign promotion state")
     return fixture_result(
         name="promotion",
         category="Promotion Audit",
         failures=failures,
-        reason_ok="fixture promotion histories follow legal orchestrator transitions and tests cover illegal skips",
+        reason_ok="legacy fixture histories remain valid and Reel campaign promotion state is retired",
         affected=[asset["asset_id"] for asset in fixture["promotion_histories"]],
-        evidence="orchestrator transition table + fixture histories",
+        evidence="legacy transition fixture + Campaign ownership boundary",
         next_action="Add more terminal-state fixtures if new states are introduced.",
     )
 
@@ -679,17 +840,24 @@ def learning_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(f"{key} did not increase")
     if learning.get("silent_degradation_detected"):
         failures.append("fixture reports silent degradation")
-    tests = (
-        ROOT / "python_packages/reel_factory/tests/test_campaign_store_bandit.py"
-    ).read_text(encoding="utf-8")
-    if "reel_outcomes" not in tests:
-        failures.append("bandit feedback test does not cover reel_outcomes")
+    learning_test = (
+        ROOT / "python_packages/campaign_factory/tests/test_learning_fanout.py"
+    )
+    tests = learning_test.read_text(encoding="utf-8")
+    if (
+        "performance_snapshots" not in tests
+        or 'DESTINATIONS = ("campaign", "reference")'
+        not in (ROOT / "scripts/learning_fanout.py").read_text(encoding="utf-8")
+    ):
+        failures.append(
+            "Campaign learning fan-out does not keep measured facts out of Reel Factory"
+        )
     return fixture_result(
         name="learning",
         category="Learning Audit",
         failures=failures,
-        reason_ok="fixture learning signals improve and reel_outcomes feedback tests are present",
-        affected=["python_packages/reel_factory/tests/test_campaign_store_bandit.py"],
+        reason_ok="fixture learning signals improve and Campaign-owned learning fan-out tests are present",
+        affected=["python_packages/campaign_factory/tests/test_learning_fanout.py"],
         evidence=json.dumps(learning, sort_keys=True),
         next_action="Point this audit at a copied campaign DB once more real outcomes exist.",
     )
@@ -845,20 +1013,13 @@ def failure_recovery_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(f"{scenario['component']}: corrupts state")
         if not scenario.get("recovery_action"):
             failures.append(f"{scenario['component']}: missing recovery action")
-    tests = (
-        ROOT / "python_packages/reel_factory/tests/test_orchestrator.py"
-    ).read_text(encoding="utf-8")
-    if "kill_switch" not in tests or "recover_stalled" not in tests:
-        failures.append(
-            "orchestrator recovery tests missing kill switch/stall coverage"
-        )
     return fixture_result(
         name="failure-recovery",
         category="Failure Recovery Audit",
         failures=failures,
-        reason_ok="mocked provider/storage/contract failures preserve state and have explicit recovery actions",
+        reason_ok="mocked provider/storage/contract failures have explicit recovery actions",
         affected=sorted(seen),
-        evidence="fixture scenarios + orchestrator kill-switch/stall tests",
+        evidence="fixture recovery scenarios; Campaign owns long-running coordination",
         next_action="Replace fixture-only provider scenarios with adapter-level mock tests as providers change.",
     )
 
@@ -870,9 +1031,9 @@ def configuration_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
     )
     if not path.exists():
         status = "PASS"
-        reason = "no local orchestrator.toml; orchestrator remains disabled by absence of operator config"
-        evidence = "enabled=false by absence"
-        next_action = "Create local orchestrator.toml only when the operator is ready to enable ticks."
+        reason = "Reel Factory has no local campaign orchestrator configuration"
+        evidence = "campaign orchestration is owned by Campaign Factory"
+        next_action = "None."
     else:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
         required = (

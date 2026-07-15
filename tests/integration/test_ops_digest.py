@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,10 +28,10 @@ def test_ops_digest_reports_healthy_runtime_snapshot(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     _sqlite(
-        repo / "python_packages" / "reel_factory" / "manifest.sqlite",
+        repo / "python_packages" / "campaign_factory" / "campaign_factory.sqlite",
         [
-            "CREATE TABLE reel_outcomes (imported_at INTEGER)",
-            f"INSERT INTO reel_outcomes VALUES ({int(now.timestamp())})",
+            "CREATE TABLE performance_snapshots (snapshot_at TEXT)",
+            "INSERT INTO performance_snapshots VALUES ('2026-07-02T21:00:00Z')",
         ],
     )
     _sqlite(
@@ -49,26 +48,14 @@ def test_ops_digest_reports_healthy_runtime_snapshot(tmp_path: Path) -> None:
         "2026-07-02T20:30:00Z backup ok: /snap/20260702 ( 23M)\n",
         encoding="utf-8",
     )
-    ticks = (
-        repo
-        / "python_packages"
-        / "reel_factory"
-        / "project_data"
-        / "orchestrator_ticks"
+    result = ops_digest_module.digest(
+        repo, ops_log, data_root=repo, backup_log=backup_log, now=now
     )
-    ticks.mkdir(parents=True)
-    (ticks / "20260702T210000Z.json").write_text(
-        json.dumps({"stateCounts": {"planned": 2, "awaiting_approval": 1}}),
-        encoding="utf-8",
-    )
-
-    result = ops_digest_module.digest(repo, ops_log, backup_log=backup_log, now=now)
 
     assert result["level"] == "info"
-    assert "outcomes 1(+1)" in result["line"]
+    assert "snapshots 1(+1)" in result["line"]
     assert "sync ok 30m old" in result["line"]
     assert "backup 23M 1h old" in result["line"]
-    assert "gen planned 2 inbox 1" in result["line"]
     assert "audio 1h old" in result["line"]
 
 
@@ -93,7 +80,9 @@ def test_ops_digest_escalates_stale_sync_backup_and_audio(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    result = ops_digest_module.digest(repo, ops_log, backup_log=backup_log, now=now)
+    result = ops_digest_module.digest(
+        repo, ops_log, data_root=repo, backup_log=backup_log, now=now
+    )
 
     assert result["level"] == "error"
     assert "sync failed" in result["line"]
@@ -113,10 +102,10 @@ def test_ops_digest_can_split_runtime_evidence_from_canonical_data(
         encoding="utf-8",
     )
     _sqlite(
-        data_root / "python_packages" / "reel_factory" / "manifest.sqlite",
+        data_root / "python_packages" / "campaign_factory" / "campaign_factory.sqlite",
         [
-            "CREATE TABLE reel_outcomes (imported_at INTEGER)",
-            f"INSERT INTO reel_outcomes VALUES ({int(now.timestamp())})",
+            "CREATE TABLE performance_snapshots (snapshot_at TEXT)",
+            "INSERT INTO performance_snapshots VALUES ('2026-07-02T21:00:00Z')",
         ],
     )
     _sqlite(
@@ -130,18 +119,6 @@ def test_ops_digest_can_split_runtime_evidence_from_canonical_data(
             "INSERT INTO audio_catalog VALUES ('2026-07-02T20:00:00Z')",
             "INSERT INTO reference_items DEFAULT VALUES",
         ],
-    )
-    ticks = (
-        runtime
-        / "python_packages"
-        / "reel_factory"
-        / "project_data"
-        / "orchestrator_ticks"
-    )
-    ticks.mkdir(parents=True)
-    (ticks / "20260702T210000Z.json").write_text(
-        json.dumps({"stateCounts": {"planned": 3, "awaiting_approval": 2}}),
-        encoding="utf-8",
     )
     backup_log = tmp_path / "backup.log"
     backup_log.write_text(
@@ -158,6 +135,5 @@ def test_ops_digest_can_split_runtime_evidence_from_canonical_data(
     )
 
     assert result["level"] == "info"
-    assert "outcomes 1(+1)" in result["line"]
-    assert "gen planned 3 inbox 2" in result["line"]
+    assert "snapshots 1(+1)" in result["line"]
     assert "audio 1h old" in result["line"]

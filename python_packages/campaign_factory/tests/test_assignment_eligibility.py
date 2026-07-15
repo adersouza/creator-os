@@ -45,8 +45,8 @@ def add_asset(
     source_family_id: str | None = None,
     perceptual_fingerprint: str | None = None,
 ) -> dict:
-    campaign = cf.upsert_campaign("scheduler", "stacey")
-    model = cf.upsert_model("stacey")
+    campaign = cf.domains.models.upsert_campaign("scheduler", "stacey")
+    model = cf.domains.models.upsert_model("stacey")
     now = "2026-07-09T12:00:00+00:00"
     source_id = f"source_{asset_id}"
     output = tmp_path / f"{asset_id}.mp4"
@@ -115,8 +115,8 @@ def test_missing_identity_is_fail_closed_to_first_persisted_origin(tmp_path: Pat
     cf = make_factory(tmp_path)
     try:
         asset = add_asset(cf, tmp_path, asset_id="asset_missing", content_hash="hash-a")
-        first = cf.upsert_account("first", account_group_id="stacey")
-        second = cf.upsert_account("second", account_group_id="stacey")
+        first = cf.domains.models.upsert_account("first", account_group_id="stacey")
+        second = cf.domains.models.upsert_account("second", account_group_id="stacey")
 
         decision = enforce_assignment_eligibility(
             cf.conn,
@@ -124,14 +124,18 @@ def test_missing_identity_is_fail_closed_to_first_persisted_origin(tmp_path: Pat
             account_id=first["id"],
         )
         assert decision["allowed"] is True
-        assert cf.rendered_asset(asset["id"])["origin_account_id"] is None
+        assert cf.domains.rendered_asset(asset["id"])["origin_account_id"] is None
 
-        cf.assign_asset_account(asset["id"], account_id=first["id"])
-        persisted = cf.rendered_asset(asset["id"])
+        cf.domains.campaign_overview.assign_asset_account(
+            asset["id"], account_id=first["id"]
+        )
+        persisted = cf.domains.rendered_asset(asset["id"])
         assert persisted["origin_account_id"] == first["id"]
 
         with pytest.raises(AssignmentEligibilityError) as blocked:
-            cf.assign_asset_account(asset["id"], account_id=second["id"])
+            cf.domains.campaign_overview.assign_asset_account(
+                asset["id"], account_id=second["id"]
+            )
         assert blocked.value.decision["reasonCodes"] == ["missing_identity_metadata"]
     finally:
         cf.close()
@@ -156,16 +160,16 @@ def test_source_family_reuse_gate_is_shared_by_plan_and_reservation(tmp_path: Pa
             source_family_id="gold-family-1",
             perceptual_fingerprint="phash64:2222",
         )
-        first = cf.upsert_account("first", account_group_id="stacey")
-        second = cf.upsert_account("second", account_group_id="stacey")
-        cf.create_distribution_plan(
+        first = cf.domains.models.upsert_account("first", account_group_id="stacey")
+        second = cf.domains.models.upsert_account("second", account_group_id="stacey")
+        cf.domains.distribution.create_distribution_plan(
             first_asset["id"],
             account_id=first["id"],
             planned_window_start="2026-07-10T12:00:00+00:00",
         )
 
         with pytest.raises(AssignmentEligibilityError) as planned:
-            cf.create_distribution_plan(
+            cf.domains.distribution.create_distribution_plan(
                 second_asset["id"],
                 account_id=second["id"],
                 planned_window_start="2026-07-11T12:00:00+00:00",
@@ -173,7 +177,7 @@ def test_source_family_reuse_gate_is_shared_by_plan_and_reservation(tmp_path: Pa
         assert "source_family_reuse_window" in planned.value.decision["reasonCodes"]
 
         with pytest.raises(AssignmentEligibilityError):
-            cf.reserve_inventory_asset(
+            cf.domains.inventory_reservations.reserve_inventory_asset(
                 second_asset["id"],
                 account_id=second["id"],
                 reuse_cooldown_days=14,
@@ -195,9 +199,15 @@ def test_promotion_window_query_is_indexed_and_scoped_to_account_group(
             source_family_id="family-promotion-scope",
             perceptual_fingerprint="phash64:ffff",
         )
-        first = cf.upsert_account("scope-first", account_group_id="group-a")
-        same_group = cf.upsert_account("scope-same", account_group_id="group-a")
-        other_group = cf.upsert_account("scope-other", account_group_id="group-b")
+        first = cf.domains.models.upsert_account(
+            "scope-first", account_group_id="group-a"
+        )
+        same_group = cf.domains.models.upsert_account(
+            "scope-same", account_group_id="group-a"
+        )
+        other_group = cf.domains.models.upsert_account(
+            "scope-other", account_group_id="group-b"
+        )
         campaign_id = asset["campaign_id"]
         now = "2026-07-09T12:00:00+00:00"
         cf.conn.execute(
@@ -248,7 +258,7 @@ def test_contract_artifact_is_valid_and_deterministic(tmp_path: Path):
             source_family_id="family-a",
             perceptual_fingerprint="phash64:aaaa",
         )
-        account = cf.upsert_account("first", account_group_id="stacey")
+        account = cf.domains.models.upsert_account("first", account_group_id="stacey")
         decision = evaluate_assignment_eligibility(
             cf.conn,
             rendered_asset_id=asset["id"],
@@ -280,8 +290,10 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
             source_family_id="family-trial",
             perceptual_fingerprint="phash64:cccc",
         )
-        account = cf.upsert_account("trial-account", account_group_id="stacey")
-        trial = cf.create_distribution_plan(
+        account = cf.domains.models.upsert_account(
+            "trial-account", account_group_id="stacey"
+        )
+        trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
             surface="trial_reel",
             account_id=account["id"],
@@ -308,7 +320,7 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
             distribution_plan_id=trial["id"],
             approved_by="operator@example.com",
         )
-        regular = cf.distribution_plan(first["distributionPlanId"])
+        regular = cf.domains.distribution.distribution_plan(first["distributionPlanId"])
 
         assert first["sameAccount"] is True
         assert first["autoQueued"] is False
@@ -341,8 +353,10 @@ def test_trial_graduation_hard_fails_without_lineage_fingerprint(tmp_path: Path)
             source_family_id="family-trial-missing",
             perceptual_fingerprint="phash64:eeee",
         )
-        account = cf.upsert_account("trial-missing", account_group_id="stacey")
-        trial = cf.create_distribution_plan(
+        account = cf.domains.models.upsert_account(
+            "trial-missing", account_group_id="stacey"
+        )
+        trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
             surface="trial_reel",
             account_id=account["id"],
@@ -392,8 +406,10 @@ def test_trial_ranking_report_has_one_and_twenty_four_hour_windows(tmp_path: Pat
             source_family_id="family-report",
             perceptual_fingerprint="phash64:dddd",
         )
-        account = cf.upsert_account("report-account", account_group_id="stacey")
-        trial = cf.create_distribution_plan(
+        account = cf.domains.models.upsert_account(
+            "report-account", account_group_id="stacey"
+        )
+        trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
             surface="trial_reel",
             account_id=account["id"],

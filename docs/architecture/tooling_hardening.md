@@ -27,6 +27,9 @@ publishing, QStash, metrics sync, account health, or production inventory.
   first baseline exists. It is intentionally non-blocking until the baseline is
   reviewed.
 - `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
+- `pnpm check:prompts` runs Promptfoo against local captured fixtures and local
+  Python providers only. It disables hosted generation, telemetry, sharing,
+  updates, and caching; prompt output is never sent to a paid grader.
 - Dashboard Storybook and visual regression checks belong upstream in
   ThreadsDashboard; Creator OS no longer carries a dashboard mirror.
 - `pnpm graphify:update` refreshes the local architecture graph. The
@@ -34,6 +37,19 @@ publishing, QStash, metrics sync, account health, or production inventory.
   approved for commit.
 - `pnpm check:artifacts` fails if runtime outputs, model weights, generated
   media, local databases, or `graphify-out/` are tracked by git.
+
+## Targeted Stability Tooling
+
+- Promptfoo pins accepted Gemini/Soul prompt digests, validates captured model
+  output against canonical contracts, and retains explicit human rubric text
+  without pretending to automate subjective review.
+- `hypothesis-jsonschema` fuzzes representative strict and permissive Pipeline
+  Contract consumers with valid, malformed, boundary, and unknown-field
+  payloads. It does not redefine each schema's compatibility policy.
+- PySceneDetect is a local, fail-closed preflight for the paid reference-video
+  remix. A multi-shot input is rejected before Campaign state or provider seams.
+- ContentForge continues to own VMAF and post-render media quality. No second
+  video-quality stack or long-running service is introduced.
 
 ## Dependency Update Policy
 

@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import math
-import os
 import re
 import shutil
 import subprocess
@@ -21,24 +19,19 @@ from typing import Any
 from PIL import Image
 
 from reel_factory.feature_extract import extract_features
-from reel_factory.sqlite_utils import connect_sqlite
 
 from .anatomy_qc import assess_image_qc, is_image_postable
 from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
-from .campaign_store import (
-    connect,
-    creator_by_name,
+from .deprecated_generators import guard_deprecated_generator
+from .evidence_store import (
     record_asset_generation,
     validate_generation_soul,
 )
-from .deprecated_generators import guard_deprecated_generator
-from .higgsfield_cost_preflight import (
-    consume_higgsfield_spend_reservation,
-    nonnegative_float_arg,
-    quote_higgsfield_generation,
-    reserve_higgsfield_credits,
-)
 from .identity_verification import verify_identity
+from .provider_spend_authorization import (
+    require_campaign_spend_authorization,
+    spend_scope_args_for_plan,
+)
 
 try:
     from .fileops import atomic_write_text
@@ -61,6 +54,18 @@ DOWNLOAD_TIMEOUT_SECONDS = 60
 MIN_IMAGE_RESULT_BYTES = 10_000
 MIN_VIDEO_RESULT_BYTES = 100_000
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def nonnegative_float_arg(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a finite, non-negative number"
+        ) from exc
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("must be a finite, non-negative number")
+    return parsed
 
 
 class HiggsfieldCommandError(RuntimeError):
@@ -114,6 +119,7 @@ class AssetGenerationPlan:
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
     budget_override_ledger_error: bool = False
+    spend_authorization_file: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +131,7 @@ class DirectReferenceImagePlan:
     out_dir: Path
     source_dir: Path
     creator: str | None = None
+    campaign: str | None = None
     image_aspect_ratio: str = DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO
     image_quality: str = "2k"
     image_model: str = IMAGE_MODEL
@@ -134,6 +141,7 @@ class DirectReferenceImagePlan:
     estimated_cost_usd: float | None = None
     allow_unbudgeted_local_test: bool = False
     budget_override_ledger_error: bool = False
+    spend_authorization_file: Path | None = None
 
 
 def load_prompt(path: Path) -> AssetPromptSet:
@@ -652,124 +660,45 @@ def _generation_completed(data: dict[str, Any]) -> bool:
     return bool(extract_id(data)) and (status in {None, "", "completed"})
 
 
-def _campaign_cost_db_path(root: Path) -> Path:
-    env_path = os.environ.get("CAMPAIGN_FACTORY_DB")
-    if env_path:
-        return Path(env_path).expanduser()
-    root = Path(root).expanduser().resolve()
-    candidates = [
-        root / "campaign_factory.sqlite",
-        root.parent / "campaign_factory" / "campaign_factory.sqlite",
-        Path(__file__).resolve().parents[2]
-        / "campaign_factory"
-        / "campaign_factory.sqlite",
-    ]
-    return candidates[0] if candidates[0].exists() else candidates[-1]
-
-
-def _load_cost_tracker_module():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "campaign_factory"
-        / "campaign_factory"
-        / "cost_tracker.py"
-    )
-    spec = importlib.util.spec_from_file_location("_creator_os_cost_tracker", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"unable to load cost tracker from {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _record_ai_cost_event(
-    conn,
-    cost_tracker,
-    *,
-    provider: str,
-    operation: str,
-    campaign_id: str | None,
-    model: str,
-    job_id: str,
-    actual_credits: float | None,
-    lineage_path_text: str,
-    stem: str,
-    reservation_id: str | None,
-    cohort_id: str | None,
-) -> str:
-    metadata = {
-        "schema": "reel_factory.ai_cost_metadata.v1",
-        "actualCredits": actual_credits,
-        "creditCurrency": "higgsfield_credits",
-        "model": model,
-        "jobId": job_id,
-        "lineagePath": lineage_path_text,
-        "stem": stem,
-        "spendReservationId": reservation_id,
-    }
-    return cost_tracker.record_ai_cost(
-        conn,
-        provider=provider,
-        operation=operation,
-        campaign_id=campaign_id,
-        generations=1,
-        metadata=metadata,
-        source_event_key=f"reel_factory:{provider}:{operation}:{job_id}",
-        reservation_id=reservation_id,
-        amount=actual_credits,
-        unit="higgsfield_credits" if actual_credits is not None else None,
-        cohort_id=cohort_id,
-        ensure_schema=False,
-    )
-
-
-def _record_generation_costs(
-    plan: AssetGenerationPlan | DirectReferenceImagePlan,
-    *,
-    lineage_path_text: str,
-    records: list[dict[str, Any]],
-    reservation_id: str | None = None,
+def _provider_execution_evidence(
+    authorization: dict[str, Any], records: list[dict[str, Any]]
 ) -> dict[str, Any]:
+    """Return derived worker evidence; Campaign owns the authoritative ledger."""
     events = []
-    cost_tracker = _load_cost_tracker_module()
-    db_path = _campaign_cost_db_path(plan.source_dir.parent)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    with connect_sqlite(db_path) as conn:
-        cost_tracker.ensure_cost_table(conn)
-        for record in records:
-            raw = record.get("raw")
-            if not isinstance(raw, dict) or not _generation_completed(raw):
-                continue
-            job_id = extract_id(raw)
-            if not job_id:
-                continue
-            provider = str(record["provider"])
-            operation = str(record["operation"])
-            actual_credits = _result_credits(raw)
-            event_id = _record_ai_cost_event(
-                conn,
-                cost_tracker,
-                provider=provider,
-                operation=operation,
-                campaign_id=getattr(plan, "campaign", None),
-                model=str(record["model"]),
-                job_id=job_id,
-                actual_credits=actual_credits,
-                lineage_path_text=lineage_path_text,
-                stem=plan.stem,
-                reservation_id=reservation_id,
-                cohort_id=plan.cohort_id,
-            )
-            events.append(
-                {
-                    "eventId": event_id,
-                    "provider": provider,
-                    "operation": operation,
-                    "jobId": job_id,
-                    "actualCredits": actual_credits,
-                }
-            )
-    return {"schema": "reel_factory.ai_cost_ledger.v1", "events": events}
+    for record in records:
+        raw = record.get("raw")
+        if not isinstance(raw, dict) or not _generation_completed(raw):
+            continue
+        job_id = extract_id(raw)
+        if not job_id:
+            continue
+        events.append(
+            {
+                "provider": str(record["provider"]),
+                "operation": str(record["operation"]),
+                "model": str(record["model"]),
+                "jobId": job_id,
+                "actualCredits": _result_credits(raw),
+            }
+        )
+    return {
+        "schema": "reel_factory.provider_execution_evidence.v1",
+        "authorizationId": authorization["authorizationId"],
+        "reservationId": authorization["reservationId"],
+        "requestFingerprint": authorization["scope"]["requestFingerprint"],
+        "events": events,
+    }
+
+
+def _authorization_evidence(authorization: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema": authorization["schema"],
+        "authorizationId": authorization["authorizationId"],
+        "reservationId": authorization["reservationId"],
+        "issuer": authorization["issuer"],
+        "scope": authorization["scope"],
+        "providerQuote": authorization["providerQuote"],
+    }
 
 
 def extract_higgsfield_generated_prompt(data: dict[str, Any]) -> str | None:
@@ -817,18 +746,8 @@ def _soul_id_for_plan(plan: AssetGenerationPlan, *, dry: bool) -> str | None:
     if not name:
         return None
     if dry:
-        if name.lower() == "stacey":
-            return "5828d958-91dd-4d6d-8909-934503f47644"
-        try:
-            conn = connect(Path.cwd())
-            return str(creator_by_name(conn, name)["soul_id"])
-        except Exception:
-            return f"<soul_id:{name}>"
-    try:
-        conn = connect(plan.source_dir.parent)
-        return str(creator_by_name(conn, name)["soul_id"])
-    except Exception:
-        return resolve_soul_id(name)
+        return f"<soul_id:{name}>"
+    return resolve_soul_id(name)
 
 
 def _soul_id_for_direct_plan(
@@ -840,18 +759,8 @@ def _soul_id_for_direct_plan(
     if not name:
         return None
     if dry:
-        if name.lower() == "stacey":
-            return "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
-        try:
-            conn = connect(Path.cwd())
-            return str(creator_by_name(conn, name)["soul_id"])
-        except Exception:
-            return f"<soul_id:{name}>"
-    try:
-        conn = connect(plan.source_dir.parent)
-        return str(creator_by_name(conn, name)["soul_id"])
-    except Exception:
-        return resolve_soul_id(name)
+        return f"<soul_id:{name}>"
+    return resolve_soul_id(name)
 
 
 def direct_reference_prompt(
@@ -1103,178 +1012,15 @@ def _failure_raw(exc: HiggsfieldCommandError) -> dict[str, Any]:
     }
 
 
-def _record_cost_preflight_block(
-    plan: AssetGenerationPlan,
-    *,
-    prompt: AssetPromptSet,
-    cost_preflight: dict[str, Any],
-    soul_id: str | None = None,
-    soul_name: str | None = None,
+def _authorize_plan(
+    plan: AssetGenerationPlan | DirectReferenceImagePlan, *, mode: str
 ) -> dict[str, Any]:
-    payload = build_source_lineage(
-        plan,
-        prompt=prompt,
-        commands=[],
-        soul_id=soul_id or plan.soul_id,
-        soul_name=soul_name or plan.soul_name,
-        local_paths={},
-        raw={},
-    )
-    payload["generation"]["status"] = "cost_preflight_blocked"
-    payload["generation"]["failure"] = {
-        "stage": "cost_preflight",
-        "reason": cost_preflight.get("blockingReason")
-        or "higgsfield_cost_preflight_blocked",
-    }
-    payload["generation"]["costPreflight"] = cost_preflight
-    path = lineage_path(plan)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(
-        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    _append_failed_generation(plan, lineage_path=path, lineage=payload)
-    return {
-        "ok": False,
-        "path": str(path),
-        "lineage": payload,
-        "campaign_record": None,
-        "error": payload["generation"]["failure"],
-    }
-
-
-def _cost_preflight_for_plan(
-    plan: AssetGenerationPlan | DirectReferenceImagePlan,
-    *,
-    prompt: AssetPromptSet,
-    generation_kind: str,
-    resolved_models: dict[str, str],
-    asset_count: int = 1,
-    soul_id: str | None = None,
-) -> dict[str, Any]:
-    """Quote the exact request in provider credits, then reserve atomically."""
-    if generation_kind not in {"image", "video", "image_and_video"}:
-        raise ValueError("generation_kind must be image, video, or image_and_video")
-    if asset_count <= 0:
-        raise ValueError("asset_count must be positive")
-    run_cap = plan.max_credits
-    if run_cap is None:
-        try:
-            run_cap = float(os.environ.get("HIGGSFIELD_RUN_MAX_CREDITS", ""))
-        except ValueError:
-            run_cap = None
-    if run_cap is None or not math.isfinite(run_cap) or not (run_cap > 0):
-        return _blocked_credit_preflight("missing_provider_credit_cap")
-
-    try:
-        quotes: list[dict[str, Any]] = []
-        if generation_kind in {"image", "image_and_video"}:
-            image_params = {
-                "prompt": prompt.higgsfieldGridPrompt,
-                "aspect_ratio": plan.image_aspect_ratio,
-                "quality": plan.image_quality,
-            }
-            if soul_id:
-                identity_key = (
-                    resolved_models["imageIdentityFlag"].lstrip("-").replace("-", "_")
-                )
-                image_params[identity_key] = soul_id
-            image_quote = quote_higgsfield_generation(
-                resolved_models["imageModel"],
-                params=image_params,
-            )
-            image_count = asset_count if generation_kind == "image" else 1
-            quotes.extend([image_quote] * image_count)
-        if generation_kind in {"video", "image_and_video"}:
-            if not isinstance(plan, AssetGenerationPlan):
-                raise ValueError("video generation requires AssetGenerationPlan")
-            video_params = {
-                "prompt": prompt.klingMotionPrompt,
-                "aspect_ratio": plan.video_aspect_ratio,
-                "duration": str(plan.video_duration),
-            }
-            if plan.video_mode:
-                video_params["mode"] = plan.video_mode
-            if plan.video_sound and resolved_models["videoModel"] in VIDEO_SOUND_MODELS:
-                video_params["sound"] = plan.video_sound
-            quotes.append(
-                quote_higgsfield_generation(
-                    resolved_models["videoModel"], params=video_params
-                )
-            )
-        provider_quote = _aggregate_provider_quotes(quotes)
-        if float(provider_quote["amount"]) > run_cap:
-            blocked = _blocked_credit_preflight("provider_quote_exceeds_run_cap")
-            blocked["providerQuote"] = provider_quote
-            blocked["runCapCredits"] = run_cap
-            return blocked
-        return reserve_higgsfield_credits(
-            provider_quote=provider_quote,
-            asset_count=len(quotes),
-            cohort_id=plan.cohort_id,
-            source=(
-                f"reel_factory:{type(plan).__name__}:{generation_kind}:{plan.stem}"
-            ),
-            root=plan.source_dir.parent,
-            cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
-        )
-    except (KeyError, RuntimeError, ValueError) as exc:
-        return _blocked_credit_preflight(str(exc) or "provider_credit_preflight_failed")
-
-
-def _aggregate_provider_quotes(quotes: list[dict[str, Any]]) -> dict[str, Any]:
-    if not quotes:
-        raise ValueError("provider quote set is empty")
-    amount = sum(float(quote["amount"]) for quote in quotes)
-    return {
-        "schema": "reel_factory.higgsfield_provider_quote.v1",
-        "provider": "higgsfield",
-        "model": "+".join(str(quote.get("model") or "unknown") for quote in quotes),
-        "amount": round(amount, 4),
-        "unit": "higgsfield_credits",
-        "items": quotes,
-    }
-
-
-def _blocked_credit_preflight(reason: str) -> dict[str, Any]:
-    return {
-        "schema": "reel_factory.higgsfield_cost_preflight.v1",
-        "allowed": False,
-        "blockingReason": reason,
-        "blockingReasons": [reason],
-        "reservation": {
-            "schema": "reel_factory.higgsfield_spend_reservation.v1",
-            "id": None,
-            "status": "not_created",
-        },
-    }
-
-
-def _cost_reservation_id(cost_preflight: dict[str, Any]) -> str:
-    reservation = cost_preflight.get("reservation")
-    reservation_id = reservation.get("id") if isinstance(reservation, dict) else None
-    if not isinstance(reservation_id, str) or not reservation_id:
-        raise RuntimeError(
-            "paid generation allowed without an atomic spend reservation"
-        )
-    return reservation_id
-
-
-def _consume_cost_reservation(
-    plan: AssetGenerationPlan | DirectReferenceImagePlan,
-    cost_preflight: dict[str, Any],
-) -> str:
-    reservation_id = _cost_reservation_id(cost_preflight)
-    if not consume_higgsfield_spend_reservation(
-        reservation_id,
+    args = spend_scope_args_for_plan(plan, mode=mode)
+    return require_campaign_spend_authorization(
+        args,
         root=plan.source_dir.parent,
-        cost_db_path=_campaign_cost_db_path(plan.source_dir.parent),
-    ):
-        raise RuntimeError(
-            "spend reservation could not be consumed before provider call"
-        )
-    reservation = cost_preflight["reservation"]
-    reservation["status"] = "consumed"
-    return reservation_id
+        authorization_file=plan.spend_authorization_file,
+    )
 
 
 def _record_generation_failure(
@@ -1289,7 +1035,7 @@ def _record_generation_failure(
     capabilities: dict[str, Any] | None = None,
     soul_id: str | None = None,
     soul_name: str | None = None,
-    cost_preflight: dict[str, Any] | None = None,
+    spend_authorization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     failure = _failure_raw(error)
     raw.setdefault("failure", failure)
@@ -1303,8 +1049,10 @@ def _record_generation_failure(
         raw=raw,
     )
     payload["generation"]["status"] = "generation_rejected_or_failed"
-    if cost_preflight is not None:
-        payload["generation"]["costPreflight"] = cost_preflight
+    if spend_authorization is not None:
+        payload["generation"]["spendAuthorization"] = _authorization_evidence(
+            spend_authorization
+        )
     payload["generation"]["failure"] = {
         "stage": stage,
         "command": error.cmd,
@@ -1396,6 +1144,7 @@ def list_failed_generations(root: Path | str, *, limit: int = 100) -> dict[str, 
 def create_assets(
     plan: AssetGenerationPlan, *, wait: bool = False, download: bool = False
 ) -> dict[str, Any]:
+    spend_authorization = _authorize_plan(plan, mode="create")
     capabilities = ensure_required_capabilities(
         plan.source_dir.parent, plan.image_model, plan.video_model
     )
@@ -1407,23 +1156,6 @@ def create_assets(
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
-    cost_preflight = _cost_preflight_for_plan(
-        plan,
-        prompt=prompt,
-        generation_kind="image_and_video",
-        resolved_models=resolved,
-        soul_id=soul_id,
-    )
-    if not cost_preflight.get("allowed"):
-        return _record_cost_preflight_block(
-            plan,
-            prompt=prompt,
-            cost_preflight=cost_preflight,
-            soul_id=soul_id,
-            soul_name=plan.soul_name,
-        )
-    reservation_id = _consume_cost_reservation(plan, cost_preflight)
-
     upload_id = None
 
     image_cmd = build_image_cmd(
@@ -1451,7 +1183,7 @@ def create_assets(
             capabilities=capabilities,
             soul_id=soul_id,
             soul_name=plan.soul_name,
-            cost_preflight=cost_preflight,
+            spend_authorization=spend_authorization,
         )
     steps.append(_step("image_create", image_cmd, raw["image"]))
     identity_validation = validate_generation_soul(raw["image"], soul_id)
@@ -1486,7 +1218,7 @@ def create_assets(
             capabilities=capabilities,
             soul_id=soul_id,
             soul_name=plan.soul_name,
-            cost_preflight=cost_preflight,
+            spend_authorization=spend_authorization,
         )
     steps.append(_step("video_create", video_cmd, raw["video"]))
     video_job_id = extract_id(raw["video"])
@@ -1519,7 +1251,9 @@ def create_assets(
         actual_models=resolved,
     )
     payload["generation"]["identityValidation"] = identity_validation
-    payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["spendAuthorization"] = _authorization_evidence(
+        spend_authorization
+    )
     payload["generation"]["steps"] = steps
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
@@ -1546,10 +1280,9 @@ def create_assets(
     )
     payload["review"]["generatedVideoQc"] = video_qc
     path = lineage_path(plan)
-    payload["generation"]["costLedger"] = _record_generation_costs(
-        plan,
-        lineage_path_text=str(path),
-        records=[
+    payload["generation"]["providerExecution"] = _provider_execution_evidence(
+        spend_authorization,
+        [
             {
                 "provider": "higgsfield",
                 "operation": "image_create",
@@ -1563,7 +1296,6 @@ def create_assets(
                 "raw": raw.get("video"),
             },
         ],
-        reservation_id=reservation_id,
     )
     if video_qc["status"] == "failed":
         payload["generation"]["status"] = "video_qc_rejected"
@@ -1796,6 +1528,7 @@ def generated_video_qc_failure_reason(qc: dict[str, Any]) -> str:
 def create_image_asset(
     plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
 ) -> dict[str, Any]:
+    spend_authorization = _authorize_plan(plan, mode="image")
     capabilities = ensure_required_capabilities(
         plan.source_dir.parent, plan.image_model, plan.video_model
     )
@@ -1807,24 +1540,6 @@ def create_image_asset(
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
-    image_count = 6 if plan.image_mode == "six-pack" else 1
-    cost_preflight = _cost_preflight_for_plan(
-        plan,
-        prompt=prompt,
-        generation_kind="image",
-        resolved_models=resolved,
-        asset_count=image_count,
-        soul_id=soul_id,
-    )
-    if not cost_preflight.get("allowed"):
-        return _record_cost_preflight_block(
-            plan,
-            prompt=prompt,
-            cost_preflight=cost_preflight,
-            soul_id=soul_id,
-            soul_name=plan.soul_name,
-        )
-    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     upload_id = None
     image_prompts = (
         _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
@@ -1861,7 +1576,7 @@ def create_image_asset(
                 capabilities=capabilities,
                 soul_id=soul_id,
                 soul_name=plan.soul_name,
-                cost_preflight=cost_preflight,
+                spend_authorization=spend_authorization,
             )
         raw_images.append(image_raw)
         steps.append(
@@ -1917,7 +1632,9 @@ def create_image_asset(
     payload["generation"]["identityValidation"] = validate_generation_soul(
         raw["image"], soul_id
     )
-    payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["spendAuthorization"] = _authorization_evidence(
+        spend_authorization
+    )
     payload["generation"]["imageJobIds"] = image_job_ids
     payload["generation"]["imageResultUrls"] = image_urls
     payload["generation"]["steps"] = steps
@@ -1945,10 +1662,9 @@ def create_image_asset(
     )
     payload["review"]["generatedImageQc"] = qc
     path = lineage_path(plan)
-    payload["generation"]["costLedger"] = _record_generation_costs(
-        plan,
-        lineage_path_text=str(path),
-        records=[
+    payload["generation"]["providerExecution"] = _provider_execution_evidence(
+        spend_authorization,
+        [
             {
                 "provider": "higgsfield",
                 "operation": "image_create",
@@ -1957,7 +1673,6 @@ def create_image_asset(
             }
             for image_raw in raw_images
         ],
-        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
@@ -2004,6 +1719,7 @@ def create_direct_reference_image_asset(
     wait: bool = False,
     download: bool = True,
 ) -> dict[str, Any]:
+    spend_authorization = _authorize_plan(plan, mode="reference-image")
     capabilities = ensure_required_capabilities(
         plan.source_dir.parent, plan.image_model, VIDEO_MODEL
     )
@@ -2018,44 +1734,6 @@ def create_direct_reference_image_asset(
     commands: list[list[str]] = []
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
-    cost_preflight = _cost_preflight_for_plan(
-        plan,
-        prompt=prompt,
-        generation_kind="image",
-        resolved_models=resolved,
-        soul_id=soul_id,
-    )
-    if not cost_preflight.get("allowed"):
-        payload = _direct_reference_lineage(
-            plan,
-            prompt=prompt,
-            commands=[],
-            steps=[],
-            raw={},
-            soul_id=soul_id,
-            actual_models=resolved,
-            status="cost_preflight_blocked",
-            failure={
-                "stage": "cost_preflight",
-                "reason": cost_preflight.get("blockingReason")
-                or "higgsfield_cost_preflight_blocked",
-            },
-        )
-        payload["generation"]["costPreflight"] = cost_preflight
-        path = direct_reference_lineage_path(plan)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(
-            path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        _append_failed_generation(plan, lineage_path=path, lineage=payload)
-        return {
-            "ok": False,
-            "path": str(path),
-            "lineage": payload,
-            "campaign_record": None,
-            "error": payload["generation"]["failure"],
-        }
-    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     image_cmd = build_image_cmd(
         prompt,
         reference=plan.reference_image,
@@ -2082,7 +1760,9 @@ def create_direct_reference_image_asset(
             status="generation_rejected_or_failed",
             failure={"stage": "image_create", "command": exc.cmd, **failure},
         )
-        payload["generation"]["costPreflight"] = cost_preflight
+        payload["generation"]["spendAuthorization"] = _authorization_evidence(
+            spend_authorization
+        )
         path = direct_reference_lineage_path(plan)
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
@@ -2123,7 +1803,9 @@ def create_direct_reference_image_asset(
         captured_prompt=captured_prompt,
         status="image_completed",
     )
-    payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["spendAuthorization"] = _authorization_evidence(
+        spend_authorization
+    )
     qc = generated_image_qc(
         local_paths,
         root=plan.source_dir.parent,
@@ -2132,10 +1814,9 @@ def create_direct_reference_image_asset(
     )
     payload["review"]["generatedImageQc"] = qc
     path = direct_reference_lineage_path(plan)
-    payload["generation"]["costLedger"] = _record_generation_costs(
-        plan,
-        lineage_path_text=str(path),
-        records=[
+    payload["generation"]["providerExecution"] = _provider_execution_evidence(
+        spend_authorization,
+        [
             {
                 "provider": "higgsfield",
                 "operation": "direct_reference_image_create",
@@ -2143,7 +1824,6 @@ def create_direct_reference_image_asset(
                 "raw": raw.get("image"),
             }
         ],
-        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     if qc["status"] == "failed":
@@ -2238,6 +1918,7 @@ def _direct_reference_lineage(
 def create_video_asset(
     plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
 ) -> dict[str, Any]:
+    spend_authorization = _authorize_plan(plan, mode="video")
     capabilities = ensure_required_capabilities(
         plan.source_dir.parent, plan.image_model, plan.video_model
     )
@@ -2250,21 +1931,6 @@ def create_video_asset(
     commands: list[list[str]] = []
     steps: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
-    cost_preflight = _cost_preflight_for_plan(
-        plan,
-        prompt=prompt,
-        generation_kind="video",
-        resolved_models=resolved,
-    )
-    if not cost_preflight.get("allowed"):
-        return _record_cost_preflight_block(
-            plan,
-            prompt=prompt,
-            cost_preflight=cost_preflight,
-            soul_id=plan.soul_id,
-            soul_name=plan.soul_name,
-        )
-    reservation_id = _consume_cost_reservation(plan, cost_preflight)
     video_cmd = build_video_cmd(
         prompt,
         start_image=plan.start_image,
@@ -2292,7 +1958,7 @@ def create_video_asset(
             capabilities=capabilities,
             soul_id=plan.soul_id,
             soul_name=plan.soul_name,
-            cost_preflight=cost_preflight,
+            spend_authorization=spend_authorization,
         )
     steps.append(_step("video_create", video_cmd, raw["video"]))
     video_job_id = extract_id(raw["video"])
@@ -2316,7 +1982,9 @@ def create_video_asset(
         actual_models=resolved,
     )
     payload["generation"]["workflow"] = "kling3_0_video_from_selected_panel"
-    payload["generation"]["costPreflight"] = cost_preflight
+    payload["generation"]["spendAuthorization"] = _authorization_evidence(
+        spend_authorization
+    )
     payload["generation"]["steps"] = steps
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
@@ -2347,10 +2015,9 @@ def create_video_asset(
             "reason": generated_video_qc_failure_reason(video_qc),
         }
     path = lineage_path(plan)
-    payload["generation"]["costLedger"] = _record_generation_costs(
-        plan,
-        lineage_path_text=str(path),
-        records=[
+    payload["generation"]["providerExecution"] = _provider_execution_evidence(
+        spend_authorization,
+        [
             {
                 "provider": "kling",
                 "operation": "video_create",
@@ -2358,7 +2025,6 @@ def create_video_asset(
                 "raw": raw.get("video"),
             }
         ],
-        reservation_id=reservation_id,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
@@ -2547,6 +2213,11 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
         budget_override_ledger_error=args.budget_override_ledger_error,
+        spend_authorization_file=Path(args.spend_authorization_file)
+        .expanduser()
+        .resolve()
+        if args.spend_authorization_file
+        else None,
     )
 
 
@@ -2564,6 +2235,7 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         soul_id=soul_id,
         soul_name=soul_name,
         creator=args.creator,
+        campaign=args.campaign,
         out_dir=(root / args.out_dir).resolve(),
         source_dir=(root / "00_source_videos").resolve(),
         image_aspect_ratio=args.image_aspect_ratio
@@ -2575,6 +2247,11 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
         estimated_cost_usd=args.estimated_cost_usd,
         allow_unbudgeted_local_test=args.allow_unbudgeted_local_test,
         budget_override_ledger_error=args.budget_override_ledger_error,
+        spend_authorization_file=Path(args.spend_authorization_file)
+        .expanduser()
+        .resolve()
+        if args.spend_authorization_file
+        else None,
     )
 
 
@@ -2648,6 +2325,10 @@ def main() -> int:
     ap.add_argument("--estimated-cost-usd", type=nonnegative_float_arg)
     ap.add_argument("--allow-unbudgeted-local-test", action="store_true")
     ap.add_argument("--budget-override-ledger-error", action="store_true")
+    ap.add_argument(
+        "--spend-authorization-file",
+        help="Campaign-issued signed authorization required for every paid mode.",
+    )
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument(

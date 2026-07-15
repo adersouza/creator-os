@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -57,9 +57,18 @@ describe("TypeScript pipeline contract validators", () => {
 			"reference_video_remix_plan.v1.schema.json",
 		);
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"reference_factory_knowledge_pack.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"provider_spend_authorization.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"threadsdash_handshake.v1.schema.json",
 		);
-		expect(generatedPipelineContractSchemaManifest).toHaveLength(26);
+		const canonicalSchemaCount = readdirSync(schemaRoot).filter((filename) =>
+			filename.endsWith(".schema.json"),
+		).length;
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(canonicalSchemaCount);
 	});
 
 	it("validates structural reference-video analysis and remix plans", () => {

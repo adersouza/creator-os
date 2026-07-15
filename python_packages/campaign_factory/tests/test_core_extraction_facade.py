@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import inspect
 
 from campaign_factory import audit_payload, exports
@@ -64,54 +63,30 @@ from campaign_factory.reel_execution import ReelExecutionRepository
 from campaign_factory.reel_factory_reports import ReelFactoryReportRepository
 from campaign_factory.reference import ReferenceRepository
 from campaign_factory.schedule_safe_production import ScheduleSafeProductionRepository
-from campaign_factory.services import CoreServices
+from campaign_factory.services import CampaignContext, CampaignDomainServices
 from campaign_factory.story_management import StoryManagementRepository
 from campaign_factory.surface_handoff import SurfaceHandoffRepository
 from campaign_factory.surface_inventory import SurfaceInventoryRepository
 from campaign_factory.surface_registration import SurfaceRegistrationRepository
 from campaign_factory.surface_requirements import SurfaceRequirementsRepository
 from campaign_factory.surface_summary import SurfaceSummaryRepository
-from campaign_factory.tribev2 import TribeV2Repository
 from campaign_factory.variant_lineage import VariantLineageRepository
 from campaign_factory.winner_expansion import WinnerExpansionRepository
 
 
-def test_campaign_factory_core_stays_composition_root_facade() -> None:
+def test_campaign_factory_core_is_composition_root_without_forwarders() -> None:
     source = inspect.getsource(CampaignFactory)
-    parsed = ast.parse(source)
-    cls = parsed.body[0]
-    allowed = {"__init__", "close", "_load_source_lineage"}
-    simple_compat = {
-        "_reel_caption_account_safety_violations": "discoverability_safe_content_contract"
+    methods = {
+        name
+        for name, value in CampaignFactory.__dict__.items()
+        if inspect.isfunction(value)
     }
-    non_facade: list[str] = []
 
-    for method in [node for node in cls.body if isinstance(node, ast.FunctionDef)]:
-        body = [
-            stmt
-            for stmt in method.body
-            if not (
-                isinstance(stmt, ast.Expr)
-                and isinstance(stmt.value, ast.Constant)
-                and isinstance(stmt.value.value, str)
-            )
-        ]
-        if method.name in allowed:
-            continue
-        if len(body) != 1:
-            non_facade.append(method.name)
-            continue
-        stmt_source = ast.get_source_segment(source, body[0]) or ""
-        compat_call = simple_compat.get(method.name)
-        if "self.services." not in stmt_source and (
-            not compat_call or compat_call not in stmt_source
-        ):
-            non_facade.append(method.name)
-
-    assert non_facade == []
+    assert methods == {"__init__", "close"}
+    assert "__getattr__" not in source
 
 
-def test_campaign_factory_initializes_core_services(tmp_path) -> None:
+def test_campaign_factory_initializes_explicit_domain_services(tmp_path) -> None:
     factory = CampaignFactory(
         Settings(
             root=tmp_path,
@@ -123,260 +98,253 @@ def test_campaign_factory_initializes_core_services(tmp_path) -> None:
         )
     )
     try:
-        assert isinstance(factory.services, CoreServices)
-        assert factory.services.conn is factory.conn
-        assert factory.services.settings is factory.settings
-        assert isinstance(factory.services.graph, GraphRepository)
-        assert factory.services.graph.conn is factory.conn
-        assert isinstance(factory.services.events, EventRepository)
-        assert factory.services.events.conn is factory.conn
-        assert isinstance(factory.services.models, ModelRepository)
-        assert factory.services.models.conn is factory.conn
-        assert isinstance(factory.services.asset_import, AssetImportRepository)
-        assert factory.services.asset_import.conn is factory.conn
-        assert isinstance(factory.services.export_summary, ExportSummaryRepository)
+        assert isinstance(factory.context, CampaignContext)
+        assert isinstance(factory.domains, CampaignDomainServices)
+        assert factory.domains.conn is factory.conn
+        assert factory.domains.settings is factory.settings
+        assert isinstance(factory.domains.graph, GraphRepository)
+        assert factory.domains.graph.conn is factory.conn
+        assert isinstance(factory.domains.events, EventRepository)
+        assert factory.domains.events.conn is factory.conn
+        assert isinstance(factory.domains.models, ModelRepository)
+        assert factory.domains.models.conn is factory.conn
+        assert isinstance(factory.domains.asset_import, AssetImportRepository)
+        assert factory.domains.asset_import.conn is factory.conn
+        assert isinstance(factory.domains.export_summary, ExportSummaryRepository)
+        assert isinstance(factory.domains.creative_planning, CreativePlanningRepository)
+        assert factory.domains.creative_planning.conn is factory.conn
+        assert isinstance(factory.domains.reference, ReferenceRepository)
+        assert factory.domains.reference.conn is factory.conn
+        assert isinstance(factory.domains.reel_execution, ReelExecutionRepository)
+        assert factory.domains.reel_execution.conn is factory.conn
+        assert isinstance(factory.domains.variant_lineage, VariantLineageRepository)
+        assert factory.domains.variant_lineage.conn is factory.conn
+        assert isinstance(factory.domains.publishability, PublishabilityRepository)
+        assert factory.domains.publishability.conn is factory.conn
+        assert isinstance(factory.domains.caption_family, CaptionFamilyRepository)
+        assert factory.domains.caption_family.conn is factory.conn
+        assert isinstance(factory.domains.distribution, DistributionRepository)
+        assert factory.domains.distribution.conn is factory.conn
+        assert isinstance(factory.domains.decision_ledger, DecisionLedgerRepository)
+        assert factory.domains.decision_ledger.conn is factory.conn
+        assert isinstance(factory.domains.exceptions, ExceptionRepository)
+        assert factory.domains.exceptions.conn is factory.conn
+        assert isinstance(factory.domains.finished_video, FinishedVideoRepository)
+        assert factory.domains.finished_video.conn is factory.conn
+        assert isinstance(factory.domains.discoverability, DiscoverabilityRepository)
+        assert factory.domains.discoverability.conn is factory.conn
         assert isinstance(
-            factory.services.creative_planning, CreativePlanningRepository
+            factory.domains.surface_registration, SurfaceRegistrationRepository
         )
-        assert factory.services.creative_planning.conn is factory.conn
-        assert isinstance(factory.services.reference, ReferenceRepository)
-        assert factory.services.reference.conn is factory.conn
-        assert isinstance(factory.services.reel_execution, ReelExecutionRepository)
-        assert factory.services.reel_execution.conn is factory.conn
-        assert isinstance(factory.services.variant_lineage, VariantLineageRepository)
-        assert factory.services.variant_lineage.conn is factory.conn
-        assert isinstance(factory.services.publishability, PublishabilityRepository)
-        assert factory.services.publishability.conn is factory.conn
-        assert isinstance(factory.services.caption_family, CaptionFamilyRepository)
-        assert factory.services.caption_family.conn is factory.conn
-        assert isinstance(factory.services.distribution, DistributionRepository)
-        assert factory.services.distribution.conn is factory.conn
-        assert isinstance(factory.services.decision_ledger, DecisionLedgerRepository)
-        assert factory.services.decision_ledger.conn is factory.conn
-        assert isinstance(factory.services.exceptions, ExceptionRepository)
-        assert factory.services.exceptions.conn is factory.conn
-        assert isinstance(factory.services.finished_video, FinishedVideoRepository)
-        assert factory.services.finished_video.conn is factory.conn
-        assert isinstance(factory.services.discoverability, DiscoverabilityRepository)
-        assert factory.services.discoverability.conn is factory.conn
+        assert factory.domains.surface_registration.conn is factory.conn
         assert isinstance(
-            factory.services.surface_registration, SurfaceRegistrationRepository
+            factory.domains.carousel_integrity, CarouselIntegrityRepository
         )
-        assert factory.services.surface_registration.conn is factory.conn
+        assert factory.domains.carousel_integrity.conn is factory.conn
+        assert isinstance(factory.domains.winner_expansion, WinnerExpansionRepository)
+        assert factory.domains.winner_expansion.conn is factory.conn
         assert isinstance(
-            factory.services.carousel_integrity, CarouselIntegrityRepository
-        )
-        assert factory.services.carousel_integrity.conn is factory.conn
-        assert isinstance(factory.services.winner_expansion, WinnerExpansionRepository)
-        assert factory.services.winner_expansion.conn is factory.conn
-        assert isinstance(
-            factory.services.creator_os_recommendations,
+            factory.domains.creator_os_recommendations,
             CreatorOSRecommendationRepository,
         )
         assert isinstance(
-            factory.services.recommended_inventory_request,
+            factory.domains.recommended_inventory_request,
             RecommendedInventoryRequestRepository,
         )
         assert isinstance(
-            factory.services.creative_knowledge, CreativeKnowledgeRepository
+            factory.domains.creative_knowledge, CreativeKnowledgeRepository
         )
-        assert factory.services.creative_knowledge.conn is factory.conn
-        assert isinstance(factory.services.tribev2, TribeV2Repository)
-        assert factory.services.tribev2.conn is factory.conn
-        assert isinstance(factory.services.operator_review, OperatorReviewRepository)
-        assert factory.services.operator_review.conn is factory.conn
-        assert isinstance(factory.services.story_management, StoryManagementRepository)
-        assert factory.services.story_management.conn is factory.conn
-        assert isinstance(factory.services.surface_handoff, SurfaceHandoffRepository)
-        assert factory.services.surface_handoff.conn is factory.conn
+        assert factory.domains.creative_knowledge.conn is factory.conn
+        assert isinstance(factory.domains.operator_review, OperatorReviewRepository)
+        assert factory.domains.operator_review.conn is factory.conn
+        assert isinstance(factory.domains.story_management, StoryManagementRepository)
+        assert factory.domains.story_management.conn is factory.conn
+        assert isinstance(factory.domains.surface_handoff, SurfaceHandoffRepository)
+        assert factory.domains.surface_handoff.conn is factory.conn
+        assert isinstance(factory.domains.surface_inventory, SurfaceInventoryRepository)
+        assert factory.domains.surface_inventory.conn is factory.conn
         assert isinstance(
-            factory.services.surface_inventory, SurfaceInventoryRepository
+            factory.domains.surface_requirements, SurfaceRequirementsRepository
         )
-        assert factory.services.surface_inventory.conn is factory.conn
+        assert factory.domains.surface_requirements.conn is factory.conn
+        assert isinstance(factory.domains.surface_summary, SurfaceSummaryRepository)
+        assert factory.domains.surface_summary.conn is factory.conn
+        assert isinstance(factory.domains.creator_os_drafts, CreatorOSDraftRepository)
         assert isinstance(
-            factory.services.surface_requirements, SurfaceRequirementsRepository
+            factory.domains.draft_inventory_gap, DraftInventoryGapRepository
         )
-        assert factory.services.surface_requirements.conn is factory.conn
-        assert isinstance(factory.services.surface_summary, SurfaceSummaryRepository)
-        assert factory.services.surface_summary.conn is factory.conn
-        assert isinstance(factory.services.creator_os_drafts, CreatorOSDraftRepository)
+        assert factory.domains.draft_inventory_gap.conn is factory.conn
+        assert isinstance(factory.domains.daily_plan, DailyPlanRepository)
+        assert factory.domains.daily_plan.conn is factory.conn
         assert isinstance(
-            factory.services.draft_inventory_gap, DraftInventoryGapRepository
+            factory.domains.execution_readiness, ExecutionReadinessRepository
         )
-        assert factory.services.draft_inventory_gap.conn is factory.conn
-        assert isinstance(factory.services.daily_plan, DailyPlanRepository)
-        assert factory.services.daily_plan.conn is factory.conn
+        assert factory.domains.execution_readiness.conn is factory.conn
+        assert isinstance(factory.domains.acceptance_suite, AcceptanceSuiteRepository)
+        assert factory.domains.acceptance_suite.conn is factory.conn
+        assert isinstance(factory.domains.readiness_report, ReadinessReportRepository)
+        assert factory.domains.readiness_report.conn is factory.conn
+        assert isinstance(factory.domains.live_scale, LiveScaleRepository)
+        assert factory.domains.live_scale.conn is factory.conn
+        assert isinstance(factory.domains.live_acceptance, LiveAcceptanceRepository)
+        assert factory.domains.live_acceptance.conn is factory.conn
         assert isinstance(
-            factory.services.execution_readiness, ExecutionReadinessRepository
+            factory.domains.lifecycle_reporting, LifecycleReportingRepository
         )
-        assert factory.services.execution_readiness.conn is factory.conn
-        assert isinstance(factory.services.acceptance_suite, AcceptanceSuiteRepository)
-        assert factory.services.acceptance_suite.conn is factory.conn
-        assert isinstance(factory.services.readiness_report, ReadinessReportRepository)
-        assert factory.services.readiness_report.conn is factory.conn
-        assert isinstance(factory.services.live_scale, LiveScaleRepository)
-        assert factory.services.live_scale.conn is factory.conn
-        assert isinstance(factory.services.live_acceptance, LiveAcceptanceRepository)
-        assert factory.services.live_acceptance.conn is factory.conn
+        assert factory.domains.lifecycle_reporting.conn is factory.conn
+        assert isinstance(factory.domains.make_batch_repo, MakeBatchRepository)
+        assert factory.domains.make_batch_repo.conn is factory.conn
+        assert isinstance(factory.domains.certification, CertificationRepository)
+        assert factory.domains.certification.conn is factory.conn
         assert isinstance(
-            factory.services.lifecycle_reporting, LifecycleReportingRepository
+            factory.domains.operational_proofs, OperationalProofRepository
         )
-        assert factory.services.lifecycle_reporting.conn is factory.conn
-        assert isinstance(factory.services.make_batch_repo, MakeBatchRepository)
-        assert factory.services.make_batch_repo.conn is factory.conn
-        assert isinstance(factory.services.certification, CertificationRepository)
-        assert factory.services.certification.conn is factory.conn
+        assert factory.domains.operational_proofs.conn is factory.conn
+        assert isinstance(factory.domains.core_complexity, CoreComplexityRepository)
+        assert factory.domains.core_complexity.conn is factory.conn
+        assert isinstance(factory.domains.account_health, AccountHealthRepository)
+        assert factory.domains.account_health.conn is factory.conn
+        assert isinstance(factory.domains.autonomy, AutonomyPolicyRepository)
+        assert factory.domains.autonomy.conn is factory.conn
+        assert isinstance(factory.domains.account_memory, AccountMemoryRepository)
+        assert factory.domains.account_memory.conn is factory.conn
+        assert isinstance(factory.domains.account_planning, AccountPlanningRepository)
+        assert factory.domains.account_planning.conn is factory.conn
         assert isinstance(
-            factory.services.operational_proofs, OperationalProofRepository
-        )
-        assert factory.services.operational_proofs.conn is factory.conn
-        assert isinstance(factory.services.core_complexity, CoreComplexityRepository)
-        assert factory.services.core_complexity.conn is factory.conn
-        assert isinstance(factory.services.account_health, AccountHealthRepository)
-        assert factory.services.account_health.conn is factory.conn
-        assert isinstance(factory.services.autonomy, AutonomyPolicyRepository)
-        assert factory.services.autonomy.conn is factory.conn
-        assert isinstance(factory.services.account_memory, AccountMemoryRepository)
-        assert factory.services.account_memory.conn is factory.conn
-        assert isinstance(factory.services.account_planning, AccountPlanningRepository)
-        assert factory.services.account_planning.conn is factory.conn
-        assert isinstance(
-            factory.services.recommendation_accuracy_repo,
+            factory.domains.recommendation_accuracy_repo,
             RecommendationAccuracyRepository,
         )
-        assert factory.services.recommendation_accuracy_repo.conn is factory.conn
-        assert isinstance(factory.services.recommendations, RecommendationRepository)
-        assert factory.services.recommendations.conn is factory.conn
-        assert isinstance(factory.services.archive_quality, ArchiveQualityRepository)
-        assert factory.services.archive_quality.conn is factory.conn
+        assert factory.domains.recommendation_accuracy_repo.conn is factory.conn
+        assert isinstance(factory.domains.recommendations, RecommendationRepository)
+        assert factory.domains.recommendations.conn is factory.conn
+        assert isinstance(factory.domains.archive_quality, ArchiveQualityRepository)
+        assert factory.domains.archive_quality.conn is factory.conn
         assert isinstance(
-            factory.services.inventory_planning, InventoryPlanningRepository
+            factory.domains.inventory_planning, InventoryPlanningRepository
         )
-        assert factory.services.inventory_planning.conn is factory.conn
+        assert factory.domains.inventory_planning.conn is factory.conn
         assert isinstance(
-            factory.services.inventory_recovery, InventoryRecoveryRepository
+            factory.domains.inventory_recovery, InventoryRecoveryRepository
         )
-        assert factory.services.inventory_recovery.conn is factory.conn
+        assert factory.domains.inventory_recovery.conn is factory.conn
         assert isinstance(
-            factory.services.schedule_safe_production, ScheduleSafeProductionRepository
+            factory.domains.schedule_safe_production, ScheduleSafeProductionRepository
         )
-        assert factory.services.schedule_safe_production.conn is factory.conn
+        assert factory.domains.schedule_safe_production.conn is factory.conn
         assert isinstance(
-            factory.services.fresh_reel_production, FreshReelProductionRepository
+            factory.domains.fresh_reel_production, FreshReelProductionRepository
         )
-        assert factory.services.fresh_reel_production.conn is factory.conn
+        assert factory.domains.fresh_reel_production.conn is factory.conn
         assert isinstance(
-            factory.services.reel_factory_reports, ReelFactoryReportRepository
+            factory.domains.reel_factory_reports, ReelFactoryReportRepository
         )
-        assert factory.services.reel_factory_reports.conn is factory.conn
+        assert factory.domains.reel_factory_reports.conn is factory.conn
         assert isinstance(
-            factory.services.parent_factory_reports, ParentFactoryReportRepository
+            factory.domains.parent_factory_reports, ParentFactoryReportRepository
         )
-        assert factory.services.parent_factory_reports.conn is factory.conn
+        assert factory.domains.parent_factory_reports.conn is factory.conn
         assert isinstance(
-            factory.services.contentforge_visual_qc, ContentForgeVisualQCRepository
+            factory.domains.contentforge_visual_qc, ContentForgeVisualQCRepository
         )
-        assert factory.services.contentforge_visual_qc.conn is factory.conn
+        assert factory.domains.contentforge_visual_qc.conn is factory.conn
         assert isinstance(
-            factory.services.multi_blocker_unlock, MultiBlockerUnlockRepository
+            factory.domains.multi_blocker_unlock, MultiBlockerUnlockRepository
         )
-        assert factory.services.multi_blocker_unlock.conn is factory.conn
+        assert factory.domains.multi_blocker_unlock.conn is factory.conn
         assert isinstance(
-            factory.services.performance_summary_repo, PerformanceSummaryRepository
+            factory.domains.performance_summary_repo, PerformanceSummaryRepository
         )
-        assert factory.services.performance_summary_repo.conn is factory.conn
+        assert factory.domains.performance_summary_repo.conn is factory.conn
         assert isinstance(
-            factory.services.audio_recommendations, AudioRecommendationRepository
+            factory.domains.audio_recommendations, AudioRecommendationRepository
         )
-        assert factory.services.audio_recommendations.conn is factory.conn
-        assert isinstance(factory.services.audio_operations, AudioOperationsRepository)
-        assert factory.services.audio_operations.conn is factory.conn
+        assert factory.domains.audio_recommendations.conn is factory.conn
+        assert isinstance(factory.domains.audio_operations, AudioOperationsRepository)
+        assert factory.domains.audio_operations.conn is factory.conn
         assert isinstance(
-            factory.services.inventory_perceptual, InventoryPerceptualRepository
+            factory.domains.inventory_perceptual, InventoryPerceptualRepository
         )
-        assert factory.services.inventory_perceptual.conn is factory.conn
+        assert factory.domains.inventory_perceptual.conn is factory.conn
         assert isinstance(
-            factory.services.inventory_reservations, InventoryReservationRepository
+            factory.domains.inventory_reservations, InventoryReservationRepository
         )
-        assert factory.services.inventory_reservations.conn is factory.conn
-        assert isinstance(
-            factory.services.campaign_overview, CampaignOverviewRepository
-        )
-        assert factory.services.campaign_overview.conn is factory.conn
+        assert factory.domains.inventory_reservations.conn is factory.conn
+        assert isinstance(factory.domains.campaign_overview, CampaignOverviewRepository)
+        assert factory.domains.campaign_overview.conn is factory.conn
         assert (
-            factory.services.variant_lineage._performance_snapshot_payload.__self__
-            is factory.services
+            factory.domains.variant_lineage._performance_snapshot_payload.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.variant_lineage._aggregate_performance.__self__
-            is factory.services
+            factory.domains.variant_lineage._aggregate_performance.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.account_memory._performance_snapshot_payload.__self__
-            is factory.services
+            factory.domains.account_memory._performance_snapshot_payload.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.account_memory._account_reward_baselines.__self__
-            is factory.services
+            factory.domains.account_memory._account_reward_baselines.__self__
+            is factory.domains
         )
         assert (
-            factory.services.account_memory._aggregate_performance.__self__
-            is factory.services
+            factory.domains.account_memory._aggregate_performance.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.account_memory._performance_quality_score.__self__
-            is factory.services
+            factory.domains.account_memory._performance_quality_score.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.campaign_overview._performance_for_asset.__self__
-            is factory.services
+            factory.domains.campaign_overview._performance_for_asset.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.account_planning._performance_for_asset.__self__
-            is factory.services
+            factory.domains.account_planning._performance_for_asset.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.account_planning._performance_quality_score.__self__
-            is factory.services
+            factory.domains.account_planning._performance_quality_score.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.recommendations.performance_summary.__self__
-            is factory.services
+            factory.domains.recommendations.performance_summary.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.recommendations._performance_snapshot_payload.__self__
-            is factory.services
+            factory.domains.recommendations._performance_snapshot_payload.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.recommendations._account_reward_baselines.__self__
-            is factory.services
+            factory.domains.recommendations._account_reward_baselines.__self__
+            is factory.domains
         )
         assert (
-            factory.services.recommendations._aggregate_performance.__self__
-            is factory.services
+            factory.domains.recommendations._aggregate_performance.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.recommendations._performance_quality_score.__self__
-            is factory.services
+            factory.domains.recommendations._performance_quality_score.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.recommendations._performance_planning_score.__self__
-            is factory.services
+            factory.domains.recommendations._performance_planning_score.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.audio_operations._performance_snapshot_payload.__self__
-            is factory.services
+            factory.domains.audio_operations._performance_snapshot_payload.__self__
+            is factory.domains.performance_summary_repo
         )
         assert (
-            factory.services.lifecycle_reporting._performance_snapshot_payload.__self__
-            is factory.services
+            factory.domains.lifecycle_reporting._performance_snapshot_payload.__self__
+            is factory.domains.performance_summary_repo
         )
     finally:
         factory.close()
 
 
 def test_core_services_constructor_owns_performance_helper_seams() -> None:
-    params = inspect.signature(CoreServices).parameters
+    params = inspect.signature(CampaignDomainServices).parameters
     for name in [
         "performance_summary",
         "performance_snapshot_payload",
@@ -392,7 +360,7 @@ def test_core_services_constructor_owns_performance_helper_seams() -> None:
 def test_core_services_strict_graph_edge_records_exception_for_missing_endpoint() -> (
     None
 ):
-    services = object.__new__(CoreServices)
+    services = object.__new__(CampaignDomainServices)
     calls = []
 
     class FakeGraph:
@@ -457,18 +425,23 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
     lineage = {"schema": "lineage.v1"}
     calls = []
 
-    class FakeServices:
+    class FakeDistribution:
         def validate_instagram_trial_reel_intent(self, *args, **kwargs):
             calls.append(("validate_instagram_trial_reel_intent", args, kwargs))
             return "MANUAL"
 
+    class FakeFinishedVideo:
         def record_lineage_costs(self, *args, **kwargs):
             calls.append(("record_lineage_costs", args, kwargs))
 
-    factory.services = FakeServices()
+    factory.domains = type(
+        "FakeDomains",
+        (),
+        {"distribution": FakeDistribution(), "finished_video": FakeFinishedVideo()},
+    )()
 
     assert (
-        factory._validate_instagram_trial_reel_intent(
+        factory.domains.distribution.validate_instagram_trial_reel_intent(
             content_surface="reel",
             distribution_surface="trial_reel",
             media_type="video",
@@ -477,7 +450,7 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
         )
         == "MANUAL"
     )
-    assert factory._record_lineage_costs(lineage) is None
+    assert factory.domains.finished_video.record_lineage_costs(lineage) is None
 
     assert calls == [
         (
@@ -496,8 +469,19 @@ def test_campaign_factory_operational_helpers_delegate_to_services() -> None:
 
 
 def test_export_summary_repository_preserves_export_module_seam(monkeypatch) -> None:
-    factory = object()
-    repository = ExportSummaryRepository(factory)
+    repository = ExportSummaryRepository(
+        object(),
+        dashboard=lambda *_args, **_kwargs: {},
+        audio_workflow_summary=lambda *_args, **_kwargs: {},
+        creative_plan_for_campaign=lambda *_args, **_kwargs: None,
+        active_reference_pattern_for_campaign=lambda *_args, **_kwargs: None,
+        generated_asset_lineage=lambda *_args, **_kwargs: {},
+        creative_plan_payload=lambda *_args, **_kwargs: {},
+        audio_recommendations_for_asset=lambda *_args, **_kwargs: {},
+        campaign_by_slug=lambda *_args, **_kwargs: {},
+        graph_id_for=lambda *_args, **_kwargs: None,
+        ensure_graph_edge=lambda *_args, **_kwargs: "edge_1",
+    )
     calls = []
 
     def fake_batch_summary(self, campaign_slug):
@@ -539,15 +523,15 @@ def test_export_summary_repository_preserves_export_module_seam(monkeypatch) -> 
         == "campaign_factory.export.v1"
     )
     assert calls == [
-        ("batch", factory, "campaign"),
-        ("daily", factory, "campaign", {"rendered": []}),
-        ("groups", factory, [{"id": "asset_1"}]),
-        ("manifest", factory, "campaign"),
+        ("batch", repository, "campaign"),
+        ("daily", repository, "campaign", {"rendered": []}),
+        ("groups", repository, [{"id": "asset_1"}]),
+        ("manifest", repository, "campaign"),
     ]
 
 
 def test_core_services_core_utility_methods_preserve_behavior(tmp_path) -> None:
-    services = object.__new__(CoreServices)
+    services = object.__new__(CampaignDomainServices)
     services.settings = type(
         "SettingsStub", (), {"campaigns_dir": tmp_path / "campaigns"}
     )()
@@ -657,25 +641,25 @@ def test_core_services_core_utility_methods_preserve_behavior(tmp_path) -> None:
 def test_core_services_audit_report_delegates_to_audit_payload_module(
     monkeypatch,
 ) -> None:
-    services = object.__new__(CoreServices)
-    factory = object.__new__(CampaignFactory)
-    services.factory_context = factory
+    services = object.__new__(CampaignDomainServices)
+    conn = object()
+    services.conn = conn
     calls = []
 
-    def fake_audit_report(self, audit_report_id):
-        calls.append(("audit", self, audit_report_id))
+    def fake_audit_report(db, audit_report_id):
+        calls.append(("audit", db, audit_report_id))
         return {"id": audit_report_id}
 
-    def fake_payload(self, row):
-        calls.append(("payload", self, row))
+    def fake_payload(row):
+        calls.append(("payload", row))
         return {"id": row["id"]}
 
     monkeypatch.setattr(audit_payload, "audit_report", fake_audit_report)
-    monkeypatch.setattr(audit_payload, "_audit_report_payload", fake_payload)
+    monkeypatch.setattr(audit_payload, "audit_report_payload", fake_payload)
 
     assert services.audit_report("audit_1") == {"id": "audit_1"}
     assert services.audit_report_payload({"id": "audit_2"}) == {"id": "audit_2"}
     assert calls == [
-        ("audit", factory, "audit_1"),
-        ("payload", factory, {"id": "audit_2"}),
+        ("audit", conn, "audit_1"),
+        ("payload", {"id": "audit_2"}),
     ]

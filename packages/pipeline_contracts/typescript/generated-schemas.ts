@@ -3026,6 +3026,201 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	providerSpendAuthorization: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/provider_spend_authorization.v1.schema.json",
+	  "title": "Campaign Factory Provider Spend Authorization",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "authorizationId",
+	    "reservationId",
+	    "issuer",
+	    "status",
+	    "issuedAt",
+	    "expiresAt",
+	    "scope",
+	    "providerQuote",
+	    "signature"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.provider_spend_authorization.v1"
+	    },
+	    "authorizationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "reservationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "issuer": {
+	      "const": "campaign_factory"
+	    },
+	    "status": {
+	      "const": "authorized"
+	    },
+	    "issuedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "expiresAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "scope": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "mode",
+	        "provider",
+	        "campaign",
+	        "cohortId",
+	        "stem",
+	        "soulId",
+	        "providerModels",
+	        "providerCallCount",
+	        "promptSha256",
+	        "referenceSha256",
+	        "startImageSha256",
+	        "endImageSha256",
+	        "videoReferenceSha256",
+	        "imageAspectRatio",
+	        "imageQuality",
+	        "videoAspectRatio",
+	        "videoDuration",
+	        "videoMode",
+	        "videoSound",
+	        "requestFingerprint"
+	      ],
+	      "properties": {
+	        "mode": {
+	          "enum": [
+	            "create",
+	            "image",
+	            "reference-image",
+	            "video"
+	          ]
+	        },
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "campaign": {
+	          "type": "string"
+	        },
+	        "cohortId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "stem": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "soulId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "providerModels": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "providerCallCount": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "promptSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "referenceSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "startImageSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "endImageSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "videoReferenceSha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "imageAspectRatio": {
+	          "type": "string"
+	        },
+	        "imageQuality": {
+	          "type": "string"
+	        },
+	        "videoAspectRatio": {
+	          "type": "string"
+	        },
+	        "videoDuration": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "videoMode": {
+	          "type": "string"
+	        },
+	        "videoSound": {
+	          "type": "string"
+	        },
+	        "requestFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
+	    "providerQuote": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "provider",
+	        "amount",
+	        "unit"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "const": "higgsfield"
+	        },
+	        "amount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "unit": {
+	          "const": "higgsfield_credits"
+	        }
+	      }
+	    },
+	    "signature": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
 	recommendationAccuracyReport: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.recommendation_accuracy_report.v1",
@@ -3451,6 +3646,565 @@ export const generatedPipelineContractSchemas = {
 	        "null"
 	      ],
 	      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+	    }
+	  }
+	} as const,
+	referenceFactoryKnowledgePack: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reference_factory.knowledge_pack.v1",
+	  "title": "Reference Factory Creative Knowledge Pack",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "packId",
+	    "sourceFingerprint",
+	    "generatedAt",
+	    "policy",
+	    "summary",
+	    "goldReferences",
+	    "promptCards",
+	    "patternCards",
+	    "captionPatterns",
+	    "audioPatterns",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reference_factory.knowledge_pack.v1"
+	    },
+	    "packId": {
+	      "type": "string",
+	      "pattern": "^kp_[a-f0-9]{16}$"
+	    },
+	    "sourceFingerprint": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "generatedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "policy": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "humanGoldLabelsAuthoritative",
+	        "measuredFactsSource",
+	        "minimumMeasuredExamplesForRecommendation"
+	      ],
+	      "properties": {
+	        "humanGoldLabelsAuthoritative": {
+	          "const": true
+	        },
+	        "measuredFactsSource": {
+	          "const": "campaign_factory.performance_snapshots"
+	        },
+	        "minimumMeasuredExamplesForRecommendation": {
+	          "type": "integer",
+	          "minimum": 3
+	        }
+	      }
+	    },
+	    "summary": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "goldReferenceCount",
+	        "promptCardCount",
+	        "patternCardCount",
+	        "captionPatternCount",
+	        "audioPatternCount",
+	        "measuredExampleCount",
+	        "eligiblePatternCount",
+	        "advisoryPatternCount"
+	      ],
+	      "properties": {
+	        "goldReferenceCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "promptCardCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "patternCardCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "captionPatternCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "audioPatternCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "measuredExampleCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "eligiblePatternCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "advisoryPatternCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        }
+	      }
+	    },
+	    "goldReferences": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/goldReference"
+	      }
+	    },
+	    "promptCards": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/promptCard"
+	      }
+	    },
+	    "patternCards": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/patternCard"
+	      }
+	    },
+	    "captionPatterns": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/captionPattern"
+	      }
+	    },
+	    "audioPatterns": {
+	      "type": "array",
+	      "items": {
+	        "$ref": "#/$defs/audioPattern"
+	      }
+	    },
+	    "provenance": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "producer",
+	        "sourceTables",
+	        "measuredFactsSource"
+	      ],
+	      "properties": {
+	        "producer": {
+	          "const": "reference_factory"
+	        },
+	        "sourceTables": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          },
+	          "uniqueItems": true
+	        },
+	        "measuredFactsSource": {
+	          "const": "campaign_factory.performance_snapshots"
+	        }
+	      }
+	    }
+	  },
+	  "$defs": {
+	    "nonNegativeInteger": {
+	      "type": "integer",
+	      "minimum": 0
+	    },
+	    "nullableString": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "recommendationStatus": {
+	      "type": "string",
+	      "enum": [
+	        "advisory",
+	        "eligible"
+	      ]
+	    },
+	    "outcomeProvenance": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "promptId",
+	        "postId",
+	        "rewardScore",
+	        "sourceSnapshotAt",
+	        "scoringVersion",
+	        "baselineProvenance",
+	        "outcome"
+	      ],
+	      "properties": {
+	        "promptId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "postId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "rewardScore": {
+	          "type": "number"
+	        },
+	        "confidence": {
+	          "type": [
+	            "number",
+	            "null"
+	          ]
+	        },
+	        "sourceSnapshotAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "scoringVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "baselineProvenance": {
+	          "type": "object"
+	        },
+	        "outcome": {
+	          "type": "object"
+	        }
+	      }
+	    },
+	    "goldReference": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "referenceId",
+	        "label",
+	        "account",
+	        "localPath",
+	        "contentHash",
+	        "tags",
+	        "notes",
+	        "promptCardIds",
+	        "patternCardIds",
+	        "captionPatternIds",
+	        "measuredExampleCount",
+	        "measuredOutcomeProvenance"
+	      ],
+	      "properties": {
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "label": {
+	          "const": "gold"
+	        },
+	        "account": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "localPath": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "contentHash": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "tags": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "notes": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "promptCardIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "patternCardIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "captionPatternIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "measuredExampleCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "measuredOutcomeProvenance": {
+	          "type": "array",
+	          "items": {
+	            "$ref": "#/$defs/outcomeProvenance"
+	          }
+	        }
+	      }
+	    },
+	    "promptCard": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "referenceId",
+	        "targetTool",
+	        "modelProfile",
+	        "status",
+	        "prompt",
+	        "measuredExampleCount",
+	        "recommendationStatus",
+	        "measuredOutcomeProvenance"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "targetTool": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "modelProfile": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "status": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "prompt": {
+	          "type": "object"
+	        },
+	        "measuredExampleCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "recommendationStatus": {
+	          "$ref": "#/$defs/recommendationStatus"
+	        },
+	        "measuredOutcomeProvenance": {
+	          "type": "array",
+	          "items": {
+	            "$ref": "#/$defs/outcomeProvenance"
+	          }
+	        }
+	      }
+	    },
+	    "patternCard": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "clusterKey",
+	        "rank",
+	        "label",
+	        "visualFormat",
+	        "hookType",
+	        "captionArchetype",
+	        "qualityScore",
+	        "referenceIds",
+	        "promptCardIds",
+	        "captionPatternIds",
+	        "audioPatternIds",
+	        "pattern",
+	        "measuredExampleCount",
+	        "recommendationStatus",
+	        "measuredOutcomeProvenance"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "clusterKey": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "rank": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "label": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "visualFormat": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "hookType": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "captionArchetype": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "qualityScore": {
+	          "type": "number"
+	        },
+	        "referenceIds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "promptCardIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "captionPatternIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "audioPatternIds": {
+	          "type": "array",
+	          "items": {
+	            "type": "string"
+	          }
+	        },
+	        "pattern": {
+	          "type": "object"
+	        },
+	        "measuredExampleCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "recommendationStatus": {
+	          "$ref": "#/$defs/recommendationStatus"
+	        },
+	        "measuredOutcomeProvenance": {
+	          "type": "array",
+	          "items": {
+	            "$ref": "#/$defs/outcomeProvenance"
+	          }
+	        }
+	      }
+	    },
+	    "captionPattern": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "referenceId",
+	        "normalizedText",
+	        "firstLine",
+	        "lineCount",
+	        "characterCount",
+	        "averageConfidence",
+	        "placement"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "referenceId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "normalizedText": {
+	          "type": "string"
+	        },
+	        "firstLine": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "lineCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "characterCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "averageConfidence": {
+	          "type": [
+	            "number",
+	            "null"
+	          ]
+	        },
+	        "placement": {
+	          "type": "object"
+	        }
+	      }
+	    },
+	    "audioPattern": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "platform",
+	        "audioId",
+	        "audioTitle",
+	        "artistName",
+	        "usageType",
+	        "visualFormat",
+	        "hookType",
+	        "captionArchetype",
+	        "postCount",
+	        "recommendation",
+	        "sourceSignal"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "platform": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audioId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audioTitle": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "artistName": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "usageType": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "visualFormat": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "hookType": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "captionArchetype": {
+	          "$ref": "#/$defs/nullableString"
+	        },
+	        "postCount": {
+	          "$ref": "#/$defs/nonNegativeInteger"
+	        },
+	        "recommendation": {
+	          "type": "object"
+	        },
+	        "sourceSignal": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "totalPlays",
+	            "medianPlays"
+	          ],
+	          "properties": {
+	            "totalPlays": {
+	              "$ref": "#/$defs/nonNegativeInteger"
+	            },
+	            "medianPlays": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 0
+	            }
+	          }
+	        }
+	      }
 	    }
 	  }
 	} as const,
@@ -4726,8 +5480,10 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },
 	{ key: "performanceSync", filename: "performance_sync.v1.schema.json", id: "campaign_factory.performance_sync.v1" },
 	{ key: "postMetricHistoryRead", filename: "post_metric_history.read.v1.schema.json", id: "threadsdashboard.post_metric_history.read.v1" },
+	{ key: "providerSpendAuthorization", filename: "provider_spend_authorization.v1.schema.json", id: "https://creator-os.local/schemas/provider_spend_authorization.v1.schema.json" },
 	{ key: "recommendationAccuracyReport", filename: "recommendation_accuracy_report.v1.schema.json", id: "campaign_factory.recommendation_accuracy_report.v1" },
 	{ key: "recommendationNextBatch", filename: "recommendation_next_batch.v1.schema.json", id: "campaign_factory.recommendations.next_batch.v1" },
+	{ key: "referenceFactoryKnowledgePack", filename: "reference_factory_knowledge_pack.v1.schema.json", id: "reference_factory.knowledge_pack.v1" },
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },

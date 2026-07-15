@@ -63,6 +63,9 @@ workflows:
 # Read-only: repository, contracts, config, runtime, DB, and explicit NOT_RUN checks
 scripts/creator-os status
 
+# Networked but zero-product-write/no-generation: HMAC seam + provider probes
+scripts/creator-os status --live-read-only
+
 # Read-only fixture-backed integrity audit
 scripts/creator-os doctor --quick
 
@@ -145,8 +148,12 @@ different claims. `scripts/creator-os status` reports the exact paths and SHAs
 it can prove and labels provider/production checks `NOT_RUN` when they were not
 performed.
 
-Machine-local credentials, environment files, databases, provider receipts,
-runtime logs, and generated media remain outside Git.
+Machine-local credentials and environment files remain under `~/.creator-os/`.
+Canonical databases, generated media, models, and logs live under
+`~/.creator-os/state`, `artifacts`, `models`, and `logs`; component-specific
+variables are explicit rollback overrides. `scripts/creator-os status` reports
+these roots, exact source/runtime SHAs, and runtime cleanliness. Add
+`--live-read-only` only when configured zero-write seam probes should run.
 
 ## Install And Verify
 

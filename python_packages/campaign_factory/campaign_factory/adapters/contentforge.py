@@ -42,8 +42,8 @@ def audit_campaign(
     layers: list[str] | None = None,
     rendered_asset_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    campaign = factory.campaign_by_slug(campaign_slug)
-    pipeline_job = factory.create_pipeline_job(
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "contentforge_audit",
         campaign["id"],
         {
@@ -55,11 +55,11 @@ def audit_campaign(
             "renderedAssetIds": rendered_asset_ids or [],
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     try:
-        rendered = factory.rendered_for_campaign(campaign["id"])
+        rendered = factory.domains.rendered_for_campaign(campaign["id"])
         if rendered_asset_ids is not None:
             requested = _normalized_ids(rendered_asset_ids, "rendered_asset_ids")
             by_id = {str(asset["id"]): asset for asset in rendered}
@@ -69,8 +69,10 @@ def audit_campaign(
                     "rendered assets not found in campaign: " + ", ".join(missing)
                 )
             rendered = [by_id[asset_id] for asset_id in requested]
-        reference_pattern = factory.active_reference_pattern_for_campaign(
-            campaign["id"]
+        reference_pattern = (
+            factory.domains.reference.active_reference_pattern_for_campaign(
+                campaign["id"]
+            )
         )
         reference_paths = _existing_reference_paths(reference_pattern)
         audit_layers = layers or DEFAULT_LAYERS
@@ -78,7 +80,7 @@ def audit_campaign(
             audit_layers = [*audit_layers, "originality"]
         reports = []
         for asset in rendered:
-            factory.record_event(
+            factory.domains.events.record_event(
                 "contentforge_audit_started",
                 campaign_id=campaign["id"],
                 source_asset_id=asset["source_asset_id"],
@@ -109,7 +111,7 @@ def audit_campaign(
             failed = report.get("failedChecks") or []
             warnings = report.get("warnings") or []
             failed_event = bool(report.get("error")) or "contentforge_cli" in failed
-            factory.record_event(
+            factory.domains.events.record_event(
                 "contentforge_audit_failed"
                 if failed_event
                 else "contentforge_audit_completed",
@@ -144,7 +146,7 @@ def audit_campaign(
             "reports": reports,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(
+        factory.domains.events.finish_pipeline_job(
             pipeline_job["id"],
             {
                 "reportCount": len(reports),
@@ -163,7 +165,7 @@ def audit_campaign(
         )
         return result
     except Exception as exc:
-        factory.record_event(
+        factory.domains.events.record_event(
             "contentforge_audit_failed",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -171,7 +173,7 @@ def audit_campaign(
             message=f"ContentForge audit failed: {exc}",
             metadata={"error": str(exc)},
         )
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -593,7 +595,7 @@ def _audit_asset(
             utc_now(),
         ),
     )
-    audit_graph_id = factory.ensure_graph_node(
+    audit_graph_id = factory.domains.graph.ensure_graph_node(
         "audit_report",
         local_table="audit_reports",
         local_id=audit_id,
@@ -605,8 +607,8 @@ def _audit_asset(
             "reportPath": str(report_path),
         },
     )
-    factory.ensure_graph_edge(
-        factory.graph_id_for(
+    factory.domains.graph.ensure_graph_edge(
+        factory.domains.graph.graph_id_for(
             "rendered_assets", asset["id"], entity_type="rendered_asset"
         ),
         audit_graph_id,

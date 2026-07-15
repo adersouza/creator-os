@@ -30,12 +30,14 @@ def run_variation_stage(
     contentforge_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Create per-account zero-cost variant assignments for approved campaign assets."""
-    manifest = factory.export_manifest(campaign_slug=campaign_slug)
+    manifest = factory.domains.export_summary.export_manifest(
+        campaign_slug=campaign_slug
+    )
     selected_ids = set(rendered_asset_ids or [])
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     output_dir = (
-        factory.campaign_dirs(model_slug, campaign_slug)["exports"]
+        factory.domains.campaign_dirs(model_slug, campaign_slug)["exports"]
         / "variation_assignments"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -152,10 +154,10 @@ def run_variation_stage(
 def load_variant_assignment_index(
     factory: Any, *, campaign_slug: str
 ) -> dict[str, dict[str, Any]]:
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     assignment_dir = (
-        factory.campaign_dirs(model_slug, campaign_slug)["exports"]
+        factory.domains.campaign_dirs(model_slug, campaign_slug)["exports"]
         / "variation_assignments"
     )
     index: dict[str, dict[str, Any]] = {}

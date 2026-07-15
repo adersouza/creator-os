@@ -8,9 +8,6 @@ dependencies = [
   "fastapi>=0.115",
   "pipeline-contracts",
   "pydantic>=2,<3",
-  # higgsfield_runner.py imports reel_factory.higgsfield_cost_preflight; declare
-  # the dep explicitly (the import DAG permits reference -> reel).
-  "reel-factory",
   "uvicorn>=0.30",
 ]
 
@@ -29,7 +26,6 @@ markers = [
 [tool.uv.sources]
 creator-os-core = { workspace = true }
 pipeline-contracts = { workspace = true }
-reel-factory = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=69"]

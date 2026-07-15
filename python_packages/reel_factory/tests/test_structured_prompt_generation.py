@@ -243,32 +243,13 @@ class StructuredPromptGenerationTests(unittest.TestCase):
                 "reel_factory.reference_recreation_prompt.v1",
             )
 
-    def test_generate_prompt_injects_confident_next_batch_guidance(self):
-        plan = {
-            "ideas": [
-                {
-                    "brief": "Lean into Winner DNA: bathroom_mirror / hip_shift.",
-                    "prompt_focus": "fix_hands",
-                    "winner_dna_focus": [
-                        {"feature_key": "scene", "feature_value": "bathroom_mirror"},
-                        {"feature_key": "pose", "feature_value": "hip_shift"},
-                    ],
-                    "recommendation": {"confidence": "medium"},
-                    "data_quality": {"score": 72},
-                    "low_data_warning": None,
-                }
-            ]
-        }
+    def test_generate_prompt_injects_explicit_campaign_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ref = root / "reference.jpg"
             Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
 
             with (
-                patch("reel_factory.generate_prompts.taste_memory", return_value=""),
-                patch(
-                    "reel_factory.generate_prompts.next_batch_plan", return_value=plan
-                ),
                 patch(
                     "reel_factory.generate_prompts.load_xai_api_key",
                     return_value="test-key",
@@ -283,40 +264,25 @@ class StructuredPromptGenerationTests(unittest.TestCase):
                     root=root,
                     reference_images=[ref],
                     campaign="Stacey Campaign",
+                    creative_direction=(
+                        "Lean into Winner DNA: bathroom_mirror / hip_shift.\n"
+                        "Retry focus: fix_hands."
+                    ),
                     dry_run=True,
                 )
 
         instruction = grok.call_args.args[0]["input"][0]["content"][0]["text"]
-        self.assertIn("Next-batch learning guidance", instruction)
         self.assertIn("bathroom_mirror", instruction)
         self.assertIn("fix_hands", instruction)
-        self.assertIn("pose=hip_shift", instruction)
+        self.assertIn("hip_shift", instruction)
 
-    def test_generate_prompt_ignores_low_data_next_batch_plan(self):
-        plan = {
-            "ideas": [
-                {
-                    "brief": "Lean into Winner DNA: bathroom_mirror.",
-                    "prompt_focus": "fix_hands",
-                    "winner_dna_focus": [
-                        {"feature_key": "scene", "feature_value": "bathroom_mirror"},
-                    ],
-                    "recommendation": {"confidence": "low"},
-                    "data_quality": {"score": 20},
-                    "low_data_warning": "Winner DNA is based on fewer than 50 rows.",
-                }
-            ]
-        }
+    def test_generate_prompt_does_not_read_implicit_campaign_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ref = root / "reference.jpg"
             Image.new("RGB", (120, 160), (220, 200, 190)).save(ref)
 
             with (
-                patch("reel_factory.generate_prompts.taste_memory", return_value=""),
-                patch(
-                    "reel_factory.generate_prompts.next_batch_plan", return_value=plan
-                ),
                 patch(
                     "reel_factory.generate_prompts.load_xai_api_key",
                     return_value="test-key",

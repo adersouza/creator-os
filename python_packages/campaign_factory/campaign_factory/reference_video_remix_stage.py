@@ -16,6 +16,7 @@ from reel_factory.reference_video_remix import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,
 )
+from scenedetect import ContentDetector, detect
 
 from .core import new_id, sanitize_for_storage, sha256_file
 from .persistence import utc_now
@@ -32,6 +33,8 @@ REQUIRED_CONTENTFORGE_CHECKS = (
     "visual_qc",
 )
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
+_SCENE_DETECT_THRESHOLD = 27.0
+_SCENE_DETECT_MIN_LENGTH_FRAMES = 15
 _T = TypeVar("_T")
 
 
@@ -275,9 +278,13 @@ def run_reference_video_remix_stage(
     if not workspace.is_dir():
         raise FileNotFoundError(f"workspace not found: {workspace}")
     reference_video = _reference_video(reference_video_path)
-    campaign = factory.campaign_by_slug(campaign_slug)
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    # This preflight is deliberately before Campaign rows, directories, or any
+    # paid/provider seam. A multi-shot source is not eligible for the one-shot
+    # structural-remix contract and must fail without side effects.
+    probe = probe_reference_video(reference_video)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     remix_dir = (
         dirs["reel_inputs"]
         / "reference_video_remix"
@@ -285,7 +292,7 @@ def run_reference_video_remix_stage(
     )
     remix_dir.mkdir(parents=True, exist_ok=True)
     seams = seams or JsonCommandReferenceVideoRemixSeams()
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "reference_video_remix",
         campaign["id"],
         {
@@ -303,9 +310,8 @@ def run_reference_video_remix_stage(
             "publishingAllowed": False,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
-        probe = probe_reference_video(reference_video)
         source_first, source_last = extract_reference_endpoints(
             reference_video, remix_dir, probe=probe
         )
@@ -481,10 +487,12 @@ def run_reference_video_remix_stage(
             "publishingAllowed": False,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(result))
+        factory.domains.events.finish_pipeline_job(
+            pipeline_job["id"], sanitize_for_storage(result)
+        )
         return result
     except Exception as exc:
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -575,12 +583,58 @@ def probe_reference_video(path: Path) -> dict[str, Any]:
         raise ValueError("reference video duration must be between 5 and 12 seconds")
     if width <= 0 or height <= 0 or abs((width / height) - (9 / 16)) > 0.01:
         raise ValueError("reference video must be 9:16")
+    scene_detection = detect_reference_video_scenes(path)
+    if scene_detection["shotCount"] != 1:
+        raise ValueError(
+            "reference video must be one continuous shot; "
+            f"PySceneDetect found {scene_detection['shotCount']} shots"
+        )
     return {
         "durationSeconds": duration,
         "width": width,
         "height": height,
         "aspectRatio": "9:16",
         "videoStreamCount": 1,
+        "shotCount": 1,
+        "hasCuts": False,
+        "sceneDetection": scene_detection,
+    }
+
+
+def detect_reference_video_scenes(path: Path) -> dict[str, Any]:
+    """Return deterministic cut evidence for a short local reference video.
+
+    No output files are written. Decoder or detector failures are fatal because
+    proceeding would move a potentially multi-shot input into paid generation.
+    """
+    try:
+        scenes = detect(
+            str(path),
+            ContentDetector(
+                threshold=_SCENE_DETECT_THRESHOLD,
+                min_scene_len=_SCENE_DETECT_MIN_LENGTH_FRAMES,
+            ),
+            show_progress=False,
+            start_in_scene=True,
+        )
+    except Exception as exc:
+        raise RuntimeError("reference video scene detection failed closed") from exc
+    if not scenes:
+        raise RuntimeError("reference video scene detection returned no scenes")
+    boundaries = [
+        {
+            "startSeconds": round(float(start.seconds), 6),
+            "endSeconds": round(float(end.seconds), 6),
+        }
+        for start, end in scenes
+    ]
+    return {
+        "detector": "pyscenedetect_content_detector",
+        "threshold": _SCENE_DETECT_THRESHOLD,
+        "minSceneLengthFrames": _SCENE_DETECT_MIN_LENGTH_FRAMES,
+        "shotCount": len(boundaries),
+        "hasCuts": len(boundaries) > 1,
+        "scenes": boundaries,
     }
 
 
@@ -708,6 +762,8 @@ def _validate_analysis_matches_source(
         raise ValueError("Gemini analysis must confirm 9:16")
     if source.get("shotCount") != 1 or source.get("hasCuts") is not False:
         raise ValueError("reference video must be one continuous shot")
+    if probe.get("shotCount") != 1 or probe.get("hasCuts") is not False:
+        raise ValueError("local scene preflight did not prove a continuous shot")
     if abs(float(source.get("durationSeconds") or 0) - probe["durationSeconds"]) > 0.15:
         raise ValueError("Gemini analysis duration does not match ffprobe")
 

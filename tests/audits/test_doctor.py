@@ -75,6 +75,50 @@ def test_live_status_keeps_unprobed_external_systems_not_run(tmp_path: Path) -> 
     assert "never-print-me" not in provider.evidence
 
 
+def test_live_status_records_shared_trace_and_zero_write_probe_results(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_root = tmp_path / ".creator-os"
+    config_root.mkdir()
+    config = config_root / "generation.env"
+    config.write_text(
+        'export THREADSDASH_CAMPAIGN_FACTORY_HANDSHAKE_URL="https://juno33.com/api/campaign-factory/handshake"\n'
+        'export CAMPAIGN_FACTORY_INGEST_SECRET="never-print-me"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        doctor,
+        "run_provider_probe",
+        lambda **kwargs: {
+            "status": "PASS",
+            "traceId": kwargs["trace_id"],
+            "providerCalls": 0,
+            "costEventsCreated": 0,
+        },
+    )
+    monkeypatch.setattr(
+        doctor,
+        "run_threadsdash_handshake",
+        lambda **kwargs: {
+            "status": "PASS",
+            "traceId": kwargs["trace_id"],
+            "productRowsWritten": 0,
+        },
+    )
+
+    results = doctor.run_live_status(home=tmp_path, live_read_only=True)
+    provider = next(row for row in results if row.name == "provider-readiness")
+    handshake = next(row for row in results if row.name == "threadsdashboard-handshake")
+
+    assert provider.status == "PASS"
+    assert handshake.status == "PASS"
+    assert (
+        json.loads(provider.evidence)["traceId"]
+        == json.loads(handshake.evidence)["traceId"]
+    )
+    assert "never-print-me" not in handshake.evidence
+
+
 def test_business_only_runs_all_second_layer_audits() -> None:
     results = doctor.run_doctor(quick=True, business_only=True)
 

@@ -11,12 +11,9 @@ def test_production_sqlite_connects_use_shared_helper() -> None:
     package_root = repo_root / "python_packages"
     allowed = {
         Path("reference_factory/reference_factory/db.py"),
-        Path("reference_factory/reference_factory/higgsfield_runner.py"),
         Path("campaign_factory/campaign_factory/db.py"),
         Path("campaign_factory/campaign_factory/readiness_report.py"),
         Path("campaign_factory/campaign_factory/reel_execution.py"),
-        Path("campaign_factory/campaign_factory/reel_ledger_promotion.py"),
-        Path("campaign_factory/scripts/caption_outcome_e2e_proof.py"),
         Path("reel_factory/reel_factory/sqlite_utils.py"),
     }
     offenders: list[str] = []

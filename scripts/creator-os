@@ -44,6 +44,11 @@ def _parser() -> argparse.ArgumentParser:
         "status", help="read-only live configuration/runtime status"
     )
     status.add_argument("--json", action="store_true")
+    status.add_argument(
+        "--live-read-only",
+        action="store_true",
+        help="run configured zero-write network/provider probes",
+    )
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -148,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         command = [sys.executable, str(ROOT / "scripts/doctor.py"), "--status"]
         if args.json:
             command.append("--json")
+        if args.live_read_only:
+            command.append("--live-read-only")
         return _run(command)
     if args.command == "doctor":
         doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args

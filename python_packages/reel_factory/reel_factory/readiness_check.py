@@ -16,6 +16,7 @@ from reel_factory.sqlite_utils import connect_sqlite
 from .audio_intent import read_audio_intent
 from .post_render_acceptance import acceptance_from_readiness
 from .safe_zone import score_safe_zone
+from .state_paths import manifest_db_path
 from .virality_qc import evaluate_output_virality
 
 try:
@@ -151,13 +152,13 @@ def _load_ai_qc(clip_dir: Path) -> dict[str, dict[str, Any]]:
 
 
 def _manifest_rows(root: Path) -> dict[str, dict[str, Any]]:
-    db = root / "manifest.sqlite"
+    db = manifest_db_path(root)
     if not db.exists():
         return {}
     conn = connect_sqlite(db)
     try:
         rows = conn.execute(
-            "SELECT output_path, review_state, recipe_params_json, status FROM variations"
+            "SELECT output_path, recipe_params_json, status FROM variations"
         ).fetchall()
     finally:
         conn.close()
@@ -278,7 +279,7 @@ def evaluate_output(
         "status": status,
         "score": score,
         "warnings": warnings,
-        "reviewState": (manifest_row or {}).get("review_state", "draft"),
+        "reviewAuthority": "campaign_factory",
         "targetRatio": target_ratio,
         "dimensions": {"width": width, "height": height},
         "audioIntent": audio_intent,

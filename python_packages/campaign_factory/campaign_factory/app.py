@@ -14,12 +14,9 @@ from fastapi.responses import FileResponse
 
 from .adapters.contentforge import audit_campaign
 from .adapters.threadsdash import (
-    clear_preview_schedule,
     evaluate_export_readiness,
     export_threadsdash,
     preflight_supabase,
-    promote_preview_schedule,
-    safe_live_smoke_export,
     summarize_threadsdash_usage,
     sync_performance_snapshots,
     sync_threadsdash_account_assignments,
@@ -51,7 +48,7 @@ def index():
 def dashboard(campaign: str | None = None):
     cf = factory()
     try:
-        return cf.dashboard(campaign)
+        return cf.domains.campaign_overview.dashboard(campaign)
     finally:
         cf.close()
 
@@ -60,7 +57,7 @@ def dashboard(campaign: str | None = None):
 def campaign_health(campaign: str):
     cf = factory()
     try:
-        return cf.campaign_health(campaign)
+        return cf.domains.campaign_overview.campaign_health(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -71,7 +68,7 @@ def campaign_health(campaign: str):
 def asset_detail(rendered_asset_id: str):
     cf = factory()
     try:
-        return cf.asset_detail(rendered_asset_id)
+        return cf.domains.campaign_overview.asset_detail(rendered_asset_id)
     except Exception as exc:
         raise HTTPException(404, str(exc)) from exc
     finally:
@@ -82,7 +79,9 @@ def asset_detail(rendered_asset_id: str):
 def campaign_readiness(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.campaign_readiness(body["campaign"], user_id=body.get("userId"))
+        return cf.domains.lifecycle_reporting.campaign_readiness(
+            body["campaign"], user_id=body.get("userId")
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -93,7 +92,7 @@ def campaign_readiness(body: dict[str, Any] = Body(...)):
 def asset_account_assignment(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.assign_asset_account(
+        return cf.domains.campaign_overview.assign_asset_account(
             body["renderedAssetId"],
             account_id=body.get("accountId"),
             instagram_account_id=body.get("instagramAccountId"),
@@ -122,7 +121,9 @@ def account_plan(campaign: str, userId: str):
                 supabase_url=supabase_url,
                 supabase_service_role_key=service_key,
             )
-        return cf.account_plan(campaign, user_id=userId, usage=usage)
+        return cf.domains.account_planning.account_plan(
+            campaign, user_id=userId, usage=usage
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -133,7 +134,7 @@ def account_plan(campaign: str, userId: str):
 def model_account_profile(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.upsert_model_account_profile(
+        return cf.domains.models.upsert_model_account_profile(
             body["model"],
             label=body.get("label"),
             allowed_instagram_account_ids=body.get("allowedInstagramAccountIds") or [],
@@ -152,7 +153,7 @@ def model_account_profile(body: dict[str, Any] = Body(...)):
 def distribution_plan(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.create_distribution_plan(
+        return cf.domains.distribution.create_distribution_plan(
             body["renderedAssetId"],
             surface=body.get("surface") or "regular_reel",
             account_id=body.get("accountId"),
@@ -174,7 +175,7 @@ def distribution_plan(body: dict[str, Any] = Body(...)):
 def plan_distribution(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.plan_distribution(
+        return cf.domains.distribution.plan_distribution(
             body["campaign"],
             user_id=body["userId"],
             mode=body.get("mode") or "preview",
@@ -187,50 +188,11 @@ def plan_distribution(body: dict[str, Any] = Body(...)):
         cf.close()
 
 
-@app.post("/api/promote-preview-schedule")
-def promote_preview(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return promote_preview_schedule(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            limit=int(body.get("limit") or 1000),
-        )
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
-@app.post("/api/clear-preview-schedule")
-def clear_preview(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return clear_preview_schedule(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            limit=int(body.get("limit") or 1000),
-            reason=body.get("reason") or "audio_workflow_not_ready",
-        )
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
 @app.get("/api/ranking")
 def ranking(campaign: str):
     cf = factory()
     try:
-        return cf.ranking(campaign)
+        return cf.domains.account_planning.ranking(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -241,7 +203,7 @@ def ranking(campaign: str):
 def autonomy_policy():
     cf = factory()
     try:
-        return cf.autonomy_policy()
+        return cf.domains.autonomy.autonomy_policy()
     finally:
         cf.close()
 
@@ -250,7 +212,7 @@ def autonomy_policy():
 def set_autonomy_policy(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.set_autonomy_level(body["level"])
+        return cf.domains.autonomy.set_autonomy_level(body["level"])
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -261,7 +223,7 @@ def set_autonomy_policy(body: dict[str, Any] = Body(...)):
 def trust_summary(campaign: str):
     cf = factory()
     try:
-        return cf.trust_summary(campaign)
+        return cf.domains.exceptions.trust_summary(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -272,7 +234,7 @@ def trust_summary(campaign: str):
 def run_recommendations(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.recommend_next_batch(
+        return cf.domains.recommendations.recommend_next_batch(
             body["campaign"],
             count=int(body.get("count") or 20),
             account=body.get("account"),
@@ -288,7 +250,7 @@ def run_recommendations(body: dict[str, Any] = Body(...)):
 def recommendations(campaign: str, limit: int = 10):
     cf = factory()
     try:
-        return cf.recommendation_runs(campaign, limit=limit)
+        return cf.domains.recommendations.recommendation_runs(campaign, limit=limit)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -301,7 +263,7 @@ def recommendation_accuracy(
 ):
     cf = factory()
     try:
-        return cf.recommendation_accuracy(
+        return cf.domains.recommendation_accuracy_repo.recommendation_accuracy(
             campaign, account=account, window_days=windowDays, persist=True
         )
     except Exception as exc:
@@ -314,7 +276,7 @@ def recommendation_accuracy(
 def rebuild_recommendation_accuracy(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.rebuild_recommendation_accuracy(
+        return cf.domains.recommendation_accuracy_repo.rebuild_recommendation_accuracy(
             body["campaign"],
             account=body.get("account"),
             window_days=int(body.get("windowDays") or body.get("window_days") or 30),
@@ -331,7 +293,7 @@ def accept_recommendation(
 ):
     cf = factory()
     try:
-        return cf.accept_recommendation_item(
+        return cf.domains.recommendations.accept_recommendation_item(
             recommendation_item_id,
             operator=body.get("operator"),
             notes=body.get("notes"),
@@ -350,7 +312,7 @@ def reject_recommendation(
 ):
     cf = factory()
     try:
-        return cf.reject_recommendation_item(
+        return cf.domains.recommendations.reject_recommendation_item(
             recommendation_item_id,
             reason=body.get("reason"),
             operator=body.get("operator"),
@@ -368,7 +330,7 @@ def reject_recommendation(
 def link_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.link_recommendation_item(
+        return cf.domains.recommendations.link_recommendation_item(
             recommendation_item_id,
             source_asset_id=body.get("sourceAssetId"),
             render_job_id=body.get("renderJobId"),
@@ -393,7 +355,7 @@ def measure_recommendation(
 ):
     cf = factory()
     try:
-        return cf.measure_recommendation_item(
+        return cf.domains.recommendations.measure_recommendation_item(
             recommendation_item_id,
             performance_snapshot_id=body.get("performanceSnapshotId"),
             admin_override=bool(body.get("adminOverride")),
@@ -411,7 +373,7 @@ def execute_recommendation(
 ):
     cf = factory()
     try:
-        return cf.execute_accepted_recommendation(
+        return cf.domains.recommendations.execute_accepted_recommendation(
             recommendation_item_id,
             mode=body.get("mode") or "level_2",
             force=bool(body.get("force", False)),
@@ -429,7 +391,7 @@ def execute_recommendation(
 def account_memory(campaign: str, account: str | None = None):
     cf = factory()
     try:
-        return cf.account_memory(campaign, account=account)
+        return cf.domains.account_memory.account_memory(campaign, account=account)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -440,7 +402,7 @@ def account_memory(campaign: str, account: str | None = None):
 def rebuild_account_memory(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.rebuild_account_memory(body["campaign"])
+        return cf.domains.account_memory.rebuild_account_memory(body["campaign"])
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -451,7 +413,7 @@ def rebuild_account_memory(body: dict[str, Any] = Body(...)):
 def exceptions(campaign: str | None = None, status: str = "open"):
     cf = factory()
     try:
-        return cf.exceptions(campaign, status=status)
+        return cf.domains.exceptions.exceptions(campaign, status=status)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -462,7 +424,7 @@ def exceptions(campaign: str | None = None, status: str = "open"):
 def resolve_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
     cf = factory()
     try:
-        return cf.resolve_exception(
+        return cf.domains.exceptions.resolve_exception(
             exception_id,
             resolution=body.get("resolution"),
             operator=body.get("operator"),
@@ -477,7 +439,7 @@ def resolve_exception(exception_id: str, body: dict[str, Any] = Body(default={})
 def snooze_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
     cf = factory()
     try:
-        return cf.snooze_exception(
+        return cf.domains.exceptions.snooze_exception(
             exception_id,
             until=body.get("until"),
             reason=body.get("reason"),
@@ -493,7 +455,7 @@ def snooze_exception(exception_id: str, body: dict[str, Any] = Body(default={}))
 def reopen_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
     cf = factory()
     try:
-        return cf.reopen_exception(
+        return cf.domains.exceptions.reopen_exception(
             exception_id, reason=body.get("reason"), operator=body.get("operator")
         )
     except Exception as exc:
@@ -509,7 +471,7 @@ def import_reference_bank(body: dict[str, Any] = Body(...)):
         default_bank = (
             settings.reference_reels_root / "learning" / "campaign_reference_bank.json"
         )
-        return cf.import_reference_bank(
+        return cf.domains.reference.import_reference_bank(
             Path(body.get("path") or default_bank),
             Path(body["promptPack"]) if body.get("promptPack") else None,
             dry_run=bool(body.get("dryRun", True)),
@@ -527,7 +489,7 @@ def import_reference_bank(body: dict[str, Any] = Body(...)):
 def import_audio_catalog(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.import_audio_catalog(Path(body["path"]))
+        return cf.domains.audio_recommendations.import_audio_catalog(Path(body["path"]))
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -538,7 +500,7 @@ def import_audio_catalog(body: dict[str, Any] = Body(...)):
 def import_audio_memory(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.import_audio_memory(Path(body["path"]))
+        return cf.domains.audio_recommendations.import_audio_memory(Path(body["path"]))
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -549,7 +511,9 @@ def import_audio_memory(body: dict[str, Any] = Body(...)):
 def audio_catalog(platform: str | None = None, limit: int = 100):
     cf = factory()
     try:
-        return cf.audio_catalog(platform=platform, limit=limit)
+        return cf.domains.audio_recommendations.audio_catalog(
+            platform=platform, limit=limit
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -562,7 +526,9 @@ def audio_memory(
 ):
     cf = factory()
     try:
-        return cf.audio_memory(platform=platform, account=account, limit=limit)
+        return cf.domains.audio_recommendations.audio_memory(
+            platform=platform, account=account, limit=limit
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -573,7 +539,7 @@ def audio_memory(
 def recommend_audio(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.recommend_audio(
+        return cf.domains.audio_recommendations.recommend_audio(
             platform=body.get("platform") or "instagram",
             campaign_slug=body.get("campaign"),
             recommendation_item_id=body.get("recommendationItemId"),
@@ -592,7 +558,7 @@ def recommend_audio(body: dict[str, Any] = Body(...)):
 def decide_audio(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.decide_audio(
+        return cf.domains.audio_recommendations.decide_audio(
             platform=body.get("platform") or "instagram",
             campaign_slug=body.get("campaign"),
             recommendation_item_id=body.get("recommendationItemId"),
@@ -613,7 +579,7 @@ def decide_audio(body: dict[str, Any] = Body(...)):
 def select_audio(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.select_audio_for_recommendation(
+        return cf.domains.audio_operations.select_audio_for_recommendation(
             body["recommendationItemId"],
             body["audioId"],
             operator=body.get("operator"),
@@ -629,7 +595,7 @@ def select_audio(body: dict[str, Any] = Body(...)):
 def verify_audio(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.verify_audio_for_post(
+        return cf.domains.audio_operations.verify_audio_for_post(
             body["postId"],
             proof_url=body["proofUrl"],
             proof_note=body.get("proofNote"),
@@ -645,7 +611,7 @@ def verify_audio(body: dict[str, Any] = Body(...)):
 def reference_patterns(limit: int = 50):
     cf = factory()
     try:
-        return cf.reference_patterns(limit)
+        return cf.domains.reference.reference_patterns(limit)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -656,7 +622,7 @@ def reference_patterns(limit: int = 50):
 def select_reference_pattern(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.select_reference_pattern(
+        return cf.domains.reference.select_reference_pattern(
             body["campaign"],
             cluster_key=body.get("clusterKey"),
             reference_pattern_id=body.get("referencePatternId"),
@@ -673,7 +639,7 @@ def select_reference_pattern(body: dict[str, Any] = Body(...)):
 def reference_plan(campaign: str):
     cf = factory()
     try:
-        return cf.campaign_reference_plan(campaign)
+        return cf.domains.reference.campaign_reference_plan(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -684,7 +650,7 @@ def reference_plan(campaign: str):
 def prepare_from_reference(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.prepare_reel_from_reference(
+        return cf.domains.reference.prepare_reel_from_reference(
             campaign_slug=body["campaign"],
             cluster_key=body.get("clusterKey"),
             reference_pattern_id=body.get("referencePatternId"),
@@ -704,7 +670,7 @@ def prepare_from_reference(body: dict[str, Any] = Body(...)):
 def make_batch(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.make_batch(
+        return cf.domains.make_batch_repo.make_batch(
             folder=Path(body["folder"]),
             campaign_slug=body["campaign"],
             model_slug=body["model"],
@@ -729,7 +695,7 @@ def make_batch(body: dict[str, Any] = Body(...)):
 def intake_finished_video(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.intake_finished_video(
+        return cf.domains.finished_video.intake_finished_video(
             input_path=Path(body["input"]),
             model_slug=body["model"],
             platform=body.get("platform") or "instagram",
@@ -759,7 +725,7 @@ def intake_finished_video(body: dict[str, Any] = Body(...)):
 def batch_summary(campaign: str):
     cf = factory()
     try:
-        return cf.batch_summary(campaign)
+        return cf.domains.export_summary.batch_summary(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -770,7 +736,7 @@ def batch_summary(campaign: str):
 def create_creative_plan(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.create_creative_plan(
+        return cf.domains.creative_planning.create_creative_plan(
             name=body.get("name") or "daily_plan",
             platform=body.get("platform") or "instagram",
             target_account=body.get("targetAccount")
@@ -799,7 +765,7 @@ def create_creative_plan(body: dict[str, Any] = Body(...)):
 def creative_plan(name: str):
     cf = factory()
     try:
-        return cf.creative_plan(name)
+        return cf.domains.creative_planning.creative_plan(name)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
@@ -810,7 +776,7 @@ def creative_plan(name: str):
 def update_creative_plan_status(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.update_creative_plan_status(
+        return cf.domains.creative_planning.update_creative_plan_status(
             name=body.get("name") or "", status=body.get("status") or ""
         )
     except Exception as exc:
@@ -823,7 +789,7 @@ def update_creative_plan_status(body: dict[str, Any] = Body(...)):
 def sync_creative_plan_progress(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.sync_creative_plan_progress(
+        return cf.domains.creative_planning.sync_creative_plan_progress(
             name=body.get("name") or "",
             prompt_export_path=Path(
                 body.get("promptExport") or body.get("prompt_export") or ""
@@ -842,7 +808,7 @@ def activity_log(campaign: str, limit: int = 200):
         return {
             "schema": "campaign_factory.activity_log.v1",
             "campaign": campaign,
-            "events": cf.events_for_campaign(campaign, limit=limit),
+            "events": cf.domains.events.events_for_campaign(campaign, limit=limit),
         }
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -854,7 +820,9 @@ def activity_log(campaign: str, limit: int = 200):
 def jobs(campaign: str | None = None, limit: int = 100, stuck_hours: float = 24.0):
     cf = factory()
     try:
-        rows = cf.jobs_for_campaign(campaign, limit=limit, stuck_hours=stuck_hours)
+        rows = cf.domains.events.jobs_for_campaign(
+            campaign, limit=limit, stuck_hours=stuck_hours
+        )
         return {
             "schema": "campaign_factory.jobs.v1",
             "campaign": campaign,
@@ -875,7 +843,7 @@ def jobs(campaign: str | None = None, limit: int = 100, stuck_hours: float = 24.
 def job(job_id: str):
     cf = factory()
     try:
-        return cf.pipeline_job(job_id)
+        return cf.domains.events.pipeline_job(job_id)
     except Exception as exc:
         raise HTTPException(404, str(exc)) from exc
     finally:
@@ -886,7 +854,7 @@ def job(job_id: str):
 def rendered_media(rendered_asset_id: str):
     cf = factory()
     try:
-        asset = cf.rendered_asset(rendered_asset_id)
+        asset = cf.domains.rendered_asset(rendered_asset_id)
         path = Path(asset["campaign_path"])
         if not path.exists():
             raise HTTPException(404, f"rendered media not found: {rendered_asset_id}")
@@ -903,7 +871,7 @@ def rendered_media(rendered_asset_id: str):
 def rendered_poster(rendered_asset_id: str):
     cf = factory()
     try:
-        asset = cf.rendered_asset(rendered_asset_id)
+        asset = cf.domains.rendered_asset(rendered_asset_id)
         media_path = Path(asset["campaign_path"])
         if not media_path.exists():
             raise HTTPException(404, f"rendered media not found: {rendered_asset_id}")
@@ -949,7 +917,7 @@ def rendered_poster(rendered_asset_id: str):
 def audit_report(audit_report_id: str):
     cf = factory()
     try:
-        return cf.audit_report(audit_report_id)
+        return cf.domains.audit_report(audit_report_id)
     except Exception as exc:
         raise HTTPException(404, str(exc)) from exc
     finally:
@@ -960,7 +928,7 @@ def audit_report(audit_report_id: str):
 def import_folder(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.import_folder(
+        return cf.domains.asset_import.import_folder(
             Path(body["folder"]),
             campaign_slug=body["campaign"],
             model_slug=body["model"],
@@ -984,7 +952,7 @@ def prepare_reel(body: dict[str, Any] = Body(...)):
         hooks = body.get("hooks")
         if isinstance(hooks, str):
             hooks = [h.strip() for h in hooks.splitlines() if h.strip()]
-        return cf.prepare_reel_inputs(
+        return cf.domains.reel_execution.prepare_reel_inputs(
             campaign_slug=body["campaign"],
             hooks=hooks or [],
             recipes=body.get("recipes") or None,
@@ -1003,7 +971,7 @@ def prepare_reel(body: dict[str, Any] = Body(...)):
 def run_reel(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.run_reel_factory(
+        return cf.domains.reel_execution.run_reel_factory(
             campaign_slug=body["campaign"],
             workers=int(body.get("workers") or 3),
             dry_run=bool(body.get("dryRun")),
@@ -1028,7 +996,7 @@ def run_reel(body: dict[str, Any] = Body(...)):
 def sync_reel(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.sync_reel_outputs(
+        return cf.domains.reel_execution.sync_reel_outputs(
             campaign_slug=body["campaign"],
             render_job_ids=body.get("renderJobIds") or None,
         )
@@ -1061,7 +1029,7 @@ def audit(body: dict[str, Any] = Body(...)):
 def approve(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.approve_rendered_asset(
+        return cf.domains.finished_video.approve_rendered_asset(
             body["renderedAssetId"],
             notes=body.get("notes"),
             require_safe_audit=not bool(body.get("forceUnsafeAudit")),
@@ -1076,7 +1044,7 @@ def approve(body: dict[str, Any] = Body(...)):
 def review_decision(body: dict[str, Any] = Body(...)):
     cf = factory()
     try:
-        return cf.review_rendered_asset(
+        return cf.domains.finished_video.review_rendered_asset(
             body["renderedAssetId"],
             decision=body["decision"],
             notes=body.get("notes"),
@@ -1188,7 +1156,7 @@ def sync_threadsdash_assignments(body: dict[str, Any] = Body(...)):
 @app.post("/api/supabase-preflight")
 def supabase_preflight(body: dict[str, Any] = Body(...)):
     cf = factory()
-    pipeline_job = cf.create_pipeline_job(
+    pipeline_job = cf.domains.events.create_pipeline_job(
         "supabase_preflight",
         None,
         {
@@ -1203,7 +1171,7 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
         },
     )
-    cf.start_pipeline_job(pipeline_job["id"])
+    cf.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         result = preflight_supabase(
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
@@ -1213,7 +1181,7 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
         )
         result["pipelineJobId"] = pipeline_job["id"]
-        cf.record_event(
+        cf.domains.events.record_event(
             "supabase_preflight_checked",
             pipeline_job_id=pipeline_job["id"],
             status="success" if result["ok"] else "failure",
@@ -1224,7 +1192,7 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             },
         )
         if result["ok"]:
-            cf.finish_pipeline_job(
+            cf.domains.events.finish_pipeline_job(
                 pipeline_job["id"],
                 {
                     "ok": result["ok"],
@@ -1232,7 +1200,7 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
                 },
             )
         else:
-            cf.fail_pipeline_job(
+            cf.domains.events.fail_pipeline_job(
                 pipeline_job["id"],
                 "Supabase preflight failed",
                 {
@@ -1242,14 +1210,14 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             )
         return result
     except Exception as exc:
-        cf.record_event(
+        cf.domains.events.record_event(
             "supabase_preflight_checked",
             pipeline_job_id=pipeline_job["id"],
             status="failure",
             message=f"Supabase preflight failed: {exc}",
             metadata={"error": str(exc)},
         )
-        cf.fail_pipeline_job(pipeline_job["id"], str(exc))
+        cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise HTTPException(400, str(exc)) from exc
     finally:
         cf.close()
@@ -1258,7 +1226,7 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
 @app.post("/api/verify-threadsdash-export")
 def verify_td_export(body: dict[str, Any] = Body(...)):
     cf = factory()
-    pipeline_job = cf.create_pipeline_job(
+    pipeline_job = cf.domains.events.create_pipeline_job(
         "verify_threadsdash_export",
         None,
         {
@@ -1266,7 +1234,7 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             "exportPath": body.get("exportPath"),
         },
     )
-    cf.start_pipeline_job(pipeline_job["id"])
+    cf.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         export_value = body.get("exportResult") or body.get("exportPath")
         if not export_value:
@@ -1278,7 +1246,7 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
         )
         result["pipelineJobId"] = pipeline_job["id"]
-        cf.record_event(
+        cf.domains.events.record_event(
             "threadsdash_export_verified",
             pipeline_job_id=pipeline_job["id"],
             status="success" if result["ok"] else "failure",
@@ -1291,7 +1259,7 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             },
         )
         if result["ok"]:
-            cf.finish_pipeline_job(
+            cf.domains.events.finish_pipeline_job(
                 pipeline_job["id"],
                 {
                     "ok": result["ok"],
@@ -1300,7 +1268,7 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
                 },
             )
         else:
-            cf.fail_pipeline_job(
+            cf.domains.events.fail_pipeline_job(
                 pipeline_job["id"],
                 "ThreadsDash export verification failed",
                 {
@@ -1311,35 +1279,14 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             )
         return result
     except Exception as exc:
-        cf.record_event(
+        cf.domains.events.record_event(
             "threadsdash_export_verified",
             pipeline_job_id=pipeline_job["id"],
             status="failure",
             message=f"ThreadsDash export verification failed: {exc}",
             metadata={"error": str(exc)},
         )
-        cf.fail_pipeline_job(pipeline_job["id"], str(exc))
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
-@app.post("/api/safe-live-smoke")
-def safe_live_smoke(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return safe_live_smoke_export(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            supabase_storage_bucket=body.get("supabaseStorageBucket")
-            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
-            allow_warnings=bool(body.get("allowWarnings")),
-        )
-    except Exception as exc:
+        cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise HTTPException(400, str(exc)) from exc
     finally:
         cf.close()
@@ -1368,7 +1315,7 @@ def sync_performance(body: dict[str, Any] = Body(...)):
 def performance_summary(campaign: str):
     cf = factory()
     try:
-        return cf.performance_summary(campaign)
+        return cf.domains.performance_summary_repo.performance_summary(campaign)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:

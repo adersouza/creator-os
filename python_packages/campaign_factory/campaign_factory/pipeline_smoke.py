@@ -117,9 +117,9 @@ def _run_mocked_generation_intake_smoke(
             "dryRunExport": kwargs.get("dry_run_export"),
         }
 
-    factory.make_batch = MethodType(fake_make_batch, factory)
+    factory.domains.make_batch_repo.make_batch = MethodType(fake_make_batch, factory)
     try:
-        result = factory.intake_finished_video(
+        result = factory.domains.finished_video.intake_finished_video(
             input_path=source_video,
             model_slug="stacey",
             platform="instagram",

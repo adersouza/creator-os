@@ -1,0 +1,40 @@
+[
+  {
+    "description": "Gemini one-shot motion analysis instruction",
+    "vars": {
+      "surface": "gemini_motion_analysis",
+      "reference_id": "reference_video_fixture_001",
+      "captured_fixture": "packages/pipeline_contracts/pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json",
+      "expected_prompt_sha256": "859066e03db091e39fbfc00de55f09c4c9fba3cef413ab0b79e9f799aa7eafec",
+      "human_rubric": [
+        "Motion-only structure is clear without encouraging literal source copying.",
+        "The requested JSON evidence is understandable to a human reviewer."
+      ]
+    }
+  },
+  {
+    "description": "Soul reference-image prompt instruction",
+    "vars": {
+      "surface": "soul_reference_still",
+      "creative_direction": "Preserve pose and lighting; keep the composition natural and restrained.",
+      "captured_fixture": "packages/pipeline_contracts/pipeline_contracts/schemas/higgsfield_soul_image_prompt.v1.example.json",
+      "expected_prompt_sha256": "34207c23d1dc06f109de7d6bceb5f4352ce02f272b0344721f36e003e5b1820b",
+      "human_rubric": [
+        "The reference fidelity instructions preserve pose, crop, lighting, and setting.",
+        "The instruction requests one standalone image and leaves identity to Soul ID."
+      ]
+    }
+  },
+  {
+    "description": "Accepted caption-bank hook fixture",
+    "vars": {
+      "surface": "caption_hook",
+      "captured_fixture": "evals/prompt_regressions/captured_caption.json",
+      "expected_prompt_sha256": "1e5d5d6e23353403bd69c93fe742ff2e7d702a78e2433ce2be4828cf1ed61241",
+      "human_rubric": [
+        "The hook is readable at Reel speed and has an obvious engagement mechanic.",
+        "The tone fits the selected creator without requiring an automated model grader."
+      ]
+    }
+  }
+]

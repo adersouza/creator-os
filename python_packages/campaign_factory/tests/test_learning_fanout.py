@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 from campaign_factory.db import connect, init_db
-from reel_factory.metrics_store import connect_metrics_db, ensure_metrics_schema
 from reference_factory.db import connect as connect_reference_db
 from reference_factory.learning import learning_summary as reference_learning_summary
 
@@ -93,9 +92,6 @@ def setup_learning_databases(
     reference_conn.commit()
     reference_conn.close()
 
-    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
-    ensure_metrics_schema(reel_conn)
-    reel_conn.close()
     return campaign_db, reel_root, reference_db, output_path
 
 
@@ -181,10 +177,9 @@ def insert_snapshot(
     conn.close()
 
 
-def run_bridge(module, campaign_db, reel_root, reference_db, *, max_attempts=5):
+def run_bridge(module, campaign_db, _reel_root, reference_db, *, max_attempts=5):
     return module.fanout_learning_snapshots(
         campaign_factory_db=campaign_db,
-        reel_factory_root=reel_root,
         reference_factory_db=reference_db,
         campaign="may",
         max_attempts=max_attempts,
@@ -213,14 +208,11 @@ def test_fanout_double_run_is_noop_and_keeps_exact_snapshot_keys(tmp_path: Path)
     second = run_bridge(module, campaign_db, reel_root, reference_db)
 
     assert first["fanout"]["campaign"]["done"] == 2
-    assert first["fanout"]["reel"]["done"] == 1
     assert first["fanout"]["reference"]["done"] == 1
     assert second["fanout"]["campaign"]["done"] == 0
-    assert second["fanout"]["reel"]["done"] == 0
     assert second["fanout"]["reference"]["done"] == 0
     assert second["ledgerStates"] == {
         "campaign": {"done": 2},
-        "reel": {"done": 1, "superseded": 1},
         "reference": {"done": 1, "superseded": 1},
     }
     conn = connect(campaign_db)
@@ -232,7 +224,7 @@ def test_fanout_double_run_is_noop_and_keeps_exact_snapshot_keys(tmp_path: Path)
         "2026-01-03T00:45:00+00:00",
     ]
     assert (
-        conn.execute("SELECT COUNT(*) FROM learning_fanout_ledger").fetchone()[0] == 6
+        conn.execute("SELECT COUNT(*) FROM learning_fanout_ledger").fetchone()[0] == 4
     )
     conn.close()
     reference_conn = connect_reference_db(reference_db)
@@ -276,14 +268,13 @@ def test_two_snapshots_same_hour_get_distinct_destination_ledgers(tmp_path: Path
         ORDER BY snapshot_at, destination
         """
     ).fetchall()
-    assert len(rows) == 6
+    assert len(rows) == 4
     assert {row["snapshot_at"] for row in rows} == {
         "2026-01-03T10:05:00+00:00",
         "2026-01-03T10:45:00+00:00",
     }
     assert result["ledgerStates"] == {
         "campaign": {"done": 2},
-        "reel": {"done": 1, "superseded": 1},
         "reference": {"done": 1, "superseded": 1},
     }
     conn.close()
@@ -363,17 +354,10 @@ def test_eligible_to_ineligible_retracts_and_restores_previous_snapshot(tmp_path
     result = run_bridge(module, campaign_db, reel_root, reference_db)
 
     assert result["fanout"]["reference"]["retracted"] == 1
-    assert result["fanout"]["reel"]["retracted"] == 1
     reference_conn = connect_reference_db(reference_db)
     fact = reference_conn.execute("SELECT * FROM prompt_post_outcomes").fetchone()
     assert fact["source_snapshot_at"] == "2026-01-02T01:00:00+00:00"
     reference_conn.close()
-    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
-    outcome = reel_conn.execute("SELECT * FROM reel_outcomes").fetchone()
-    metric = reel_conn.execute("SELECT * FROM publish_metrics").fetchone()
-    assert outcome["source_snapshot_at"] == "2026-01-02T01:00:00+00:00"
-    assert metric["source_snapshot_at"] == "2026-01-02T01:00:00+00:00"
-    reel_conn.close()
 
 
 def test_soft_skip_retries_caps_and_hash_change_reopens(tmp_path: Path):
@@ -474,7 +458,7 @@ def test_missing_prompt_registers_from_real_lineage_before_reference_fanout(
     result = run_bridge(module, campaign_db, reel_root, reference_db)
 
     assert result["fanout"]["reference"]["done"] == 1
-    assert result["reelWinnerDnaRefresh"]["rows"] == 4
+    assert result["reelProjection"]["status"] == "retired"
     conn = connect_reference_db(reference_db)
     prompt = conn.execute(
         "SELECT status FROM generated_video_prompts WHERE id = ?", (prompt_id,)
@@ -493,50 +477,6 @@ def test_missing_prompt_registers_from_real_lineage_before_reference_fanout(
     assert outcome["post_id"] == "post_1"
     assert link["reference_id"] == "reference_1"
     conn.close()
-    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
-    feature = reel_conn.execute(
-        "SELECT scene, camera, creator, motion FROM reel_features"
-    ).fetchone()
-    winner_rows = reel_conn.execute(
-        "SELECT feature_key, feature_value FROM winner_dna ORDER BY feature_key"
-    ).fetchall()
-    assert tuple(feature) == ("bedroom", "mirror_selfie", "stacey", "slow_pan")
-    assert [tuple(row) for row in winner_rows] == [
-        ("camera", "mirror_selfie"),
-        ("creator", "stacey"),
-        ("motion", "slow_pan"),
-        ("scene", "bedroom"),
-    ]
-    reel_conn.close()
-
-    campaign_conn = connect(campaign_db)
-    snapshot = campaign_conn.execute(
-        "SELECT raw_json FROM performance_snapshots WHERE id = 'snap_observed'"
-    ).fetchone()
-    raw = json.loads(snapshot["raw_json"])
-    raw["metadata"]["campaign_factory"]["generated_asset_lineage"]["features"][
-        "hook_type"
-    ] = "curiosity"
-    campaign_conn.execute(
-        "UPDATE performance_snapshots SET raw_json = ? WHERE id = 'snap_observed'",
-        (json.dumps(raw, sort_keys=True),),
-    )
-    campaign_conn.commit()
-    campaign_conn.close()
-
-    rerun = run_bridge(module, campaign_db, reel_root, reference_db)
-
-    assert rerun["fanout"]["reel"]["reopenedByHash"] == 1
-    assert rerun["fanout"]["reel"]["done"] == 1
-    assert rerun["fanout"]["campaign"]["reopenedByHash"] == 0
-    assert rerun["fanout"]["reference"]["reopenedByHash"] == 0
-    assert rerun["reelWinnerDnaRefresh"]["rows"] == 5
-    reel_conn = connect_metrics_db(reel_root / "manifest.sqlite")
-    assert (
-        reel_conn.execute("SELECT hook_type FROM reel_features").fetchone()["hook_type"]
-        == "curiosity"
-    )
-    reel_conn.close()
 
 
 def test_fallback_and_pre_cutover_rows_never_receive_ledgers(

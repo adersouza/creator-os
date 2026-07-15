@@ -46,6 +46,21 @@ IDENTITY_PASS = {
 }
 
 
+def fake_spend_authorization(stem: str) -> dict:
+    return {
+        "schema": "campaign_factory.provider_spend_authorization.v1",
+        "authorizationId": f"spauth_{stem}",
+        "reservationId": f"spres_{stem}",
+        "issuer": "campaign_factory",
+        "scope": {"requestFingerprint": "a" * 64},
+        "providerQuote": {
+            "provider": "higgsfield",
+            "amount": 5,
+            "unit": "higgsfield_credits",
+        },
+    }
+
+
 class DirectReferenceWorkflowTests(unittest.TestCase):
     def test_direct_reference_dry_run_builds_higgsfield_reference_command(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -111,16 +126,8 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                     return_value=CAPABILITIES,
                 ),
                 patch(
-                    "reel_factory.generate_assets._cost_preflight_for_plan",
-                    return_value={
-                        "allowed": True,
-                        "blockingReason": "",
-                        "blockingReasons": [],
-                    },
-                ),
-                patch(
-                    "reel_factory.generate_assets._consume_cost_reservation",
-                    return_value="hfr_test_direct_success",
+                    "reel_factory.generate_assets._authorize_plan",
+                    return_value=fake_spend_authorization("direct_success"),
                 ),
                 patch("reel_factory.generate_assets._run_json", return_value=raw_image),
                 patch(
@@ -202,16 +209,8 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                     return_value=CAPABILITIES,
                 ),
                 patch(
-                    "reel_factory.generate_assets._cost_preflight_for_plan",
-                    return_value={
-                        "allowed": True,
-                        "blockingReason": "",
-                        "blockingReasons": [],
-                    },
-                ),
-                patch(
-                    "reel_factory.generate_assets._consume_cost_reservation",
-                    return_value="hfr_test_direct_qc_failure",
+                    "reel_factory.generate_assets._authorize_plan",
+                    return_value=fake_spend_authorization("direct_qc_failure"),
                 ),
                 patch("reel_factory.generate_assets._run_json", return_value=raw_image),
                 patch(

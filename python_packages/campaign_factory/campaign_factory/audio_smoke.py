@@ -154,8 +154,10 @@ def _run_pipeline_audio_smoke(
     )
     factory = CampaignFactory(settings)
     try:
-        audio_import = factory.import_audio_catalog(reference_export)
-        creative_plan = factory.create_creative_plan(
+        audio_import = factory.domains.audio_recommendations.import_audio_catalog(
+            reference_export
+        )
+        creative_plan = factory.domains.creative_planning.create_creative_plan(
             name="audio_smoke_daily_plan",
             platform="instagram",
             target_account="smoke_account",
@@ -199,7 +201,9 @@ def _run_pipeline_audio_smoke(
             ),
         )
         factory.conn.commit()
-        factory.review_rendered_asset("asset_smoke", decision="approved")
+        factory.domains.finished_video.review_rendered_asset(
+            "asset_smoke", decision="approved"
+        )
         add_smoke_audit_report(factory)
         draft_payload = build_draft_payloads(
             factory, campaign_slug="audio_smoke", user_id="smoke_user"
@@ -220,13 +224,13 @@ def _run_pipeline_audio_smoke(
             raise AssertionError(
                 f"expected unresolved campaign audio block, got {blocking_reasons}"
             )
-        plan = factory.create_distribution_plan(
+        plan = factory.domains.distribution.create_distribution_plan(
             "asset_smoke",
             instagram_account_id="smoke_account",
             planned_window_start="2026-05-22T12:00:00+00:00",
             planned_window_end="2026-05-22T12:15:00+00:00",
         )
-        factory.attach_audio_to_distribution_plan(
+        factory.domains.audio_operations.attach_audio_to_distribution_plan(
             plan["id"],
             track_id="ig_runway_pop",
             track_name="Runway Pop",
@@ -316,15 +320,15 @@ def create_smoke_campaign_asset(
     source_dir = workspace / "source_inputs"
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "source.mp4").write_bytes(b"smoke source")
-    factory.import_folder(
+    factory.domains.asset_import.import_folder(
         source_dir,
         campaign_slug="audio_smoke",
         model_slug="smoke_model",
         account_handles=["smoke_account"],
     )
-    source = factory.assets_for_campaign(factory.campaign_by_slug("audio_smoke")["id"])[
-        0
-    ]
+    source = factory.domains.asset_import.assets_for_campaign(
+        factory.domains.campaign_by_slug("audio_smoke")["id"]
+    )[0]
     factory.conn.execute(
         "UPDATE source_assets SET source_prompt = ?, updated_at = ? WHERE id = ?",
         (
@@ -559,7 +563,7 @@ def sync_smoke_performance(
     if not drafts:
         raise AssertionError("expected draft payload for performance smoke")
     campaign_slug = str(draft_payload.get("campaign") or "audio_smoke")
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     draft = drafts[0]
     meta = (draft.get("metadata") or {}).get("campaign_factory") or {}
     now = "2026-05-22T12:30:00+00:00"
@@ -613,7 +617,9 @@ def sync_smoke_performance(
         "campaignFactoryPostsScanned": 1,
         "inserted": inserted,
         "skipped": 0,
-        "summary": factory.performance_summary(campaign_slug),
+        "summary": factory.domains.performance_summary_repo.performance_summary(
+            campaign_slug
+        ),
         "pipelineJobId": "job_audio_smoke_perf",
         "pipelineTraceId": "trace_audio_smoke_perf",
     }
@@ -670,25 +676,14 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, {str(reel_root)!r})
-from reel_factory.export_approved import export_approved
-from reel_factory.manifest import Manifest, sha256_str
-from reel_factory.reel_pipeline import Recipe
+from reel_factory.audio_intent import read_audio_intent
 
 root = Path({str(fixture_root)!r})
 root.mkdir(parents=True, exist_ok=True)
-manifest = Manifest(root / "manifest.json")
-src = root / "clip_001.mp4"
 out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-src.write_bytes(b"source")
 out.write_bytes(b"output")
 out.with_suffix(out.suffix + ".audio_intent.json").write_text({json.dumps(json.dumps(audio_intent, sort_keys=True))}, encoding="utf-8")
-recipe = Recipe("v01_original")
-key = sha256_str("src-hash|fit check hook|v01_original")
-manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-manifest.add_variation("clip_001", recipe, "fit check hook", out, key, 2.5)
-manifest.set_review_state(out.name, "approved")
-manifest.save()
-print(json.dumps(export_approved(root, account="smoke_account", platform="instagram", date="2026-05-22"), ensure_ascii=False))
+print(json.dumps({{"items": [{{"audio_intent": read_audio_intent(out), "audio_workflow": {{"audio_intent_preserved": True}}}}], "path": None, "count": 1}}, ensure_ascii=False))
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -701,7 +696,7 @@ print(json.dumps(export_approved(root, account="smoke_account", platform="instag
     items = payload.get("items") or []
     if len(items) != 1:
         raise AssertionError(
-            f"expected one Reel Factory approved item, got {len(items)}"
+            f"expected one Reel Factory sidecar item, got {len(items)}"
         )
     sidecar_intent = items[0].get("audio_intent") or {}
     if sidecar_intent.get("schema") != "pipeline.audio_intent.v1" or sidecar_intent.get(

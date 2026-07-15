@@ -44,7 +44,7 @@ def run_daily_library_production(
     if day_index < 1:
         raise ValueError("day_index must be positive")
     ensure_learning_cohort_tables(factory.conn)
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     library_root = (library_root or Path.home() / "Documents/content/stacey").resolve()
     if not library_root.is_dir():
         raise ValueError(f"library_root is not a directory: {library_root}")
@@ -109,7 +109,7 @@ def run_daily_library_production(
         count=len(source_ids),
         seed_key=f"{cohort_id}:{day_index}",
     )
-    prepared = factory.prepare_reel_inputs(
+    prepared = factory.domains.reel_execution.prepare_reel_inputs(
         campaign_slug=campaign_slug,
         hooks=hooks,
         recipes=["v01_original"],
@@ -148,7 +148,7 @@ def run_daily_library_production(
         job["id"] for job in target_jobs if job["status"] in {"prepared", "failed"}
     ]
     if runnable_job_ids:
-        render = factory.run_reel_factory(
+        render = factory.domains.reel_execution.run_reel_factory(
             campaign_slug=campaign_slug,
             workers=workers,
             caption_band="",
@@ -170,7 +170,7 @@ def run_daily_library_production(
         report["render"] = {"runCount": 0, "returncode": 0, "reused": True}
 
     target_job_ids = [job["id"] for job in target_jobs]
-    synced = factory.sync_reel_outputs(
+    synced = factory.domains.reel_execution.sync_reel_outputs(
         campaign_slug=campaign_slug, render_job_ids=target_job_ids
     )
     rendered = _rendered_assets_for_jobs(
@@ -493,7 +493,9 @@ def _daily_hooks(
     safe = [
         item
         for item in candidates
-        if factory.reference_hook_is_schedule_safe(str(item.get("text") or ""))
+        if factory.domains.reference.reference_hook_is_schedule_safe(
+            str(item.get("text") or "")
+        )
         and int(item.get("line_count") or 1) <= 2
         and int(item.get("word_count") or 0) <= 5
         and int(item.get("char_count") or len(str(item.get("text") or ""))) <= 24

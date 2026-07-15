@@ -10,7 +10,7 @@ from .persistence import json_load, utc_now
 
 
 def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
-    dashboard = self.dashboard(campaign_slug)
+    dashboard = self._dashboard(campaign_slug)
     rendered = dashboard.get("rendered") or []
     counts = {
         "sourcesImported": len(dashboard.get("sources") or []),
@@ -40,7 +40,7 @@ def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
             1 for asset in rendered if asset.get("review_state") == "rejected"
         ),
     }
-    audio_workflow = dashboard.get("audioWorkflow") or self.audio_workflow_summary(
+    audio_workflow = dashboard.get("audioWorkflow") or self._audio_workflow_summary(
         rendered
     )
     counts["needsAudio"] = audio_workflow["counts"]["needs_audio"]
@@ -49,7 +49,7 @@ def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
     daily_production = self.daily_production_counters(
         campaign_slug, dashboard=dashboard
     )
-    creative_plan = dashboard.get("creativePlan") or self.creative_plan_for_campaign(
+    creative_plan = dashboard.get("creativePlan") or self._creative_plan_for_campaign(
         campaign_slug, dashboard=dashboard
     )
     return {
@@ -62,14 +62,14 @@ def batch_summary(self, campaign_slug: str) -> dict[str, Any]:
         "dailyProduction": daily_production,
         "creativePlan": creative_plan,
         "topRecommended": (dashboard.get("ranking") or [])[:10],
-        "variantPacks": self._variant_pack_groups(rendered),
+        "variantPacks": self.variant_pack_groups(rendered),
     }
 
 
 def daily_production_counters(
     self, campaign_slug: str, *, dashboard: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    dashboard = dashboard or self.dashboard(campaign_slug)
+    dashboard = dashboard or self._dashboard(campaign_slug)
     sources = dashboard.get("sources") or []
     rendered = dashboard.get("rendered") or []
     prompt_ready = 0
@@ -148,7 +148,7 @@ def _variant_pack_groups(self, rendered: list[dict[str, Any]]) -> list[dict[str,
 def export_manifest(
     self, *, campaign_slug: str, review_only: bool = False
 ) -> dict[str, Any]:
-    campaign = self.campaign_by_slug(campaign_slug)
+    campaign = self._campaign_by_slug(campaign_slug)
     review_state = "review_ready" if review_only else "approved"
     rows = self.conn.execute(
         """
@@ -162,7 +162,7 @@ def export_manifest(
         (campaign["id"], review_state),
     ).fetchall()
     assets = []
-    campaign_graph_id = self.graph_id_for(
+    campaign_graph_id = self._graph_id_for(
         "campaigns",
         campaign["id"],
         entity_type="campaign",
@@ -195,7 +195,7 @@ def export_manifest(
             except OSError:
                 audit_summary = {}
         caption_generation = json_load(row["caption_generation_json"], {})
-        reference_pattern = self.active_reference_pattern_for_campaign(campaign["id"])
+        reference_pattern = self._active_reference_pattern_for_campaign(campaign["id"])
         source_prompt = (
             json_load(row["source_prompt"], {}) if row["source_prompt"] else {}
         )
@@ -273,21 +273,21 @@ def export_manifest(
             recipe=row["recipe"],
             account_tags=json_load(row["account_ids_json"], []),
         )
-        source_graph_id = self.graph_id_for(
+        source_graph_id = self._graph_id_for(
             "source_assets", row["source_asset_id"], entity_type="source_asset"
         )
-        rendered_graph_id = self.graph_id_for(
+        rendered_graph_id = self._graph_id_for(
             "rendered_assets", row["id"], entity_type="rendered_asset"
         )
         audit_graph_id = (
-            self.graph_id_for(
+            self._graph_id_for(
                 "audit_reports", latest_audit["id"], entity_type="audit_report"
             )
             if latest_audit
             else None
         )
         if audit_graph_id:
-            self.ensure_graph_edge(
+            self._ensure_graph_edge(
                 rendered_graph_id,
                 audit_graph_id,
                 "rendered_asset_to_audit_report",

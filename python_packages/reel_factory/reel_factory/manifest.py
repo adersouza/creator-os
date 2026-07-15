@@ -6,17 +6,14 @@ import hashlib
 import json
 import logging
 import shlex
-import shutil
-import sqlite3
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from reel_factory.metrics_store import ensure_metrics_schema
 from reel_factory.sqlite_utils import connect_sqlite
 
-from .campaign_store import ensure_campaign_schema
+from .evidence_store import ensure_evidence_schema
 from .intelligence_store import ensure_intelligence_schema
 
 try:
@@ -85,7 +82,6 @@ class Manifest:
             encoded_at INTEGER NOT NULL,
             encoder TEXT NOT NULL,
             status TEXT NOT NULL,
-            review_state TEXT NOT NULL DEFAULT 'draft',
             render_time_sec REAL,
             error_message TEXT,
             FOREIGN KEY(video_id) REFERENCES videos(video_id)
@@ -119,48 +115,8 @@ class Manifest:
         );
         CREATE INDEX IF NOT EXISTS idx_analysis_cache_source
             ON analysis_cache(source_hash, analyzer);
-        CREATE TABLE IF NOT EXISTS review_decisions (
-            decision_id TEXT PRIMARY KEY,
-            output_path TEXT NOT NULL UNIQUE,
-            filename TEXT NOT NULL,
-            decision TEXT NOT NULL,
-            reviewer TEXT NOT NULL,
-            previous_decision TEXT,
-            reason TEXT,
-            deck_id TEXT,
-            reference_hash TEXT,
-            generated_asset_hash TEXT,
-            soul_id TEXT,
-            aspect_ratio TEXT,
-            visual_qc_status TEXT,
-            identity_verification_status TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS review_decision_history (
-            history_id TEXT PRIMARY KEY,
-            decision_id TEXT NOT NULL,
-            output_path TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            previous_decision TEXT,
-            decision TEXT NOT NULL,
-            reviewer TEXT NOT NULL,
-            reason TEXT,
-            deck_id TEXT,
-            reference_hash TEXT,
-            generated_asset_hash TEXT,
-            soul_id TEXT,
-            aspect_ratio TEXT,
-            visual_qc_status TEXT,
-            identity_verification_status TEXT,
-            changed_at INTEGER NOT NULL,
-            FOREIGN KEY(decision_id) REFERENCES review_decisions(decision_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_review_decisions_deck ON review_decisions(deck_id, decision);
-        CREATE INDEX IF NOT EXISTS idx_review_history_output ON review_decision_history(output_path, changed_at);
         """)
-        ensure_metrics_schema(self.conn)
-        ensure_campaign_schema(self.conn)
+        ensure_evidence_schema(self.conn)
         ensure_intelligence_schema(self.conn)
         cols = {
             row["name"]
@@ -168,10 +124,6 @@ class Manifest:
         }
         if "error_message" not in cols:
             self.conn.execute("ALTER TABLE variations ADD COLUMN error_message TEXT")
-        if "review_state" not in cols:
-            self.conn.execute(
-                "ALTER TABLE variations ADD COLUMN review_state TEXT NOT NULL DEFAULT 'draft'"
-            )
         if "filename" not in cols:
             self.conn.execute("ALTER TABLE variations ADD COLUMN filename TEXT")
         rows = self.conn.execute(
@@ -225,7 +177,6 @@ class Manifest:
                     encoded_at=int(var.get("encoded_at", int(time.time()))),
                     encoder=var.get("encoder", "h264_videotoolbox"),
                     status=var.get("status", "ok"),
-                    review_state=var.get("review_state", "draft"),
                     render_time_sec=var.get("render_time_sec"),
                     error_message=var.get("error_message"),
                 )
@@ -296,7 +247,6 @@ class Manifest:
             encoded_at=int(time.time()),
             encoder=cached["encoder"],
             status=cached["status"],
-            review_state="draft",
             render_time_sec=0.0,
         )
         return True
@@ -350,7 +300,6 @@ class Manifest:
         encoded_at: int,
         encoder: str,
         status: str,
-        review_state: str = "draft",
         render_time_sec: float | None = None,
         error_message: str | None = None,
     ) -> None:
@@ -361,9 +310,9 @@ class Manifest:
             INSERT OR REPLACE INTO variations (
                 job_key, video_id, recipe, recipe_params_json, caption_text,
                 caption_hash, output_path, filename, output_hash, output_size_bytes,
-                duration_sec, audio, encoded_at, encoder, status, review_state,
+                duration_sec, audio, encoded_at, encoder, status,
                 render_time_sec, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_key,
@@ -381,7 +330,6 @@ class Manifest:
                 encoded_at,
                 encoder,
                 status,
-                review_state,
                 render_time_sec,
                 error_message,
             ),
@@ -459,256 +407,6 @@ class Manifest:
             render_time_sec=render_time_sec,
             error_message=error_message[-2000:],
         )
-
-    def _variation_for_filename(self, filename: str) -> sqlite3.Row | None:
-        row = self.conn.execute(
-            "SELECT * FROM variations WHERE filename = ? ORDER BY encoded_at DESC LIMIT 1",
-            (filename,),
-        ).fetchone()
-        if row:
-            return row
-        return self.conn.execute(
-            "SELECT * FROM variations WHERE output_path LIKE ? ORDER BY encoded_at DESC LIMIT 1",
-            (f"%/{filename}",),
-        ).fetchone()
-
-    def set_review_state(self, filename: str, review_state: str) -> bool:
-        return self.record_review_decision(
-            filename,
-            review_state,
-            reviewer="legacy_manifest",
-            reason="compatibility_set_review_state",
-        )
-
-    def record_review_decision(
-        self,
-        filename: str,
-        decision: str,
-        *,
-        reviewer: str = "operator",
-        reason: str = "",
-        deck_id: str | None = None,
-        reference_hash: str | None = None,
-        generated_asset_hash: str | None = None,
-        soul_id: str | None = None,
-        aspect_ratio: str | None = None,
-        visual_qc_status: str | None = None,
-        identity_verification_status: str | None = None,
-    ) -> bool:
-        if decision not in {"draft", "maybe", "approved", "rejected"}:
-            raise ValueError("review_state must be draft, maybe, approved, or rejected")
-        row = self._variation_for_filename(filename)
-        if row is None:
-            return False
-        output_path = row["output_path"]
-        generated_hash = generated_asset_hash or row["output_hash"]
-        existing = self.conn.execute(
-            "SELECT * FROM review_decisions WHERE output_path = ?",
-            (output_path,),
-        ).fetchone()
-        now = int(time.time())
-        decision_id = (
-            existing["decision_id"]
-            if existing
-            else f"review_{sha256_str(output_path)[:16]}"
-        )
-        previous = existing["decision"] if existing else row["review_state"]
-        self.conn.execute(
-            """
-            INSERT INTO review_decisions (
-                decision_id, output_path, filename, decision, reviewer, previous_decision,
-                reason, deck_id, reference_hash, generated_asset_hash, soul_id, aspect_ratio,
-                visual_qc_status, identity_verification_status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(output_path) DO UPDATE SET
-                filename = excluded.filename,
-                decision = excluded.decision,
-                reviewer = excluded.reviewer,
-                previous_decision = excluded.previous_decision,
-                reason = excluded.reason,
-                deck_id = COALESCE(excluded.deck_id, review_decisions.deck_id),
-                reference_hash = COALESCE(excluded.reference_hash, review_decisions.reference_hash),
-                generated_asset_hash = COALESCE(excluded.generated_asset_hash, review_decisions.generated_asset_hash),
-                soul_id = COALESCE(excluded.soul_id, review_decisions.soul_id),
-                aspect_ratio = COALESCE(excluded.aspect_ratio, review_decisions.aspect_ratio),
-                visual_qc_status = COALESCE(excluded.visual_qc_status, review_decisions.visual_qc_status),
-                identity_verification_status = COALESCE(excluded.identity_verification_status, review_decisions.identity_verification_status),
-                updated_at = excluded.updated_at
-            """,
-            (
-                decision_id,
-                output_path,
-                filename,
-                decision,
-                reviewer,
-                previous,
-                reason,
-                deck_id,
-                reference_hash,
-                generated_hash,
-                soul_id,
-                aspect_ratio,
-                visual_qc_status,
-                identity_verification_status,
-                now if existing is None else existing["created_at"],
-                now,
-            ),
-        )
-        self.conn.execute(
-            """
-            INSERT INTO review_decision_history (
-                history_id, decision_id, output_path, filename, previous_decision, decision,
-                reviewer, reason, deck_id, reference_hash, generated_asset_hash, soul_id,
-                aspect_ratio, visual_qc_status, identity_verification_status, changed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"review_hist_{time.time_ns()}_{sha256_str(output_path + decision + reviewer)[:12]}",
-                decision_id,
-                output_path,
-                filename,
-                previous,
-                decision,
-                reviewer,
-                reason,
-                deck_id,
-                reference_hash,
-                generated_hash,
-                soul_id,
-                aspect_ratio,
-                visual_qc_status,
-                identity_verification_status,
-                now,
-            ),
-        )
-        self.conn.execute(
-            "UPDATE variations SET review_state = ? WHERE output_path = ?",
-            (decision, output_path),
-        )
-        self.conn.commit()
-        return True
-
-    def undo_review_decision(
-        self, filename: str, *, reviewer: str = "operator", reason: str = "undo"
-    ) -> bool:
-        row = self._variation_for_filename(filename)
-        if row is None:
-            return False
-        latest = self.conn.execute(
-            """
-            SELECT * FROM review_decision_history
-            WHERE output_path = ?
-            ORDER BY changed_at DESC, history_id DESC
-            LIMIT 1
-            """,
-            (row["output_path"],),
-        ).fetchone()
-        if latest is None or not latest["previous_decision"]:
-            return False
-        return self.record_review_decision(
-            filename,
-            latest["previous_decision"],
-            reviewer=reviewer,
-            reason=reason,
-            deck_id=latest["deck_id"],
-            reference_hash=latest["reference_hash"],
-            generated_asset_hash=latest["generated_asset_hash"],
-            soul_id=latest["soul_id"],
-            aspect_ratio=latest["aspect_ratio"],
-            visual_qc_status=latest["visual_qc_status"],
-            identity_verification_status=latest["identity_verification_status"],
-        )
-
-    def regenerate_review_folders(
-        self, folder_root: Path, *, deck_id: str | None = None
-    ) -> dict[str, int]:
-        folder_root.mkdir(parents=True, exist_ok=True)
-        counts = {"approved": 0, "maybe": 0, "rejected": 0}
-        for state in counts:
-            target = folder_root / state
-            if target.exists():
-                shutil.rmtree(target)
-            target.mkdir(parents=True, exist_ok=True)
-        query = "SELECT * FROM review_decisions WHERE decision IN ('approved','maybe','rejected')"
-        params: tuple[Any, ...] = ()
-        if deck_id:
-            query += " AND deck_id = ?"
-            params = (deck_id,)
-        for decision in self.conn.execute(query, params).fetchall():
-            source = Path(decision["output_path"])
-            if not source.exists():
-                continue
-            shutil.copy2(source, folder_root / decision["decision"] / source.name)
-            counts[decision["decision"]] += 1
-        return counts
-
-    def review_integrity_check(
-        self, *, deck_id: str | None = None, folder_root: Path | None = None
-    ) -> dict[str, Any]:
-        issues: list[dict[str, str]] = []
-        query = "SELECT * FROM review_decisions"
-        params: tuple[Any, ...] = ()
-        if deck_id:
-            query += " WHERE deck_id = ?"
-            params = (deck_id,)
-        decisions = [dict(row) for row in self.conn.execute(query, params).fetchall()]
-        hash_to_paths: dict[str, list[str]] = {}
-        for decision in decisions:
-            path = Path(decision["output_path"])
-            if not path.exists():
-                issues.append({"type": "missing_output", "path": str(path)})
-                continue
-            actual_hash = sha256_file(path)
-            expected_hash = decision.get("generated_asset_hash") or ""
-            if expected_hash and actual_hash != expected_hash:
-                issues.append({"type": "hash_mismatch", "path": str(path)})
-            hash_to_paths.setdefault(actual_hash, []).append(str(path))
-        duplicates = {h: paths for h, paths in hash_to_paths.items() if len(paths) > 1}
-        for digest, paths in duplicates.items():
-            issues.append(
-                {
-                    "type": "duplicate_generated_still",
-                    "hash": digest,
-                    "paths": "|".join(paths),
-                }
-            )
-        if folder_root is not None:
-            expected = {
-                state: {
-                    Path(d["output_path"]).name
-                    for d in decisions
-                    if d["decision"] == state
-                }
-                for state in ("approved", "maybe", "rejected")
-            }
-            for state, names in expected.items():
-                actual_dir = folder_root / state
-                actual = (
-                    {p.name for p in actual_dir.iterdir()}
-                    if actual_dir.exists()
-                    else set()
-                )
-                for missing in sorted(names - actual):
-                    issues.append(
-                        {
-                            "type": "folder_missing_file",
-                            "state": state,
-                            "filename": missing,
-                        }
-                    )
-                for extra in sorted(actual - names):
-                    issues.append(
-                        {"type": "folder_extra_file", "state": state, "filename": extra}
-                    )
-        return {
-            "schema": "reel_factory.review_integrity.v1",
-            "deckId": deck_id,
-            "decisionCount": len(decisions),
-            "duplicateHashCount": len(duplicates),
-            "issueCount": len(issues),
-            "issues": issues,
-            "ok": not issues,
-        }
 
     def add_attempt(
         self,
@@ -802,7 +500,6 @@ class Manifest:
                         "encoded_at": row["encoded_at"],
                         "encoder": row["encoder"],
                         "status": row["status"],
-                        "review_state": row["review_state"],
                         "render_time_sec": row["render_time_sec"],
                         "error_message": row["error_message"],
                     }

@@ -4,13 +4,23 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
-import sqlite3
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
+
+from creator_os_core.runtime_paths import resolve_runtime_paths
+from creator_os_core.runtime_state import (
+    sha256_file,
+    sqlite_integrity,
+    vacuum_into,
+    verify_clean_restore,
+)
 
 DB_PATHS = (
     ("reel_manifest", Path("python_packages/reel_factory/manifest.sqlite")),
@@ -37,35 +47,13 @@ MANIFEST_NAME = "backup-manifest.json"
 CREDENTIAL_PATTERNS = ("secrets.toml", "*.env", "*.pem", "*.key")
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def sqlite_integrity(path: Path) -> dict[str, Any]:
-    with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as conn:
-        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).fetchall()
-        row_counts = {
-            table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
-            for (table,) in tables
-        }
-    return {"integrity": integrity, "rowCounts": row_counts}
-
-
-def vacuum_into(source: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(f"file:{source.resolve()}?mode=ro", uri=True) as conn:
-        conn.execute("VACUUM main INTO ?", (str(dest),))
-
-
 def backup_runtime_state(
-    repo_root: Path, output_dir: Path, *, timestamp: str | None = None
+    repo_root: Path,
+    output_dir: Path,
+    *,
+    timestamp: str | None = None,
+    database_sources: tuple[tuple[str, Path, Path], ...] | None = None,
+    directory_sources: tuple[tuple[str, Path, Path], ...] | None = None,
 ) -> dict[str, Any]:
     repo_root = repo_root.resolve()
     stamp = timestamp or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -79,12 +67,19 @@ def backup_runtime_state(
         "directories": [],
     }
 
-    for name, rel in DB_PATHS:
-        source = repo_root / rel
+    databases = database_sources or tuple(
+        (name, repo_root / rel, Path(rel.name)) for name, rel in DB_PATHS
+    )
+    directories = directory_sources or tuple(
+        (name, repo_root / rel, rel) for name, rel in DIR_PATHS
+    )
+
+    for name, source, backup_rel in databases:
         entry = {"name": name, "source": str(source), "status": "missing"}
         if source.exists():
-            dest = target / "databases" / rel.name
+            dest = target / "databases" / backup_rel
             vacuum_into(source, dest)
+            dest.chmod(0o600)
             verification = sqlite_integrity(dest)
             if verification["integrity"] != "ok":
                 raise RuntimeError(f"SQLite integrity check failed: {dest}")
@@ -97,11 +92,10 @@ def backup_runtime_state(
             }
         result["databases"].append(entry)
 
-    for name, rel in DIR_PATHS:
-        source = repo_root / rel
+    for name, source, backup_rel in directories:
         entry = {"name": name, "source": str(source), "status": "missing"}
         if source.exists():
-            dest = target / rel
+            dest = target / backup_rel
             shutil.copytree(
                 source,
                 dest,
@@ -114,6 +108,38 @@ def backup_runtime_state(
     manifest = target / MANIFEST_NAME
     manifest.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
+
+
+def backup_configured_runtime_state(
+    output_dir: Path, *, timestamp: str | None = None
+) -> dict[str, Any]:
+    paths = resolve_runtime_paths(Path(__file__).resolve().parents[1])
+    databases = (
+        (
+            "campaign_factory",
+            paths.campaign_factory_db,
+            Path("campaign_factory.sqlite"),
+        ),
+        (
+            "reference_factory",
+            paths.reference_factory_db,
+            Path("reference_factory.sqlite"),
+        ),
+        ("reel_manifest", paths.reel_manifest_db, Path("manifest.sqlite")),
+        ("render_queue", paths.reel_render_queue_db, Path("render_queue.sqlite")),
+    )
+    directories = (
+        ("artifacts", paths.artifact_root, Path("artifacts")),
+        ("models", paths.model_root, Path("models")),
+        ("logs", paths.log_root, Path("logs")),
+    )
+    return backup_runtime_state(
+        paths.source_root,
+        output_dir,
+        timestamp=timestamp,
+        database_sources=databases,
+        directory_sources=directories,
+    )
 
 
 def verify_backup(backup_dir: Path) -> dict[str, Any]:
@@ -129,7 +155,15 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
         checks = sqlite_integrity(path)
         if actual_hash != entry["sha256"] or checks["integrity"] != "ok":
             raise RuntimeError(f"Backup verification failed: {entry['name']}")
-        verified.append({"name": entry["name"], "sha256": actual_hash, **checks})
+        restored = verify_clean_restore(path)
+        verified.append(
+            {
+                "name": entry["name"],
+                "sha256": actual_hash,
+                **checks,
+                "cleanRestore": restored,
+            }
+        )
     return {"backupDir": str(backup_dir), "status": "ok", "databases": verified}
 
 
@@ -138,12 +172,12 @@ def main() -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path(__file__).resolve().parents[1],
+        help="legacy explicit checkout-root backup; configured roots are the default",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "backups" / "runtime",
+        default=Path.home() / ".creator-os/backups/runtime",
     )
     parser.add_argument(
         "--verify",
@@ -154,7 +188,12 @@ def main() -> int:
     if args.verify:
         print(json.dumps(verify_backup(args.verify), indent=2))
         return 0
-    print(json.dumps(backup_runtime_state(args.repo_root, args.output_dir), indent=2))
+    result = (
+        backup_runtime_state(args.repo_root, args.output_dir)
+        if args.repo_root is not None
+        else backup_configured_runtime_state(args.output_dir)
+    )
+    print(json.dumps(result, indent=2))
     return 0
 
 

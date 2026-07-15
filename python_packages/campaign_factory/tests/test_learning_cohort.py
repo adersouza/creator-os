@@ -203,7 +203,7 @@ def test_real_artifact_draft_approval_and_publish_transitions(tmp_path: Path) ->
                 WHERE day_index = 1 AND surface = 'regular_reel'"""
             ).fetchone()
         )
-        model = cf.upsert_model("stacey")
+        model = cf.domains.models.upsert_model("stacey")
         campaign_id = cf.conn.execute(
             "SELECT id FROM campaigns WHERE slug = ?", (COHORT_ID,)
         ).fetchone()["id"]

@@ -31,12 +31,12 @@ def run_motion_edit_stage(
     allow_upscale: bool = False,
 ) -> dict[str, Any]:
     """Render or preview a zero-cost motion-edit reel for a campaign."""
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     source = _source_asset_for_campaign(factory, campaign["id"])
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     output_path = dirs["rendered"] / f"{slugify(Path(still_path).stem)}_motion_edit.mp4"
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "motion_edit",
         campaign["id"],
         {
@@ -49,7 +49,7 @@ def run_motion_edit_stage(
             "enableVariation": enable_variation,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         render = _invoke_reel_factory_motion_edit(
             factory,
@@ -90,10 +90,12 @@ def run_motion_edit_stage(
             "variation": variation,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.finish_pipeline_job(pipeline_job["id"], sanitize_for_storage(result))
+        factory.domains.events.finish_pipeline_job(
+            pipeline_job["id"], sanitize_for_storage(result)
+        )
         return result
     except Exception as exc:
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -161,7 +163,9 @@ def _register_rendered_asset(
     rendered_id = new_id("asset")
     digest = sha256_file(output_path)
     now = utc_now()
-    caption_hash = factory._text_hash(caption) if caption else None
+    caption_hash = (
+        factory.domains.publishability.text_hash(caption) if caption else None
+    )
     caption_context = _caption_context(
         render=render,
         caption=caption,

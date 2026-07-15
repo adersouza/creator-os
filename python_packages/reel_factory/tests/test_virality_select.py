@@ -2,235 +2,80 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from reel_factory.campaign_store import ensure_campaign_schema
+import pytest
 from reel_factory.virality_select import (
     predict_engagement,
     rank_candidates,
     rank_kling_candidate_manifest,
-    select_best,
 )
-from reel_factory.winner_dna import connect, refresh_winner_dna
 
 
-def _seed(root: Path) -> None:
-    conn = connect(root)
-    # 40 outcome rows so confidence can reach "high"; values irrelevant to ranking.
-    for i in range(40):
-        conn.execute(
-            "INSERT INTO reel_outcomes (output_path, filename, views, imported_at) "
-            "VALUES (?, ?, ?, ?)",
-            (f"out_{i}.mp4", f"out_{i}.mp4", 1, 0),
-        )
-    now = 0
-    rows = [
-        ("dna_scene_beach", "scene", "beach", 30, 1000.0, "out_0.mp4", now),
-        ("dna_scene_office", "scene", "office", 30, 50.0, "out_1.mp4", now),
-        (
-            "dna_hook_type_curiosity",
-            "hook_type",
-            "curiosity",
-            30,
-            800.0,
-            "out_2.mp4",
-            now,
-        ),
-    ]
-    conn.executemany(
-        "INSERT INTO winner_dna (dna_id, feature_key, feature_value, sample_size, "
-        "avg_winner_score, top_output_path, updated_at) VALUES (?,?,?,?,?,?,?)",
-        rows,
+def _candidate(candidate_id: str, score: float | None) -> dict:
+    candidate = {
+        "id": candidate_id,
+        "features": {"scene": "mirror"},
+        "generatedAssetLineage": {"features": {"scene": "mirror"}},
+    }
+    if score is not None:
+        candidate["knowledgeAdvisory"] = {
+            "sourcePackId": "kp_test",
+            "score": score,
+            "measuredExampleCount": 2,
+            "recommendationStatus": "advisory",
+            "matchedPatternCount": 1,
+        }
+    return candidate
+
+
+def test_missing_campaign_knowledge_is_honest() -> None:
+    result = predict_engagement({"scene": "mirror"})
+
+    assert result == {
+        "score": 0.0,
+        "matched": 0,
+        "weight": 0.0,
+        "source": "missing_campaign_knowledge",
+        "recommendationStatus": "not_run",
+        "measuredExampleCount": 0,
+    }
+
+
+def test_ranking_uses_only_explicit_campaign_advisory(tmp_path: Path) -> None:
+    ranked = rank_candidates(
+        [_candidate("low", 21.0), _candidate("high", 91.0)], tmp_path
     )
-    conn.commit()
-    conn.close()
+
+    assert [row["id"] for row in ranked] == ["high", "low"]
+    assert ranked[0]["predictedEngagement"]["source"] == (
+        "campaign_factory.explicit_knowledge_advisory"
+    )
+    assert ranked[0]["predictedEngagement"]["decisionAuthority"] is False
+    assert not (tmp_path / "manifest.sqlite").exists()
 
 
-def test_higher_engagement_candidate_wins(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    candidates = [
-        {"id": "office_one", "features": {"scene": "office"}},
-        {"id": "beach_one", "features": {"scene": "beach", "hook_type": "curiosity"}},
-    ]
-    best = select_best(candidates, tmp_path)
-    assert best is not None and best["id"] == "beach_one"
-    # ranking is fully ordered, best-first
-    ranked = rank_candidates(candidates, tmp_path)
-    assert [c["id"] for c in ranked] == ["beach_one", "office_one"]
-    assert ranked[0]["score"] > ranked[1]["score"]
-
-
-def test_kling_manifest_selects_unique_evidence_backed_winner(tmp_path: Path) -> None:
-    _seed(tmp_path)
+def test_kling_ranking_fails_closed_without_advisory(tmp_path: Path) -> None:
     result = rank_kling_candidate_manifest(
         {
             "schema": "campaign_factory.kling_candidate_manifest.v1",
             "batchId": "batch_1",
-            "candidates": [
-                {"id": "office", "features": {"scene": "office"}},
-                {"id": "beach", "features": {"scene": "beach"}},
-            ],
+            "candidates": [_candidate("one", None), _candidate("two", None)],
         },
         tmp_path,
     )
 
-    assert result["status"] == "selected"
-    assert result["selectedCandidateId"] == "beach"
-    assert [row["rank"] for row in result["candidates"]] == [1, 2]
+    assert result["status"] == "insufficient_signal"
+    assert result["selectedCandidateId"] is None
+    assert result["rankingOwnership"] == "campaign_factory.explicit_advisory"
     assert result["paidGenerationAuthorized"] is False
-    assert result["publishingAllowed"] is False
 
 
-def test_kling_manifest_refuses_no_signal_or_tied_top(tmp_path: Path) -> None:
-    no_signal = rank_kling_candidate_manifest(
-        {
-            "schema": "campaign_factory.kling_candidate_manifest.v1",
-            "batchId": "batch_none",
-            "candidates": [{"id": "a"}, {"id": "b"}],
-        },
-        tmp_path,
-    )
-    assert no_signal["status"] == "insufficient_signal"
-    assert no_signal["selectedCandidateId"] is None
-
-    _seed(tmp_path)
-    tied = rank_kling_candidate_manifest(
-        {
-            "schema": "campaign_factory.kling_candidate_manifest.v1",
-            "batchId": "batch_tied",
-            "candidates": [
-                {"id": "a", "features": {"scene": "beach"}},
-                {"id": "b", "features": {"scene": "beach"}},
-            ],
-        },
-        tmp_path,
-    )
-    assert tied["status"] == "ambiguous_top"
-    assert tied["selectedCandidateId"] is None
-
-
-def test_rate_reward_beats_higher_raw_view_volume(tmp_path: Path) -> None:
-    conn = connect(tmp_path)
-    ensure_campaign_schema(conn)
-    for output_path, scene, views, likes in [
-        ("high_rate.mp4", "high_rate", 10, 10),
-        ("high_volume.mp4", "high_volume", 100000, 100),
-    ]:
-        conn.execute(
-            """
-            INSERT INTO campaign_outputs (
-                campaign_output_id, output_path, job_key, caption_text, recipe,
-                review_state, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"co_{scene}",
-                output_path,
-                f"job_{scene}",
-                "hook",
-                "recipe",
-                "approved",
-                0,
-                0,
-            ),
+def test_invalid_advisory_never_fabricates_score() -> None:
+    with pytest.raises(ValueError, match="finite number"):
+        predict_engagement(
+            {},
+            knowledge_advisory={
+                "score": float("nan"),
+                "measuredExampleCount": 3,
+                "recommendationStatus": "eligible",
+            },
         )
-        conn.execute(
-            """
-            INSERT INTO reel_features (
-                feature_id, output_path, scene, features_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (f"feature_{scene}", output_path, scene, "{}", 0, 0),
-        )
-        conn.execute(
-            """
-            INSERT INTO reel_outcomes (
-                outcome_id, filename, output_path, campaign_output_id, platform,
-                account, posted_at, views, likes, comments, shares, saves, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"outcome_{scene}",
-                output_path,
-                output_path,
-                f"co_{scene}",
-                "ig",
-                "acct",
-                "2026-07-01",
-                views,
-                likes,
-                0,
-                0,
-                0,
-                0,
-            ),
-        )
-    conn.commit()
-    conn.close()
-    refresh_winner_dna(tmp_path)
-
-    ranked = rank_candidates(
-        [
-            {"id": "raw_volume", "features": {"scene": "high_volume"}},
-            {"id": "rate", "features": {"scene": "high_rate"}},
-        ],
-        tmp_path,
-    )
-
-    assert [candidate["id"] for candidate in ranked] == ["rate", "raw_volume"]
-
-
-def test_scorer_hook_blends_external_signal(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    candidates = [
-        {"id": "beach_one", "features": {"scene": "beach"}},
-        {"id": "office_one", "features": {"scene": "office"}},
-    ]
-    # External scorer that flips preference: office should now win.
-    ranked = rank_candidates(
-        candidates,
-        tmp_path,
-        scorer=lambda c, _data: 1.0 if c["id"] == "office_one" else 0.0,
-    )
-    assert ranked[0]["id"] == "office_one"
-
-
-def test_virality_blend_breaks_cold_start_ties(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    # Both candidates are cold-start (no winner_dna match) -> data score 0 for both.
-    # The attached predictor score is the only signal; higher virality must win.
-    candidates = [
-        {"id": "weak", "features": {"scene": "unseen_a"}, "virality": 0.1},
-        {"id": "strong", "features": {"scene": "unseen_b"}, "virality": 0.9},
-    ]
-    ranked = rank_candidates(candidates, tmp_path)
-    assert [c["id"] for c in ranked] == ["strong", "weak"]
-    assert ranked[0]["score"] > ranked[1]["score"]
-
-
-def test_virality_blend_does_not_punish_missing_predictor_scores(
-    tmp_path: Path,
-) -> None:
-    _seed(tmp_path)
-    candidates = [
-        {"id": "known_good", "features": {"scene": "beach"}},
-        {
-            "id": "known_weaker_with_predictor",
-            "features": {"scene": "office", "hook_type": "curiosity"},
-            "virality": 1.0,
-        },
-    ]
-
-    ranked = rank_candidates(candidates, tmp_path)
-
-    assert ranked[0]["id"] == "known_good"
-    assert ranked[0]["predictedEngagement"]["matched"] == 1
-    assert "virality" not in ranked[0]
-
-
-def test_cold_start_candidate_scores_zero_not_crash(tmp_path: Path) -> None:
-    _seed(tmp_path)
-    conn = connect(tmp_path)
-    try:
-        pred = predict_engagement({"scene": "unseen_scene", "outfit": "unknown"}, conn)
-    finally:
-        conn.close()
-    assert pred == {"score": 0.0, "matched": 0, "weight": 0.0}

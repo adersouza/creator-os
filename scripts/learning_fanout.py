@@ -24,13 +24,6 @@ from campaign_factory.learning_score import (
     snapshot_normalized_reward,
 )
 from campaign_factory.persistence import utc_now
-from reel_factory.metrics_store import (
-    connect_metrics_db,
-    ensure_metrics_schema,
-    retract_bridge_outcome,
-    upsert_bridge_outcome,
-)
-from reel_factory.winner_dna import refresh_winner_dna
 from reference_factory.db import connect as connect_reference_db
 from reference_factory.observed_prompts import register_observed_higgsfield_prompt
 from reference_factory.outcomes import (
@@ -39,22 +32,19 @@ from reference_factory.outcomes import (
 )
 from reference_factory.patterns import refresh_measured_outcomes_for_references
 
-DESTINATIONS = ("campaign", "reel", "reference")
+DESTINATIONS = ("campaign", "reference")
 DEFAULT_MAX_ATTEMPTS = 5
 
 
 def fanout_learning_snapshots(
     *,
     campaign_factory_db: Path,
-    reel_factory_root: Path,
     reference_factory_db: Path,
     campaign: str | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     campaign_conn = connect_campaign_db(Path(campaign_factory_db))
     init_campaign_db(campaign_conn)
-    reel_conn = connect_metrics_db(Path(reel_factory_root) / "manifest.sqlite")
-    ensure_metrics_schema(reel_conn)
     reference_conn = connect_reference_db(Path(reference_factory_db))
     now = utc_now()
     try:
@@ -108,13 +98,7 @@ def fanout_learning_snapshots(
                     continue
                 identity = _json_object(ledger.get("destination_record_id"))
                 try:
-                    if destination == "reel" and identity:
-                        retract_bridge_outcome(
-                            reel_conn,
-                            outcome_id=str(identity.get("outcomeId") or ""),
-                            filename=str(identity.get("filename") or ""),
-                        )
-                    elif destination == "reference" and identity:
+                    if destination == "reference" and identity:
                         prompt_id = str(identity.get("promptId") or "")
                         prompt = reference_conn.execute(
                             "SELECT reference_id FROM generated_video_prompts WHERE id = ?",
@@ -136,10 +120,7 @@ def fanout_learning_snapshots(
                         last_error=None,
                     )
                     report["fanout"][destination]["retracted"] += 1
-                    if (
-                        destination in {"reel", "reference"}
-                        and row["post_id"] in latest_eligible
-                    ):
+                    if destination == "reference" and row["post_id"] in latest_eligible:
                         restore_keys.add((str(row["post_id"]), destination))
                 except Exception as exc:  # destination errors remain retryable
                     _record_failure(
@@ -173,7 +154,7 @@ def fanout_learning_snapshots(
                 if not ledger:
                     continue
                 if (
-                    destination in {"reel", "reference"}
+                    destination == "reference"
                     and latest_eligible.get(str(row["post_id"])) is not row
                 ):
                     if ledger["status"] in {"pending", "done"}:
@@ -195,17 +176,6 @@ def fanout_learning_snapshots(
                             "status": "written",
                             "snapshotId": row["id"],
                         }
-                        baseline_provenance = None
-                    elif destination == "reel":
-                        previous = _previous_identity(
-                            campaign_conn, row["post_id"], destination, key
-                        )
-                        result = upsert_bridge_outcome(
-                            Path(reel_factory_root),
-                            reel_conn,
-                            row,
-                            previous_identity=previous,
-                        )
                         baseline_provenance = None
                     else:
                         previous = _previous_identity(
@@ -253,7 +223,7 @@ def fanout_learning_snapshots(
                         baseline_provenance=baseline_provenance,
                         now=now,
                     )
-                    if destination in {"reel", "reference"}:
+                    if destination == "reference":
                         _supersede_other_snapshots(
                             campaign_conn,
                             post_id=str(row["post_id"]),
@@ -284,7 +254,10 @@ def fanout_learning_snapshots(
                 "references": 0,
                 "patternsChanged": 0,
             }
-        report["reelWinnerDnaRefresh"] = refresh_winner_dna(Path(reel_factory_root))
+        report["reelProjection"] = {
+            "status": "retired",
+            "reason": "Campaign performance_snapshots is the sole measured-facts source",
+        }
         report["readiness"] = closed_loop_learning_status(
             campaign_conn, campaign_slug=campaign
         )
@@ -309,7 +282,6 @@ def fanout_learning_snapshots(
         return report
     finally:
         reference_conn.close()
-        reel_conn.close()
         campaign_conn.close()
 
 
@@ -472,9 +444,6 @@ def _source_hash(row: dict[str, Any], destination: str, *, eligible: bool) -> st
         "sourceLineagePath": source.get("sourceLineagePath")
         if isinstance(source, dict)
         else None,
-        "features": lineage.get("features")
-        if destination == "reel" and isinstance(lineage, dict)
-        else None,
         "audioId": row.get("audio_id"),
         "historySource": row.get("history_source"),
         "metricsEligible": row.get("metrics_eligible"),
@@ -587,8 +556,6 @@ def _destination_identity(
 ) -> dict[str, Any] | None:
     if destination == "campaign" and result.get("snapshotId"):
         return {"snapshotId": result["snapshotId"]}
-    if destination == "reel" and result.get("outcomeId") and result.get("filename"):
-        return {"outcomeId": result["outcomeId"], "filename": result["filename"]}
     if destination == "reference" and result.get("promptId") and result.get("postId"):
         return {"promptId": result["promptId"], "postId": result["postId"]}
     return None
@@ -801,7 +768,6 @@ def _json_object(value: Any) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fan out eligible learning outcomes")
     parser.add_argument("--campaign-factory-db", type=Path, required=True)
-    parser.add_argument("--reel-factory-root", type=Path, required=True)
     parser.add_argument("--reference-factory-db", type=Path, required=True)
     parser.add_argument("--campaign")
     parser.add_argument(
@@ -814,7 +780,6 @@ def main() -> int:
     args = parser.parse_args()
     result = fanout_learning_snapshots(
         campaign_factory_db=args.campaign_factory_db,
-        reel_factory_root=args.reel_factory_root,
         reference_factory_db=args.reference_factory_db,
         campaign=args.campaign,
         max_attempts=max(1, args.max_attempts),

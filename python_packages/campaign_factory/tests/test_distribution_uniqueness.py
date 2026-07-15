@@ -22,15 +22,15 @@ def test_create_distribution_plan_is_idempotent_for_same_target(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         isolate_account_groups(cf, ["ig_1"])
 
-        first = cf.create_distribution_plan(
+        first = cf.domains.distribution.create_distribution_plan(
             "asset_1",
             instagram_account_id="ig_1",
             planned_window_start="2026-01-02T10:00:00+00:00",
         )
-        second = cf.create_distribution_plan(
+        second = cf.domains.distribution.create_distribution_plan(
             "asset_1",
             instagram_account_id="ig_1",
             planned_window_start="2026-01-02T10:00:00+00:00",
@@ -48,11 +48,15 @@ def test_create_distribution_plan_distinct_targets_create_distinct_plans(
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         isolate_account_groups(cf, ["ig_1", "ig_2"])
 
-        a = cf.create_distribution_plan("asset_1", instagram_account_id="ig_1")
-        b = cf.create_distribution_plan("asset_1", instagram_account_id="ig_2")
+        a = cf.domains.distribution.create_distribution_plan(
+            "asset_1", instagram_account_id="ig_1"
+        )
+        b = cf.domains.distribution.create_distribution_plan(
+            "asset_1", instagram_account_id="ig_2"
+        )
 
         assert a["id"] != b["id"]
         assert _plan_count(cf) == 2
@@ -64,9 +68,9 @@ def test_distribution_plan_unique_index_rejects_raw_duplicate_insert(tmp_path: P
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         isolate_account_groups(cf, ["ig_1"])
-        plan = cf.create_distribution_plan(
+        plan = cf.domains.distribution.create_distribution_plan(
             "asset_1",
             instagram_account_id="ig_1",
             planned_window_start="2026-01-02T10:00:00+00:00",
@@ -93,7 +97,7 @@ def test_asset_account_assignment_unique_index_rejects_duplicates(tmp_path: Path
     try:
         add_rendered_asset(cf, tmp_path)
         isolate_account_groups(cf, ["ig_1"])
-        campaign_id = cf.campaign_by_slug("may")["id"]
+        campaign_id = cf.domains.campaign_by_slug("may")["id"]
 
         def insert_assignment(row_id: str) -> None:
             cf.conn.execute(
@@ -121,9 +125,9 @@ def test_migration_dedupes_preexisting_duplicate_plans(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
-        cf.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         isolate_account_groups(cf, ["ig_1"])
-        plan = cf.create_distribution_plan(
+        plan = cf.domains.distribution.create_distribution_plan(
             "asset_1",
             instagram_account_id="ig_1",
             planned_window_start="2026-01-02T10:00:00+00:00",

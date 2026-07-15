@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import validate_reference_factory_knowledge_pack
+
 from .config import Settings
 from .persistence import json_load
 
@@ -53,6 +55,16 @@ class ReferenceRepository:
         if not bank_path.exists():
             raise FileNotFoundError(f"reference bank not found: {bank_path}")
         bank = json_load(bank_path.read_text(encoding="utf-8"), {})
+        knowledge_pack = (
+            bank
+            if isinstance(bank, dict)
+            and bank.get("schema") == "reference_factory.knowledge_pack.v1"
+            else None
+        )
+        if knowledge_pack is not None:
+            validate_reference_factory_knowledge_pack(knowledge_pack)
+            self._validate_knowledge_pack_fingerprint(knowledge_pack)
+            bank = self._knowledge_pack_as_reference_bank(knowledge_pack)
         clusters = bank.get("clusters") if isinstance(bank, dict) else None
         if not isinstance(clusters, list):
             raise ValueError("reference bank must contain a clusters array")
@@ -234,6 +246,8 @@ class ReferenceRepository:
                     [(link_id,) for link_id in stale_link_ids],
                 )
         if not dry_run:
+            if knowledge_pack is not None:
+                self._store_knowledge_pack(knowledge_pack, now=now)
             self.conn.commit()
         if not dry_run and (created or updated or linked):
             self._record_event(
@@ -252,7 +266,11 @@ class ReferenceRepository:
                 },
             )
         return {
-            "schema": "campaign_factory.reference_bank_import.v1",
+            "schema": (
+                "campaign_factory.knowledge_pack_import.v1"
+                if knowledge_pack is not None
+                else "campaign_factory.reference_bank_import.v1"
+            ),
             "bankPath": str(bank_path),
             "promptPackPath": str(prompt_pack_path) if prompt_pack_path else None,
             "dryRun": dry_run,
@@ -265,7 +283,143 @@ class ReferenceRepository:
             "campaignLinksRemoved": unlinked,
             "campaign": campaign_slug,
             "missingLocalPaths": sorted(set(missing_paths)),
+            "knowledgePackId": (
+                knowledge_pack.get("packId") if knowledge_pack is not None else None
+            ),
+            "knowledgePackSourceFingerprint": (
+                knowledge_pack.get("sourceFingerprint")
+                if knowledge_pack is not None
+                else None
+            ),
         }
+
+    def _knowledge_pack_as_reference_bank(self, pack: dict[str, Any]) -> dict[str, Any]:
+        gold_by_id = {str(item["referenceId"]): item for item in pack["goldReferences"]}
+        prompt_by_id = {str(item["id"]): item for item in pack["promptCards"]}
+        caption_by_id = {str(item["id"]): item for item in pack["captionPatterns"]}
+        audio_by_id = {str(item["id"]): item for item in pack["audioPatterns"]}
+        clusters = []
+        for card in pack["patternCards"]:
+            reference_ids = [str(item) for item in card["referenceIds"]]
+            prompt_cards = [
+                prompt_by_id[item]
+                for item in card["promptCardIds"]
+                if item in prompt_by_id
+            ]
+            caption_patterns = [
+                caption_by_id[item]
+                for item in card["captionPatternIds"]
+                if item in caption_by_id
+            ]
+            audio_patterns = [
+                audio_by_id[item]
+                for item in card["audioPatternIds"]
+                if item in audio_by_id
+            ]
+            clusters.append(
+                {
+                    "clusterKey": card["clusterKey"],
+                    "clusterRank": card["rank"],
+                    "label": card["label"],
+                    "visualFormat": card["visualFormat"],
+                    "hookType": card["hookType"],
+                    "captionArchetype": card["captionArchetype"],
+                    "referenceIds": reference_ids,
+                    "localPaths": [
+                        gold_by_id[reference_id]["localPath"]
+                        for reference_id in reference_ids
+                        if reference_id in gold_by_id
+                        and gold_by_id[reference_id].get("localPath")
+                    ],
+                    "promptTemplate": (
+                        prompt_cards[0]["prompt"] if prompt_cards else {}
+                    ),
+                    "higgsfieldJson": next(
+                        (
+                            prompt["prompt"]
+                            for prompt in prompt_cards
+                            if str(prompt["targetTool"]).startswith("higgsfield")
+                        ),
+                        {},
+                    ),
+                    "captionFormulas": [
+                        {
+                            "formula": item["normalizedText"],
+                            "exampleCaptions": [item["normalizedText"]],
+                            "sourceCaptionPatternId": item["id"],
+                        }
+                        for item in caption_patterns
+                        if item.get("normalizedText")
+                    ],
+                    "audioRecommendations": {
+                        "schema": "reference_factory.knowledge_pack.audio_patterns.v1",
+                        "sourcePatternIds": [item["id"] for item in audio_patterns],
+                        "items": audio_patterns,
+                    },
+                    "knowledge": {
+                        "packId": pack["packId"],
+                        "sourceFingerprint": pack["sourceFingerprint"],
+                        "patternCardId": card["id"],
+                        "recommendationStatus": card["recommendationStatus"],
+                        "measuredExampleCount": card["measuredExampleCount"],
+                        "measuredOutcomeProvenance": card["measuredOutcomeProvenance"],
+                        "policy": pack["policy"],
+                    },
+                }
+            )
+        return {
+            "schema": "reference_factory.knowledge_pack.v1",
+            "runId": pack["packId"],
+            "clusters": clusters,
+        }
+
+    def _validate_knowledge_pack_fingerprint(self, pack: dict[str, Any]) -> None:
+        core = {
+            key: value
+            for key, value in pack.items()
+            if key not in {"schema", "packId", "sourceFingerprint", "generatedAt"}
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                core,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if pack["sourceFingerprint"] != fingerprint:
+            raise ValueError("knowledge pack sourceFingerprint does not match payload")
+        if pack["packId"] != f"kp_{fingerprint[:16]}":
+            raise ValueError("knowledge pack packId does not match sourceFingerprint")
+
+    def _store_knowledge_pack(self, pack: dict[str, Any], *, now: str) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO reference_knowledge_packs (
+              id, schema_version, source_fingerprint, generated_at, policy_json,
+              summary_json, payload_json, imported_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              schema_version = excluded.schema_version,
+              source_fingerprint = excluded.source_fingerprint,
+              generated_at = excluded.generated_at,
+              policy_json = excluded.policy_json,
+              summary_json = excluded.summary_json,
+              payload_json = excluded.payload_json,
+              updated_at = excluded.updated_at
+            """,
+            (
+                pack["packId"],
+                pack["schema"],
+                pack["sourceFingerprint"],
+                pack["generatedAt"],
+                json.dumps(pack["policy"], ensure_ascii=False, sort_keys=True),
+                json.dumps(pack["summary"], ensure_ascii=False, sort_keys=True),
+                json.dumps(pack, ensure_ascii=False, sort_keys=True),
+                now,
+                now,
+            ),
+        )
 
     def reference_prompt_pack_by_cluster(
         self, prompt_pack_path: Path | None
@@ -306,6 +460,7 @@ class ReferenceRepository:
     def reference_pattern_payload(self, row: dict[str, Any]) -> dict[str, Any]:
         raw = json_load(row.get("raw_json") or "{}", {})
         bank = raw.get("bank") if isinstance(raw, dict) else {}
+        knowledge = (bank or {}).get("knowledge") or {}
         return {
             "id": row["id"],
             "clusterKey": row["cluster_key"],
@@ -327,6 +482,9 @@ class ReferenceRepository:
             "suggestedVariantRecipes": (bank or {}).get("suggestedVariantRecipes")
             or [],
             "raw": raw,
+            "knowledge": knowledge,
+            "recommendationStatus": knowledge.get("recommendationStatus"),
+            "measuredExampleCount": int(knowledge.get("measuredExampleCount") or 0),
             "importedAt": row["imported_at"],
             "updatedAt": row["updated_at"],
         }

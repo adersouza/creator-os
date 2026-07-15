@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from campaign_factory import recommendation_bridge
@@ -29,6 +30,11 @@ def test_recommend_next_batch_from_env_closes_factory(monkeypatch):
     class FakeCampaignFactory:
         def __init__(self, settings):
             calls.append(("init", settings))
+            self.domains = SimpleNamespace(
+                recommendations=SimpleNamespace(
+                    recommend_next_batch=self.recommend_next_batch
+                )
+            )
 
         def recommend_next_batch(self, campaign, *, count, persist):
             calls.append(("recommend", campaign, count, persist))

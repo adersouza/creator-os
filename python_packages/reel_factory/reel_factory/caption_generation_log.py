@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-from .intelligence_store import winner_score
 
 
 def utc_now() -> str:
@@ -33,7 +30,6 @@ def score_caption_quality(
     recent_hooks: list[str] | None = None,
     min_chars: int = 10,
     max_chars: int = 140,
-    performance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     warnings: list[str] = []
     stripped = text.strip()
@@ -55,36 +51,16 @@ def score_caption_quality(
     if recent_hooks and normalized in {_normalize(hook) for hook in recent_hooks}:
         warnings.append("recent_duplicate")
     format_score = max(0, 100 - len(set(warnings)) * 15)
-    performance_score = _caption_performance_score(performance)
-    score = (
-        round((format_score * 0.7) + (performance_score * 0.3))
-        if performance_score is not None
-        else format_score
-    )
     hook_features = _hook_features(stripped)
     return {
         "captionHash": caption_hash(stripped),
         "charCount": len(stripped),
         "lineCount": len(lines) or (1 if stripped else 0),
-        "qualityScore": score,
+        "qualityScore": format_score,
         "formatScore": format_score,
-        "performanceScore": performance_score,
         "hookFeatures": hook_features,
         "warnings": sorted(set(warnings)),
     }
-
-
-def _caption_performance_score(performance: dict[str, Any] | None) -> int | None:
-    if not performance:
-        return None
-    views = max(float(performance.get("views") or 0), 0.0)
-    engagements = sum(
-        float(performance.get(metric) or 0)
-        for metric in ("likes", "comments", "shares", "saves")
-    )
-    rate = max(0.0, min(1.0, engagements / max(views, 1.0)))
-    volume = min(1.0, math.log1p(views) / math.log1p(10000))
-    return round(100 * ((rate * 0.75) + (volume * 0.25)))
 
 
 def _hook_features(text: str) -> dict[str, str]:
@@ -225,21 +201,17 @@ def rank_captions(
         if normalized in seen:
             warnings.add("duplicate_in_batch")
         seen.add(normalized)
-        performance = (performance_by_caption_hash or {}).get(
-            quality["captionHash"]
-        ) or {}
-        perf_score = _performance_component(performance)
+        _ = performance_by_caption_hash  # retired compatibility input; never scored
         quality_score = int(quality["qualityScore"])
-        score = round(quality_score * 0.75 + perf_score * 0.25)
         ranked.append(
             {
                 "index": index,
                 "text": text,
                 "captionHash": quality["captionHash"],
-                "score": max(0, min(100, score)),
+                "score": max(0, min(100, quality_score)),
                 "quality": {**quality, "warnings": sorted(warnings)},
-                "performance": performance or None,
-                "reasons": _rank_reasons(quality_score, perf_score, warnings),
+                "knowledgeAdvisory": None,
+                "reasons": _rank_reasons(quality_score, warnings),
             }
         )
     return sorted(ranked, key=lambda row: row["score"], reverse=True)[: max(1, top)]
@@ -303,27 +275,10 @@ def _hook_text(hook: Any) -> str:
     return str(hook)
 
 
-def _performance_component(performance: dict[str, Any]) -> int:
-    if not performance:
-        return 50
-    metrics = (
-        performance.get("metrics")
-        or performance.get("totals")
-        or performance.get("averages")
-        or performance
-    )
-    signal = winner_score(metrics)
-    if signal <= 0:
-        return 45
-    return int(max(35, min(100, 50 + signal)))
-
-
-def _rank_reasons(quality_score: int, perf_score: int, warnings: set[str]) -> list[str]:
+def _rank_reasons(quality_score: int, warnings: set[str]) -> list[str]:
     reasons = []
     if quality_score >= 85:
         reasons.append("strong local quality")
-    if perf_score > 55:
-        reasons.append("matching caption has positive history")
     if warnings:
         reasons.append("review warnings: " + ", ".join(sorted(warnings)))
-    return reasons or ["neutral score; no historical performance yet"]
+    return reasons or ["neutral local quality; no Campaign advisory supplied"]

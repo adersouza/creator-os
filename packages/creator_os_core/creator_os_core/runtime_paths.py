@@ -13,12 +13,21 @@ class RuntimePaths:
     source_root: Path
     workspace_root: Path
     runtime_root: Path
+    config_root: Path
+    state_root: Path
+    artifact_root: Path
+    model_root: Path
+    log_root: Path
     campaign_factory_root: Path
     reel_factory_root: Path
     reference_factory_root: Path
     contentforge_root: Path
     threadsdash_root: Path
     reference_data_root: Path
+    campaign_factory_db: Path
+    reference_factory_db: Path
+    reel_manifest_db: Path
+    reel_render_queue_db: Path
 
 
 def resolve_runtime_paths(
@@ -40,8 +49,33 @@ def resolve_runtime_paths(
         .expanduser()
         .resolve()
     )
+    home = Path(values.get("HOME") or Path.home()).expanduser().resolve()
+    config_root = home / ".creator-os"
+    state_root = (
+        Path(values.get("CREATOR_OS_STATE_ROOT") or config_root / "state")
+        .expanduser()
+        .resolve()
+    )
+    artifact_root = (
+        Path(values.get("CREATOR_OS_ARTIFACT_ROOT") or config_root / "artifacts")
+        .expanduser()
+        .resolve()
+    )
+    model_root = (
+        Path(values.get("CREATOR_OS_MODEL_ROOT") or config_root / "models")
+        .expanduser()
+        .resolve()
+    )
+    log_root = (
+        Path(values.get("CREATOR_OS_LOG_ROOT") or config_root / "logs")
+        .expanduser()
+        .resolve()
+    )
     reference_data = (
-        Path(values.get("REFERENCE_FACTORY_DATA_ROOT") or workspace / "reference_reels")
+        Path(
+            values.get("REFERENCE_FACTORY_DATA_ROOT")
+            or artifact_root / "reference_factory"
+        )
         .expanduser()
         .resolve()
     )
@@ -49,6 +83,11 @@ def resolve_runtime_paths(
         source_root=source,
         workspace_root=workspace,
         runtime_root=runtime,
+        config_root=config_root,
+        state_root=state_root,
+        artifact_root=artifact_root,
+        model_root=model_root,
+        log_root=log_root,
         campaign_factory_root=Path(
             values.get("CAMPAIGN_FACTORY_ROOT")
             or source / "python_packages/campaign_factory"
@@ -77,6 +116,30 @@ def resolve_runtime_paths(
         .expanduser()
         .resolve(),
         reference_data_root=reference_data,
+        campaign_factory_db=Path(
+            values.get("CAMPAIGN_FACTORY_DB")
+            or state_root / "campaign_factory" / "campaign_factory.sqlite"
+        )
+        .expanduser()
+        .resolve(),
+        reference_factory_db=Path(
+            values.get("REFERENCE_FACTORY_DB")
+            or state_root / "reference_factory" / "reference_factory.sqlite"
+        )
+        .expanduser()
+        .resolve(),
+        reel_manifest_db=Path(
+            values.get("REEL_FACTORY_MANIFEST_DB")
+            or state_root / "reel_factory" / "manifest.sqlite"
+        )
+        .expanduser()
+        .resolve(),
+        reel_render_queue_db=Path(
+            values.get("REEL_FACTORY_RENDER_QUEUE_DB")
+            or state_root / "reel_factory" / "render_queue.sqlite"
+        )
+        .expanduser()
+        .resolve(),
     )
 
 

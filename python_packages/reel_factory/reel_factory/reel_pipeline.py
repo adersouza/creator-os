@@ -33,7 +33,6 @@ from typing import Any
 from pipeline_contracts import validate_generated_asset_lineage
 
 from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
-from .campaign_store import link_campaign_output
 from .caption_bank import (
     caption_static_metadata,
     load_or_build_caption_bank_store,
@@ -50,6 +49,7 @@ from .caption_scene_fit import (
     topic_caption_banks,
 )
 from .discoverability_safety import discoverability_safe_content_contract
+from .evidence_store import link_campaign_output
 from .fileops import atomic_write_text
 from .graph_builder import ENCODER_PROFILES, caption_overlay_enable, target_dimensions
 from .graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd

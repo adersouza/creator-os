@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.115,<1",
   "pipeline-contracts",
   "reel-factory",
+  "scenedetect-headless>=0.7,<0.8",
   "uvicorn[standard]>=0.30,<1",
 ]
 

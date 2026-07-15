@@ -816,7 +816,7 @@ def run_stacey_closed_loop_proof(
     settings = get_settings()
     factory = CampaignFactory(settings)
     try:
-        campaign = factory.campaign_by_slug(campaign_slug)
+        campaign = factory.domains.campaign_by_slug(campaign_slug)
         run.update(campaign_id=campaign["id"])
     except Exception as exc:
         return run.stop("campaign_not_found", {"error": str(exc)})
@@ -932,7 +932,9 @@ def run_stacey_closed_loop_proof(
         )
     )
 
-    asset_plans = factory.distribution_plans_for_asset(approved_rendered_asset_id)
+    asset_plans = factory.domains.distribution.distribution_plans_for_asset(
+        approved_rendered_asset_id
+    )
     plans = [
         plan
         for plan in asset_plans
@@ -1155,11 +1157,11 @@ def run_stacey_closed_loop_proof(
             extra={"performanceSnapshotId": snapshot.get("id")},
         )
     )
-    run.record["reports"]["captionOutcomeReport"] = factory.caption_outcome_report(
-        campaign_slug
+    run.record["reports"]["captionOutcomeReport"] = (
+        factory.domains.performance_summary_repo.caption_outcome_report(campaign_slug)
     )
-    run.record["reports"]["performanceSummary"] = factory.performance_summary(
-        campaign_slug
+    run.record["reports"]["performanceSummary"] = (
+        factory.domains.performance_summary_repo.performance_summary(campaign_slug)
     )
     run.write()
     if read_only_verification and (
@@ -1181,7 +1183,9 @@ def run_stacey_closed_loop_proof(
 def _export_manifest_asset(
     factory: CampaignFactory, campaign_slug: str, rendered_asset_id: str
 ) -> dict[str, Any] | None:
-    manifest = factory.export_manifest(campaign_slug=campaign_slug)
+    manifest = factory.domains.export_summary.export_manifest(
+        campaign_slug=campaign_slug
+    )
     for asset in manifest.get("assets") or []:
         if asset.get("renderedAssetId") == rendered_asset_id:
             return asset

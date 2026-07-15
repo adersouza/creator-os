@@ -27,6 +27,7 @@ from .generate_prompts import (
     video_duration,
 )
 from .intelligence_store import ensure_intelligence_schema
+from .state_paths import manifest_db_path
 
 try:
     from .fileops import atomic_write_text
@@ -326,7 +327,7 @@ def analyze_reference(
     atomic_write_text(
         out_path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    db = root / "manifest.sqlite"
+    db = manifest_db_path(root)
     conn = connect_sqlite(db)
     ensure_intelligence_schema(conn)
     conn.execute(
@@ -362,7 +363,7 @@ def latest_analysis_record(root: Path, reference: Path) -> dict[str, Any] | None
         ref_hash = sha256_file(reference)
     except FileNotFoundError:
         return None
-    db = Path(root).resolve() / "manifest.sqlite"
+    db = manifest_db_path(root)
     if not db.exists():
         return None
     conn = connect_sqlite(db)

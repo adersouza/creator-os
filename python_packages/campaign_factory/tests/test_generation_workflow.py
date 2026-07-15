@@ -81,3 +81,26 @@ def test_library_reuse_folder_preflight_is_free_and_review_only(
     assert result["result"]["autoApprovalAllowed"] is False
     assert result["schedulingAllowed"] is False
     assert result["publishingAllowed"] is False
+
+
+def test_library_reuse_requires_explicit_folder_and_model(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="library_folder is required"):
+        run_generation_workflow(
+            object(),
+            mode="library_reuse",
+            campaign_slug="campaign",
+            dry_run=True,
+            apply=False,
+        )
+
+    folder = tmp_path / "library"
+    folder.mkdir()
+    with pytest.raises(ValueError, match="model_slug is required"):
+        run_generation_workflow(
+            object(),
+            mode="library_reuse",
+            campaign_slug="campaign",
+            library_folder=folder,
+            dry_run=True,
+            apply=False,
+        )

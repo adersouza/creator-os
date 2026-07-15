@@ -137,8 +137,6 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
             str(module.REPO_ROOT / "scripts" / "learning_fanout.py"),
             "--campaign-factory-db",
             str(module.DEFAULT_CAMPAIGN_FACTORY_DB),
-            "--reel-factory-root",
-            str(module.DEFAULT_REEL_FACTORY_ROOT),
             "--reference-factory-db",
             str(module.DEFAULT_REFERENCE_FACTORY_DB),
             "--campaign",
@@ -179,7 +177,7 @@ def test_hourly_sync_never_invokes_standalone_reel_refresh():
     command = module.build_fanout_command(
         {
             "CAMPAIGN_FACTORY_DB": "/tmp/campaign.sqlite",
-            "REEL_FACTORY_ROOT": "/tmp/reel",
+            "REEL_FACTORY_MANIFEST_DB": "/tmp/reel/manifest.sqlite",
             "REFERENCE_FACTORY_DB": "/tmp/reference.sqlite",
         },
         "may",

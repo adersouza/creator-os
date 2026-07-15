@@ -34,8 +34,8 @@ from .asset_prompt_contract import (
     build_grok_simple_prompt,
     parse_asset_prompt_response,
 )
-from .campaign_store import next_batch_plan, retry_helper_direction, taste_memory
 from .project_config import config_path
+from .prompt_guidance import retry_helper_direction
 
 try:
     from .fileops import atomic_write_text
@@ -57,9 +57,6 @@ HIGGSFIELD_REFERENCE_PROMPT_MODE = "higgsfield-reference"
 DEFAULT_PROMPT_IMAGE_ASPECT_RATIO = "4:3"
 HIGGSFIELD_PROMPT_ENHANCEMENT_ENABLED = False
 HIGGSFIELD_REFERENCE_IMAGE_PASSED = False
-
-_PROMPT_GUIDANCE_MIN_QUALITY_SCORE = 65
-_PROMPT_GUIDANCE_CONFIDENCE = {"medium", "high"}
 
 _NUMBER_WORDS = {
     1: "one",
@@ -1668,38 +1665,6 @@ def write_prompt_lineage(
     return path
 
 
-def _next_batch_prompt_guidance(root: Path, campaign: str | None) -> str:
-    if not campaign:
-        return ""
-    plan = next_batch_plan(root, campaign=campaign, count=1, persist=False)
-    idea = (plan.get("ideas") or [{}])[0]
-    if idea.get("low_data_warning"):
-        return ""
-    recommendation = idea.get("recommendation") or {}
-    if recommendation.get("confidence") not in _PROMPT_GUIDANCE_CONFIDENCE:
-        return ""
-    data_quality = idea.get("data_quality") or {}
-    if int(data_quality.get("score") or 0) < _PROMPT_GUIDANCE_MIN_QUALITY_SCORE:
-        return ""
-
-    parts = [
-        str(value).strip()
-        for value in (idea.get("brief"), idea.get("prompt_focus"))
-        if str(value or "").strip()
-    ]
-    dna = []
-    for row in idea.get("winner_dna_focus") or []:
-        key = str(row.get("feature_key") or "").strip()
-        value = str(row.get("feature_value") or "").strip()
-        if key and value:
-            dna.append(f"{key}={value}")
-    if dna:
-        parts.append("Winner DNA: " + "; ".join(dna[:4]))
-    if not parts:
-        return ""
-    return "Next-batch learning guidance:\n" + "\n".join(f"- {part}" for part in parts)
-
-
 def generate_prompt(
     *,
     out_path: Path,
@@ -1736,8 +1701,6 @@ def generate_prompt(
             raise ValueError(
                 "at least one reference reel or reference image is required"
             )
-        memory = taste_memory(root, campaign=campaign) if campaign else ""
-        next_batch_guidance = _next_batch_prompt_guidance(root, campaign)
         retry_direction = retry_helper_direction(retry_helper)
         analysis_context = ""
         reference_analysis_record = None
@@ -1793,8 +1756,6 @@ def generate_prompt(
                     creative_direction,
                     analysis_context,
                     retry_direction,
-                    memory,
-                    next_batch_guidance,
                 ],
             )
         )
