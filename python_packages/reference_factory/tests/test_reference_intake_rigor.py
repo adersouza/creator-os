@@ -36,6 +36,36 @@ from reference_factory.reference_intake import (
 )
 
 
+def test_reference_intake_compatibility_surface_routes_semantic_modules() -> None:
+    from reference_factory import (
+        reference_analysis_queue,
+        reference_intake,
+        reference_local_analysis,
+        reference_prompt_generation,
+    )
+
+    assert (
+        reference_intake.queue_reference_analysis
+        is reference_analysis_queue.queue_reference_analysis
+    )
+    assert (
+        reference_intake.import_reference_analysis
+        is reference_analysis_queue.import_reference_analysis
+    )
+    assert (
+        reference_intake.analyze_reference_local
+        is reference_local_analysis.analyze_reference_local
+    )
+    assert (
+        reference_intake.generate_video_prompts
+        is reference_prompt_generation.generate_video_prompts
+    )
+    assert (
+        reference_intake.export_video_prompts
+        is reference_prompt_generation.export_video_prompts
+    )
+
+
 def make_conn(tmp_path: Path) -> sqlite3.Connection:
     return connect(tmp_path / "reference_factory.sqlite")
 
