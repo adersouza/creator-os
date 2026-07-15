@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -58,7 +59,8 @@ def backup_runtime_state(
     repo_root = repo_root.resolve()
     stamp = timestamp or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     target = output_dir.expanduser().resolve() / stamp
-    target.mkdir(parents=True, exist_ok=True)
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(target, 0o700)
     result: dict[str, Any] = {
         "schemaVersion": 1,
         "createdAt": datetime.now(UTC).isoformat(),
@@ -88,6 +90,7 @@ def backup_runtime_state(
                 "path": str(dest.relative_to(target)),
                 "bytes": dest.stat().st_size,
                 "sha256": sha256_file(dest),
+                "mode": oct(dest.stat().st_mode & 0o777),
                 **verification,
             }
         result["databases"].append(entry)
@@ -107,6 +110,7 @@ def backup_runtime_state(
 
     manifest = target / MANIFEST_NAME
     manifest.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    os.chmod(manifest, 0o600)
     return result
 
 
@@ -153,13 +157,19 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
         path = backup_dir / entry["path"]
         actual_hash = sha256_file(path)
         checks = sqlite_integrity(path)
-        if actual_hash != entry["sha256"] or checks["integrity"] != "ok":
+        mode = oct(path.stat().st_mode & 0o777)
+        if (
+            actual_hash != entry["sha256"]
+            or checks["integrity"] != "ok"
+            or mode != "0o600"
+        ):
             raise RuntimeError(f"Backup verification failed: {entry['name']}")
         restored = verify_clean_restore(path)
         verified.append(
             {
                 "name": entry["name"],
                 "sha256": actual_hash,
+                "mode": mode,
                 **checks,
                 "cleanRestore": restored,
             }

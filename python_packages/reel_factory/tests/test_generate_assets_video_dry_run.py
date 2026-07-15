@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
+import pytest
 from reel_factory.asset_prompt_contract import AssetPromptSet
 from reel_factory.generate_assets import (
     AssetGenerationPlan,
@@ -10,6 +12,12 @@ from reel_factory.generate_assets import (
     dry_run_image_asset,
     dry_run_video_asset,
     reference_matched_video_duration,
+)
+
+from pipeline_contracts import (
+    ContractValidationError,
+    validate_generated_asset_lineage_v2,
+    validate_generation_worker_lineage,
 )
 
 
@@ -108,12 +116,44 @@ def test_source_lineage_includes_aligned_winner_dna_features(tmp_path: Path) -> 
         commands=[],
     )
 
-    assert lineage["schema"] == "reel_factory.generated_asset_lineage.v2"
+    assert lineage["schema"] == "reel_factory.generation_worker_lineage.v1"
     assert lineage["features"]["creator"] == "stacey"
     assert lineage["features"]["scene"] == "bathroom_mirror"
     assert lineage["features"]["camera"] == "mirror_selfie"
     assert lineage["features"]["outfit"] == "bikini"
     assert lineage["features"]["motion"] == "hip_sway"
+    validate_generation_worker_lineage(lineage)
+
+    with pytest.raises(ContractValidationError, match="pipelineTraceId"):
+        validate_generated_asset_lineage_v2(lineage)
+
+
+def test_source_lineage_fails_closed_when_worker_identity_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    lineage = build_source_lineage(
+        AssetGenerationPlan(
+            prompt_json=tmp_path / "prompt.json",
+            stem="clip",
+            reference=None,
+            soul_id="soul_1",
+            soul_name="Stacey",
+            start_image=None,
+            out_dir=tmp_path,
+            source_dir=tmp_path,
+        ),
+        prompt=AssetPromptSet(
+            higgsfieldGridPrompt="A clean portrait composition.",
+            klingMotionPrompt="Subtle natural movement.",
+            notes="",
+        ),
+        commands=[],
+    )
+    invalid = deepcopy(lineage)
+    del invalid["source"]["stem"]
+
+    with pytest.raises(ContractValidationError, match="stem"):
+        validate_generation_worker_lineage(invalid)
 
 
 def test_video_dry_run_honors_kling_mode_override(tmp_path: Path) -> None:

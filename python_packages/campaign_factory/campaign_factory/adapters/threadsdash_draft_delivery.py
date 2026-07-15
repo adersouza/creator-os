@@ -318,37 +318,54 @@ def export_threadsdash(
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
-    pipeline_job = factory.domains.events.create_pipeline_job(
-        "threadsdash_export",
-        campaign["id"],
-        {
-            "campaign": campaign_slug,
-            "userId": user_id,
-            "dryRun": dry_run,
-            "hasSupabaseUrl": bool(supabase_url),
-            "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
-            "supabaseStorageBucket": supabase_storage_bucket,
-            "allowWarnings": allow_warnings,
-            "contentPillar": content_pillar,
-            "ctaType": cta_type,
-            "language": language,
-            "maxDrafts": max_drafts,
-            "renderedAssetIds": rendered_asset_ids or [],
-            "scheduleMode": normalized_schedule_mode,
-            "publishMode": normalized_publish_mode,
-            "hasThreadsdashIngestUrl": bool(
-                threadsdash_ingest_url
-                or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
-                or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
-            ),
-            "enableVariation": enable_variation,
-            "variationPreset": variation_preset,
-            "reviewOnly": review_only,
-        },
-    )
-    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    if dry_run and enable_variation:
+        raise ValueError(
+            "read-only draft preview cannot generate variation artifacts; "
+            "run the variation preview separately"
+        )
+    pipeline_job: dict[str, Any] | None = None
+    if not dry_run:
+        pipeline_job = factory.domains.events.create_pipeline_job(
+            "threadsdash_export",
+            campaign["id"],
+            {
+                "campaign": campaign_slug,
+                "userId": user_id,
+                "dryRun": False,
+                "hasSupabaseUrl": bool(supabase_url),
+                "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
+                "supabaseStorageBucket": supabase_storage_bucket,
+                "allowWarnings": allow_warnings,
+                "contentPillar": content_pillar,
+                "ctaType": cta_type,
+                "language": language,
+                "maxDrafts": max_drafts,
+                "renderedAssetIds": rendered_asset_ids or [],
+                "scheduleMode": normalized_schedule_mode,
+                "publishMode": normalized_publish_mode,
+                "hasThreadsdashIngestUrl": bool(
+                    threadsdash_ingest_url
+                    or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+                    or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
+                ),
+                "enableVariation": enable_variation,
+                "variationPreset": variation_preset,
+                "reviewOnly": review_only,
+            },
+        )
+        factory.domains.events.start_pipeline_job(pipeline_job["id"])
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
-    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
+    if dry_run:
+        exports_dir = (
+            factory.settings.campaigns_dir
+            / model_slug
+            / campaign["slug"]
+            / "05_threadsdash_exports"
+        )
+    else:
+        exports_dir = factory.domains.campaign_dirs(model_slug, campaign["slug"])[
+            "exports"
+        ]
     try:
         export_id = new_id("tdexp")
         variation_result = None
@@ -391,6 +408,7 @@ def export_threadsdash(
             schedule_mode=normalized_schedule_mode,
             publish_mode=normalized_publish_mode,
             review_only=review_only,
+            record_evidence=not dry_run,
         )
         publishability_blockers = [
             reason
@@ -426,9 +444,7 @@ def export_threadsdash(
                 "Campaign Factory exports are draft-only; scheduling and publishing belong to ThreadsDashboard"
             )
         validate_threadsdash_draft_payload_strict(payload)
-        out_path = (
-            dirs["exports"] / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
-        )
+        out_path = exports_dir / f"supabase_drafts_{campaign['slug']}_{export_id}.json"
         result: dict[str, Any] = {
             "schema": "campaign_factory.supabase_export.v1",
             "campaign": campaign["slug"],
@@ -449,36 +465,40 @@ def export_threadsdash(
                 "postIds": [],
                 "media": dashboard_ingest_media,
             },
-            "path": str(out_path),
-            "pipelineJobId": pipeline_job["id"],
+            "path": None if dry_run else str(out_path),
+            "wouldWritePath": str(out_path) if dry_run else None,
+            "pipelineJobId": None if pipeline_job is None else pipeline_job["id"],
         }
-        if not dry_run:
-            result["dashboardIngest"] = _post_threadsdash_draft_ingest(
-                payload,
-                ingest_url=threadsdash_ingest_url,
-                ingest_secret=threadsdash_ingest_secret,
-            )
-            reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
-                payload=payload,
-                ingest_result=result["dashboardIngest"],
-                user_id=user_id,
-                supabase_url=supabase_url,
-                supabase_service_role_key=supabase_service_role_key,
-            )
-            result["dashboardIngest"] = {
-                **result["dashboardIngest"],
-                "postIds": reconciled_post_ids,
-                "reconciled": True,
-                "postKeys": _threadsdash_ingest_post_keys(payload),
-                "media": dashboard_ingest_media,
-            }
-            result["supabase"] = {
-                "attempted": False,
-                "disabled": True,
-                "reason": "dashboard_ingest_boundary_required",
-                "media": [],
-                "posts": [],
-            }
+        if dry_run:
+            return result
+
+        assert pipeline_job is not None
+        result["dashboardIngest"] = _post_threadsdash_draft_ingest(
+            payload,
+            ingest_url=threadsdash_ingest_url,
+            ingest_secret=threadsdash_ingest_secret,
+        )
+        reconciled_post_ids = _reconcile_dashboard_ingest_post_ids(
+            payload=payload,
+            ingest_result=result["dashboardIngest"],
+            user_id=user_id,
+            supabase_url=supabase_url,
+            supabase_service_role_key=supabase_service_role_key,
+        )
+        result["dashboardIngest"] = {
+            **result["dashboardIngest"],
+            "postIds": reconciled_post_ids,
+            "reconciled": True,
+            "postKeys": _threadsdash_ingest_post_keys(payload),
+            "media": dashboard_ingest_media,
+        }
+        result["supabase"] = {
+            "attempted": False,
+            "disabled": True,
+            "reason": "dashboard_ingest_boundary_required",
+            "media": [],
+            "posts": [],
+        }
         out_path.write_text(
             json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
         )
@@ -555,8 +575,11 @@ def export_threadsdash(
         )
         return result
     except Exception as exc:
+        if dry_run:
+            raise
+        assert pipeline_job is not None
         failed_path = (
-            dirs["exports"]
+            exports_dir
             / f"supabase_drafts_{campaign['slug']}_{locals().get('export_id', pipeline_job['id'])}_failed.json"
         )
         failed_payload = {

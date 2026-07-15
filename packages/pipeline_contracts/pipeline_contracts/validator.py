@@ -33,6 +33,7 @@ KLING_3_VIDEO_PROMPT_SCHEMA = "kling_3_video_prompt.v1.schema.json"
 GENERATED_ASSET_LINEAGE_V1_SCHEMA = "generated_asset_lineage.v1.schema.json"
 GENERATED_ASSET_LINEAGE_V2_SCHEMA = "generated_asset_lineage.v2.schema.json"
 GENERATED_ASSET_LINEAGE_SCHEMA = GENERATED_ASSET_LINEAGE_V1_SCHEMA
+GENERATION_WORKER_LINEAGE_SCHEMA = "generation_worker_lineage.v1.schema.json"
 CREATIVE_PLAN_SCHEMA = "creative_plan.v1.schema.json"
 RECOMMENDATION_NEXT_BATCH_SCHEMA = "recommendation_next_batch.v1.schema.json"
 RECOMMENDATION_ACCURACY_REPORT_SCHEMA = "recommendation_accuracy_report.v1.schema.json"
@@ -67,6 +68,8 @@ SCHEMA_NAMES = {
     "generated_asset_lineage": GENERATED_ASSET_LINEAGE_SCHEMA,
     "generated_asset_lineage_v1": GENERATED_ASSET_LINEAGE_V1_SCHEMA,
     "generated_asset_lineage_v2": GENERATED_ASSET_LINEAGE_V2_SCHEMA,
+    "generation_worker_lineage": GENERATION_WORKER_LINEAGE_SCHEMA,
+    "reel_factory_generation_worker_lineage": GENERATION_WORKER_LINEAGE_SCHEMA,
     "creative_plan": CREATIVE_PLAN_SCHEMA,
     "recommendation_next_batch": RECOMMENDATION_NEXT_BATCH_SCHEMA,
     "campaign_factory_recommendations_next_batch": RECOMMENDATION_NEXT_BATCH_SCHEMA,
@@ -262,6 +265,10 @@ def validate_generated_asset_lineage_v2(value: Any) -> None:
     validate_contract(value, GENERATED_ASSET_LINEAGE_V2_SCHEMA)
 
 
+def validate_generation_worker_lineage(value: Any) -> None:
+    validate_contract(value, GENERATION_WORKER_LINEAGE_SCHEMA)
+
+
 def validate_creative_plan(value: Any) -> None:
     validate_contract(value, CREATIVE_PLAN_SCHEMA)
 
@@ -345,6 +352,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "kling_3_video_prompt.v1.example.json": validate_kling_3_video_prompt,
         "generated_asset_lineage.v1.example.json": validate_generated_asset_lineage,
         "generated_asset_lineage.v2.example.json": validate_generated_asset_lineage,
+        "generation_worker_lineage.v1.example.json": validate_generation_worker_lineage,
         "creative_plan.v1.example.json": validate_creative_plan,
         "recommendation_next_batch.v1.example.json": validate_recommendation_next_batch,
         "recommendation_accuracy_report.v1.example.json": validate_recommendation_accuracy_report,

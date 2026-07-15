@@ -16,6 +16,7 @@ from pipeline_contracts import (
     validate_front_generation_plan,
     validate_generated_asset_lineage,
     validate_generated_asset_lineage_v2,
+    validate_generation_worker_lineage,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
     validate_motion_edit_render,
@@ -66,6 +67,7 @@ def test_named_validators_accept_examples():
     validate_generated_asset_lineage_v2(
         load_example("generated_asset_lineage.v2.example.json")
     )
+    validate_generation_worker_lineage(load_example("generation_worker_lineage"))
     validate_campaign_draft_payload(
         load_example("campaign_draft_payload.v2.example.json")
     )

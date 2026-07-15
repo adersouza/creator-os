@@ -48,7 +48,8 @@ class Settings:
     )
     campaigns_dir: Path = Path(
         os.environ.get(
-            "CAMPAIGN_FACTORY_CAMPAIGNS", CREATOR_OS_CAMPAIGN_FACTORY_ROOT / "campaigns"
+            "CAMPAIGN_FACTORY_CAMPAIGNS",
+            _PATHS.artifact_root / "campaign_factory" / "campaigns",
         )
     )
 

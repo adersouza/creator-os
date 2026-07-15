@@ -387,7 +387,12 @@ def sync_threadsdash_instagram_accounts(
         supabase_url.rstrip("/"), supabase_service_role_key
     )
     params = {
-        "select": "id,username,display_name,is_active,status,needs_reauth,group_id,user_id,login_type,sync_cohort",
+        "select": (
+            "id,username,display_name,is_active,status,needs_reauth,group_id,"
+            "user_id,login_type,sync_cohort,oauth_granted_scopes,"
+            "oauth_scopes_verified_at,trial_reels_capability,"
+            "trial_reels_capability_checked_at,trial_reels_capability_reason"
+        ),
         "limit": str(max(1, int(limit or 1))),
     }
     if user_id:
@@ -436,11 +441,30 @@ def sync_threadsdash_instagram_accounts(
             "SELECT id FROM accounts WHERE handle = ? AND platform = 'instagram'",
             (username,),
         ).fetchone()
+        capability = str(row.get("trial_reels_capability") or "unknown").lower()
+        if capability not in {"unknown", "eligible", "denied"}:
+            raise ValueError(
+                f"invalid ThreadsDashboard Trial Reel capability for @{username}: "
+                f"{capability!r}"
+            )
+        oauth_scopes = row.get("oauth_granted_scopes")
+        if oauth_scopes is not None and not isinstance(oauth_scopes, list):
+            raise ValueError(
+                f"invalid ThreadsDashboard OAuth scope evidence for @{username}"
+            )
         account = factory.domains.models.upsert_account(
             username,
             platform="instagram",
             external_id=str(row.get("id") or ""),
             model_id=model["id"],
+        )
+        account = factory.domains.models.project_instagram_trial_capability(
+            account["id"],
+            capability=capability,
+            oauth_granted_scopes=oauth_scopes,
+            oauth_scopes_verified_at=row.get("oauth_scopes_verified_at"),
+            checked_at=row.get("trial_reels_capability_checked_at"),
+            reason=row.get("trial_reels_capability_reason"),
         )
         imported.append(
             {
@@ -449,6 +473,13 @@ def sync_threadsdash_instagram_accounts(
                 "username": username,
                 "displayName": display_name,
                 "syncCohort": row.get("sync_cohort"),
+                "trialCapability": {
+                    "status": capability,
+                    "checkedAt": row.get("trial_reels_capability_checked_at"),
+                    "reason": row.get("trial_reels_capability_reason"),
+                    "oauthGrantedScopes": oauth_scopes,
+                    "oauthScopesVerifiedAt": row.get("oauth_scopes_verified_at"),
+                },
                 "created": before is None,
             }
         )

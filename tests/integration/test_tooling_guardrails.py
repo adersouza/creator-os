@@ -125,15 +125,19 @@ def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> No
 
 
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
-    producer_paths = (
-        "python_packages/reel_factory/reel_factory/generate_assets.py",
-        "python_packages/reel_factory/reel_factory/reel_pipeline.py",
-    )
+    producer_schemas = {
+        "python_packages/reel_factory/reel_factory/generate_assets.py": (
+            "reel_factory.generation_worker_lineage.v1"
+        ),
+        "python_packages/reel_factory/reel_factory/reel_pipeline.py": (
+            "reel_factory.generated_asset_lineage.v2"
+        ),
+    }
 
-    for path in producer_paths:
+    for path, schema in producer_schemas.items():
         source = (ROOT / path).read_text(encoding="utf-8")
         assert '"schema": "campaign_factory.generated_asset_lineage.v2"' not in source
-        assert '"schema": "reel_factory.generated_asset_lineage.v2"' in source
+        assert f'"schema": "{schema}"' in source
 
 
 def test_scorecard_workflow_is_report_mode() -> None:

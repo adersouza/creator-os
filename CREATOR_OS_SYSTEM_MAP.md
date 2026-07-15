@@ -18,11 +18,11 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-As of 2026-07-15, the reviewed source and clean runtime checkout match, the
-canonical private roots are populated, the state migration and clean restore
-are verified, and the local backup job has captured the canonical roots. The
-live HMAC handshake and Higgsfield account/workspace/model/balance/free-quote
-probes pass without product writes, media generation, or cost events.
+As of 2026-07-15, the last promoted runtime baseline, canonical private roots,
+state migration, clean restore, local backup, live HMAC handshake, and
+Higgsfield account/workspace/model/balance/free-quote probes were verified.
+Any later source repair still requires its own merge, CI proof, and exact-SHA
+runtime promotion before it inherits that runtime status.
 
 The operational learning loop is healthy but not yet statistically proven. A
 post-promotion LaunchAgent run scanned four posts, imported/updated one eligible
@@ -35,7 +35,7 @@ post with a real 1-hour row, zero with a 24-hour row, and zero with both. The
 | Component | Responsibility | Canonical source | Depends on | Primary state |
 |---|---|---|---|---|
 | Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts and Creator OS Core | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
-| Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, render queue/cache, derived media features, caption banks, lineage sidecars |
+| Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, worker media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, render queue/cache, derived media features, caption banks, lineage sidecars |
 | Campaign Factory | creative plans, inventory, assignment, approvals, provider-spend authorization/ledger, readiness, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
 | ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |
 | Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
@@ -115,7 +115,38 @@ Draft payloads validate against Pipeline Contracts before an HMAC-signed request
 to ThreadsDashboard's draft-ingest endpoint. HMAC tests cover signature,
 timestamp, and rejection behavior without sending real drafts. The supported
 root command forces draft schedule mode and exposes explicit `--dry-run` versus
-`--apply`; it has no scheduling or publishing command.
+`--apply`; it has no scheduling or publishing command. `--dry-run` now returns
+the exact proposed payload in memory with `path=null`, `pipelineJobId=null`, and
+a non-written `wouldWritePath`; it creates no export row, pipeline job, activity
+event, JSON file, dashboard request, or media upload. Durable export evidence is
+created only by `--apply`.
+
+Reel Factory's provider worker emits
+`reel_factory.generation_worker_lineage.v1`, which intentionally lacks
+Campaign-only identities. Campaign Factory is the only component allowed to
+finalize that evidence as `reel_factory.generated_asset_lineage.v2` with the
+rendered asset, reference, prompt, caption, audio, variant, and fingerprint
+identities required at the ThreadsDashboard boundary. A provider-free active
+`soul_static` integration test drives that full chain through the current
+ThreadsDashboard consumer snapshot.
+
+## Trial Reel Eligibility
+
+ThreadsDashboard remains the capability authority. Its account projection into
+Campaign Factory carries the exact OAuth granted scopes, verification time,
+Trial capability (`unknown`, `eligible`, or `denied`), check time, and denial
+reason. Campaign policy is fail-closed:
+
+- `denied` is never selectable;
+- known-missing publishing scope is never selectable;
+- `unknown` requires an explicit per-plan `operator_canary` authorization;
+- autonomous planning cannot supply that authorization and can select only an
+  account projected as `eligible`.
+
+The authorization and capability snapshot are stored on the distribution plan,
+so a later account-sync change cannot rewrite what was authorized. Reconnecting
+an account resets the external capability to `unknown`; the next normal account
+sync projects the new evidence into Campaign Factory.
 
 ## Learning Return Path
 
@@ -213,6 +244,19 @@ hashes and permissions, proves a clean temporary restore, and never deletes the
 source. Runtime launchers keep deterministic checkout/database selection.
 Repository changes never update or restart the runtime automatically.
 
+After cutover, `scripts/runtime_state_cleanup_eligibility.py` is the only
+supported old-path cleanup preflight. It accepts legitimate live database drift
+while requiring current SQLite integrity, private modes, a fresh verified
+backup/restore, exact retained originals, zero active old-path references, the
+recorded retention deadline, and explicit completed operating-cycle evidence.
+Its output is report-only: it lists candidates but has no delete/apply mode.
+Migration evidence and active log paths are never cleanup candidates.
+
+The canonical Campaign artifact root is
+`$CREATOR_OS_ARTIFACT_ROOT/campaign_factory/campaigns`. The compatibility
+override `CAMPAIGN_FACTORY_CAMPAIGNS` remains explicit for rollback; Campaign
+code no longer defaults generated exports back into a Git checkout.
+
 ## Browser Surfaces
 
 - ContentForge has no browser application or HTTP server.
@@ -282,3 +326,32 @@ removed facades and the retired Reel control-plane/outcome-ledger paths.
 Use `make verify` for the full local matrix. Passing tests prove source behavior,
 not provider readiness, production handshake, runtime promotion, or live
 performance evidence.
+
+## Remaining Complexity And Cleanup Order
+
+Creator OS is no longer architecturally tangled, but it is still a large
+codebase. The remaining mess is bounded and is not a reason to merge the
+factories or add another service:
+
+1. `reel_pipeline.py` is about 3,500 lines and
+   `reference_intake.py` is about 3,900 lines. Split them by existing stages
+   only when changing those stages; do not create wrapper-only packages.
+2. Campaign Factory is roughly 71,000 lines across many domain modules. Its
+   largest active modules are now below 1,500 lines, so further reduction should
+   remove dead workflows and duplicated policy rather than mechanically split
+   files.
+3. Static analysis reports 39 unused ContentForge exports. Remove them in a
+   dedicated slice only after proving none are dynamic CLI/worker boundaries.
+4. Legacy grid/six-pack helpers remain hidden from the root workflow but still
+   have real imports/tests. Delete them only after zero-caller proof; they are
+   not active generation defaults.
+5. The source checkout still contains retained databases, models, media, and
+   real-run evidence for rollback. The largest ignored temporary evidence tree
+   is about 1.3 GB. Do not confuse retained evidence with source architecture or
+   delete it before preservation and the applicable cleanup gate.
+
+The practical next simplification order is therefore: finish the real 10-post
+learning proof, pass the July 22 report-only cleanup gate, remove verified dead
+exports/workflows, then split the two oversized worker modules when their tests
+can preserve behavior. Redis/RQ, Temporal, another dashboard, and a factory
+merge would increase—not reduce—the current complexity.

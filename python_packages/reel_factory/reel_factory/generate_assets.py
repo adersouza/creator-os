@@ -18,6 +18,7 @@ from typing import Any
 
 from PIL import Image
 
+from pipeline_contracts import validate_generation_worker_lineage
 from reel_factory.feature_extract import extract_features
 
 from .anatomy_qc import assess_image_qc, is_image_postable
@@ -2095,8 +2096,8 @@ def build_source_lineage(
     creator = (plan.creator or plan.soul_name or "").strip().lower()
     if creator:
         features["creator"] = creator
-    return {
-        "schema": "reel_factory.generated_asset_lineage.v2",
+    lineage = {
+        "schema": "reel_factory.generation_worker_lineage.v1",
         "createdAt": int(time.time()),
         "source": {
             "stem": plan.stem,
@@ -2150,6 +2151,8 @@ def build_source_lineage(
             "humanReviewRequired": True,
         },
     }
+    validate_generation_worker_lineage(lineage)
+    return lineage
 
 
 def read_lineage(path: Path) -> dict[str, Any]:

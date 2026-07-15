@@ -241,7 +241,10 @@ def _run_pipeline_audio_smoke(
         export_result = export_threadsdash(
             factory, campaign_slug="audio_smoke", user_id="smoke_user", dry_run=True
         )
-        draft_path = Path(export_result["path"])
+        draft_path = workspace / "threadsdash_audio_draft_preview.json"
+        draft_path.write_text(
+            json.dumps(export_result, indent=2, sort_keys=True), encoding="utf-8"
+        )
         _write_threadsdash_audio_gate_fixture(
             draft_path, {**intent, "status": "recommended"}
         )

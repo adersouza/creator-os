@@ -44,6 +44,12 @@ def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path
         "reference_factory",
     }
     backup_root = tmp_path / "backups/test"
+    assert oct(backup_root.stat().st_mode & 0o777) == "0o700"
+    assert oct((backup_root / "backup-manifest.json").stat().st_mode & 0o777) == (
+        "0o600"
+    )
+    for relative_path in backed_up.values():
+        assert oct((backup_root / relative_path).stat().st_mode & 0o777) == "0o600"
     with sqlite3.connect(backup_root / backed_up["reel_manifest"]) as conn:
         assert conn.execute("SELECT name FROM items").fetchone()[0] == "ok"
     assert (
@@ -53,6 +59,7 @@ def test_backup_runtime_state_vacuums_dbs_and_copies_runtime_dirs(tmp_path: Path
     verification = verify_backup(backup_root)
     assert verification["status"] == "ok"
     assert {row["name"] for row in verification["databases"]} == set(backed_up)
+    assert {row["mode"] for row in verification["databases"]} == {"0o600"}
 
 
 def test_backup_runtime_state_never_copies_creator_os_credentials(tmp_path: Path):
@@ -108,3 +115,18 @@ def test_verify_backup_rejects_tampered_database(tmp_path: Path):
         assert "reel_manifest" in str(exc)
     else:
         raise AssertionError("tampered backup must fail verification")
+
+
+def test_verify_backup_rejects_public_database_permissions(tmp_path: Path):
+    repo = tmp_path / "repo"
+    _sqlite_db(repo / "python_packages/reel_factory/manifest.sqlite")
+    result = backup_runtime_state(repo, tmp_path / "backups", timestamp="mode")
+    backup_root = Path(result["backupDir"])
+    (backup_root / "databases/manifest.sqlite").chmod(0o644)
+
+    try:
+        verify_backup(backup_root)
+    except RuntimeError as exc:
+        assert "reel_manifest" in str(exc)
+    else:
+        raise AssertionError("public backup permissions must fail verification")

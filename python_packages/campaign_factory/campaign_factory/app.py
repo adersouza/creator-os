@@ -164,6 +164,10 @@ def distribution_plan(body: dict[str, Any] = Body(...)):
             reason_code=body.get("reasonCode"),
             smart_link=body.get("smartLink"),
             cta_text=body.get("ctaText"),
+            instagram_trial_reels=bool(body.get("instagramTrialReels")),
+            trial_graduation_strategy=body.get("trialGraduationStrategy"),
+            trial_group_id=body.get("trialGroupId"),
+            trial_capability_authorization=body.get("trialCapabilityAuthorization"),
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
