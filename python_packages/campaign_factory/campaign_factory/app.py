@@ -11,7 +11,6 @@ from creator_os_core.local_api_auth import (
 )
 from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from .adapters.contentforge import audit_campaign
 from .adapters.threadsdash import (
@@ -32,9 +31,6 @@ from .core import CampaignFactory
 settings = get_settings()
 app = FastAPI(title="campaign_factory", dependencies=[Depends(require_local_api_auth)])
 install_local_api_auth_middleware(app)
-app.mount(
-    "/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static"
-)
 
 
 def factory() -> CampaignFactory:
@@ -43,12 +39,12 @@ def factory() -> CampaignFactory:
 
 @app.get("/")
 def index():
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
-
-
-@app.api_route("/favicon.ico", methods=["GET", "HEAD"])
-def favicon():
-    return FileResponse(Path(__file__).parent / "static" / "favicon.ico")
+    return {
+        "service": "campaign_factory",
+        "mode": "headless",
+        "docs": "/docs",
+        "operatorCommand": "scripts/creator-os",
+    }
 
 
 @app.get("/api/dashboard")
