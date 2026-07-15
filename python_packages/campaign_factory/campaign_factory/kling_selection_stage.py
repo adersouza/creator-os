@@ -262,10 +262,99 @@ def _eligible_candidate(
         "auditReportId": audit["id"],
         "generatedAssetLineage": lineage,
     }
+    advisory = _knowledge_advisory(factory, lineage)
+    if advisory is not None:
+        candidate["knowledgeAdvisory"] = advisory
     prediction = metadata.get("viralityPrediction")
     if isinstance(prediction, dict) and prediction.get("score") is not None:
         candidate["virality"] = float(prediction["score"])
     return candidate
+
+
+def _knowledge_advisory(factory: Any, lineage: dict[str, Any]) -> dict[str, Any] | None:
+    """Project the latest imported knowledge pack into an explicit Reel input."""
+    row = factory.conn.execute(
+        """
+        SELECT id, payload_json FROM reference_knowledge_packs
+        ORDER BY generated_at DESC, imported_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if not row:
+        return None
+    payload = _json_object(row["payload_json"])
+    patterns = payload.get("patternCards")
+    if not isinstance(patterns, list):
+        return None
+    reference_id = _nested_value(
+        lineage, "sourceReferenceId", "source_reference_id", "referenceId"
+    )
+    explicit = lineage.get("features")
+    features = explicit if isinstance(explicit, dict) else {}
+    matches: list[dict[str, Any]] = []
+    for pattern in patterns:
+        if not isinstance(pattern, dict):
+            continue
+        reference_ids = pattern.get("referenceIds") or []
+        reference_match = bool(reference_id and reference_id in reference_ids)
+        dimension_match = any(
+            _same_dimension(pattern.get(card_key), features.get(feature_key))
+            for card_key, feature_key in (
+                ("visualFormat", "scene"),
+                ("visualFormat", "camera"),
+                ("hookType", "hook_type"),
+                ("captionArchetype", "caption_style"),
+            )
+        )
+        if reference_match or dimension_match:
+            matches.append(pattern)
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda item: (
+            float(item.get("qualityScore") or 0.0),
+            int(item.get("measuredExampleCount") or 0),
+            str(item.get("id") or ""),
+        ),
+        reverse=True,
+    )
+    best = matches[0]
+    return {
+        "schema": "campaign_factory.knowledge_advisory.v1",
+        "sourcePackId": str(payload.get("packId") or row["id"]),
+        "sourcePatternIds": [str(item.get("id")) for item in matches],
+        "matchedPatternCount": len(matches),
+        "score": float(best.get("qualityScore") or 0.0),
+        "measuredExampleCount": int(best.get("measuredExampleCount") or 0),
+        "recommendationStatus": str(best.get("recommendationStatus") or "advisory"),
+        "decisionAuthority": False,
+    }
+
+
+def _nested_value(value: Any, *keys: str) -> str | None:
+    if isinstance(value, dict):
+        for key in keys:
+            found = value.get(key)
+            if found not in (None, ""):
+                return str(found)
+        for child in value.values():
+            found = _nested_value(child, *keys)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _nested_value(child, *keys)
+            if found:
+                return found
+    return None
+
+
+def _same_dimension(left: Any, right: Any) -> bool:
+    if left in (None, "", "unknown") or right in (None, "", "unknown"):
+        return False
+    a = str(left).lower().replace("_", " ")
+    b = str(right).lower().replace("_", " ")
+    return a in b or b in a
 
 
 def _invoke_reel_factory_rank(

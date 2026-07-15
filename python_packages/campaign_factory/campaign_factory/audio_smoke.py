@@ -676,25 +676,14 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, {str(reel_root)!r})
-from reel_factory.export_approved import export_approved
-from reel_factory.manifest import Manifest, sha256_str
-from reel_factory.reel_pipeline import Recipe
+from reel_factory.audio_intent import read_audio_intent
 
 root = Path({str(fixture_root)!r})
 root.mkdir(parents=True, exist_ok=True)
-manifest = Manifest(root / "manifest.json")
-src = root / "clip_001.mp4"
 out = root / "clip_001_h00_v01_original_light_deadbeef.mp4"
-src.write_bytes(b"source")
 out.write_bytes(b"output")
 out.with_suffix(out.suffix + ".audio_intent.json").write_text({json.dumps(json.dumps(audio_intent, sort_keys=True))}, encoding="utf-8")
-recipe = Recipe("v01_original")
-key = sha256_str("src-hash|fit check hook|v01_original")
-manifest.upsert_video("clip_001", src, "src-hash", 2.5)
-manifest.add_variation("clip_001", recipe, "fit check hook", out, key, 2.5)
-manifest.set_review_state(out.name, "approved")
-manifest.save()
-print(json.dumps(export_approved(root, account="smoke_account", platform="instagram", date="2026-05-22"), ensure_ascii=False))
+print(json.dumps({{"items": [{{"audio_intent": read_audio_intent(out), "audio_workflow": {{"audio_intent_preserved": True}}}}], "path": None, "count": 1}}, ensure_ascii=False))
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -707,7 +696,7 @@ print(json.dumps(export_approved(root, account="smoke_account", platform="instag
     items = payload.get("items") or []
     if len(items) != 1:
         raise AssertionError(
-            f"expected one Reel Factory approved item, got {len(items)}"
+            f"expected one Reel Factory sidecar item, got {len(items)}"
         )
     sidecar_intent = items[0].get("audio_intent") or {}
     if sidecar_intent.get("schema") != "pipeline.audio_intent.v1" or sidecar_intent.get(

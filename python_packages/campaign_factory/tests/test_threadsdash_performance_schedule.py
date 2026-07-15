@@ -137,8 +137,6 @@ def test_sync_threadsdash_performance_calls_existing_cli(monkeypatch, capsys):
             str(module.REPO_ROOT / "scripts" / "learning_fanout.py"),
             "--campaign-factory-db",
             str(module.DEFAULT_CAMPAIGN_FACTORY_DB),
-            "--reel-manifest-db",
-            str(module.DEFAULT_REEL_MANIFEST_DB),
             "--reference-factory-db",
             str(module.DEFAULT_REFERENCE_FACTORY_DB),
             "--campaign",

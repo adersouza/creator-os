@@ -1,22 +1,17 @@
-"""Predict-and-select: rank candidate reels by predicted engagement before posting.
+"""Rank rendered candidates from explicit Campaign advisory signals.
 
-The winner-DNA loop already measures, per content feature, how much engagement it
-historically earned (`winner_dna` table, built by `winner_dna.refresh_winner_dna`,
-scored by the shared reach-plus-engagement-rate winner_score). This module runs
-that loop *forward*: it matches a fresh candidate's features against that history,
-confidence-weights each match, and aggregates into a predicted-engagement score.
-Generate N -> rank -> post the best, instead of posting the first render.
-
-The default predictor is data-only: deterministic, no external calls, CI-testable.
-Pass `scorer=` to blend an external signal (e.g. a Higgsfield virality prediction)
-on top of the data score.
+Reel Factory does not own posting outcomes or winner status. Campaign Factory
+must staple an advisory derived from an imported
+``reference_factory.knowledge_pack.v1`` onto each candidate. An optional
+provider virality score may also be supplied out-of-band; this module performs
+only deterministic ranking and never discovers a metrics database.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -27,13 +22,6 @@ try:
     from .fileops import atomic_write_text
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
-
-from .intelligence_store import confidence_for_sample_size
-from .winner_dna import FEATURE_KEYS, connect
-
-# Down-weight low-sample feature clusters so a single fluke outcome can't crown a
-# candidate. Tunable: raise the low/medium weights as the outcome corpus grows.
-_CONFIDENCE_WEIGHT = {"low": 0.3, "medium": 0.7, "high": 1.0}
 
 # A Higgsfield virality-predictor score (0..1) attached to a candidate out-of-band
 # under this key. The predictor is an interactive MCP tool that runs on rendered
@@ -55,43 +43,41 @@ def _minmax(values: list[float]) -> list[float]:
 
 def predict_engagement(
     features: dict[str, Any],
-    conn: sqlite3.Connection,
     *,
-    total_outcomes: int | None = None,
+    knowledge_advisory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Confidence-weighted mean of each feature's historical avg engagement.
-
-    Unmatched / cold-start candidates score 0.0 with matched=0 (caller can treat
-    that as "no signal", not "bad").
-    """
-    if total_outcomes is None:
-        total_outcomes = int(
-            conn.execute("SELECT COUNT(*) FROM reel_outcomes").fetchone()[0] or 0
-        )
-    num = den = 0.0
-    matched = 0
-    for key in FEATURE_KEYS:
-        value = features.get(key)
-        if not value or value == "unknown":
-            continue
-        row = conn.execute(
-            "SELECT avg_winner_score, sample_size FROM winner_dna "
-            "WHERE feature_key=? AND feature_value=?",
-            (key, str(value)),
-        ).fetchone()
-        if row is None:
-            continue
-        level = confidence_for_sample_size(
-            row["sample_size"], total_outcomes=total_outcomes
-        )["level"]
-        weight = _CONFIDENCE_WEIGHT[level]
-        num += float(row["avg_winner_score"]) * weight
-        den += weight
-        matched += 1
+    """Return the Campaign-supplied knowledge score without inventing facts."""
+    _ = features
+    if not isinstance(knowledge_advisory, dict):
+        return {
+            "score": 0.0,
+            "matched": 0,
+            "weight": 0.0,
+            "source": "missing_campaign_knowledge",
+            "recommendationStatus": "not_run",
+            "measuredExampleCount": 0,
+        }
+    raw_score = knowledge_advisory.get("score")
+    if isinstance(raw_score, bool) or not isinstance(raw_score, (int, float)):
+        raise ValueError("knowledgeAdvisory.score must be a finite number")
+    score = float(raw_score)
+    if not math.isfinite(score):
+        raise ValueError("knowledgeAdvisory.score must be a finite number")
+    examples = knowledge_advisory.get("measuredExampleCount", 0)
+    if isinstance(examples, bool) or not isinstance(examples, int) or examples < 0:
+        raise ValueError("knowledgeAdvisory.measuredExampleCount must be non-negative")
+    status = str(knowledge_advisory.get("recommendationStatus") or "advisory")
+    if status not in {"advisory", "eligible"}:
+        raise ValueError("knowledgeAdvisory.recommendationStatus is invalid")
     return {
-        "score": round(num / den, 2) if den else 0.0,
-        "matched": matched,
-        "weight": round(den, 2),
+        "score": round(score, 4),
+        "matched": int(knowledge_advisory.get("matchedPatternCount") or 1),
+        "weight": 1.0,
+        "source": "campaign_factory.explicit_knowledge_advisory",
+        "sourcePackId": knowledge_advisory.get("sourcePackId"),
+        "recommendationStatus": status,
+        "measuredExampleCount": examples,
+        "decisionAuthority": False,
     }
 
 
@@ -111,21 +97,16 @@ def rank_candidates(
          cold-start batch where every data score is 0 falls back to virality).
       3. else the raw data score.
     """
-    conn = connect(root)
-    try:
-        total = int(
-            conn.execute("SELECT COUNT(*) FROM reel_outcomes").fetchone()[0] or 0
+    _ = root  # retained CLI compatibility; no state is read from this path
+    ranked = []
+    for candidate in candidates:
+        pred = predict_engagement(
+            candidate.get("features") or {},
+            knowledge_advisory=candidate.get("knowledgeAdvisory"),
         )
-        ranked = []
-        for candidate in candidates:
-            pred = predict_engagement(
-                candidate.get("features") or {}, conn, total_outcomes=total
-            )
-            ranked.append(
-                {**candidate, "predictedEngagement": pred, "score": pred["score"]}
-            )
-    finally:
-        conn.close()
+        ranked.append(
+            {**candidate, "predictedEngagement": pred, "score": pred["score"]}
+        )
 
     if scorer is not None:
         for candidate in ranked:
@@ -231,6 +212,7 @@ def rank_kling_candidate_manifest(
         "signalPresent": signal_present,
         "publishingAllowed": False,
         "paidGenerationAuthorized": False,
+        "rankingOwnership": "campaign_factory.explicit_advisory",
         "candidates": ranked,
     }
 

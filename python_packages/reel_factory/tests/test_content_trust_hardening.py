@@ -12,11 +12,6 @@ import pytest
 from PIL import Image
 from reel_factory.ai_visual_qc import record_from_scores
 from reel_factory.asset_prompt_contract import AssetPromptSet
-from reel_factory.caption_bank import (
-    CaptionBankStore,
-    caption_hash,
-    empty_performance_payload,
-)
 from reel_factory.generate_assets import (
     AssetGenerationPlan,
     _cost_preflight_for_plan,
@@ -538,41 +533,6 @@ def test_ai_visual_qc_status_marks_dependency_unavailable() -> None:
     assert record.visualQcStatus == "unavailable"
     assert record.visualQcDependencyStatus["opencv"] == "unavailable"
     assert "opencv_unavailable" in record.visualQcWarnings
-
-
-def test_caption_bank_uses_approved_outcome_weights(tmp_path: Path) -> None:
-    first = {
-        "caption_hash": caption_hash("first"),
-        "text": "first",
-        "banks": ["shared_girl_next_door"],
-        "source_type": "fixture",
-        "source_file": "fixture",
-    }
-    second = {
-        "caption_hash": caption_hash("second"),
-        "text": "second",
-        "banks": ["shared_girl_next_door"],
-        "source_type": "fixture",
-        "source_file": "fixture",
-    }
-    performance = empty_performance_payload()
-    performance["approvedWeights"] = {"captionHashes": {second["caption_hash"]: 100.0}}
-    store = CaptionBankStore(
-        banks={"shared_girl_next_door": [first, second]},
-        mixes={"Stacey": {"shared_girl_next_door": 1}},
-        performance=performance,
-        version="caption_banks_v1",
-        source_hash="hash",
-    )
-
-    selected = store.resolve_mix("Stacey", limit=1, seed=1)[0]
-    lineage = store.lineage_for(
-        selected, selected_mix="Stacey", selected_banks=selected["selected_banks"]
-    )
-
-    assert selected["caption_hash"] == second["caption_hash"]
-    assert lineage["weightSource"] == "approved_outcome_weights"
-    assert lineage["outcomeWeight"] == 100.0
 
 
 def test_hook_similarity_hash_mode_is_named_lexical_fallback() -> None:

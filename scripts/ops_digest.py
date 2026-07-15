@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sqlite3
 import subprocess
 import sys
@@ -74,16 +73,16 @@ def outcome_status(
     db_path = db_path or (
         repo_root / "python_packages" / "reel_factory" / "manifest.sqlite"
     )
-    if "reel_outcomes" not in sqlite_tables(db_path):
-        return {"summary": "outcomes missing", "level": "warn", "total": 0, "delta": 0}
+    if "performance_snapshots" not in sqlite_tables(db_path):
+        return {"summary": "snapshots missing", "level": "warn", "total": 0, "delta": 0}
     cutoff = now - timedelta(hours=24)
     with sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True) as conn:
-        rows = conn.execute("SELECT imported_at FROM reel_outcomes").fetchall()
+        rows = conn.execute("SELECT snapshot_at FROM performance_snapshots").fetchall()
     imported = [parse_time(row[0]) for row in rows]
     delta = sum(1 for item in imported if item is not None and item >= cutoff)
     total = len(imported)
     return {
-        "summary": f"outcomes {total}(+{delta})",
+        "summary": f"snapshots {total}(+{delta})",
         "level": "info",
         "total": total,
         "delta": delta,
@@ -145,33 +144,6 @@ def backup_status(backup_log: Path, now: datetime) -> dict[str, Any]:
         "summary": summary,
         "level": level,
         "timestamp": ts.isoformat(),
-    }
-
-
-def latest_orchestrator_tick(repo_root: Path) -> dict[str, Any]:
-    ticks = (
-        repo_root
-        / "python_packages"
-        / "reel_factory"
-        / "project_data"
-        / "orchestrator_ticks"
-    )
-    files = sorted(ticks.glob("*.json")) if ticks.exists() else []
-    if not files:
-        return {"summary": "gen no tick", "level": "warn"}
-    try:
-        payload = json.loads(files[-1].read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"summary": "gen tick unreadable", "level": "error"}
-    counts = payload.get("stateCounts") if isinstance(payload, dict) else {}
-    if not isinstance(counts, dict):
-        counts = {}
-    planned = int(counts.get("planned", 0))
-    inbox = int(counts.get("awaiting_approval", 0))
-    return {
-        "summary": f"gen planned {planned} inbox {inbox}",
-        "level": "info",
-        "stateCounts": counts,
     }
 
 
@@ -246,10 +218,13 @@ def digest(
     timestamp = now or utc_now()
     canonical_data_root = data_root or repo_root
     paths = resolve_runtime_paths(repo_root)
-    reel_manifest_db = (
-        canonical_data_root / "python_packages" / "reel_factory" / "manifest.sqlite"
+    campaign_factory_db = (
+        canonical_data_root
+        / "python_packages"
+        / "campaign_factory"
+        / "campaign_factory.sqlite"
         if data_root is not None
-        else paths.reel_manifest_db
+        else paths.campaign_factory_db
     )
     reference_factory_db = (
         canonical_data_root
@@ -262,10 +237,9 @@ def digest(
     if backup_log is None:
         backup_log = Path.home() / ".creator-os" / "backup.log"
     checks = [
-        outcome_status(canonical_data_root, timestamp, db_path=reel_manifest_db),
+        outcome_status(canonical_data_root, timestamp, db_path=campaign_factory_db),
         sync_status(ops_log, timestamp),
         backup_status(backup_log, timestamp),
-        latest_orchestrator_tick(repo_root),
         audio_status(canonical_data_root, timestamp, db_path=reference_factory_db),
         reference_status(canonical_data_root, db_path=reference_factory_db),
     ]

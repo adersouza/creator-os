@@ -55,20 +55,6 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
                         "reel_features "
                         + json.dumps(dict(feature), ensure_ascii=False)[:4000]
                     )
-                outcome = conn.execute(
-                    """
-                    SELECT filename, views, likes, comments, shares, saves, manual_score, notes
-                    FROM reel_outcomes
-                    WHERE output_path=? OR filename=?
-                    LIMIT 1
-                    """,
-                    (str(path.resolve()), path.name),
-                ).fetchone()
-                if outcome:
-                    parts.append(
-                        "reel_outcome "
-                        + json.dumps(dict(outcome), ensure_ascii=False)[:1000]
-                    )
             except Exception:
                 pass
     return "\n".join(parts)
@@ -229,6 +215,7 @@ def duplicate_risk(
     *,
     account: str,
     platform: str | None = None,
+    prior_paths: list[Path] | None = None,
     model: str = HASH_MODEL,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -241,29 +228,8 @@ def duplicate_risk(
         (target["embedding_id"],),
     ).fetchone()
     target_vec = json.loads(row["vector_json"])
-    params: list[Any] = [account]
-    platform_filter = ""
-    if platform:
-        platform_filter = "AND platform=?"
-        params.append(platform)
-    outcomes = conn.execute(
-        f"""
-        SELECT filename, output_path, platform, account, posted_at
-        FROM reel_outcomes
-        WHERE account=? {platform_filter}
-        ORDER BY COALESCE(posted_at, '') DESC, imported_at DESC
-        LIMIT ?
-        """,
-        (*params, limit),
-    ).fetchall()
     candidates = []
-    for outcome in outcomes:
-        candidate_path = outcome["output_path"]
-        if not candidate_path:
-            matches = list((root / "02_processed").rglob(str(outcome["filename"])))
-            candidate_path = str(matches[0]) if matches else ""
-        if not candidate_path:
-            continue
+    for candidate_path in (prior_paths or [])[:limit]:
         try:
             resolved = Path(candidate_path).expanduser().resolve()
         except Exception:
@@ -292,10 +258,9 @@ def duplicate_risk(
             {
                 "score": round(score, 4),
                 "path": str(resolved),
-                "filename": outcome["filename"],
-                "platform": outcome["platform"],
-                "account": outcome["account"],
-                "posted_at": outcome["posted_at"],
+                "filename": resolved.name,
+                "platform": platform,
+                "account": account,
                 "model": emb["model"],
             }
         )
@@ -316,9 +281,9 @@ def duplicate_risk(
     else:
         action = "safe"
         level = "low"
-    reason = "no prior posted neighbors found"
+    reason = "no Campaign-supplied prior media neighbors"
     if nearest:
-        reason = f"nearest prior post scored {nearest['score']} similarity"
+        reason = f"nearest supplied prior asset scored {nearest['score']} similarity"
     if sidecar and sidecar["score"] >= score:
         reason = f"sidecar similarity scored {sidecar['score']}"
     return {
@@ -351,6 +316,7 @@ def main() -> int:
     dup.add_argument("--path", required=True)
     dup.add_argument("--account", required=True)
     dup.add_argument("--platform")
+    dup.add_argument("--prior-path", action="append", default=[])
     dup.add_argument("--model", default=HASH_MODEL)
     dup.add_argument("--limit", type=int, default=20)
     args = ap.parse_args()
@@ -366,6 +332,7 @@ def main() -> int:
             Path(args.path),
             account=args.account,
             platform=args.platform,
+            prior_paths=[Path(value) for value in args.prior_path],
             model=args.model,
             limit=args.limit,
         )

@@ -3,18 +3,15 @@
 `scripts/ops_digest.py` emits a single local health line for the operator:
 
 ```text
-outcomes 42(+5) | sync ok 30m old | backup 607MB 1h old | gen planned 0 inbox 0 | audio 2d old | refs 123
+snapshots 42(+5) | sync ok 30m old | backup 607MB 1h old | audio 2d old | refs 123
 ```
 
 It is read-only. It checks:
 
-- `reel_outcomes` total and 24-hour delta from the configured canonical
-  `REEL_FACTORY_MANIFEST_DB` (default
-  `~/.creator-os/state/reel_factory/manifest.sqlite`).
+- Campaign Factory `performance_snapshots` total and 24-hour delta from the
+  configured canonical Campaign database.
 - Last `performance-sync` status from `~/.creator-os/ops.log`.
 - Latest backup under `backups/runtime/`.
-- Latest orchestrator tick under
-  `python_packages/reel_factory/project_data/orchestrator_ticks/`.
 - Reference Factory audio catalog age from `audio_catalog`.
 - Reference Factory database row count from `REFERENCE_FACTORY_DB` (default
   `~/.creator-os/state/reference_factory/reference_factory.sqlite`).
@@ -59,8 +56,6 @@ Without `--dry-run`, the script calls `~/.creator-os/notify.sh` if it exists.
 The installed job executes code from `creator-os-runtime` but reads durable
 SQLite state from the canonical roots. `--data-root` is compatibility-only for
 a deliberate rollback to an older checkout-local layout; normal jobs omit it.
-Runtime-owned evidence such as orchestrator ticks continues to come from the
-current runtime checkout until that legacy orchestrator evidence is retired.
 
 ## Launchd Template
 

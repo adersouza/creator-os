@@ -205,8 +205,8 @@ Repository changes never update or restart the runtime automatically.
 ### Compatibility-required or legacy-but-called
 
 - `deprecated_generators.py`: active fail-closed guard; do not delete.
-- selected Grok/prompt helpers imported by anatomy/reference compatibility and
-  orchestrator paths; hidden from the root operator command.
+- selected Grok/prompt helpers imported by anatomy/reference compatibility;
+  hidden from the root operator command.
 - grid crop utilities with active tests/imports; not a default generation path.
 - FFmpeg-dependent probe/render/QC paths; active infrastructure.
 - root `pipeline_contracts/__init__.py`: import shim for current callers.
@@ -217,8 +217,8 @@ Repository changes never update or restart the runtime automatically.
 - Reel `operator_tools`, metrics HTTP routes, and unserved static browser assets;
 - Campaign static dashboard assets;
 - unused ContentForge golden-capture script;
-- orphaned overnight-grid, reference-grid-production, and visual benchmark
-  harnesses/tests/docs.
+- orphaned overnight-grid, reference-grid-production, visual benchmark, and
+  Reel-owned outcome/orchestrator/approval harnesses, tests, and docs.
 
 ## State, Artifacts, And Contracts
 

@@ -810,18 +810,16 @@ def promotion_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(
                 f"{asset['asset_id']}: non-terminal final state {states[-1]}"
             )
-    test_text = (
-        ROOT / "python_packages/reel_factory/tests/test_orchestrator.py"
-    ).read_text(encoding="utf-8")
-    if "illegal transition" not in test_text:
-        failures.append("orchestrator illegal-transition test is missing")
+    retired = ROOT / "python_packages/reel_factory/reel_factory/orchestrator.py"
+    if retired.exists():
+        failures.append("Reel Factory still owns campaign promotion state")
     return fixture_result(
         name="promotion",
         category="Promotion Audit",
         failures=failures,
-        reason_ok="fixture promotion histories follow legal orchestrator transitions and tests cover illegal skips",
+        reason_ok="legacy fixture histories remain valid and Reel campaign promotion state is retired",
         affected=[asset["asset_id"] for asset in fixture["promotion_histories"]],
-        evidence="orchestrator transition table + fixture histories",
+        evidence="legacy transition fixture + Campaign ownership boundary",
         next_action="Add more terminal-state fixtures if new states are introduced.",
     )
 
@@ -846,9 +844,13 @@ def learning_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         ROOT / "python_packages/campaign_factory/tests/test_learning_fanout.py"
     )
     tests = learning_test.read_text(encoding="utf-8")
-    if "performance_snapshots" not in tests or "reel_outcomes" not in tests:
+    if (
+        "performance_snapshots" not in tests
+        or 'DESTINATIONS = ("campaign", "reference")'
+        not in (ROOT / "scripts/learning_fanout.py").read_text(encoding="utf-8")
+    ):
         failures.append(
-            "Campaign learning fan-out test does not cover performance_snapshots and reel_outcomes"
+            "Campaign learning fan-out does not keep measured facts out of Reel Factory"
         )
     return fixture_result(
         name="learning",
@@ -1011,20 +1013,13 @@ def failure_recovery_audit(fixture: dict[str, Any], _quick: bool) -> Result:
             failures.append(f"{scenario['component']}: corrupts state")
         if not scenario.get("recovery_action"):
             failures.append(f"{scenario['component']}: missing recovery action")
-    tests = (
-        ROOT / "python_packages/reel_factory/tests/test_orchestrator.py"
-    ).read_text(encoding="utf-8")
-    if "kill_switch" not in tests or "recover_stalled" not in tests:
-        failures.append(
-            "orchestrator recovery tests missing kill switch/stall coverage"
-        )
     return fixture_result(
         name="failure-recovery",
         category="Failure Recovery Audit",
         failures=failures,
-        reason_ok="mocked provider/storage/contract failures preserve state and have explicit recovery actions",
+        reason_ok="mocked provider/storage/contract failures have explicit recovery actions",
         affected=sorted(seen),
-        evidence="fixture scenarios + orchestrator kill-switch/stall tests",
+        evidence="fixture recovery scenarios; Campaign owns long-running coordination",
         next_action="Replace fixture-only provider scenarios with adapter-level mock tests as providers change.",
     )
 
@@ -1036,9 +1031,9 @@ def configuration_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
     )
     if not path.exists():
         status = "PASS"
-        reason = "no local orchestrator.toml; orchestrator remains disabled by absence of operator config"
-        evidence = "enabled=false by absence"
-        next_action = "Create local orchestrator.toml only when the operator is ready to enable ticks."
+        reason = "Reel Factory has no local campaign orchestrator configuration"
+        evidence = "campaign orchestration is owned by Campaign Factory"
+        next_action = "None."
     else:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
         required = (

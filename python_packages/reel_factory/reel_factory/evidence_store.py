@@ -20,18 +20,8 @@ from creator_os_core.sqlite import ensure_columns as _ensure_columns
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .asset_prompt_contract import parse_asset_prompt_response
-from .intelligence_store import ensure_intelligence_schema, validate_review
+from .intelligence_store import ensure_intelligence_schema
 from .state_paths import manifest_db_path
-
-RATING_FIELDS = ("identity", "pose", "taste", "artifacts", "motion", "caption")
-VALID_RETRY_HELPERS = {
-    "fix_pose",
-    "fix_hands",
-    "less_smile",
-    "more_reference_fidelity",
-    "more_body_emphasis",
-    "more_cleavage",
-}
 
 
 def db_path(root: Path) -> Path:
@@ -101,25 +91,6 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
         created_at INTEGER NOT NULL,
         FOREIGN KEY(prompt_run_id) REFERENCES prompt_runs(prompt_run_id)
     );
-    CREATE TABLE IF NOT EXISTS operator_ratings (
-        rating_id TEXT PRIMARY KEY,
-        output_path TEXT,
-        asset_generation_id TEXT,
-        campaign_id TEXT,
-        campaign_key TEXT,
-        identity_score INTEGER,
-        pose_score INTEGER,
-        taste_score INTEGER,
-        artifact_score INTEGER,
-        motion_score INTEGER,
-        caption_score INTEGER,
-        labels_json TEXT NOT NULL DEFAULT '[]',
-        retry_helper TEXT,
-        approve_reject_reason TEXT,
-        notes TEXT,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY(asset_generation_id) REFERENCES asset_generations(asset_generation_id)
-    );
     CREATE TABLE IF NOT EXISTS campaign_outputs (
         campaign_output_id TEXT PRIMARY KEY,
         campaign_id TEXT,
@@ -131,7 +102,6 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
         job_key TEXT,
         caption_text TEXT,
         recipe TEXT,
-        review_state TEXT,
         readiness_status TEXT,
         export_path TEXT,
         metrics_filename TEXT,
@@ -140,27 +110,7 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
         FOREIGN KEY(asset_generation_id) REFERENCES asset_generations(asset_generation_id),
         FOREIGN KEY(prompt_run_id) REFERENCES prompt_runs(prompt_run_id)
     );
-    CREATE TABLE IF NOT EXISTS publish_metrics (
-        filename TEXT PRIMARY KEY,
-        platform TEXT,
-        account TEXT,
-        uploaded_at TEXT,
-        views INTEGER,
-        likes INTEGER,
-        comments INTEGER,
-        shares INTEGER,
-        saves INTEGER,
-        manual_score REAL,
-        notes TEXT,
-        soul_id TEXT,
-        campaign_output_id TEXT,
-        job_key TEXT,
-        imported_at INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_publish_metrics_campaign_output ON publish_metrics(campaign_output_id);
-    CREATE INDEX IF NOT EXISTS idx_publish_metrics_job_key ON publish_metrics(job_key);
     CREATE INDEX IF NOT EXISTS idx_campaign_outputs_metrics_filename ON campaign_outputs(metrics_filename);
-    CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     """)
     for table, columns in {
         "prompt_runs": {
@@ -173,13 +123,7 @@ def ensure_evidence_schema(conn: sqlite3.Connection) -> None:
             "creator_key": "TEXT",
             "reference_key": "TEXT",
         },
-        "operator_ratings": {"campaign_key": "TEXT"},
         "campaign_outputs": {"campaign_key": "TEXT", "creator_key": "TEXT"},
-        "publish_metrics": {
-            "soul_id": "TEXT",
-            "campaign_output_id": "TEXT",
-            "job_key": "TEXT",
-        },
     }.items():
         _ensure_columns(conn, table, columns)
     ensure_intelligence_schema(conn)
@@ -415,7 +359,6 @@ def link_campaign_output(
     job_key: str | None = None,
     caption_text: str | None = None,
     recipe: str | None = None,
-    review_state: str | None = None,
     readiness_status: str | None = None,
 ) -> dict[str, Any]:
     conn = connect(root)
@@ -434,9 +377,9 @@ def link_campaign_output(
         """
         INSERT INTO campaign_outputs (
             campaign_output_id, campaign_key, creator_key, asset_generation_id,
-            prompt_run_id, output_path, job_key, caption_text, recipe, review_state,
+            prompt_run_id, output_path, job_key, caption_text, recipe,
             readiness_status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(output_path) DO UPDATE SET
             campaign_key=COALESCE(excluded.campaign_key, campaign_outputs.campaign_key),
             creator_key=COALESCE(excluded.creator_key, campaign_outputs.creator_key),
@@ -445,7 +388,6 @@ def link_campaign_output(
             job_key=COALESCE(excluded.job_key, campaign_outputs.job_key),
             caption_text=COALESCE(excluded.caption_text, campaign_outputs.caption_text),
             recipe=COALESCE(excluded.recipe, campaign_outputs.recipe),
-            review_state=COALESCE(excluded.review_state, campaign_outputs.review_state),
             readiness_status=COALESCE(excluded.readiness_status, campaign_outputs.readiness_status),
             updated_at=excluded.updated_at
         """,
@@ -459,7 +401,6 @@ def link_campaign_output(
             job_key,
             caption_text,
             recipe,
-            review_state,
             readiness_status,
             now,
             now,
@@ -467,79 +408,3 @@ def link_campaign_output(
     )
     conn.commit()
     return {"ok": True, "campaign_output_id": campaign_output_id}
-
-
-def rate_output(
-    root: Path,
-    *,
-    output_path: Path,
-    campaign: str | None = None,
-    asset_generation_id: str | None = None,
-    scores: dict[str, int | None] | None = None,
-    labels: list[str] | None = None,
-    retry_helper: str | None = None,
-    reason: str = "",
-    notes: str = "",
-    decision: str | None = None,
-    primary_reason: str | None = None,
-    secondary_reasons: list[str] | None = None,
-) -> dict[str, Any]:
-    if retry_helper and retry_helper not in VALID_RETRY_HELPERS:
-        raise ValueError(f"retry_helper must be one of {sorted(VALID_RETRY_HELPERS)}")
-    scores = scores or {}
-    decision, primary_reason, secondary_reasons = validate_review(
-        decision, primary_reason, secondary_reasons
-    )
-    for field, value in scores.items():
-        if value is not None and not 1 <= int(value) <= 5:
-            raise ValueError(f"{field} score must be 1-5")
-    conn = connect(root)
-    rating_id = f"rating_{int(time.time() * 1000)}"
-    output_path = Path(output_path).resolve()
-    conn.execute(
-        """
-        INSERT INTO operator_ratings (
-            rating_id, output_path, asset_generation_id, campaign_key,
-            identity_score, pose_score, taste_score, artifact_score,
-            motion_score, caption_score, labels_json, retry_helper,
-            approve_reject_reason, notes, created_at, decision, primary_reason,
-            secondary_reasons_json, face_score, eyes_score, hands_score,
-            pose_accuracy_score, body_taste_score, background_score, crop_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            rating_id,
-            str(output_path),
-            asset_generation_id,
-            campaign,
-            scores.get("identity"),
-            scores.get("pose"),
-            scores.get("taste"),
-            scores.get("artifacts"),
-            scores.get("motion"),
-            scores.get("caption"),
-            json.dumps(labels or [], ensure_ascii=False),
-            retry_helper,
-            reason,
-            notes,
-            int(time.time()),
-            decision,
-            primary_reason,
-            json.dumps(secondary_reasons or [], ensure_ascii=False),
-            scores.get("face"),
-            scores.get("eyes"),
-            scores.get("hands"),
-            scores.get("pose_accuracy"),
-            scores.get("body_taste"),
-            scores.get("background"),
-            scores.get("crop"),
-        ),
-    )
-    conn.commit()
-    link_campaign_output(
-        root,
-        output_path=output_path,
-        campaign=campaign,
-        asset_generation_id=asset_generation_id,
-    )
-    return {"ok": True, "rating_id": rating_id}

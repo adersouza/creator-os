@@ -56,7 +56,6 @@ def _read_caption_meta(out_dir: Path) -> dict[str, dict]:
                 "caption_text": var.get("caption_text", ""),
                 "size_bytes": var.get("output_size_bytes", 0),
                 "duration": var.get("duration_sec", 0),
-                "review_state": var.get("review_state", "draft"),
             }
     return meta
 
@@ -197,7 +196,6 @@ def write_contact_sheet(
         except StopIteration:
             recipe = ""
         m = meta.get(mp4.name, {})
-        review_state = m.get("review_state", "draft")
         kind = _caption_kind(recipe, str(m.get("caption_text") or ""))
         caption = (
             "no overlay"
@@ -205,7 +203,7 @@ def write_contact_sheet(
             else _short_caption(str(m.get("caption_text") or ""))
         )
         label = (
-            f"h{aux.get('hook_idx', '?'):02d} {kind} {recipe}\n{caption or review_state}"
+            f"h{aux.get('hook_idx', '?'):02d} {kind} {recipe}\n{caption or 'clean render'}"
             if isinstance(aux.get("hook_idx"), int)
             else mp4.stem[:24]
         )

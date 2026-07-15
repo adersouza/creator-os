@@ -14,14 +14,11 @@ from reel_factory.caption_bank import (
     caption_static_metadata,
     default_mixes,
     load_or_build_caption_bank_store,
-    refresh_caption_weights,
 )
 from reel_factory.discoverability_safety import (
     audit_caption_sources,
     discoverability_safe_content_contract,
 )
-from reel_factory.evidence_store import ensure_evidence_schema
-from reel_factory.intelligence_store import ensure_intelligence_schema
 
 
 class CaptionBankTests(unittest.TestCase):
@@ -88,19 +85,6 @@ class CaptionBankTests(unittest.TestCase):
         for bank in ACTIVE_BANKS:
             self.assertIn(bank, store.banks)
 
-    def test_store_files_are_manual_learning_ready(self):
-        root = self._root_with_sources()
-        store = CaptionBankStore.build(root)
-        store.write(root)
-
-        self.assertTrue((root / "caption_banks" / "banks.json").exists())
-        self.assertTrue((root / "caption_banks" / "mixes.json").exists())
-        performance = json.loads(
-            (root / "caption_banks" / "performance.json").read_text()
-        )
-        self.assertEqual(performance["schema"], "reel_factory.caption_performance.v1")
-        self.assertEqual(performance["captions"], {})
-
     def test_creator_mixes_resolve_weighted_caption_pools(self):
         root = self._root_with_sources()
         store = CaptionBankStore.build(root)
@@ -149,115 +133,6 @@ class CaptionBankTests(unittest.TestCase):
             [item["caption_hash"] for item in first],
             [item["caption_hash"] for item in second],
         )
-
-    def test_refresh_caption_weights_writes_outcome_approved_weights(self):
-        root = self._root_with_sources()
-        CaptionBankStore.build(root).write(root)
-        high = root / "high.mp4"
-        low = root / "low.mp4"
-        high.write_bytes(b"high")
-        low.write_bytes(b"low")
-        high_hash = caption_hash("best hook")
-        low_hash = caption_hash("flat hook")
-        high.with_suffix(high.suffix + ".caption_lineage.json").write_text(
-            json.dumps({"captionOutcomeContext": {"captionHash": high_hash}}),
-            encoding="utf-8",
-        )
-        low.with_suffix(low.suffix + ".caption_lineage.json").write_text(
-            json.dumps({"captionHash": low_hash}),
-            encoding="utf-8",
-        )
-        conn = sqlite3.connect(root / "manifest.sqlite")
-        conn.row_factory = sqlite3.Row
-        ensure_evidence_schema(conn)
-        ensure_intelligence_schema(conn)
-        now = 1
-        conn.executemany(
-            """
-            INSERT INTO campaign_outputs (
-                campaign_output_id, output_path, caption_text, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            [
-                ("co_high", str(high), "best hook", now, now),
-                ("co_low", str(low), "flat hook", now, now),
-            ],
-        )
-        conn.executemany(
-            """
-            INSERT INTO reel_outcomes (
-                outcome_id, filename, output_path, platform, account, posted_at,
-                views, likes, comments, shares, saves, imported_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    "out_high",
-                    high.name,
-                    str(high),
-                    "ig",
-                    "stacey",
-                    "2026-07-01",
-                    100,
-                    30,
-                    5,
-                    5,
-                    5,
-                    now,
-                ),
-                (
-                    "out_low",
-                    low.name,
-                    str(low),
-                    "ig",
-                    "stacey",
-                    "2026-07-01",
-                    1000,
-                    1,
-                    0,
-                    0,
-                    0,
-                    now,
-                ),
-            ],
-        )
-        conn.commit()
-        conn.close()
-
-        result = refresh_caption_weights(root)
-        performance = json.loads(
-            (root / "caption_banks" / "performance.json").read_text(encoding="utf-8")
-        )
-        weights = performance["approvedWeights"]["captionHashes"]
-
-        self.assertEqual(result["updated"], 2)
-        self.assertEqual(result["unresolved"], 0)
-        self.assertGreater(weights[high_hash], weights[low_hash])
-        self.assertEqual(performance["captions"][high_hash]["sampleCount"], 1)
-
-    def test_refresh_caption_weights_preserves_existing_weights_without_outcomes(self):
-        root = self._root_with_sources()
-        banks = root / "caption_banks"
-        banks.mkdir(parents=True, exist_ok=True)
-        performance_path = banks / "performance.json"
-        existing = {
-            "schema": "reel_factory.caption_performance.v1",
-            "updated_at": 1782874000,
-            "notes": "existing real weights",
-            "approvedWeights": {"captionHashes": {"known": 123.0}},
-            "captions": {},
-        }
-        performance_path.write_text(json.dumps(existing), encoding="utf-8")
-        conn = sqlite3.connect(root / "manifest.sqlite")
-        conn.row_factory = sqlite3.Row
-        ensure_intelligence_schema(conn)
-        conn.close()
-
-        result = refresh_caption_weights(root)
-        performance = json.loads(performance_path.read_text(encoding="utf-8"))
-
-        self.assertEqual(result["updated"], 0)
-        self.assertEqual(performance, existing)
 
     def test_caption_static_metadata_classifies_length_and_format(self):
         short = caption_static_metadata("wife or girlfriend")

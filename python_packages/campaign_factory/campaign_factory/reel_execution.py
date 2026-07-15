@@ -586,7 +586,7 @@ class ReelExecutionRepository:
             for job in jobs:
                 rows = reel_conn.execute(
                     f"""
-                    SELECT job_key, recipe, recipe_params_json, caption_text, output_path, review_state
+                    SELECT job_key, recipe, recipe_params_json, caption_text, output_path
                     FROM variations
                     WHERE {clip_col} = ? AND status = 'ok'
                     ORDER BY encoded_at, output_path
@@ -728,7 +728,7 @@ class ReelExecutionRepository:
                             row["recipe"],
                             params.get("_target_ratio")
                             or self.ratio_from_filename(dest.name),
-                            row["review_state"] or "draft",
+                            "draft",
                             now,
                             now,
                         ),

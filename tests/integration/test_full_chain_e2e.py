@@ -910,7 +910,6 @@ def test_seam_c_snapshots_fan_out_to_reference_outcomes(
     cf = make_factory(tmp_path)
     dashboard = _FakeDashboard()
     campaign_db = cf.settings.db_path
-    reel_root = cf.settings.reel_factory_root
     reference_db = tmp_path / "references" / "reference_factory.sqlite"
     try:
         export_real_asset(
@@ -935,7 +934,6 @@ def test_seam_c_snapshots_fan_out_to_reference_outcomes(
 
     first = module.fanout_learning_snapshots(
         campaign_factory_db=campaign_db,
-        reel_factory_root=reel_root,
         reference_factory_db=reference_db,
         campaign="may",
     )
@@ -961,13 +959,11 @@ def test_seam_c_snapshots_fan_out_to_reference_outcomes(
     # Idempotency: a second fanout run is a no-op.
     second = module.fanout_learning_snapshots(
         campaign_factory_db=campaign_db,
-        reel_factory_root=reel_root,
         reference_factory_db=reference_db,
         campaign="may",
     )
     assert second["fanout"]["reference"]["done"] == 0
     assert second["fanout"]["campaign"]["done"] == 0
-    assert second["fanout"]["reel"]["done"] == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -1160,7 +1156,6 @@ def run_chain_through_fanout(
     module = load_bridge_module()
     module.fanout_learning_snapshots(
         campaign_factory_db=campaign_db,
-        reel_factory_root=reel_root,
         reference_factory_db=reference_db,
         campaign="may",
     )

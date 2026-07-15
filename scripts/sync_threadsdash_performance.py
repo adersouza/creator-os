@@ -86,9 +86,6 @@ def build_sync_command(
 def build_fanout_command(
     env: Mapping[str, str], campaign: str | None = None
 ) -> list[str]:
-    reel_manifest_db = Path(
-        env.get("REEL_FACTORY_MANIFEST_DB") or DEFAULT_REEL_MANIFEST_DB
-    )
     campaign_factory_db = Path(
         env.get("CAMPAIGN_FACTORY_DB") or DEFAULT_CAMPAIGN_FACTORY_DB
     )
@@ -102,8 +99,6 @@ def build_fanout_command(
         str(REPO_ROOT / "scripts" / "learning_fanout.py"),
         "--campaign-factory-db",
         str(campaign_factory_db),
-        "--reel-manifest-db",
-        str(reel_manifest_db),
         "--reference-factory-db",
         str(reference_factory_db),
         "--campaign",

@@ -158,7 +158,7 @@ def _manifest_rows(root: Path) -> dict[str, dict[str, Any]]:
     conn = connect_sqlite(db)
     try:
         rows = conn.execute(
-            "SELECT output_path, review_state, recipe_params_json, status FROM variations"
+            "SELECT output_path, recipe_params_json, status FROM variations"
         ).fetchall()
     finally:
         conn.close()
@@ -279,7 +279,7 @@ def evaluate_output(
         "status": status,
         "score": score,
         "warnings": warnings,
-        "reviewState": (manifest_row or {}).get("review_state", "draft"),
+        "reviewAuthority": "campaign_factory",
         "targetRatio": target_ratio,
         "dimensions": {"width": width, "height": height},
         "audioIntent": audio_intent,

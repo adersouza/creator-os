@@ -13,8 +13,8 @@ from reel_factory.analysis_reports import (
     request_analysis_reports,
     write_operator_reports,
 )
+from reel_factory.media_features import upsert_reel_feature
 from reel_factory.readiness_check import run_readiness
-from reel_factory.winner_dna import upsert_reel_feature
 
 
 def _output(root: Path) -> Path:
@@ -56,7 +56,7 @@ def test_analysis_report_request_manifest_is_zero_cost_when_no_provider_configur
     )
 
 
-def test_operator_reports_write_sidecars_consumed_by_readiness_and_winner_dna(
+def test_operator_reports_write_sidecars_consumed_by_readiness_and_media_features(
     tmp_path: Path,
 ) -> None:
     output = _output(tmp_path)
