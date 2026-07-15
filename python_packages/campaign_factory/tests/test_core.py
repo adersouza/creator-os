@@ -26759,7 +26759,7 @@ def test_failed_job_resolution_is_scoped_to_asset_identity(tmp_path: Path) -> No
         cf.close()
 
 
-def test_threadsdash_export_failure_writes_failed_export_row(
+def test_threadsdash_export_preview_failure_writes_no_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cf = make_factory(tmp_path)
@@ -26773,6 +26773,13 @@ def test_threadsdash_export_failure_writes_failed_export_row(
         monkeypatch.setattr(
             threadsdash_payload_adapter, "build_draft_payloads", fail_payload
         )
+        export_count = cf.conn.execute(
+            "SELECT COUNT(*) FROM threadsdash_exports"
+        ).fetchone()[0]
+        job_count = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+        event_count = cf.conn.execute(
+            "SELECT COUNT(*) FROM activity_events"
+        ).fetchone()[0]
 
         with pytest.raises(RuntimeError, match="payload exploded"):
             export_threadsdash(
@@ -26782,12 +26789,18 @@ def test_threadsdash_export_failure_writes_failed_export_row(
                 dry_run=True,
             )
 
-        row = cf.conn.execute(
-            "SELECT status, manifest_path FROM threadsdash_exports ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
-        assert row["status"] == "failed"
-        failure = json.loads(Path(row["manifest_path"]).read_text(encoding="utf-8"))
-        assert failure["error"] == "payload exploded"
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == export_count
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == job_count
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM activity_events").fetchone()[0]
+            == event_count
+        )
     finally:
         cf.close()
 

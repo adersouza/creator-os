@@ -31,6 +31,16 @@ The stabilization branch implements the following reversible source changes:
   facade and double-delegation chain removed;
 - Promptfoo offline regressions, PySceneDetect reference-video preflight, and
   hypothesis-jsonschema contract fuzzing.
+- a precise Reel worker lineage contract that cannot masquerade as finalized
+  Campaign lineage, plus a provider-free active-mode-to-ThreadsDashboard
+  consumer seam test;
+- fail-closed Trial account projection: denied and known-missing-scope accounts
+  are blocked, unknown accounts require explicit operator-canary authorization,
+  and autonomous planning selects only proven-eligible accounts;
+- a truly read-only draft preview that creates no export/job/event/file and
+  never contacts ThreadsDashboard;
+- a report-only post-retention cleanup eligibility command with no deletion
+  primitive and private backup/database permission enforcement.
 
 Creator OS still has no scheduling or publishing command. ThreadsDashboard is
 the sole approval, scheduling, publishing, and Instagram account authority.
@@ -39,7 +49,7 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
-| Source | PASS | clean `main`; `make verify` passed with supported Node 24: ContentForge 129, contracts 24 TS + 54 Python, Core 16, Campaign 687, Reference 111, Reel 435, integration 64, offline prompt regressions 3/3; architecture and artifact gates passed |
+| Source | PENDING_FINAL_VERIFY | current repair branch adds canonical Campaign artifacts, honest worker lineage, read-only draft preview, Trial capability projection, and report-only cleanup eligibility; focused combined suites pass, but the final `make verify` result belongs below only after the integrated tree runs clean |
 | CI | PASS on PR #442 / merge `2f0617bd` | Python, architecture, contracts, hygiene, changes, and secret scan passed; JavaScript, CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
 | Runtime | PASS | clean detached runtime and source exactly match; the code-bearing cutover baseline is `2f0617bd`, and the pinned LaunchAgent completed with exit 0 at `2026-07-15T21:40:11Z` against the canonical database |
 | Canonical state | PASS | migration manifest `~/.creator-os/backups/state-migrations/20260715T212851Z/migration-manifest.json` verified integrity, row counts, private modes, artifact hashes, and clean SQLite restores; machine envs switched; local backup snapshot `20260715_173212` passed |
@@ -112,6 +122,14 @@ failure, and one explicit app/account feature rejection. Trial publishing is
 not proven and no automatic retry is pending. The local Campaign measured-facts
 ledger still contains only the earlier archived Trial Reel's real eligible
 1-hour snapshot and has zero 24-hour or 72-hour snapshots.
+
+The current read-only account snapshot contains 208 Instagram accounts, 197
+active. Trial capability evidence is 0 eligible, 2 denied, and 206 unknown, with
+no stored OAuth-grant evidence yet. The local Creator OS roster maps 66 active
+accounts: 2 denied and 64 unknown. This is why Trial automation must remain
+closed. After source merge and exact runtime promotion, the normal account sync
+must project those fields locally; operators may then reconnect accounts and
+run bounded canaries one account at a time. Unknown is not eligibility.
 
 ## Guarded Cutover Order
 
