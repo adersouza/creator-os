@@ -24251,6 +24251,22 @@ def test_creator_os_execution_readiness_blocks_variant_cooldown_missed_dispatch_
 
 
 def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
+    threadsdash_root = tmp_path / "ThreadsDashboard"
+    (threadsdash_root / "api" / "cron").mkdir(parents=True)
+    (threadsdash_root / "api" / "scheduled-post-publish.ts").write_text(
+        "export default function handler() {}\n", encoding="utf-8"
+    )
+    (threadsdash_root / "api" / "cron" / "_campaign-schedule-recovery.ts").write_text(
+        "export default function handler() {}\n", encoding="utf-8"
+    )
+    (threadsdash_root / "api" / "cron" / "[job].ts").write_text(
+        'export const jobs = {"campaign-schedule-recovery": () => null};\n',
+        encoding="utf-8",
+    )
+    (threadsdash_root / "vercel.json").write_text(
+        '{"crons":[{"path":"/api/cron/campaign-schedule-recovery"}]}\n',
+        encoding="utf-8",
+    )
     report_path = tmp_path / "threadsdash_report.json"
     schedule_path = tmp_path / "schedule_plan.json"
     time_path = tmp_path / "time_plan.json"
@@ -24318,6 +24334,7 @@ def test_creator_os_execution_readiness_cli_outputs_json(tmp_path: Path):
             **os.environ,
             "PYTHONPATH": CLI_PYTHONPATH,
             "CAMPAIGN_FACTORY_DB": str(tmp_path / "cli.sqlite"),
+            "THREADSDASH_ROOT": str(threadsdash_root),
         },
         capture_output=True,
         text=True,

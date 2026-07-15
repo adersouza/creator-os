@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .config import Settings
@@ -213,6 +214,27 @@ _BLOCKER_GUIDANCE = {
         "verify_threadsdashboard_runtime",
     ),
 }
+
+
+def _threadsdash_route_present(
+    root: Path,
+    *,
+    direct_path: str,
+    gateway_path: str,
+    implementation_path: str,
+    route_key: str,
+) -> bool:
+    """Accept direct Vercel functions or an explicit consolidated gateway."""
+    if (root / direct_path).is_file():
+        return True
+    gateway = root / gateway_path
+    implementation = root / implementation_path
+    if not gateway.is_file() or not implementation.is_file():
+        return False
+    try:
+        return f'"{route_key}"' in gateway.read_text(encoding="utf-8")
+    except OSError:
+        return False
 
 
 class ExecutionReadinessRepository:
@@ -573,11 +595,21 @@ class ExecutionReadinessRepository:
         if not threadsdash_root.exists():
             warnings.append("threadsdashboard_runtime_routes_unverified")
             return warnings, blockers
-        if not (threadsdash_root / "api" / "scheduled-post-publish.ts").exists():
+        if not _threadsdash_route_present(
+            threadsdash_root,
+            direct_path="api/scheduled-post-publish.ts",
+            gateway_path="api/[route].ts",
+            implementation_path="api/_scheduled-post-publish.ts",
+            route_key="scheduled-post-publish",
+        ):
             blockers.append("scheduled_post_publish_route_missing")
-        if not (
-            threadsdash_root / "api" / "cron" / "campaign-schedule-recovery.ts"
-        ).exists():
+        if not _threadsdash_route_present(
+            threadsdash_root,
+            direct_path="api/cron/campaign-schedule-recovery.ts",
+            gateway_path="api/cron/[job].ts",
+            implementation_path="api/cron/_campaign-schedule-recovery.ts",
+            route_key="campaign-schedule-recovery",
+        ):
             blockers.append("campaign_schedule_recovery_route_missing")
         vercel_config = threadsdash_root / "vercel.json"
         if vercel_config.exists():
