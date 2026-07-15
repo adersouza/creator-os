@@ -29,12 +29,12 @@ static fallback survives a motion failure.
 Use the monorepo command for normal work:
 
 ```bash
-scripts/creator-os static-reel --dry-run \
-  --campaign campaign_slug --still /path/to/accepted.png
+scripts/creator-os generate --mode soul_static --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png
 
-scripts/creator-os paid-generation --confirm-paid \
+scripts/creator-os generate --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
-  --reference-image /path/to/reference.png --max-credits 1
+  --reference-image /path/to/reference.png --max-credits 2 --wait --download
 ```
 
 The second command requires confirmation, target identity, exact checkout, and

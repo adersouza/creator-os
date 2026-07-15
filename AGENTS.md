@@ -79,6 +79,27 @@ graphify query "How does Campaign Factory hand off to ThreadsDashboard?"
 Run `pnpm graphify:update` after code changes. `graphify-out/` is local
 architecture output and must not be committed unless explicitly approved.
 
+## Mandatory Generation Mode Selection
+
+Every new content-generation run must begin by asking the operator exactly:
+
+> Which Creator OS mode do you want for this run?
+
+Show the current five-mode menu from Campaign Factory's canonical
+`creative_modes.py` catalog:
+
+1. Library reuse — free
+2. Soul still + static MP4 — paid still generation, free MP4
+3. Local motion edit — free
+4. Best-only Kling — paid video
+5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video
+
+Never remember or infer the mode from an earlier run. If the operator already
+named a mode in the current instruction, confirm that mode before execution.
+The canonical non-interactive command must receive `--mode`; a missing mode is
+an error, never a default. This question is only for a new generation run. Do
+not ask it for audits, tests, status checks, or other read-only work.
+
 ## Reel Factory Active Path
 
 ```text

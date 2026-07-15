@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import argparse
 import math
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
 
 def _run(command: list[str], *, cwd: Path = ROOT) -> int:
     return subprocess.run(command, cwd=cwd, check=False).returncode
@@ -40,7 +40,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    status = sub.add_parser("status", help="read-only live configuration/runtime status")
+    status = sub.add_parser(
+        "status", help="read-only live configuration/runtime status"
+    )
     status.add_argument("--json", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
@@ -70,34 +72,53 @@ def _parser() -> argparse.ArgumentParser:
         default=ROOT.parent / "reference_reels/audio_catalog.json",
     )
 
-    prepare = sub.add_parser(
-        "campaign-prepare",
-        help="build a local review batch; never exports or auto-approves",
+    generate = sub.add_parser(
+        "generate",
+        help="choose one explicit generation mode; use --list-modes for cost and gates",
     )
-    prepare.add_argument("--confirm-write", action="store_true", required=True)
-    prepare.add_argument("--folder", type=Path, required=True)
-    prepare.add_argument("--campaign", required=True)
-    prepare.add_argument("--model", required=True)
-    prepare.add_argument(
+    generation_choice = generate.add_mutually_exclusive_group(required=True)
+    generation_choice.add_argument("--mode")
+    generation_choice.add_argument("--list-modes", action="store_true")
+    generation_execution = generate.add_mutually_exclusive_group()
+    generation_execution.add_argument("--dry-run", action="store_true")
+    generation_execution.add_argument("--apply", action="store_true")
+    generate.add_argument("--campaign")
+    generate.add_argument("--reference-image", type=Path)
+    generate.add_argument("--accepted-still", type=Path)
+    generate.add_argument("--kling-selection-receipt", type=Path)
+    generate.add_argument("--reference-video", type=Path)
+    generate.add_argument("--target", help="creator identity/name")
+    generate.add_argument("--soul-id")
+    generate.add_argument("--workspace", type=Path)
+    generate.add_argument("--confirm-paid", action="store_true")
+    generate.add_argument("--max-credits", type=float)
+    generate.add_argument("--caption")
+    generate.add_argument("--duration", type=float)
+    generate.add_argument("--count", type=int, default=3)
+    generate.add_argument("--account")
+    generate.add_argument("--folder", type=Path)
+    generate.add_argument("--model")
+    generate.add_argument(
         "--format", choices=["reel", "slideshow", "auto"], default="auto"
     )
-    prepare.add_argument("--variant-count", type=int, default=20)
-
-    sub.add_parser(
-        "generation-modes",
-        help="read-only catalog of supported creative workflow modes",
+    generate.add_argument("--variant-count", type=int, default=20)
+    generate.add_argument("--workers", type=int, default=3)
+    generate.add_argument("--first-frame-approval-id")
+    generate.add_argument("--last-frame-approval-id")
+    generate.add_argument("--operator-selected", action="store_true")
+    generate.add_argument("--rights-confirmed", action="store_true")
+    generate.add_argument(
+        "--preferred-provider", choices=["auto", "seedance", "kling"], default="auto"
     )
-
-    static_reel = sub.add_parser(
-        "static-reel", help="preview or create one free static MP4 from an accepted still"
+    generate.add_argument(
+        "--available-provider",
+        choices=["seedance", "kling"],
+        action="append",
+        default=[],
     )
-    static_mode = static_reel.add_mutually_exclusive_group(required=True)
-    static_mode.add_argument("--dry-run", action="store_true")
-    static_mode.add_argument("--apply", action="store_true")
-    static_reel.add_argument("--campaign", required=True)
-    static_reel.add_argument("--still", type=Path, required=True)
-    static_reel.add_argument("--duration", type=float)
-    static_reel.add_argument("--allow-upscale", action="store_true")
+    generate.add_argument("--allow-upscale", action="store_true")
+    generate.add_argument("--wait", action="store_true")
+    generate.add_argument("--download", action="store_true")
 
     readiness = sub.add_parser(
         "readiness", help="read-only Campaign Factory QC/readiness decision"
@@ -118,23 +139,6 @@ def _parser() -> argparse.ArgumentParser:
     draft.add_argument("--rendered-asset-id", action="append", default=[])
     draft.add_argument("--review-only", action="store_true")
 
-    paid = sub.add_parser(
-        "paid-generation",
-        help="run one explicitly bounded paid front-generation request",
-    )
-    paid.add_argument("--confirm-paid", action="store_true", required=True)
-    paid.add_argument("--target", required=True, help="creator identity/name")
-    paid.add_argument("--workspace", type=Path, required=True)
-    paid.add_argument("--campaign", required=True)
-    paid.add_argument("--reference-image", type=Path, required=True)
-    paid.add_argument("--max-credits", type=float, required=True)
-    paid.add_argument(
-        "--animation-mode",
-        choices=["static", "kling", "motion_edit"],
-        default="static",
-    )
-    paid.add_argument("--wait", action="store_true")
-    paid.add_argument("--download", action="store_true")
     return parser
 
 
@@ -172,51 +176,88 @@ def main(argv: list[str] | None = None) -> int:
             if code := _run(command):
                 return code
         return 0
-    if args.command == "campaign-prepare":
-        if args.variant_count <= 0:
-            print("--variant-count must be greater than zero", file=sys.stderr)
+    if args.command == "generate":
+        if args.list_modes:
+            return _run(_campaign_command("generation", "modes"))
+        if not args.campaign:
+            print("generate requires --campaign", file=sys.stderr)
             return 2
-        return _run(
-            _campaign_command(
-                "make-batch",
-                "--folder",
-                str(args.folder.expanduser().resolve()),
-                "--campaign",
-                args.campaign,
-                "--model",
-                args.model,
-                "--format",
-                args.format,
-                "--variant-count",
-                str(args.variant_count),
-                "--dry-run-export",
-                "--no-auto-approve",
+        if args.dry_run == args.apply:
+            print(
+                "generate requires exactly one of --dry-run or --apply", file=sys.stderr
             )
-        )
-    if args.command == "generation-modes":
-        return _run(_campaign_command("generation", "modes"))
-    if args.command == "static-reel":
+            return 2
+        if args.max_credits is not None and (
+            not math.isfinite(args.max_credits) or args.max_credits <= 0
+        ):
+            print("--max-credits must be finite and greater than zero", file=sys.stderr)
+            return 2
+        if args.duration is not None and (
+            not math.isfinite(args.duration) or args.duration <= 0
+        ):
+            print("--duration must be finite and greater than zero", file=sys.stderr)
+            return 2
+        if args.count <= 0 or args.variant_count <= 0 or args.workers <= 0:
+            print(
+                "--count, --variant-count, and --workers must be greater than zero",
+                file=sys.stderr,
+            )
+            return 2
         command = _campaign_command(
-            "animation",
-            "static-mp4",
+            "generation",
+            "run",
+            "--mode",
+            args.mode,
             "--campaign",
             args.campaign,
-            "--still",
-            str(args.still.expanduser().resolve()),
             "--apply" if args.apply else "--dry-run",
         )
-        if args.duration is not None:
-            if not math.isfinite(args.duration) or args.duration <= 0:
-                print("--duration must be finite and greater than zero", file=sys.stderr)
-                return 2
-            command.extend(["--duration", str(args.duration)])
-        if args.allow_upscale:
-            command.append("--allow-upscale")
+        optional_paths = (
+            ("--reference-image", args.reference_image),
+            ("--accepted-still", args.accepted_still),
+            ("--kling-selection-receipt", args.kling_selection_receipt),
+            ("--reference-video", args.reference_video),
+            ("--workspace", args.workspace),
+            ("--folder", args.folder),
+        )
+        for flag, value in optional_paths:
+            if value is not None:
+                command.extend([flag, str(value.expanduser().resolve())])
+        optional_values = (
+            ("--target", args.target),
+            ("--soul-id", args.soul_id),
+            ("--max-credits", args.max_credits),
+            ("--caption", args.caption),
+            ("--duration", args.duration),
+            ("--account", args.account),
+            ("--first-frame-approval-id", args.first_frame_approval_id),
+            ("--last-frame-approval-id", args.last_frame_approval_id),
+        )
+        for flag, value in optional_values:
+            if value is not None:
+                command.extend([flag, str(value)])
+        command.extend(["--count", str(args.count)])
+        command.extend(["--variant-count", str(args.variant_count)])
+        command.extend(["--workers", str(args.workers)])
+        command.extend(["--format", args.format])
+        if args.model:
+            command.extend(["--model", args.model])
+        command.extend(["--preferred-provider", args.preferred_provider])
+        for provider in args.available_provider:
+            command.extend(["--available-provider", provider])
+        for enabled, flag in (
+            (args.confirm_paid, "--confirm-paid"),
+            (args.operator_selected, "--operator-selected"),
+            (args.rights_confirmed, "--rights-confirmed"),
+            (args.allow_upscale, "--allow-upscale"),
+            (args.wait, "--wait"),
+            (args.download, "--download"),
+        ):
+            if enabled:
+                command.append(flag)
         return _run(command)
     if args.command == "readiness":
-        command = _campaign_command(
-            "campaign-readiness", "--campaign", args.campaign
-        )
+        command = _campaign_command("campaign-readiness", "--campaign", args.campaign)
         if args.user_id:
             command.extend(["--user-id", args.user_id])
         return _run(command)
@@ -242,44 +283,6 @@ def main(argv: list[str] | None = None) -> int:
         for asset_id in args.rendered_asset_id:
             command.extend(["--rendered-asset-id", asset_id])
         return _run(command)
-    if args.command == "paid-generation":
-        workspace = args.workspace.expanduser().resolve()
-        if workspace != ROOT:
-            print(
-                f"--workspace must be this checkout ({ROOT}); got {workspace}",
-                file=sys.stderr,
-            )
-            return 2
-        if not math.isfinite(args.max_credits) or args.max_credits <= 0:
-            print(
-                "--max-credits must be finite and greater than zero",
-                file=sys.stderr,
-            )
-            return 2
-        reference = args.reference_image.expanduser().resolve()
-        command = _campaign_command(
-            "generation",
-            "front-link",
-            "--campaign",
-            args.campaign,
-            "--reference-image",
-            str(reference),
-            "--creator",
-            args.target,
-            "--animation-mode",
-            args.animation_mode,
-            "--budget-cap-credits",
-            str(args.max_credits),
-            "--enable-paid-generation",
-            "--apply",
-        )
-        if args.wait:
-            command.append("--wait")
-        if args.download:
-            command.append("--download")
-        env = dict(os.environ)
-        env["CREATOR_OS_ROOT"] = str(workspace)
-        return subprocess.run(command, cwd=workspace, env=env, check=False).returncode
     raise AssertionError(f"unhandled command: {args.command}")
 
 

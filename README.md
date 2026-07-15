@@ -70,16 +70,16 @@ scripts/creator-os doctor --quick
 scripts/creator-os reference-refresh --dry-run
 scripts/creator-os reference-refresh --apply --source ~/Downloads/tiktok
 
-# Local campaign preparation; never exports and never auto-approves
-scripts/creator-os campaign-prepare --confirm-write \
+# Library reuse from a local folder; never exports and never auto-approves
+scripts/creator-os generate --mode library_reuse --apply \
   --folder /path/to/media --campaign campaign_slug --model model_slug
 
-# Read-only catalog of library, static, motion, Kling, and structural-remix modes
-scripts/creator-os generation-modes
+# Read-only catalog with cost, inputs, outputs, and approval gates
+scripts/creator-os generate --list-modes
 
-# Free accepted-still fallback
-scripts/creator-os static-reel --dry-run \
-  --campaign campaign_slug --still /path/to/accepted.png
+# Every generation run names one mode; there is no default
+scripts/creator-os generate --mode soul_static --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png
 
 # Read-only campaign readiness
 scripts/creator-os readiness --campaign campaign_slug --user-id user_id
@@ -91,10 +91,10 @@ scripts/creator-os draft-export --dry-run \
 # Metrics/learning sync: explicit preview or apply
 scripts/creator-os performance-sync --dry-run
 
-# Paid generation requires confirmation, target, checkout, and finite cap
-scripts/creator-os paid-generation --confirm-paid \
+# Paid generation additionally requires confirmation, target, workspace, and cap
+scripts/creator-os generate --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
-  --reference-image /path/to/reference.png --max-credits 1
+  --reference-image /path/to/reference.png --max-credits 2 --wait --download
 ```
 
 Package CLIs remain direct developer implementation boundaries, not generic

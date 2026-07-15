@@ -116,6 +116,7 @@ dependencies = [
     { name = "creator-os-core" },
     { name = "fastapi" },
     { name = "pipeline-contracts" },
+    { name = "reel-factory" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -130,6 +131,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<9" },
+    { name = "reel-factory", editable = "python_packages/reel_factory" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]
 provides-extras = ["dev"]

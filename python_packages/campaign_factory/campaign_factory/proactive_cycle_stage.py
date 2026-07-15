@@ -25,7 +25,7 @@ def run_proactive_cycle_stage(
     count: int = 3,
     account: str | None = None,
     reference_image_path: Path | None = None,
-    generation_mode: str = "existing_asset",
+    generation_mode: str | None = None,
     enable_variation: bool = False,
     enable_export: bool = False,
     enable_schedule: bool = False,
@@ -190,18 +190,18 @@ def run_proactive_cycle_stage(
 
 
 def _normalize_generation_mode(
-    generation_mode: str, reference_image_path: Path | None
+    generation_mode: str | None, reference_image_path: Path | None
 ) -> str:
+    if generation_mode is None or not str(generation_mode).strip():
+        raise ValueError("generation_mode is required; there is no silent default")
     normalized = str(generation_mode or "").strip().lower().replace("-", "_")
     if normalized in {"front_generation", "front_generation_kling", "kling"}:
         return "front_generation_kling"
     if normalized in {"front_generation_static", "soul_static", "static"}:
         return "front_generation_static"
-    if reference_image_path:
-        return "front_generation_static"
     if normalized in {"motion_edit", "existing_asset"}:
         return normalized
-    return "existing_asset"
+    raise ValueError(f"unsupported generation_mode: {generation_mode}")
 
 
 def _projected_cost(generation_mode: str) -> float:

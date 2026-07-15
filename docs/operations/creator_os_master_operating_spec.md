@@ -30,9 +30,9 @@ Creator OS must become a usable headless production system that:
 
 Creator OS is multi-mode rather than tied to one creative recipe. Its supported
 operator modes are library reuse, Soul-to-static MP4, deterministic motion edit,
-best-only Kling, and structural reference-video remix. A newly supplied
-reference image defaults to Soul-to-static; paid animation is a later explicit
-selection, never the implicit default.
+best-only Kling, and structural reference-video remix. Every generation run
+selects one of these modes explicitly; neither a new reference nor a previous
+run supplies an implicit default.
 
 ## Locked Operator Decisions
 

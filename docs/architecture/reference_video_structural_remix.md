@@ -2,10 +2,11 @@
 
 ## Purpose
 
-This is an opt-in Reel Factory path for an **operator-selected OFM/reference
-video**. It does not recreate the Instagram tutorial that explained the idea,
-and it is not a literal clone workflow. It preserves a short source video's
-motion structure while changing the creator identity and other visual details.
+This is an opt-in Campaign Factory workflow for an **operator-selected
+OFM/reference video**. Reel Factory owns the validated plan and provider command;
+Campaign Factory owns execution, spend gates, approvals, registration, and final
+review state. It does not recreate the tutorial that explained the idea, and it
+is not a literal clone workflow.
 
 Initial scope is deliberately narrow:
 
@@ -22,17 +23,18 @@ Initial scope is deliberately narrow:
 
 ```text
 operator-selected reference video + rights confirmation
-→ Gemini-style motion-only analysis JSON
+→ deterministic ffprobe validation and source endpoint extraction
+→ Gemini motion-only analysis JSON
 → validate reference_video_motion_analysis.v1
-→ reference-conditioned Higgsfield Soul first frame (dry-run plan)
-→ reference-conditioned Higgsfield Soul last frame (dry-run plan)
-→ operator accepts both endpoint frames
+→ quoted/reserved reference-conditioned Soul first and last frames
+→ separate hash-bound operator approvals for both endpoint frames
+→ free, silent, locked 9:16 static MP4 from the primary endpoint
 → deterministic Seedance/Kling routing
 → provider quote + atomic credit reservation + paid approval (still required)
 → generated video
-→ ContentForge source/sibling distinctness + visual QC
-→ final operator approval
-→ normal Campaign Factory handoff (separate step)
+→ eight blocking ContentForge checks + registered lineage and receipts
+→ review-ready asset blocked on final operator approval
+→ normal Campaign Factory handoff (separate step; never schedule/publish here)
 ```
 
 The two endpoint-frame requests reuse Reel Factory's existing
@@ -53,9 +55,10 @@ ContentForge source-master distinctness.
   hash, source/accepted endpoint hashes, chosen provider/model, QC requirements,
   approval boundaries, and the provider request that may be executed later.
 
-The planner validates both contracts and emits a lineage seed. A later render
-must copy that seed into the final `generated_asset_lineage.v2` metadata and add
-the rendered content fingerprint, review evidence, and Campaign Factory IDs.
+The planner validates both contracts and emits a lineage seed. The Campaign
+stage copies that evidence into `reference_video_remix_lineage.v1`, adds source
+and endpoint hashes, provider jobs, redacted quote/reservation receipts, the
+static fallback, ContentForge evidence, and the registered Campaign asset ID.
 
 ## Gemini Analysis Ingestion
 
@@ -69,9 +72,10 @@ The checked-in example is:
 
 `packages/pipeline_contracts/pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json`
 
-No Gemini API call is implemented in this slice. The operator or a future
-provider adapter supplies the JSON, and the planner fails closed if it does not
-match the contract.
+The Campaign stage calls Gemini through the environment-only
+`CREATOR_OS_REFERENCE_REMIX_DRIVER` phase adapter. The response is validated
+against the contract and cross-checked against ffprobe duration/aspect evidence.
+No credential is accepted in argv or persisted in the lineage artifact.
 
 ## Deterministic Provider Routing
 
@@ -98,7 +102,8 @@ window), records both values, and passes only the integer to `--duration`.
 
 ## Spend, QC, And Approval Boundaries
 
-The planner never executes its generated command. Every plan hard-codes:
+The Reel Factory planner never executes its generated command. The Campaign
+stage may execute only after all live gates pass. Every plan hard-codes:
 
 - `paidGenerationAuthorized: false`;
 - provider quote required;
@@ -112,32 +117,28 @@ After generation, ContentForge must block on source-master distinctness,
 sibling distinctness, identity verification, endpoint continuity, readability,
 safe zone, watchability, and visual QC. Any failure returns the asset to review.
 
-## Dry-Run Planner
+## Canonical Operator Preflight
 
 ```bash
-uv run --package reel-factory python -m reel_factory.reference_video_remix \
-  --reference-video /path/reference.mp4 \
-  --source-first-frame /path/reference.first.png \
-  --source-last-frame /path/reference.last.png \
-  --analysis-json /path/reference.motion-analysis.json \
-  --creator Stacey \
+scripts/creator-os generate --mode reference_video_remix --dry-run \
+  --campaign campaign_slug --reference-video /path/reference.mp4 \
+  --target Stacey \
   --soul-id d63ea9c7-b2c7-439c-bf0c-edfdf9938a36 \
-  --operator-selected \
-  --rights-confirmed \
-  --out /path/reference.remix-plan.json
+  --workspace "$PWD" --operator-selected --rights-confirmed --max-credits 3
 ```
 
-This first pass returns `awaiting_endpoint_frames` and only two Higgsfield
-`reference-image-dry-run` commands. Supplying both accepted endpoint paths and
-both approval decision IDs returns `ready_for_paid_animation_approval`; it does
-not authorize or run the paid request.
+This returns a provider-free preflight and performs no extraction or generation.
+An `--apply` additionally requires explicit paid confirmation, both endpoint
+approval IDs, a finite cap, and the configured phase driver. A fake-provider E2E
+proves the complete Campaign chain. A real provider smoke remains a separate
+operator-approved action and has not been run by tests.
 
 ## Deliberate Non-Goals
 
 - no Instagram tutorial recreation;
 - no arbitrary multi-scene video decomposition;
 - no private-platform scraping or login automation;
-- no paid provider call in the planner;
+- no paid provider call without quote, atomic reservation, and confirmation;
 - no automatic approval, draft export, schedule, or publish;
 - no change to the default direct-reference still workflow;
 - no bypass of ContentForge distinctness or final operator review.
