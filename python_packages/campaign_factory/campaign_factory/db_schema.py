@@ -512,27 +512,6 @@ CREATE INDEX IF NOT EXISTS idx_learning_fanout_status
 CREATE INDEX IF NOT EXISTS idx_learning_fanout_post
   ON learning_fanout_ledger(post_id, destination, snapshot_at);
 
-CREATE TABLE IF NOT EXISTS tribev2_reel_scores (
-  id TEXT PRIMARY KEY,
-  rendered_asset_id TEXT,
-  campaign_id TEXT,
-  content_hash TEXT,
-  model_id TEXT NOT NULL DEFAULT 'facebook/tribev2',
-  model_mode TEXT NOT NULL DEFAULT 'audio_video_cpu',
-  mean_abs_activation REAL NOT NULL DEFAULT 0,
-  peak_abs_activation REAL NOT NULL DEFAULT 0,
-  std_activation REAL NOT NULL DEFAULT 0,
-  segments_count INTEGER NOT NULL DEFAULT 0,
-  preds_shape_json TEXT NOT NULL DEFAULT '[]',
-  metrics_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_tribev2_rendered_asset ON tribev2_reel_scores(rendered_asset_id);
-CREATE INDEX IF NOT EXISTS idx_tribev2_campaign ON tribev2_reel_scores(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_tribev2_content_hash ON tribev2_reel_scores(content_hash);
-
 CREATE INDEX IF NOT EXISTS idx_concepts_campaign ON concepts(campaign_id, status);
 CREATE INDEX IF NOT EXISTS idx_variant_families_concept ON variant_families(concept_id, status);
 CREATE INDEX IF NOT EXISTS idx_variant_assets_family ON variant_assets(variant_family_id, variant_index);

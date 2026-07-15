@@ -5,20 +5,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_tribev2_remains_research_only() -> None:
+def test_retired_tribev2_has_no_source_or_schema_path() -> None:
     production_paths = [
         ROOT / "python_packages" / "campaign_factory" / "campaign_factory",
         ROOT / "python_packages" / "reel_factory",
         ROOT / "apps" / "dashboard" / "api",
     ]
     forbidden_terms = ("tribev2", "tribe_v2", "TRIBE")
-    allowed_fragments = (
-        "_spikes/tribev2",
-        "tribev2_reel_scores",
-        "tribev2_reel_analysis",
-        "tribev2_reel_review",
-        "tribev2_holdout_pilot_review",
-    )
     hits: list[str] = []
     for base in production_paths:
         for path in base.rglob("*"):
@@ -26,7 +19,7 @@ def test_tribev2_remains_research_only() -> None:
                 continue
             rel = str(path.relative_to(ROOT))
             text = path.read_text(encoding="utf-8", errors="ignore")
-            if any(term in text for term in forbidden_terms) and not any(fragment in rel or fragment in text for fragment in allowed_fragments):
+            if any(term in text for term in forbidden_terms):
                 hits.append(rel)
 
     assert hits == []
