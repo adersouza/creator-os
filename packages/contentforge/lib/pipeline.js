@@ -213,35 +213,9 @@ function runFFmpeg(args, onLog, timeout, signal) {
 }
 
 /**
- * Extract a thumbnail from a video file.
- */
-export async function extractThumbnail(inputPath, outputPath) {
-  await runFFmpeg([
-    "-i", inputPath,
-    "-ss", "00:00:01",
-    "-vframes", "1",
-    "-vf", "scale=320:-1",
-    "-y",
-    outputPath,
-  ]);
-}
-
-/**
- * Create a thumbnail from an image file (just resize).
- */
-export async function extractImageThumbnail(inputPath, outputPath) {
-  await runFFmpeg([
-    "-i", inputPath,
-    "-vf", "scale=320:-1",
-    "-y",
-    outputPath,
-  ], null, IMAGE_TIMEOUT_MS);
-}
-
-/**
  * Get video metadata using ffprobe.
  */
-export function getVideoInfo(inputPath) {
+function getVideoInfo(inputPath) {
   return new Promise(function (resolve, reject) {
     var proc = spawn("ffprobe", [
       "-v", "quiet",
@@ -295,7 +269,7 @@ export function getVideoInfo(inputPath) {
 /**
  * Get image metadata using ffprobe.
  */
-export function getImageInfo(inputPath) {
+function getImageInfo(inputPath) {
   return new Promise(function (resolve, reject) {
     var proc = spawn("ffprobe", [
       "-v", "quiet",

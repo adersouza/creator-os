@@ -1,26 +1,10 @@
 import { execFile } from "child_process";
-import { mkdir, open, readdir, readFile, rm, stat, writeFile } from "fs/promises";
-import { existsSync } from "fs";
+import { open, rm } from "fs/promises";
 import path from "path";
 import {
-  OUTPUT_DIR,
-  RUNS_DIR,
-  ensureInside,
   getRunRoot,
-  resolveRunFile,
-  resolveRunFinalDir,
-  resolveUploadPath,
-  safeBasename,
 } from "./paths.js";
-import { analyzeCaptions } from "./captions.js";
-import { getQualityMetrics } from "./quality-metrics.js";
 import { REELS_PROFILES } from "./reels-profiles.js";
-import { variantScoreBundle } from "./variant-engine.js";
-
-export { REELS_PROFILES };
-
-var VIDEO_EXTS = new Set([".mp4", ".mov", ".webm"]);
-var IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 function runTool(command, args, options = {}) {
   return new Promise(function (resolve) {
@@ -185,7 +169,7 @@ export function validateMediaInfo(mediaInfo, profileId) {
   return { profile, checks, score };
 }
 
-export function formatBytes(bytes) {
+function formatBytes(bytes) {
   if (!bytes && bytes !== 0) return "unknown";
   if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
   if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
@@ -344,158 +328,6 @@ export async function getQaSignals(filePath, mediaInfo) {
   };
 }
 
-export async function listRunFiles(runId) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir || !existsSync(finalDir)) return [];
-  var entries = await readdir(finalDir);
-  var files = [];
-  for (var entry of entries) {
-    var ext = path.extname(entry).toLowerCase();
-    if (!VIDEO_EXTS.has(ext) && !IMAGE_EXTS.has(ext)) continue;
-    var filePath = path.join(finalDir, entry);
-    var stats = await stat(filePath);
-    files.push({
-      name: entry,
-      path: filePath,
-      size: stats.size,
-      created: stats.birthtime.toISOString(),
-      type: VIDEO_EXTS.has(ext) ? "video" : "image",
-    });
-  }
-  return files.sort(function (a, b) { return a.name.localeCompare(b.name); });
-}
-
-async function readRunCaptions(runId) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir) return null;
-  var captionPath = path.join(finalDir, "captions.srt");
-  if (!existsSync(captionPath)) return null;
-  return readFile(captionPath, "utf8");
-}
-
-async function readRunConfig(runId) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir) return null;
-  var configPath = path.join(finalDir, "run_config.json");
-  if (!existsSync(configPath)) return null;
-  try {
-    return JSON.parse(await readFile(configPath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function listCoverFrames(runId) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir || !existsSync(finalDir)) return [];
-  var entries = await readdir(finalDir);
-  return entries
-    .filter(function (entry) { return /^cover_.*\.jpg$/i.test(entry); })
-    .sort()
-    .map(function (entry) { return { name: entry, url: "/api/preview?runId=" + encodeURIComponent(runId) + "&file=" + encodeURIComponent(entry) }; });
-}
-
-export async function analyzeReelsRun({ runId, profileId = "organic", sourceFile = null }) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir || !existsSync(finalDir)) {
-    var err = new Error("Run output not found");
-    err.status = 404;
-    throw err;
-  }
-
-  var files = await listRunFiles(runId);
-  var videoFiles = files.filter(function (file) { return file.type === "video"; });
-  if (videoFiles.length === 0) {
-    var noVideo = new Error("No video files found in run");
-    noVideo.status = 404;
-    throw noVideo;
-  }
-
-  var sourcePath = sourceFile ? resolveUploadPath(sourceFile) : null;
-  if (sourcePath && !existsSync(sourcePath)) sourcePath = null;
-  var captionText = await readRunCaptions(runId);
-  var runConfig = await readRunConfig(runId);
-  var variantReports = [];
-  for (var videoFile of videoFiles) {
-    var itemMediaInfo = await probeMedia(videoFile.path);
-    var itemValidation = validateMediaInfo(itemMediaInfo, profileId);
-    var itemQaSignals = await getQaSignals(videoFile.path, itemMediaInfo);
-    var itemCaptions = analyzeCaptions(captionText, itemMediaInfo);
-    var itemQualityMetrics = await getQualityMetrics({
-      sourcePath,
-      variantPath: videoFile.path,
-      mediaInfo: itemMediaInfo,
-    });
-    var itemScore = Math.max(0, itemValidation.score - Math.min(20, itemQaSignals.warnings.length * 5));
-    var estimatedDifference = itemQualityMetrics && itemQualityMetrics.ssim !== null && itemQualityMetrics.ssim !== undefined
-      ? (1 - itemQualityMetrics.ssim) * 100
-      : null;
-    var scoreBundle = variantScoreBundle({
-      mediaInfo: itemMediaInfo,
-      qualityMetrics: itemQualityMetrics,
-      checks: itemValidation.checks,
-      warnings: itemQaSignals.warnings,
-      differenceFromOriginal: estimatedDifference,
-      qualitySignals: [
-        itemQualityMetrics && itemQualityMetrics.vmaf !== null ? "vmaf" : null,
-        itemQualityMetrics && itemQualityMetrics.ssim !== null ? "ssim" : null,
-        itemQualityMetrics && itemQualityMetrics.psnr !== null ? "psnr" : null,
-      ].filter(Boolean),
-      differenceSignals: ["analyze route"],
-    });
-    variantReports.push({
-      file: videoFile.name,
-      score: itemScore,
-      ...scoreBundle,
-      checks: itemValidation.checks,
-      mediaInfo: itemMediaInfo,
-      qaSignals: itemQaSignals,
-      qualityMetrics: itemQualityMetrics,
-      captions: itemCaptions,
-    });
-  }
-
-  var primary = videoFiles[0];
-  var primaryReport = variantReports[0];
-  var coverFrames = await listCoverFrames(runId);
-  var totalChecks = variantReports.flatMap(function (report) { return report.checks; });
-  var summary = {
-    pass: totalChecks.filter(function (c) { return c.status === "pass"; }).length,
-    warn: totalChecks.filter(function (c) { return c.status === "warn"; }).length,
-    fail: totalChecks.filter(function (c) { return c.status === "fail"; }).length,
-    warnings: variantReports.reduce(function (sum, report) { return sum + report.qaSignals.warnings.length; }, 0),
-  };
-
-  var result = {
-    runId,
-    profileId: primaryReport.checks.length ? (REELS_PROFILES[profileId] || REELS_PROFILES.organic).id : "organic",
-    profile: REELS_PROFILES[profileId] || REELS_PROFILES.organic,
-    score: Math.round(variantReports.reduce(function (sum, report) { return sum + report.score; }, 0) / variantReports.length),
-    checks: primaryReport.checks,
-    mediaInfo: primaryReport.mediaInfo,
-    qaSignals: primaryReport.qaSignals,
-    variantReports,
-    summary,
-    coverFrames,
-    analyzedFile: primary.name,
-    filesAnalyzed: videoFiles.length,
-    sourceFile: sourceFile || null,
-    variantPreset: runConfig && runConfig.variantPreset || null,
-    variantOptions: runConfig && runConfig.variantOptions || {},
-    qualityGate: runConfig && runConfig.qualityGate || null,
-    attemptedCandidates: runConfig && runConfig.attemptedCandidates || variantReports.length,
-    keptCandidates: runConfig && runConfig.keptCandidates || variantReports.length,
-    rejectedCandidates: runConfig && runConfig.rejectedCandidates || 0,
-    rejectionReasons: runConfig && runConfig.rejectionReasons || {},
-    rejectionSamples: runConfig && runConfig.rejectionSamples || [],
-    captions: primaryReport.captions,
-    generatedAt: new Date().toISOString(),
-  };
-
-  await writeFile(path.join(finalDir, "reels_manifest.json"), JSON.stringify(result, null, 2));
-  return result;
-}
-
 export function formatManifestCsv(manifest) {
   var rows = [["file", "score", "qualityRetained", "differenceFromOriginal", "recommendedAction", "width", "height", "fps", "duration", "codec", "bitrate", "vmaf", "ssim", "psnr", "captions", "warnings", "failures"]];
   var reports = manifest.variantReports || [];
@@ -531,117 +363,6 @@ export function formatManifestCsv(manifest) {
   }).join("\n");
 }
 
-export async function saveRunCaptions({ runId, text }) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir || !existsSync(finalDir)) {
-    var err = new Error("Run output not found");
-    err.status = 404;
-    throw err;
-  }
-  var value = String(text || "").slice(0, 512 * 1024);
-  var analysis = analyzeCaptions(value);
-  if (!value || analysis.cues.length === 0) {
-    var invalid = new Error("Invalid SRT captions");
-    invalid.status = 400;
-    throw invalid;
-  }
-  var captionPath = ensureInside(finalDir, path.join(finalDir, "captions.srt"));
-  await writeFile(captionPath, value);
-  return { saved: true, runId, cues: analysis.cues.length };
-}
-
-export async function extractCoverFrame({ runId, filename, timestamp = 1 }) {
-  var safeName = safeBasename(filename);
-  var filePath = resolveRunFile(runId, safeName);
-  if (!safeName || !filePath || !existsSync(filePath)) {
-    var err = new Error("Video not found");
-    err.status = 404;
-    throw err;
-  }
-
-  var finalDir = resolveRunFinalDir(runId);
-  var seconds = Math.max(0, Math.min(parseFloat(timestamp) || 0, 600));
-  var base = safeName.replace(/\.[^.]+$/, "");
-  var coverName = "cover_" + base.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 50) + "_" + Math.round(seconds * 10) + ".jpg";
-  var coverPath = ensureInside(finalDir, path.join(finalDir, coverName));
-  if (!coverPath) {
-    var invalid = new Error("Invalid cover path");
-    invalid.status = 400;
-    throw invalid;
-  }
-
-  var result = await runTool("ffmpeg", [
-    "-ss", String(seconds),
-    "-i", filePath,
-    "-vframes", "1",
-    "-q:v", "2",
-    "-y",
-    coverPath,
-  ], { timeout: 15000, maxBuffer: 1024 * 1024 });
-
-  if (result.error) {
-    var err2 = new Error("Cover extraction failed");
-    err2.status = 500;
-    throw err2;
-  }
-
-  return {
-    name: coverName,
-    url: "/api/preview?runId=" + encodeURIComponent(runId) + "&file=" + encodeURIComponent(coverName),
-  };
-}
-
-export async function extractCoverCandidates({ runId, filename, count = 5 }) {
-  var safeName = safeBasename(filename);
-  var filePath = resolveRunFile(runId, safeName);
-  if (!safeName || !filePath || !existsSync(filePath)) {
-    var err = new Error("Video not found");
-    err.status = 404;
-    throw err;
-  }
-  var mediaInfo = await probeMedia(filePath);
-  var duration = Math.max(1, mediaInfo.duration || 1);
-  var n = Math.max(1, Math.min(8, parseInt(count, 10) || 5));
-  var covers = [];
-  for (var i = 0; i < n; i++) {
-    var timestamp = Math.min(duration - 0.1, Math.max(0, duration * ((i + 1) / (n + 1))));
-    covers.push(await extractCoverFrame({ runId, filename: safeName, timestamp }));
-  }
-  return covers;
-}
-
-export async function listRuns() {
-  if (!existsSync(RUNS_DIR)) return [];
-  var entries = await readdir(RUNS_DIR);
-  var runs = [];
-  for (var runId of entries) {
-    var root = getRunRoot(runId);
-    if (!root || !existsSync(root)) continue;
-    var finalDir = path.join(root, "final");
-    var rootStats = await stat(root);
-    var files = existsSync(finalDir) ? await listRunFiles(runId) : [];
-    var manifestPath = path.join(finalDir, "reels_manifest.json");
-    var manifest = null;
-    if (existsSync(manifestPath)) {
-      try {
-        manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-      } catch {
-        manifest = null;
-      }
-    }
-    runs.push({
-      runId,
-      created: rootStats.birthtime.toISOString(),
-      updated: rootStats.mtime.toISOString(),
-      count: files.length,
-      size: files.reduce(function (sum, file) { return sum + file.size; }, 0),
-      score: manifest && manifest.score,
-      profileId: manifest && manifest.profileId,
-    });
-  }
-  return runs.sort(function (a, b) { return b.created.localeCompare(a.created); });
-}
-
 export async function deleteRun(runId) {
   var root = getRunRoot(runId);
   if (!root) {
@@ -651,36 +372,4 @@ export async function deleteRun(runId) {
   }
   await rm(root, { recursive: true, force: true });
   return { success: true, runId };
-}
-
-export async function cleanupOldFiles({ olderThanDays = 14, maxBytes = 0 } = {}) {
-  var cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
-  var deleted = [];
-  if (existsSync(RUNS_DIR)) {
-    var entries = await readdir(RUNS_DIR);
-    for (var runId of entries) {
-      var root = getRunRoot(runId);
-      if (!root || !existsSync(root)) continue;
-      var stats = await stat(root);
-      if (stats.mtime.getTime() < cutoff) {
-        await rm(root, { recursive: true, force: true });
-        deleted.push(runId);
-      }
-    }
-  }
-  if (maxBytes > 0 && existsSync(RUNS_DIR)) {
-    var runs = await listRuns();
-    var totalBytes = runs.reduce(function (sum, run) { return sum + run.size; }, 0);
-    var oldestFirst = [...runs].sort(function (a, b) { return a.created.localeCompare(b.created); });
-    for (var run of oldestFirst) {
-      if (totalBytes <= maxBytes) break;
-      var root = getRunRoot(run.runId);
-      if (!root || !existsSync(root)) continue;
-      await rm(root, { recursive: true, force: true });
-      deleted.push(run.runId);
-      totalBytes -= run.size;
-    }
-  }
-  await mkdir(OUTPUT_DIR, { recursive: true });
-  return { deleted, olderThanDays, maxBytes };
 }

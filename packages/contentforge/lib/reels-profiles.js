@@ -145,11 +145,6 @@ export function scaleFilterForProfile(profileId) {
   return "scale=" + profile.width + ":" + profile.height + ":flags=lanczos";
 }
 
-export function coverScaleFilterForProfile(profileId) {
-  var profile = getReelsProfile(profileId);
-  return "scale=" + profile.width + ":" + profile.height + ":force_original_aspect_ratio=increase:flags=lanczos,crop=" + profile.width + ":" + profile.height;
-}
-
 export function containBlurFilterForProfile(profileId) {
   var profile = getReelsProfile(profileId);
   var size = profile.width + ":" + profile.height;
