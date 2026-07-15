@@ -34,6 +34,10 @@ from typing import Any
 
 import pytest
 from campaign_factory.adapters import threadsdash as threadsdash_adapter
+from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
+from campaign_factory.adapters import (
+    threadsdash_draft_payload as threadsdash_payload_adapter,
+)
 from campaign_factory.adapters.threadsdash import (
     export_threadsdash,
     sync_performance_snapshots,
@@ -415,7 +419,7 @@ def _patch_remote_media(monkeypatch: pytest.MonkeyPatch, remote_url: str) -> Non
         return payload
 
     monkeypatch.setattr(
-        threadsdash_adapter, "build_draft_payloads", build_with_remote_media
+        threadsdash_payload_adapter, "build_draft_payloads", build_with_remote_media
     )
 
 
@@ -431,9 +435,9 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
     remote_url = "https://cdn.example.com/campaigns/e2e/asset.mp4"
     _patch_remote_media(monkeypatch, remote_url)
     monkeypatch.setattr(
-        threadsdash_adapter, "SupabaseRestClient", _make_fake_client(dashboard)
+        threadsdash_client_adapter, "SupabaseRestClient", _make_fake_client(dashboard)
     )
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda _s: None)
 
     class _Resp:
         status = 200
@@ -460,7 +464,7 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
         resp.post_ids = post_ids
         return resp
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
 
 
 def _export_drafts(export: dict[str, Any]) -> list[dict[str, Any]]:

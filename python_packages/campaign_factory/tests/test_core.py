@@ -26,6 +26,10 @@ import campaign_factory.variant_lineage as variant_lineage_module
 import pytest
 from campaign_factory.adapters import contentforge as contentforge_adapter
 from campaign_factory.adapters import threadsdash as threadsdash_adapter
+from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
+from campaign_factory.adapters import (
+    threadsdash_draft_payload as threadsdash_payload_adapter,
+)
 from campaign_factory.adapters.contentforge import audit_campaign
 from campaign_factory.adapters.threadsdash import (
     build_draft_payloads,
@@ -7663,9 +7667,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
             ]
 
     monkeypatch.setattr(
-        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+        threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
     )
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
 
     def build_payloads_with_remote_media(*args, **kwargs):
@@ -7681,7 +7685,9 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
         return payload
 
     monkeypatch.setattr(
-        threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media
+        threadsdash_payload_adapter,
+        "build_draft_payloads",
+        build_payloads_with_remote_media,
     )
     try:
         add_rendered_asset(cf, tmp_path)
@@ -7788,10 +7794,10 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
             return []
 
     monkeypatch.setattr(
-        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+        threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
     )
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda _seconds: None)
     original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
 
     def build_payloads_with_remote_media(*args, **kwargs):
@@ -7807,7 +7813,9 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
         return payload
 
     monkeypatch.setattr(
-        threadsdash_adapter, "build_draft_payloads", build_payloads_with_remote_media
+        threadsdash_payload_adapter,
+        "build_draft_payloads",
+        build_payloads_with_remote_media,
     )
     try:
         add_rendered_asset(cf, tmp_path)
@@ -7877,7 +7885,7 @@ def test_threadsdash_dashboard_ingest_rejects_unallowed_url_before_request(monke
         raise AssertionError("urlopen should not be called for an unsafe ingest URL")
 
     monkeypatch.setattr(
-        threadsdash_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+        threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
     )
 
     with pytest.raises(ValueError, match="private or reserved IP"):
@@ -7942,7 +7950,7 @@ def test_threadsdash_ingest_hmac_is_bound_to_body_timestamp_and_nonce() -> None:
 
 
 def test_threadsdash_ingest_redirect_handler_never_forwards_authenticated_request():
-    request = threadsdash_adapter.Request(
+    request = threadsdash_client_adapter.Request(
         "https://dashboard.example.com/api/campaign-factory/drafts/ingest",
         data=b"{}",
         method="POST",
@@ -7976,7 +7984,7 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
             )
         raise OSError("supabase unavailable in unresolved-media regression")
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -9522,7 +9530,7 @@ def test_threadsdash_draft_notify_defers_required_native_audio_without_unlocking
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9643,7 +9651,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     for status in ("attached", "verified", "skipped", "not_required"):
         cf = make_factory(tmp_path / status)
         try:
@@ -9740,7 +9748,7 @@ def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypa
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
 
     def invalid_payload(*args, **kwargs):
@@ -9749,7 +9757,9 @@ def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypa
         campaign_meta.pop("generated_asset_lineage", None)
         return payload
 
-    monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", invalid_payload)
+    monkeypatch.setattr(
+        threadsdash_payload_adapter, "build_draft_payloads", invalid_payload
+    )
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9787,7 +9797,7 @@ def test_threadsdash_audio_intent_attached_requires_native_proof(
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9839,7 +9849,7 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -9937,7 +9947,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -10793,7 +10803,7 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(
         def select(self, table, params):
             return rows
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         rows.append(
@@ -10868,7 +10878,7 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
         def select(self, table, params):
             return rows
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         rows.append(
@@ -10971,7 +10981,7 @@ def test_live_export_blocks_same_rendered_asset_to_same_account_batch(
         def select(self, table, params):
             return rows
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
@@ -11091,7 +11101,7 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(
         def select(self, table, params):
             return rows
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path, filename="proof_v00_passthrough.mp4")
         cf.review_rendered_asset("asset_1", decision="approved")
@@ -16996,7 +17006,7 @@ def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatc
         def select(self, table, params):
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
         cf.review_rendered_asset("asset_1", decision="approved")
@@ -17075,7 +17085,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
             ]
             return _slice_rows(rows, params)
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         imported = cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = imported["imported"][0]
@@ -17152,7 +17162,7 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
                 },
             ]
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         imported = cf.import_folder(folder, campaign_slug="may", model_slug="model")
         source = imported["imported"][0]
@@ -17248,7 +17258,7 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
                 },
             ]
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         first = threadsdash_adapter.sync_threadsdash_instagram_accounts(
             cf,
@@ -17322,7 +17332,7 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
             assert params["user_id"] == "eq.user_1"
             return _slice_rows(rows, params)
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         rows.append(
@@ -17453,7 +17463,7 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
                 return _slice_rows(history_rows, params)
             raise AssertionError(table)
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         post_rows.append(
@@ -17959,7 +17969,9 @@ def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
                 params,
             )
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FailingHistoryClient)
+    monkeypatch.setattr(
+        threadsdash_client_adapter, "SupabaseRestClient", FailingHistoryClient
+    )
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         result = sync_performance_snapshots(
@@ -18126,7 +18138,7 @@ def test_sync_performance_snapshots_fails_loudly_on_metric_history_column_drift(
                 return history_rows[offset : offset + limit]
             raise AssertionError(table)
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         post_rows.append(
@@ -18211,7 +18223,7 @@ def test_sync_performance_snapshots_dead_letters_missing_campaign_metadata(
             assert table == "posts"
             return _slice_rows(rows, params)
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         result = sync_performance_snapshots(
             cf,
@@ -18264,7 +18276,7 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(
             limit = int(params.get("limit", len(rows)))
             return rows[offset : offset + limit]
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         context = {
@@ -18377,7 +18389,7 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
             limit = int(params.get("limit", len(rows)))
             return rows[offset : offset + limit]
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         context = {
@@ -19229,7 +19241,7 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
             return rows[offset : offset + limit]
 
     monkeypatch.setattr(app_module, "settings", settings)
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         source, _ = add_rendered_asset(cf, tmp_path)
         rows.append(
@@ -19307,7 +19319,7 @@ def test_supabase_preflight_checks_bucket_and_required_schema(monkeypatch):
             assert "select" in params
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     result = preflight_supabase(
         supabase_url="https://example.supabase.co",
         supabase_service_role_key="service-role",
@@ -19354,7 +19366,7 @@ def test_verify_threadsdash_export_blocks_non_draft_posts(monkeypatch):
                 ]
             return []
 
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     result = verify_threadsdash_export(
         export_result_or_path={
             "campaign": "may",
@@ -26584,7 +26596,9 @@ def test_threadsdash_export_failure_writes_failed_export_row(
         def fail_payload(*_args, **_kwargs):
             raise RuntimeError("payload exploded")
 
-        monkeypatch.setattr(threadsdash_adapter, "build_draft_payloads", fail_payload)
+        monkeypatch.setattr(
+            threadsdash_payload_adapter, "build_draft_payloads", fail_payload
+        )
 
         with pytest.raises(RuntimeError, match="payload exploded"):
             export_threadsdash(
@@ -26631,8 +26645,8 @@ def test_supabase_rest_client_retries_transient_http_error(
             )
         return FakeResponse()
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
     client = threadsdash_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
@@ -26658,8 +26672,8 @@ def test_supabase_rest_client_insert_does_not_retry_ambiguous_errors(
             io.BytesIO(b"maybe committed"),
         )
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
     client = threadsdash_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
@@ -26697,8 +26711,8 @@ def test_supabase_rest_client_insert_retries_safe_statuses(
             )
         return FakeResponse()
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
     client = threadsdash_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
@@ -26718,8 +26732,8 @@ def test_supabase_rest_client_insert_does_not_retry_network_errors(
         calls["count"] += 1
         raise URLError("timed out")
 
-    monkeypatch.setattr(threadsdash_adapter, "urlopen", fake_urlopen)
-    monkeypatch.setattr(threadsdash_adapter.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
     client = threadsdash_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
