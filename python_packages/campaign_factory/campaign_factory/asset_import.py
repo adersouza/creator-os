@@ -462,7 +462,7 @@ class AssetImportRepository:
                     raise ValueError(errors[0])
                 raise ValueError(
                     "Campaign Factory intake requires a guard-passed Reel Factory review package; "
-                    "run scripts/run/reel-factory review-guard <manifest> --write-package inside the batch folder."
+                    "run python -m reel_factory.review_batch_guard <manifest> --write-package inside the batch folder."
                 )
         return verified
 
@@ -880,9 +880,17 @@ class AssetImportRepository:
         )
 
     def _run_reel_review_guard(self, manifest_path: Path) -> dict[str, Any]:
-        runner = CREATOR_OS_ROOT / "scripts" / "run" / "reel-factory"
         completed = subprocess.run(
-            [str(runner), "review-guard", str(manifest_path)],
+            [
+                "uv",
+                "run",
+                "--package",
+                "reel-factory",
+                "python",
+                "-m",
+                "reel_factory.review_batch_guard",
+                str(manifest_path),
+            ],
             cwd=CREATOR_OS_ROOT,
             capture_output=True,
             text=True,

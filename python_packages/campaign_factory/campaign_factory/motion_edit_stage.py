@@ -109,7 +109,8 @@ def _invoke_reel_factory_motion_edit(
 ) -> dict[str, Any]:
     cmd = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "still_to_reel.py",
+        "-m",
+        "reel_factory.still_to_reel",
         "--still",
         str(still_path),
         "--out",

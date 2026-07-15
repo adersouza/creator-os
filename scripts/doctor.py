@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import subprocess
+import sys
 import time
 import tomllib
 from collections.abc import Callable
@@ -15,6 +17,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
+
+from creator_os_core.runtime_paths import RuntimePaths, resolve_runtime_paths
+
 FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_audit_fixture.json"
 BUSINESS_FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_business_audit_fixture.json"
 
@@ -81,16 +87,25 @@ def main() -> int:
     parser.add_argument(
         "--self-check", action="store_true", help="run script self-checks"
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="report read-only live repository/runtime status instead of fixture audits",
+    )
     args = parser.parse_args()
     if args.self_check:
         return self_check()
 
-    results = run_doctor(
-        quick=args.quick,
-        business_only=args.business,
-        td_snapshot=args.td_snapshot,
-        ui_proof=args.ui_proof,
-        release=args.release,
+    results = (
+        run_live_status()
+        if args.status
+        else run_doctor(
+            quick=args.quick,
+            business_only=args.business,
+            td_snapshot=args.td_snapshot,
+            ui_proof=args.ui_proof,
+            release=args.release,
+        )
     )
     if args.json:
         print(
@@ -99,6 +114,305 @@ def main() -> int:
     else:
         print_text(results)
     return 1 if any(result.status == "FAIL" for result in results) else 0
+
+
+def run_live_status(
+    *, paths: RuntimePaths | None = None, home: Path | None = None
+) -> list[Result]:
+    """Return live, read-only status without treating unprobed systems as healthy."""
+    resolved = paths or resolve_runtime_paths(ROOT)
+    home_root = home or Path.home()
+    config_root = home_root / ".creator-os"
+    performance_env = config_root / "performance-sync.env"
+    generation_env = config_root / "generation.env"
+    ops_log = config_root / "ops.log"
+    performance_values = _read_env_assignments(performance_env)
+
+    repository = _repository_status(resolved.source_root)
+    contracts = _contracts_status(resolved.source_root)
+    local_config = _local_config_status(performance_env, generation_env)
+    runtime = _runtime_status(resolved, performance_values, ops_log)
+    database = _campaign_database_status(performance_values)
+    provider = Result(
+        name="provider-readiness",
+        category="Provider readiness",
+        status="NOT_RUN",
+        reason="no provider or paid-credit API probe was run",
+        command="creator-os paid-generation ...",
+        evidence=(
+            f"generation_policy={generation_env}; present={generation_env.is_file()}"
+        ),
+        next_action="Run a separately approved, bounded provider smoke only when needed.",
+    )
+    handshake = Result(
+        name="threadsdashboard-handshake",
+        category="ThreadsDashboard handshake",
+        status="NOT_RUN",
+        reason="no network or production handshake was run",
+        command="external read-only production verification",
+        evidence=f"threadsdash_checkout={resolved.threadsdash_root}",
+        next_action="Verify the live handshake separately when production evidence is required.",
+    )
+    return [
+        repository,
+        contracts,
+        local_config,
+        runtime,
+        database,
+        provider,
+        handshake,
+    ]
+
+
+def _repository_status(root: Path) -> Result:
+    branch = _git_output(root, "branch", "--show-current")
+    sha = _git_output(root, "rev-parse", "HEAD")
+    dirty = _git_output(root, "status", "--short")
+    if not sha:
+        status = "FAIL"
+        reason = "source checkout is not readable as a Git repository"
+    elif dirty:
+        status = "WARN"
+        reason = "source checkout has uncommitted changes"
+    else:
+        status = "PASS"
+        reason = "source checkout is clean and its exact revision is known"
+    return Result(
+        name="repository",
+        category="Repository",
+        status=status,
+        reason=reason,
+        command="git status --short --branch",
+        evidence=f"root={root}\nbranch={branch or '(detached)'}\nsha={sha or 'unknown'}",
+        affected=dirty.splitlines()[:8] if dirty else [],
+        next_action="Commit or deliberately discard the listed changes."
+        if dirty
+        else "None.",
+    )
+
+
+def _contracts_status(root: Path) -> Result:
+    checked = subprocess.run(
+        ["node", "scripts/generate-pipeline-contract-schemas.mjs", "--check"],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    ok = checked.returncode == 0
+    return Result(
+        name="contracts",
+        category="Contracts",
+        status="PASS" if ok else "FAIL",
+        reason="generated contracts match canonical schemas"
+        if ok
+        else "generated contracts drift from canonical schemas",
+        command="pnpm check:contracts",
+        evidence=tail(checked.stdout, limit=4),
+        next_action="Run `pnpm sync:contracts`, inspect the diff, and recheck."
+        if not ok
+        else "None.",
+    )
+
+
+def _local_config_status(*files: Path) -> Result:
+    missing = [str(path) for path in files if not path.is_file()]
+    unsafe = [
+        str(path) for path in files if path.is_file() and path.stat().st_mode & 0o077
+    ]
+    if missing:
+        status = "WARN"
+        reason = "one or more machine-local configuration files are absent"
+    elif unsafe:
+        status = "FAIL"
+        reason = "machine-local configuration permissions are broader than 0600"
+    else:
+        status = "PASS"
+        reason = "required machine-local config files exist with private permissions"
+    return Result(
+        name="local-config",
+        category="Local config",
+        status=status,
+        reason=reason,
+        command="creator-os status",
+        evidence="\n".join(
+            f"{path}: present={path.is_file()} mode={oct(path.stat().st_mode & 0o777) if path.exists() else 'missing'}"
+            for path in files
+        ),
+        affected=missing + unsafe,
+        next_action="Create missing files locally or restrict them to mode 0600."
+        if missing or unsafe
+        else "None.",
+    )
+
+
+def _runtime_status(
+    paths: RuntimePaths, performance_values: dict[str, str], ops_log: Path
+) -> Result:
+    root = paths.runtime_root
+    sha = _git_output(root, "rev-parse", "HEAD") if root.is_dir() else ""
+    branch = _git_output(root, "branch", "--show-current") if sha else ""
+    last_line = _latest_matching_line(ops_log, "performance-sync")
+    if not sha:
+        status = "NOT_RUN"
+        reason = "runtime checkout is absent or not a readable Git checkout"
+    elif not last_line:
+        status = "WARN"
+        reason = "runtime revision is known, but no performance-sync run is recorded"
+    elif "[info]" in last_line and "ok" in last_line:
+        status = "PASS"
+        reason = "runtime revision is known and the latest recorded sync succeeded"
+    else:
+        status = "WARN"
+        reason = "runtime revision is known, but the latest recorded sync did not prove success"
+    campaign = performance_values.get(
+        "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS", "not configured"
+    )
+    db_path = performance_values.get("CAMPAIGN_FACTORY_DB", "not configured")
+    last_run = last_line.split(" ", 1)[0] if last_line else "not recorded"
+    exit_status = (
+        "0"
+        if last_line and "[info]" in last_line and "ok" in last_line
+        else "unknown/not successful"
+    )
+    return Result(
+        name="runtime",
+        category="Runtime checkout",
+        status=status,
+        reason=reason,
+        command="creator-os status",
+        evidence=(
+            f"checkout={root}\nbranch={branch or '(detached/not available)'}\n"
+            f"sha={sha or 'unknown'}\ndatabase={db_path}\ncampaigns={campaign}\n"
+            f"last_run={last_run}\nexit_status={exit_status}\nlog={ops_log}"
+        ),
+        next_action="Repair or run the pinned runtime job before claiming operational health."
+        if status != "PASS"
+        else "None.",
+    )
+
+
+def _campaign_database_status(values: dict[str, str]) -> Result:
+    raw_path = values.get("CAMPAIGN_FACTORY_DB") or os.environ.get(
+        "CAMPAIGN_FACTORY_DB"
+    )
+    campaigns_raw = values.get("CAMPAIGN_FACTORY_SYNC_CAMPAIGNS") or os.environ.get(
+        "CAMPAIGN_FACTORY_SYNC_CAMPAIGNS", ""
+    )
+    if not raw_path:
+        return Result(
+            name="campaign-database",
+            category="Campaign database",
+            status="NOT_RUN",
+            reason="no runtime campaign database path is configured",
+            command="creator-os status",
+            evidence="CAMPAIGN_FACTORY_DB is absent",
+            next_action="Configure the runtime database path before checking it.",
+        )
+    path = Path(raw_path).expanduser()
+    campaigns = _json_string_list(campaigns_raw)
+    if not path.is_file():
+        return Result(
+            name="campaign-database",
+            category="Campaign database",
+            status="FAIL",
+            reason="configured campaign database does not exist",
+            command="creator-os status",
+            evidence=f"database={path}\ncampaigns={campaigns or 'not configured'}",
+            affected=[str(path)],
+            next_action="Correct CAMPAIGN_FACTORY_DB; do not create a replacement implicitly.",
+        )
+    try:
+        with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as conn:
+            tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            present = []
+            if "campaigns" in tables:
+                for campaign in campaigns:
+                    row = conn.execute(
+                        "SELECT 1 FROM campaigns WHERE slug = ? LIMIT 1", (campaign,)
+                    ).fetchone()
+                    if row:
+                        present.append(campaign)
+    except sqlite3.Error as exc:
+        return Result(
+            name="campaign-database",
+            category="Campaign database",
+            status="FAIL",
+            reason="configured campaign database is not readable in read-only mode",
+            command="creator-os status",
+            evidence=f"database={path}\nerror={exc}",
+            next_action="Repair or restore the configured database before using it.",
+        )
+    missing = [campaign for campaign in campaigns if campaign not in present]
+    status = "PASS" if "campaigns" in tables and not missing else "WARN"
+    return Result(
+        name="campaign-database",
+        category="Campaign database",
+        status=status,
+        reason="database is readable and configured campaigns exist"
+        if status == "PASS"
+        else "database is readable but configured campaign evidence is incomplete",
+        command="creator-os status",
+        evidence=(
+            f"database={path}\ntables={len(tables)}\n"
+            f"configured_campaigns={campaigns}\npresent_campaigns={present}"
+        ),
+        affected=missing,
+        next_action="Add or correct the configured campaign scope."
+        if status != "PASS"
+        else "None.",
+    )
+
+
+def _read_env_assignments(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.removeprefix("export ").strip()
+        values[key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _json_string_list(raw: str) -> list[str]:
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in value] if isinstance(value, list) else []
+
+
+def _git_output(root: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def _latest_matching_line(path: Path, needle: str) -> str:
+    if not path.is_file():
+        return ""
+    lines = [
+        line
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if needle in line
+    ]
+    return lines[-1] if lines else ""
 
 
 def run_doctor(
@@ -2101,8 +2415,12 @@ def print_text(results: list[Result]) -> None:
     failed = sum(1 for result in results if result.status == "FAIL")
     warned = sum(1 for result in results if result.status == "WARN")
     skipped = sum(1 for result in results if result.status == "SKIP")
-    passed = len(results) - failed - warned - skipped
-    print(f"\nSummary: {failed} fail, {warned} warn, {skipped} skip, {passed} pass")
+    not_run = sum(1 for result in results if result.status == "NOT_RUN")
+    passed = len(results) - failed - warned - skipped - not_run
+    print(
+        f"\nSummary: {failed} fail, {warned} warn, {not_run} not run, "
+        f"{skipped} skip, {passed} pass"
+    )
 
 
 def self_check() -> int:

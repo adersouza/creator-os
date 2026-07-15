@@ -594,7 +594,8 @@ class MakeBatchRepository:
         generation_id = self._new_id("slidegen")
         cmd = [
             self._reel_factory_python(self.settings.reel_factory_root),
-            "slideshow_factory.py",
+            "-m",
+            "reel_factory.slideshow_factory",
             "--media-dir",
             str(media_dir),
             "--out-dir",

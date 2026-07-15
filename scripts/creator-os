@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Single operator-facing command for the headless Creator OS monorepo."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+REEL_COMMANDS = {
+    "caption-bank": "reel_factory.caption_bank",
+    "generate-assets": "reel_factory.generate_assets",
+    "next-batch": "reel_factory.next_batch",
+    "reel-pipeline": "reel_factory.reel_pipeline",
+    "review-guard": "reel_factory.review_batch_guard",
+}
+
+
+def _run(command: list[str], *, cwd: Path = ROOT) -> int:
+    return subprocess.run(command, cwd=cwd, check=False).returncode
+
+
+def _component_command(name: str, args: list[str]) -> list[str]:
+    if name == "campaign":
+        return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
+    if name == "reference":
+        return [
+            "uv",
+            "run",
+            "--package",
+            "reference-factory",
+            "python",
+            "-m",
+            "reference_factory.cli",
+            *args,
+        ]
+    if name == "contentforge":
+        return ["pnpm", "--dir", str(ROOT / "packages/contentforge"), *args]
+    if not args or args[0] not in REEL_COMMANDS:
+        allowed = ", ".join(sorted(REEL_COMMANDS))
+        raise ValueError(f"reel requires one of: {allowed}")
+    module = REEL_COMMANDS[args[0]]
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        module,
+        *args[1:],
+    ]
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="creator-os",
+        description="Operate Creator OS through one explicit, headless command surface.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    status = sub.add_parser("status", help="read-only live configuration/runtime status")
+    status.add_argument("--json", action="store_true")
+
+    doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
+    doctor.add_argument("args", nargs=argparse.REMAINDER)
+
+    sync = sub.add_parser(
+        "performance-sync",
+        help="preview or apply the pinned ThreadsDashboard metrics/learning sync",
+    )
+    sync_mode = sync.add_mutually_exclusive_group(required=True)
+    sync_mode.add_argument("--dry-run", action="store_true")
+    sync_mode.add_argument("--apply", action="store_true")
+
+    component = sub.add_parser(
+        "component",
+        help="advanced package command; always requires explicit write confirmation",
+    )
+    component.add_argument(
+        "--confirm-write",
+        action="store_true",
+        required=True,
+        help="acknowledge that the delegated command may mutate local state",
+    )
+    component.add_argument(
+        "name", choices=["campaign", "reference", "reel", "contentforge"]
+    )
+    component.add_argument("args", nargs=argparse.REMAINDER)
+
+    paid = sub.add_parser(
+        "paid-generation",
+        help="run one explicitly bounded paid front-generation request",
+    )
+    paid.add_argument("--confirm-paid", action="store_true", required=True)
+    paid.add_argument("--target", required=True, help="creator identity/name")
+    paid.add_argument("--workspace", type=Path, required=True)
+    paid.add_argument("--campaign", required=True)
+    paid.add_argument("--reference-image", type=Path, required=True)
+    paid.add_argument("--max-credits", type=float, required=True)
+    paid.add_argument(
+        "--animation-mode",
+        choices=["static", "kling", "motion_edit"],
+        default="static",
+    )
+    paid.add_argument("--wait", action="store_true")
+    paid.add_argument("--download", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.command == "status":
+        command = [sys.executable, str(ROOT / "scripts/doctor.py"), "--status"]
+        if args.json:
+            command.append("--json")
+        return _run(command)
+    if args.command == "doctor":
+        doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run([sys.executable, str(ROOT / "scripts/doctor.py"), *doctor_args])
+    if args.command == "performance-sync":
+        command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
+        if args.dry_run:
+            command.append("--dry-run")
+        return _run(command)
+    if args.command == "component":
+        try:
+            command = _component_command(args.name, args.args)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        return _run(command)
+    if args.command == "paid-generation":
+        workspace = args.workspace.expanduser().resolve()
+        if workspace != ROOT:
+            print(
+                f"--workspace must be this checkout ({ROOT}); got {workspace}",
+                file=sys.stderr,
+            )
+            return 2
+        if args.max_credits <= 0:
+            print("--max-credits must be greater than zero", file=sys.stderr)
+            return 2
+        reference = args.reference_image.expanduser().resolve()
+        command = [
+            "uv",
+            "run",
+            "--package",
+            "campaign-factory",
+            "campaign-factory",
+            "generation",
+            "front-link",
+            "--campaign",
+            args.campaign,
+            "--reference-image",
+            str(reference),
+            "--creator",
+            args.target,
+            "--animation-mode",
+            args.animation_mode,
+            "--budget-cap-credits",
+            str(args.max_credits),
+            "--enable-paid-generation",
+            "--apply",
+        ]
+        if args.wait:
+            command.append("--wait")
+        if args.download:
+            command.append("--download")
+        env = dict(os.environ)
+        env["CREATOR_OS_ROOT"] = str(workspace)
+        return subprocess.run(command, cwd=workspace, env=env, check=False).returncode
+    raise AssertionError(f"unhandled command: {args.command}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

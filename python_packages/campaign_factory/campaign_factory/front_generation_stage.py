@@ -947,7 +947,8 @@ def _invoke_generate_variant_spec(
         raise ValueError("completed Soul original is missing its Soul ID")
     command = [
         reel_factory_python(factory.settings.reel_factory_root),
-        "generate_variants.py",
+        "-m",
+        "reel_factory.generate_variants",
         "--captured-prompt",
         captured_prompt,
         "--soul-id",

@@ -31,12 +31,12 @@ def operator_control_check(
             _path_check("reel_factory", settings.reel_factory_root, required=True),
             _path_check(
                 "reel_factory.reel_pipeline",
-                settings.reel_factory_root / "reel_pipeline.py",
+                settings.reel_factory_root / "reel_factory" / "reel_pipeline.py",
                 required=True,
             ),
             _path_check(
                 "reel_factory.slideshow_factory",
-                settings.reel_factory_root / "slideshow_factory.py",
+                settings.reel_factory_root / "reel_factory" / "slideshow_factory.py",
                 required=True,
             ),
             _path_check("contentforge", settings.contentforge_root, required=True),
@@ -146,7 +146,11 @@ def operator_control_check(
 
 
 def _run_script(name: str) -> str:
-    return str(CREATOR_OS_ROOT / "scripts" / "run" / name)
+    component = name.removesuffix("-factory")
+    return (
+        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} "
+        f"component --confirm-write {component}"
+    )
 
 
 def _path_check(name: str, path: Path, *, required: bool) -> dict[str, Any]:
