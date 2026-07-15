@@ -22,6 +22,7 @@ from creator_os_core.runtime_guards import global_kill_switch_active
 
 from .higgsfield_cost_preflight import check_higgsfield_cost_preflight
 from .pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
+from .state_paths import manifest_db_path as resolve_manifest_db_path
 
 try:
     from .fileops import atomic_write_text
@@ -78,7 +79,7 @@ def now_epoch() -> int:
 
 
 def manifest_db_path(root: Path) -> Path:
-    return Path(root).expanduser().resolve() / "manifest.sqlite"
+    return resolve_manifest_db_path(root)
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

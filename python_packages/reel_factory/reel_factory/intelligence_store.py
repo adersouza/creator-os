@@ -11,6 +11,8 @@ from typing import Any
 
 from reel_factory.sqlite_utils import connect_sqlite
 
+from .state_paths import manifest_db_path
+
 REVIEW_LABELS = {
     "eyes_bad",
     "face_drift",
@@ -55,7 +57,7 @@ WINNER_SCORE_ENGAGEMENT_WEIGHTS = {
 
 
 def db_path(root: Path) -> Path:
-    return Path(root).resolve() / "manifest.sqlite"
+    return manifest_db_path(root)
 
 
 def connect(root: Path) -> sqlite3.Connection:

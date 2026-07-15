@@ -68,8 +68,12 @@ def sqlite_tables(db_path: Path) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
-def outcome_status(repo_root: Path, now: datetime) -> dict[str, Any]:
-    db_path = repo_root / "python_packages" / "reel_factory" / "manifest.sqlite"
+def outcome_status(
+    repo_root: Path, now: datetime, *, db_path: Path | None = None
+) -> dict[str, Any]:
+    db_path = db_path or (
+        repo_root / "python_packages" / "reel_factory" / "manifest.sqlite"
+    )
     if "reel_outcomes" not in sqlite_tables(db_path):
         return {"summary": "outcomes missing", "level": "warn", "total": 0, "delta": 0}
     cutoff = now - timedelta(hours=24)
@@ -171,7 +175,9 @@ def latest_orchestrator_tick(repo_root: Path) -> dict[str, Any]:
     }
 
 
-def reference_db_paths(repo_root: Path) -> list[Path]:
+def reference_db_paths(repo_root: Path, *, canonical: Path | None = None) -> list[Path]:
+    if canonical is not None:
+        return [canonical]
     reference_data_root = resolve_runtime_paths(repo_root).reference_data_root
     return [
         repo_root
@@ -189,8 +195,10 @@ def first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
-def audio_status(repo_root: Path, now: datetime) -> dict[str, Any]:
-    db_path = first_existing(reference_db_paths(repo_root))
+def audio_status(
+    repo_root: Path, now: datetime, *, db_path: Path | None = None
+) -> dict[str, Any]:
+    db_path = first_existing(reference_db_paths(repo_root, canonical=db_path))
     if db_path is None or "audio_catalog" not in sqlite_tables(db_path):
         return {"summary": "audio missing", "level": "error", "timestamp": None}
     with sqlite3.connect(f"file:{db_path.resolve()}?mode=ro", uri=True) as conn:
@@ -206,8 +214,8 @@ def audio_status(repo_root: Path, now: datetime) -> dict[str, Any]:
     }
 
 
-def reference_status(repo_root: Path) -> dict[str, Any]:
-    db_path = first_existing(reference_db_paths(repo_root))
+def reference_status(repo_root: Path, *, db_path: Path | None = None) -> dict[str, Any]:
+    db_path = first_existing(reference_db_paths(repo_root, canonical=db_path))
     if db_path is None:
         return {"summary": "refs missing", "level": "warn", "rows": 0}
     tables = sqlite_tables(db_path)
@@ -237,15 +245,29 @@ def digest(
 ) -> dict[str, Any]:
     timestamp = now or utc_now()
     canonical_data_root = data_root or repo_root
+    paths = resolve_runtime_paths(repo_root)
+    reel_manifest_db = (
+        canonical_data_root / "python_packages" / "reel_factory" / "manifest.sqlite"
+        if data_root is not None
+        else paths.reel_manifest_db
+    )
+    reference_factory_db = (
+        canonical_data_root
+        / "python_packages"
+        / "reference_factory"
+        / "reference_factory.sqlite"
+        if data_root is not None
+        else paths.reference_factory_db
+    )
     if backup_log is None:
         backup_log = Path.home() / ".creator-os" / "backup.log"
     checks = [
-        outcome_status(canonical_data_root, timestamp),
+        outcome_status(canonical_data_root, timestamp, db_path=reel_manifest_db),
         sync_status(ops_log, timestamp),
         backup_status(backup_log, timestamp),
         latest_orchestrator_tick(repo_root),
-        audio_status(canonical_data_root, timestamp),
-        reference_status(canonical_data_root),
+        audio_status(canonical_data_root, timestamp, db_path=reference_factory_db),
+        reference_status(canonical_data_root, db_path=reference_factory_db),
     ]
     level = "error" if any(check["level"] == "error" for check in checks) else "info"
     line = " | ".join(str(check["summary"]) for check in checks)

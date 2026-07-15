@@ -12,7 +12,9 @@ DEFAULT_TIKTOK_SOURCE_ROOT = Path.home() / "Downloads" / "tiktok"
 DEFAULT_DATA_ROOT = Path(
     os.environ.get("REFERENCE_FACTORY_DATA_ROOT", _PATHS.reference_data_root)
 )
-DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "reference_factory.sqlite"
+DEFAULT_DB_PATH = Path(
+    os.environ.get("REFERENCE_FACTORY_DB", _PATHS.reference_factory_db)
+)
 CONTENTFORGE_APPLE_VISION_SCRIPT = Path(
     os.environ.get(
         "CONTENTFORGE_APPLE_VISION_SCRIPT",

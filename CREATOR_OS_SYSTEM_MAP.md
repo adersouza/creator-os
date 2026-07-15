@@ -137,19 +137,28 @@ Creator OS operator command.
 ## Runtime And Configuration Resolution
 
 `creator_os_core.runtime_paths` is the canonical resolver for source,
-workspace, runtime, package, reference-data, and ThreadsDashboard paths.
-Campaign and Reference configuration reuse it. Environment overrides remain
-explicit.
+workspace, runtime, package, state, artifact, model, log, reference-data, and
+ThreadsDashboard paths. Campaign, Reel, and Reference configuration reuse it.
+Environment overrides remain explicit.
 
 ```text
 /Users/aderdesouza/Developer/creator-os          source integration checkout
 /Users/aderdesouza/Developer/creator-os-runtime  pinned runtime checkout
 /Users/aderdesouza/Developer/ThreadsDashboard    external product checkout
-~/.creator-os/                                   private config and logs
+~/.creator-os/state/                             canonical SQLite state
+~/.creator-os/artifacts/                         generated media and identity evidence
+~/.creator-os/models/                            local model files
+~/.creator-os/logs/                              runtime logs
+~/.creator-os/                                   private config and migration evidence
 ```
 
-Runtime launchers keep deterministic checkout/database selection. Repository
-changes never update or restart the runtime automatically.
+`CAMPAIGN_FACTORY_DB`, `REFERENCE_FACTORY_DB`, `REEL_FACTORY_MANIFEST_DB`, and
+`REEL_FACTORY_RENDER_QUEUE_DB` remain explicit rollback overrides. New defaults
+never search worktrees for a database. `scripts/migrate_runtime_state.py`
+copies with SQLite `VACUUM INTO`, checks integrity and row counts, records
+hashes and permissions, proves a clean temporary restore, and never deletes the
+source. Runtime launchers keep deterministic checkout/database selection.
+Repository changes never update or restart the runtime automatically.
 
 ## Browser Surfaces
 

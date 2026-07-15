@@ -24,11 +24,9 @@ sys.path.insert(0, str(REPO_ROOT / "packages/creator_os_core"))
 from creator_os_core.runtime_paths import resolve_runtime_paths  # noqa: E402
 
 _PATHS = resolve_runtime_paths(REPO_ROOT)
-DEFAULT_CAMPAIGN_FACTORY_DB = (
-    _PATHS.campaign_factory_root / "campaign_factory.sqlite"
-)
-DEFAULT_REEL_FACTORY_ROOT = _PATHS.reel_factory_root
-DEFAULT_REFERENCE_FACTORY_DB = _PATHS.reference_data_root / "reference_factory.sqlite"
+DEFAULT_CAMPAIGN_FACTORY_DB = _PATHS.campaign_factory_db
+DEFAULT_REEL_MANIFEST_DB = _PATHS.reel_manifest_db
+DEFAULT_REFERENCE_FACTORY_DB = _PATHS.reference_factory_db
 
 
 def configured_campaigns(env: Mapping[str, str]) -> list[str]:
@@ -88,7 +86,9 @@ def build_sync_command(
 def build_fanout_command(
     env: Mapping[str, str], campaign: str | None = None
 ) -> list[str]:
-    reel_factory_root = Path(env.get("REEL_FACTORY_ROOT") or DEFAULT_REEL_FACTORY_ROOT)
+    reel_manifest_db = Path(
+        env.get("REEL_FACTORY_MANIFEST_DB") or DEFAULT_REEL_MANIFEST_DB
+    )
     campaign_factory_db = Path(
         env.get("CAMPAIGN_FACTORY_DB") or DEFAULT_CAMPAIGN_FACTORY_DB
     )
@@ -102,8 +102,8 @@ def build_fanout_command(
         str(REPO_ROOT / "scripts" / "learning_fanout.py"),
         "--campaign-factory-db",
         str(campaign_factory_db),
-        "--reel-factory-root",
-        str(reel_factory_root),
+        "--reel-manifest-db",
+        str(reel_manifest_db),
         "--reference-factory-db",
         str(reference_factory_db),
         "--campaign",

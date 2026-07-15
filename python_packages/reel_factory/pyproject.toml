@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local deterministic short-form reel rendering and review workflow"
 requires-python = ">=3.11"
 dependencies = [
+  "creator-os-core>=0.1,<0.2",
   "Pillow>=10,<14",
   "pilmoji>=2.0,<3",
   "imagehash>=4.3,<5",
@@ -37,3 +38,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["experiments*", "reel_factory*"]
+
+[tool.uv.sources]
+creator-os-core = { workspace = true }

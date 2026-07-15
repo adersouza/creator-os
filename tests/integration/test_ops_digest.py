@@ -62,7 +62,9 @@ def test_ops_digest_reports_healthy_runtime_snapshot(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = ops_digest_module.digest(repo, ops_log, backup_log=backup_log, now=now)
+    result = ops_digest_module.digest(
+        repo, ops_log, data_root=repo, backup_log=backup_log, now=now
+    )
 
     assert result["level"] == "info"
     assert "outcomes 1(+1)" in result["line"]
@@ -93,7 +95,9 @@ def test_ops_digest_escalates_stale_sync_backup_and_audio(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    result = ops_digest_module.digest(repo, ops_log, backup_log=backup_log, now=now)
+    result = ops_digest_module.digest(
+        repo, ops_log, data_root=repo, backup_log=backup_log, now=now
+    )
 
     assert result["level"] == "error"
     assert "sync failed" in result["line"]

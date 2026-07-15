@@ -46,14 +46,21 @@ DEFAULT_MAX_ATTEMPTS = 5
 def fanout_learning_snapshots(
     *,
     campaign_factory_db: Path,
-    reel_factory_root: Path,
+    reel_factory_root: Path | None = None,
+    reel_manifest_db: Path | None = None,
     reference_factory_db: Path,
     campaign: str | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     campaign_conn = connect_campaign_db(Path(campaign_factory_db))
     init_campaign_db(campaign_conn)
-    reel_conn = connect_metrics_db(Path(reel_factory_root) / "manifest.sqlite")
+    if reel_manifest_db is None:
+        if reel_factory_root is None:
+            raise ValueError("reel_manifest_db is required")
+        reel_manifest_db = Path(reel_factory_root) / "manifest.sqlite"
+    reel_manifest_db = Path(reel_manifest_db)
+    reel_state_root = reel_manifest_db.parent
+    reel_conn = connect_metrics_db(reel_manifest_db)
     ensure_metrics_schema(reel_conn)
     reference_conn = connect_reference_db(Path(reference_factory_db))
     now = utc_now()
@@ -201,7 +208,7 @@ def fanout_learning_snapshots(
                             campaign_conn, row["post_id"], destination, key
                         )
                         result = upsert_bridge_outcome(
-                            Path(reel_factory_root),
+                            reel_state_root,
                             reel_conn,
                             row,
                             previous_identity=previous,
@@ -284,7 +291,7 @@ def fanout_learning_snapshots(
                 "references": 0,
                 "patternsChanged": 0,
             }
-        report["reelWinnerDnaRefresh"] = refresh_winner_dna(Path(reel_factory_root))
+        report["reelWinnerDnaRefresh"] = refresh_winner_dna(reel_state_root)
         report["readiness"] = closed_loop_learning_status(
             campaign_conn, campaign_slug=campaign
         )
@@ -801,7 +808,9 @@ def _json_object(value: Any) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fan out eligible learning outcomes")
     parser.add_argument("--campaign-factory-db", type=Path, required=True)
-    parser.add_argument("--reel-factory-root", type=Path, required=True)
+    reel_state = parser.add_mutually_exclusive_group(required=True)
+    reel_state.add_argument("--reel-manifest-db", type=Path)
+    reel_state.add_argument("--reel-factory-root", type=Path)
     parser.add_argument("--reference-factory-db", type=Path, required=True)
     parser.add_argument("--campaign")
     parser.add_argument(
@@ -815,6 +824,7 @@ def main() -> int:
     result = fanout_learning_snapshots(
         campaign_factory_db=args.campaign_factory_db,
         reel_factory_root=args.reel_factory_root,
+        reel_manifest_db=args.reel_manifest_db,
         reference_factory_db=args.reference_factory_db,
         campaign=args.campaign,
         max_attempts=max(1, args.max_attempts),

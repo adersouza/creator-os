@@ -18,6 +18,7 @@ from reel_factory.sqlite_utils import connect_sqlite
 from .audio_intent import read_audio_intent
 from .campaign_store import ensure_campaign_schema, slugify
 from .intelligence_store import ensure_intelligence_schema, winner_score
+from .state_paths import manifest_db_path
 
 METRIC_COLUMNS = (
     "filename",
@@ -82,7 +83,7 @@ def ensure_metrics_schema(conn: sqlite3.Connection) -> None:
 
 
 def import_metrics_csv(root: Path, csv_path: Path) -> dict[str, Any]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_metrics_db(db_path)
@@ -343,7 +344,7 @@ def _campaign_output_for_filename(
 
 
 def import_outcomes_csv(root: Path, csv_path: Path) -> dict[str, Any]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_metrics_db(db_path)
@@ -553,7 +554,7 @@ def refresh_outcomes_from_performance_sync(
     campaign: str | None = None,
 ) -> dict[str, Any]:
     """Bridge synced Campaign Factory performance facts into Reel Factory learning tables."""
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     source_db = Path(campaign_factory_db)
     if not source_db.exists():
         raise FileNotFoundError(f"campaign factory DB not found: {source_db}")
@@ -1077,7 +1078,7 @@ def _sqlite_time_is_older(
 
 
 def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         return {"count": 0, "top": [], "totals": {}}
     conn = connect_metrics_db(db_path)
@@ -1096,7 +1097,7 @@ def outcomes_summary(root: Path, limit: int = 10) -> dict[str, Any]:
 
 
 def metrics_summary(root: Path) -> list[dict[str, Any]]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         return []
     conn = connect_metrics_db(db_path)
@@ -1185,7 +1186,7 @@ def metrics_summary(root: Path) -> list[dict[str, Any]]:
 
 
 def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str, Any]]]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         return {"hooks": [], "recipes": [], "combos": []}
     conn = connect_metrics_db(db_path)
@@ -1315,7 +1316,7 @@ def metrics_leaderboard(root: Path, limit: int = 10) -> dict[str, list[dict[str,
 
 
 def soul_metrics_report(root: Path, *, by_account: bool = False) -> dict[str, Any]:
-    db_path = Path(root) / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         return {"rows": [], "unattributed_count": 0}
     conn = connect_metrics_db(db_path)

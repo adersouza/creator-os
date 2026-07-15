@@ -91,12 +91,17 @@ def main() -> int:
         action="store_true",
         help="report read-only live repository/runtime status instead of fixture audits",
     )
+    parser.add_argument(
+        "--live-read-only",
+        action="store_true",
+        help="run only explicitly configured zero-write external probes with status",
+    )
     args = parser.parse_args()
     if args.self_check:
         return self_check()
 
     results = (
-        run_live_status()
+        run_live_status(live_read_only=args.live_read_only)
         if args.status
         else run_doctor(
             quick=args.quick,
@@ -116,7 +121,10 @@ def main() -> int:
 
 
 def run_live_status(
-    *, paths: RuntimePaths | None = None, home: Path | None = None
+    *,
+    paths: RuntimePaths | None = None,
+    home: Path | None = None,
+    live_read_only: bool = False,
 ) -> list[Result]:
     """Return live, read-only status without treating unprobed systems as healthy."""
     resolved = paths or resolve_runtime_paths(ROOT)
@@ -130,6 +138,7 @@ def run_live_status(
     repository = _repository_status(resolved.source_root)
     contracts = _contracts_status(resolved.source_root)
     local_config = _local_config_status(performance_env, generation_env)
+    canonical_roots = _canonical_roots_status(resolved)
     runtime = _runtime_status(resolved, performance_values, ops_log)
     database = _campaign_database_status(performance_values)
     provider = Result(
@@ -137,30 +146,90 @@ def run_live_status(
         category="Provider readiness",
         status="NOT_RUN",
         reason="no provider or paid-credit API probe was run",
-        command="creator-os generate --mode soul_static --apply --confirm-paid ...",
+        command="creator-os status --live-read-only",
         evidence=(
-            f"generation_policy={generation_env}; present={generation_env.is_file()}"
+            f"requested={live_read_only}; generation_policy={generation_env}; "
+            f"present={generation_env.is_file()}"
         ),
-        next_action="Run a separately approved, bounded provider smoke only when needed.",
+        next_action="Configure the zero-cost provider probe before relying on this seam.",
     )
     handshake = Result(
         name="threadsdashboard-handshake",
         category="ThreadsDashboard handshake",
         status="NOT_RUN",
         reason="no network or production handshake was run",
-        command="external read-only production verification",
-        evidence=f"threadsdash_checkout={resolved.threadsdash_root}",
-        next_action="Verify the live handshake separately when production evidence is required.",
+        command="creator-os status --live-read-only",
+        evidence=(
+            f"requested={live_read_only}; "
+            f"threadsdash_checkout={resolved.threadsdash_root}"
+        ),
+        next_action="Configure the zero-write handshake endpoint before relying on this seam.",
     )
     return [
         repository,
         contracts,
         local_config,
+        canonical_roots,
         runtime,
         database,
         provider,
         handshake,
     ]
+
+
+def _canonical_roots_status(paths: RuntimePaths) -> Result:
+    roots = {
+        "state": paths.state_root,
+        "artifacts": paths.artifact_root,
+        "models": paths.model_root,
+        "logs": paths.log_root,
+    }
+    checkout_roots = (paths.source_root, paths.runtime_root)
+    unsafe = [
+        f"{name}={path}"
+        for name, path in roots.items()
+        if any(path == root or path.is_relative_to(root) for root in checkout_roots)
+    ]
+    missing = [f"{name}={path}" for name, path in roots.items() if not path.is_dir()]
+    database_paths = {
+        "campaign": paths.campaign_factory_db,
+        "reference": paths.reference_factory_db,
+        "reelManifest": paths.reel_manifest_db,
+        "renderQueue": paths.reel_render_queue_db,
+    }
+    checkout_databases = [
+        f"{name}={path}"
+        for name, path in database_paths.items()
+        if any(path == root or path.is_relative_to(root) for root in checkout_roots)
+    ]
+    if unsafe or checkout_databases:
+        status = "FAIL"
+        reason = "one or more canonical runtime paths resolve inside a Git checkout"
+    elif missing:
+        status = "NOT_RUN"
+        reason = "canonical roots are configured but have not all been created"
+    else:
+        status = "PASS"
+        reason = "canonical runtime roots exist outside source and runtime checkouts"
+    return Result(
+        name="canonical-roots",
+        category="Runtime state roots",
+        status=status,
+        reason=reason,
+        command="creator-os status",
+        evidence="\n".join(
+            [
+                *(f"{name}={path}" for name, path in roots.items()),
+                *(f"{name}Db={path}" for name, path in database_paths.items()),
+            ]
+        ),
+        affected=[*unsafe, *checkout_databases, *missing],
+        next_action=(
+            "Run the verified state migration before switching runtime configuration."
+            if status != "PASS"
+            else "None."
+        ),
+    )
 
 
 def _repository_status(root: Path) -> Result:
@@ -252,10 +321,18 @@ def _runtime_status(
     root = paths.runtime_root
     sha = _git_output(root, "rev-parse", "HEAD") if root.is_dir() else ""
     branch = _git_output(root, "branch", "--show-current") if sha else ""
+    dirty = _git_output(root, "status", "--short") if sha else ""
+    source_sha = _git_output(paths.source_root, "rev-parse", "HEAD")
     last_line = _latest_matching_line(ops_log, "performance-sync")
     if not sha:
         status = "NOT_RUN"
         reason = "runtime checkout is absent or not a readable Git checkout"
+    elif dirty:
+        status = "FAIL"
+        reason = "runtime checkout contains uncommitted or untracked files"
+    elif not source_sha or sha != source_sha:
+        status = "WARN"
+        reason = "runtime checkout does not match the reviewed source revision"
     elif not last_line:
         status = "WARN"
         reason = "runtime revision is known, but no performance-sync run is recorded"
@@ -283,9 +360,11 @@ def _runtime_status(
         command="creator-os status",
         evidence=(
             f"checkout={root}\nbranch={branch or '(detached/not available)'}\n"
-            f"sha={sha or 'unknown'}\ndatabase={db_path}\ncampaigns={campaign}\n"
+            f"source_sha={source_sha or 'unknown'}\nruntime_sha={sha or 'unknown'}\n"
+            f"clean={not bool(dirty)}\ndatabase={db_path}\ncampaigns={campaign}\n"
             f"last_run={last_run}\nexit_status={exit_status}\nlog={ops_log}"
         ),
+        affected=dirty.splitlines()[:8] if dirty else [],
         next_action="Repair or run the pinned runtime job before claiming operational health."
         if status != "PASS"
         else "None.",

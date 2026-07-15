@@ -8,14 +8,16 @@ outcomes 42(+5) | sync ok 30m old | backup 607MB 1h old | gen planned 0 inbox 0 
 
 It is read-only. It checks:
 
-- `reel_outcomes` total and 24-hour delta from
-  `python_packages/reel_factory/manifest.sqlite`.
+- `reel_outcomes` total and 24-hour delta from the configured canonical
+  `REEL_FACTORY_MANIFEST_DB` (default
+  `~/.creator-os/state/reel_factory/manifest.sqlite`).
 - Last `performance-sync` status from `~/.creator-os/ops.log`.
 - Latest backup under `backups/runtime/`.
 - Latest orchestrator tick under
   `python_packages/reel_factory/project_data/orchestrator_ticks/`.
 - Reference Factory audio catalog age from `audio_catalog`.
-- Reference Factory database row count.
+- Reference Factory database row count from `REFERENCE_FACTORY_DB` (default
+  `~/.creator-os/state/reference_factory/reference_factory.sqlite`).
 
 The digest exits non-zero and notifies at `error` level when:
 
@@ -54,10 +56,11 @@ uv run python scripts/ops_digest.py --dry-run
 
 Without `--dry-run`, the script calls `~/.creator-os/notify.sh` if it exists.
 
-The installed job executes code from `creator-os-runtime`. When durable SQLite
-stores remain in the canonical data checkout, pass that path with
-`--data-root`; runtime-owned evidence such as orchestrator ticks continues to
-come from the current runtime checkout.
+The installed job executes code from `creator-os-runtime` but reads durable
+SQLite state from the canonical roots. `--data-root` is compatibility-only for
+a deliberate rollback to an older checkout-local layout; normal jobs omit it.
+Runtime-owned evidence such as orchestrator ticks continues to come from the
+current runtime checkout until that legacy orchestrator evidence is retired.
 
 ## Launchd Template
 
@@ -79,8 +82,6 @@ Schedule after the operator confirms the local notification wrapper exists:
     <string>run</string>
     <string>python</string>
     <string>scripts/ops_digest.py</string>
-    <string>--data-root</string>
-    <string>/Users/aderdesouza/Developer/creator-os</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/aderdesouza/Developer/creator-os-runtime</string>

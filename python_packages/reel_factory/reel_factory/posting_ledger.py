@@ -22,6 +22,7 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 from .audio_intent import read_audio_intent
 from .intelligence_store import winner_score
+from .state_paths import manifest_db_path
 
 try:
     from .fileops import atomic_write_text
@@ -157,7 +158,7 @@ def _ensure_posting_columns(conn: sqlite3.Connection) -> None:
 def connect(root: Path) -> sqlite3.Connection:
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    conn = connect_sqlite(root / "manifest.sqlite")
+    conn = connect_sqlite(manifest_db_path(root))
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_posting_ledger_schema(conn)
     return conn

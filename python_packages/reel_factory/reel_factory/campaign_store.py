@@ -27,6 +27,7 @@ from .intelligence_store import (
     low_data_warning,
     validate_review,
 )
+from .state_paths import manifest_db_path
 
 DEFAULT_CREATORS = {
     "Stacey": {
@@ -120,7 +121,7 @@ def retry_helper_direction(helper: str | None) -> str:
 
 
 def db_path(root: Path) -> Path:
-    return Path(root).resolve() / "manifest.sqlite"
+    return manifest_db_path(root)
 
 
 def connect(root: Path) -> sqlite3.Connection:

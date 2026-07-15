@@ -2917,6 +2917,7 @@ name = "reel-factory"
 version = "0.1.0"
 source = { editable = "python_packages/reel_factory" }
 dependencies = [
+    { name = "creator-os-core" },
     { name = "imagehash" },
     { name = "pillow" },
     { name = "pilmoji" },
@@ -2958,6 +2959,7 @@ vision = [
 
 [package.metadata]
 requires-dist = [
+    { name = "creator-os-core", editable = "packages/creator_os_core" },
     { name = "imagehash", specifier = ">=4.3,<5" },
     { name = "insightface", marker = "extra == 'identity'", specifier = ">=0.7,<1" },
     { name = "mediapipe", marker = "extra == 'vision'", specifier = ">=0.10,<1" },

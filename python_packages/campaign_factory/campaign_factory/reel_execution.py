@@ -555,7 +555,7 @@ class ReelExecutionRepository:
         self._start_pipeline_job(pipeline_job["id"])
         model_slug = self.model_slug_for_campaign(campaign["id"])
         dirs = self._campaign_dirs(model_slug, campaign["slug"])
-        manifest_db = self.settings.reel_factory_root / "manifest.sqlite"
+        manifest_db = self.settings.reel_manifest_db
         reel_conn: sqlite3.Connection | None = None
         try:
             if not manifest_db.exists():

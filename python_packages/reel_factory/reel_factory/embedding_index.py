@@ -14,10 +14,11 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 from .embedding_provider import HASH_MODEL, cosine_similarity, get_embedding_provider
 from .intelligence_store import ensure_intelligence_schema
+from .state_paths import manifest_db_path
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = connect_sqlite(Path(root) / "manifest.sqlite")
+    conn = connect_sqlite(manifest_db_path(root))
     ensure_intelligence_schema(conn)
     return conn
 
@@ -41,7 +42,7 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
         except Exception:
             pass
     if root:
-        db = Path(root) / "manifest.sqlite"
+        db = manifest_db_path(root)
         if db.exists():
             try:
                 conn = connect(Path(root))

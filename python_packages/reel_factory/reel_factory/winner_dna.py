@@ -25,12 +25,13 @@ from .intelligence_store import (
     low_data_warning,
     winner_score,
 )
+from .state_paths import manifest_db_path
 
 _VIDEO_ANALYSIS_FEATURE_KEYS = set(FEATURE_KEYS) | {"grid_source"}
 
 
 def connect(root: Path) -> sqlite3.Connection:
-    conn = connect_sqlite(Path(root) / "manifest.sqlite")
+    conn = connect_sqlite(manifest_db_path(root))
     ensure_intelligence_schema(conn)
     ensure_campaign_schema(conn)
     return conn

@@ -14,6 +14,7 @@ from reel_factory.sqlite_utils import connect_sqlite
 
 from .campaign_store import ensure_campaign_schema
 from .readiness_check import load_readiness_for_output, normalize_platform
+from .state_paths import manifest_db_path
 
 try:
     from .fileops import atomic_write_text
@@ -30,7 +31,7 @@ def export_approved(
     notes: str | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
-    db_path = root / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         raise FileNotFoundError(f"manifest.sqlite not found under {root}")
     conn = connect_sqlite(db_path)

@@ -191,6 +191,21 @@ def run_bridge(module, campaign_db, reel_root, reference_db, *, max_attempts=5):
     )
 
 
+def test_fanout_accepts_canonical_reel_manifest_path(tmp_path: Path) -> None:
+    module = load_bridge_module()
+    campaign_db, reel_root, reference_db, _ = setup_learning_databases(tmp_path)
+
+    result = module.fanout_learning_snapshots(
+        campaign_factory_db=campaign_db,
+        reel_manifest_db=reel_root / "manifest.sqlite",
+        reference_factory_db=reference_db,
+        campaign="may",
+    )
+
+    assert result["schema"] == "creator_os.learning_fanout.v1"
+    assert result["reelWinnerDnaRefresh"]["rows"] == 0
+
+
 def test_fanout_double_run_is_noop_and_keeps_exact_snapshot_keys(tmp_path: Path):
     module = load_bridge_module()
     campaign_db, reel_root, reference_db, _ = setup_learning_databases(tmp_path)

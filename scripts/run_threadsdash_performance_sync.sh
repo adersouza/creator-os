@@ -17,6 +17,8 @@ cd "$REPO_ROOT"
 source "$ENV_FILE"
 
 : "${CAMPAIGN_FACTORY_DB:?CAMPAIGN_FACTORY_DB is required}"
+: "${REFERENCE_FACTORY_DB:?REFERENCE_FACTORY_DB is required}"
+: "${REEL_FACTORY_MANIFEST_DB:?REEL_FACTORY_MANIFEST_DB is required}"
 : "${CAMPAIGN_FACTORY_SYNC_CAMPAIGNS:?CAMPAIGN_FACTORY_SYNC_CAMPAIGNS is required}"
 
 campaign="$(python3 - <<'PY'
@@ -34,6 +36,14 @@ PY
 
 if [ ! -f "$CAMPAIGN_FACTORY_DB" ]; then
   echo "performance-sync database missing: $CAMPAIGN_FACTORY_DB" >&2
+  exit 2
+fi
+if [ ! -f "$REFERENCE_FACTORY_DB" ]; then
+  echo "performance-sync reference database missing: $REFERENCE_FACTORY_DB" >&2
+  exit 2
+fi
+if [ ! -f "$REEL_FACTORY_MANIFEST_DB" ]; then
+  echo "performance-sync reel manifest missing: $REEL_FACTORY_MANIFEST_DB" >&2
   exit 2
 fi
 if ! sqlite3 "$CAMPAIGN_FACTORY_DB" \

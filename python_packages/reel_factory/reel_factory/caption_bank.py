@@ -16,6 +16,7 @@ from typing import Any
 from reel_factory.sqlite_utils import connect_sqlite
 
 from .intelligence_store import winner_score
+from .state_paths import manifest_db_path
 
 try:
     from .fileops import atomic_write_text
@@ -680,7 +681,7 @@ def _merge_item(by_hash: dict[str, dict[str, Any]], item: dict[str, Any]) -> Non
 
 def _history_captions(root: Path) -> list[tuple[str, str]]:
     rows: dict[str, tuple[str, str]] = {}
-    db_path = root / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if db_path.exists():
         try:
             conn = connect_sqlite(db_path, readonly=True, wal=False)
@@ -730,7 +731,7 @@ Default mixes target hot adult girl-next-door, mirror selfie, bedroom selfie, an
 
 def refresh_caption_weights(root: Path) -> dict[str, Any]:
     root = Path(root).resolve()
-    db_path = root / "manifest.sqlite"
+    db_path = manifest_db_path(root)
     if not db_path.exists():
         return {"updated": 0, "unresolved": 0, "performancePath": None}
     conn = connect_sqlite(db_path)

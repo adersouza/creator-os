@@ -1115,8 +1115,7 @@ def _common_scale_blockers(
 def _external_posting_ledger_audit(
     factory: CampaignFactory, campaign: dict[str, Any], *, days: int
 ) -> dict[str, Any]:
-    reel_root = Path(factory.settings.reel_factory_root)
-    ledger_db = reel_root / "manifest.sqlite"
+    ledger_db = Path(factory.settings.reel_manifest_db)
     base = {
         "schema": "campaign_factory.external_posting_ledger_audit.v1",
         "ownership": "external_local_tooling_only",

@@ -28,6 +28,28 @@ def allow_insecure_local_tests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolate_runtime_state_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Prevent tests using default Settings from creating operator state."""
+    state = tmp_path / "creator-os-state"
+    monkeypatch.setenv(
+        "CAMPAIGN_FACTORY_DB", str(state / "campaign_factory/campaign_factory.sqlite")
+    )
+    monkeypatch.setenv(
+        "REFERENCE_FACTORY_DB",
+        str(state / "reference_factory/reference_factory.sqlite"),
+    )
+    monkeypatch.setenv(
+        "REEL_FACTORY_MANIFEST_DB", str(state / "reel_factory/manifest.sqlite")
+    )
+    monkeypatch.setenv(
+        "REEL_FACTORY_RENDER_QUEUE_DB",
+        str(state / "reel_factory/render_queue.sqlite"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def learning_loop_cutover_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default cutover so learning readers stay exercised in tests.
 

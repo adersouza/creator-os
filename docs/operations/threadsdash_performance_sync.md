@@ -12,9 +12,9 @@ export THREADSDASH_USER_ID="..."
 export SUPABASE_URL="..."
 export SUPABASE_SERVICE_ROLE_KEY="..."
 export LEARNING_LOOP_CUTOVER="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-export CAMPAIGN_FACTORY_DB="/absolute/path/to/campaign_factory.sqlite"
-export REEL_FACTORY_ROOT="/absolute/path/to/python_packages/reel_factory"
-export REFERENCE_FACTORY_DB="/absolute/path/to/reference_factory.sqlite"
+export CAMPAIGN_FACTORY_DB="$HOME/.creator-os/state/campaign_factory/campaign_factory.sqlite"
+export REEL_FACTORY_MANIFEST_DB="$HOME/.creator-os/state/reel_factory/manifest.sqlite"
+export REFERENCE_FACTORY_DB="$HOME/.creator-os/state/reference_factory/reference_factory.sqlite"
 export CAMPAIGN_FACTORY_SYNC_LIMIT=10000
 ```
 
@@ -117,7 +117,9 @@ The launcher deliberately clears inherited Python virtual-environment state,
 pins execution to the checkout containing the script, and verifies that the
 configured SQLite database contains exactly the scoped cohort before either
 sync phase starts. This prevents manual or launchd runs from silently using a
-different worktree or its gitignored database.
+different worktree or its gitignored database. State migration must use
+`scripts/migrate_runtime_state.py`; it preserves the old databases for at least
+seven days and one complete operating cycle.
 
 `CAMPAIGN_FACTORY_SYNC_CAMPAIGNS` is an explicit JSON list. For this rollout it
 must contain only `stacey_learning_cohort_v1`; the old single-campaign setting is
