@@ -50,6 +50,27 @@ The current runtime checkout predates this repair and contains untracked
 runtime artifacts. Canonical roots have not been switched. Those conditions are
 expected until the guarded cutover below and must not be described as ready.
 
+### Read-only production snapshot (2026-07-15)
+
+A direct read-only ThreadsDashboard query found all five regular Reel test posts
+published once with Instagram IDs/permalinks and 33 real metric-history rows.
+All five have real 1-hour-window evidence; two currently have 24-hour-window
+evidence; none yet has a 72-hour-window row. No values were synthesized.
+
+Those five posts have no `campaign_factory` metadata,
+`campaign_factory_asset_id`, or generated-asset lineage. They use two reused
+media objects that are not present in the canonical local asset inventory.
+Campaign correctly refuses to learn from them instead of guessing lineage.
+They therefore prove ThreadsDashboard publishing/metrics, but they do not count
+toward the 10-post reconciled Creator OS gate.
+
+Three recent Trial Reel attempts are failed with no Instagram identity or
+metric history: one fail-closed metadata-intent mismatch, one generic Instagram
+failure, and one explicit app/account feature rejection. Trial publishing is
+not proven and no automatic retry is pending. The local Campaign measured-facts
+ledger still contains only the earlier archived Trial Reel's real eligible
+1-hour snapshot and has zero 24-hour or 72-hour snapshots.
+
 ## Guarded Cutover Order
 
 1. Merge and CI-verify Creator OS source, then merge the compatible
@@ -75,4 +96,3 @@ explicit authorization. This source repair performs none of them.
   dependencies.
 - Old databases and compatibility paths: remove only after the retention window
   and a complete verified operating cycle.
-
