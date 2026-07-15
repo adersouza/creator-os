@@ -33,16 +33,29 @@ def _tree_snapshot(
     path: Path, *, logs_only: bool = False, exclude_private: bool = False
 ) -> dict[str, Any]:
     path = path.expanduser().resolve()
-    files = [
-        item
-        for item in path.rglob("*")
-        if item.is_file()
-        and (not logs_only or item.name.endswith(".log"))
-        and (
-            not exclude_private
-            or not any(item.match(pattern) for pattern in PRIVATE_PATTERNS)
-        )
-    ]
+    files: list[Path] = []
+
+    def collect(directory: Path, ancestors: frozenset[Path]) -> None:
+        resolved_directory = directory.resolve()
+        if resolved_directory in ancestors:
+            raise ValueError(f"directory symlink cycle detected: {directory}")
+        nested_ancestors = ancestors | {resolved_directory}
+        for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+            item = Path(entry.path)
+            if entry.is_dir(follow_symlinks=True):
+                collect(item, nested_ancestors)
+                continue
+            if not entry.is_file(follow_symlinks=True):
+                continue
+            if logs_only and not item.name.endswith(".log"):
+                continue
+            if exclude_private and any(
+                item.match(pattern) for pattern in PRIVATE_PATTERNS
+            ):
+                continue
+            files.append(item)
+
+    collect(path, frozenset())
     digest = hashlib.sha256()
     total_bytes = 0
     for item in sorted(files):
@@ -149,6 +162,10 @@ def migration_plan(
         if not source.exists():
             raise FileNotFoundError(source)
         destination = _directory_destination(paths, kind, label)
+        if source.is_dir() and destination.is_relative_to(source):
+            raise ValueError(
+                f"destination cannot be nested inside its source: {destination}"
+            )
         if destination in seen_destinations:
             raise ValueError(f"duplicate destination: {destination}")
         seen_destinations.add(destination)
@@ -208,16 +225,11 @@ def apply_migration(
                 exclude_private=True,
             )
             if source.is_dir()
-            else {
-                "path": str(source),
-                "files": 1,
-                "bytes": source.stat().st_size,
-                "treeSha256": sha256_file(source),
-            }
+            else _single_file_snapshot(source)
         )
         _private_copy(source, destination, logs_only=row["kind"] == "log")
         after = _tree_snapshot(destination)
-        if row["kind"] != "log" and (
+        if (
             before["files"] != after["files"]
             or before["bytes"] != after["bytes"]
             or before["treeSha256"] != after["treeSha256"]
@@ -231,6 +243,19 @@ def apply_migration(
     os.chmod(manifest, 0o600)
     result["manifest"] = str(manifest)
     return result
+
+
+def _single_file_snapshot(path: Path) -> dict[str, Any]:
+    file_hash = sha256_file(path)
+    digest = hashlib.sha256()
+    digest.update(path.name.encode("utf-8"))
+    digest.update(file_hash.encode("ascii"))
+    return {
+        "path": str(path),
+        "files": 1,
+        "bytes": path.stat().st_size,
+        "treeSha256": digest.hexdigest(),
+    }
 
 
 def verify_migration(manifest_path: Path) -> dict[str, Any]:

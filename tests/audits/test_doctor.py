@@ -80,12 +80,15 @@ def test_live_status_records_shared_trace_and_zero_write_probe_results(
 ) -> None:
     config_root = tmp_path / ".creator-os"
     config_root.mkdir()
-    config = config_root / "generation.env"
-    config.write_text(
-        'export THREADSDASH_CAMPAIGN_FACTORY_HANDSHAKE_URL="https://juno33.com/api/campaign-factory/handshake"\n'
+    (config_root / "performance-sync.env").write_text("", encoding="utf-8")
+    (config_root / "generation.env").write_text("", encoding="utf-8")
+    campaign_ingest = config_root / "campaign-ingest.env"
+    campaign_ingest.write_text(
+        'export THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL="https://juno33.com/api/campaign-factory/drafts/ingest"\n'
         'export CAMPAIGN_FACTORY_INGEST_SECRET="never-print-me"\n',
         encoding="utf-8",
     )
+    campaign_ingest.chmod(0o600)
     monkeypatch.setattr(
         doctor,
         "run_provider_probe",
