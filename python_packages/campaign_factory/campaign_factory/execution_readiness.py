@@ -6,214 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
-
-_BLOCKER_GUIDANCE = {
-    "insufficient_safe_accounts": (
-        "account_capacity",
-        "Not enough accounts are safe for this requested batch.",
-        "repair_or_wait_for_account_health",
-    ),
-    "missed_dispatches_unresolved": (
-        "publish_runtime",
-        "ThreadsDashboard has unresolved missed dispatches.",
-        "resolve_missed_dispatches_before_scheduling",
-    ),
-    "insufficient_schedule_safe_drafts": (
-        "draft_inventory",
-        "Not enough drafts passed pre-schedule safety checks.",
-        "create_or_export_schedule_safe_drafts",
-    ),
-    "missing_handoff_manifest": (
-        "draft_contract",
-        "A draft is missing the Campaign Factory handoff manifest.",
-        "create_or_export_schedule_safe_drafts",
-    ),
-    "platform_draft_not_validated": (
-        "draft_contract",
-        "A draft has not passed platform draft validation.",
-        "revalidate_threadsdashboard_drafts",
-    ),
-    "quarantined_draft_present": (
-        "draft_contract",
-        "A quarantined draft is still in the candidate batch.",
-        "remove_or_repair_quarantined_draft",
-    ),
-    "publishability_failed_draft_present": (
-        "draft_contract",
-        "A draft failed Campaign Factory publishability checks.",
-        "repair_publishability_blockers",
-    ),
-    "missing_campaign_factory_asset_id": (
-        "draft_contract",
-        "A draft is missing its Campaign Factory asset id.",
-        "regenerate_draft_handoff_payload",
-    ),
-    "missing_campaign_factory_distribution_plan_id": (
-        "draft_contract",
-        "A draft is missing its distribution plan id.",
-        "rerun_campaign_schedule_plan",
-    ),
-    "embedded_audio_invalid": (
-        "audio",
-        "A draft has invalid embedded audio metadata.",
-        "select_or_verify_native_audio",
-    ),
-    "native_audio_proof_missing": (
-        "audio",
-        "A draft has selected or recommended native audio without verified platform proof.",
-        "select_or_verify_native_audio",
-    ),
-    "missing_instagram_post_caption": (
-        "caption",
-        "A draft is missing the Instagram post caption.",
-        "repair_caption_contract",
-    ),
-    "missing_burned_captions": (
-        "caption",
-        "A draft is missing burned-caption proof.",
-        "repair_caption_contract",
-    ),
-    "missing_burned_caption_text": (
-        "caption",
-        "A draft is missing burned-caption text evidence.",
-        "repair_caption_contract",
-    ),
-    "missing_caption_hash": (
-        "caption",
-        "A draft is missing caption hash proof.",
-        "repair_caption_contract",
-    ),
-    "missing_caption_outcome_context": (
-        "caption",
-        "A draft is missing caption outcome context.",
-        "repair_caption_contract",
-    ),
-    "caption_placement_qc_failed": (
-        "caption",
-        "A draft failed caption placement quality control.",
-        "repair_caption_placement",
-    ),
-    "instagram_post_caption_quality_failed": (
-        "caption",
-        "A draft failed Instagram post caption quality checks.",
-        "repair_caption_contract",
-    ),
-    "missing_content_fingerprint": (
-        "draft_contract",
-        "A draft is missing content fingerprint proof.",
-        "regenerate_draft_handoff_payload",
-    ),
-    "not_approved": (
-        "draft_contract",
-        "A draft asset is not approved for scheduling.",
-        "route_asset_through_review",
-    ),
-    "readiness_failed": (
-        "creative_safety",
-        "A draft failed upstream readiness checks.",
-        "repair_or_replace_creative",
-    ),
-    "wrong_visual": (
-        "creative_safety",
-        "A draft failed expected visual verification.",
-        "repair_or_replace_creative",
-    ),
-    "visual_qc_failed": (
-        "creative_safety",
-        "A draft failed visual quality control.",
-        "repair_or_replace_creative",
-    ),
-    "visual_qc_unavailable": (
-        "creative_safety",
-        "A draft is missing required visual quality control proof.",
-        "repair_or_replace_creative",
-    ),
-    "identity_verification_failed": (
-        "creative_safety",
-        "A draft failed identity verification.",
-        "repair_or_replace_creative",
-    ),
-    "identity_verification_unavailable": (
-        "creative_safety",
-        "A draft is missing required identity verification proof.",
-        "repair_or_replace_creative",
-    ),
-    "schedule_plan_not_ready": (
-        "schedule_plan",
-        "The schedule plan is not ready.",
-        "rerun_campaign_schedule_plan",
-    ),
-    "insufficient_schedule_plan_items": (
-        "schedule_plan",
-        "The schedule plan has too few items for the requested batch.",
-        "rerun_campaign_schedule_plan",
-    ),
-    "variant_cooldown_violation": (
-        "schedule_plan",
-        "The schedule plan violates variant cooldown rules.",
-        "rerun_campaign_schedule_plan",
-    ),
-    "duplicate_schedule_risk": (
-        "schedule_plan",
-        "The schedule plan has duplicate-posting risk.",
-        "rerun_campaign_schedule_plan",
-    ),
-    "time_plan_not_ready": (
-        "time_plan",
-        "The time plan is not ready.",
-        "rerun_campaign_schedule_time_plan",
-    ),
-    "insufficient_time_plan_items": (
-        "time_plan",
-        "The time plan has too few slots for the requested batch.",
-        "rerun_campaign_schedule_time_plan",
-    ),
-    "timestamp_collision": (
-        "time_plan",
-        "Two scheduled items share the same timestamp.",
-        "rerun_campaign_schedule_time_plan",
-    ),
-    "account_link_sharing_restricted": (
-        "account_health",
-        "An account has link sharing restrictions.",
-        "resolve_account_health_blocker",
-    ),
-    "recommendation_not_eligible": (
-        "account_health",
-        "An account is not recommendation-eligible.",
-        "resolve_account_health_blocker",
-    ),
-    "account_warming_cadence_exceeded": (
-        "account_health",
-        "A warming account would exceed its cadence.",
-        "wait_or_choose_different_account",
-    ),
-    "creative_risk_score_exceeded": (
-        "creative_safety",
-        "Creative risk is above the allowed threshold.",
-        "repair_or_replace_creative",
-    ),
-    "similarity_budget_exceeded": (
-        "creative_safety",
-        "Similarity budget is exhausted for the candidate batch.",
-        "run_contentforge_variant_plan",
-    ),
-    "scheduled_post_publish_route_missing": (
-        "publish_runtime",
-        "ThreadsDashboard publish route could not be verified.",
-        "verify_threadsdashboard_runtime",
-    ),
-    "campaign_schedule_recovery_route_missing": (
-        "publish_runtime",
-        "ThreadsDashboard schedule recovery route could not be verified.",
-        "verify_threadsdashboard_runtime",
-    ),
-    "campaign_schedule_recovery_cron_missing": (
-        "publish_runtime",
-        "ThreadsDashboard schedule recovery cron could not be verified.",
-        "verify_threadsdashboard_runtime",
-    ),
-}
+from .readiness_finding import (
+    ReadinessFinding,
+    execution_blocker_detail,
+    make_readiness_finding,
+    readiness_finding_payloads,
+    readiness_findings_from_codes,
+)
 
 
 def _threadsdash_route_present(
@@ -499,6 +298,20 @@ class ExecutionReadinessRepository:
             if draft_readiness == "fail":
                 next_actions.append("create_or_export_schedule_safe_drafts")
 
+        blocker_findings = self._creator_os_execution_blocker_findings(
+            unique_blockers,
+            requested=requested,
+            safe_accounts=safe_accounts,
+            schedule_safe_drafts=len(schedule_safe_drafts),
+            schedule_items=len(schedule_items),
+            time_items=len(time_items),
+        )
+        warning_findings = readiness_findings_from_codes(
+            warnings,
+            severity="warning",
+            evidence={"source": "execution_readiness"},
+        )
+
         return {
             "schema": "creator_os.execution_readiness.v1",
             "generatedAt": generated_at or self._utc_now(),
@@ -511,15 +324,13 @@ class ExecutionReadinessRepository:
             "scheduleSafeDraftsAvailable": len(schedule_safe_drafts),
             "accountHealthSummary": account_health.get("summary") or {},
             "blockers": unique_blockers,
-            "blockerDetails": self._creator_os_execution_blocker_details(
-                unique_blockers,
-                requested=requested,
-                safe_accounts=safe_accounts,
-                schedule_safe_drafts=len(schedule_safe_drafts),
-                schedule_items=len(schedule_items),
-                time_items=len(time_items),
-            ),
+            "blockerDetails": [
+                execution_blocker_detail(finding) for finding in blocker_findings
+            ],
             "warnings": sorted(set(warnings)),
+            "findings": readiness_finding_payloads(
+                [*blocker_findings, *warning_findings]
+            ),
             "preCommitChecklist": checklist,
             "nextSafeActions": list(dict.fromkeys(next_actions)),
             "wouldWrite": False,
@@ -530,7 +341,7 @@ class ExecutionReadinessRepository:
             },
         }
 
-    def _creator_os_execution_blocker_details(
+    def _creator_os_execution_blocker_findings(
         self,
         blockers: list[str],
         *,
@@ -539,8 +350,8 @@ class ExecutionReadinessRepository:
         schedule_safe_drafts: int,
         schedule_items: int,
         time_items: int,
-    ) -> list[dict[str, Any]]:
-        details = []
+    ) -> list[ReadinessFinding]:
+        findings: list[ReadinessFinding] = []
         counts = {
             "insufficient_safe_accounts": safe_accounts,
             "insufficient_schedule_safe_drafts": schedule_safe_drafts,
@@ -548,28 +359,19 @@ class ExecutionReadinessRepository:
             "insufficient_time_plan_items": time_items,
         }
         for code in blockers:
-            base, _, source_reason = code.partition(":")
-            category, explanation, next_action = _BLOCKER_GUIDANCE.get(
-                base,
-                (
-                    "unknown",
-                    "Execution readiness blocked on an unmapped guardrail.",
-                    "inspect_blocker_code",
-                ),
-            )
-            item: dict[str, Any] = {
-                "code": code,
-                "category": category,
-                "explanation": explanation,
-                "nextAction": next_action,
-            }
-            if source_reason:
-                item["sourceReason"] = source_reason
+            base = code.partition(":")[0]
+            evidence: dict[str, Any] = {"source": "execution_readiness"}
             if base in counts:
-                item["observed"] = counts[base]
-                item["required"] = requested
-            details.append(item)
-        return details
+                evidence["observed"] = counts[base]
+                evidence["required"] = requested
+            findings.append(
+                make_readiness_finding(
+                    code,
+                    severity="blocker",
+                    evidence=evidence,
+                )
+            )
+        return findings
 
     def _creator_os_has_time_collision(self, items: list[dict[str, Any]]) -> bool:
         seen: set[str] = set()

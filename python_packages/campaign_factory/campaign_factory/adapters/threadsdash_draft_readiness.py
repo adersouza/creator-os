@@ -14,6 +14,11 @@ from ..core import (
     _normalize_schedule_mode,
     utc_now,
 )
+from ..readiness_finding import (
+    make_readiness_finding,
+    readiness_finding_payloads,
+    readiness_findings_from_codes,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -104,13 +109,23 @@ def preflight_supabase(
         )
     )
     passed = all(check["ok"] for check in checks)
+    blocking_reasons = [check["name"] for check in checks if not check["ok"]]
     return {
         "schema": "campaign_factory.supabase_preflight.v1",
         "checkedAt": utc_now(),
         "bucket": supabase_storage_bucket,
         "ok": passed,
         "checks": checks,
-        "blockingReasons": [check["name"] for check in checks if not check["ok"]],
+        "blockingReasons": blocking_reasons,
+        "findings": readiness_finding_payloads(
+            readiness_findings_from_codes(
+                blocking_reasons,
+                severity="blocker",
+                owner="threadsdash",
+                operator_action="repair_supabase_preflight",
+                evidence={"source": "supabase_preflight"},
+            )
+        ),
     }
 
 
@@ -138,6 +153,11 @@ def verify_threadsdash_export(
     ]
     checks = media_checks + post_checks
     ok = bool(checks) and all(check["ok"] for check in checks)
+    blocking_reasons = [
+        f"{check['type']}:{check.get('id') or 'missing'}:{reason}"
+        for check in checks
+        for reason in check.get("blockingReasons", [])
+    ]
     return {
         "schema": "campaign_factory.threadsdash_export_verification.v1",
         "checkedAt": utc_now(),
@@ -148,11 +168,16 @@ def verify_threadsdash_export(
         "ok": ok,
         "media": media_checks,
         "posts": post_checks,
-        "blockingReasons": [
-            f"{check['type']}:{check.get('id') or 'missing'}:{reason}"
-            for check in checks
-            for reason in check.get("blockingReasons", [])
-        ],
+        "blockingReasons": blocking_reasons,
+        "findings": readiness_finding_payloads(
+            readiness_findings_from_codes(
+                blocking_reasons,
+                severity="blocker",
+                owner="threadsdash",
+                operator_action="repair_threadsdash_export_verification",
+                evidence={"source": "threadsdash_export_verification"},
+            )
+        ),
     }
 
 
@@ -316,6 +341,26 @@ def evaluate_export_readiness(
             if asset["id"] in draft_asset_ids and usage_error:
                 blocking.append("usage_check_unavailable")
             state = "blocked" if blocking else ("warning" if warnings else "ready")
+            asset_findings = readiness_finding_payloads(
+                [
+                    *readiness_findings_from_codes(
+                        blocking,
+                        severity="blocker",
+                        evidence={
+                            "source": "threadsdash_export_readiness",
+                            "renderedAssetId": asset.get("id"),
+                        },
+                    ),
+                    *readiness_findings_from_codes(
+                        warnings,
+                        severity="warning",
+                        evidence={
+                            "source": "threadsdash_export_readiness",
+                            "renderedAssetId": asset.get("id"),
+                        },
+                    ),
+                ]
+            )
             operator_score = _operator_score(
                 state=state,
                 warnings=warnings,
@@ -367,6 +412,7 @@ def evaluate_export_readiness(
                     "willExport": asset["id"] in draft_asset_ids,
                     "blockingReasons": sorted(set(blocking)),
                     "warnings": sorted(set(warnings)),
+                    "findings": asset_findings,
                 }
             )
 
@@ -384,7 +430,45 @@ def evaluate_export_readiness(
                 ]
             )
         live_allowed = not global_blocking
-        result = {
+        global_findings: list[dict[str, Any]] = [
+            finding
+            for row in export_rows
+            for finding in row.get("findings") or []
+            if isinstance(finding, dict)
+        ]
+        if not export_rows:
+            global_findings.extend(
+                dict(finding)
+                for finding in readiness_finding_payloads(
+                    [
+                        make_readiness_finding(
+                            "no_approved_assets",
+                            severity="blocker",
+                            evidence={
+                                "source": "threadsdash_export_readiness",
+                                "campaign": campaign_slug,
+                            },
+                        )
+                    ]
+                )
+            )
+        if usage_error:
+            global_findings.extend(
+                dict(finding)
+                for finding in readiness_finding_payloads(
+                    [
+                        make_readiness_finding(
+                            "usage_check_unavailable",
+                            severity="blocker",
+                            evidence={
+                                "source": "threadsdash_export_readiness",
+                                "error": usage_error,
+                            },
+                        )
+                    ]
+                )
+            )
+        result: dict[str, Any] = {
             "schema": "campaign_factory.export_readiness.v1",
             "campaign": campaign_slug,
             "userId": user_id,
@@ -402,6 +486,7 @@ def evaluate_export_readiness(
                     for warning in row["warnings"]
                 )
             ),
+            "findings": global_findings,
             "usageChecked": usage is not None,
             "usageError": usage_error,
             "assets": sorted(rows, key=lambda row: row["operatorScore"], reverse=True),
@@ -526,6 +611,19 @@ def _verify_media_row(
         "ok": not blocking,
         "row": row,
         "blockingReasons": blocking,
+        "findings": readiness_finding_payloads(
+            readiness_findings_from_codes(
+                blocking,
+                severity="blocker",
+                owner="threadsdash",
+                operator_action="repair_threadsdash_media_row",
+                evidence={
+                    "source": "threadsdash_export_verification",
+                    "type": "media",
+                    "id": media_id,
+                },
+            )
+        ),
     }
 
 
@@ -574,6 +672,19 @@ def _verify_post_row(
         "ok": not blocking,
         "row": row,
         "blockingReasons": blocking,
+        "findings": readiness_finding_payloads(
+            readiness_findings_from_codes(
+                blocking,
+                severity="blocker",
+                owner="threadsdash",
+                operator_action="repair_threadsdash_post_row",
+                evidence={
+                    "source": "threadsdash_export_verification",
+                    "type": "post",
+                    "id": post_id,
+                },
+            )
+        ),
     }
 
 

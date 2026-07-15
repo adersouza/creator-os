@@ -10,6 +10,11 @@ from typing import Any
 
 from .caption_outcome import load_context_json
 from .persistence import json_load
+from .readiness_finding import (
+    readiness_finding_codes,
+    readiness_finding_payloads,
+    readiness_findings_from_codes,
+)
 
 CAPTION_PLACEMENT_QC_WARNING_CODES = {
     "caption_too_close_to_edge",
@@ -367,8 +372,8 @@ class PublishabilityRepository:
     def local_export_readiness(
         self, asset: dict[str, Any], latest_audit: dict[str, Any] | None
     ) -> dict[str, Any]:
-        blocking = []
-        warnings = []
+        blocking: list[str] = []
+        warnings: list[str] = []
         publishability = self.publishability_check(asset, latest_audit)
         blocking.extend(publishability.get("blockingReasons") or [])
         warnings.extend(publishability.get("warnings") or [])
@@ -397,11 +402,30 @@ class PublishabilityRepository:
             score -= 10
         score -= min(30, len(set(warnings)) * 5)
         score -= min(40, len(set(blocking)) * 10)
+        findings = [
+            *readiness_findings_from_codes(
+                blocking,
+                severity="blocker",
+                evidence={
+                    "source": "local_export_readiness",
+                    "renderedAssetId": asset.get("id"),
+                },
+            ),
+            *readiness_findings_from_codes(
+                warnings,
+                severity="warning",
+                evidence={
+                    "source": "local_export_readiness",
+                    "renderedAssetId": asset.get("id"),
+                },
+            ),
+        ]
         return {
             "state": state,
             "operatorScore": max(0, score),
             "blockingReasons": sorted(set(blocking)),
             "warnings": sorted(set(warnings)),
+            "findings": readiness_finding_payloads(findings),
             "publishability": publishability,
         }
 
@@ -1141,7 +1165,23 @@ class PublishabilityRepository:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
         if quarantine:
             failures.append("quarantined_asset")
-        failures = sorted(set(failures))
+        publishability_findings = readiness_findings_from_codes(
+            failures,
+            severity="blocker",
+            evidence={
+                "source": "publishability",
+                "renderedAssetId": asset.get("id"),
+            },
+        )
+        warning_findings = readiness_findings_from_codes(
+            warnings,
+            severity="warning",
+            evidence={
+                "source": "publishability",
+                "renderedAssetId": asset.get("id"),
+            },
+        )
+        failures = readiness_finding_codes(publishability_findings, severity="blocker")
         asset_state = (
             "publishable_candidate" if not failures else "approved_but_not_publishable"
         )
@@ -1405,4 +1445,7 @@ class PublishabilityRepository:
             "trialGroupId": trial_group_id if instagram_trial_reels else None,
             "trial_group_id": trial_group_id if instagram_trial_reels else None,
             "warnings": sorted(set(warnings)),
+            "findings": readiness_finding_payloads(
+                [*publishability_findings, *warning_findings]
+            ),
         }

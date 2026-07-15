@@ -7,6 +7,11 @@ from typing import Any
 
 from .caption_outcome import load_context_json
 from .persistence import json_load, utc_now
+from .readiness_finding import (
+    make_readiness_finding,
+    readiness_finding_payloads,
+    readiness_findings_from_codes,
+)
 
 
 class SurfaceHandoffRepository:
@@ -70,6 +75,12 @@ class SurfaceHandoffRepository:
             "creator": self._creator_label(creator) if creator else None,
             "campaign": self._slugify(campaign_slug) if campaign_slug else None,
             "assets": items,
+            "findings": [
+                finding
+                for item in items
+                for finding in item.get("findings") or []
+                if isinstance(finding, dict)
+            ],
             "wouldWrite": False,
         }
 
@@ -96,6 +107,7 @@ class SurfaceHandoffRepository:
             {
                 "assetId": item["assetId"],
                 "blockingReasons": item.get("blockingReasons") or [],
+                "findings": item.get("findings") or [],
             }
             for item in readiness_items
             if not item.get("canHandoff")
@@ -109,6 +121,12 @@ class SurfaceHandoffRepository:
             "draftCount": len(drafts),
             "drafts": drafts,
             "blockedAssets": blocking,
+            "findings": [
+                finding
+                for item in readiness_items
+                for finding in item.get("findings") or []
+                if isinstance(finding, dict)
+            ],
             "wouldWrite": False,
         }
 
@@ -476,6 +494,33 @@ class SurfaceHandoffRepository:
                 post_caption, blocking
             )
 
+        blocker_findings = readiness_findings_from_codes(
+            blocking,
+            severity="blocker",
+            evidence={
+                "source": "surface_handoff",
+                "renderedAssetId": asset.get("id"),
+                "contentSurface": surface,
+                "warnings": sorted(set(warnings)),
+            },
+        )
+        warning_findings = [
+            make_readiness_finding(
+                "surface_readiness_warning",
+                severity="warning",
+                owner="campaign_factory",
+                operator_action="inspect_surface_readiness_warning",
+                evidence={
+                    "source": "surface_handoff",
+                    "renderedAssetId": asset.get("id"),
+                    "contentSurface": surface,
+                    "message": warning,
+                },
+            )
+            for warning in sorted(set(warnings))
+        ]
+        findings = readiness_finding_payloads([*blocker_findings, *warning_findings])
+
         ig_media_type = self.ig_media_type_for_surface(surface, media_type)
         manifest_v2 = None
         if can_handoff:
@@ -515,6 +560,7 @@ class SurfaceHandoffRepository:
                     "canHandoff": True,
                     "blockingReasons": [],
                     "warnings": warnings,
+                    "findings": findings,
                 },
                 "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
                 "discoverabilityContract": discoverability_contract,
@@ -552,6 +598,7 @@ class SurfaceHandoffRepository:
             "scheduleSafe": bool(can_handoff),
             "blockingReasons": sorted(set(blocking)),
             "warnings": sorted(set(warnings)),
+            "findings": findings,
             "visualQcStatus": trust_statuses["visualQcStatus"],
             "identityVerificationStatus": trust_statuses["identityVerificationStatus"],
             "discoverabilitySafe": discoverability_contract["discoverabilitySafe"],
