@@ -39,22 +39,22 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
-| Source | PASS locally | clean tree; `make verify` passed: ContentForge 129, contracts 24 TS + 54 Python, Core 16, Campaign 687, Reference 111, Reel 435, integration 63, offline prompt regressions 3/3; architecture, artifacts, and secret scan passed |
-| CI | PASS on PR #440 / merge `3cc2e45a` | Python, JavaScript, architecture, contracts, hygiene, changes, and secret scan passed; CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
-| Runtime | FAIL on the pre-cutover status check | runtime is still at `2d605a3b`, does not match the reviewed source, and contains untracked runtime artifacts; require a clean exact-SHA runtime and verified LaunchAgent paths |
-| Canonical state | NOT_RUN | applied migration manifest, verified restore, switched private env, and one complete operating cycle |
-| ThreadsDashboard seam | NOT_RUN live | source endpoint is merged in ThreadsDashboard, but the local handshake URL/secret are not configured; require a deployed valid request with zero product writes plus invalid/stale/replay rejection |
-| Providers | FAIL closed before network generation | live-read-only probe stopped because the canonical artifact workspace is not ready; require capability/model/workspace/balance/free-quote PASS with zero media and zero cost events; paid smoke remains separately approved |
+| Source | PASS | clean `main`; `make verify` passed with supported Node 24: ContentForge 129, contracts 24 TS + 54 Python, Core 16, Campaign 687, Reference 111, Reel 435, integration 64, offline prompt regressions 3/3; architecture and artifact gates passed |
+| CI | PASS on PR #442 / merge `2f0617bd` | Python, architecture, contracts, hygiene, changes, and secret scan passed; JavaScript, CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
+| Runtime | PASS | clean detached runtime and source exactly match; the code-bearing cutover baseline is `2f0617bd`, and the pinned LaunchAgent completed with exit 0 at `2026-07-15T21:40:11Z` against the canonical database |
+| Canonical state | PASS | migration manifest `~/.creator-os/backups/state-migrations/20260715T212851Z/migration-manifest.json` verified integrity, row counts, private modes, artifact hashes, and clean SQLite restores; machine envs switched; local backup snapshot `20260715_173212` passed |
+| ThreadsDashboard seam | PASS live read-only | valid production HMAC/contract request passed with nonce claimed and `productRowsWritten=0`; invalid/stale/replay behavior remains covered by regression tests |
+| Providers | PASS live read-only | account, selected workspace, Soul/Kling/Seedance availability, balance, and a 0.12-credit quote passed with zero media and zero cost events; no paid smoke was run |
 | Publishing | Unchanged and out of scope for this source repair | existing ThreadsDashboard production evidence; Creator OS must remain unable to publish |
-| Measured learning | NOT_PROVEN | exact Instagram/account/asset lineage plus real 1h/24h/72h snapshots and idempotent knowledge fanout |
+| Measured learning | NOT_PROVEN | post-promotion sync has one eligible post with a real 1h row, zero with 24h, zero with both, and one completed Reference fanout; exact 24h/72h evidence is still missing |
 | Operational cohort | NOT_PROVEN | 10 consecutive correctly reconciled posts |
 | Autonomous learning promotion | BLOCKED by evidence gate | 50 eligible posts with both real 1h and 24h measurements |
 
-The current runtime checkout predates this repair and contains untracked
-runtime artifacts. Canonical roots have not been switched. Those conditions are
-expected until the guarded cutover below and must not be described as ready.
+The runtime and canonical roots are now cut over, but old databases and paths
+remain preserved as rollback evidence through at least 2026-07-22 and one
+complete operating cycle. They must not be deleted before that retention gate.
 The live-read-only probe used one shared trace ID, made no generation request,
-created no cost event, and did not attempt the handshake without its URL/secret.
+created no cost event, and wrote no ThreadsDashboard product rows.
 Graphify refresh was attempted but remains `NOT_RUN` because the local
 `graphify` binary is not installed; Python and TypeScript architecture gates
 passed independently.
@@ -82,21 +82,19 @@ ledger still contains only the earlier archived Trial Reel's real eligible
 
 ## Guarded Cutover Order
 
-1. Push, review, merge, and CI-verify Creator OS source. The compatible
-   ThreadsDashboard handshake source is already merged; deployment proof is
-   still separate.
-2. Apply and verify the copy-only local state migration. Keep every original.
-3. Promote the exact reviewed Creator OS SHA to the clean runtime checkout and
-   verify every LaunchAgent path.
-4. Deploy the ThreadsDashboard endpoint through its normal process, configure
-   the machine-local handshake URL/secret, and run only
-   `creator-os status --live-read-only`.
-5. Observe one complete operating cycle before considering old-path removal.
-6. Reconcile real posts and metrics; never synthesize a missing Meta row.
+1. **Complete:** merge and CI-verify Creator OS source.
+2. **Complete:** apply and verify the copy-only local state migration while
+   retaining every original.
+3. **Complete:** promote the exact reviewed SHA to the clean runtime checkout
+   and verify the LaunchAgent paths.
+4. **Complete:** run the deployed zero-write handshake plus provider probes.
+5. **Complete:** observe one successful post-promotion performance/learning
+   operating cycle. Keep old paths until the separate seven-day retention gate.
+6. **In progress:** reconcile real posts and 24h/72h metrics; never synthesize a
+   missing Meta row.
 
-Actual state cutover, runtime promotion, production deployment, paid provider
-generation, scheduling, publishing, and credential rotation require their own
-explicit authorization. This source repair performs none of them.
+Paid provider generation, scheduling, publishing, credential rotation, and
+old-path deletion remain separately gated. This cutover performed none of them.
 
 ## Deferred By Design
 

@@ -16,6 +16,20 @@ available evidence; it does not imply deployment or a successful live run.
 Never collapse these into “working” or “deployed.” Source, runtime, machine
 state, paid providers, and ThreadsDashboard production have separate evidence.
 
+## Current Operational Truth
+
+As of 2026-07-15, the reviewed source and clean runtime checkout match, the
+canonical private roots are populated, the state migration and clean restore
+are verified, and the local backup job has captured the canonical roots. The
+live HMAC handshake and Higgsfield account/workspace/model/balance/free-quote
+probes pass without product writes, media generation, or cost events.
+
+The operational learning loop is healthy but not yet statistically proven. A
+post-promotion LaunchAgent run scanned four posts, imported/updated one eligible
+snapshot, and completed one Reference fanout. Current eligible evidence is one
+post with a real 1-hour row, zero with a 24-hour row, and zero with both. The
+10-consecutive-post proof and 50-post autonomy gate remain intentionally closed.
+
 ## Ownership And Dependencies
 
 | Component | Responsibility | Canonical source | Depends on | Primary state |
@@ -27,6 +41,22 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 | Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
 | Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
 | ThreadsDashboard | product UI, accounts, Supabase, approvals, scheduling, publishing, inbox, analytics, posting infrastructure | external `/Users/aderdesouza/Developer/ThreadsDashboard` | its own services and consumer contract snapshot | Supabase and deployed services |
+
+## Practical Value Of Each Component
+
+| Component | Operational value | What becomes worse without it |
+|---|---|---|
+| Campaign Factory | **Essential control plane.** It turns goals, account policy, inventory, approvals, spend limits, and measured outcomes into one auditable decision. | Decisions fragment across scripts; cost, eligibility, and learning can disagree. |
+| ThreadsDashboard | **Essential production edge.** It owns the real accounts and the only approved path to review, schedule, publish, and measure posts. | Creator OS can make assets but cannot safely operate Instagram accounts. |
+| Reel Factory | **Essential media worker.** It converts accepted references or library assets into 9:16 still/static/motion Reels with exact lineage. | There is no repeatable asset-generation/rendering pipeline or reliable static fallback. |
+| ContentForge | **High-value quality firewall.** It blocks collisions, unreadable overlays, unsafe placement, weak watchability, and broken media. | More visibly bad or duplicate-looking assets reach review and waste operator time. |
+| Reference Factory | **High-value scaling memory.** It preserves human Gold labels and reusable prompt, visual, caption, and audio patterns. | The system can still make one Reel, but it relearns taste repeatedly and scales poorly. |
+| Pipeline Contracts | **Essential connective tissue.** They make every handoff explicit and reject malformed or drifted payloads. | Components appear connected until a field or schema changes and silently breaks a seam. |
+| Creator OS Core | **High-value reliability layer.** It centralizes private roots, SQLite safety, auth, file operations, spend primitives, and runtime guards. | Each factory reimplements fragile infrastructure and runtime paths drift back into checkouts. |
+
+The useful simplification is therefore not to merge these packages. It is to
+keep one operational brain, narrow workers, one production publisher, and
+strict contracts between them.
 
 Dependency direction is inward toward Pipeline Contracts and Creator OS Core.
 Reel and Reference do not import Campaign ownership. Campaign may invoke
