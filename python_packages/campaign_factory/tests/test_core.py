@@ -7742,6 +7742,15 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert metadata["publish_mode"] == "notify"
         assert metadata["audio_strategy"] == "current_native_trending_sound"
         assert metadata["native_audio_preferred"] is True
+        exports_before = cf.conn.execute(
+            "SELECT COUNT(*) FROM threadsdash_exports"
+        ).fetchone()[0]
+        jobs_before = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[
+            0
+        ]
+        events_before = cf.conn.execute(
+            "SELECT COUNT(*) FROM activity_events"
+        ).fetchone()[0]
         result = export_threadsdash(
             cf,
             campaign_slug="may",
@@ -7751,19 +7760,40 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
             cta_type="profile_visit",
             language="en",
         )
-        assert Path(result["path"]).exists()
         assert result["dryRun"] is True
+        assert result["path"] is None
+        assert result["pipelineJobId"] is None
+        assert not Path(result["wouldWritePath"]).exists()
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == exports_before
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == jobs_before
+        )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM activity_events").fetchone()[0]
+            == events_before
+        )
         assert result["payload"]["drafts"][0]["contentPillar"] == "fit_check"
         assert result["payload"]["drafts"][0]["ctaType"] == "profile_visit"
         assert result["payload"]["drafts"][0]["language"] == "en"
-        written = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
-        assert written["path"] == result["path"]
-        assert written["pipelineJobId"] == result["pipelineJobId"]
-        written_meta = written["payload"]["drafts"][0]["metadata"]["campaign_factory"]
-        assert written_meta["graph_id"] == metadata["graph_id"]
-        assert written_meta["content_pillar"] == "fit_check"
-        assert written_meta["cta_type"] == "profile_visit"
-        assert written_meta["language"] == "en"
+        preview_meta = result["payload"]["drafts"][0]["metadata"]["campaign_factory"]
+        assert preview_meta["graph_id"] == metadata["graph_id"]
+        assert preview_meta["content_pillar"] == "fit_check"
+        assert preview_meta["cta_type"] == "profile_visit"
+        assert preview_meta["language"] == "en"
+        with pytest.raises(
+            ValueError, match="read-only draft preview cannot generate variation"
+        ):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=True,
+                enable_variation=True,
+            )
     finally:
         cf.close()
 
@@ -10851,9 +10881,11 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
         exported = export_threadsdash(
             cf, campaign_slug="launch", user_id="user_1", dry_run=True
         )
-        data = json.loads(Path(exported["path"]).read_text())
-        assert data["draftCount"] == 1
-        draft = data["payload"]["drafts"][0]
+        assert exported["path"] is None
+        assert exported["pipelineJobId"] is None
+        assert not Path(exported["wouldWritePath"]).exists()
+        assert exported["draftCount"] == 1
+        draft = exported["payload"]["drafts"][0]
         assert draft["status"] == "draft"
         assert "scheduledFor" not in draft
     finally:

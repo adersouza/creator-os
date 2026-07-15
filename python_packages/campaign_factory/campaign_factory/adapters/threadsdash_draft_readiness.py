@@ -171,28 +171,31 @@ def evaluate_export_readiness(
     schedule_mode: str = "draft",
     publish_mode: str | None = None,
     review_only: bool = False,
+    record_evidence: bool = True,
 ) -> dict[str, Any]:
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
-    pipeline_job = factory.domains.events.create_pipeline_job(
-        "export_readiness",
-        campaign["id"],
-        {
-            "campaign": campaign_slug,
-            "userId": user_id,
-            "hasSupabaseUrl": bool(supabase_url),
-            "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
-            "limit": limit,
-            "contentPillar": content_pillar,
-            "ctaType": cta_type,
-            "language": language,
-            "renderedAssetIds": rendered_asset_ids or [],
-            "scheduleMode": normalized_schedule_mode,
-            "reviewOnly": review_only,
-        },
-    )
-    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    pipeline_job: dict[str, Any] | None = None
+    if record_evidence:
+        pipeline_job = factory.domains.events.create_pipeline_job(
+            "export_readiness",
+            campaign["id"],
+            {
+                "campaign": campaign_slug,
+                "userId": user_id,
+                "hasSupabaseUrl": bool(supabase_url),
+                "hasSupabaseServiceRoleKey": bool(supabase_service_role_key),
+                "limit": limit,
+                "contentPillar": content_pillar,
+                "ctaType": cta_type,
+                "language": language,
+                "renderedAssetIds": rendered_asset_ids or [],
+                "scheduleMode": normalized_schedule_mode,
+                "reviewOnly": review_only,
+            },
+        )
+        factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         dashboard = factory.domains.campaign_overview.dashboard(campaign_slug)
         payload = _draft_payload.build_draft_payloads(
@@ -402,34 +405,37 @@ def evaluate_export_readiness(
             "usageChecked": usage is not None,
             "usageError": usage_error,
             "assets": sorted(rows, key=lambda row: row["operatorScore"], reverse=True),
-            "pipelineJobId": pipeline_job["id"],
+            "pipelineJobId": None if pipeline_job is None else pipeline_job["id"],
         }
-        factory.domains.events.record_event(
-            "export_readiness_checked",
-            campaign_id=campaign["id"],
-            pipeline_job_id=pipeline_job["id"],
-            status="success" if result["liveExportAllowed"] else "warning",
-            message=f"Export readiness checked: {result['expectedDraftCount']} expected drafts",
-            metadata={
-                "expectedDraftCount": result["expectedDraftCount"],
-                "liveExportAllowed": result["liveExportAllowed"],
-                "blockingReasonCount": len(result["blockingReasons"]),
-                "warningCount": len(result["warnings"]),
-                "usageChecked": result["usageChecked"],
-            },
-        )
-        factory.domains.events.finish_pipeline_job(
-            pipeline_job["id"],
-            {
-                "expectedDraftCount": result["expectedDraftCount"],
-                "liveExportAllowed": result["liveExportAllowed"],
-                "blockingReasonCount": len(result["blockingReasons"]),
-                "warningCount": len(result["warnings"]),
-                "usageChecked": result["usageChecked"],
-            },
-        )
+        if pipeline_job is not None:
+            factory.domains.events.record_event(
+                "export_readiness_checked",
+                campaign_id=campaign["id"],
+                pipeline_job_id=pipeline_job["id"],
+                status="success" if result["liveExportAllowed"] else "warning",
+                message=f"Export readiness checked: {result['expectedDraftCount']} expected drafts",
+                metadata={
+                    "expectedDraftCount": result["expectedDraftCount"],
+                    "liveExportAllowed": result["liveExportAllowed"],
+                    "blockingReasonCount": len(result["blockingReasons"]),
+                    "warningCount": len(result["warnings"]),
+                    "usageChecked": result["usageChecked"],
+                },
+            )
+            factory.domains.events.finish_pipeline_job(
+                pipeline_job["id"],
+                {
+                    "expectedDraftCount": result["expectedDraftCount"],
+                    "liveExportAllowed": result["liveExportAllowed"],
+                    "blockingReasonCount": len(result["blockingReasons"]),
+                    "warningCount": len(result["warnings"]),
+                    "usageChecked": result["usageChecked"],
+                },
+            )
         return result
     except Exception as exc:
+        if pipeline_job is None:
+            raise
         factory.domains.events.record_event(
             "export_readiness_checked",
             campaign_id=campaign["id"],
