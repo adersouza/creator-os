@@ -13,6 +13,8 @@ Allowed:
 - Capture Higgsfield raw JSON, generated prompt, local output path, and lineage.
 - Compile deterministic Kling motion prompts for accepted stills.
 - Run Kling only when explicitly requested.
+- Build a non-executing structural-remix plan for an explicitly selected,
+  rights-confirmed 5–12 second one-shot reference video.
 - Write local prompt, generation, motion, QC, and export lineage.
 - Select audio metadata from local CML/winner/watch-list caches.
 
@@ -25,6 +27,9 @@ Not allowed:
 - Do not automate Instagram/TikTok/Threads logins, private APIs, or publishing.
 - Do not scrape logged-in Creative Center pages for audio.
 - Do not register Campaign Factory assets, schedule, publish, export drafts, sync metrics, or mutate account health from this still-image flow.
+- Do not execute a structural-remix provider command until both endpoint frames
+  are approved and the existing quote, atomic reservation, and paid-approval
+  guards pass.
 
 Legacy:
 

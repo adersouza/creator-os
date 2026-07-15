@@ -1,0 +1,139 @@
+{
+  "schema": "reel_factory.reference_video_remix_plan.v1",
+  "planId": "remix_0123456789abcdef",
+  "status": "awaiting_endpoint_frames",
+  "reference": {
+    "referenceId": "ref_video_001",
+    "videoPath": "/tmp/reference.mp4",
+    "videoSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "operatorSelected": true,
+    "rightsConfirmed": true,
+    "analysisId": "analysis_ref_video_001",
+    "analysisSha256": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "scope": {
+    "sourceDurationSeconds": 7.5,
+    "outputDurationSeconds": 8,
+    "durationRoundingPolicy": "nearest_integer_half_up",
+    "shotCount": 1,
+    "oneShotOnly": true,
+    "outputAspectRatio": "9:16"
+  },
+  "identity": {
+    "creator": "Stacey",
+    "soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
+  },
+  "framePair": {
+    "first": {
+      "role": "first",
+      "sourceFramePath": "/tmp/reference.first.png",
+      "sourceFrameSha256": "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sourceTimestampSeconds": 0,
+      "description": "Centered waist-up framing with the subject still.",
+      "generation": {
+        "provider": "higgsfield",
+        "model": "text2image_soul_v2",
+        "workflow": "reference_conditioned_endpoint_frame",
+        "referenceConditioned": true,
+        "soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        "aspectRatio": "9:16",
+        "promptPolicy": {
+          "capturedPromptReused": false,
+          "promptAppendUsed": false,
+          "appUiTermsForbidden": true,
+          "distinctnessAcceptanceRequired": true
+        },
+        "dryRunCommand": ["python3", "generate_assets.py", "reference-image-dry-run"]
+      },
+      "acceptedFrame": {
+        "status": "pending",
+        "path": null,
+        "sha256": null,
+        "approvalDecisionId": null
+      }
+    },
+    "last": {
+      "role": "last",
+      "sourceFramePath": "/tmp/reference.last.png",
+      "sourceFrameSha256": "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sourceTimestampSeconds": 7.5,
+      "description": "The same framing after a small shoulder and hip shift.",
+      "generation": {
+        "provider": "higgsfield",
+        "model": "text2image_soul_v2",
+        "workflow": "reference_conditioned_endpoint_frame",
+        "referenceConditioned": true,
+        "soulId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        "aspectRatio": "9:16",
+        "promptPolicy": {
+          "capturedPromptReused": false,
+          "promptAppendUsed": false,
+          "appUiTermsForbidden": true,
+          "distinctnessAcceptanceRequired": true
+        },
+        "dryRunCommand": ["python3", "generate_assets.py", "reference-image-dry-run"]
+      },
+      "acceptedFrame": {
+        "status": "pending",
+        "path": null,
+        "sha256": null,
+        "approvalDecisionId": null
+      }
+    },
+    "continuityReviewRequired": true
+  },
+  "animation": {
+    "provider": "seedance",
+    "model": "seedance_2_0",
+    "routingReason": "reference_video_conditioning",
+    "status": "blocked_pending_endpoint_approval",
+    "motionPrompt": "Create one continuous vertical shot with a restrained shoulder turn, a small hip weight transfer, subtle handheld drift, and a stable final hold.",
+    "inputs": {
+      "startFramePath": null,
+      "endFramePath": null,
+      "referenceVideoPath": "/tmp/reference.mp4",
+      "durationSeconds": 8,
+      "aspectRatio": "9:16",
+      "sound": "off"
+    },
+    "command": null,
+    "spendGuard": {
+      "providerQuoteRequired": true,
+      "atomicReservationRequired": true,
+      "budgetCapCredits": null
+    },
+    "paidGenerationAuthorized": false
+  },
+  "lineageSeed": {
+    "referenceId": "ref_video_001",
+    "referenceVideoSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "analysisId": "analysis_ref_video_001",
+    "analysisSha256": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "firstSourceFrameSha256": "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "lastSourceFrameSha256": "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "firstAcceptedFrameSha256": null,
+    "lastAcceptedFrameSha256": null,
+    "generationTool": "higgsfield_endpoint_frames_then_video",
+    "providerModel": "seedance_2_0",
+    "sourceDurationSeconds": 7.5,
+    "outputDurationSeconds": 8
+  },
+  "qualityGates": {
+    "contentForgeRequired": true,
+    "blockingChecks": [
+      "source_master_distinctness",
+      "sibling_distinctness",
+      "identity_verification",
+      "endpoint_continuity",
+      "watchability",
+      "visual_qc"
+    ],
+    "onFailure": "block_and_return_to_review"
+  },
+  "approval": {
+    "endpointFrameApprovalRequired": true,
+    "paidAnimationApprovalRequired": true,
+    "finalAssetApprovalRequired": true,
+    "publishingAllowed": false
+  }
+}

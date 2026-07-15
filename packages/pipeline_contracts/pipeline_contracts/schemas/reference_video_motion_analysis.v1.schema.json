@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.reference_video_motion_analysis.v1",
+  "title": "Reference Video Structural Motion Analysis",
+  "description": "Motion-only analysis for an operator-selected reference video. The contract preserves reusable structure while explicitly excluding literal identity, styling, and text copying.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "analysisId",
+    "referenceId",
+    "provider",
+    "model",
+    "status",
+    "source",
+    "structure",
+    "distinctness",
+    "sourceTextPolicy",
+    "motionPrompt",
+    "requiresReferenceVideoConditioning"
+  ],
+  "properties": {
+    "schema": {
+      "const": "reel_factory.reference_video_motion_analysis.v1"
+    },
+    "analysisId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "referenceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["gemini", "operator_supplied"]
+    },
+    "model": {
+      "type": ["string", "null"]
+    },
+    "status": {
+      "const": "ready"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationSeconds", "shotCount", "hasCuts", "aspectRatio"],
+      "properties": {
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 12
+        },
+        "shotCount": {
+          "const": 1
+        },
+        "hasCuts": {
+          "const": false
+        },
+        "aspectRatio": {
+          "const": "9:16"
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hookDescription",
+        "firstFrameDescription",
+        "lastFrameDescription",
+        "subjectMotion",
+        "cameraMotion",
+        "pacing",
+        "timeline"
+      ],
+      "properties": {
+        "hookDescription": {
+          "type": "string",
+          "minLength": 1
+        },
+        "firstFrameDescription": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lastFrameDescription": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subjectMotion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cameraMotion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pacing": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeline": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["startSeconds", "endSeconds", "action", "camera"],
+            "properties": {
+              "startSeconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "endSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 12
+              },
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "camera": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "distinctness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preserveElements", "transformElements", "literalCopyRisk"],
+      "properties": {
+        "preserveElements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "pose_arc",
+              "camera_path",
+              "pacing",
+              "framing",
+              "motion_rhythm",
+              "endpoint_composition"
+            ]
+          }
+        },
+        "transformElements": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "wardrobe",
+              "setting",
+              "surface_text",
+              "styling",
+              "props"
+            ]
+          },
+          "contains": {
+            "const": "identity"
+          }
+        },
+        "literalCopyRisk": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "sourceTextPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reuseVerbatim", "transcriptionUsedForMotionOnly"],
+      "properties": {
+        "reuseVerbatim": {
+          "const": false
+        },
+        "transcriptionUsedForMotionOnly": {
+          "const": true
+        }
+      }
+    },
+    "motionPrompt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "requiresReferenceVideoConditioning": {
+      "type": "boolean"
+    }
+  }
+}

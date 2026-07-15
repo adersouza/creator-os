@@ -24,6 +24,8 @@ from pipeline_contracts import (
     validate_post_metric_history_read,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
+    validate_reference_video_motion_analysis,
+    validate_reference_video_remix_plan,
     validate_repurposing_plan,
     validate_schema_examples,
     validate_variant_assignment,
@@ -49,6 +51,10 @@ def test_named_validators_accept_examples():
     validate_recommendation_next_batch(load_example("recommendation_next_batch"))
     validate_pattern_card(load_example("pattern_card"))
     validate_video_analysis(load_example("video_analysis"))
+    validate_reference_video_motion_analysis(
+        load_example("reference_video_motion_analysis")
+    )
+    validate_reference_video_remix_plan(load_example("reference_video_remix_plan"))
     validate_higgsfield_soul_image_prompt(load_example("higgsfield_soul_image_prompt"))
     validate_kling_3_video_prompt(load_example("kling_3_video_prompt"))
     validate_generated_asset_lineage(load_example("generated_asset_lineage"))
@@ -75,6 +81,74 @@ def test_validator_reports_nested_required_field():
 
     with pytest.raises(ContractValidationError, match="allow_publish"):
         validate_campaign_draft_payload(payload)
+
+
+def test_reference_video_motion_analysis_rejects_multishot_source():
+    payload = load_example("reference_video_motion_analysis")
+    payload["source"]["shotCount"] = 2
+
+    with pytest.raises(ContractValidationError, match="shotCount"):
+        validate_reference_video_motion_analysis(payload)
+
+
+def test_reference_video_analysis_requires_identity_transformation():
+    payload = load_example("reference_video_motion_analysis")
+    payload["distinctness"]["transformElements"] = [
+        "wardrobe",
+        "setting",
+        "surface_text",
+    ]
+
+    with pytest.raises(ContractValidationError, match="transformElements"):
+        validate_reference_video_motion_analysis(payload)
+
+
+def test_reference_video_remix_plan_cannot_authorize_paid_generation():
+    payload = load_example("reference_video_remix_plan")
+    payload["animation"]["paidGenerationAuthorized"] = True
+
+    with pytest.raises(ContractValidationError, match="paidGenerationAuthorized"):
+        validate_reference_video_remix_plan(payload)
+
+
+def test_reference_video_remix_plan_cannot_allow_publishing():
+    payload = load_example("reference_video_remix_plan")
+    payload["approval"]["publishingAllowed"] = True
+
+    with pytest.raises(ContractValidationError, match="publishingAllowed"):
+        validate_reference_video_remix_plan(payload)
+
+
+def test_reference_video_remix_plan_requires_correct_endpoint_roles():
+    payload = load_example("reference_video_remix_plan")
+    payload["framePair"]["first"]["role"] = "last"
+
+    with pytest.raises(ContractValidationError, match="role"):
+        validate_reference_video_remix_plan(payload)
+
+
+def test_reference_video_remix_plan_requires_matching_provider_model():
+    payload = load_example("reference_video_remix_plan")
+    payload["animation"]["model"] = "kling3_0"
+
+    with pytest.raises(ContractValidationError, match="seedance_2_0"):
+        validate_reference_video_remix_plan(payload)
+
+
+def test_reference_video_remix_plan_blocks_command_before_endpoint_approval():
+    payload = load_example("reference_video_remix_plan")
+    payload["animation"]["command"] = ["higgsfield", "generate"]
+
+    with pytest.raises(ContractValidationError, match="command"):
+        validate_reference_video_remix_plan(payload)
+
+
+def test_reference_video_remix_plan_requires_integer_provider_duration():
+    payload = load_example("reference_video_remix_plan")
+    payload["animation"]["inputs"]["durationSeconds"] = 7.5
+
+    with pytest.raises(ContractValidationError, match="durationSeconds"):
+        validate_reference_video_remix_plan(payload)
 
 
 def test_generated_asset_lineage_requires_pipeline_trace_id():

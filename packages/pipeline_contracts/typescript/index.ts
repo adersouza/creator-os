@@ -25,6 +25,10 @@ export const CAPTION_OUTCOME_CONTEXT_SCHEMA_ID =
 	"campaign_factory.caption_outcome_context.v1" as const;
 export const PATTERN_CARD_SCHEMA_ID = "reference_factory.pattern_card.v1" as const;
 export const VIDEO_ANALYSIS_SCHEMA_ID = "reference_factory.video_analysis.v1" as const;
+export const REFERENCE_VIDEO_MOTION_ANALYSIS_SCHEMA_ID =
+	"reel_factory.reference_video_motion_analysis.v1" as const;
+export const REFERENCE_VIDEO_REMIX_PLAN_SCHEMA_ID =
+	"reel_factory.reference_video_remix_plan.v1" as const;
 export const HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID =
 	"reference_factory.higgsfield_soul_image_prompt.v1" as const;
 export const KLING_3_VIDEO_PROMPT_SCHEMA_ID =
@@ -1634,6 +1638,22 @@ export function validatePostMetricHistoryRead(value: unknown): string[] {
 		}
 	}
 	return errors;
+}
+
+export function validateReferenceVideoMotionAnalysis(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.referenceVideoMotionAnalysis,
+		value,
+		"reference video motion analysis",
+	);
+}
+
+export function validateReferenceVideoRemixPlan(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.referenceVideoRemixPlan,
+		value,
+		"reference video remix plan",
+	);
 }
 
 export function nativeAudioStatusAllowsPublish(status: unknown): boolean {
