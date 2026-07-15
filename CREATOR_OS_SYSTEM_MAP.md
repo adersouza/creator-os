@@ -213,6 +213,14 @@ hashes and permissions, proves a clean temporary restore, and never deletes the
 source. Runtime launchers keep deterministic checkout/database selection.
 Repository changes never update or restart the runtime automatically.
 
+After cutover, `scripts/runtime_state_cleanup_eligibility.py` is the only
+supported old-path cleanup preflight. It accepts legitimate live database drift
+while requiring current SQLite integrity, private modes, a fresh verified
+backup/restore, exact retained originals, zero active old-path references, the
+recorded retention deadline, and explicit completed operating-cycle evidence.
+Its output is report-only: it lists candidates but has no delete/apply mode.
+Migration evidence and active log paths are never cleanup candidates.
+
 ## Browser Surfaces
 
 - ContentForge has no browser application or HTTP server.

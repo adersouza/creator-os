@@ -53,6 +53,39 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 The runtime and canonical roots are now cut over, but old databases and paths
 remain preserved as rollback evidence through at least 2026-07-22 and one
 complete operating cycle. They must not be deleted before that retention gate.
+The cutover-time `migrate_runtime_state.py --verify` command compares frozen
+row counts and is not a post-cutover cleanup gate after legitimate live writes.
+Use `scripts/runtime_state_cleanup_eligibility.py` with a fresh
+`backup_runtime_state.py` manifest and explicit operating-cycle evidence. The
+eligibility command accepts honest canonical database drift, requires private
+SQLite/backup permissions plus clean restores and zero active old-path
+references, and only reports candidates; it cannot delete anything.
+
+The required operating-cycle evidence is a private JSON file with this shape:
+
+```json
+{
+  "schema": "creator_os.operating_cycle_evidence.v1",
+  "status": "PASS",
+  "completedAt": "<timezone-aware timestamp after cutover>",
+  "checks": {
+    "runtimeShaMatched": true,
+    "performanceSyncSucceeded": true,
+    "learningFanoutObserved": true
+  }
+}
+```
+
+After producing a fresh `scripts/backup_runtime_state.py` backup, run:
+
+```bash
+uv run python scripts/runtime_state_cleanup_eligibility.py \
+  --manifest <migration-manifest.json> \
+  --operating-cycle-evidence <operating-cycle-evidence.json> \
+  --backup-dir <fresh-backup-directory>
+```
+
+An `ELIGIBLE` report is still not deletion authorization.
 The live-read-only probe used one shared trace ID, made no generation request,
 created no cost event, and wrote no ThreadsDashboard product rows.
 Graphify refresh was attempted but remains `NOT_RUN` because the local
