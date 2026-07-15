@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import gzip
 import hashlib
@@ -1258,39 +1259,16 @@ def test_generate_video_prompts_uses_latest_analysis_per_reference(
     )
 
 
-@pytest.mark.parametrize(
-    ("command", "flag", "value"),
-    [
-        ("generate-with-higgsfield", "--estimated-cost-usd", "nan"),
-        ("generate-with-higgsfield", "--estimated-cost-usd", "inf"),
-        ("generate-with-higgsfield", "--estimated-cost-usd", "-1"),
-        ("generate-with-higgsfield", "--max-credits", "nan"),
-        ("generate-with-higgsfield", "--max-credits", "-1"),
-        ("generate-with-higgsfield", "--limit", "0"),
-        ("generate-with-higgsfield", "--image-candidates", "-1"),
-        ("run-daily-generation", "--limit", "0"),
-        ("run-daily-generation", "--max-credits", "inf"),
-    ],
-)
-def test_higgsfield_cli_rejects_invalid_money_and_asset_counts(
-    command: str, flag: str, value: str
-) -> None:
-    required = (
-        [
-            "--creative-plan",
-            "plan.json",
-            "--campaign",
-            "campaign",
-            "--model",
-            "model",
-            "--campaign-factory-root",
-            "/tmp/campaign",
-        ]
-        if command == "run-daily-generation"
-        else []
+def test_reference_factory_cli_cannot_initiate_paid_generation() -> None:
+    parser = build_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
     )
-    with pytest.raises(SystemExit):
-        build_parser().parse_args([command, *required, flag, value])
+
+    assert "generate-with-higgsfield" not in subparsers.choices
+    assert "run-daily-generation" not in subparsers.choices
 
 
 @pytest.mark.parametrize(

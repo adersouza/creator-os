@@ -6,10 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
-from reel_factory.higgsfield_cost_preflight import (
-    nonnegative_float_arg,
-    positive_int_arg,
-)
 
 from .audio import (
     analyze_audio_patterns,
@@ -40,7 +36,6 @@ from .config import (
 from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
-from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
 from .knowledge_pack import MINIMUM_MEASURED_EXAMPLES, export_knowledge_pack
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
@@ -583,95 +578,6 @@ def build_parser() -> argparse.ArgumentParser:
     export_prompts.add_argument("--limit", type=int, default=100)
     export_prompts.add_argument("--creative-plan-id", default=None)
 
-    higgsfield = sub.add_parser(
-        "generate-with-higgsfield",
-        help="Generate Higgsfield Soul images and Kling 3.0 videos from daily prompt exports",
-    )
-    higgsfield.add_argument(
-        "--data-root",
-        default=argparse.SUPPRESS,
-        help="Derived data root; accepted here for command-local ergonomics",
-    )
-    higgsfield.add_argument("--limit", type=positive_int_arg, default=1)
-    higgsfield.add_argument(
-        "--reference-id",
-        default=None,
-        help="Generate only the prompt pair for this source reference id",
-    )
-    higgsfield.add_argument("--soul-id", default="Stacey")
-    higgsfield.add_argument("--kling-mode", default="std", choices=["std", "pro", "4k"])
-    higgsfield.add_argument("--wait", action="store_true")
-    higgsfield.add_argument("--dry-run", action="store_true")
-    higgsfield.add_argument("--max-credits", type=nonnegative_float_arg, default=8.0)
-    higgsfield.add_argument(
-        "--estimated-cost-usd",
-        type=nonnegative_float_arg,
-        default=None,
-        help="Required positive USD estimate for any non-dry-run paid generation",
-    )
-    higgsfield.add_argument(
-        "--min-prompt-score",
-        type=int,
-        default=72,
-        help="Block Higgsfield generation below this prompt quality score; use 0 to disable",
-    )
-    higgsfield.add_argument("--image-candidates", type=positive_int_arg, default=1)
-    higgsfield.add_argument("--variation-grid", action="store_true")
-    higgsfield.add_argument("--variation-model", default="grok_image")
-    higgsfield.add_argument("--variation-layout", default="2x3", choices=["2x3", "3x3"])
-    higgsfield.add_argument(
-        "--variation-strategy",
-        default="individual",
-        choices=["individual", "grid", "soul_grid"],
-    )
-    higgsfield.add_argument(
-        "--animate-variation-panels",
-        action="store_true",
-        help="Animate each individual 2x3/3x3 panel with Kling before assembling a video grid",
-    )
-    higgsfield.add_argument(
-        "--variation-panel-dir",
-        default=None,
-        help="Reuse an existing ordered panel image folder instead of regenerating variation stills",
-    )
-    higgsfield.add_argument("--selected-image", default=None)
-    higgsfield.add_argument("--no-video", action="store_true")
-    higgsfield.add_argument("--no-campaign-intake", action="store_true")
-    higgsfield.add_argument("--campaign-factory-root", default=None)
-    higgsfield.add_argument("--campaign", default=None)
-    higgsfield.add_argument("--model", default=None)
-    higgsfield.add_argument("--creative-plan", default=None)
-
-    daily_generation = sub.add_parser(
-        "run-daily-generation",
-        help="Generate a daily Higgsfield/Kling batch and intake finished videos into Campaign Factory",
-    )
-    daily_generation.add_argument(
-        "--data-root",
-        default=argparse.SUPPRESS,
-        help="Derived data root; accepted here for command-local ergonomics",
-    )
-    daily_generation.add_argument("--creative-plan", required=True)
-    daily_generation.add_argument("--limit", type=positive_int_arg, default=10)
-    daily_generation.add_argument("--campaign", required=True)
-    daily_generation.add_argument("--model", required=True)
-    daily_generation.add_argument("--campaign-factory-root", required=True)
-    daily_generation.add_argument("--soul-id", default="Stacey")
-    daily_generation.add_argument(
-        "--kling-mode", default="std", choices=["std", "pro", "4k"]
-    )
-    daily_generation.add_argument("--wait", action="store_true")
-    daily_generation.add_argument("--dry-run", action="store_true")
-    daily_generation.add_argument(
-        "--max-credits", type=nonnegative_float_arg, default=80.0
-    )
-    daily_generation.add_argument(
-        "--estimated-cost-usd",
-        type=nonnegative_float_arg,
-        default=None,
-        help="Required positive USD estimate for any non-dry-run paid generation",
-    )
-
     verify_proof = sub.add_parser(
         "verify-proof-bundle",
         help="Verify an accepted A-to-Z proof bundle with ffprobe and lineage checks",
@@ -1194,60 +1100,6 @@ def main(argv: list[str] | None = None) -> int:
                     data_root=data_root,
                     limit=args.limit,
                     creative_plan_id=args.creative_plan_id,
-                )
-            )
-        elif args.command == "generate-with-higgsfield":
-            print_json(
-                generate_with_higgsfield(
-                    data_root=data_root,
-                    limit=args.limit,
-                    reference_id=args.reference_id,
-                    soul_id=args.soul_id,
-                    kling_mode=args.kling_mode,
-                    wait=args.wait,
-                    dry_run=args.dry_run,
-                    max_credits=args.max_credits,
-                    estimated_cost_usd=args.estimated_cost_usd,
-                    min_prompt_score=None
-                    if args.min_prompt_score <= 0
-                    else args.min_prompt_score,
-                    image_candidates=args.image_candidates,
-                    variation_grid=args.variation_grid,
-                    variation_model=args.variation_model,
-                    variation_layout=args.variation_layout,
-                    variation_strategy=args.variation_strategy,
-                    animate_variation_panels=args.animate_variation_panels,
-                    variation_panel_dir=Path(args.variation_panel_dir).expanduser()
-                    if args.variation_panel_dir
-                    else None,
-                    selected_image=Path(args.selected_image).expanduser()
-                    if args.selected_image
-                    else None,
-                    no_video=args.no_video,
-                    no_campaign_intake=args.no_campaign_intake,
-                    campaign_factory_root=Path(args.campaign_factory_root).expanduser()
-                    if args.campaign_factory_root
-                    else None,
-                    campaign=args.campaign,
-                    model=args.model,
-                    creative_plan=args.creative_plan,
-                )
-            )
-        elif args.command == "run-daily-generation":
-            print_json(
-                run_daily_generation(
-                    data_root=data_root,
-                    creative_plan=args.creative_plan,
-                    limit=args.limit,
-                    campaign=args.campaign,
-                    model=args.model,
-                    campaign_factory_root=Path(args.campaign_factory_root).expanduser(),
-                    soul_id=args.soul_id,
-                    kling_mode=args.kling_mode,
-                    wait=args.wait,
-                    dry_run=args.dry_run,
-                    max_credits=args.max_credits,
-                    estimated_cost_usd=args.estimated_cost_usd,
                 )
             )
         elif args.command == "verify-proof-bundle":
