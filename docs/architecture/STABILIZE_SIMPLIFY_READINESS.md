@@ -49,7 +49,7 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
-| Source | PENDING_FINAL_VERIFY | current repair branch adds canonical Campaign artifacts, honest worker lineage, read-only draft preview, Trial capability projection, and report-only cleanup eligibility; focused combined suites pass, but the final `make verify` result belongs below only after the integrated tree runs clean |
+| Source | PASS on integrated branch | `make verify` passed with supported Node 24: ContentForge 129, contracts 24 TypeScript + 54 Python, Core 16, Campaign 692, Reference 111, Reel 436, integration 76, and offline prompt regressions 3/3; contracts, lint, formatting, typing, architecture, and artifact gates passed |
 | CI | PASS on PR #442 / merge `2f0617bd` | Python, architecture, contracts, hygiene, changes, and secret scan passed; JavaScript, CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
 | Runtime | PASS | clean detached runtime and source exactly match; the code-bearing cutover baseline is `2f0617bd`, and the pinned LaunchAgent completed with exit 0 at `2026-07-15T21:40:11Z` against the canonical database |
 | Canonical state | PASS | migration manifest `~/.creator-os/backups/state-migrations/20260715T212851Z/migration-manifest.json` verified integrity, row counts, private modes, artifact hashes, and clean SQLite restores; machine envs switched; local backup snapshot `20260715_173212` passed |
