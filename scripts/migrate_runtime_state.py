@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
@@ -19,57 +18,20 @@ sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
 from creator_os_core.runtime_paths import RuntimePaths, resolve_runtime_paths
 from creator_os_core.runtime_state import (
     ensure_private_dir,
-    sha256_file,
     sqlite_snapshot,
     verified_vacuum_copy,
+)
+from creator_os_core.runtime_state_evidence import (
+    DEFAULT_PRIVATE_PATTERNS,
+    load_json_manifest,
+    single_file_tree_snapshot,
+    tree_snapshot,
+    verify_sqlite_evidence,
 )
 
 SCHEMA = "creator_os.runtime_state_migration.v1"
 MANIFEST_NAME = "migration-manifest.json"
-PRIVATE_PATTERNS = ("*.env", "*.key", "*.pem", "secrets.toml")
-
-
-def _tree_snapshot(
-    path: Path, *, logs_only: bool = False, exclude_private: bool = False
-) -> dict[str, Any]:
-    path = path.expanduser().resolve()
-    files: list[Path] = []
-
-    def collect(directory: Path, ancestors: frozenset[Path]) -> None:
-        resolved_directory = directory.resolve()
-        if resolved_directory in ancestors:
-            raise ValueError(f"directory symlink cycle detected: {directory}")
-        nested_ancestors = ancestors | {resolved_directory}
-        for entry in sorted(os.scandir(directory), key=lambda item: item.name):
-            item = Path(entry.path)
-            if entry.is_dir(follow_symlinks=True):
-                collect(item, nested_ancestors)
-                continue
-            if not entry.is_file(follow_symlinks=True):
-                continue
-            if logs_only and not item.name.endswith(".log"):
-                continue
-            if exclude_private and any(
-                item.match(pattern) for pattern in PRIVATE_PATTERNS
-            ):
-                continue
-            files.append(item)
-
-    collect(path, frozenset())
-    digest = hashlib.sha256()
-    total_bytes = 0
-    for item in sorted(files):
-        relative = item.relative_to(path).as_posix()
-        file_hash = sha256_file(item)
-        digest.update(relative.encode("utf-8"))
-        digest.update(file_hash.encode("ascii"))
-        total_bytes += item.stat().st_size
-    return {
-        "path": str(path),
-        "files": len(files),
-        "bytes": total_bytes,
-        "treeSha256": digest.hexdigest(),
-    }
+PRIVATE_PATTERNS = DEFAULT_PRIVATE_PATTERNS
 
 
 def _private_copy(source: Path, destination: Path, *, logs_only: bool) -> None:
@@ -219,16 +181,16 @@ def apply_migration(
         source = Path(row["source"])
         destination = Path(row["destination"])
         before = (
-            _tree_snapshot(
+            tree_snapshot(
                 source,
                 logs_only=row["kind"] == "log",
                 exclude_private=True,
             )
             if source.is_dir()
-            else _single_file_snapshot(source)
+            else single_file_tree_snapshot(source)
         )
         _private_copy(source, destination, logs_only=row["kind"] == "log")
-        after = _tree_snapshot(destination)
+        after = tree_snapshot(destination)
         if (
             before["files"] != after["files"]
             or before["bytes"] != after["bytes"]
@@ -245,38 +207,24 @@ def apply_migration(
     return result
 
 
-def _single_file_snapshot(path: Path) -> dict[str, Any]:
-    file_hash = sha256_file(path)
-    digest = hashlib.sha256()
-    digest.update(path.name.encode("utf-8"))
-    digest.update(file_hash.encode("ascii"))
-    return {
-        "path": str(path),
-        "files": 1,
-        "bytes": path.stat().st_size,
-        "treeSha256": digest.hexdigest(),
-    }
-
-
 def verify_migration(manifest_path: Path) -> dict[str, Any]:
-    manifest_path = manifest_path.expanduser().resolve()
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path, manifest = load_json_manifest(manifest_path)
     if manifest.get("schema") != SCHEMA or manifest.get("status") != "migrated":
         raise ValueError("not a completed Creator OS state migration manifest")
     databases = []
     for row in manifest["databases"]:
-        destination = sqlite_snapshot(Path(row["destination"]))
         expected = row["verification"]["destination"]
-        if (
-            destination["integrity"] != "ok"
-            or destination["rowCounts"] != expected["rowCounts"]
-            or destination["mode"] != "0o600"
-        ):
+        evidence = verify_sqlite_evidence(
+            Path(row["destination"]),
+            expected_row_counts=expected["rowCounts"],
+            required_mode="0o600",
+        )
+        if not evidence["valid"]:
             raise RuntimeError(f"database verification failed: {row['name']}")
-        databases.append({"name": row["name"], "snapshot": destination})
+        databases.append({"name": row["name"], "snapshot": evidence["snapshot"]})
     directories = []
     for row in manifest["directories"]:
-        snapshot = _tree_snapshot(Path(row["destination"]))
+        snapshot = tree_snapshot(Path(row["destination"]))
         expected = row["destinationSnapshot"]
         if snapshot != expected:
             raise RuntimeError(f"directory verification failed: {row['label']}")
