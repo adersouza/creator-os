@@ -69,6 +69,7 @@ from campaign_factory.contracts import (
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
+from campaign_factory.creative_modes import creative_workflow_modes
 from campaign_factory.daily_library_production import run_daily_library_production
 from campaign_factory.db import _repair_source_asset_fk_references
 from campaign_factory.distribution import _normalize_schedule_mode
@@ -724,6 +725,8 @@ def test_contract_schema_examples_validate():
         "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
+        "reference_video_motion_analysis.v1.example.json",
+        "reference_video_remix_plan.v1.example.json",
         "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
     }
@@ -5316,7 +5319,7 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
             reference_image_path=reference,
             accepted_still_path=accepted,
             creator="Stacey",
-            animation_mode="motion_edit",
+            animation_mode="static",
             dry_run=False,
             apply=True,
         )
@@ -5330,12 +5333,63 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
             "soul_reference_image",
             "still_accept_gate",
             "static_mp4",
-            "motion_edit",
         ]
         assert result["registeredStaticAsset"]["recipe"] == "static_mp4"
         assert result["registeredAsset"] is None
     finally:
         cf.close()
+
+
+def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
+    catalog = creative_workflow_modes()
+
+    assert catalog["schema"] == "campaign_factory.creative_workflow_modes.v1"
+    assert catalog["defaultMode"] == "library_reuse"
+    modes = {mode["id"]: mode for mode in catalog["modes"]}
+    assert set(modes) == {
+        "library_reuse",
+        "soul_static",
+        "motion_edit",
+        "best_only_kling",
+        "reference_video_remix",
+    }
+    assert modes["soul_static"]["paidVideoGeneration"] is False
+    assert modes["best_only_kling"]["staticFallbackRequired"] is True
+    assert modes["reference_video_remix"]["entrypoint"] == (
+        "reel_factory.reference_video_remix"
+    )
+    assert all(mode["humanReviewRequired"] is True for mode in modes.values())
+    assert all(mode["publishingAllowed"] is False for mode in modes.values())
+
+
+def test_generation_modes_cli_lists_all_operator_paths(tmp_path: Path):
+    result = subprocess.run(
+        [sys.executable, "-m", "campaign_factory.cli", "generation", "modes"],
+        cwd=PACKAGE_ROOT,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": CLI_PYTHONPATH,
+            "CAMPAIGN_FACTORY_ROOT": str(tmp_path),
+            "CAMPAIGN_FACTORY_DB": str(tmp_path / "campaign_factory.sqlite"),
+            "CAMPAIGN_FACTORY_CAMPAIGNS": str(tmp_path / "campaigns"),
+            "REEL_FACTORY_ROOT": str(tmp_path / "reel_factory"),
+            "CONTENTFORGE_ROOT": str(tmp_path / "contentforge"),
+            "THREADSDASH_ROOT": str(tmp_path / "ThreadsDashboard"),
+        },
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert [mode["id"] for mode in payload["modes"]] == [
+        "library_reuse",
+        "soul_static",
+        "motion_edit",
+        "best_only_kling",
+        "reference_video_remix",
+    ]
 
 
 def test_front_generation_kling_failure_preserves_static_fallback(

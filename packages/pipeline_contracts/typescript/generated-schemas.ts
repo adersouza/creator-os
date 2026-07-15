@@ -1908,6 +1908,7 @@ export const generatedPipelineContractSchemas = {
 	    "animationMode": {
 	      "type": "string",
 	      "enum": [
+	        "static",
 	        "kling",
 	        "motion_edit"
 	      ]

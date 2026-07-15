@@ -193,11 +193,12 @@ def _normalize_generation_mode(
     generation_mode: str, reference_image_path: Path | None
 ) -> str:
     normalized = str(generation_mode or "").strip().lower().replace("-", "_")
-    if (
-        normalized in {"front_generation", "front_generation_kling", "kling"}
-        or reference_image_path
-    ):
+    if normalized in {"front_generation", "front_generation_kling", "kling"}:
         return "front_generation_kling"
+    if normalized in {"front_generation_static", "soul_static", "static"}:
+        return "front_generation_static"
+    if reference_image_path:
+        return "front_generation_static"
     if normalized in {"motion_edit", "existing_asset"}:
         return normalized
     return "existing_asset"
@@ -205,7 +206,9 @@ def _normalize_generation_mode(
 
 def _projected_cost(generation_mode: str) -> float:
     if generation_mode == "front_generation_kling":
-        return DEFAULT_FRONT_IMAGE_COST_USD + DEFAULT_FRONT_VIDEO_COST_USD
+        return (2 * DEFAULT_FRONT_IMAGE_COST_USD) + DEFAULT_FRONT_VIDEO_COST_USD
+    if generation_mode == "front_generation_static":
+        return 2 * DEFAULT_FRONT_IMAGE_COST_USD
     return 0.0
 
 
