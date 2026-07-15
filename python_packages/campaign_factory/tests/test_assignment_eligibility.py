@@ -293,6 +293,14 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
         account = cf.domains.models.upsert_account(
             "trial-account", account_group_id="stacey"
         )
+        cf.domains.models.project_instagram_trial_capability(
+            account["id"],
+            capability="unknown",
+            oauth_granted_scopes=["instagram_content_publish"],
+            oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
+            checked_at=None,
+            reason=None,
+        )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
             surface="trial_reel",
@@ -357,6 +365,14 @@ def test_trial_graduation_hard_fails_without_lineage_fingerprint(tmp_path: Path)
         account = cf.domains.models.upsert_account(
             "trial-missing", account_group_id="stacey"
         )
+        cf.domains.models.project_instagram_trial_capability(
+            account["id"],
+            capability="unknown",
+            oauth_granted_scopes=["instagram_content_publish"],
+            oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
+            checked_at=None,
+            reason=None,
+        )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
             surface="trial_reel",
@@ -410,6 +426,14 @@ def test_trial_ranking_report_has_one_and_twenty_four_hour_windows(tmp_path: Pat
         )
         account = cf.domains.models.upsert_account(
             "report-account", account_group_id="stacey"
+        )
+        cf.domains.models.project_instagram_trial_capability(
+            account["id"],
+            capability="unknown",
+            oauth_granted_scopes=["instagram_content_publish"],
+            oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
+            checked_at=None,
+            reason=None,
         )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],

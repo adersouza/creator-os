@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.account_eligibility_decision.v1",
+  "title": "Campaign Factory Account Eligibility Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "allowed",
+    "decisionReason",
+    "operatorAction",
+    "requestedSurface",
+    "account",
+    "oauth",
+    "trial",
+    "health",
+    "cadence",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {"const": "campaign_factory.account_eligibility_decision.v1"},
+    "allowed": {"type": "boolean"},
+    "decisionReason": {"type": "string", "minLength": 1},
+    "operatorAction": {"type": ["string", "null"]},
+    "requestedSurface": {
+      "enum": [
+        "regular_reel",
+        "trial_reel",
+        "story",
+        "story_cta",
+        "feed_single",
+        "feed_carousel"
+      ]
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountId",
+        "instagramAccountId",
+        "handle",
+        "active",
+        "status",
+        "needsReauth",
+        "syncCohort",
+        "projectionObservedAt"
+      ],
+      "properties": {
+        "accountId": {"type": ["string", "null"]},
+        "instagramAccountId": {"type": ["string", "null"]},
+        "handle": {"type": ["string", "null"]},
+        "active": {"type": ["boolean", "null"]},
+        "status": {"type": "string"},
+        "needsReauth": {"type": ["boolean", "null"]},
+        "syncCohort": {"type": ["string", "null"]},
+        "projectionObservedAt": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "oauth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grantedScopes", "verifiedAt"],
+      "properties": {
+        "grantedScopes": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "verifiedAt": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "capability", "checkedAt", "reason", "authorization"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "capability": {"enum": ["unknown", "eligible", "denied"]},
+        "checkedAt": {"type": ["string", "null"], "format": "date-time"},
+        "reason": {"type": ["string", "null"]},
+        "authorization": {"enum": ["operator_canary", null]}
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "warmingStage", "blockers", "warnings"],
+      "properties": {
+        "state": {"enum": ["safe", "warming", "blocked", "unknown"]},
+        "warmingStage": {"type": ["string", "null"]},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "cadence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warmingStage",
+        "plannedAt",
+        "scheduledOnDay",
+        "maxPerDay",
+        "minGapHours",
+        "withinDailyLimit",
+        "source"
+      ],
+      "properties": {
+        "warmingStage": {"type": ["string", "null"]},
+        "plannedAt": {"type": ["string", "null"], "format": "date-time"},
+        "scheduledOnDay": {"type": ["integer", "null"], "minimum": 0},
+        "maxPerDay": {"type": "integer", "minimum": 1},
+        "minGapHours": {"type": "integer", "minimum": 0},
+        "withinDailyLimit": {"type": ["boolean", "null"]},
+        "source": {"enum": ["account_content_requirements", "campaign_default"]}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "factsOwner", "policyOwner"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "factsOwner": {"const": "threadsdashboard"},
+        "policyOwner": {"const": "campaign_factory"}
+      }
+    }
+  }
+}

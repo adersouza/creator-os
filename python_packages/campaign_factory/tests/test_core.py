@@ -132,6 +132,8 @@ def project_trial_account(
     checked_at: str | None = "2026-07-15T04:30:00+00:00",
     reason: str | None = None,
 ) -> dict[str, Any]:
+    if scopes is None:
+        scopes = ["instagram_content_publish"]
     account = factory.domains.models.upsert_account(
         f"fixture_{external_id}",
         external_id=external_id,
@@ -744,6 +746,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
 def test_contract_schema_examples_validate():
     checks = validate_schema_examples()
     assert {check["name"] for check in checks} == {
+        "account_eligibility_decision.v1.example.json",
         "audio_intent.v1.example.json",
         "assignment_eligibility.v1.example.json",
         "audio_catalog_export.v1.example.json",

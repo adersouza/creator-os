@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from .account_eligibility import enforce_account_eligibility
 from .assignment_eligibility import (
     enforce_assignment_eligibility,
     persist_assignment_origin,
@@ -78,6 +79,12 @@ class InventoryReservationRepository:
             ).fetchone()
             if not account:
                 raise ValueError(f"account not found: {account_id}")
+        account_eligibility = enforce_account_eligibility(
+            self.conn,
+            account_id=account_id,
+            surface=normalized_surface,
+            planned_at=now,
+        )
         eligibility = enforce_assignment_eligibility(
             self.conn,
             rendered_asset_id=asset_id,
@@ -125,9 +132,10 @@ class InventoryReservationRepository:
             (id, asset_id, campaign_id, account_id, surface, reservation_id, reserved_by,
              reserved_at, expires_at, status, idempotency_key, source_family_id,
              perceptual_fingerprint, perceptual_cluster_id, account_group_id,
-             reuse_cooldown_days, override_reason, assignment_eligibility_json,
+             reuse_cooldown_days, override_reason, account_eligibility_json,
+             assignment_eligibility_json,
              metadata_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row_id,
@@ -146,6 +154,7 @@ class InventoryReservationRepository:
                 uniqueness["accountGroupId"],
                 reuse_cooldown_days,
                 override_reason,
+                json.dumps(account_eligibility, ensure_ascii=False, sort_keys=True),
                 json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
                 now,

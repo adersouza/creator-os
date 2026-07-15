@@ -14,6 +14,7 @@ from referencing.jsonschema import DRAFT202012
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
+ACCOUNT_ELIGIBILITY_DECISION_SCHEMA = "account_eligibility_decision.v1.schema.json"
 ASSIGNMENT_ELIGIBILITY_SCHEMA = "assignment_eligibility.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA = "campaign_draft_payload.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA = "campaign_draft_payload.v2.schema.json"
@@ -49,6 +50,8 @@ PROVIDER_SPEND_AUTHORIZATION_SCHEMA = "provider_spend_authorization.v1.schema.js
 
 SCHEMA_NAMES = {
     "audio_intent": AUDIO_INTENT_SCHEMA,
+    "account_eligibility_decision": ACCOUNT_ELIGIBILITY_DECISION_SCHEMA,
+    "campaign_factory_account_eligibility_decision": ACCOUNT_ELIGIBILITY_DECISION_SCHEMA,
     "assignment_eligibility": ASSIGNMENT_ELIGIBILITY_SCHEMA,
     "campaign_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "campaign_draft_payload_v1": CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA,
@@ -137,6 +140,10 @@ def validate_provider_spend_authorization(value: Any) -> None:
 
 def validate_audio_intent(value: Any) -> None:
     validate_contract(value, AUDIO_INTENT_SCHEMA)
+
+
+def validate_account_eligibility_decision(value: Any) -> None:
+    validate_contract(value, ACCOUNT_ELIGIBILITY_DECISION_SCHEMA)
 
 
 def validate_assignment_eligibility(value: Any) -> None:
@@ -337,6 +344,7 @@ def _validate_campaign_draft_graph_ids(value: Any) -> None:
 def validate_schema_examples() -> list[dict[str, Any]]:
     validators: dict[str, Callable[[Any], None]] = {
         "audio_intent.v1.example.json": validate_audio_intent,
+        "account_eligibility_decision.v1.example.json": validate_account_eligibility_decision,
         "assignment_eligibility.v1.example.json": validate_assignment_eligibility,
         "campaign_draft_payload.v1.example.json": validate_campaign_draft_payload,
         "campaign_draft_payload.v2.example.json": validate_campaign_draft_payload,
