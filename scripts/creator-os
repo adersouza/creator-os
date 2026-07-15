@@ -24,20 +24,28 @@ def _run(command: list[str], *, cwd: Path = ROOT) -> int:
     return subprocess.run(command, cwd=cwd, check=False).returncode
 
 
+def _campaign_command(*args: str) -> list[str]:
+    return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
+
+
+def _reference_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reference-factory",
+        "python",
+        "-m",
+        "reference_factory.cli",
+        *args,
+    ]
+
+
 def _component_command(name: str, args: list[str]) -> list[str]:
     if name == "campaign":
-        return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
+        return _campaign_command(*args)
     if name == "reference":
-        return [
-            "uv",
-            "run",
-            "--package",
-            "reference-factory",
-            "python",
-            "-m",
-            "reference_factory.cli",
-            *args,
-        ]
+        return _reference_command(*args)
     if name == "contentforge":
         return ["pnpm", "--dir", str(ROOT / "packages/contentforge"), *args]
     if not args or args[0] not in REEL_COMMANDS:
@@ -76,6 +84,65 @@ def _parser() -> argparse.ArgumentParser:
     sync_mode = sync.add_mutually_exclusive_group(required=True)
     sync_mode.add_argument("--dry-run", action="store_true")
     sync_mode.add_argument("--apply", action="store_true")
+
+    reference_refresh = sub.add_parser(
+        "reference-refresh",
+        help="preview or apply the local reference/audio refresh workflow",
+    )
+    reference_mode = reference_refresh.add_mutually_exclusive_group(required=True)
+    reference_mode.add_argument("--dry-run", action="store_true")
+    reference_mode.add_argument("--apply", action="store_true")
+    reference_refresh.add_argument(
+        "--source", type=Path, default=Path.home() / "Downloads/tiktok"
+    )
+    reference_refresh.add_argument(
+        "--audio-export",
+        type=Path,
+        default=ROOT.parent / "reference_reels/audio_catalog.json",
+    )
+
+    prepare = sub.add_parser(
+        "campaign-prepare",
+        help="build a local review batch; never exports or auto-approves",
+    )
+    prepare.add_argument("--confirm-write", action="store_true", required=True)
+    prepare.add_argument("--folder", type=Path, required=True)
+    prepare.add_argument("--campaign", required=True)
+    prepare.add_argument("--model", required=True)
+    prepare.add_argument(
+        "--format", choices=["reel", "slideshow", "auto"], default="auto"
+    )
+    prepare.add_argument("--variant-count", type=int, default=20)
+
+    static_reel = sub.add_parser(
+        "static-reel", help="preview or create one free static MP4 from an accepted still"
+    )
+    static_mode = static_reel.add_mutually_exclusive_group(required=True)
+    static_mode.add_argument("--dry-run", action="store_true")
+    static_mode.add_argument("--apply", action="store_true")
+    static_reel.add_argument("--campaign", required=True)
+    static_reel.add_argument("--still", type=Path, required=True)
+    static_reel.add_argument("--duration", type=float)
+    static_reel.add_argument("--allow-upscale", action="store_true")
+
+    readiness = sub.add_parser(
+        "readiness", help="read-only Campaign Factory QC/readiness decision"
+    )
+    readiness.add_argument("--campaign", required=True)
+    readiness.add_argument("--user-id")
+
+    draft = sub.add_parser(
+        "draft-export",
+        help="preview or explicitly write validated drafts; never schedules or publishes",
+    )
+    draft_mode = draft.add_mutually_exclusive_group(required=True)
+    draft_mode.add_argument("--dry-run", action="store_true")
+    draft_mode.add_argument("--apply", action="store_true")
+    draft.add_argument("--campaign", required=True)
+    draft.add_argument("--user-id", required=True)
+    draft.add_argument("--max-drafts", type=int, required=True)
+    draft.add_argument("--rendered-asset-id", action="append", default=[])
+    draft.add_argument("--review-only", action="store_true")
 
     component = sub.add_parser(
         "component",
@@ -127,6 +194,93 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             command.append("--dry-run")
         return _run(command)
+    if args.command == "reference-refresh":
+        source = args.source.expanduser().resolve()
+        audio_export = args.audio_export.expanduser().resolve()
+        commands = [
+            _reference_command("import-tiktok-archive", "--source", str(source)),
+            _reference_command("refresh-tiktok-audio", "--source", str(source)),
+            _reference_command("analyze-audio-patterns"),
+            _reference_command("audio-health"),
+            _reference_command("list-audio", "--export", str(audio_export)),
+            _campaign_command("import-audio-catalog", "--path", str(audio_export)),
+        ]
+        if args.dry_run:
+            for command in commands:
+                print(" ".join(command))
+            return 0
+        for command in commands:
+            if code := _run(command):
+                return code
+        return 0
+    if args.command == "campaign-prepare":
+        if args.variant_count <= 0:
+            print("--variant-count must be greater than zero", file=sys.stderr)
+            return 2
+        return _run(
+            _campaign_command(
+                "make-batch",
+                "--folder",
+                str(args.folder.expanduser().resolve()),
+                "--campaign",
+                args.campaign,
+                "--model",
+                args.model,
+                "--format",
+                args.format,
+                "--variant-count",
+                str(args.variant_count),
+                "--dry-run-export",
+                "--no-auto-approve",
+            )
+        )
+    if args.command == "static-reel":
+        command = _campaign_command(
+            "animation",
+            "static-mp4",
+            "--campaign",
+            args.campaign,
+            "--still",
+            str(args.still.expanduser().resolve()),
+            "--apply" if args.apply else "--dry-run",
+        )
+        if args.duration is not None:
+            if args.duration <= 0:
+                print("--duration must be greater than zero", file=sys.stderr)
+                return 2
+            command.extend(["--duration", str(args.duration)])
+        if args.allow_upscale:
+            command.append("--allow-upscale")
+        return _run(command)
+    if args.command == "readiness":
+        command = _campaign_command(
+            "campaign-readiness", "--campaign", args.campaign
+        )
+        if args.user_id:
+            command.extend(["--user-id", args.user_id])
+        return _run(command)
+    if args.command == "draft-export":
+        if args.max_drafts <= 0:
+            print("--max-drafts must be greater than zero", file=sys.stderr)
+            return 2
+        command = _campaign_command(
+            "export-threadsdash",
+            "--campaign",
+            args.campaign,
+            "--user-id",
+            args.user_id,
+            "--max-drafts",
+            str(args.max_drafts),
+            "--schedule-mode",
+            "draft",
+        )
+        if args.dry_run:
+            command.append("--dry-run")
+        if args.review_only:
+            command.append("--review-only")
+        for asset_id in args.rendered_asset_id:
+            command.extend(["--rendered-asset-id", asset_id])
+        return _run(command)
     if args.command == "component":
         try:
             command = _component_command(args.name, args.args)
@@ -146,12 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             print("--max-credits must be greater than zero", file=sys.stderr)
             return 2
         reference = args.reference_image.expanduser().resolve()
-        command = [
-            "uv",
-            "run",
-            "--package",
-            "campaign-factory",
-            "campaign-factory",
+        command = _campaign_command(
             "generation",
             "front-link",
             "--campaign",
@@ -166,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
             str(args.max_credits),
             "--enable-paid-generation",
             "--apply",
-        ]
+        )
         if args.wait:
             command.append("--wait")
         if args.download:
