@@ -18,11 +18,13 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-As of 2026-07-15, the last promoted runtime baseline, canonical private roots,
-state migration, clean restore, local backup, live HMAC handshake, and
-Higgsfield account/workspace/model/balance/free-quote probes were verified.
-Any later source repair still requires its own merge, CI proof, and exact-SHA
-runtime promotion before it inherits that runtime status.
+As of 2026-07-15, Creator OS `main` and the clean detached runtime checkout both
+resolve to merge `bd96be81830be7139177c7e9f2723e18ef91d3b4` (PR #444). The
+canonical private roots, state migration, clean restore, fresh local backup,
+live HMAC handshake, and Higgsfield account/workspace/model/balance/free-quote
+probes are verified. The promoted runtime also completed the normal
+performance/learning sync at `2026-07-15T22:45:29Z`. A future source repair must
+still earn its own merge, CI proof, and exact-SHA runtime promotion.
 
 The operational learning loop is healthy but not yet statistically proven. A
 post-promotion LaunchAgent run scanned four posts, imported/updated one eligible
@@ -147,6 +149,11 @@ The authorization and capability snapshot are stored on the distribution plan,
 so a later account-sync change cannot rewrite what was authorized. Reconnecting
 an account resets the external capability to `unknown`; the next normal account
 sync projects the new evidence into Campaign Factory.
+
+The current projected Stacey roster is 66 accounts: 0 `eligible`, 2 `denied`,
+and 64 `unknown`. None currently has stored OAuth-scope verification. Trial
+automation therefore remains closed; `unknown` permits only a separately
+authorized one-account operator canary, never autonomous selection.
 
 ## Learning Return Path
 

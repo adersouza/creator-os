@@ -49,10 +49,10 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
-| Source | PASS on integrated branch | `make verify` passed with supported Node 24: ContentForge 129, contracts 24 TypeScript + 54 Python, Core 16, Campaign 692, Reference 111, Reel 436, integration 76, and offline prompt regressions 3/3; contracts, lint, formatting, typing, architecture, and artifact gates passed |
-| CI | PASS on PR #442 / merge `2f0617bd` | Python, architecture, contracts, hygiene, changes, and secret scan passed; JavaScript, CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
-| Runtime | PASS | clean detached runtime and source exactly match; the code-bearing cutover baseline is `2f0617bd`, and the pinned LaunchAgent completed with exit 0 at `2026-07-15T21:40:11Z` against the canonical database |
-| Canonical state | PASS | migration manifest `~/.creator-os/backups/state-migrations/20260715T212851Z/migration-manifest.json` verified integrity, row counts, private modes, artifact hashes, and clean SQLite restores; machine envs switched; local backup snapshot `20260715_173212` passed |
+| Source | PASS on `main` merge `bd96be81` | `make verify` passed with supported Node 24: ContentForge 129, contracts 24 TypeScript + 54 Python, Core 16, Campaign 692, Reference 111, Reel 436, integration 76, and offline prompt regressions 3/3; contracts, lint, formatting, typing, architecture, and artifact gates passed |
+| CI | PASS on PR #444 / merge `bd96be81` | Python, JavaScript, architecture, contracts, hygiene, and secret scan passed; CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
+| Runtime | PASS | clean detached runtime and source exactly match `bd96be81830be7139177c7e9f2723e18ef91d3b4`; all eight live read-only status checks passed, and the promoted runtime completed a normal metrics/learning cycle at `2026-07-15T22:45:29Z` |
+| Canonical state | PASS | migration manifest `~/.creator-os/backups/state-migrations/20260715T212851Z/migration-manifest.json` verified integrity, row counts, private modes, artifact hashes, and clean SQLite restores; machine envs switched; fresh backup `~/.creator-os/backups/runtime/20260715T224121Z` passed hash, private-mode, integrity, row-count, and clean-restore verification |
 | ThreadsDashboard seam | PASS live read-only | valid production HMAC/contract request passed with nonce claimed and `productRowsWritten=0`; invalid/stale/replay behavior remains covered by regression tests |
 | Providers | PASS live read-only | account, selected workspace, Soul/Kling/Seedance availability, balance, and a 0.12-credit quote passed with zero media and zero cost events; no paid smoke was run |
 | Publishing | Unchanged and out of scope for this source repair | existing ThreadsDashboard production evidence; Creator OS must remain unable to publish |
@@ -125,10 +125,10 @@ ledger still contains only the earlier archived Trial Reel's real eligible
 
 The current read-only account snapshot contains 208 Instagram accounts, 197
 active. Trial capability evidence is 0 eligible, 2 denied, and 206 unknown, with
-no stored OAuth-grant evidence yet. The local Creator OS roster maps 66 active
-accounts: 2 denied and 64 unknown. This is why Trial automation must remain
-closed. After source merge and exact runtime promotion, the normal account sync
-must project those fields locally; operators may then reconnect accounts and
+no stored OAuth-grant evidence yet. After exact runtime promotion, the normal
+account sync projected the 66-account Stacey roster into Campaign Factory: 0
+eligible, 2 denied, and 64 unknown, with zero stored OAuth-scope verification.
+Trial automation therefore remains closed. Operators may reconnect accounts and
 run bounded canaries one account at a time. Unknown is not eligibility.
 
 ## Guarded Cutover Order
