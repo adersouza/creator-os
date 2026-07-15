@@ -25,21 +25,33 @@ import campaign_factory.daily_library_production as daily_library_module
 import campaign_factory.variant_lineage as variant_lineage_module
 import pytest
 from campaign_factory.adapters import contentforge as contentforge_adapter
-from campaign_factory.adapters import threadsdash as threadsdash_adapter
+from campaign_factory.adapters import (
+    threadsdash_account_projection as threadsdash_accounts_adapter,
+)
 from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
+from campaign_factory.adapters import (
+    threadsdash_draft_delivery as threadsdash_delivery_adapter,
+)
 from campaign_factory.adapters import (
     threadsdash_draft_payload as threadsdash_payload_adapter,
 )
+from campaign_factory.adapters import (
+    threadsdash_metrics_ingestion as threadsdash_metrics_adapter,
+)
 from campaign_factory.adapters.contentforge import audit_campaign
-from campaign_factory.adapters.threadsdash import (
-    build_draft_payloads,
-    evaluate_export_readiness,
-    export_threadsdash,
-    preflight_supabase,
+from campaign_factory.adapters.threadsdash_account_projection import (
     summarize_threadsdash_usage,
-    sync_performance_snapshots,
     sync_threadsdash_account_assignments,
+)
+from campaign_factory.adapters.threadsdash_draft_delivery import export_threadsdash
+from campaign_factory.adapters.threadsdash_draft_payload import build_draft_payloads
+from campaign_factory.adapters.threadsdash_draft_readiness import (
+    evaluate_export_readiness,
+    preflight_supabase,
     verify_threadsdash_export,
+)
+from campaign_factory.adapters.threadsdash_metrics_ingestion import (
+    sync_performance_snapshots,
 )
 from campaign_factory.audio_smoke import (
     CONTENTFORGE_SMOKE_RESPONSE,
@@ -66,6 +78,7 @@ from campaign_factory.contracts import (
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
     validate_schema_examples,
+    validate_threadsdash_draft_payload_strict,
     validate_variant_assignment,
 )
 from campaign_factory.control import operator_control_check
@@ -2837,18 +2850,20 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert review_handoff["scheduleSafe"] is False
         assert review_handoff["allowPublish"] is False
         assert review_metadata["handoff_manifest"] == review_handoff
-        threadsdash_adapter.validate_threadsdash_draft_payload_strict(review_payload)
+        validate_threadsdash_draft_payload_strict(review_payload)
         assert (
-            threadsdash_adapter._campaign_factory_manifest_blockers(review_payload)
+            threadsdash_delivery_adapter._campaign_factory_manifest_blockers(
+                review_payload
+            )
             == []
         )
         review_draft["media"][0]["url"] = "https://media.example/review.mp4"
-        threadsdash_adapter._hydrate_surface_media_items_for_uploaded_media(
+        threadsdash_delivery_adapter._hydrate_surface_media_items_for_uploaded_media(
             review_draft,
             {"publicUrl": "https://media.example/review.mp4"},
         )
         assert (
-            threadsdash_adapter._campaign_factory_manifest_blockers(
+            threadsdash_delivery_adapter._campaign_factory_manifest_blockers(
                 review_payload, require_remote_media_urls=True
             )
             == []
@@ -4393,7 +4408,9 @@ def add_rendered_asset(
         "caption_hash": "caption_hash_1",
         "caption_text": "caption",
         "instagram_post_caption": "new post",
-        "instagram_post_caption_hash": threadsdash_adapter._text_hash("new post"),
+        "instagram_post_caption_hash": threadsdash_client_adapter._text_hash(
+            "new post"
+        ),
         "caption_bank": "test_bank",
         "caption_banks": ["test_bank"],
         "creator_mix": "Test",
@@ -6545,7 +6562,9 @@ def threadsdash_campaign_factory_metadata(
             "contentFingerprint": content_hash,
             "variationApplied": False,
             "variantId": None,
-            "audioIntentFingerprint": threadsdash_adapter._text_hash("audio_intent"),
+            "audioIntentFingerprint": threadsdash_client_adapter._text_hash(
+                "audio_intent"
+            ),
             "audioId": None,
             "source": {
                 "promptId": "prompt_test_001",
@@ -7887,7 +7906,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
         threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
-    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+    original_build_draft_payloads = threadsdash_payload_adapter.build_draft_payloads
 
     def build_payloads_with_remote_media(*args, **kwargs):
         payload = original_build_draft_payloads(*args, **kwargs)
@@ -7949,7 +7968,7 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
         timestamp = captured["headers"]["x-campaign-factory-timestamp"]
         nonce = captured["headers"]["x-campaign-factory-nonce"]
         assert captured["headers"]["x-campaign-factory-signature"] == (
-            threadsdash_adapter._threadsdash_ingest_signature(
+            threadsdash_client_adapter._threadsdash_ingest_signature(
                 captured["raw_body"],
                 secret="ingest-secret",
                 timestamp=timestamp,
@@ -8015,7 +8034,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda _seconds: None)
-    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+    original_build_draft_payloads = threadsdash_payload_adapter.build_draft_payloads
 
     def build_payloads_with_remote_media(*args, **kwargs):
         payload = original_build_draft_payloads(*args, **kwargs)
@@ -8071,7 +8090,7 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
                 supabase_service_role_key="service-role",
             )
 
-        assert len(calls) == threadsdash_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
+        assert len(calls) == threadsdash_client_adapter.DASHBOARD_INGEST_MAX_ATTEMPTS
         assert len(
             {call["headers"]["x-campaign-factory-nonce"] for call in calls}
         ) == len(calls)
@@ -8106,7 +8125,7 @@ def test_threadsdash_dashboard_ingest_rejects_unallowed_url_before_request(monke
     )
 
     with pytest.raises(ValueError, match="private or reserved IP"):
-        threadsdash_adapter._post_threadsdash_draft_ingest(
+        threadsdash_delivery_adapter._post_threadsdash_draft_ingest(
             {"drafts": []},
             ingest_url="https://169.254.169.254/api/campaign-factory/drafts/ingest",
             ingest_secret="ingest-secret",
@@ -8119,7 +8138,7 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
     monkeypatch.setenv("THREADSDASH_ALLOWED_INGEST_HOSTS", "dashboard.example.com")
 
     with pytest.raises(ValueError, match="/api/campaign-factory/drafts/ingest"):
-        threadsdash_adapter._post_threadsdash_draft_ingest(
+        threadsdash_delivery_adapter._post_threadsdash_draft_ingest(
             {"drafts": []},
             ingest_url="https://dashboard.example.com/api/internal/proxy",
             ingest_secret="ingest-secret",
@@ -8129,7 +8148,7 @@ def test_threadsdash_dashboard_ingest_requires_expected_ingest_path(monkeypatch)
 def test_threadsdash_ingest_hmac_is_bound_to_body_timestamp_and_nonce() -> None:
     body = b'{"dryRun":false,"drafts":[]}'
     assert (
-        threadsdash_adapter._threadsdash_ingest_signature(
+        threadsdash_client_adapter._threadsdash_ingest_signature(
             body,
             secret="current-secret",
             timestamp="1783675000",
@@ -8137,7 +8156,7 @@ def test_threadsdash_ingest_hmac_is_bound_to_body_timestamp_and_nonce() -> None:
         )
         == "v1=622cfc0c74fb7c5fa11878402496c28f671ef2b291d0cef5584e767c24d92e60"
     )
-    signature = threadsdash_adapter._threadsdash_ingest_signature(
+    signature = threadsdash_client_adapter._threadsdash_ingest_signature(
         body,
         secret="ingest-secret",
         timestamp="1783675000",
@@ -8146,19 +8165,19 @@ def test_threadsdash_ingest_hmac_is_bound_to_body_timestamp_and_nonce() -> None:
 
     assert signature.startswith("v1=")
     assert len(signature) == 67
-    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+    assert signature != threadsdash_client_adapter._threadsdash_ingest_signature(
         body + b" ",
         secret="ingest-secret",
         timestamp="1783675000",
         nonce="nonce_1234567890",
     )
-    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+    assert signature != threadsdash_client_adapter._threadsdash_ingest_signature(
         body,
         secret="ingest-secret",
         timestamp="1783675001",
         nonce="nonce_1234567890",
     )
-    assert signature != threadsdash_adapter._threadsdash_ingest_signature(
+    assert signature != threadsdash_client_adapter._threadsdash_ingest_signature(
         body,
         secret="ingest-secret",
         timestamp="1783675000",
@@ -8173,7 +8192,7 @@ def test_threadsdash_ingest_redirect_handler_never_forwards_authenticated_reques
         method="POST",
         headers={"X-Campaign-Factory-Signature": "v1=" + "a" * 64},
     )
-    handler = threadsdash_adapter._RejectDashboardIngestRedirects()
+    handler = threadsdash_client_adapter._RejectDashboardIngestRedirects()
 
     redirected = handler.redirect_request(
         request,
@@ -8337,7 +8356,7 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
             """,
             (campaign["id"], now, now),
         )
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
@@ -8459,7 +8478,7 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
             """,
             (campaign["id"], now, now),
         )
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         snapshots = [
             ("perf_static", "post_static", "static_active", 200, 5, 0, 0, 0, 180),
             (
@@ -8992,7 +9011,7 @@ def test_recommend_next_batch_recommends_account_performance_ranked_variation_pr
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         campaign = cf.domains.campaign_by_slug("may")
         now = "2026-01-02T12:00:00+00:00"
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         snapshots = [
             ("perf_preset_subtle", "post_subtle", "ig_subtle", 250, 8, 0, 0, 1, 220),
             (
@@ -9102,7 +9121,7 @@ def test_recommendation_lifecycle_accept_link_and_measure(tmp_path: Path):
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         campaign = cf.domains.campaign_by_slug("may")
         now = "2026-01-02T00:00:00+00:00"
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         cf.conn.execute(
             """
             INSERT INTO render_jobs
@@ -9231,7 +9250,7 @@ def test_recommendation_accuracy_report_idempotent_and_segments(tmp_path: Path):
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         campaign = cf.domains.campaign_by_slug("may")
         now = "2026-05-30T00:00:00+00:00"
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
@@ -9475,7 +9494,7 @@ def test_account_memory_rebuild_and_account_fit_recommendations(tmp_path: Path):
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
         campaign = cf.domains.campaign_by_slug("may")
         now = "2026-01-02T12:00:00+00:00"
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         raw = {
             "metadata": {
                 "campaign_factory": {
@@ -9871,7 +9890,7 @@ def test_threadsdash_draft_notify_defers_required_native_audio_without_unlocking
             "scheduleSafe": False,
             "blockingReasons": ["missing_audio"],
         }
-        threadsdash_adapter.validate_threadsdash_draft_payload_strict(payload)
+        validate_threadsdash_draft_payload_strict(payload)
 
         readiness = evaluate_export_readiness(
             cf,
@@ -10041,7 +10060,7 @@ def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypa
             return []
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
-    original_build_draft_payloads = threadsdash_adapter.build_draft_payloads
+    original_build_draft_payloads = threadsdash_payload_adapter.build_draft_payloads
 
     def invalid_payload(*args, **kwargs):
         payload = original_build_draft_payloads(*args, **kwargs)
@@ -10681,7 +10700,7 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                             "caption_hash": f"caption_hash_{i}",
                             "caption_text": f"caption {i}",
                             "instagram_post_caption": f"new post {i}",
-                            "instagram_post_caption_hash": threadsdash_adapter._text_hash(
+                            "instagram_post_caption_hash": threadsdash_client_adapter._text_hash(
                                 f"new post {i}"
                             ),
                             "caption_bank": "test_bank",
@@ -13273,7 +13292,7 @@ def test_handoff_manifest_preserves_distinct_instagram_post_caption(tmp_path: Pa
         )
         assert manifest[
             "instagram_post_caption_hash"
-        ] == threadsdash_adapter._text_hash(manifest["instagram_post_caption"])
+        ] == threadsdash_client_adapter._text_hash(manifest["instagram_post_caption"])
         assert manifest["post_caption_style"] == "short_natural"
     finally:
         cf.close()
@@ -13335,7 +13354,7 @@ def test_handoff_manifest_does_not_fallback_burned_caption_to_instagram_post_cap
 
 
 def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_caption():
-    metadata = threadsdash_adapter._draft_metadata(
+    metadata = threadsdash_payload_adapter._draft_metadata(
         {
             "campaignId": "campaign_1",
             "renderedAssetId": "asset_1",
@@ -13473,7 +13492,7 @@ def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(
 
 def test_threadsdash_audio_live_gate_accepts_embedded_licensed_audio():
     assert (
-        threadsdash_adapter._audio_intent_allows_live(
+        threadsdash_payload_adapter._audio_intent_allows_live(
             {
                 "schema": "pipeline.audio_intent.v1",
                 "mode": "licensed_music",
@@ -16849,8 +16868,10 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
             "publishability_failure_reasons": [],
         }
 
-        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
-            cf, row=row, meta=meta
+        eligibility = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf, row=row, meta=meta
+            )
         )
 
         assert eligibility["eligible"] is True
@@ -16899,13 +16920,13 @@ def test_notify_publish_resolves_only_audio_handoff_metric_blockers(tmp_path: Pa
             ],
         }
 
-        resolved = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+        resolved = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
             cf, row=row, meta=meta
         )
         assert resolved["eligible"] is True
 
         meta["publishability_failure_reasons"].append("identity_verification_failed")
-        unsafe = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
+        unsafe = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
             cf, row=row, meta=meta
         )
         assert unsafe["eligible"] is False
@@ -16955,8 +16976,10 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
             "publishability_failure_reasons": [],
         }
 
-        eligibility = threadsdash_adapter._metrics_eligibility_for_threadsdash_row(
-            cf, row=row, meta=meta
+        eligibility = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf, row=row, meta=meta
+            )
         )
 
         assert eligibility["eligible"] is True
@@ -17784,14 +17807,14 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
-        first = threadsdash_adapter.sync_threadsdash_instagram_accounts(
+        first = threadsdash_accounts_adapter.sync_threadsdash_instagram_accounts(
             cf,
             creator="Stacey",
             match="stacey",
             supabase_url="https://example.supabase.co",
             supabase_service_role_key="service-role",
         )
-        second = threadsdash_adapter.sync_threadsdash_instagram_accounts(
+        second = threadsdash_accounts_adapter.sync_threadsdash_instagram_accounts(
             cf,
             creator="Stacey",
             match="stacey",
@@ -17988,7 +18011,7 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
 def test_threadsdash_watch_time_is_normalized_to_total_seconds(
     row: dict, meta: dict, expected: float | None
 ) -> None:
-    assert threadsdash_adapter._watch_time_seconds(row, meta) == expected
+    assert threadsdash_metrics_adapter._watch_time_seconds(row, meta) == expected
 
 
 def test_sync_performance_snapshots_imports_threadsdash_metric_history(
@@ -18162,11 +18185,13 @@ def test_metric_history_read_omits_nonexistent_created_at_column():
                 params,
             )
 
-    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
-        CapturedFailingRequestClient(), post_ids=["post_1"], limit=1000
+    rows, truncated = (
+        threadsdash_client_adapter._select_threadsdash_post_metric_history(
+            CapturedFailingRequestClient(), post_ids=["post_1"], limit=1000
+        )
     )
     assert truncated is False
-    threadsdash_adapter._validate_threadsdash_post_metric_history_read(rows)
+    threadsdash_client_adapter._validate_threadsdash_post_metric_history_read(rows)
 
     assert len(rows) == 1
     assert "created_at" not in captured["select"].split(",")
@@ -18202,7 +18227,7 @@ def test_metric_history_read_rejects_invalid_snapshot_at_without_created_at_fall
         RuntimeError,
         match="post_metric_history.read.v1 validation failed.*snapshot_at",
     ):
-        threadsdash_adapter._validate_threadsdash_post_metric_history_read([row])
+        threadsdash_client_adapter._validate_threadsdash_post_metric_history_read([row])
 
 
 def test_metric_history_read_batches_the_captured_1000_post_request_shape():
@@ -18218,8 +18243,10 @@ def test_metric_history_read_batches_the_captured_1000_post_request_shape():
             return []
 
     post_ids = [f"00000000-0000-4000-8000-{index:012d}" for index in range(1000)]
-    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
-        UrlLengthGuardClient(), post_ids=post_ids, limit=1000
+    rows, truncated = (
+        threadsdash_client_adapter._select_threadsdash_post_metric_history(
+            UrlLengthGuardClient(), post_ids=post_ids, limit=1000
+        )
     )
     assert truncated is False
 
@@ -18243,7 +18270,7 @@ def test_learning_lineage_repairs_missing_reference_from_canonical_local_asset(
         }
 
         repaired_row, repaired_meta, report = (
-            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+            threadsdash_metrics_adapter._repair_learning_lineage_from_local_asset(
                 cf, row=row, meta=meta
             )
         )
@@ -18301,7 +18328,7 @@ def test_learning_lineage_repairs_missing_source_lineage_artifact_path(
         meta["generated_asset_lineage"]["source"]["sourceLineagePath"] = None
 
         _, repaired_meta, report = (
-            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+            threadsdash_metrics_adapter._repair_learning_lineage_from_local_asset(
                 cf,
                 row={"id": "post_repair_lineage_path", "metadata": {}},
                 meta=meta,
@@ -18341,7 +18368,7 @@ def test_learning_lineage_does_not_read_untrusted_incoming_artifact_path(
         )
 
         _, repaired_meta, report = (
-            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+            threadsdash_metrics_adapter._repair_learning_lineage_from_local_asset(
                 cf,
                 row={"id": "post_untrusted_lineage_path", "metadata": {}},
                 meta=meta,
@@ -18362,7 +18389,7 @@ def test_learning_lineage_refuses_conflicting_reference_identity(tmp_path: Path)
         meta["generated_asset_lineage"]["source"]["referenceId"] = "wrong_reference"
 
         _, repaired_meta, report = (
-            threadsdash_adapter._repair_learning_lineage_from_local_asset(
+            threadsdash_metrics_adapter._repair_learning_lineage_from_local_asset(
                 cf, row={"id": "post_conflict", "metadata": {}}, meta=meta
             )
         )
@@ -18410,7 +18437,7 @@ def _paged_posts_client(total_rows: int):
 
 def test_posts_read_paginates_beyond_page_size():
     client = _paged_posts_client(total_rows=750)
-    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+    rows, truncated = threadsdash_client_adapter._select_threadsdash_posts_paged(
         client, user_id="user_1", limit=1000, page_size=500
     )
 
@@ -18427,7 +18454,7 @@ def test_posts_read_paginates_beyond_page_size():
 
 def test_posts_read_detects_truncation_at_limit():
     client = _paged_posts_client(total_rows=1200)
-    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+    rows, truncated = threadsdash_client_adapter._select_threadsdash_posts_paged(
         client, user_id="user_1", limit=1000, page_size=500
     )
 
@@ -18441,7 +18468,7 @@ def test_posts_read_detects_truncation_at_limit():
 def test_campaign_filtered_posts_read_accepts_internal_id_and_slug():
     client = _paged_posts_client(total_rows=0)
 
-    rows, truncated = threadsdash_adapter._select_threadsdash_posts_paged(
+    rows, truncated = threadsdash_client_adapter._select_threadsdash_posts_paged(
         client,
         user_id="user_1",
         campaign_ids=["campaign_internal", "stacey_learning_cohort_v1"],
@@ -18467,8 +18494,10 @@ def test_metric_history_read_detects_truncation():
                 for index in range(limit)
             ]
 
-    rows, truncated = threadsdash_adapter._select_threadsdash_post_metric_history(
-        TruncatedHistoryClient(), post_ids=["post_1"], limit=48
+    rows, truncated = (
+        threadsdash_client_adapter._select_threadsdash_post_metric_history(
+            TruncatedHistoryClient(), post_ids=["post_1"], limit=48
+        )
     )
 
     assert truncated is True
@@ -19789,7 +19818,7 @@ def test_dashboard_returns_performance_fields(tmp_path: Path):
             (
                 campaign_id,
                 cf.domains.rendered_asset("asset_1")["source_asset_id"],
-                threadsdash_adapter._text_hash("caption"),
+                threadsdash_client_adapter._text_hash("caption"),
             ),
         )
         cf.conn.commit()
@@ -20401,7 +20430,7 @@ def test_ranking_uses_performance_but_keeps_blocked_assets_low(tmp_path: Path):
             (source["campaign_id"], source["id"], str(blocked_path), str(blocked_path)),
         )
         campaign_id = cf.domains.campaign_by_slug("may")["id"]
-        caption_hash = threadsdash_adapter._text_hash("caption")
+        caption_hash = threadsdash_client_adapter._text_hash("caption")
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
@@ -26859,7 +26888,7 @@ def test_supabase_rest_client_retries_transient_http_error(
 
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
-    client = threadsdash_adapter.SupabaseRestClient(
+    client = threadsdash_client_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
 
@@ -26886,7 +26915,7 @@ def test_supabase_rest_client_insert_does_not_retry_ambiguous_errors(
 
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
-    client = threadsdash_adapter.SupabaseRestClient(
+    client = threadsdash_client_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
 
@@ -26925,7 +26954,7 @@ def test_supabase_rest_client_insert_retries_safe_statuses(
 
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
-    client = threadsdash_adapter.SupabaseRestClient(
+    client = threadsdash_client_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
 
@@ -26946,7 +26975,7 @@ def test_supabase_rest_client_insert_does_not_retry_network_errors(
 
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda *_args: None)
-    client = threadsdash_adapter.SupabaseRestClient(
+    client = threadsdash_client_adapter.SupabaseRestClient(
         "https://example.supabase.co", "service-role"
     )
 
@@ -26976,7 +27005,7 @@ def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
             upserted.append((table, on_conflict))
             return [{"id": "media_1", **row}]
 
-    result = threadsdash_adapter._upload_media(
+    result = threadsdash_delivery_adapter._upload_media(
         FakeClient(),
         bucket="media",
         user_id="user_1",
@@ -27011,9 +27040,9 @@ def test_campaign_factory_has_no_legacy_supabase_or_preview_write_surface(
                     supabase_service_role_key="service-role",
                 )
 
-        assert not hasattr(threadsdash_adapter, "_write_supabase")
-        assert not hasattr(threadsdash_adapter, "promote_preview_schedule")
-        assert not hasattr(threadsdash_adapter, "clear_preview_schedule")
+        assert not hasattr(threadsdash_delivery_adapter, "_write_supabase")
+        assert not hasattr(threadsdash_delivery_adapter, "promote_preview_schedule")
+        assert not hasattr(threadsdash_delivery_adapter, "clear_preview_schedule")
     finally:
         cf.close()
 

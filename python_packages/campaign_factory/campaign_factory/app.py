@@ -13,15 +13,17 @@ from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from .adapters.contentforge import audit_campaign
-from .adapters.threadsdash import (
-    evaluate_export_readiness,
-    export_threadsdash,
-    preflight_supabase,
+from .adapters.threadsdash_account_projection import (
     summarize_threadsdash_usage,
-    sync_performance_snapshots,
     sync_threadsdash_account_assignments,
+)
+from .adapters.threadsdash_draft_delivery import export_threadsdash
+from .adapters.threadsdash_draft_readiness import (
+    evaluate_export_readiness,
+    preflight_supabase,
     verify_threadsdash_export,
 )
+from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
 from .config import get_settings
 from .core import CampaignFactory
 

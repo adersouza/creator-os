@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from campaign_factory.adapters.threadsdash import (
+from campaign_factory.adapters.threadsdash_client import (
     _select_post_by_id,
 )
 

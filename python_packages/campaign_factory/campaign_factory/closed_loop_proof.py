@@ -10,13 +10,13 @@ from typing import Any
 
 from creator_os_core.fileops import atomic_write_text, file_lock
 
-from .adapters.threadsdash import (
-    SupabaseRestClient,
+from .adapters.threadsdash_client import SupabaseRestClient
+from .adapters.threadsdash_draft_delivery import export_threadsdash
+from .adapters.threadsdash_draft_readiness import (
     evaluate_export_readiness,
-    export_threadsdash,
-    sync_performance_snapshots,
     verify_threadsdash_export,
 )
+from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
 from .config import get_settings
 from .core import CampaignFactory
 

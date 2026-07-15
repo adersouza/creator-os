@@ -33,14 +33,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from campaign_factory.adapters import threadsdash as threadsdash_adapter
 from campaign_factory.adapters import threadsdash_client as threadsdash_client_adapter
 from campaign_factory.adapters import (
     threadsdash_draft_payload as threadsdash_payload_adapter,
 )
 from campaign_factory.adapters.threadsdash import (
-    export_threadsdash,
-    sync_performance_snapshots,
+    export_drafts as export_threadsdash,
+    sync_metrics as sync_performance_snapshots,
 )
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
@@ -399,7 +398,7 @@ def _patch_remote_media(monkeypatch: pytest.MonkeyPatch, remote_url: str) -> Non
     inject it the same way so _upload_media_for_dashboard_ingest short-circuits
     and the handoff-manifest media-URL check passes.
     """
-    original = threadsdash_adapter.build_draft_payloads
+    original = threadsdash_payload_adapter.build_draft_payloads
 
     def build_with_remote_media(*args, **kwargs):
         payload = original(*args, **kwargs)
