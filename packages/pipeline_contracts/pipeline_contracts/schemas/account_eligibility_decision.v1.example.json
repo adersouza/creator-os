@@ -1,0 +1,51 @@
+{
+  "schema": "campaign_factory.account_eligibility_decision.v1",
+  "allowed": false,
+  "decisionReason": "trial_capability_unknown_requires_operator_canary",
+  "operatorAction": "authorize_one_bounded_trial_canary",
+  "requestedSurface": "trial_reel",
+  "account": {
+    "accountId": "acct_stacey",
+    "instagramAccountId": "17841400000000000",
+    "handle": "stacey_example",
+    "active": true,
+    "status": "active",
+    "needsReauth": false,
+    "syncCohort": "warm",
+    "projectionObservedAt": "2026-07-15T12:00:00+00:00"
+  },
+  "oauth": {
+    "grantedScopes": ["instagram_content_publish"],
+    "verifiedAt": "2026-07-15T11:55:00+00:00"
+  },
+  "trial": {
+    "required": true,
+    "capability": "unknown",
+    "checkedAt": null,
+    "reason": null,
+    "authorization": null
+  },
+  "health": {
+    "state": "unknown",
+    "warmingStage": null,
+    "blockers": [],
+    "warnings": []
+  },
+  "cadence": {
+    "warmingStage": null,
+    "plannedAt": null,
+    "scheduledOnDay": null,
+    "maxPerDay": 1,
+    "minGapHours": 4,
+    "withinDailyLimit": null,
+    "source": "campaign_default"
+  },
+  "evidence": {
+    "sources": [
+      "campaign_factory.accounts",
+      "threadsdashboard.instagram_accounts"
+    ],
+    "factsOwner": "threadsdashboard",
+    "policyOwner": "campaign_factory"
+  }
+}

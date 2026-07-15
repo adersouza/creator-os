@@ -36,6 +36,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             "trial_reels_capability": "TEXT NOT NULL DEFAULT 'unknown'",
             "trial_reels_capability_checked_at": "TEXT",
             "trial_reels_capability_reason": "TEXT",
+            "threadsdash_is_active": "INTEGER",
+            "threadsdash_status": "TEXT",
+            "threadsdash_needs_reauth": "INTEGER",
+            "threadsdash_sync_cohort": "TEXT",
+            "threadsdash_projection_observed_at": "TEXT",
         },
     )
     _ensure_columns(
@@ -233,6 +238,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             "perceptual_fingerprint": "TEXT",
             "perceptual_cluster_id": "TEXT",
             "account_group_id": "TEXT",
+            "account_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
             "assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
@@ -287,13 +293,17 @@ def init_db(conn: sqlite3.Connection) -> None:
             "perceptual_fingerprint": "TEXT",
             "perceptual_cluster_id": "TEXT",
             "account_group_id": "TEXT",
+            "account_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
             "assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
     _ensure_columns(
         conn,
         "asset_inventory_reservations",
-        {"assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'"},
+        {
+            "account_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
+            "assignment_eligibility_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
     )
     _ensure_columns(conn, "promotions", {"account_group_id": "TEXT"})
     _ensure_columns(

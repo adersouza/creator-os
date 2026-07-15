@@ -43,26 +43,9 @@ _STDLIB_URLOPEN = urlopen
 from .threadsdash_client import (
     _text_hash,
 )
-
-UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    re.IGNORECASE,
+from .threadsdash_draft_destinations import (
+    draft_destinations_for_asset as _draft_destinations_for_asset,
 )
-
-
-def _resolve_instagram_account_id(
-    factory: CampaignFactory, account_id: str
-) -> str | None:
-    if not account_id or account_id == "unassigned":
-        return None
-    row = factory.conn.execute(
-        "SELECT * FROM accounts WHERE id = ?", (account_id,)
-    ).fetchone()
-    if row and row["external_id"]:
-        return row["external_id"]
-    if UUID_RE.match(account_id):
-        return account_id
-    return None
 
 
 def build_draft_payloads(
@@ -123,6 +106,10 @@ def build_draft_payloads(
             require_distribution_plan=require_distribution_plan,
         )
         for destination in destinations:
+            account_eligibility = destination.get("accountEligibility") or {}
+            if not account_eligibility.get("allowed", False):
+                reason = account_eligibility.get("decisionReason") or "unavailable"
+                raise ValueError(f"account eligibility blocked: {reason}")
             account_id = destination.get("accountId")
             instagram_account_id = destination.get("instagramAccountId")
             variation_assignment = _variant_assignment_for_destination(
@@ -363,7 +350,10 @@ def build_draft_payloads(
                 review_manifest = _review_only_handoff_manifest(draft)
                 draft["handoffManifest"] = review_manifest
                 draft["publishability"]["handoff_manifest"] = review_manifest
-            draft["metadata"] = _draft_metadata(draft)
+            draft["metadata"] = _draft_metadata(
+                draft,
+                account_eligibility=destination.get("accountEligibility"),
+            )
             drafts.append(draft)
     return {
         "schema": "campaign_factory.threadsdash_drafts.v2",
@@ -496,84 +486,6 @@ def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
         "exported_by_system": "campaign_factory",
         "exported_at": utc_now(),
     }
-
-
-def _draft_destinations_for_asset(
-    factory: CampaignFactory,
-    asset: dict[str, Any],
-    *,
-    plans: list[dict[str, Any]] | None = None,
-    require_distribution_plan: bool = False,
-) -> list[dict[str, Any]]:
-    plans = (
-        plans
-        if plans is not None
-        else factory.domains.distribution.distribution_plans_for_asset(
-            asset["renderedAssetId"]
-        )
-    )
-    asset_content_surface = normalize_content_surface(
-        asset.get("contentSurface") or asset.get("content_surface")
-    )
-    default_distribution_surface = (
-        "regular_reel" if asset_content_surface == "reel" else asset_content_surface
-    )
-    if plans:
-        return [
-            {
-                "accountId": plan.get("accountId"),
-                "instagramAccountId": plan.get("instagramAccountId"),
-                "plannedWindowStart": plan.get("plannedWindowStart"),
-                "plannedWindowEnd": plan.get("plannedWindowEnd"),
-                "notes": plan.get("reasonCode"),
-                "distributionPlanId": plan.get("id"),
-                "distributionSurface": plan.get("surface"),
-                "contentSurface": plan.get("contentSurface")
-                or plan.get("content_surface"),
-                "instagramTrialReels": plan.get("instagramTrialReels"),
-                "trialGraduationStrategy": plan.get("trialGraduationStrategy"),
-                "trialGroupId": plan.get("trialGroupId"),
-                "pairedRenderedAssetId": plan.get("pairedRenderedAssetId"),
-                "reasonCode": plan.get("reasonCode"),
-                "smartLink": plan.get("smartLink"),
-                "ctaText": plan.get("ctaText"),
-            }
-            for plan in plans
-        ]
-    if require_distribution_plan:
-        return []
-    assignments = factory.domains.campaign_overview.assignments_for_asset(
-        asset["renderedAssetId"]
-    )
-    if assignments:
-        return [
-            {
-                "accountId": assignment.get("account_id"),
-                "instagramAccountId": assignment.get("instagram_account_id"),
-                "plannedWindowStart": assignment.get("planned_window_start"),
-                "plannedWindowEnd": assignment.get("planned_window_end"),
-                "notes": assignment.get("notes"),
-                "distributionSurface": default_distribution_surface,
-                "contentSurface": asset_content_surface,
-            }
-            for assignment in assignments
-        ]
-    destinations = []
-    for account_id in asset.get("accountIds") or ["unassigned"]:
-        destinations.append(
-            {
-                "accountId": account_id,
-                "instagramAccountId": _resolve_instagram_account_id(
-                    factory, account_id
-                ),
-                "plannedWindowStart": None,
-                "plannedWindowEnd": None,
-                "notes": None,
-                "distributionSurface": default_distribution_surface,
-                "contentSurface": asset_content_surface,
-            }
-        )
-    return destinations
 
 
 def _audio_recommendations_for_destination(
@@ -1102,7 +1014,9 @@ def _allows_draft_notify_audio_deferral(
     )
 
 
-def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
+def _draft_metadata(
+    draft: dict[str, Any], *, account_eligibility: dict[str, Any] | None = None
+) -> dict[str, Any]:
     audit_summary = draft.get("auditSummary") or {}
     audio_recommendations = draft.get("audioRecommendations") or {}
     publishability = (
@@ -1388,6 +1302,7 @@ def _draft_metadata(draft: dict[str, Any]) -> dict[str, Any]:
             "model_id": draft.get("modelId"),
             "model_slug": draft.get("modelId"),
             "account_profile": draft.get("accountProfile") or {},
+            "account_eligibility": account_eligibility or {},
             "content_pillar": draft.get("contentPillar"),
             "cta_type": draft.get("ctaType"),
             "language": draft.get("language"),

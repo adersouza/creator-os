@@ -9,6 +9,10 @@ from datetime import time as datetime_time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .account_eligibility import (
+    enforce_account_eligibility,
+    evaluate_account_eligibility,
+)
 from .assignment_eligibility import (
     enforce_assignment_eligibility,
     persist_assignment_origin,
@@ -74,11 +78,6 @@ def _parse_distribution_time(value: Any) -> datetime | None:
 
 
 TRIAL_GRADUATION_STRATEGIES = {"MANUAL", "SS_PERFORMANCE"}
-TRIAL_CAPABILITY_AUTHORIZATIONS = {"operator_canary"}
-TRIAL_REEL_PUBLISH_SCOPES = {
-    "instagram_content_publish",
-    "instagram_business_content_publish",
-}
 
 
 class DistributionRepository:
@@ -167,15 +166,23 @@ class DistributionRepository:
             instagram_trial_reels=instagram_trial_reels,
             trial_graduation_strategy=trial_graduation_strategy,
         )
+        self._ensure_default_reel_cadence(
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            now=now,
+        )
+        account_eligibility = enforce_account_eligibility(
+            self.conn,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            surface=distribution_surface,
+            requires_trial_capability=instagram_trial_reels,
+            authorization=trial_capability_authorization,
+            planned_at=planned_window_start,
+        )
         capability_decision = None
         if instagram_trial_reels:
-            capability_decision = self.trial_reel_account_eligibility(
-                account_id=account_id,
-                instagram_account_id=instagram_account_id,
-                authorization=trial_capability_authorization,
-            )
-            if not capability_decision["allowed"]:
-                raise ValueError(capability_decision["decisionReason"])
+            capability_decision = self._trial_capability_payload(account_eligibility)
         elif trial_capability_authorization:
             raise ValueError(
                 "trial_capability_authorization requires instagram_trial_reels=true"
@@ -198,11 +205,6 @@ class DistributionRepository:
         ).fetchone()
         if existing:
             return self.distribution_plan(existing["id"]) or {}
-        self._ensure_default_reel_cadence(
-            account_id=account_id,
-            instagram_account_id=instagram_account_id,
-            now=now,
-        )
         eligibility = enforce_assignment_eligibility(
             self.conn,
             rendered_asset_id=rendered_asset_id,
@@ -221,7 +223,7 @@ class DistributionRepository:
             INSERT INTO distribution_plans
             (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
              source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
-             assignment_eligibility_json, surface, content_surface,
+             account_eligibility_json, assignment_eligibility_json, surface, content_surface,
              concept_id, parent_reel_id, variant_family_id, variant_id, variant_index,
              variant_operations_json,
              planned_window_start, planned_window_end, paired_rendered_asset_id, reason_code,
@@ -232,7 +234,7 @@ class DistributionRepository:
              creator_mix, creator_model, frame_type, length_class, format_class, caption_fit_version,
              suitability_decision, suitability_reason, source_clip, caption_outcome_context_json,
              created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 plan_id,
@@ -244,6 +246,7 @@ class DistributionRepository:
                 identity["perceptualFingerprint"],
                 identity["perceptualClusterId"],
                 identity["accountGroupId"],
+                json.dumps(account_eligibility, ensure_ascii=False, sort_keys=True),
                 json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 distribution_surface,
                 content_surface,
@@ -309,6 +312,7 @@ class DistributionRepository:
                 "trialGraduationStrategy": normalized_strategy,
                 "trialGroupId": trial_group_id,
                 "trialCapability": capability_decision,
+                "accountEligibility": account_eligibility,
             },
             commit=False,
         )
@@ -383,89 +387,33 @@ class DistributionRepository:
         instagram_account_id: str | None = None,
         authorization: str | None = None,
     ) -> dict[str, Any]:
-        normalized_authorization = str(authorization or "").strip().lower() or None
-        if (
-            normalized_authorization
-            and normalized_authorization not in TRIAL_CAPABILITY_AUTHORIZATIONS
-        ):
-            allowed = ", ".join(sorted(TRIAL_CAPABILITY_AUTHORIZATIONS))
-            raise ValueError(
-                f"trial capability authorization must be one of: {allowed}"
-            )
-        local_row = None
-        external_row = None
-        if account_id:
-            local_row = self.conn.execute(
-                """
-                SELECT id, external_id, oauth_granted_scopes_json,
-                       oauth_scopes_verified_at, trial_reels_capability,
-                       trial_reels_capability_checked_at,
-                       trial_reels_capability_reason
-                FROM accounts WHERE id = ?
-                """,
-                (account_id,),
-            ).fetchone()
-        if instagram_account_id:
-            external_row = self.conn.execute(
-                """
-                SELECT id, external_id, oauth_granted_scopes_json,
-                       oauth_scopes_verified_at, trial_reels_capability,
-                       trial_reels_capability_checked_at,
-                       trial_reels_capability_reason
-                FROM accounts WHERE external_id = ?
-                """,
-                (instagram_account_id,),
-            ).fetchone()
-        if local_row and external_row and local_row["id"] != external_row["id"]:
-            raise ValueError(
-                "account_id and instagram_account_id resolve to different accounts"
-            )
-        row = local_row or external_row
-        status = str(row["trial_reels_capability"] if row else "unknown").lower()
-        if status not in {"unknown", "eligible", "denied"}:
-            status = "unknown"
-        scopes = json_load(row["oauth_granted_scopes_json"], None) if row else None
-        base = {
-            "accountId": row["id"] if row else account_id,
-            "instagramAccountId": (row["external_id"] if row else instagram_account_id),
-            "status": status,
-            "checkedAt": row["trial_reels_capability_checked_at"] if row else None,
-            "reason": row["trial_reels_capability_reason"] if row else None,
-            "oauthGrantedScopes": scopes,
-            "oauthScopesVerifiedAt": row["oauth_scopes_verified_at"] if row else None,
-            "authorization": None,
-        }
-        if isinstance(scopes, list) and not (
-            {str(scope) for scope in scopes} & TRIAL_REEL_PUBLISH_SCOPES
-        ):
-            return {
-                **base,
-                "allowed": False,
-                "decisionReason": "trial_publish_scope_missing",
-            }
-        if status == "eligible":
-            return {
-                **base,
-                "allowed": True,
-                "decisionReason": "trial_capability_eligible",
-            }
-        if status == "denied":
-            return {
-                **base,
-                "allowed": False,
-                "decisionReason": "trial_capability_denied",
-            }
-        if normalized_authorization == "operator_canary":
-            return {
-                **base,
-                "authorization": normalized_authorization,
-                "allowed": True,
-                "decisionReason": "trial_capability_operator_canary",
-            }
+        decision = evaluate_account_eligibility(
+            self.conn,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            surface="trial_reel",
+            requires_trial_capability=True,
+            authorization=authorization,
+        )
+        return self._trial_capability_payload(decision)
+
+    @staticmethod
+    def _trial_capability_payload(decision: dict[str, Any]) -> dict[str, Any]:
+        account = decision["account"]
+        trial = decision["trial"]
+        oauth = decision["oauth"]
         return {
-            **base,
-            "allowed": False,
-            "decisionReason": "trial_capability_unknown_requires_operator_canary",
+            "accountId": account["accountId"],
+            "instagramAccountId": account["instagramAccountId"],
+            "status": trial["capability"],
+            "checkedAt": trial["checkedAt"],
+            "reason": trial["reason"],
+            "oauthGrantedScopes": oauth["grantedScopes"],
+            "oauthScopesVerifiedAt": oauth["verifiedAt"],
+            "authorization": trial["authorization"],
+            "allowed": decision["allowed"],
+            "decisionReason": decision["decisionReason"],
+            "operatorAction": decision["operatorAction"],
         }
 
     def distribution_plan(self, plan_id: str) -> dict[str, Any] | None:
@@ -546,6 +494,7 @@ class DistributionRepository:
                 if row.get("instagram_trial_reels")
                 else None
             ),
+            "accountEligibility": json_load(row.get("account_eligibility_json"), {}),
             **(
                 {
                     "trialGroupId": row.get("trial_group_id"),
@@ -816,12 +765,14 @@ class DistributionRepository:
             )
             if not compatible:
                 continue
-            if require_trial_eligible:
-                capability = self.trial_reel_account_eligibility(
-                    instagram_account_id=account_id
-                )
-                if not capability["allowed"]:
-                    continue
+            account_decision = evaluate_account_eligibility(
+                self.conn,
+                instagram_account_id=account_id,
+                surface="trial_reel" if require_trial_eligible else "regular_reel",
+                requires_trial_capability=require_trial_eligible,
+            )
+            if not account_decision["allowed"]:
+                continue
             return account_id
         return None
 

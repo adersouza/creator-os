@@ -236,7 +236,32 @@ class ModelRepository:
         checked_at: str | None,
         reason: str | None,
     ) -> dict[str, Any]:
-        """Persist ThreadsDashboard's current Trial Reel evidence exactly."""
+        """Compatibility wrapper for callers projecting only Trial evidence."""
+        return self.project_instagram_account_evidence(
+            account_id,
+            capability=capability,
+            oauth_granted_scopes=oauth_granted_scopes,
+            oauth_scopes_verified_at=oauth_scopes_verified_at,
+            checked_at=checked_at,
+            reason=reason,
+        )
+
+    def project_instagram_account_evidence(
+        self,
+        account_id: str,
+        *,
+        capability: str,
+        oauth_granted_scopes: list[str] | None,
+        oauth_scopes_verified_at: str | None,
+        checked_at: str | None,
+        reason: str | None,
+        is_active: bool | None = None,
+        status: str | None = None,
+        needs_reauth: bool | None = None,
+        sync_cohort: str | None = None,
+        projection_observed_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist ThreadsDashboard account, OAuth, and Trial facts exactly."""
         normalized_capability = str(capability or "unknown").strip().lower()
         if normalized_capability not in {"unknown", "eligible", "denied"}:
             raise ValueError(
@@ -259,7 +284,15 @@ class ModelRepository:
             SET oauth_granted_scopes_json = ?, oauth_scopes_verified_at = ?,
                 trial_reels_capability = ?,
                 trial_reels_capability_checked_at = ?,
-                trial_reels_capability_reason = ?, updated_at = ?
+                trial_reels_capability_reason = ?,
+                threadsdash_is_active = COALESCE(?, threadsdash_is_active),
+                threadsdash_status = COALESCE(?, threadsdash_status),
+                threadsdash_needs_reauth = COALESCE(?, threadsdash_needs_reauth),
+                threadsdash_sync_cohort = COALESCE(?, threadsdash_sync_cohort),
+                threadsdash_projection_observed_at = COALESCE(
+                    ?, threadsdash_projection_observed_at
+                ),
+                updated_at = ?
             WHERE id = ?
             """,
             (
@@ -268,6 +301,11 @@ class ModelRepository:
                 normalized_capability,
                 checked_at,
                 reason,
+                None if is_active is None else int(is_active),
+                str(status).strip().lower() if status is not None else None,
+                None if needs_reauth is None else int(needs_reauth),
+                sync_cohort,
+                projection_observed_at,
                 now,
                 account_id,
             ),

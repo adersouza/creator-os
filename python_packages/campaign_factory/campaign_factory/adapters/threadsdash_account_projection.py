@@ -425,18 +425,6 @@ def sync_threadsdash_instagram_accounts(
             )
             continue
         status = str(row.get("status") or "").lower()
-        if (
-            row.get("is_active") is False
-            or row.get("needs_reauth") is True
-            or any(
-                token in status
-                for token in ("blocked", "restricted", "disabled", "reauth")
-            )
-        ):
-            skipped.append(
-                {"id": row.get("id"), "username": username, "reason": "not_eligible"}
-            )
-            continue
         before = factory.conn.execute(
             "SELECT id FROM accounts WHERE handle = ? AND platform = 'instagram'",
             (username,),
@@ -452,19 +440,51 @@ def sync_threadsdash_instagram_accounts(
             raise ValueError(
                 f"invalid ThreadsDashboard OAuth scope evidence for @{username}"
             )
+        projection_observed_at = utc_now()
+        if (
+            row.get("is_active") is False
+            or row.get("needs_reauth") is True
+            or any(
+                token in status
+                for token in ("blocked", "restricted", "disabled", "reauth")
+            )
+        ):
+            if before:
+                factory.domains.models.project_instagram_account_evidence(
+                    before["id"],
+                    capability=capability,
+                    oauth_granted_scopes=oauth_scopes,
+                    oauth_scopes_verified_at=row.get("oauth_scopes_verified_at"),
+                    checked_at=row.get("trial_reels_capability_checked_at"),
+                    reason=row.get("trial_reels_capability_reason"),
+                    is_active=row.get("is_active"),
+                    status=status,
+                    needs_reauth=row.get("needs_reauth"),
+                    sync_cohort=row.get("sync_cohort"),
+                    projection_observed_at=projection_observed_at,
+                )
+            skipped.append(
+                {"id": row.get("id"), "username": username, "reason": "not_eligible"}
+            )
+            continue
         account = factory.domains.models.upsert_account(
             username,
             platform="instagram",
             external_id=str(row.get("id") or ""),
             model_id=model["id"],
         )
-        account = factory.domains.models.project_instagram_trial_capability(
+        account = factory.domains.models.project_instagram_account_evidence(
             account["id"],
             capability=capability,
             oauth_granted_scopes=oauth_scopes,
             oauth_scopes_verified_at=row.get("oauth_scopes_verified_at"),
             checked_at=row.get("trial_reels_capability_checked_at"),
             reason=row.get("trial_reels_capability_reason"),
+            is_active=row.get("is_active"),
+            status=status,
+            needs_reauth=row.get("needs_reauth"),
+            sync_cohort=row.get("sync_cohort"),
+            projection_observed_at=projection_observed_at,
         )
         imported.append(
             {
@@ -473,6 +493,12 @@ def sync_threadsdash_instagram_accounts(
                 "username": username,
                 "displayName": display_name,
                 "syncCohort": row.get("sync_cohort"),
+                "accountState": {
+                    "active": row.get("is_active"),
+                    "status": status or "unknown",
+                    "needsReauth": row.get("needs_reauth"),
+                    "projectionObservedAt": projection_observed_at,
+                },
                 "trialCapability": {
                     "status": capability,
                     "checkedAt": row.get("trial_reels_capability_checked_at"),

@@ -6,6 +6,7 @@ from pipeline_contracts import (
     ContractValidationError,
     example_names,
     load_example,
+    validate_account_eligibility_decision,
     validate_assignment_eligibility,
     validate_audio_catalog_export,
     validate_audio_intent,
@@ -44,6 +45,7 @@ def test_all_schema_examples_validate():
 
 def test_named_validators_accept_examples():
     validate_audio_intent(load_example("audio_intent"))
+    validate_account_eligibility_decision(load_example("account_eligibility_decision"))
     validate_assignment_eligibility(load_example("assignment_eligibility"))
     validate_campaign_draft_payload(load_example("campaign_draft_payload"))
     validate_caption_outcome_context(load_example("caption_outcome_context"))

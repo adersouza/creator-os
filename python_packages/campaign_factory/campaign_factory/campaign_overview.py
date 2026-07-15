@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from .account_eligibility import enforce_account_eligibility
 from .assignment_eligibility import (
     asset_identity,
     enforce_assignment_eligibility,
@@ -335,6 +336,13 @@ class CampaignOverviewRepository:
             return dict(existing)
         now = self._utc_now()
         assignment_id = self._new_id("assign")
+        account_eligibility = enforce_account_eligibility(
+            self.conn,
+            account_id=account_id,
+            instagram_account_id=instagram_account_id,
+            surface=asset.get("content_surface") or "reel",
+            planned_at=planned_window_start,
+        )
         eligibility = enforce_assignment_eligibility(
             self.conn,
             rendered_asset_id=rendered_asset_id,
@@ -349,9 +357,9 @@ class CampaignOverviewRepository:
             INSERT INTO asset_account_assignments
             (id, campaign_id, rendered_asset_id, account_id, instagram_account_id,
              source_family_id, perceptual_fingerprint, perceptual_cluster_id, account_group_id,
-             assignment_eligibility_json, planned_window_start,
+             account_eligibility_json, assignment_eligibility_json, planned_window_start,
              planned_window_end, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 assignment_id,
@@ -363,6 +371,7 @@ class CampaignOverviewRepository:
                 identity["perceptualFingerprint"],
                 identity["perceptualClusterId"],
                 identity["accountGroupId"],
+                json.dumps(account_eligibility, ensure_ascii=False, sort_keys=True),
                 json.dumps(eligibility, ensure_ascii=False, sort_keys=True),
                 planned_window_start,
                 planned_window_end,
@@ -383,6 +392,7 @@ class CampaignOverviewRepository:
                 "assignmentId": assignment_id,
                 "accountId": account_id,
                 "instagramAccountId": instagram_account_id,
+                "accountEligibility": account_eligibility,
             },
             commit=False,
         )

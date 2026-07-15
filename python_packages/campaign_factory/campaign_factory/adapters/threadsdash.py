@@ -65,6 +65,7 @@ from .threadsdash_draft_delivery import (
     _upload_media_for_dashboard_ingest,
     export_threadsdash,
 )
+from .threadsdash_draft_destinations import _resolve_instagram_account_id
 from .threadsdash_draft_payload import (
     _allows_draft_notify_audio_deferral,
     _audio_intent_allows_live,
@@ -86,7 +87,6 @@ from .threadsdash_draft_payload import (
     _native_audio_required,
     _normalize_publish_mode,
     _primary_audio_strategy,
-    _resolve_instagram_account_id,
     _resolve_publish_mode,
     _review_only_handoff_manifest,
     _stable_export_key,

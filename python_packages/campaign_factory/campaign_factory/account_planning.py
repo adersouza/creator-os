@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
+from .account_eligibility import evaluate_account_eligibility
 from .caption_outcome import load_context_json
 from .persistence import json_load
 
@@ -93,6 +94,7 @@ class AccountPlanningRepository:
                         "distribution_plan_id": plan.get("id"),
                         "smart_link": plan.get("smartLink"),
                         "cta_text": plan.get("ctaText"),
+                        "account_eligibility": plan.get("accountEligibility"),
                     }
                     for plan in distribution_plans
                 ]
@@ -110,6 +112,17 @@ class AccountPlanningRepository:
                 ]
             for destination in destinations:
                 warnings = []
+                account_eligibility = destination.get("account_eligibility")
+                if not isinstance(account_eligibility, dict) or not account_eligibility:
+                    account_eligibility = evaluate_account_eligibility(
+                        self.conn,
+                        account_id=destination.get("account_id"),
+                        instagram_account_id=destination.get("instagram_account_id"),
+                        surface=destination.get("surface") or "regular_reel",
+                        planned_at=destination.get("planned_window_start"),
+                    )
+                if not account_eligibility["allowed"]:
+                    warnings.append(account_eligibility["decisionReason"])
                 asset_usage = usage_by_asset.get(asset["id"], {}).get("usage") or {}
                 compatible, mismatch_reason, profile = (
                     self._account_compatible_with_model(
@@ -141,6 +154,7 @@ class AccountPlanningRepository:
                         "instagramAccountId": destination.get("instagram_account_id"),
                         "modelSlug": asset.get("model_slug") or asset.get("modelId"),
                         "accountProfile": profile,
+                        "accountEligibility": account_eligibility,
                         "distributionPlanId": destination.get("distribution_plan_id"),
                         "distributionSurface": destination.get("surface")
                         or "regular_reel",
