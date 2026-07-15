@@ -42,8 +42,6 @@ reel_factory/identity_verification.py:_load_reference_embeddings:236
 reel_factory/manifest.py:_import_json:201
 reel_factory/manifest.py:materialize_cached_job:276
 reel_factory/manifest.py:get_analysis:756
-reel_factory/overnight_grid_worker.py:simple_rating:436
-reel_factory/overnight_grid_worker.py:next_clip_stem:472
 reel_factory/placement.py:probe_caption_region_luminance:128
 reel_factory/placement.py:probe_caption_region_luminance:134
 reel_factory/placement.py:_extract_probe_frame:180
@@ -85,9 +83,6 @@ reel_factory/reel_pipeline.py:kick_pipeline:3481
 reel_factory/reference_analyzer.py:media_dimensions:258
 reel_factory/reference_analyzer.py:media_dimensions:266
 reel_factory/reference_analyzer.py:latest_analysis_record:387
-reel_factory/reference_grid_production.py:safe_json:178
-reel_factory/reference_grid_production.py:ocr_text:291
-reel_factory/reference_grid_production.py:check_xai_access:642
 reel_factory/render_queue.py:__init__:191
 reel_factory/thumbnail_gen.py:generate_thumbnails:70
 reel_factory/whisper_sync.py:transcribe_clip:52
