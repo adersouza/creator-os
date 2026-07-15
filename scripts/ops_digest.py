@@ -7,9 +7,15 @@ import argparse
 import json
 import sqlite3
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
+
+from creator_os_core.runtime_paths import resolve_runtime_paths  # noqa: E402
 
 SYNC_STALE_AFTER = timedelta(hours=3)
 BACKUP_STALE_AFTER = timedelta(hours=26)
@@ -166,12 +172,13 @@ def latest_orchestrator_tick(repo_root: Path) -> dict[str, Any]:
 
 
 def reference_db_paths(repo_root: Path) -> list[Path]:
+    reference_data_root = resolve_runtime_paths(repo_root).reference_data_root
     return [
         repo_root
         / "python_packages"
         / "reference_factory"
         / "reference_factory.sqlite",
-        Path.home() / "Developer" / "reference_reels" / "reference_factory.sqlite",
+        reference_data_root / "reference_factory.sqlite",
     ]
 
 

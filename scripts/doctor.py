@@ -1155,7 +1155,7 @@ def cross_system_consistency_audit(fixture: dict[str, Any], _quick: bool) -> Res
         ]
         if mismatched:
             failures.append(f"{pair['draft_id']}: mismatch {', '.join(mismatched)}")
-    threadsdash_root = Path("/Users/aderdesouza/Developer/ThreadsDashboard")
+    threadsdash_root = resolve_runtime_paths(ROOT).threadsdash_root
     status = (
         "FAIL"
         if failures or release
