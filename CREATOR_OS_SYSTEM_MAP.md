@@ -21,8 +21,8 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 | Component | Responsibility | Canonical source | Depends on | Primary state |
 |---|---|---|---|---|
 | Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts and Creator OS Core | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
-| Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, manifests, queue, caption banks, lineage sidecars |
-| Campaign Factory | creative plans, inventory, assignment, readiness, spend gates, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
+| Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, render queue/cache, derived media features, caption banks, lineage sidecars |
+| Campaign Factory | creative plans, inventory, assignment, approvals, provider-spend authorization/ledger, readiness, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
 | ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |
 | Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
 | Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
@@ -40,6 +40,7 @@ reference intake
   -> reference_factory.knowledge_pack.v1 (Gold references, prompt/pattern cards,
      caption/audio patterns, measured provenance)
   -> Campaign Factory creative plan and account assignment
+  -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
   -> optional motion edit or explicitly approved best-only Kling
@@ -50,7 +51,9 @@ reference intake
   -> ThreadsDashboard approval, native-audio proof, scheduling, publishing
   -> post metric history
   -> performance sync
-  -> Campaign/Reel/Reference learning fan-out
+  -> Campaign performance_snapshots
+  -> Reference measured provenance and versioned knowledge-pack refresh
+  -> explicit advisory knowledge projection back into Campaign decisions
 ```
 
 ThreadsDashboard is the only scheduling and publishing owner. Creator OS stops
@@ -92,7 +95,8 @@ The pinned performance launcher:
 2. loads the private performance-sync environment;
 3. verifies the exact campaign scope and SQLite database;
 4. imports bounded ThreadsDashboard metric history;
-5. runs `scripts/learning_fanout.py` into Campaign, Reel, and Reference ledgers.
+5. runs `scripts/learning_fanout.py` from Campaign facts into the Reference
+   provenance ledger; the former Reel projection is explicitly retired.
 
 `learning_fanout.py` remains active. A successful command or queue receipt is
 not equivalent to real metric history; learning proof requires measured rows.
@@ -102,6 +106,9 @@ database. Campaign Factory validates its contract and content fingerprint,
 preserves the pack's human labels and recommendation status verbatim, and
 stores the imported pack in its canonical ledger. Campaign
 `performance_snapshots` remains the only operational measured-facts source.
+Reel Factory has no posting, approval, experiment, winner, or cost ledger. Old
+Reel rows remain available only through a SQLite read-only legacy evidence
+exporter and cannot drive an active decision.
 Reference-pattern evidence stays advisory and requires operator approval until
 Campaign has at least three eligible measured examples for that pattern.
 
@@ -235,12 +242,12 @@ Repository changes never update or restart the runtime automatically.
 
 ## Safety Coverage
 
-Retained suites protect contracts, HMAC signing, paid quote/reservation/
-consumption/cancellation, provider failures, global kill switch, QC and
-distinctness, campaign readiness, legal state transitions, lineage, eligibility,
-learning, poisoned/ambiguous rows, draft-export safety, runtime launchers, and
-cross-package architecture. Deleted tests covered only removed facades or
-orphaned experiments.
+Retained suites protect contracts, HMAC signing, paid quote/reservation/signed
+one-time authorization/consumption/cancellation, provider failures, global kill
+switch, QC and distinctness, campaign readiness, legal state transitions,
+lineage, eligibility, learning, poisoned/ambiguous rows, draft-export safety,
+runtime launchers, and cross-package architecture. Deleted tests covered only
+removed facades and the retired Reel control-plane/outcome-ledger paths.
 
 Use `make verify` for the full local matrix. Passing tests prove source behavior,
 not provider readiness, production handshake, runtime promotion, or live

@@ -22,9 +22,13 @@ The stabilization branch implements the following reversible source changes:
 - Campaign `performance_snapshots` as the only measured-facts ledger and a
   versioned `reference_factory.knowledge_pack.v1` import/export boundary;
 - one Campaign generation coordinator with five explicit modes;
-- removal of legacy direct Supabase writes, preview scheduling, Campaign
-  proactive aliases, Reel posting ownership, and Reference paid-generation
-  ownership;
+- Campaign-owned provider quotes, policy, signed one-time authorizations, and
+  authoritative cost events; Reel can only validate an exact execution scope;
+- removal of legacy direct post/schedule writes, preview scheduling, Campaign
+  proactive aliases, Reel posting/approval/experiment/outcome/cost ownership,
+  and Reference paid-generation ownership;
+- every active Campaign module below 1,500 lines, with the former forwarding
+  facade and double-delegation chain removed;
 - Promptfoo offline regressions, PySceneDetect reference-video preflight, and
   hypothesis-jsonschema contract fuzzing.
 
@@ -35,12 +39,12 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
-| Source | Implemented locally; unified full verification pending final integration | clean reviewed commit plus `make verify`, architecture, contracts, artifacts, and secret scan |
+| Source | PASS locally | clean tree; `make verify` passed: ContentForge 129, contracts 24 TS + 54 Python, Core 16, Campaign 687, Reference 111, Reel 435, integration 63, offline prompt regressions 3/3; architecture, artifacts, and secret scan passed |
 | CI | NOT_RUN | required GitHub checks on the pushed branch/PR |
-| Runtime | FAIL on the pre-cutover status check | clean `creator-os-runtime` checkout at the exact reviewed source SHA; every LaunchAgent resolves to it |
+| Runtime | FAIL on the pre-cutover status check | runtime is still at `2d605a3b`, does not match the reviewed source, and contains untracked runtime artifacts; require a clean exact-SHA runtime and verified LaunchAgent paths |
 | Canonical state | NOT_RUN | applied migration manifest, verified restore, switched private env, and one complete operating cycle |
-| ThreadsDashboard seam | NOT_RUN live | deployed endpoint; valid request returns zero product writes; invalid signature, stale timestamp, and replay fail closed |
-| Providers | PARTIAL read-only evidence only | configured live-read-only probes PASS with zero media and zero cost events; any paid smoke remains separately approved |
+| ThreadsDashboard seam | NOT_RUN live | source endpoint is merged in ThreadsDashboard, but the local handshake URL/secret are not configured; require a deployed valid request with zero product writes plus invalid/stale/replay rejection |
+| Providers | FAIL closed before network generation | live-read-only probe stopped because the canonical artifact workspace is not ready; require capability/model/workspace/balance/free-quote PASS with zero media and zero cost events; paid smoke remains separately approved |
 | Publishing | Unchanged and out of scope for this source repair | existing ThreadsDashboard production evidence; Creator OS must remain unable to publish |
 | Measured learning | NOT_PROVEN | exact Instagram/account/asset lineage plus real 1h/24h/72h snapshots and idempotent knowledge fanout |
 | Operational cohort | NOT_PROVEN | 10 consecutive correctly reconciled posts |
@@ -49,6 +53,11 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 The current runtime checkout predates this repair and contains untracked
 runtime artifacts. Canonical roots have not been switched. Those conditions are
 expected until the guarded cutover below and must not be described as ready.
+The live-read-only probe used one shared trace ID, made no generation request,
+created no cost event, and did not attempt the handshake without its URL/secret.
+Graphify refresh was attempted but remains `NOT_RUN` because the local
+`graphify` binary is not installed; Python and TypeScript architecture gates
+passed independently.
 
 ### Read-only production snapshot (2026-07-15)
 
@@ -73,12 +82,14 @@ ledger still contains only the earlier archived Trial Reel's real eligible
 
 ## Guarded Cutover Order
 
-1. Merge and CI-verify Creator OS source, then merge the compatible
-   ThreadsDashboard handshake consumer.
+1. Push, review, merge, and CI-verify Creator OS source. The compatible
+   ThreadsDashboard handshake source is already merged; deployment proof is
+   still separate.
 2. Apply and verify the copy-only local state migration. Keep every original.
 3. Promote the exact reviewed Creator OS SHA to the clean runtime checkout and
    verify every LaunchAgent path.
-4. Deploy the ThreadsDashboard endpoint through its normal process and run only
+4. Deploy the ThreadsDashboard endpoint through its normal process, configure
+   the machine-local handshake URL/secret, and run only
    `creator-os status --live-read-only`.
 5. Observe one complete operating cycle before considering old-path removal.
 6. Reconcile real posts and metrics; never synthesize a missing Meta row.
