@@ -13,46 +13,29 @@ class CoreComplexityRepository:
 
     def single_source_of_truth_audit(self) -> dict[str, Any]:
         recommended = {
-            "account health": "creator_os_account_health_report",
+            "account eligibility": "AccountHealthRepository.creator_os_account_health_decision",
+            "account health": "AccountHealthRepository.creator_os_account_health_report",
             "restriction status": "ThreadsDashboard account state -> Campaign Factory health projection",
             "content surface": "rendered_assets.content_surface",
             "publishability": "_publishability_check",
             "caption version": "caption_versions",
             "variant lineage": "variant_assets",
-            "winner status": "Creative Knowledge Base",
+            "winner status": "imported reference_factory.knowledge_pack.v1",
             "performance metrics": "performance_snapshots",
             "inventory state": "Campaign Factory surface inventory/readiness",
             "lifecycle state": "lifecycle_report",
         }
-        conflicts = [
-            {
-                "concept": "account eligibility",
-                "owners": [
-                    "account tiers",
-                    "account health",
-                    "recommendation eligibility",
-                ],
-                "risk": "eligibility can be interpreted differently across manager views",
-            },
-            {
-                "concept": "learning/winner status",
-                "owners": [
-                    "winner reports",
-                    "Creative Knowledge Base",
-                    "creative performance analysis",
-                ],
-                "risk": "winner definitions can drift unless Creative KB remains canonical",
-            },
-        ]
+        conflicts: list[dict[str, Any]] = []
         return {
             "schema": "creator_os.single_source_of_truth_audit.v1",
             "ownershipConflicts": conflicts,
             "duplicateTruths": [item["concept"] for item in conflicts],
             "recommendedOwners": recommended,
             "recommendedFixes": [
-                "keep old reports as wrappers over canonical helpers",
+                "derive every account report from the canonical health decision",
                 "treat performance_snapshots as the only measured-facts source",
-                "treat Campaign Factory readiness as the only inventory/schedule-safe truth",
+                "import winner status only from the versioned Reference Factory knowledge pack",
+                "treat Campaign Factory readiness as the only inventory-safe truth",
             ],
             "wouldWrite": False,
         }

@@ -26045,6 +26045,15 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
             ownership["recommendedOwners"]["performance metrics"]
             == "performance_snapshots"
         )
+        assert ownership["recommendedOwners"]["account eligibility"].endswith(
+            "creator_os_account_health_decision"
+        )
+        assert (
+            ownership["recommendedOwners"]["winner status"]
+            == "imported reference_factory.knowledge_pack.v1"
+        )
+        assert ownership["ownershipConflicts"] == []
+        assert ownership["duplicateTruths"] == []
         assert ownership["wouldWrite"] is False
         assert complexity["schema"] == "creator_os.core_complexity_reduction_plan.v1"
         assert any(
