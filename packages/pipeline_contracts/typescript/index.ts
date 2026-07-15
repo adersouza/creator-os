@@ -53,6 +53,8 @@ export const MOTION_EDIT_RENDER_SCHEMA_ID =
 	"reel_factory.motion_edit_render.v1" as const;
 export const FRONT_GENERATION_PLAN_SCHEMA_ID =
 	"campaign_factory.front_generation_plan.v1" as const;
+export const GENERATION_EXECUTION_PLAN_SCHEMA_ID =
+	"campaign_factory.generation_execution_plan.v1" as const;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -1537,6 +1539,14 @@ export function validateFrontGenerationPlan(value: unknown): string[] {
 		errors.push("front generation plan stages must be a non-empty array");
 	}
 	return errors;
+}
+
+export function validateGenerationExecutionPlan(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.generationExecutionPlan,
+		value,
+		"generation execution plan",
+	);
 }
 
 export function validateGeneratedAssetLineage(value: unknown): string[] {

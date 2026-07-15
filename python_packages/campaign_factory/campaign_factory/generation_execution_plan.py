@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from .contracts import validate_generation_execution_plan
+
+SCHEMA = "campaign_factory.generation_execution_plan.v1"
+
+CreativeMode = Literal[
+    "library_reuse",
+    "soul_static",
+    "motion_edit",
+    "best_only_kling",
+    "reference_video_remix",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationExecutionPlan:
+    """Immutable Campaign policy consumed by generation workers.
+
+    The plan deliberately contains policy, not run state. Provider quotes,
+    paths, approval receipts, and execution results remain on the individual
+    stage/run records.
+    """
+
+    creative_mode: CreativeMode
+    still_strategy: str
+    motion_strategy: str
+    cost_classification: str
+    providers: tuple[str, ...]
+    models: tuple[str, ...]
+    required_approvals: tuple[str, ...]
+    provider_authorization: str
+    required_lineage: tuple[str, ...]
+    qc_requirements: tuple[str, ...]
+    static_fallback_behavior: str
+    allowed_output_surface: str
+    paid_image_generation: bool
+    paid_video_generation: bool
+
+    @property
+    def static_fallback_required(self) -> bool:
+        return self.static_fallback_behavior != "not_required"
+
+    @property
+    def front_animation_mode(self) -> Literal["static", "kling"]:
+        """Translate worker strategy without reinterpreting creative mode."""
+        modes = {
+            "static_mp4_only": "static",
+            "kling_best_only": "kling",
+        }
+        try:
+            return modes[self.motion_strategy]  # type: ignore[return-value]
+        except KeyError as exc:
+            raise ValueError(
+                f"{self.creative_mode} does not use the front-generation worker"
+            ) from exc
+
+    def to_contract(self) -> dict[str, Any]:
+        payload = {
+            "schema": SCHEMA,
+            "creativeMode": self.creative_mode,
+            "stillStrategy": self.still_strategy,
+            "motionStrategy": self.motion_strategy,
+            "costClassification": self.cost_classification,
+            "providers": list(self.providers),
+            "models": list(self.models),
+            "requiredApprovals": list(self.required_approvals),
+            "providerAuthorization": self.provider_authorization,
+            "requiredLineage": list(self.required_lineage),
+            "qcRequirements": list(self.qc_requirements),
+            "staticFallbackBehavior": self.static_fallback_behavior,
+            "allowedOutputSurface": self.allowed_output_surface,
+            "paidImageGeneration": self.paid_image_generation,
+            "paidVideoGeneration": self.paid_video_generation,
+            "humanReviewRequired": True,
+            "schedulingAllowed": False,
+            "publishingAllowed": False,
+        }
+        validate_generation_execution_plan(payload)
+        return payload
+
+
+_PLANS: dict[str, GenerationExecutionPlan] = {
+    "library_reuse": GenerationExecutionPlan(
+        creative_mode="library_reuse",
+        still_strategy="owned_library_asset",
+        motion_strategy="library_existing_media",
+        cost_classification="free",
+        providers=(),
+        models=(),
+        required_approvals=("human_asset_approval",),
+        provider_authorization="forbidden",
+        required_lineage=("campaign_factory.owned_library_lineage.v1",),
+        qc_requirements=("contentforge_quality", "human_asset_review"),
+        static_fallback_behavior="not_required",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=False,
+        paid_video_generation=False,
+    ),
+    "soul_static": GenerationExecutionPlan(
+        creative_mode="soul_static",
+        still_strategy="soul_reference_pair",
+        motion_strategy="static_mp4_only",
+        cost_classification="paid_still_free_video",
+        providers=("higgsfield",),
+        models=("soul_2", "static_mp4"),
+        required_approvals=("paid_generation", "human_still_approval"),
+        provider_authorization="required_per_paid_call",
+        required_lineage=(
+            "reel_factory.generation_worker_lineage.v1",
+            "reel_factory.generated_asset_lineage.v2",
+        ),
+        qc_requirements=(
+            "generated_image_qc",
+            "contentforge_quality",
+            "human_still_review",
+        ),
+        static_fallback_behavior="required_for_every_accepted_still",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=True,
+        paid_video_generation=False,
+    ),
+    "motion_edit": GenerationExecutionPlan(
+        creative_mode="motion_edit",
+        still_strategy="accepted_still",
+        motion_strategy="local_motion_edit",
+        cost_classification="free",
+        providers=("local",),
+        models=("ffmpeg", "static_mp4"),
+        required_approvals=("human_still_approval",),
+        provider_authorization="forbidden",
+        required_lineage=(
+            "reel_factory.motion_edit_render.v1",
+            "reel_factory.generated_asset_lineage.v2",
+        ),
+        qc_requirements=(
+            "caption_placement",
+            "contentforge_quality",
+            "human_final_review",
+        ),
+        static_fallback_behavior="required_before_motion",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=False,
+        paid_video_generation=False,
+    ),
+    "best_only_kling": GenerationExecutionPlan(
+        creative_mode="best_only_kling",
+        still_strategy="accepted_rank_one_still",
+        motion_strategy="kling_best_only",
+        cost_classification="paid_video",
+        providers=("higgsfield",),
+        models=("kling3_0", "static_mp4"),
+        required_approvals=(
+            "human_still_approval",
+            "contentforge_approval",
+            "rank_one_selection_receipt",
+            "paid_generation",
+        ),
+        provider_authorization="required_per_paid_call",
+        required_lineage=(
+            "reel_factory.generation_worker_lineage.v1",
+            "reel_factory.generated_asset_lineage.v2",
+        ),
+        qc_requirements=(
+            "contentforge_quality",
+            "rank_one_selection",
+            "human_final_review",
+        ),
+        static_fallback_behavior="required_before_paid_motion",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=False,
+        paid_video_generation=True,
+    ),
+    "reference_video_remix": GenerationExecutionPlan(
+        creative_mode="reference_video_remix",
+        still_strategy="soul_endpoint_pair",
+        motion_strategy="seedance_or_kling_remix",
+        cost_classification="paid_still_and_video",
+        providers=("higgsfield",),
+        models=("soul_2", "seedance_2_0", "kling3_0", "static_mp4"),
+        required_approvals=(
+            "reference_rights",
+            "both_endpoint_frames",
+            "paid_generation",
+            "contentforge_approval",
+            "final_human_review",
+        ),
+        provider_authorization="required_per_paid_call",
+        required_lineage=(
+            "reel_factory.reference_video_motion_analysis.v1",
+            "reel_factory.reference_video_remix_plan.v1",
+            "reel_factory.generation_worker_lineage.v1",
+            "reel_factory.generated_asset_lineage.v2",
+        ),
+        qc_requirements=(
+            "single_shot_scene_detection",
+            "endpoint_frame_review",
+            "contentforge_quality",
+            "human_final_review",
+        ),
+        static_fallback_behavior="required_for_endpoint_candidates",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=True,
+        paid_video_generation=True,
+    ),
+}
+
+
+def build_generation_execution_plan(mode: str) -> GenerationExecutionPlan:
+    normalized = str(mode or "").strip().lower().replace("-", "_")
+    try:
+        plan = _PLANS[normalized]
+    except KeyError as exc:
+        raise ValueError(f"unknown creative workflow mode: {mode}") from exc
+    plan.to_contract()
+    return plan
+
+
+def generation_execution_mode_ids() -> tuple[str, ...]:
+    return tuple(_PLANS)

@@ -6,6 +6,7 @@ from typing import Any
 
 from .creative_modes import creative_workflow_mode
 from .front_generation_stage import run_front_generation_stage
+from .generation_execution_plan import build_generation_execution_plan
 from .motion_edit_stage import run_motion_edit_stage
 from .reference_video_remix_stage import (
     JsonCommandReferenceVideoRemixSeams,
@@ -53,8 +54,9 @@ def run_generation_workflow(
     structural_seams: ReferenceVideoRemixSeams | None = None,
 ) -> dict[str, Any]:
     """Route one explicitly selected mode through Campaign Factory."""
-    selected = creative_workflow_mode(mode)
-    mode_id = str(selected["id"])
+    execution_plan = build_generation_execution_plan(mode)
+    mode_id = execution_plan.creative_mode
+    selected = creative_workflow_mode(mode_id)
     live = bool(apply and not dry_run)
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
@@ -123,7 +125,7 @@ def run_generation_workflow(
                 reference_image_path=reference_image_path,
                 creator=creator,
                 soul_id=soul_id,
-                animation_mode="static",
+                execution_plan=execution_plan,
                 dry_run=dry_run,
                 apply=apply,
                 enable_paid_generation=paid_confirmation,
@@ -176,7 +178,7 @@ def run_generation_workflow(
             reference_image_path=reference_image_path,
             creator=creator,
             soul_id=soul_id,
-            animation_mode="kling",
+            execution_plan=execution_plan,
             accepted_still_path=accepted_still_path,
             kling_selection_receipt_path=kling_selection_receipt_path,
             budget_cap_credits=max_credits,
@@ -231,6 +233,7 @@ def run_generation_workflow(
         "schema": "campaign_factory.generation_workflow_run.v1",
         "mode": mode_id,
         "modeDefinition": selected,
+        "executionPlan": execution_plan.to_contract(),
         "dryRun": dry_run,
         "apply": live,
         "result": result,

@@ -82,6 +82,9 @@ from campaign_factory.front_generation_stage import (
     ACCEPTED_STILL_PLACEHOLDER,
     run_front_generation_stage,
 )
+from campaign_factory.generation_execution_plan import (
+    build_generation_execution_plan,
+)
 from campaign_factory.kling_selection_stage import (
     run_kling_selection_stage,
     validate_kling_selection_receipt,
@@ -757,6 +760,7 @@ def test_contract_schema_examples_validate():
         "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
         "generated_asset_lineage.v2.example.json",
+        "generation_execution_plan.v1.example.json",
         "generation_worker_lineage.v1.example.json",
         "higgsfield_soul_image_prompt.v1.example.json",
         "kling_3_video_prompt.v1.example.json",
@@ -4800,7 +4804,7 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("soul_static"),
             dry_run=True,
         )
 
@@ -4814,14 +4818,12 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
             "soul_sexy_image",
             "still_accept_gate",
             "static_mp4",
-            "kling_video",
         ]
         assert calls[0][0] == "reference-image-dry-run"
+        assert "--execution-plan-file" in calls[0]
         assert len(calls) == 1
         assert plan["stages"][1]["status"] == "blocked"
         assert "captured prompt" in plan["stages"][1]["reason"]
-        assert plan["stages"][4]["status"] == "blocked"
-        assert "selection receipt" in plan["stages"][4]["reason"]
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0
         )
@@ -4854,7 +4856,7 @@ def test_front_generation_global_kill_switch_blocks_before_paid_provider_call(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("soul_static"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -4936,7 +4938,7 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("soul_static"),
             dry_run=True,
         )
 
@@ -4989,7 +4991,7 @@ def test_front_generation_apply_fails_closed_without_enable_flag(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("soul_static"),
                 dry_run=False,
                 apply=True,
                 budget_cap_credits=10,
@@ -5023,7 +5025,7 @@ def test_front_generation_apply_requires_budget_cap(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("soul_static"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5053,7 +5055,7 @@ def test_front_generation_live_paid_path_requires_wait_and_download(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("soul_static"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5089,7 +5091,7 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("soul_static"),
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5100,7 +5102,7 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
 
         plan = result["plan"]
         validate_front_generation_plan(plan)
-        assert calls[0] == [
+        assert calls[0][:-2] == [
             "reference-image",
             "--reference",
             str(reference.resolve()),
@@ -5117,10 +5119,14 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
             "--wait",
             "--download",
         ]
+        assert calls[0][-2] == "--execution-plan-file"
+        worker_plan = json.loads(Path(calls[0][-1]).read_text(encoding="utf-8"))
+        assert worker_plan == result["executionPlan"]
         assert calls[1][0] == "image"
         assert "--reference" not in calls[1]
         assert "--prompt-json" in calls[1]
         assert "--image-aspect-ratio" in calls[1]
+        assert "--execution-plan-file" in calls[1]
         assert len(calls) == 2
         assert ACCEPTED_STILL_PLACEHOLDER not in json.dumps(plan)
         assert plan["budgetStatus"] == "quote_pending"
@@ -5139,8 +5145,6 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
         assert plan["stages"][3]["name"] == "static_mp4"
         assert plan["stages"][3]["status"] == "submitted"
         assert plan["stages"][3]["result"]["candidateCount"] == 2
-        assert plan["stages"][4]["name"] == "kling_video"
-        assert plan["stages"][4]["status"] == "blocked"
         assert plan["publishingAllowed"] is False
         assert len(result["registeredStaticAssets"]) == 2
         assert {asset["recipe"] for asset in result["registeredStaticAssets"]} == {
@@ -5211,7 +5215,7 @@ def test_front_generation_preserves_original_static_when_sexy_candidate_fails_qc
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("soul_static"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5267,7 +5271,7 @@ def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
             reference_image_path=reference,
             accepted_still_path=accepted,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("best_only_kling"),
             dry_run=True,
         )
 
@@ -5317,7 +5321,7 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
             accepted_still_path=accepted,
             kling_selection_receipt_path=selection_receipt,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("best_only_kling"),
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5332,6 +5336,7 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
         assert calls[0][calls[0].index("--max-credits") + 1] == "10"
         assert "--wait" in calls[0]
         assert "--download" in calls[0]
+        assert "--execution-plan-file" in calls[0]
         registered = result["registeredAsset"]
         static_registered = result["registeredStaticAsset"]
         assert static_registered["recipe"] == "static_mp4"
@@ -5401,7 +5406,7 @@ def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
             accepted_still_path=accepted,
             kling_selection_receipt_path=selection_receipt,
             creator="Stacey",
-            animation_mode="kling",
+            execution_plan=build_generation_execution_plan("best_only_kling"),
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5447,7 +5452,7 @@ def test_front_generation_enable_variation_requires_downloaded_video(
                 accepted_still_path=accepted,
                 kling_selection_receipt_path=selection_receipt,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("best_only_kling"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5484,7 +5489,7 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
             reference_image_path=reference,
             accepted_still_path=accepted,
             creator="Stacey",
-            animation_mode="static",
+            execution_plan=build_generation_execution_plan("soul_static"),
             dry_run=False,
             apply=True,
         )
@@ -5597,7 +5602,7 @@ def test_front_generation_kling_failure_preserves_static_fallback(
                 accepted_still_path=accepted,
                 kling_selection_receipt_path=selection_receipt,
                 creator="Stacey",
-                animation_mode="kling",
+                execution_plan=build_generation_execution_plan("best_only_kling"),
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,

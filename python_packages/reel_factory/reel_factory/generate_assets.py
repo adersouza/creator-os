@@ -28,6 +28,7 @@ from .evidence_store import (
     record_asset_generation,
     validate_generation_soul,
 )
+from .generation_execution_plan import load_generation_execution_plan
 from .identity_verification import verify_identity
 from .provider_spend_authorization import (
     require_campaign_spend_authorization,
@@ -2332,6 +2333,10 @@ def main() -> int:
         "--spend-authorization-file",
         help="Campaign-issued signed authorization required for every paid mode.",
     )
+    ap.add_argument(
+        "--execution-plan-file",
+        help="Campaign-issued generation execution plan for policy-bound worker calls.",
+    )
     ap.add_argument("--lineage")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument(
@@ -2341,6 +2346,12 @@ def main() -> int:
     )
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
+
+    execution_plan = None
+    if args.execution_plan_file:
+        execution_plan = load_generation_execution_plan(
+            args.execution_plan_file, worker_action=args.mode
+        )
 
     if args.mode == "capabilities":
         result = probe_higgsfield_capabilities(
@@ -2416,6 +2427,8 @@ def main() -> int:
         if not args.lineage:
             raise SystemExit("--lineage is required")
         result = wait_or_status(Path(args.lineage), wait=args.mode == "wait")
+    if execution_plan is not None:
+        result["executionPlan"] = execution_plan
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

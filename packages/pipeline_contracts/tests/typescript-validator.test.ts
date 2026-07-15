@@ -7,6 +7,7 @@ import {
 	validateAudioIntentContract,
 	validateCampaignFactoryDraftPayload,
 	validateFrontGenerationPlan,
+	validateGenerationExecutionPlan,
 	validateGeneratedAssetLineage,
 	validateMotionEditRender,
 	validatePerformanceSync,
@@ -235,6 +236,16 @@ describe("TypeScript pipeline contract validators", () => {
 			expect.arrayContaining([
 				expect.stringContaining("publishingAllowed"),
 			]),
+		);
+	});
+
+	it("validates the canonical generation execution policy", () => {
+		const payload = example("generation_execution_plan");
+		expect(validateGenerationExecutionPlan(payload)).toEqual([]);
+
+		payload.motionStrategy = "local_motion_edit";
+		expect(validateGenerationExecutionPlan(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("motionStrategy")]),
 		);
 	});
 

@@ -1,0 +1,32 @@
+{
+  "schema": "campaign_factory.generation_execution_plan.v1",
+  "creativeMode": "best_only_kling",
+  "stillStrategy": "accepted_rank_one_still",
+  "motionStrategy": "kling_best_only",
+  "costClassification": "paid_video",
+  "providers": ["higgsfield"],
+  "models": ["kling3_0", "static_mp4"],
+  "requiredApprovals": [
+    "human_still_approval",
+    "contentforge_approval",
+    "rank_one_selection_receipt",
+    "paid_generation"
+  ],
+  "providerAuthorization": "required_per_paid_call",
+  "requiredLineage": [
+    "reel_factory.generation_worker_lineage.v1",
+    "reel_factory.generated_asset_lineage.v2"
+  ],
+  "qcRequirements": [
+    "contentforge_quality",
+    "rank_one_selection",
+    "human_final_review"
+  ],
+  "staticFallbackBehavior": "required_before_paid_motion",
+  "allowedOutputSurface": "campaign_review",
+  "paidImageGeneration": false,
+  "paidVideoGeneration": true,
+  "humanReviewRequired": true,
+  "schedulingAllowed": false,
+  "publishingAllowed": false
+}

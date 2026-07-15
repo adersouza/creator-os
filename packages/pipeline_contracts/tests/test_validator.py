@@ -17,6 +17,7 @@ from pipeline_contracts import (
     validate_front_generation_plan,
     validate_generated_asset_lineage,
     validate_generated_asset_lineage_v2,
+    validate_generation_execution_plan,
     validate_generation_worker_lineage,
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,
@@ -70,6 +71,7 @@ def test_named_validators_accept_examples():
         load_example("generated_asset_lineage.v2.example.json")
     )
     validate_generation_worker_lineage(load_example("generation_worker_lineage"))
+    validate_generation_execution_plan(load_example("generation_execution_plan"))
     validate_campaign_draft_payload(
         load_example("campaign_draft_payload.v2.example.json")
     )
@@ -81,6 +83,14 @@ def test_named_validators_accept_examples():
         load_example("recommendation_accuracy_report")
     )
     validate_threadsdash_handshake(load_example("threadsdash_handshake"))
+
+
+def test_generation_execution_plan_rejects_policy_drift() -> None:
+    payload = load_example("generation_execution_plan")
+    payload["motionStrategy"] = "local_motion_edit"
+
+    with pytest.raises(ContractValidationError, match="motionStrategy"):
+        validate_generation_execution_plan(payload)
 
 
 def test_threadsdash_handshake_rejects_publish_authority() -> None:

@@ -6,6 +6,39 @@ import pytest
 from campaign_factory.generation_workflow import run_generation_workflow
 
 
+def test_workflow_builds_and_passes_one_canonical_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"reference")
+    captured = {}
+
+    def fake_front(_factory, **kwargs):
+        captured["plan"] = kwargs["execution_plan"]
+        return {"schema": "campaign_factory.front_generation_stage_run.v1"}
+
+    monkeypatch.setattr(
+        "campaign_factory.generation_workflow.run_front_generation_stage", fake_front
+    )
+
+    result = run_generation_workflow(
+        object(),
+        mode="soul_static",
+        campaign_slug="campaign",
+        reference_image_path=reference,
+        creator="Stacey",
+        dry_run=True,
+        apply=False,
+    )
+
+    assert captured["plan"].creative_mode == "soul_static"
+    assert result["executionPlan"] == captured["plan"].to_contract()
+    assert (
+        result["modeDefinition"]["requiredApprovals"]
+        == result["executionPlan"]["requiredApprovals"]
+    )
+
+
 def test_motion_mode_creates_static_fallback_before_motion_and_preserves_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

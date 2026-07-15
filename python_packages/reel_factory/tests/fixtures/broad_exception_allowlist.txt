@@ -21,10 +21,10 @@ reel_factory/embedding_index.py:text_for_path:58
 reel_factory/embedding_index.py:duplicate_risk:235
 reel_factory/embedding_provider.py:get_embedding_provider:95
 reel_factory/embedding_provider.py:get_embedding_provider:102
-reel_factory/generate_assets.py:download_result:830
-reel_factory/generate_assets.py:detect_grid_status:845
-reel_factory/generate_assets.py:single_image_layout_status:865
-reel_factory/generate_assets.py:generated_video_qc:1454
+reel_factory/generate_assets.py:download_result:831
+reel_factory/generate_assets.py:detect_grid_status:846
+reel_factory/generate_assets.py:single_image_layout_status:866
+reel_factory/generate_assets.py:generated_video_qc:1455
 reel_factory/generate_prompts.py:video_duration:164
 reel_factory/generate_prompts.py:frame_is_visible:179
 reel_factory/generate_prompts.py:_safe_fragment:302
