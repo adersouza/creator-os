@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from campaign_factory.reference_video_remix_stage import (
     REQUIRED_CONTENTFORGE_CHECKS,
+    plan_reference_video_remix_stage,
+    probe_reference_video,
     run_reference_video_remix_stage,
 )
 from PIL import Image
@@ -261,6 +263,62 @@ def test_structural_chain_routes_kling_when_conditioning_is_not_required(
         factory.close()
 
 
+def test_single_shot_preflight_records_deterministic_scene_evidence(
+    tmp_path: Path,
+) -> None:
+    probe = probe_reference_video(_reference_video(tmp_path))
+
+    assert probe["shotCount"] == 1
+    assert probe["hasCuts"] is False
+    assert probe["sceneDetection"]["detector"] == ("pyscenedetect_content_detector")
+    assert probe["sceneDetection"]["shotCount"] == 1
+
+
+def test_multishot_reference_is_rejected_before_campaign_or_paid_seams(
+    tmp_path: Path,
+) -> None:
+    reference = _multishot_reference_video(tmp_path)
+    seams = FakeStructuralSeams()
+    factory = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="PySceneDetect found 2 shots"):
+            run_reference_video_remix_stage(
+                factory,
+                campaign_slug="may",
+                reference_video_path=reference,
+                creator="Stacey",
+                soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+                workspace=tmp_path,
+                operator_selected=True,
+                rights_confirmed=True,
+                first_frame_approval_id="approval_first",
+                last_frame_approval_id="approval_last",
+                paid_confirmation=True,
+                max_credits=3.0,
+                seams=seams,
+            )
+        assert seams.calls == []
+        assert (
+            factory.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == 0
+        )
+    finally:
+        factory.close()
+
+
+def test_provider_free_plan_rejects_multishot_reference(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="PySceneDetect found 2 shots"):
+        plan_reference_video_remix_stage(
+            reference_video_path=_multishot_reference_video(tmp_path),
+            creator="Stacey",
+            soul_id="d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+            workspace=tmp_path,
+            operator_selected=True,
+            rights_confirmed=True,
+            max_credits=None,
+        )
+
+
 @pytest.mark.parametrize("failure", ["provider", "qc"])
 def test_structural_failures_preserve_static_fallback_and_block_handoff(
     tmp_path: Path, failure: str
@@ -378,6 +436,36 @@ def _reference_video(tmp_path: Path) -> Path:
             "testsrc=size=180x320:rate=2:duration=5",
             "-pix_fmt",
             "yuv420p",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return path
+
+
+def _multishot_reference_video(tmp_path: Path) -> Path:
+    path = tmp_path / "multishot-reference.mp4"
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=180x320:rate=30:duration=2.5",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:size=180x320:rate=30:duration=2.5",
+            "-filter_complex",
+            "[0:v][1:v]concat=n=2:v=1:a=0,format=yuv420p",
             str(path),
         ],
         check=False,

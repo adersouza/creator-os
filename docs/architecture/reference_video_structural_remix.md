@@ -23,7 +23,8 @@ Initial scope is deliberately narrow:
 
 ```text
 operator-selected reference video + rights confirmation
-→ deterministic ffprobe validation and source endpoint extraction
+→ deterministic ffprobe + PySceneDetect one-shot validation
+→ source endpoint extraction
 → Gemini motion-only analysis JSON
 → validate reference_video_motion_analysis.v1
 → quoted/reserved reference-conditioned Soul first and last frames
@@ -128,6 +129,9 @@ scripts/creator-os generate --mode reference_video_remix --dry-run \
 ```
 
 This returns a provider-free preflight and performs no extraction or generation.
+PySceneDetect runs locally before Campaign rows, output directories, or paid
+seams. A detected cut rejects the source with scene-boundary evidence; the
+workflow never guesses that a multi-shot video is safe.
 An `--apply` additionally requires explicit paid confirmation, both endpoint
 approval IDs, a finite cap, and the configured phase driver. A fake-provider E2E
 proves the complete Campaign chain. A real provider smoke remains a separate

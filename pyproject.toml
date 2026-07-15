@@ -45,6 +45,7 @@ pythonpath = [
 [dependency-groups]
 dev = [
     "httpx2>=2,<3",
+    "hypothesis-jsonschema>=0.23,<1",
     "import-linter>=2.11",
     "mypy>=1.11,<2",
     "ruff>=0.8,<1",

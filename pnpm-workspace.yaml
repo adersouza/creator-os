@@ -3,9 +3,12 @@ packages:
   - "packages/*"
 allowBuilds:
   '@google/genai': true
+  '@playwright/browser-chromium': false
+  '@swc/core': false
   core-js: true
   esbuild: true
   msw: true
+  onnxruntime-node: false
   protobufjs: true
   sharp: true
   unrs-resolver: true

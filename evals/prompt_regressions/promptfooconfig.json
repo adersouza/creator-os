@@ -1,0 +1,22 @@
+{
+  "description": "Creator OS captured-fixture prompt regressions (strictly offline)",
+  "sharing": false,
+  "prompts": [
+    "file://prompts.py:render_prompt"
+  ],
+  "providers": [
+    {
+      "id": "file://local_provider.py",
+      "label": "local-captured-fixture-provider"
+    }
+  ],
+  "defaultTest": {
+    "assert": [
+      {
+        "type": "python",
+        "value": "file://assertions.py"
+      }
+    ]
+  },
+  "tests": "file://fixtures.json"
+}

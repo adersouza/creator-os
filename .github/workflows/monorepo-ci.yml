@@ -84,6 +84,8 @@ jobs:
       - run: pnpm typecheck:py
       - run: pnpm check:arch
       - run: pnpm check:arch:fixtures
+      - name: Offline prompt regressions
+        run: pnpm check:prompts
 
   javascript:
     needs: changes

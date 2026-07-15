@@ -1,0 +1,11 @@
+{
+  "schema": "reel_factory.caption_fixture.v1",
+  "captionHash": "51e6881e4c62224e9b262a8837aa171004c11148e7e77d68422b57ef2621b298",
+  "text": "\"I like your fit\"\nbet, take it off then",
+  "banks": [
+    "shared_girl_next_door",
+    "comment_bait"
+  ],
+  "wordCount": 9,
+  "lineCount": 2
+}
