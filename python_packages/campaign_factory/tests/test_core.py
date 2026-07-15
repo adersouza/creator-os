@@ -736,6 +736,7 @@ def test_contract_schema_examples_validate():
         "recommendation_next_batch.v1.example.json",
         "reference_video_motion_analysis.v1.example.json",
         "reference_video_remix_plan.v1.example.json",
+        "threadsdash_handshake.v1.example.json",
         "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
     }
