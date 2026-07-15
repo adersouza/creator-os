@@ -35,7 +35,7 @@ boundary. Developers can inspect it directly:
 
 ```bash
 uv run --package campaign-factory campaign-factory --help
-uv run --package campaign-factory campaign-factory doctor
+uv run --package campaign-factory campaign-factory control-check
 uv run --package campaign-factory campaign-factory campaign-readiness \
   --campaign campaign_slug --user-id user_id
 uv run --package campaign-factory campaign-factory export-threadsdash \

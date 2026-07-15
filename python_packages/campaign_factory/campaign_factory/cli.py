@@ -152,9 +152,12 @@ def main() -> int:
 
     sub.add_parser("init")
 
-    doctor = sub.add_parser("doctor")
-    doctor.add_argument("--contentforge-base-url", default="cli://local")
-    doctor.add_argument(
+    control_check = sub.add_parser(
+        "control-check",
+        help="check Campaign Factory's local component/tooling dependencies",
+    )
+    control_check.add_argument("--contentforge-base-url", default="cli://local")
+    control_check.add_argument(
         "--check-http",
         action="store_true",
         help="Also check whether ContentForge is responding over HTTP",
@@ -2438,7 +2441,7 @@ def main() -> int:
                     "campaigns": str(settings.campaigns_dir),
                 }
             )
-        elif args.cmd == "doctor":
+        elif args.cmd == "control-check":
             print_json(
                 operator_control_check(
                     settings,

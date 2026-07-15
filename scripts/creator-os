@@ -4,21 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-
-REEL_COMMANDS = {
-    "caption-bank": "reel_factory.caption_bank",
-    "generate-assets": "reel_factory.generate_assets",
-    "next-batch": "reel_factory.next_batch",
-    "reel-pipeline": "reel_factory.reel_pipeline",
-    "review-guard": "reel_factory.review_batch_guard",
-}
-
 
 def _run(command: list[str], *, cwd: Path = ROOT) -> int:
     return subprocess.run(command, cwd=cwd, check=False).returncode
@@ -38,29 +30,6 @@ def _reference_command(*args: str) -> list[str]:
         "-m",
         "reference_factory.cli",
         *args,
-    ]
-
-
-def _component_command(name: str, args: list[str]) -> list[str]:
-    if name == "campaign":
-        return _campaign_command(*args)
-    if name == "reference":
-        return _reference_command(*args)
-    if name == "contentforge":
-        return ["pnpm", "--dir", str(ROOT / "packages/contentforge"), *args]
-    if not args or args[0] not in REEL_COMMANDS:
-        allowed = ", ".join(sorted(REEL_COMMANDS))
-        raise ValueError(f"reel requires one of: {allowed}")
-    module = REEL_COMMANDS[args[0]]
-    return [
-        "uv",
-        "run",
-        "--package",
-        "reel-factory",
-        "python",
-        "-m",
-        module,
-        *args[1:],
     ]
 
 
@@ -143,21 +112,6 @@ def _parser() -> argparse.ArgumentParser:
     draft.add_argument("--max-drafts", type=int, required=True)
     draft.add_argument("--rendered-asset-id", action="append", default=[])
     draft.add_argument("--review-only", action="store_true")
-
-    component = sub.add_parser(
-        "component",
-        help="advanced package command; always requires explicit write confirmation",
-    )
-    component.add_argument(
-        "--confirm-write",
-        action="store_true",
-        required=True,
-        help="acknowledge that the delegated command may mutate local state",
-    )
-    component.add_argument(
-        "name", choices=["campaign", "reference", "reel", "contentforge"]
-    )
-    component.add_argument("args", nargs=argparse.REMAINDER)
 
     paid = sub.add_parser(
         "paid-generation",
@@ -245,8 +199,8 @@ def main(argv: list[str] | None = None) -> int:
             "--apply" if args.apply else "--dry-run",
         )
         if args.duration is not None:
-            if args.duration <= 0:
-                print("--duration must be greater than zero", file=sys.stderr)
+            if not math.isfinite(args.duration) or args.duration <= 0:
+                print("--duration must be finite and greater than zero", file=sys.stderr)
                 return 2
             command.extend(["--duration", str(args.duration)])
         if args.allow_upscale:
@@ -281,13 +235,6 @@ def main(argv: list[str] | None = None) -> int:
         for asset_id in args.rendered_asset_id:
             command.extend(["--rendered-asset-id", asset_id])
         return _run(command)
-    if args.command == "component":
-        try:
-            command = _component_command(args.name, args.args)
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        return _run(command)
     if args.command == "paid-generation":
         workspace = args.workspace.expanduser().resolve()
         if workspace != ROOT:
@@ -296,8 +243,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        if args.max_credits <= 0:
-            print("--max-credits must be greater than zero", file=sys.stderr)
+        if not math.isfinite(args.max_credits) or args.max_credits <= 0:
+            print(
+                "--max-credits must be finite and greater than zero",
+                file=sys.stderr,
+            )
             return 2
         reference = args.reference_image.expanduser().resolve()
         command = _campaign_command(

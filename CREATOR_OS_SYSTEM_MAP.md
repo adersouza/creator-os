@@ -109,7 +109,6 @@ not equivalent to real metric history; learning proof requires measured rows.
 | `draft-export --dry-run|--apply` | bounded validated drafts only; never schedule/publish |
 | `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
 | `paid-generation` | requires paid confirmation, target identity, exact workspace, and finite credit cap |
-| `component --confirm-write` | advanced package escape hatch, explicitly classified as potentially mutating |
 
 Package-local CLIs remain thin implementation boundaries:
 
@@ -119,7 +118,10 @@ Package-local CLIs remain thin implementation boundaries:
 - `packages/contentforge/cli.mjs`
 
 Deleted `scripts/run/*` aliases and flat Reel module facades no longer create
-wrapper-calling-wrapper chains.
+wrapper-calling-wrapper chains. The root surface deliberately has no generic
+package escape hatch: advanced package CLIs are invoked directly by developers,
+so scheduling and publishing operations cannot be hidden behind a normal
+Creator OS operator command.
 
 ## Repository And Automation Entrypoints
 

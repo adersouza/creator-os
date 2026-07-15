@@ -94,9 +94,9 @@ scripts/creator-os paid-generation --confirm-paid \
   --reference-image /path/to/reference.png --max-credits 1
 ```
 
-The `component --confirm-write` escape hatch exposes advanced package CLIs
-without pretending that delegated commands are read-only. Package CLIs remain
-implementation boundaries, not competing operator surfaces.
+Package CLIs remain direct developer implementation boundaries, not generic
+operator escape hatches. The supported root surface exposes only the named,
+bounded workflows above.
 
 Nothing in this repository command can schedule or publish. Draft export stops
 at ThreadsDashboard. Scheduling and publishing are external product actions.

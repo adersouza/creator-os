@@ -132,25 +132,23 @@ def operator_control_check(
         "blockingCount": len(blocking),
         "warningCount": len(warnings),
         "commands": {
-            "checkContentForge": f"{_run_script('contentforge')} build",
-            "startCampaignFactory": f"{_run_script('campaign-factory')} serve --host 127.0.0.1 --port 8877",
-            "exportReferencePatterns": f"{_run_script('reference-factory')} export-patterns --limit 300 --for-campaign-factory",
+            "checkContentForge": (f"pnpm --dir {settings.contentforge_root} build"),
+            "startCampaignFactory": (
+                "uv run --package campaign-factory campaign-factory "
+                "serve --host 127.0.0.1 --port 8877"
+            ),
+            "exportReferencePatterns": (
+                "uv run --package reference-factory python -m reference_factory.cli "
+                "export-patterns --limit 300 --for-campaign-factory"
+            ),
             "makeBatch": (
-                f"{_run_script('campaign-factory')} make-batch "
+                f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} campaign-prepare "
+                "--confirm-write "
                 "--folder <source_folder> --campaign <campaign_slug> --model <model_slug> "
-                "--format auto --variant-count 20 --reference-pattern auto "
-                "--dry-run-export --user-id <user_id>"
+                "--format auto --variant-count 20"
             ),
         },
     }
-
-
-def _run_script(name: str) -> str:
-    component = name.removesuffix("-factory")
-    return (
-        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} "
-        f"component --confirm-write {component}"
-    )
 
 
 def _path_check(name: str, path: Path, *, required: bool) -> dict[str, Any]:
