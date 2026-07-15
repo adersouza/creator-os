@@ -1,0 +1,44 @@
+{
+  "schema": "reel_factory.generation_worker_lineage.v1",
+  "createdAt": 1784131200,
+  "source": {
+    "stem": "stacey_001",
+    "promptSourcePath": "/tmp/stacey_001.prompt.json",
+    "reference": null,
+    "soulId": "soul_stacey",
+    "soulName": "Stacey",
+    "selectedPanel": null,
+    "startImage": null,
+    "endImage": null,
+    "videoReference": null
+  },
+  "features": {
+    "creator": "stacey",
+    "camera": "mirror_selfie"
+  },
+  "generation": {
+    "tool": "higgsfield_cli",
+    "workflow": "higgsfield_soul_v2_to_kling3_0",
+    "models": {
+      "image": "text2image_soul_v2",
+      "video": "kling3_0"
+    },
+    "requestedModels": {
+      "image": "text2image_soul_v2",
+      "video": "kling3_0"
+    },
+    "prompts": {
+      "higgsfieldGridPrompt": "A clean portrait composition.",
+      "klingMotionPrompt": "Subtle natural movement.",
+      "notes": ""
+    },
+    "commands": [],
+    "raw": {}
+  },
+  "assets": {
+    "localPaths": {}
+  },
+  "review": {
+    "humanReviewRequired": true
+  }
+}

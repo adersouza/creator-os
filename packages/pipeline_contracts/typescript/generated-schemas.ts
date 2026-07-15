@@ -2274,6 +2274,162 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  ]
 	} as const,
+	generationWorkerLineage: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.generation_worker_lineage.v1",
+	  "title": "Reel Factory Generation Worker Lineage",
+	  "description": "Provider-worker evidence captured before Campaign Factory assigns final rendered-asset, caption, audio, and variant identities. This contract must not be used as generated_asset_lineage.v2 at the draft boundary.",
+	  "type": "object",
+	  "additionalProperties": true,
+	  "required": [
+	    "schema",
+	    "createdAt",
+	    "source",
+	    "generation",
+	    "assets",
+	    "review"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.generation_worker_lineage.v1"
+	    },
+	    "createdAt": {
+	      "type": "integer",
+	      "minimum": 0
+	    },
+	    "source": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "stem",
+	        "promptSourcePath"
+	      ],
+	      "properties": {
+	        "stem": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "promptSourcePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "reference": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "soulId": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "soulName": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "selectedPanel": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "startImage": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "endImage": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "videoReference": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "features": {
+	      "type": "object",
+	      "additionalProperties": true
+	    },
+	    "generation": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "tool",
+	        "workflow",
+	        "models",
+	        "requestedModels",
+	        "prompts"
+	      ],
+	      "properties": {
+	        "tool": {
+	          "const": "higgsfield_cli"
+	        },
+	        "workflow": {
+	          "const": "higgsfield_soul_v2_to_kling3_0"
+	        },
+	        "models": {
+	          "type": "object"
+	        },
+	        "requestedModels": {
+	          "type": "object"
+	        },
+	        "prompts": {
+	          "type": "object"
+	        },
+	        "commands": {
+	          "type": "array",
+	          "items": {
+	            "type": "array",
+	            "items": {
+	              "type": "string"
+	            }
+	          }
+	        },
+	        "raw": {
+	          "type": "object"
+	        }
+	      }
+	    },
+	    "assets": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "localPaths"
+	      ],
+	      "properties": {
+	        "localPaths": {
+	          "type": "object",
+	          "additionalProperties": {
+	            "type": "string"
+	          }
+	        }
+	      }
+	    },
+	    "review": {
+	      "type": "object",
+	      "additionalProperties": true,
+	      "required": [
+	        "humanReviewRequired"
+	      ],
+	      "properties": {
+	        "humanReviewRequired": {
+	          "const": true
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	higgsfieldSoulImagePrompt: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reference_factory.higgsfield_soul_image_prompt.v1",
@@ -5472,6 +5628,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
 	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },
 	{ key: "generatedAssetLineageV2", filename: "generated_asset_lineage.v2.schema.json", id: "reel_factory.generated_asset_lineage.v2" },
+	{ key: "generationWorkerLineage", filename: "generation_worker_lineage.v1.schema.json", id: "reel_factory.generation_worker_lineage.v1" },
 	{ key: "higgsfieldSoulImagePrompt", filename: "higgsfield_soul_image_prompt.v1.schema.json", id: "reference_factory.higgsfield_soul_image_prompt.v1" },
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
 	{ key: "learningCohort", filename: "learning_cohort.v1.schema.json", id: "campaign_factory.learning_cohort.v1" },

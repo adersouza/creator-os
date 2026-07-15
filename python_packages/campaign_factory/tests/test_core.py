@@ -754,6 +754,7 @@ def test_contract_schema_examples_validate():
         "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
         "generated_asset_lineage.v2.example.json",
+        "generation_worker_lineage.v1.example.json",
         "higgsfield_soul_image_prompt.v1.example.json",
         "kling_3_video_prompt.v1.example.json",
         "motion_edit_render.v1.example.json",

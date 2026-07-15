@@ -65,6 +65,9 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"threadsdash_handshake.v1.schema.json",
 		);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"generation_worker_lineage.v1.schema.json",
+		);
 		const canonicalSchemaCount = readdirSync(schemaRoot).filter((filename) =>
 			filename.endsWith(".schema.json"),
 		).length;
