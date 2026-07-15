@@ -11,9 +11,6 @@ from .config import CREATOR_OS_ROOT, Settings
 
 def operator_control_check(
     settings: Settings,
-    *,
-    contentforge_base_url: str | None = None,
-    check_http: bool = False,
 ) -> dict[str, Any]:
     """Verify that Campaign Factory can control the local pipeline repos."""
     reference_bank = (
@@ -111,15 +108,6 @@ def operator_control_check(
             ),
         ]
     )
-    if check_http:
-        checks.append(
-            _path_check(
-                "contentforge.headless_contract",
-                settings.contentforge_root / "cli.mjs",
-                required=True,
-            )
-        )
-
     blocking = [item for item in checks if item["required"] and item["status"] != "ok"]
     warnings = [
         item for item in checks if not item["required"] and item["status"] != "ok"
