@@ -41,6 +41,7 @@ from .contact_sheet import generate_contact_sheet
 from .db import connect
 from .embeddings import DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_THRESHOLD
 from .higgsfield_runner import generate_with_higgsfield, run_daily_generation
+from .knowledge_pack import MINIMUM_MEASURED_EXAMPLES, export_knowledge_pack
 from .learning import build_learning_system, learning_summary
 from .media import probe_videos, sample_frames, thumbnail_batch
 from .ocr import ocr_cleanup, run_ocr
@@ -476,6 +477,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Summarize the current learning clusters from reference patterns",
     )
     learning_summary_parser.add_argument("--limit", type=int, default=300)
+
+    knowledge_pack = sub.add_parser(
+        "export-knowledge-pack",
+        help="Export the versioned Gold-first Campaign Factory knowledge handoff",
+    )
+    knowledge_pack.add_argument(
+        "--output",
+        default=None,
+        help="Output JSON path; defaults under the Reference Factory learning root",
+    )
+    knowledge_pack.add_argument(
+        "--minimum-measured-examples",
+        type=int,
+        default=MINIMUM_MEASURED_EXAMPLES,
+    )
 
     queue_analysis = sub.add_parser(
         "queue-reference-analysis",
@@ -1075,6 +1091,18 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "learning-summary":
             print_json(learning_summary(conn, args.limit))
+        elif args.command == "export-knowledge-pack":
+            print_json(
+                export_knowledge_pack(
+                    conn,
+                    output_path=(
+                        Path(args.output).expanduser()
+                        if args.output
+                        else data_root / "learning" / "knowledge_pack_v1.json"
+                    ),
+                    minimum_measured_examples=args.minimum_measured_examples,
+                )
+            )
         elif args.command == "queue-reference-analysis":
             print_json(
                 queue_reference_analysis(

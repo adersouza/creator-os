@@ -734,6 +734,7 @@ def test_contract_schema_examples_validate():
         "recommendation_next_batch.v1.example.json",
         "reference_video_motion_analysis.v1.example.json",
         "reference_video_remix_plan.v1.example.json",
+        "reference_factory_knowledge_pack.v1.example.json",
         "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
     }
@@ -8903,7 +8904,9 @@ def test_recommend_next_batch_persists_idempotent_graph_backed_run(tmp_path: Pat
         assert learning["latestPerformanceSnapshotId"] == "perf_good"
         assert learning["dataQuality"]["sampleSize"] > 0
         assert learning["recommendationTrust"]["status"] == "unmeasured"
-        assert first["items"][0]["confidence"] in {"medium", "high"}
+        assert first["items"][0]["confidence"] == "low"
+        assert first["items"][0]["advisory"] is True
+        assert "reference_pattern_evidence_advisory" in first["items"][0]["risks"]
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM recommendation_runs").fetchone()[0]
             == 1
@@ -8971,8 +8974,8 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
         snapshots = [
             ("perf_static", "post_static", "static_active", 200, 5, 0, 0, 0, 180),
             (
-                "perf_winner",
-                "post_winner",
+                "perf_winner_1",
+                "post_winner_1",
                 "winner_signal",
                 15000,
                 1200,
@@ -8980,6 +8983,28 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
                 130,
                 180,
                 13000,
+            ),
+            (
+                "perf_winner_2",
+                "post_winner_2",
+                "winner_signal",
+                14500,
+                1100,
+                80,
+                120,
+                170,
+                12500,
+            ),
+            (
+                "perf_winner_3",
+                "post_winner_3",
+                "winner_signal",
+                15500,
+                1250,
+                95,
+                140,
+                190,
+                13500,
             ),
         ]
         for (
@@ -9038,6 +9063,9 @@ def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
         validate_recommendation_next_batch(rec)
         item = rec["items"][0]
         assert item["referencePatternId"] == "refpat_winner"
+        assert item["referencePatternEvidence"]["recommendationStatus"] == "eligible"
+        assert item["referencePatternEvidence"]["measuredExampleCount"] == 3
+        assert item["advisory"] is False
         assert (
             item["referencePatternEvidence"]["selectionSource"]
             == "performance_snapshots"

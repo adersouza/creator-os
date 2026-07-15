@@ -37,7 +37,8 @@ package-owned Reel/ContentForge commands but remains the only campaign brain.
 ```text
 reference intake
   -> Reference Factory local analysis and operator labels
-  -> canonical reference bank / pattern cards / audio recommendations
+  -> reference_factory.knowledge_pack.v1 (Gold references, prompt/pattern cards,
+     caption/audio patterns, measured provenance)
   -> Campaign Factory creative plan and account assignment
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
@@ -93,6 +94,14 @@ The pinned performance launcher:
 
 `learning_fanout.py` remains active. A successful command or queue receipt is
 not equivalent to real metric history; learning proof requires measured rows.
+
+Reference Factory exports the versioned knowledge pack without mutating its
+database. Campaign Factory validates its contract and content fingerprint,
+preserves the pack's human labels and recommendation status verbatim, and
+stores the imported pack in its canonical ledger. Campaign
+`performance_snapshots` remains the only operational measured-facts source.
+Reference-pattern evidence stays advisory and requires operator approval until
+Campaign has at least three eligible measured examples for that pattern.
 
 ## Operator Command Surface
 

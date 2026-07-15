@@ -56,7 +56,10 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"reference_video_remix_plan.v1.schema.json",
 		);
-		expect(generatedPipelineContractSchemaManifest).toHaveLength(25);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"reference_factory_knowledge_pack.v1.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest).toHaveLength(26);
 	});
 
 	it("validates structural reference-video analysis and remix plans", () => {

@@ -890,6 +890,18 @@ CREATE TABLE IF NOT EXISTS reference_patterns (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reference_knowledge_packs (
+  id TEXT PRIMARY KEY,
+  schema_version TEXT NOT NULL,
+  source_fingerprint TEXT NOT NULL UNIQUE,
+  generated_at TEXT NOT NULL,
+  policy_json TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  imported_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audio_catalog (
   id TEXT PRIMARY KEY,
   source_audio_id TEXT,

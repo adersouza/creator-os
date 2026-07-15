@@ -38,6 +38,7 @@ RECOMMENDATION_MEASUREMENT_VERSION = "recommendation_measurement.v1"
 RECOMMENDATION_MEASUREMENT_THRESHOLD = 5
 AUTONOMY_LEVELS = {"level_1", "level_2", "level_3"}
 DEFAULT_AUTONOMY_LEVEL = "level_2"
+REFERENCE_PATTERN_MIN_MEASURED_EXAMPLES = 3
 
 
 class RecommendationRepository:
@@ -136,9 +137,14 @@ class RecommendationRepository:
         reference_pattern_rankings = self.ranked_reference_patterns_for_campaign(
             campaign["id"]
         )
+        eligible_reference_pattern_rankings = [
+            item
+            for item in reference_pattern_rankings
+            if item.get("recommendationStatus") == "eligible"
+        ]
         reference_pattern = (
-            reference_pattern_rankings[0]["pattern"]
-            if reference_pattern_rankings
+            eligible_reference_pattern_rankings[0]["pattern"]
+            if eligible_reference_pattern_rankings
             else self.active_reference_pattern_for_campaign(campaign["id"])
             or self.top_reference_pattern()
         )
@@ -451,6 +457,12 @@ class RecommendationRepository:
                     "clusterKey": bucket["pattern"].get("clusterKey"),
                     "label": bucket["pattern"].get("label"),
                     "sampleSize": int(performance.get("count") or 0),
+                    "recommendationStatus": (
+                        "eligible"
+                        if int(performance.get("count") or 0)
+                        >= REFERENCE_PATTERN_MIN_MEASURED_EXAMPLES
+                        else "advisory"
+                    ),
                     "performanceScore": self._performance_quality_score(performance),
                     "planningScore": self._performance_planning_score(performance),
                     "bandit": (performance.get("learning") or {}).get("bandit"),
@@ -460,6 +472,7 @@ class RecommendationRepository:
         return sorted(
             rankings,
             key=lambda item: (
+                0 if item.get("recommendationStatus") == "eligible" else 1,
                 -(
                     item["planningScore"]
                     if item.get("planningScore") is not None
@@ -556,6 +569,7 @@ class RecommendationRepository:
                     "performanceScore",
                     "planningScore",
                     "bandit",
+                    "recommendationStatus",
                 )
                 if item.get(key) is not None
             }
@@ -570,12 +584,29 @@ class RecommendationRepository:
         rankings: list[dict[str, Any]],
         selected_pattern: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        selected_pattern_id = (selected_pattern or {}).get("id")
+        selected_ranking = next(
+            (item for item in rankings if item.get("patternId") == selected_pattern_id),
+            None,
+        )
+        measured_examples = int((selected_ranking or {}).get("sampleSize") or 0)
+        recommendation_status = (
+            "eligible"
+            if measured_examples >= REFERENCE_PATTERN_MIN_MEASURED_EXAMPLES
+            else "advisory"
+        )
         return {
             "selectedPatternId": (selected_pattern or {}).get("id"),
             "selectedClusterKey": (selected_pattern or {}).get("clusterKey"),
-            "selectionSource": "performance_snapshots"
-            if rankings
-            else "active_or_static_fallback",
+            "selectionSource": (
+                "performance_snapshots"
+                if recommendation_status == "eligible"
+                else "active_or_static_fallback"
+            ),
+            "recommendationStatus": recommendation_status,
+            "measuredExampleCount": measured_examples,
+            "minimumMeasuredExamples": REFERENCE_PATTERN_MIN_MEASURED_EXAMPLES,
+            "operatorApprovalRequired": recommendation_status == "advisory",
             "rankings": self.compact_recommendation_rankings(rankings),
         }
 
@@ -740,6 +771,13 @@ class RecommendationRepository:
         reference_pattern_evidence = self.recommendation_reference_pattern_evidence(
             reference_pattern_rankings, reference_pattern
         )
+        if reference_pattern_evidence["recommendationStatus"] == "advisory":
+            risks.append("reference_pattern_evidence_advisory")
+            confidence = "low"
+            confidence_reason = (
+                f"{confidence_reason}; reference pattern has fewer than "
+                f"{REFERENCE_PATTERN_MIN_MEASURED_EXAMPLES} measured examples"
+            )
         variation_preset_evidence = self.recommendation_variation_preset_evidence(
             variation_preset_rankings, recommended_variation_preset
         )
@@ -889,6 +927,8 @@ class RecommendationRepository:
                 reference_pattern
             ),
             "referencePatternEvidence": reference_pattern_evidence,
+            "advisory": reference_pattern_evidence["recommendationStatus"]
+            == "advisory",
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
             "readinessEvidence": readiness_evidence,
@@ -1486,6 +1526,7 @@ class RecommendationRepository:
         why_now_risks = [
             "missing_rendered_assets",
             "missing_performance_history",
+            "reference_pattern_evidence_advisory",
             *(
                 ["low_recommendation_trust"]
                 if recommendation_trust.get("status") == "low"
@@ -1544,6 +1585,7 @@ class RecommendationRepository:
                 reference_pattern
             ),
             "referencePatternEvidence": reference_pattern_evidence,
+            "advisory": True,
             "recommendedVariationPreset": recommended_variation_preset,
             "variationPresetEvidence": variation_preset_evidence,
             "readinessEvidence": readiness_evidence,
@@ -1590,6 +1632,7 @@ class RecommendationRepository:
                 "risks": [
                     "missing_rendered_assets",
                     "missing_performance_history",
+                    "reference_pattern_evidence_advisory",
                     *trust_risks,
                 ],
                 "recommendationTrust": recommendation_trust,

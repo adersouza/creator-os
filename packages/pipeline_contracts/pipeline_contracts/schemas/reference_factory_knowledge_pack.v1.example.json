@@ -1,0 +1,144 @@
+{
+  "schema": "reference_factory.knowledge_pack.v1",
+  "packId": "kp_0123456789abcdef",
+  "sourceFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "generatedAt": "2026-07-15T15:00:00Z",
+  "policy": {
+    "humanGoldLabelsAuthoritative": true,
+    "measuredFactsSource": "campaign_factory.performance_snapshots",
+    "minimumMeasuredExamplesForRecommendation": 3
+  },
+  "summary": {
+    "goldReferenceCount": 1,
+    "promptCardCount": 1,
+    "patternCardCount": 1,
+    "captionPatternCount": 1,
+    "audioPatternCount": 1,
+    "measuredExampleCount": 1,
+    "eligiblePatternCount": 0,
+    "advisoryPatternCount": 1
+  },
+  "goldReferences": [
+    {
+      "referenceId": "ref_gold_1",
+      "label": "gold",
+      "account": "example_creator",
+      "localPath": "/portable/reference.mp4",
+      "contentHash": "sha256-example",
+      "tags": ["mirror"],
+      "notes": "Operator-selected Gold reference",
+      "promptCardIds": ["prompt_1"],
+      "patternCardIds": ["pattern_1"],
+      "captionPatternIds": ["caption_1"],
+      "measuredExampleCount": 1,
+      "measuredOutcomeProvenance": [
+        {
+          "promptId": "prompt_1",
+          "postId": "post_1",
+          "rewardScore": 0.8,
+          "confidence": 0.75,
+          "sourceSnapshotAt": "2026-07-15T14:00:00Z",
+          "scoringVersion": "learning_score.v1",
+          "baselineProvenance": { "accountId": "ig_1" },
+          "outcome": { "performanceSnapshotId": "snapshot_1" }
+        }
+      ]
+    }
+  ],
+  "promptCards": [
+    {
+      "id": "prompt_1",
+      "referenceId": "ref_gold_1",
+      "targetTool": "kling_3",
+      "modelProfile": "Stacey",
+      "status": "prompt_ready",
+      "prompt": { "mainPrompt": "Example motion prompt" },
+      "measuredExampleCount": 1,
+      "recommendationStatus": "advisory",
+      "measuredOutcomeProvenance": [
+        {
+          "promptId": "prompt_1",
+          "postId": "post_1",
+          "rewardScore": 0.8,
+          "confidence": 0.75,
+          "sourceSnapshotAt": "2026-07-15T14:00:00Z",
+          "scoringVersion": "learning_score.v1",
+          "baselineProvenance": { "accountId": "ig_1" },
+          "outcome": { "performanceSnapshotId": "snapshot_1" }
+        }
+      ]
+    }
+  ],
+  "patternCards": [
+    {
+      "id": "pattern_1",
+      "clusterKey": "mirror::curiosity::question",
+      "rank": 1,
+      "label": "Mirror curiosity",
+      "visualFormat": "mirror",
+      "hookType": "curiosity",
+      "captionArchetype": "question",
+      "qualityScore": 91,
+      "referenceIds": ["ref_gold_1"],
+      "promptCardIds": ["prompt_1"],
+      "captionPatternIds": ["caption_1"],
+      "audioPatternIds": ["audio_1"],
+      "pattern": { "visualFormat": "mirror" },
+      "measuredExampleCount": 1,
+      "recommendationStatus": "advisory",
+      "measuredOutcomeProvenance": [
+        {
+          "promptId": "prompt_1",
+          "postId": "post_1",
+          "rewardScore": 0.8,
+          "confidence": 0.75,
+          "sourceSnapshotAt": "2026-07-15T14:00:00Z",
+          "scoringVersion": "learning_score.v1",
+          "baselineProvenance": { "accountId": "ig_1" },
+          "outcome": { "performanceSnapshotId": "snapshot_1" }
+        }
+      ]
+    }
+  ],
+  "captionPatterns": [
+    {
+      "id": "caption_1",
+      "referenceId": "ref_gold_1",
+      "normalizedText": "pick one",
+      "firstLine": "pick one",
+      "lineCount": 1,
+      "characterCount": 8,
+      "averageConfidence": 0.94,
+      "placement": { "lane": "lower_center" }
+    }
+  ],
+  "audioPatterns": [
+    {
+      "id": "audio_1",
+      "platform": "instagram",
+      "audioId": "native_audio_1",
+      "audioTitle": "Example audio",
+      "artistName": "Example artist",
+      "usageType": "native_trending",
+      "visualFormat": "mirror",
+      "hookType": "curiosity",
+      "captionArchetype": "question",
+      "postCount": 2,
+      "recommendation": { "status": "operator_select" },
+      "sourceSignal": { "totalPlays": 1000, "medianPlays": 500 }
+    }
+  ],
+  "provenance": {
+    "producer": "reference_factory",
+    "sourceTables": [
+      "audio_patterns",
+      "caption_patterns",
+      "generated_video_prompts",
+      "prompt_post_outcomes",
+      "reference_patterns",
+      "review_labels",
+      "source_files"
+    ],
+    "measuredFactsSource": "campaign_factory.performance_snapshots"
+  }
+}
