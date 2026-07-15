@@ -226,6 +226,61 @@ class ModelRepository:
             ).fetchone()
         )
 
+    def project_instagram_trial_capability(
+        self,
+        account_id: str,
+        *,
+        capability: str,
+        oauth_granted_scopes: list[str] | None,
+        oauth_scopes_verified_at: str | None,
+        checked_at: str | None,
+        reason: str | None,
+    ) -> dict[str, Any]:
+        """Persist ThreadsDashboard's current Trial Reel evidence exactly."""
+        normalized_capability = str(capability or "unknown").strip().lower()
+        if normalized_capability not in {"unknown", "eligible", "denied"}:
+            raise ValueError(
+                "trial_reels_capability must be unknown, eligible, or denied"
+            )
+        scopes_json = None
+        if oauth_granted_scopes is not None:
+            normalized_scopes = sorted(
+                {
+                    str(scope).strip()
+                    for scope in oauth_granted_scopes
+                    if str(scope).strip()
+                }
+            )
+            scopes_json = json.dumps(normalized_scopes, ensure_ascii=False)
+        now = self._utc_now()
+        cursor = self.conn.execute(
+            """
+            UPDATE accounts
+            SET oauth_granted_scopes_json = ?, oauth_scopes_verified_at = ?,
+                trial_reels_capability = ?,
+                trial_reels_capability_checked_at = ?,
+                trial_reels_capability_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                scopes_json,
+                oauth_scopes_verified_at,
+                normalized_capability,
+                checked_at,
+                reason,
+                now,
+                account_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(f"account not found: {account_id}")
+        self.conn.commit()
+        return dict(
+            self.conn.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+        )
+
     def upsert_model_account_profile(
         self,
         model_slug: str,

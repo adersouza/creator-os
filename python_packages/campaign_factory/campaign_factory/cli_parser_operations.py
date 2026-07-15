@@ -90,6 +90,7 @@ def register_operations_commands(sub) -> None:
         "--trial-graduation-strategy", choices=["MANUAL", "SS_PERFORMANCE"]
     )
     dist.add_argument("--trial-group-id")
+    dist.add_argument("--trial-capability-authorization", choices=["operator_canary"])
     eligibility = sub.add_parser("assignment-eligibility")
     eligibility.add_argument("--rendered-asset-id", required=True)
     eligibility.add_argument("--account-id")

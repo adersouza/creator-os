@@ -123,6 +123,31 @@ def make_factory(tmp_path: Path) -> CampaignFactory:
     )
 
 
+def project_trial_account(
+    factory: CampaignFactory,
+    external_id: str,
+    capability: str,
+    *,
+    scopes: list[str] | None = None,
+    checked_at: str | None = "2026-07-15T04:30:00+00:00",
+    reason: str | None = None,
+) -> dict[str, Any]:
+    account = factory.domains.models.upsert_account(
+        f"fixture_{external_id}",
+        external_id=external_id,
+    )
+    return factory.domains.models.project_instagram_trial_capability(
+        account["id"],
+        capability=capability,
+        oauth_granted_scopes=scopes,
+        oauth_scopes_verified_at=(
+            "2026-07-15T04:00:00+00:00" if scopes is not None else None
+        ),
+        checked_at=checked_at,
+        reason=reason,
+    )
+
+
 def test_daily_library_plan_is_deterministic_and_zero_cost(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -10432,6 +10457,13 @@ def test_explicit_instagram_trial_reel_manifest_includes_trial_fields(tmp_path: 
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        project_trial_account(
+            cf,
+            "ig_good",
+            "eligible",
+            scopes=["instagram_basic", "instagram_content_publish"],
+            reason="meta_trial_reel_publish_succeeded",
+        )
 
         plan = cf.domains.distribution.create_distribution_plan(
             "asset_1",
@@ -10448,11 +10480,113 @@ def test_explicit_instagram_trial_reel_manifest_includes_trial_fields(tmp_path: 
         assert plan["contentSurface"] == "reel"
         assert plan["instagramTrialReels"] is True
         assert plan["trialGraduationStrategy"] == "MANUAL"
+        assert plan["trialCapability"] == {
+            "status": "eligible",
+            "checkedAt": "2026-07-15T04:30:00+00:00",
+            "reason": "meta_trial_reel_publish_succeeded",
+            "authorization": None,
+        }
         assert manifest["content_surface"] == "reel"
         assert manifest["distribution_surface"] == "trial_reel"
         assert manifest["ig_media_type"] == "REELS"
         assert manifest["instagram_trial_reels"] is True
         assert manifest["trial_graduation_strategy"] == "MANUAL"
+    finally:
+        cf.close()
+
+
+def test_unknown_trial_capability_requires_operator_canary(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        project_trial_account(cf, "ig_unknown", "unknown", checked_at=None)
+
+        with pytest.raises(
+            ValueError,
+            match="trial_capability_unknown_requires_operator_canary",
+        ):
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1",
+                surface="trial_reel",
+                instagram_account_id="ig_unknown",
+                instagram_trial_reels=True,
+                trial_graduation_strategy="MANUAL",
+            )
+
+        plan = cf.domains.distribution.create_distribution_plan(
+            "asset_1",
+            surface="trial_reel",
+            instagram_account_id="ig_unknown",
+            instagram_trial_reels=True,
+            trial_graduation_strategy="MANUAL",
+            trial_capability_authorization="operator_canary",
+        )
+
+        assert plan["trialCapability"] == {
+            "status": "unknown",
+            "checkedAt": None,
+            "reason": None,
+            "authorization": "operator_canary",
+        }
+    finally:
+        cf.close()
+
+
+def test_denied_trial_capability_blocks_operator_canary(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        project_trial_account(
+            cf,
+            "ig_denied",
+            "denied",
+            reason="meta_permission_or_eligibility_denied:code_10:subcode_none",
+        )
+
+        with pytest.raises(ValueError, match="trial_capability_denied"):
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1",
+                surface="trial_reel",
+                instagram_account_id="ig_denied",
+                instagram_trial_reels=True,
+                trial_graduation_strategy="MANUAL",
+                trial_capability_authorization="operator_canary",
+            )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM distribution_plans").fetchone()[0]
+            == 0
+        )
+    finally:
+        cf.close()
+
+
+def test_known_missing_trial_publish_scope_blocks_operator_canary(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        project_trial_account(
+            cf,
+            "ig_missing_scope",
+            "unknown",
+            scopes=["instagram_basic"],
+            checked_at=None,
+        )
+
+        with pytest.raises(ValueError, match="trial_publish_scope_missing"):
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1",
+                surface="trial_reel",
+                instagram_account_id="ig_missing_scope",
+                instagram_trial_reels=True,
+                trial_graduation_strategy="MANUAL",
+                trial_capability_authorization="operator_canary",
+            )
     finally:
         cf.close()
 
@@ -10574,6 +10708,11 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
             allowed_instagram_account_ids=["ig_1", "ig_2", "ig_3", "ig_4", "ig_5"],
             story_cta_text="new post is up",
         )
+        project_trial_account(cf, "ig_1", "eligible")
+        project_trial_account(cf, "ig_2", "denied", reason="Meta code 10")
+        project_trial_account(cf, "ig_3", "unknown", checked_at=None)
+        project_trial_account(cf, "ig_4", "eligible")
+        project_trial_account(cf, "ig_5", "eligible")
 
         result = cf.domains.distribution.plan_distribution("may", user_id="user_1")
         plans = cf.domains.distribution.distribution_plans_for_campaign("may")
@@ -10590,6 +10729,11 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
             plan["instagramAccountId"] in {"ig_1", "ig_2", "ig_3", "ig_4", "ig_5"}
             for plan in primary
         )
+        assert {
+            plan["instagramAccountId"]
+            for plan in primary
+            if plan["surface"] == "trial_reel"
+        }.isdisjoint({"ig_2", "ig_3"})
 
         unplanned_id = result["unplanned"][0]["renderedAssetId"]
         cf.domains.campaign_overview.assign_asset_account(
@@ -17586,6 +17730,14 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
                     "status": "active",
                     "needs_reauth": False,
                     "sync_cohort": "hot",
+                    "oauth_granted_scopes": [
+                        "instagram_content_publish",
+                        "instagram_basic",
+                    ],
+                    "oauth_scopes_verified_at": "2026-07-15T03:00:00+00:00",
+                    "trial_reels_capability": "eligible",
+                    "trial_reels_capability_checked_at": "2026-07-15T04:00:00+00:00",
+                    "trial_reels_capability_reason": "meta_trial_reel_publish_succeeded",
                 },
                 {
                     "id": "ig_stacey_2",
@@ -17595,6 +17747,11 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
                     "status": "active",
                     "needs_reauth": False,
                     "sync_cohort": "warm",
+                    "oauth_granted_scopes": None,
+                    "oauth_scopes_verified_at": None,
+                    "trial_reels_capability": "denied",
+                    "trial_reels_capability_checked_at": "2026-07-15T05:00:00+00:00",
+                    "trial_reels_capability_reason": "Meta code 10",
                 },
                 {
                     "id": "ig_stacey_blocked",
@@ -17636,7 +17793,13 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
         rows = [
             dict(row)
             for row in cf.conn.execute(
-                "SELECT handle, external_id FROM accounts ORDER BY handle"
+                """
+                SELECT handle, external_id, oauth_granted_scopes_json,
+                       oauth_scopes_verified_at, trial_reels_capability,
+                       trial_reels_capability_checked_at,
+                       trial_reels_capability_reason
+                FROM accounts ORDER BY handle
+                """
             ).fetchall()
         ]
         assert first["imported"] == 2
@@ -17646,9 +17809,29 @@ def test_sync_threadsdash_instagram_accounts_imports_real_stacey_roster_idempote
         assert second["imported"] == 2
         assert second["created"] == 0
         assert rows == [
-            {"handle": "bennett.lovee", "external_id": "ig_stacey_2"},
-            {"handle": "stacey_ben.x", "external_id": "ig_stacey_1"},
+            {
+                "handle": "bennett.lovee",
+                "external_id": "ig_stacey_2",
+                "oauth_granted_scopes_json": None,
+                "oauth_scopes_verified_at": None,
+                "trial_reels_capability": "denied",
+                "trial_reels_capability_checked_at": "2026-07-15T05:00:00+00:00",
+                "trial_reels_capability_reason": "Meta code 10",
+            },
+            {
+                "handle": "stacey_ben.x",
+                "external_id": "ig_stacey_1",
+                "oauth_granted_scopes_json": json.dumps(
+                    ["instagram_basic", "instagram_content_publish"]
+                ),
+                "oauth_scopes_verified_at": "2026-07-15T03:00:00+00:00",
+                "trial_reels_capability": "eligible",
+                "trial_reels_capability_checked_at": "2026-07-15T04:00:00+00:00",
+                "trial_reels_capability_reason": "meta_trial_reel_publish_succeeded",
+            },
         ]
+        assert second["accounts"][0]["trialCapability"]["status"] == "eligible"
+        assert second["accounts"][1]["trialCapability"]["status"] == "denied"
     finally:
         cf.close()
 

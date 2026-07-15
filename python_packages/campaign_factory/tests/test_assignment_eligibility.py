@@ -300,6 +300,7 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
             instagram_trial_reels=True,
             trial_graduation_strategy="MANUAL",
             trial_group_id="trial-group-1",
+            trial_capability_authorization="operator_canary",
         )
         cadence = cf.conn.execute(
             "SELECT * FROM account_content_requirements WHERE account_id = ?",
@@ -362,6 +363,7 @@ def test_trial_graduation_hard_fails_without_lineage_fingerprint(tmp_path: Path)
             account_id=account["id"],
             instagram_trial_reels=True,
             trial_graduation_strategy="MANUAL",
+            trial_capability_authorization="operator_canary",
         )
         cf.conn.execute(
             "UPDATE rendered_assets SET caption_generation_json = '{}' WHERE id = ?",
@@ -416,6 +418,7 @@ def test_trial_ranking_report_has_one_and_twenty_four_hour_windows(tmp_path: Pat
             instagram_trial_reels=True,
             trial_graduation_strategy="MANUAL",
             trial_group_id="trial-group-report",
+            trial_capability_authorization="operator_canary",
         )
         for hours, views, engagement in ((1, 100, 4), (24, 900, 40)):
             record_trial_observation(

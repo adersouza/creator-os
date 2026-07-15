@@ -26,7 +26,18 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    _ensure_columns(conn, "accounts", {"account_group_id": "TEXT"})
+    _ensure_columns(
+        conn,
+        "accounts",
+        {
+            "account_group_id": "TEXT",
+            "oauth_granted_scopes_json": "TEXT",
+            "oauth_scopes_verified_at": "TEXT",
+            "trial_reels_capability": "TEXT NOT NULL DEFAULT 'unknown'",
+            "trial_reels_capability_checked_at": "TEXT",
+            "trial_reels_capability_reason": "TEXT",
+        },
+    )
     _ensure_columns(
         conn,
         "audit_reports",
@@ -268,6 +279,10 @@ def init_db(conn: sqlite3.Connection) -> None:
             "instagram_trial_reels": "INTEGER NOT NULL DEFAULT 0",
             "trial_graduation_strategy": "TEXT",
             "trial_group_id": "TEXT",
+            "trial_capability_status": "TEXT",
+            "trial_capability_checked_at": "TEXT",
+            "trial_capability_reason": "TEXT",
+            "trial_capability_authorization": "TEXT",
             "source_family_id": "TEXT",
             "perceptual_fingerprint": "TEXT",
             "perceptual_cluster_id": "TEXT",

@@ -549,6 +549,7 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 instagram_trial_reels=args.instagram_trial_reels,
                 trial_graduation_strategy=args.trial_graduation_strategy,
                 trial_group_id=args.trial_group_id,
+                trial_capability_authorization=args.trial_capability_authorization,
             )
         )
         return 0
