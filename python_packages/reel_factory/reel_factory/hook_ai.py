@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from caption_generation_log import (
+from .caption_generation_log import (
     append_generation_log,
     build_generation_record,
     caption_library,
@@ -24,7 +24,7 @@ from caption_generation_log import (
     rank_clip_sidecar,
     score_caption_quality,
 )
-from embedding_provider import (
+from .embedding_provider import (
     DEFAULT_EMBEDDING_MODEL,
     HASH_MODEL,
     cosine_similarity,

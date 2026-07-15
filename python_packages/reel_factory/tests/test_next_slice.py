@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from export_approved import export_approved
-from hook_tools import find_near_duplicates, normalize_hook_text
-from metrics_store import import_metrics_csv, metrics_summary
-from placement_scorer import PlacementSummary, score_lanes
-from reel_pipeline import (
+from reel_factory.export_approved import export_approved
+from reel_factory.hook_tools import find_near_duplicates, normalize_hook_text
+from reel_factory.metrics_store import import_metrics_csv, metrics_summary
+from reel_factory.placement_scorer import PlacementSummary, score_lanes
+from reel_factory.reel_pipeline import (
     CaptionSegmentPlan,
     Manifest,
     Recipe,

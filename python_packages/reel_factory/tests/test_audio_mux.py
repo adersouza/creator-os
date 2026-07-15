@@ -1,8 +1,8 @@
 from pathlib import Path
 
-import audio_mux
-from audio_intent import write_audio_intent
-from audio_mux import build_mux_cmd, mux_root
+import reel_factory.audio_mux as audio_mux
+from reel_factory.audio_intent import write_audio_intent
+from reel_factory.audio_mux import build_mux_cmd, mux_root
 
 
 def test_build_mux_cmd_uses_hook_offset_and_loudnorm(tmp_path: Path) -> None:

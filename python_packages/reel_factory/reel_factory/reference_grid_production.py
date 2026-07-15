@@ -19,14 +19,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from generate_assets import AssetGenerationPlan, create_image_asset
-from generate_prompts import (
+from PIL import Image, ImageDraw
+
+from .generate_assets import AssetGenerationPlan, create_image_asset
+from .generate_prompts import (
     JSON_STRUCTURED_RECREATION_MODE,
     generate_prompt,
     load_xai_api_key,
 )
-from grid_crop import crop_image_grid_panels
-from PIL import Image, ImageDraw
+from .grid_crop import crop_image_grid_panels
 
 try:
     from .fileops import atomic_write_text

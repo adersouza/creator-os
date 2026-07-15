@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from generate_prompts import (
+from .generate_prompts import (
     DEFAULT_MODEL,
     build_xai_payload,
     call_grok,

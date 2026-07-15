@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from manifest import Manifest
+from .manifest import Manifest
 
 
 def review_integrity_check(

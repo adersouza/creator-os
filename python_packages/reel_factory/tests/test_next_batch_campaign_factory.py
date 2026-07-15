@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from next_batch import (
+from reel_factory.next_batch import (
     CAMPAIGN_FACTORY_REQUEST_ENV,
     _campaign_factory_command,
     campaign_factory_next_batch,

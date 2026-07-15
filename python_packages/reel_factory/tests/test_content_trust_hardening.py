@@ -9,10 +9,15 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
-from ai_visual_qc import record_from_scores
-from asset_prompt_contract import AssetPromptSet
-from caption_bank import CaptionBankStore, caption_hash, empty_performance_payload
-from generate_assets import (
+from PIL import Image
+from reel_factory.ai_visual_qc import record_from_scores
+from reel_factory.asset_prompt_contract import AssetPromptSet
+from reel_factory.caption_bank import (
+    CaptionBankStore,
+    caption_hash,
+    empty_performance_payload,
+)
+from reel_factory.generate_assets import (
     AssetGenerationPlan,
     _cost_preflight_for_plan,
     _record_cost_preflight_block,
@@ -25,7 +30,7 @@ from generate_assets import (
     generated_video_qc_failure_reason,
     list_failed_generations,
 )
-from higgsfield_cost_preflight import (
+from reel_factory.higgsfield_cost_preflight import (
     _parse_balance,
     cancel_higgsfield_spend_reservation,
     check_higgsfield_cost_preflight,
@@ -36,16 +41,15 @@ from higgsfield_cost_preflight import (
     reserve_higgsfield_credits,
     reserve_higgsfield_spend,
 )
-from hook_ai import hook_similarity_mode
-from identity_verification import (
+from reel_factory.hook_ai import hook_similarity_mode
+from reel_factory.identity_verification import (
     build_reference_set,
     delete_reference_set,
     identity_health,
     identity_model_root,
     verify_identity,
 )
-from media_metadata import normalize_media_metadata
-from PIL import Image
+from reel_factory.media_metadata import normalize_media_metadata
 
 
 @pytest.fixture(autouse=True)
@@ -121,7 +125,7 @@ def test_identity_model_root_reuses_standard_cache(
     standard.mkdir(parents=True)
     (standard / "w600k_r50.onnx").write_bytes(b"model")
     monkeypatch.setattr(
-        "identity_verification.PACKAGE_IDENTITY_MODEL_ROOT", package_root
+        "reel_factory.identity_verification.PACKAGE_IDENTITY_MODEL_ROOT", package_root
     )
     monkeypatch.setattr(Path, "home", lambda: home)
 
@@ -143,7 +147,7 @@ def test_identity_model_root_prefers_explicit_configuration(
 def test_download_result_rejects_truncated_response_without_partial_file(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import generate_assets
+    import reel_factory.generate_assets as generate_assets
 
     monkeypatch.setattr(
         generate_assets.urllib.request,
@@ -166,7 +170,7 @@ def test_download_result_rejects_truncated_response_without_partial_file(
 def test_download_result_timeout_leaves_no_asset_file(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import generate_assets
+    import reel_factory.generate_assets as generate_assets
 
     def timeout(*_args, **_kwargs):
         raise TimeoutError("timed out")
@@ -334,7 +338,7 @@ def test_identity_reference_build_writes_private_file_and_delete_removes_it(
 def test_identity_reference_cli_redacts_embeddings_by_default(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
-    import identity_verification
+    import reel_factory.identity_verification as identity_verification
 
     input_dir = tmp_path / "approved_refs"
     input_dir.mkdir()
@@ -389,7 +393,7 @@ def test_generated_image_qc_gates_identity_with_injected_provider(
     _write_image(image)
     _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
     monkeypatch.setattr(
-        "generate_assets.assess_image_qc",
+        "reel_factory.generate_assets.assess_image_qc",
         lambda *args, **kwargs: {
             "available": True,
             "anatomy": {"plausible": True, "severity": "none", "defects": []},
@@ -428,7 +432,7 @@ def test_generated_image_qc_names_identity_reference_seeding_remedy(
     image = tmp_path / "still.png"
     _write_image(image)
     monkeypatch.setattr(
-        "generate_assets.assess_image_qc",
+        "reel_factory.generate_assets.assess_image_qc",
         lambda *args, **kwargs: {
             "available": True,
             "anatomy": {"plausible": True, "severity": "none", "defects": []},
@@ -748,9 +752,9 @@ def test_higgsfield_cost_preflight_env_policy_overrides_config(monkeypatch) -> N
 def test_documented_env_names_match_active_code() -> None:
     root = Path(__file__).resolve().parents[3]
     env_template = (root / ".env.example").read_text(encoding="utf-8")
-    sscd_code = (root / "python_packages/reel_factory/sscd_video.py").read_text(
-        encoding="utf-8"
-    )
+    sscd_code = (
+        root / "python_packages/reel_factory/reel_factory/sscd_video.py"
+    ).read_text(encoding="utf-8")
     campaign_config = (
         root / "python_packages/campaign_factory/campaign_factory/config.py"
     ).read_text(encoding="utf-8")
@@ -864,14 +868,17 @@ def test_higgsfield_quote_preserves_cli_parameter_names(monkeypatch) -> None:
         stdout = '{"credits": 1}'
 
     monkeypatch.setattr(
-        "higgsfield_cost_preflight.shutil.which", lambda _name: "/bin/higgsfield"
+        "reel_factory.higgsfield_cost_preflight.shutil.which",
+        lambda _name: "/bin/higgsfield",
     )
 
     def fake_run(command, **_kwargs):
         captured.extend(command)
         return Result()
 
-    monkeypatch.setattr("higgsfield_cost_preflight.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "reel_factory.higgsfield_cost_preflight.subprocess.run", fake_run
+    )
     quote = quote_higgsfield_generation(
         "text2image_soul_v2", params={"aspect_ratio": "9:16"}
     )
@@ -1292,11 +1299,11 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
     db_path = tmp_path / "campaign_factory.sqlite"
     _set_higgsfield_credit_guardrail_env(monkeypatch, db_path)
     monkeypatch.setattr(
-        "higgsfield_cost_preflight.CliBalanceProvider.balance",
+        "reel_factory.higgsfield_cost_preflight.CliBalanceProvider.balance",
         lambda _self: (50.0, None),
     )
     monkeypatch.setattr(
-        "generate_assets.quote_higgsfield_generation",
+        "reel_factory.generate_assets.quote_higgsfield_generation",
         lambda model, **_kwargs: {
             "schema": "reel_factory.higgsfield_provider_quote.v1",
             "provider": "higgsfield",
@@ -1324,10 +1331,12 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
         "videoModels": [{"job_set_type": "kling3_0"}],
     }
     monkeypatch.setattr(
-        "generate_assets.ensure_required_capabilities", lambda *_args: capabilities
+        "reel_factory.generate_assets.ensure_required_capabilities",
+        lambda *_args: capabilities,
     )
     monkeypatch.setattr(
-        "generate_assets.validate_generation_soul", lambda *_args: {"status": "valid"}
+        "reel_factory.generate_assets.validate_generation_soul",
+        lambda *_args: {"status": "valid"},
     )
     calls: list[list[str]] = []
 
@@ -1335,7 +1344,7 @@ def test_reel_paid_generation_consumes_reservation_before_provider_call(
         calls.append(cmd)
         return {"id": f"img_{len(calls)}", "status": "completed"}
 
-    monkeypatch.setattr("generate_assets._run_json", fake_provider_call)
+    monkeypatch.setattr("reel_factory.generate_assets._run_json", fake_provider_call)
 
     def plan(stem: str) -> AssetGenerationPlan:
         return AssetGenerationPlan(
@@ -1397,8 +1406,12 @@ def test_video_preflight_quotes_exact_kling_settings_before_reservation(
         captured["reservation"] = kwargs
         return {"allowed": True, "providerQuote": kwargs["provider_quote"]}
 
-    monkeypatch.setattr("generate_assets.quote_higgsfield_generation", fake_quote)
-    monkeypatch.setattr("generate_assets.reserve_higgsfield_credits", fake_reserve)
+    monkeypatch.setattr(
+        "reel_factory.generate_assets.quote_higgsfield_generation", fake_quote
+    )
+    monkeypatch.setattr(
+        "reel_factory.generate_assets.reserve_higgsfield_credits", fake_reserve
+    )
     plan = AssetGenerationPlan(
         prompt_json=tmp_path / "prompt.json",
         stem="candidate",
@@ -1682,7 +1695,9 @@ def test_reel_generation_costs_ensure_cost_schema_once_per_connection(
             return event_id
 
     tracker = FakeCostTracker()
-    monkeypatch.setattr("generate_assets._load_cost_tracker_module", lambda: tracker)
+    monkeypatch.setattr(
+        "reel_factory.generate_assets._load_cost_tracker_module", lambda: tracker
+    )
     monkeypatch.setenv("CAMPAIGN_FACTORY_DB", str(tmp_path / "campaign_factory.sqlite"))
     plan = AssetGenerationPlan(
         prompt_json=tmp_path / "prompt.json",
@@ -1763,7 +1778,7 @@ def test_metadata_normalization_reports_missing_exiftool_without_spoofing(
 ) -> None:
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"fake media")
-    monkeypatch.setattr("media_metadata.shutil.which", lambda name: None)
+    monkeypatch.setattr("reel_factory.media_metadata.shutil.which", lambda name: None)
 
     result = normalize_media_metadata(media, dry_run=False)
 
@@ -1789,8 +1804,10 @@ def test_metadata_normalization_strips_mp4_metadata_tags(
         calls.append(cmd)
         return Proc()
 
-    monkeypatch.setattr("media_metadata.shutil.which", lambda name: "/usr/bin/exiftool")
-    monkeypatch.setattr("media_metadata.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "reel_factory.media_metadata.shutil.which", lambda name: "/usr/bin/exiftool"
+    )
+    monkeypatch.setattr("reel_factory.media_metadata.subprocess.run", fake_run)
 
     result = normalize_media_metadata(media, dry_run=False)
 

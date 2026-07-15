@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from render_queue import get_queue
+from .render_queue import get_queue
 
 
 async def _run_one(queue: Any, worker_id: str) -> bool:

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from audio_provider import (
+from .audio_provider import (
     DEFAULT_ALLOWED_TAGS,
     local_winners_path,
     trending_cml_path,

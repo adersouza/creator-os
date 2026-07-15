@@ -15,13 +15,13 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from caption_bank import (
+from .caption_bank import (
     DEFAULT_EXCLUDED_BANKS,
     CaptionBankStore,
     caption_hash,
     classify_caption,
 )
-from discoverability_safety import discoverability_safe_content_contract
+from .discoverability_safety import discoverability_safe_content_contract
 
 try:
     from .fileops import atomic_write_text

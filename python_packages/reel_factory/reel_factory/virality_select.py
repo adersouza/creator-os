@@ -28,8 +28,8 @@ try:
 except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
-from intelligence_store import confidence_for_sample_size
-from winner_dna import FEATURE_KEYS, connect
+from .intelligence_store import confidence_for_sample_size
+from .winner_dna import FEATURE_KEYS, connect
 
 # Down-weight low-sample feature clusters so a single fluke outcome can't crown a
 # candidate. Tunable: raise the low/medium weights as the outcome corpus grows.

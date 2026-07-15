@@ -48,14 +48,17 @@ if __package__ in (None, ""):
     if _contracts_parent not in sys.path:
         sys.path.append(_contracts_parent)
 
-from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
-from campaign_store import link_campaign_output
-from caption_bank import (
+from pipeline_contracts import validate_generated_asset_lineage
+from reel_factory.perceptual import enrich_lineage_identity, load_json
+
+from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
+from .campaign_store import link_campaign_output
+from .caption_bank import (
     caption_static_metadata,
     load_or_build_caption_bank_store,
 )
-from caption_render import CAPTION_LEGIBILITY_SHRINK_FLOOR
-from caption_scene_fit import (
+from .caption_render import CAPTION_LEGIBILITY_SHRINK_FLOOR
+from .caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     CAPTION_TOPIC_FIT_VERSION,
     CAPTION_TOPIC_ORDER,
@@ -65,13 +68,13 @@ from caption_scene_fit import (
     infer_caption_topic_for_reel,
     topic_caption_banks,
 )
-from discoverability_safety import discoverability_safe_content_contract
-from graph_builder import ENCODER_PROFILES, caption_overlay_enable, target_dimensions
-from graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd
-from graph_builder import build_video_filter as build_graph_video_filter
-from identity_verification import get_identity_provider
-from media_metadata import normalize_media_metadata
-from placement import (
+from .discoverability_safety import discoverability_safe_content_contract
+from .graph_builder import ENCODER_PROFILES, caption_overlay_enable, target_dimensions
+from .graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd
+from .graph_builder import build_video_filter as build_graph_video_filter
+from .identity_verification import get_identity_provider
+from .media_metadata import normalize_media_metadata
+from .placement import (
     CaptionSegmentPlan,
     PlacementSummary,
     mirror_side_band_for_recipe,
@@ -83,14 +86,11 @@ from placement import (
     probe_source_bitrate,
     resolve_segment_bands,
 )
-from preflight import check_clip_readiness
-from project_config import load_config
-from recipe_loader import load_recipes
-from render_plan import RenderPlan, validate_account_scope
-from variation_engine import get_pack_version, vary_caption_text
-
-from pipeline_contracts import validate_generated_asset_lineage
-from reel_factory.perceptual import enrich_lineage_identity, load_json
+from .preflight import check_clip_readiness
+from .project_config import load_config
+from .recipe_loader import load_recipes
+from .render_plan import RenderPlan, validate_account_scope
+from .variation_engine import get_pack_version, vary_caption_text
 
 try:
     from .fileops import atomic_write_text
@@ -1123,7 +1123,7 @@ def write_required_similarity_audit(
             for output in sorted(clip_out.glob("*.mp4"))
         ]
     elif audit_func is None:
-        from sscd_video import audit_video_dir
+        from .sscd_video import audit_video_dir
 
         audit_func = audit_video_dir
         rows = audit_func(source_video, clip_out)
@@ -1165,7 +1165,8 @@ def build_single_job_enqueue_cmd(
 ) -> list[str]:
     cmd = [
         sys.executable,
-        "reel_pipeline.py",
+        "-m",
+        "reel_factory.reel_pipeline",
         "--root",
         str(root),
         "--only-clip",
@@ -1225,7 +1226,7 @@ def build_single_job_enqueue_cmd(
 # ────────────────────────────────────────────────────────────────────────────
 # Manifest storage lives in manifest.py
 # ────────────────────────────────────────────────────────────────────────────
-from manifest import Manifest
+from .manifest import Manifest
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1508,7 +1509,7 @@ async def process_one(
     )
 
     # Render each caption segment to a transparent 1080x1920 PNG via PIL+Pilmoji.
-    from caption_render import render_caption_png
+    from .caption_render import render_caption_png
 
     try:
         for seg in seg_plans:
@@ -2855,7 +2856,7 @@ async def amain(args):
                         continue
                     queued_keys[key] = video.stem
                     if args.enqueue_only:
-                        from render_queue import get_queue
+                        from .render_queue import get_queue
 
                         queue = get_queue(root, args.queue_backend)
                         cmd = build_single_job_enqueue_cmd(
@@ -2953,7 +2954,7 @@ async def amain(args):
             if not (clip_out.exists() and any(clip_out.glob("*.mp4"))):
                 continue
             try:
-                from post_render import summarize_clip_outputs
+                from .post_render import summarize_clip_outputs
 
                 info = summarize_clip_outputs(clip_out)
                 log.info(
@@ -2965,7 +2966,7 @@ async def amain(args):
             log.info(f"sscd similarity {video.stem}: {len(similarity)} rows")
         if args.mux_audio:
             try:
-                from audio_mux import mux_root
+                from .audio_mux import mux_root
 
                 selected_audio_path, audio_selection = _selected_audio_for_mux(
                     root, seed=args.seed, explicit_audio_path=args.audio_path
@@ -2982,7 +2983,7 @@ async def amain(args):
                 log.error(f"audio mux failed: {e}")
         if args.ai_qc:
             try:
-                from ai_visual_qc import run_ai_qc
+                from .ai_visual_qc import run_ai_qc
 
                 for video, _ in pairs:
                     clip_out = proc_dir / video.stem
@@ -2995,7 +2996,7 @@ async def amain(args):
                 log.warning(f"ai visual qc failed: {e}")
         if args.readiness:
             try:
-                from readiness_check import run_readiness
+                from .readiness_check import run_readiness
 
                 for video, _ in pairs:
                     clip_out = proc_dir / video.stem
@@ -3022,7 +3023,7 @@ async def amain(args):
     # ── Optional QC pass on outputs ─────────────────────────────────────
     if getattr(args, "qc", False) and not args.dry_run:
         try:
-            from qc_check import run_qc
+            from .qc_check import run_qc
 
             qc_summary = run_qc(proc_dir, move_failed=True)
             log.info(f"qc: {json.dumps(qc_summary)}")
@@ -3075,7 +3076,7 @@ def _selected_audio_for_mux(
     if explicit_audio_path:
         return explicit_audio_path, _manual_audio_selection(explicit_audio_path)
     try:
-        from audio_provider import select_audio as select_ranked_audio
+        from .audio_provider import select_audio as select_ranked_audio
     except ImportError:
         return None, None
     try:
@@ -3093,7 +3094,7 @@ def _write_mux_audio_intents(
     mux_summary: dict[str, Any], ranked_selection: dict[str, Any] | None
 ) -> None:
     try:
-        from audio_intent import write_audio_intent
+        from .audio_intent import write_audio_intent
     except ImportError:
         return
     for track in mux_summary.get("tracks") or []:

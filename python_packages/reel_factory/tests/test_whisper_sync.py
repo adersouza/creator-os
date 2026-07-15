@@ -1,4 +1,4 @@
-from whisper_sync import spoken_hook_from_segments
+from reel_factory.whisper_sync import spoken_hook_from_segments
 
 
 def test_spoken_hook_uses_first_three_seconds_only():

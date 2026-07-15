@@ -5,7 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from overnight_grid_worker import (
+from PIL import Image
+from reel_factory.overnight_grid_worker import (
     CAPTIONS,
     create_kling_for_grid,
     crop_grid_image,
@@ -19,7 +20,6 @@ from overnight_grid_worker import (
     prompt_for_panel,
     simple_rating,
 )
-from PIL import Image
 
 
 class OvernightGridWorkerTests(unittest.TestCase):
@@ -93,7 +93,7 @@ class OvernightGridWorkerTests(unittest.TestCase):
 
     def test_simple_rating_rejects_bad_probe_and_keeps_valid_video_shape(self):
         with patch(
-            "overnight_grid_worker.probe_video",
+            "reel_factory.overnight_grid_worker.probe_video",
             return_value={"width": 512, "height": 512, "duration": 5.0},
         ):
             rating = simple_rating(Path("ok.mp4"))
@@ -102,7 +102,7 @@ class OvernightGridWorkerTests(unittest.TestCase):
         self.assertIn("auto_review_pass", rating["labels"])
 
         with patch(
-            "overnight_grid_worker.probe_video",
+            "reel_factory.overnight_grid_worker.probe_video",
             return_value={"width": 200, "height": 512, "duration": 1.0},
         ):
             rating = simple_rating(Path("bad.mp4"))

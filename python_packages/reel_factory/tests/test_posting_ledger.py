@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from audio_intent import write_audio_intent
-from campaign_store import connect as connect_campaign_store
-from manifest import Manifest
-from posting_ledger import (
+from reel_factory.audio_intent import write_audio_intent
+from reel_factory.campaign_store import connect as connect_campaign_store
+from reel_factory.manifest import Manifest
+from reel_factory.posting_ledger import (
     assign_approved_reels,
     create_posting_plan,
     export_schedule_package,

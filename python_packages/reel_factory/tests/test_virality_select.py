@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from campaign_store import ensure_campaign_schema
-from virality_select import (
+from reel_factory.campaign_store import ensure_campaign_schema
+from reel_factory.virality_select import (
     predict_engagement,
     rank_candidates,
     rank_kling_candidate_manifest,
     select_best,
 )
-from winner_dna import connect, refresh_winner_dna
+from reel_factory.winner_dna import connect, refresh_winner_dna
 
 
 def _seed(root: Path) -> None:

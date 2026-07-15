@@ -10,23 +10,23 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from audio_intent import read_audio_intent
-from caption_render import render_caption_png
-from caption_scene_fit import (
+from reel_factory.audio_intent import read_audio_intent
+from reel_factory.caption_render import render_caption_png
+from reel_factory.caption_scene_fit import (
     CAPTION_SCENE_FIT_VERSION,
     CAPTION_TOPIC_FIT_VERSION,
     classify_reel_scene_tags,
     infer_caption_topic_for_reel,
 )
-from graph_builder import (
+from reel_factory.graph_builder import (
     build_ffmpeg_cmd,
     build_video_filter,
     caption_overlay_enable,
     target_social_bitrate_mbps,
 )
-from placement_scorer import PlacementSummary, score_lanes
-from recipe_loader import load_recipes
-from reel_pipeline import (
+from reel_factory.placement_scorer import PlacementSummary, score_lanes
+from reel_factory.recipe_loader import load_recipes
+from reel_factory.reel_pipeline import (
     DEFAULT_CAPTION_FONT,
     CaptionSet,
     Manifest,
@@ -60,7 +60,7 @@ from reel_pipeline import (
     write_generated_asset_lineage_sidecar,
     write_required_similarity_audit,
 )
-from render_plan import RenderPlan
+from reel_factory.render_plan import RenderPlan
 
 from pipeline_contracts import ContractValidationError, validate_generated_asset_lineage
 
@@ -82,7 +82,7 @@ class ReelPipelineTests(unittest.TestCase):
     def test_selected_audio_for_mux_prefers_manual_override(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            with patch("audio_provider.select_audio") as provider:
+            with patch("reel_factory.audio_provider.select_audio") as provider:
                 selected, selection = _selected_audio_for_mux(
                     root, seed=7, explicit_audio_path="manual.m4a"
                 )
@@ -103,7 +103,10 @@ class ReelPipelineTests(unittest.TestCase):
                 "source": "local_winners",
                 "metadata": {"local_path": "03_audio_library/ranked.m4a"},
             }
-            with patch("audio_provider.select_audio", return_value=provider_selection):
+            with patch(
+                "reel_factory.audio_provider.select_audio",
+                return_value=provider_selection,
+            ):
                 selected, selection = _selected_audio_for_mux(
                     root, seed=7, explicit_audio_path=None
                 )
@@ -120,7 +123,10 @@ class ReelPipelineTests(unittest.TestCase):
                 "track_name": "Remote Only",
                 "source": "cml",
             }
-            with patch("audio_provider.select_audio", return_value=provider_selection):
+            with patch(
+                "reel_factory.audio_provider.select_audio",
+                return_value=provider_selection,
+            ):
                 selected, selection = _selected_audio_for_mux(
                     root, seed=7, explicit_audio_path=None
                 )
@@ -161,7 +167,7 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(DEFAULT_CAPTION_FONT, "Instagram Sans Condensed")
 
     def test_caption_font_policy_allows_only_instagram_regular_or_bold(self):
-        from reel_pipeline import (
+        from reel_factory.reel_pipeline import (
             INSTAGRAM_BOLD_CAPTION_FONT,
             resolve_caption_font_policy,
         )
@@ -288,7 +294,7 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertEqual(row["decision"]["selectedLane"], "bottom")
 
     def test_lower_center_caption_band_sits_between_center_and_bottom(self):
-        from caption_render import _caption_xy
+        from reel_factory.caption_render import _caption_xy
 
         _, top_y = _caption_xy(
             band="top",
@@ -1625,7 +1631,7 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertNotEqual(account_a, account_b)
 
     def test_production_render_requires_explicit_account_scope(self):
-        from render_plan import validate_account_scope
+        from reel_factory.render_plan import validate_account_scope
 
         self.assertEqual(validate_account_scope(None), "local_review")
         self.assertEqual(
@@ -2067,7 +2073,7 @@ class ReelPipelineTests(unittest.TestCase):
 
     def test_rendered_mp4_metadata_normalization_is_required(self):
         with patch(
-            "reel_pipeline.normalize_media_metadata",
+            "reel_factory.reel_pipeline.normalize_media_metadata",
             return_value={
                 "metadataNormalized": True,
                 "metadataWarnings": [],
@@ -2079,7 +2085,7 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertTrue(result["metadataNormalized"])
 
         with patch(
-            "reel_pipeline.normalize_media_metadata",
+            "reel_factory.reel_pipeline.normalize_media_metadata",
             return_value={
                 "metadataNormalized": False,
                 "metadataWarnings": ["exiftool_unavailable"],
@@ -2103,16 +2109,18 @@ class ReelPipelineTests(unittest.TestCase):
             def available(self):
                 return False, "missing"
 
-        with patch("reel_pipeline.sys.executable", "/usr/bin/python3"):
+        with patch("reel_factory.reel_pipeline.sys.executable", "/usr/bin/python3"):
             with self.assertRaisesRegex(
                 RuntimeError, "production_render_requires_venv_python"
             ):
                 enforce_production_identity_provider(True)
 
         with (
-            patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"),
             patch(
-                "reel_pipeline.get_identity_provider",
+                "reel_factory.reel_pipeline.sys.executable", "/repo/.venv/bin/python"
+            ),
+            patch(
+                "reel_factory.reel_pipeline.get_identity_provider",
                 return_value=FakeUnavailableProvider(),
             ),
         ):
@@ -2122,9 +2130,11 @@ class ReelPipelineTests(unittest.TestCase):
                 enforce_production_identity_provider(True)
 
         with (
-            patch("reel_pipeline.sys.executable", "/repo/.venv/bin/python"),
             patch(
-                "reel_pipeline.get_identity_provider",
+                "reel_factory.reel_pipeline.sys.executable", "/repo/.venv/bin/python"
+            ),
+            patch(
+                "reel_factory.reel_pipeline.get_identity_provider",
                 return_value=FakeInsightFaceProvider(),
             ),
         ):
@@ -2137,9 +2147,9 @@ class ReelPipelineTests(unittest.TestCase):
             venv_python.parent.mkdir(parents=True)
             venv_python.symlink_to(Path(sys.executable).resolve())
             with (
-                patch("reel_pipeline.sys.executable", str(venv_python)),
+                patch("reel_factory.reel_pipeline.sys.executable", str(venv_python)),
                 patch(
-                    "reel_pipeline.get_identity_provider",
+                    "reel_factory.reel_pipeline.get_identity_provider",
                     return_value=FakeInsightFaceProvider(),
                 ),
             ):

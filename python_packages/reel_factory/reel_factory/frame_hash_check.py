@@ -4,7 +4,7 @@ Use perceptual_hash_check.py for the implementation. This name remains so old
 commands keep working, but it is not Meta SSCD.
 """
 
-from perceptual_hash_check import (
+from .perceptual_hash_check import (
     HASHES,
     SAMPLE_TIMES,
     audit_clip_dir,

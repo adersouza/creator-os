@@ -3,8 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REEL_ROOT="$REPO_ROOT/python_packages/reel_factory"
-
 usage() {
   cat >&2 <<'EOF'
 Usage: scripts/run/reel-factory <command> [args...]
@@ -29,19 +27,19 @@ shift
 cd "$REPO_ROOT"
 case "$command" in
   generate-assets)
-    exec uv run --package reel-factory python "$REEL_ROOT/generate_assets.py" "$@"
+    exec uv run --package reel-factory python -m reel_factory.generate_assets "$@"
     ;;
   reel-pipeline)
-    exec uv run --package reel-factory python "$REEL_ROOT/reel_pipeline.py" "$@"
+    exec uv run --package reel-factory python -m reel_factory.reel_pipeline "$@"
     ;;
   caption-bank)
-    exec uv run --package reel-factory python "$REEL_ROOT/caption_bank.py" "$@"
+    exec uv run --package reel-factory python -m reel_factory.caption_bank "$@"
     ;;
   next-batch)
-    exec uv run --package reel-factory python "$REEL_ROOT/next_batch.py" "$@"
+    exec uv run --package reel-factory python -m reel_factory.next_batch "$@"
     ;;
   review-guard)
-    exec uv run --package reel-factory python "$REEL_ROOT/review_batch_guard.py" "$@"
+    exec uv run --package reel-factory python -m reel_factory.review_batch_guard "$@"
     ;;
   -h|--help|help)
     usage

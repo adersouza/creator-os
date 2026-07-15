@@ -12,7 +12,7 @@ from typing import Literal
 try:
     from .asset_prompt_contract import validate_kling_motion_prompt_text
 except ImportError:  # script mode: package dir itself is on sys.path
-    from asset_prompt_contract import validate_kling_motion_prompt_text
+    from .asset_prompt_contract import validate_kling_motion_prompt_text
 
 try:
     from .fileops import atomic_write_text

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from post_render_acceptance import acceptance_from_readiness
-from readiness_check import run_readiness
+from reel_factory.post_render_acceptance import acceptance_from_readiness
+from reel_factory.readiness_check import run_readiness
 
 
 def _row(**overrides):

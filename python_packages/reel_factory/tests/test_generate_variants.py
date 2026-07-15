@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from generate_variants import build_spec, clean_prompt, pick_aspect, sexy_variant
+from reel_factory.generate_variants import (
+    build_spec,
+    clean_prompt,
+    pick_aspect,
+    sexy_variant,
+)
 
 _ENHANCED = (
     "A slightly high-angle, close-up selfie of a young Caucasian woman with long "

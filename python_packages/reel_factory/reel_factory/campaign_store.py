@@ -13,19 +13,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asset_prompt_contract import parse_asset_prompt_response
 from creator_os_core.sqlite import ensure_columns as _ensure_columns
-from feature_extract import FEATURE_KEYS
-from intelligence_store import (
+
+from pipeline_contracts import validate_recommendation_next_batch
+from reel_factory.sqlite_utils import connect_sqlite
+
+from .asset_prompt_contract import parse_asset_prompt_response
+from .feature_extract import FEATURE_KEYS
+from .intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
     ensure_intelligence_schema,
     low_data_warning,
     validate_review,
 )
-
-from pipeline_contracts import validate_recommendation_next_batch
-from reel_factory.sqlite_utils import connect_sqlite
 
 DEFAULT_CREATORS = {
     "Stacey": {
@@ -283,7 +284,7 @@ def ensure_campaign_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_operator_ratings_output ON operator_ratings(output_path);
     CREATE INDEX IF NOT EXISTS idx_asset_generations_campaign ON asset_generations(campaign_id);
     """)
-    from posting_ledger import ensure_posting_ledger_schema
+    from .posting_ledger import ensure_posting_ledger_schema
 
     ensure_posting_ledger_schema(conn)
     ensure_intelligence_schema(conn)
@@ -1339,7 +1340,7 @@ def next_batch_plan(
     }
     validate_recommendation_next_batch(plan)
     if persist:
-        from winner_dna import persist_recommendation_decision
+        from .winner_dna import persist_recommendation_decision
 
         decision_id = persist_recommendation_decision(
             root,

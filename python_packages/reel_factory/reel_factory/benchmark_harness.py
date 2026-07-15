@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from generate_assets import AssetGenerationPlan, dry_run, load_prompt
+from .generate_assets import AssetGenerationPlan, dry_run, load_prompt
 
 try:
     from .fileops import atomic_write_text

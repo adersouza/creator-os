@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from readiness_check import evaluate_output, run_readiness
-from virality_qc import evaluate_virality_report
+from reel_factory.readiness_check import evaluate_output, run_readiness
+from reel_factory.virality_qc import evaluate_virality_report
 
 
 class ViralityQcTests(unittest.TestCase):

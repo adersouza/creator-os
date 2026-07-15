@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from render_queue import get_queue
+from .render_queue import get_queue
 
 
 def main() -> int:

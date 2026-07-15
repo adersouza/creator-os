@@ -18,26 +18,27 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from anatomy_qc import assess_image_qc, is_image_postable
-from asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
-from campaign_store import (
+from PIL import Image
+
+from reel_factory.feature_extract import extract_features
+from reel_factory.sqlite_utils import connect_sqlite
+
+from .anatomy_qc import assess_image_qc, is_image_postable
+from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
+from .campaign_store import (
     connect,
     creator_by_name,
     record_asset_generation,
     validate_generation_soul,
 )
-from deprecated_generators import guard_deprecated_generator
-from higgsfield_cost_preflight import (
+from .deprecated_generators import guard_deprecated_generator
+from .higgsfield_cost_preflight import (
     consume_higgsfield_spend_reservation,
     nonnegative_float_arg,
     quote_higgsfield_generation,
     reserve_higgsfield_credits,
 )
-from identity_verification import verify_identity
-from PIL import Image
-
-from reel_factory.feature_extract import extract_features
-from reel_factory.sqlite_utils import connect_sqlite
+from .identity_verification import verify_identity
 
 try:
     from .fileops import atomic_write_text
@@ -1755,7 +1756,7 @@ def generated_video_qc(
 
 
 def _sample_video_frames(path: Path) -> list[Path]:
-    from sscd_video import extract_frames
+    from .sscd_video import extract_frames
 
     with tempfile.TemporaryDirectory() as td:
         temp_dir = Path(td)

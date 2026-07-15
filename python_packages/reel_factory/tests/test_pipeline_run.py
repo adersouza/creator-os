@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from campaign_store import create_campaign
-from manifest import Manifest
-from pipeline_run import (
+from reel_factory.campaign_store import create_campaign
+from reel_factory.manifest import Manifest
+from reel_factory.pipeline_run import (
     PipelineRunConfig,
     _candidate_features,
     discover_candidates,
@@ -13,7 +13,7 @@ from pipeline_run import (
     run_pipeline,
     write_approved_export,
 )
-from posting_ledger import create_posting_plan
+from reel_factory.posting_ledger import create_posting_plan
 
 
 class PipelineRunTests(unittest.TestCase):

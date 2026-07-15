@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from placement_scorer import PlacementSummary, score_lanes
+from .placement_scorer import PlacementSummary, score_lanes
 
 _FFMPEG_FULL = Path("/opt/homebrew/opt/ffmpeg-full/bin")
 FFMPEG = (

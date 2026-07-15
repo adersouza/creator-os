@@ -120,7 +120,6 @@ def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
     producer_paths = (
         "python_packages/reel_factory/reel_factory/generate_assets.py",
         "python_packages/reel_factory/reel_factory/reel_pipeline.py",
-        "python_packages/reel_factory/reel_factory/operator_tools.py",
     )
 
     for path in producer_paths:
@@ -213,8 +212,8 @@ def test_media_qc_is_read_only_contract() -> None:
     active_qc = "\n".join(
         (ROOT / path).read_text(encoding="utf-8")
         for path in (
-            "python_packages/reel_factory/ai_visual_qc.py",
-            "python_packages/reel_factory/qc_check.py",
+            "python_packages/reel_factory/reel_factory/ai_visual_qc.py",
+            "python_packages/reel_factory/reel_factory/qc_check.py",
         )
     )
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import numpy as np
-import sscd_video
+import reel_factory.sscd_video as sscd_video
 
 
 def test_audit_video_dir_reports_pass_warn_fail(monkeypatch, tmp_path: Path):

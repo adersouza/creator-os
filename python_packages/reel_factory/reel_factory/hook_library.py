@@ -7,8 +7,8 @@ import argparse
 import json
 from pathlib import Path
 
-from embedding_provider import DEFAULT_EMBEDDING_MODEL
-from hook_tools import reindex_hook_library
+from .embedding_provider import DEFAULT_EMBEDDING_MODEL
+from .hook_tools import reindex_hook_library
 
 
 def main() -> int:

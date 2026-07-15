@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from review_batch_guard import promote_review_batch, validate_review_batch
+from reel_factory.review_batch_guard import promote_review_batch, validate_review_batch
 
 
 def _write_json(path: Path, payload: dict) -> None:

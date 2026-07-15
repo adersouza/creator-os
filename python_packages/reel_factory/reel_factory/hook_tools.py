@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from embedding_provider import (
+from .embedding_provider import (
     HASH_MODEL,
     cosine_similarity,
     get_embedding_provider,

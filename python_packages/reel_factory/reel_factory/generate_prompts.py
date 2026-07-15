@@ -23,18 +23,19 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from asset_prompt_contract import (
-    AssetPromptSet,
-    build_grok_simple_prompt,
-    parse_asset_prompt_response,
-)
-from campaign_store import next_batch_plan, retry_helper_direction, taste_memory
 from PIL import Image, ImageStat
 from pipeline_contracts.llm_resilience import (
     decode_json_object,
     urlopen_json_with_retry,
 )
-from project_config import config_path
+
+from .asset_prompt_contract import (
+    AssetPromptSet,
+    build_grok_simple_prompt,
+    parse_asset_prompt_response,
+)
+from .campaign_store import next_batch_plan, retry_helper_direction, taste_memory
+from .project_config import config_path
 
 try:
     from .fileops import atomic_write_text
@@ -1743,7 +1744,7 @@ def generate_prompt(
         motion_analysis_record = None
         analysis_target = reference_reel or (reference_images or [None])[0]
         if analysis_target:
-            from reference_analyzer import latest_analysis_record
+            from .reference_analyzer import latest_analysis_record
 
             reference_analysis_record = latest_analysis_record(root, analysis_target)
             if reference_analysis_record:
@@ -1752,7 +1753,7 @@ def generate_prompt(
                 )
             else:
                 try:
-                    from reference_analyzer import heuristic_analysis
+                    from .reference_analyzer import heuristic_analysis
 
                     reference_analysis_record = {
                         "analysis_id": None,

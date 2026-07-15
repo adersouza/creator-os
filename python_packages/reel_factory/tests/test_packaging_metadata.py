@@ -16,33 +16,19 @@ def _is_bounded(requirement: str) -> bool:
     )
 
 
-def test_declared_py_modules_exist() -> None:
-    modules = _pyproject()["tool"]["setuptools"]["py-modules"]
+def test_flat_compatibility_modules_are_not_packaged() -> None:
+    setuptools = _pyproject()["tool"]["setuptools"]
 
-    missing = [
-        module for module in modules if not (PACKAGE_ROOT / f"{module}.py").exists()
-    ]
-
-    assert missing == []
+    assert "py-modules" not in setuptools
+    assert list(PACKAGE_ROOT.glob("*.py")) == []
 
 
-def test_top_level_modules_are_declared_for_wheel_imports() -> None:
-    modules = set(_pyproject()["tool"]["setuptools"]["py-modules"])
-    actual = {path.stem for path in PACKAGE_ROOT.glob("*.py")}
+def test_canonical_packages_are_discovered() -> None:
+    includes = _pyproject()["tool"]["setuptools"]["packages"]["find"]["include"]
 
-    assert sorted(actual - modules) == []
-
-
-def test_declared_packages_exist() -> None:
-    packages = _pyproject()["tool"]["setuptools"]["packages"]
-
-    missing = [
-        package
-        for package in packages
-        if not (PACKAGE_ROOT / package.replace(".", "/") / "__init__.py").exists()
-    ]
-
-    assert missing == []
+    assert includes == ["experiments*", "reel_factory*"]
+    assert (PACKAGE_ROOT / "reel_factory/__init__.py").exists()
+    assert (PACKAGE_ROOT / "experiments/__init__.py").exists()
 
 
 def test_standalone_dependencies_are_pinned_and_resolvable() -> None:

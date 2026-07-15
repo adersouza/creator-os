@@ -3,15 +3,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from asset_prompt_contract import validate_kling_motion_prompt_text
-from generate_assets import (
+from reel_factory.asset_prompt_contract import validate_kling_motion_prompt_text
+from reel_factory.generate_assets import (
     DirectReferenceImagePlan,
     create_direct_reference_image_asset,
     direct_reference_prompt,
     dry_run_direct_reference_image,
     extract_higgsfield_generated_prompt,
 )
-from reel_motion_prompt import SCENE_TYPES, compile_reel_motion_prompt
+from reel_factory.reel_motion_prompt import SCENE_TYPES, compile_reel_motion_prompt
 
 CAPABILITIES = {
     "schema": "reel_factory.higgsfield_capabilities.v1",
@@ -107,11 +107,11 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
 
             with (
                 patch(
-                    "generate_assets.ensure_required_capabilities",
+                    "reel_factory.generate_assets.ensure_required_capabilities",
                     return_value=CAPABILITIES,
                 ),
                 patch(
-                    "generate_assets._cost_preflight_for_plan",
+                    "reel_factory.generate_assets._cost_preflight_for_plan",
                     return_value={
                         "allowed": True,
                         "blockingReason": "",
@@ -119,13 +119,21 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                     },
                 ),
                 patch(
-                    "generate_assets._consume_cost_reservation",
+                    "reel_factory.generate_assets._consume_cost_reservation",
                     return_value="hfr_test_direct_success",
                 ),
-                patch("generate_assets._run_json", return_value=raw_image),
-                patch("generate_assets.download_result", side_effect=fake_download),
-                patch("generate_assets.assess_image_qc", return_value=QC_PASS),
-                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
+                patch("reel_factory.generate_assets._run_json", return_value=raw_image),
+                patch(
+                    "reel_factory.generate_assets.download_result",
+                    side_effect=fake_download,
+                ),
+                patch(
+                    "reel_factory.generate_assets.assess_image_qc", return_value=QC_PASS
+                ),
+                patch(
+                    "reel_factory.generate_assets.verify_identity",
+                    return_value=IDENTITY_PASS,
+                ),
             ):
                 result = create_direct_reference_image_asset(
                     plan, wait=True, download=True
@@ -190,11 +198,11 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
 
             with (
                 patch(
-                    "generate_assets.ensure_required_capabilities",
+                    "reel_factory.generate_assets.ensure_required_capabilities",
                     return_value=CAPABILITIES,
                 ),
                 patch(
-                    "generate_assets._cost_preflight_for_plan",
+                    "reel_factory.generate_assets._cost_preflight_for_plan",
                     return_value={
                         "allowed": True,
                         "blockingReason": "",
@@ -202,13 +210,22 @@ class DirectReferenceWorkflowTests(unittest.TestCase):
                     },
                 ),
                 patch(
-                    "generate_assets._consume_cost_reservation",
+                    "reel_factory.generate_assets._consume_cost_reservation",
                     return_value="hfr_test_direct_qc_failure",
                 ),
-                patch("generate_assets._run_json", return_value=raw_image),
-                patch("generate_assets.download_result", side_effect=fake_download),
-                patch("generate_assets.assess_image_qc", return_value=QC_FAIL_EXPOSURE),
-                patch("generate_assets.verify_identity", return_value=IDENTITY_PASS),
+                patch("reel_factory.generate_assets._run_json", return_value=raw_image),
+                patch(
+                    "reel_factory.generate_assets.download_result",
+                    side_effect=fake_download,
+                ),
+                patch(
+                    "reel_factory.generate_assets.assess_image_qc",
+                    return_value=QC_FAIL_EXPOSURE,
+                ),
+                patch(
+                    "reel_factory.generate_assets.verify_identity",
+                    return_value=IDENTITY_PASS,
+                ),
             ):
                 result = create_direct_reference_image_asset(
                     plan, wait=True, download=True

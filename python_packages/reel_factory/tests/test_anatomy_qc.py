@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from anatomy_qc import (
+from reel_factory.anatomy_qc import (
     assess_anatomy,
     assess_image_qc,
     filter_plausible,

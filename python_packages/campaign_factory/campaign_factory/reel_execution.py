@@ -408,7 +408,8 @@ class ReelExecutionRepository:
             for job in jobs:
                 cmd = [
                     self._reel_factory_python(self.settings.reel_factory_root),
-                    "reel_pipeline.py",
+                    "-m",
+                    "reel_factory.reel_pipeline",
                     "--root",
                     str(self.settings.reel_factory_root),
                     "--workers",

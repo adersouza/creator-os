@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from audio_intent import read_audio_intent
-from intelligence_store import winner_score
-
 from pipeline_contracts import validate_assignment_eligibility
 from reel_factory.sqlite_utils import connect_sqlite
+
+from .audio_intent import read_audio_intent
+from .intelligence_store import winner_score
 
 try:
     from .fileops import atomic_write_text

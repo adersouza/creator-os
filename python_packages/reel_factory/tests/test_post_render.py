@@ -1,4 +1,4 @@
-from post_render import _caption_kind, _short_caption
+from reel_factory.post_render import _caption_kind, _short_caption
 
 
 def test_caption_kind_labels_clean_timed_and_normal():

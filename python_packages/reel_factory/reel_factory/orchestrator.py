@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.runtime_guards import global_kill_switch_active
-from higgsfield_cost_preflight import check_higgsfield_cost_preflight
-from pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
+
+from .higgsfield_cost_preflight import check_higgsfield_cost_preflight
+from .pipeline_run import PipelineRunConfig, pipeline_run_dir, run_pipeline
 
 try:
     from .fileops import atomic_write_text

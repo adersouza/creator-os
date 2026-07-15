@@ -3,7 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark_harness import create_benchmark_plan, record_benchmark_result
+from reel_factory.benchmark_harness import (
+    create_benchmark_plan,
+    record_benchmark_result,
+)
 
 
 class BenchmarkHarnessTests(unittest.TestCase):

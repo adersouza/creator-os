@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from caption_render import render_caption_png
 from creator_os_core.media_probe import probe_video_stream as probe_video
 from PIL import Image, ImageChops
+
+from .caption_render import render_caption_png
 
 try:
     from .fileops import atomic_write_text

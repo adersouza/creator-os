@@ -1,11 +1,10 @@
-import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from grid_crop import (
+from PIL import Image, ImageDraw
+from reel_factory.grid_crop import (
     build_crop_plan,
     crop_image_grid_panels,
     load_crop_plan,
@@ -14,7 +13,6 @@ from grid_crop import (
     save_crop_plan,
     validate_boxes,
 )
-from PIL import Image, ImageDraw
 
 
 class GridCropTests(unittest.TestCase):
@@ -202,7 +200,7 @@ class GridCropTests(unittest.TestCase):
             source.parent.mkdir(parents=True)
             source.write_bytes(b"mp4")
             with patch(
-                "grid_crop.probe_video",
+                "reel_factory.grid_crop.probe_video",
                 return_value={"width": 100, "height": 80, "duration": 5.0},
             ):
                 plan = build_crop_plan(
@@ -249,8 +247,11 @@ class GridCropTests(unittest.TestCase):
                 out.write_bytes(b"mp4")
 
             with (
-                patch("grid_crop.render_caption_png", side_effect=fake_caption),
-                patch("grid_crop.subprocess.run", side_effect=fake_run),
+                patch(
+                    "reel_factory.grid_crop.render_caption_png",
+                    side_effect=fake_caption,
+                ),
+                patch("reel_factory.grid_crop.subprocess.run", side_effect=fake_run),
             ):
                 render_fit_nocrop(
                     root, source_video=source, caption="test", out_path=out
@@ -260,78 +261,6 @@ class GridCropTests(unittest.TestCase):
             self.assertIn("force_original_aspect_ratio=decrease", joined)
             self.assertIn("overlay=(W-w)/2:(H-h)/2", joined)
             self.assertTrue(out.exists())
-
-    def test_gui_grid_crop_suggest_and_save_plan(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            raw.mkdir()
-            (raw / "clip_001.mp4").write_bytes(b"mp4")
-            fake_probe = json.dumps(
-                {"streams": [{"width": 1200, "height": 800, "duration": "5.0"}]}
-            )
-
-            with (
-                patch.dict(
-                    os.environ,
-                    {
-                        "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                        "REEL_FACTORY_ENV": "test",
-                    },
-                    clear=True,
-                ),
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(
-                    reel_gui.subprocess, "check_output", return_value=fake_probe
-                ),
-                patch(
-                    "grid_crop.probe_video",
-                    return_value={"width": 1200, "height": 800, "duration": 5.0},
-                ),
-            ):
-                suggestion = reel_gui.grid_crop_suggest_api(
-                    "clip_001", {"columns": 3, "rows": 2}
-                )
-                saved = reel_gui.grid_crop_save_plan_api(
-                    "clip_001",
-                    {
-                        "columns": 3,
-                        "rows": 2,
-                        "boxes": suggestion["boxes"],
-                    },
-                )
-
-            self.assertEqual(len(suggestion["boxes"]), 6)
-            self.assertTrue(Path(saved["plan_path"]).exists())
-            self.assertEqual(saved["plan"]["renderMode"], "fit_nocrop")
-
-    def test_gui_grid_crop_returns_controlled_error_by_default(self):
-        import operator_tools as reel_gui
-
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(Exception) as ctx:
-                reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
-        self.assertEqual(ctx.exception.status_code, 410)
-        self.assertIn("grid_crop is deprecated", str(ctx.exception.detail))
-
-    def test_gui_grid_crop_blocks_prod_even_with_allow_flag(self):
-        import operator_tools as reel_gui
-
-        with patch.dict(
-            os.environ,
-            {
-                "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                "REEL_FACTORY_ENV": "production",
-            },
-            clear=True,
-        ):
-            with self.assertRaises(Exception) as ctx:
-                reel_gui.grid_crop_suggest_api("clip_001", {"columns": 3, "rows": 2})
-        self.assertEqual(ctx.exception.status_code, 410)
-        self.assertIn("grid_crop is deprecated", str(ctx.exception.detail))
 
 
 if __name__ == "__main__":

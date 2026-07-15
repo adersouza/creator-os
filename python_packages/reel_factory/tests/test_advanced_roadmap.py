@@ -2,23 +2,21 @@ import json
 import os
 import sqlite3
 import tempfile
-import threading
 import time
 import unittest
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from ai_visual_qc import record_from_scores, sample_positions
-from asset_prompt_contract import (
+from reel_factory.ai_visual_qc import record_from_scores, sample_positions
+from reel_factory.asset_prompt_contract import (
     AssetPromptSet,
     build_grok_simple_prompt,
     parse_asset_prompt_response,
     write_prompt_template,
 )
-from audio_intent import write_audio_intent
-from audio_mux import audio_id, output_path_for
-from campaign_store import (
+from reel_factory.audio_intent import write_audio_intent
+from reel_factory.audio_mux import audio_id, output_path_for
+from reel_factory.campaign_store import (
     add_reference,
     campaign_leaderboard,
     create_campaign,
@@ -28,23 +26,22 @@ from campaign_store import (
     retry_helper_direction,
     validate_generation_soul,
 )
-from campaign_store import (
+from reel_factory.campaign_store import (
     connect as campaign_connect,
 )
-from campaign_store import (
+from reel_factory.campaign_store import (
     rate_output as store_rate_output,
 )
-from caption_generation_log import (
+from reel_factory.caption_generation_log import (
     caption_library,
     rank_clip_sidecar,
     score_caption_quality,
 )
-from caption_render import render_caption_png
-from embedding_index import duplicate_risk, upsert_embedding
-from embedding_index import similar as similar_media
-from embedding_provider import HashEmbeddingProvider
-from fastapi import HTTPException
-from generate_assets import (
+from reel_factory.caption_render import render_caption_png
+from reel_factory.embedding_index import duplicate_risk, upsert_embedding
+from reel_factory.embedding_index import similar as similar_media
+from reel_factory.embedding_provider import HashEmbeddingProvider
+from reel_factory.generate_assets import (
     AssetGenerationPlan,
     HiggsfieldCommandError,
     _six_pack_prompts,
@@ -59,7 +56,7 @@ from generate_assets import (
     resolve_generation_models,
     validate_required_capabilities,
 )
-from generate_prompts import (
+from reel_factory.generate_prompts import (
     HIGGSFIELD_REFERENCE_PROMPT_MODE,
     REFERENCE_FACTORY_SEXY_REALISTIC_MODE,
     build_direct_higgsfield_prompt_instruction,
@@ -81,19 +78,19 @@ from generate_prompts import (
     scene_json_to_higgsfield_prompt,
     strip_json_fence,
 )
-from graph_builder import build_ffmpeg_cmd
-from hook_ai import (
+from reel_factory.graph_builder import build_ffmpeg_cmd
+from reel_factory.hook_ai import (
     generate_hooks,
     parse_hook_response,
     validate_hook_variant,
     validate_hook_variants,
 )
-from hook_tools import (
+from reel_factory.hook_tools import (
     find_semantic_duplicates,
     reindex_hook_library,
     save_hook_to_library,
 )
-from intelligence_store import (
+from reel_factory.intelligence_store import (
     confidence_for_sample_size,
     data_quality_from_connection,
     data_quality_score,
@@ -101,31 +98,27 @@ from intelligence_store import (
     validate_review,
     winner_score,
 )
-from manifest import Manifest
-from metrics_store import import_metrics_csv, import_outcomes_csv, outcomes_summary
-from operator_tools import (
-    auto_hooks_api,
-    clip_status_from_evidence,
-    dashboard_summary_api,
-    next_action_for_status,
-    queue_threadsdashboard_post,
-    save_photo_post_asset,
+from reel_factory.manifest import Manifest
+from reel_factory.metrics_store import (
+    import_metrics_csv,
+    import_outcomes_csv,
+    outcomes_summary,
 )
-from placement_scorer import score_lanes
-from qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
-from readiness_check import evaluate_output, run_readiness
-from reel_pipeline import Recipe
-from reel_url_import import download_reel_url, write_url_sidecar
-from reference_analyzer import (
+from reel_factory.placement_scorer import score_lanes
+from reel_factory.qc_check import _parse_psnr, _parse_ssim, probe_with_audio_mode
+from reel_factory.readiness_check import evaluate_output, run_readiness
+from reel_factory.reel_pipeline import Recipe
+from reel_factory.reel_url_import import download_reel_url, write_url_sidecar
+from reel_factory.reference_analyzer import (
     analyze_reference,
     build_analysis_instruction,
     normalize_analysis,
 )
-from render_plan import RenderPlan
-from render_queue import RenderQueue
-from safe_zone import score_safe_zone
-from thumbnail_gen import thumbnail_path_for
-from winner_dna import (
+from reel_factory.render_plan import RenderPlan
+from reel_factory.render_queue import RenderQueue
+from reel_factory.safe_zone import score_safe_zone
+from reel_factory.thumbnail_gen import thumbnail_path_for
+from reel_factory.winner_dna import (
     account_fatigue_report,
     assign_experiment,
     baseline_vs_recommended_report,
@@ -382,11 +375,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "generate_assets.ensure_required_capabilities",
+                    "reel_factory.generate_assets.ensure_required_capabilities",
                     return_value={"schema": "cap", "createdAt": 1},
                 ),
                 patch(
-                    "generate_assets._cost_preflight_for_plan",
+                    "reel_factory.generate_assets._cost_preflight_for_plan",
                     return_value={
                         "allowed": True,
                         "blockingReason": "",
@@ -394,10 +387,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     },
                 ),
                 patch(
-                    "generate_assets._consume_cost_reservation",
+                    "reel_factory.generate_assets._consume_cost_reservation",
                     return_value="hfr_test_rejection",
                 ),
-                patch("generate_assets._run_json", side_effect=err),
+                patch("reel_factory.generate_assets._run_json", side_effect=err),
             ):
                 result = create_image_asset(plan)
             self.assertFalse(result["ok"])
@@ -438,18 +431,18 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             with (
                 patch(
-                    "generate_assets.ensure_required_capabilities",
+                    "reel_factory.generate_assets.ensure_required_capabilities",
                     return_value={"schema": "cap", "createdAt": 1},
                 ),
                 patch(
-                    "generate_assets._cost_preflight_for_plan",
+                    "reel_factory.generate_assets._cost_preflight_for_plan",
                     return_value={
                         "allowed": False,
                         "blockingReason": "budget_policy_missing",
                         "blockingReasons": ["budget_policy_missing"],
                     },
                 ),
-                patch("generate_assets._run_json") as run_json,
+                patch("reel_factory.generate_assets._run_json") as run_json,
             ):
                 result = create_image_asset(plan)
 
@@ -499,11 +492,11 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             with (
                 patch(
-                    "generate_assets.ensure_required_capabilities",
+                    "reel_factory.generate_assets.ensure_required_capabilities",
                     return_value=capabilities,
                 ),
                 patch(
-                    "generate_assets._cost_preflight_for_plan",
+                    "reel_factory.generate_assets._cost_preflight_for_plan",
                     return_value={
                         "allowed": True,
                         "blockingReason": "",
@@ -511,19 +504,19 @@ class AdvancedRoadmapTests(unittest.TestCase):
                     },
                 ),
                 patch(
-                    "generate_assets._consume_cost_reservation",
+                    "reel_factory.generate_assets._consume_cost_reservation",
                     return_value="hfr_test_active_image",
                 ),
                 patch(
-                    "generate_assets._run_json",
+                    "reel_factory.generate_assets._run_json",
                     return_value={"id": "img_1", "url": "https://example.test/img.png"},
                 ),
                 patch(
-                    "generate_assets.validate_generation_soul",
+                    "reel_factory.generate_assets.validate_generation_soul",
                     return_value={"status": "valid"},
                 ),
                 patch(
-                    "generate_assets.detect_grid_status",
+                    "reel_factory.generate_assets.detect_grid_status",
                     side_effect=AssertionError("deprecated grid detection called"),
                 ),
             ):
@@ -555,8 +548,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 im.save(out)
 
             with (
-                patch("generate_prompts.video_duration", return_value=1.0),
-                patch("generate_prompts.subprocess.run", side_effect=fake_run),
+                patch("reel_factory.generate_prompts.video_duration", return_value=1.0),
+                patch(
+                    "reel_factory.generate_prompts.subprocess.run", side_effect=fake_run
+                ),
             ):
                 result = extract_first_visible_frame(
                     video, out_dir, max_scan_seconds=1.0, step_seconds=0.5
@@ -645,8 +640,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with (
-                patch("generate_assets._run_json", side_effect=fake_run_json),
-                patch("generate_assets._run_text", return_value="help text"),
+                patch(
+                    "reel_factory.generate_assets._run_json", side_effect=fake_run_json
+                ),
+                patch(
+                    "reel_factory.generate_assets._run_text", return_value="help text"
+                ),
             ):
                 result = probe_higgsfield_capabilities(root, force=True)
 
@@ -715,7 +714,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
             ref = root / "ref.jpg"
             Image.new("RGB", (64, 64), "white").save(ref)
 
-            with patch("generate_prompts.call_grok") as grok:
+            with patch("reel_factory.generate_prompts.call_grok") as grok:
                 with self.assertRaisesRegex(
                     RuntimeError, "dry-run prompt JSON creation only"
                 ):
@@ -891,55 +890,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "six_pack is deprecated"):
                 _six_pack_prompts(prompt)
-
-    def test_deprecated_grok_reference_analysis_returns_controlled_api_error_by_default(
-        self,
-    ):
-        import operator_tools as reel_gui
-
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(Exception) as ctx:
-                reel_gui.analyze_reference_api(
-                    {"reference": "ref.png", "model": "grok-4.3"}
-                )
-        self.assertEqual(ctx.exception.status_code, 410)
-        self.assertIn(
-            "grok_reference_analysis is deprecated", str(ctx.exception.detail)
-        )
-
-    def test_reference_analysis_requires_explicit_model(self):
-        import operator_tools as reel_gui
-
-        with self.assertRaises(Exception) as ctx:
-            reel_gui.analyze_reference_api({"reference": "ref.png"})
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertEqual(ctx.exception.detail, "model is required")
-
-    def test_deprecated_grok_reference_analysis_allows_explicit_local_test_override(
-        self,
-    ):
-        import operator_tools as reel_gui
-
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "REEL_FACTORY_ALLOW_DEPRECATED_GENERATORS": "1",
-                    "REEL_FACTORY_ENV": "test",
-                },
-                clear=True,
-            ),
-            patch.object(reel_gui, "_resolve_project_path", return_value="ref.png"),
-            patch.object(
-                reel_gui, "analyze_reference", return_value={"ok": True}
-            ) as analyze,
-        ):
-            result = reel_gui.analyze_reference_api(
-                {"reference": "ref.png", "model": "grok-4.3"}
-            )
-
-        self.assertEqual(result, {"ok": True})
-        analyze.assert_called_once()
 
     def test_generate_assets_image_command_requires_soul_identity_param(self):
         prompt = parse_asset_prompt_response(
@@ -1299,8 +1249,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 ]
             }
             with (
-                patch("generate_prompts.load_xai_api_key", return_value="key"),
-                patch("generate_prompts.call_grok", return_value=fake_raw),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key", return_value="key"
+                ),
+                patch("reel_factory.generate_prompts.call_grok", return_value=fake_raw),
             ):
                 prompt = generate_prompt(
                     out_path=root / "prompt.json",
@@ -1353,10 +1305,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
             with (
                 patch(
-                    "reference_analyzer.latest_analysis_record", return_value=analysis
+                    "reel_factory.reference_analyzer.latest_analysis_record",
+                    return_value=analysis,
                 ),
-                patch("generate_prompts.load_xai_api_key", return_value="key"),
-                patch("generate_prompts.call_grok", return_value=fake_raw),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key", return_value="key"
+                ),
+                patch("reel_factory.generate_prompts.call_grok", return_value=fake_raw),
             ):
                 prompt = generate_prompt(
                     out_path=root / "prompt.json",
@@ -1385,8 +1340,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
             }
 
             with (
-                patch("reference_analyzer.load_xai_api_key", return_value="key"),
-                patch("reference_analyzer.call_grok", return_value=fake_raw),
+                patch(
+                    "reel_factory.reference_analyzer.load_xai_api_key",
+                    return_value="key",
+                ),
+                patch(
+                    "reel_factory.reference_analyzer.call_grok", return_value=fake_raw
+                ),
             ):
                 analysis = analyze_reference(root, ref, dry_run=False)
 
@@ -2063,8 +2023,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 ]
             }
             with (
-                patch("generate_prompts.load_xai_api_key", return_value="key"),
-                patch("generate_prompts.call_grok", return_value=fake_raw),
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key", return_value="key"
+                ),
+                patch("reel_factory.generate_prompts.call_grok", return_value=fake_raw),
             ):
                 result = generate_prompt(
                     out_path=root / "prompt.json",
@@ -2120,8 +2082,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 ]
             }
             with (
-                patch("generate_prompts.load_xai_api_key", return_value="key"),
-                patch("generate_prompts.call_grok", return_value=fake_raw) as grok,
+                patch(
+                    "reel_factory.generate_prompts.load_xai_api_key", return_value="key"
+                ),
+                patch(
+                    "reel_factory.generate_prompts.call_grok", return_value=fake_raw
+                ) as grok,
             ):
                 result = generate_prompt(
                     out_path=root / "prompt.json",
@@ -2787,71 +2753,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(weak["level"], "weak")
         self.assertEqual(strong["level"], "strong")
 
-    def test_guided_cockpit_status_next_action_and_dashboard_summary(self):
-        self.assertEqual(
-            clip_status_from_evidence(
-                stem="clip_001",
-                output_count=0,
-                review_states=[],
-                outcome_count=0,
-                has_prompt=False,
-            )["status"],
-            "Needs Captions",
-        )
-        self.assertEqual(
-            clip_status_from_evidence(
-                stem="clip_001",
-                output_count=0,
-                review_states=[],
-                outcome_count=0,
-                has_prompt=False,
-                hook_count=3,
-            )["status"],
-            "Ready to Render",
-        )
-        self.assertEqual(
-            clip_status_from_evidence(
-                stem="clip_001",
-                output_count=0,
-                review_states=[],
-                outcome_count=0,
-                has_prompt=True,
-            )["status"],
-            "Needs Soul",
-        )
-        self.assertEqual(
-            clip_status_from_evidence(
-                stem="clip_001",
-                output_count=3,
-                review_states=["draft", "draft"],
-                outcome_count=0,
-                has_prompt=True,
-            )["status"],
-            "Needs Review",
-        )
-        self.assertEqual(
-            clip_status_from_evidence(
-                stem="clip_001",
-                output_count=3,
-                review_states=["approved"],
-                outcome_count=0,
-                has_prompt=True,
-            )["status"],
-            "Needs Metrics",
-        )
-        self.assertEqual(
-            next_action_for_status("Needs Kling")["label"], "Create Kling video"
-        )
-        self.assertEqual(
-            next_action_for_status("Needs Captions")["label"], "Auto-caption + render"
-        )
-
-        summary = dashboard_summary_api()
-
-        self.assertEqual(summary["schema"], "reel_factory.dashboard_summary.v1")
-        self.assertIn("command_center", summary)
-        self.assertIn("clip_statuses", summary)
-
     def test_data_quality_degrades_without_operator_ratings_table(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
@@ -2876,146 +2777,12 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(quality["inputs"]["total_outcomes"], 1)
         self.assertEqual(quality["inputs"]["reviewed_outputs"], 0)
 
-    def test_auto_hooks_api_creates_caption_sidecar_without_manual_editing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            import operator_tools as reel_gui
-
-            old_root, old_cap = reel_gui.ROOT, reel_gui.CAP_DIR
-            try:
-                reel_gui.ROOT = Path(tmp)
-                reel_gui.CAP_DIR = Path(tmp) / "01_captions"
-                result = auto_hooks_api("clip_001", {"count": 5})
-                saved = json.loads(
-                    (Path(tmp) / "01_captions" / "clip_001.json").read_text()
-                )
-                repeat = auto_hooks_api("clip_001", {"count": 5})
-            finally:
-                reel_gui.ROOT, reel_gui.CAP_DIR = old_root, old_cap
-
-            self.assertTrue(result["ok"])
-            self.assertTrue(result["generated"])
-            self.assertEqual(result["hook_count"], 5)
-            self.assertEqual(len(saved["hooks"]), 5)
-            self.assertEqual(saved["generation"]["source"], "auto_hooks_v1")
-            self.assertFalse(repeat["generated"])
-
-    def test_photo_save_and_threadsdashboard_queue_create_local_handoff_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            import operator_tools as reel_gui
-
-            root = Path(tmp)
-            image = root / "project_data" / "generated_assets" / "image.png"
-            image.parent.mkdir(parents=True)
-            image.write_bytes(b"png")
-            reel = (
-                root
-                / "02_processed"
-                / "clip_001"
-                / "clip_001_h00_v01_original_deadbeef.mp4"
-            )
-            reel.parent.mkdir(parents=True)
-            reel.write_bytes(b"mp4")
-            old_root = reel_gui.ROOT
-            try:
-                reel_gui.ROOT = root
-                photo = save_photo_post_asset(
-                    root,
-                    source_image=str(image),
-                    account="acct",
-                    caption="photo caption",
-                )
-                queued = queue_threadsdashboard_post(
-                    root,
-                    output_path=str(reel),
-                    account="acct",
-                    caption="reel caption",
-                    scheduled_at="2026-05-30T10:00:00",
-                )
-                queued_again = queue_threadsdashboard_post(
-                    root,
-                    output_path=str(reel),
-                    account="acct",
-                    caption="updated reel caption",
-                    scheduled_at="2026-05-30T10:00:00",
-                )
-            finally:
-                reel_gui.ROOT = old_root
-
-            self.assertTrue(Path(photo["path"]).exists())
-            self.assertTrue(Path(photo["sidecar"]).exists())
-            self.assertEqual(photo["photo"]["status"], "saved")
-            self.assertTrue(Path(queued["path"]).exists())
-            self.assertTrue(Path(queued["queue_path"]).exists())
-            self.assertEqual(queued["queued"]["platform"], "threads")
-            self.assertEqual(queued["queued"]["status"], "queued")
-            self.assertEqual(queued["queued"]["scheduled_at"], "2026-05-30T10:00:00")
-            self.assertEqual(
-                queued_again["queued"]["post_id"], queued["queued"]["post_id"]
-            )
-            queue_lines = [
-                line
-                for line in Path(queued["queue_path"])
-                .read_text(encoding="utf-8")
-                .splitlines()
-                if line.strip()
-            ]
-            self.assertEqual(len(queue_lines), 1)
-            self.assertIn("updated reel caption", queue_lines[0])
-
-    def test_threadsdashboard_queue_rejects_campaign_identity_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            import operator_tools as reel_gui
-            from campaign_store import create_campaign
-
-            root = Path(tmp)
-            create_campaign(
-                root,
-                name="Stacey Queue",
-                creator="Stacey",
-                account="acct",
-                platform="threads",
-            )
-            reel = root / "02_processed" / "clip_001" / "clip_001.mp4"
-            reel.parent.mkdir(parents=True)
-            reel.write_bytes(b"mp4")
-            reel.with_suffix(reel.suffix + ".generated_asset_lineage.json").write_text(
-                json.dumps(
-                    {
-                        "source": {
-                            "soulId": "44326567-b12c-410c-95b7-31891bb0629b",
-                            "soulName": "Larissa",
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            old_root = reel_gui.ROOT
-            try:
-                reel_gui.ROOT = root
-                with self.assertRaises(HTTPException) as raised:
-                    queue_threadsdashboard_post(
-                        root,
-                        output_path=str(reel),
-                        account="acct",
-                        caption="wrong creator",
-                    )
-            finally:
-                reel_gui.ROOT = old_root
-
-            self.assertEqual(raised.exception.status_code, 409)
-            self.assertEqual(
-                raised.exception.detail["reason"],
-                "creator_identity_mismatch_for_slot",
-            )
-            self.assertFalse((root / "04_exports" / "threadsdashboard").exists())
-
     def test_reel_pipeline_accepts_campaign_render_flags(self):
         import subprocess
         import sys
 
         result = subprocess.run(
-            [sys.executable, "reel_pipeline.py", "--help"],
+            [sys.executable, "-m", "reel_factory.reel_pipeline", "--help"],
             cwd=REEL_ROOT,
             capture_output=True,
             text=True,
@@ -3244,1085 +3011,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertEqual(result["summary"]["total"], 1)
             self.assertTrue((out.parent / "_readiness.json").exists())
 
-    def test_gui_clip_detail_returns_ai_qc_and_safe_zone_metadata(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            caps = root / "01_captions"
-            proc = root / "02_processed"
-            clip_proc = proc / "clip_001"
-            raw.mkdir()
-            caps.mkdir()
-            clip_proc.mkdir(parents=True)
-            (raw / "clip_001.mp4").write_bytes(b"source")
-            (caps / "clip_001.json").write_text('{"hooks":["hook"]}', encoding="utf-8")
-            output = clip_proc / "clip_001_h00_v01_original_light_deadbeef.mp4"
-            output.write_bytes(b"output")
-            (clip_proc / "_ai_qc.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "reel_factory.ai_visual_qc.v1",
-                        "clip": "clip_001",
-                        "summary": {"total": 1, "warned": 1},
-                        "records": [
-                            {
-                                "filename": output.name,
-                                "path": str(output),
-                                "warnings": ["possible_text_or_watermark"],
-                                "scores": {"text_edge_score": 0.2},
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (clip_proc / "_readiness.json").write_text(
-                json.dumps(
-                    {
-                        "schema": "reel_factory.readiness.v1",
-                        "clip": "clip_001",
-                        "platform": "instagram_reels",
-                        "records": [
-                            {
-                                "filename": output.name,
-                                "status": "warn",
-                                "score": 80,
-                                "warnings": ["missing_audio_intent"],
-                                "safeZone": {"safeZoneStatus": "pass"},
-                            }
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            write_audio_intent(
-                output, mode="native_trending_audio", platform="instagram_reels"
-            )
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "CAP_DIR", caps),
-                patch.object(reel_gui, "PROC_DIR", proc),
-                patch.object(reel_gui, "audio_stream_count", return_value=0),
-            ):
-                detail = reel_gui.get_clip("clip_001")
-
-            self.assertEqual(
-                detail["safe_zones"]["source"], "renderer_default_safe_margins"
-            )
-            self.assertEqual(
-                detail["outputs"][0]["ai_qc"]["warnings"],
-                ["possible_text_or_watermark"],
-            )
-            self.assertEqual(detail["outputs"][0]["readiness"]["status"], "warn")
-            self.assertEqual(
-                detail["outputs"][0]["audio_intent"]["mode"], "native_trending_audio"
-            )
-
-    def test_gui_asset_dry_run_uses_stacey_identity(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            raw.mkdir(parents=True)
-            prompt = root / "prompt.json"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-            ):
-                result = reel_gui.asset_dry_run_api(
-                    {
-                        "prompt_json": str(prompt),
-                        "stem": "clip_001",
-                        "creator": "Stacey",
-                    }
-                )
-
-            commands = [" ".join(cmd) for cmd in result["commands"]]
-            self.assertIn(
-                "--custom_reference_id 5828d958-91dd-4d6d-8909-934503f47644",
-                commands[0],
-            )
-
-    def test_gui_panel_crop_and_full_image_fallback(self):
-        import operator_tools as reel_gui
-        from PIL import Image
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            data = root / "project_data"
-            image = root / "grid.png"
-            Image.new("RGB", (300, 200), "white").save(image)
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "DATA_DIR", data),
-            ):
-                panel = reel_gui.asset_select_panel_api(
-                    {
-                        "source_image": str(image),
-                        "stem": "clip_001",
-                        "panel": "4",
-                    }
-                )
-                full = reel_gui.asset_select_panel_api(
-                    {
-                        "source_image": str(image),
-                        "stem": "clip_001",
-                        "panel": "full_image",
-                    }
-                )
-
-            self.assertEqual(panel["crop_box"], [0, 100, 100, 200])
-            self.assertEqual(full["crop_box"], [0, 0, 300, 200])
-            self.assertTrue(Path(panel["path"]).exists())
-            self.assertTrue(Path(panel["start_image_path"]).exists())
-            self.assertIn("start_image_url", panel)
-
-    def test_gui_create_image_response_exposes_normalized_fields(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            data = root / "project_data"
-            raw = root / "00_source_videos"
-            prompt = root / "prompt.json"
-            image = data / "generated_assets" / "clip_001_soul_image.png"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            fake = {
-                "ok": True,
-                "path": str(raw / "clip_001.generated_asset_lineage.json"),
-                "campaign_record": {"asset_generation_id": "asset_1"},
-                "lineage": {
-                    "generation": {
-                        "imageJobId": "img_1",
-                        "imageResultUrl": "https://example.test/img.png",
-                    },
-                    "assets": {"localPaths": {"image": str(image)}},
-                },
-            }
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "DATA_DIR", data),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_image_asset", return_value=fake),
-            ):
-                result = reel_gui.asset_create_image_api(
-                    {"prompt_json": str(prompt), "stem": "clip_001"},
-                    sync=1,
-                )
-
-            self.assertEqual(result["image_job_id"], "img_1")
-            self.assertEqual(result["image_result_url"], "https://example.test/img.png")
-            self.assertEqual(result["local_image_path"], str(image))
-            self.assertEqual(result["asset_generation_id"], "asset_1")
-            self.assertEqual(
-                result["lineage_path"],
-                str(raw / "clip_001.generated_asset_lineage.json"),
-            )
-
-    def test_gui_create_video_response_exposes_normalized_fields(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            prompt = root / "prompt.json"
-            start = root / "start.png"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            start.write_bytes(b"png")
-            fake = {
-                "ok": True,
-                "path": str(raw / "clip_001.generated_asset_lineage.json"),
-                "campaign_record": {"asset_generation_id": "asset_2"},
-                "lineage": {
-                    "generation": {
-                        "videoJobId": "vid_1",
-                        "videoResultUrl": "https://example.test/video.mp4",
-                    },
-                    "assets": {"localPaths": {}},
-                },
-            }
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_video_asset", return_value=fake),
-            ):
-                result = reel_gui.asset_create_video_api(
-                    {
-                        "prompt_json": str(prompt),
-                        "stem": "clip_001",
-                        "start_image": str(start),
-                    },
-                    sync=1,
-                )
-
-            self.assertEqual(result["video_job_id"], "vid_1")
-            self.assertEqual(
-                result["video_result_url"], "https://example.test/video.mp4"
-            )
-            self.assertEqual(result["asset_generation_id"], "asset_2")
-            self.assertEqual(
-                result["lineage_path"],
-                str(raw / "clip_001.generated_asset_lineage.json"),
-            )
-
-    def test_gui_create_video_async_job_returns_immediately_and_reports_done(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            prompt = root / "prompt.json"
-            start = root / "start.png"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            start.write_bytes(b"png")
-            started = threading.Event()
-            release = threading.Event()
-
-            def fake_create(plan, *, wait, download):
-                started.set()
-                release.wait(timeout=2)
-                return {
-                    "ok": True,
-                    "path": str(raw / "clip_001.generated_asset_lineage.json"),
-                    "campaign_record": {"asset_generation_id": "asset_2"},
-                    "lineage": {
-                        "generation": {
-                            "videoJobId": "vid_1",
-                            "videoResultUrl": "https://example.test/video.mp4",
-                        },
-                        "assets": {"localPaths": {}},
-                    },
-                }
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
-            ):
-                result = reel_gui.asset_create_video_api(
-                    {
-                        "prompt_json": str(prompt),
-                        "stem": "clip_001",
-                        "start_image": str(start),
-                        "async_job": True,
-                        "idempotency_key": "clip_001_video",
-                    }
-                )
-                self.assertEqual(result["kind"], "create_video")
-                self.assertIn(result["status"], {"queued", "running"})
-                self.assertTrue(started.wait(timeout=1))
-                release.set()
-                for _ in range(20):
-                    status = reel_gui.asset_job_status_api(result["job_id"])
-                    if status["status"] == "done":
-                        break
-                    time.sleep(0.05)
-
-            self.assertEqual(status["status"], "done")
-            self.assertEqual(status["result"]["video_job_id"], "vid_1")
-
-    def test_run_progress_counts_qc_skips_as_rejected_not_completed(self):
-        import operator_tools as reel_gui
-
-        previous = dict(reel_gui._run_state)
-        try:
-            reel_gui._run_state.update(
-                {
-                    "completed": 0,
-                    "failed": 0,
-                    "rejected": 0,
-                    "rejection_reasons": {},
-                    "total": 0,
-                }
-            )
-            reel_gui._update_run_progress_from_line("queued 2 render tasks")
-            reel_gui._update_run_progress_from_line(
-                "skip clip_001 reason=identity_mismatch"
-            )
-            reel_gui._update_run_progress_from_line("done clip_002")
-
-            status = reel_gui.run_status()
-        finally:
-            reel_gui._run_state.clear()
-            reel_gui._run_state.update(previous)
-
-        self.assertEqual(status["total"], 2)
-        self.assertEqual(status["completed"], 1)
-        self.assertEqual(status["rejected"], 1)
-        self.assertEqual(status["rejection_reasons"]["identity_mismatch"], 1)
-
-    def test_request_subprocess_timeout_returns_gateway_timeout(self):
-        import operator_tools as reel_gui
-
-        with patch.object(
-            reel_gui.subprocess,
-            "run",
-            side_effect=reel_gui.subprocess.TimeoutExpired(["cmd"], 1),
-        ):
-            with self.assertRaises(HTTPException) as raised:
-                reel_gui._run_reel_pipeline_subprocess([], timeout_seconds=1)
-
-        self.assertEqual(raised.exception.status_code, 504)
-
-    def test_dashboard_summary_includes_pipeline_health_fields(self):
-        import operator_tools as reel_gui
-
-        previous_jobs = dict(reel_gui.ASSET_JOBS)
-        try:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_JOBS["job_1"] = {"status": "running"}
-            with (
-                patch.object(reel_gui, "_clip_cards_data", return_value=[]),
-                patch.object(
-                    reel_gui,
-                    "list_failed_generations",
-                    return_value={"count": 2, "items": []},
-                ),
-                patch.object(
-                    reel_gui,
-                    "_render_queue_health",
-                    return_value={"counts": {"queued": 3}},
-                ),
-                patch.object(
-                    reel_gui,
-                    "_campaign_factory_job_health",
-                    return_value={"failed": 4, "stuck": 1, "stuckHours": 24.0},
-                ),
-                patch.object(reel_gui, "cost_analytics", return_value={"assets": []}),
-            ):
-                summary = reel_gui.dashboard_summary_api()
-        finally:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_JOBS.update(previous_jobs)
-
-        command = summary["command_center"]
-        self.assertEqual(command["in_flight_generations"], 1)
-        self.assertEqual(command["failed_generations"], 2)
-        self.assertEqual(command["failed_campaign_jobs"], 4)
-        self.assertEqual(command["stuck_campaign_jobs"], 1)
-        self.assertEqual(command["render_queue_depth"], 3)
-        self.assertIn("pipeline_health", summary)
-        self.assertEqual(summary["pipeline_health"]["campaign_jobs"]["stuck"], 1)
-
-    def test_campaign_factory_job_health_counts_failed_and_stuck_jobs(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "campaign_factory.sqlite"
-            old = datetime.now(UTC) - timedelta(hours=30)
-            fresh = datetime.now(UTC)
-            with sqlite3.connect(db) as conn:
-                conn.execute(
-                    """
-                    CREATE TABLE pipeline_jobs (
-                        status TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                    """
-                )
-                conn.executemany(
-                    "INSERT INTO pipeline_jobs VALUES (?, ?, ?)",
-                    [
-                        ("failed", fresh.isoformat(), fresh.isoformat()),
-                        ("queued", old.isoformat(), old.isoformat()),
-                        ("running", fresh.isoformat(), fresh.isoformat()),
-                    ],
-                )
-            with patch.dict(os.environ, {"CAMPAIGN_FACTORY_DB": str(db)}):
-                health = reel_gui._campaign_factory_job_health(
-                    Path(tmp), stuck_hours=24
-                )
-
-        self.assertEqual(health["failed"], 1)
-        self.assertEqual(health["stuck"], 1)
-
-    def test_gui_paid_asset_idempotency_dedupes_in_flight_job(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            prompt = root / "prompt.json"
-            start = root / "start.png"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            start.write_bytes(b"png")
-            release = threading.Event()
-            calls = {"count": 0}
-
-            def fake_create(plan, *, wait, download):
-                calls["count"] += 1
-                release.wait(timeout=2)
-                return {
-                    "ok": True,
-                    "path": str(raw / "clip_001.generated_asset_lineage.json"),
-                    "lineage": {
-                        "generation": {
-                            "videoJobId": "vid_1",
-                            "videoResultUrl": "https://example.test/video.mp4",
-                        },
-                        "assets": {"localPaths": {}},
-                    },
-                }
-
-            body = {
-                "prompt_json": str(prompt),
-                "stem": "clip_001",
-                "start_image": str(start),
-                "async_job": True,
-                "idempotency_key": "same-click",
-            }
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
-            ):
-                first = reel_gui.asset_create_video_api(dict(body))
-                second = reel_gui.asset_create_video_api(dict(body))
-                release.set()
-                for _ in range(20):
-                    status = reel_gui.asset_job_status_api(first["job_id"])
-                    if status["status"] == "done":
-                        break
-                    time.sleep(0.05)
-
-            self.assertEqual(first["job_id"], second["job_id"])
-            self.assertTrue(second["deduped"])
-            self.assertEqual(calls["count"], 1)
-
-    def test_paid_asset_handlers_default_to_async_jobs_without_opt_in(self):
-        import operator_tools as reel_gui
-
-        previous_jobs = dict(reel_gui.ASSET_JOBS)
-        previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
-
-        def fake_sync(body):
-            return {"ok": True, "body": body}
-
-        try:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_IDEMPOTENCY.clear()
-            with (
-                patch.object(reel_gui, "_asset_reference_image_create_sync", fake_sync),
-                patch.object(reel_gui, "_asset_create_image_sync", fake_sync),
-                patch.object(reel_gui, "_asset_create_video_sync", fake_sync),
-                patch.object(reel_gui, "_asset_fanout_panels_sync", fake_sync),
-            ):
-                results = [
-                    reel_gui.asset_reference_image_create_api({"stem": "clip_001"}),
-                    reel_gui.asset_create_image_api({"stem": "clip_002"}),
-                    reel_gui.asset_create_video_api({"stem": "clip_003"}),
-                    reel_gui.asset_fanout_panels_api(
-                        {"stem": "clip_004", "dry_run": False}
-                    ),
-                ]
-                for result in results:
-                    for _ in range(20):
-                        status = reel_gui.asset_job_status_api(result["job_id"])
-                        if status["status"] == "done":
-                            break
-                        time.sleep(0.05)
-                    self.assertEqual(status["status"], "done")
-        finally:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_JOBS.update(previous_jobs)
-            reel_gui.ASSET_IDEMPOTENCY.clear()
-            reel_gui.ASSET_IDEMPOTENCY.update(previous_idempotency)
-
-        self.assertEqual(
-            [result["kind"] for result in results],
-            [
-                "reference_image_create",
-                "create_image",
-                "create_video",
-                "fanout_panels",
-            ],
-        )
-
-    def test_render_pack_defaults_to_async_job_and_dedupes(self):
-        import operator_tools as reel_gui
-
-        previous_jobs = dict(reel_gui.ASSET_JOBS)
-        previous_idempotency = dict(reel_gui.ASSET_IDEMPOTENCY)
-        calls = {"count": 0}
-
-        def fake_run(args, *, timeout_seconds):
-            calls["count"] += 1
-            return reel_gui.subprocess.CompletedProcess(args, 0, stdout="render ok")
-
-        try:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_IDEMPOTENCY.clear()
-            with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
-                body = {
-                    "stem": "clip_001",
-                    "recipes": ["v01_original"],
-                    "max_hooks": 1,
-                    "target_ratios": ["9:16"],
-                }
-                first = reel_gui.campaign_render_pack_api("clip_999", dict(body))
-                second = reel_gui.campaign_render_pack_api("clip_999", dict(body))
-                for _ in range(20):
-                    status = reel_gui.asset_job_status_api(first["job_id"])
-                    if status["status"] == "done":
-                        break
-                    time.sleep(0.05)
-        finally:
-            reel_gui.ASSET_JOBS.clear()
-            reel_gui.ASSET_JOBS.update(previous_jobs)
-            reel_gui.ASSET_IDEMPOTENCY.clear()
-            reel_gui.ASSET_IDEMPOTENCY.update(previous_idempotency)
-
-        self.assertEqual(first["kind"], "render_pack")
-        self.assertEqual(first["job_id"], second["job_id"])
-        self.assertTrue(second["deduped"])
-        self.assertEqual(calls["count"], 1)
-        self.assertEqual(status["status"], "done")
-        self.assertEqual(status["result"]["log"], "render ok")
-
-    def test_render_pack_sync_fallback_keeps_blocking_contract(self):
-        import operator_tools as reel_gui
-
-        def fake_run(args, *, timeout_seconds):
-            return reel_gui.subprocess.CompletedProcess(
-                args, 0, stdout="sync render ok"
-            )
-
-        with patch.object(reel_gui, "_run_reel_pipeline_subprocess", fake_run):
-            result = reel_gui.campaign_render_pack_api(
-                "clip_999",
-                {
-                    "stem": "clip_001",
-                    "recipes": ["v01_original"],
-                    "max_hooks": 1,
-                    "target_ratios": ["9:16"],
-                },
-                sync=1,
-            )
-
-        self.assertEqual(result, {"ok": True, "log": "sync render ok"})
-
-    def test_gui_create_video_updates_existing_asset_without_new_campaign_record(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            prompt = root / "prompt.json"
-            start = root / "start.png"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            start.write_bytes(b"png")
-            captured = {}
-
-            def fake_create(plan, *, wait, download):
-                captured["campaign"] = plan.campaign
-                captured["creator"] = plan.creator
-                return {
-                    "ok": True,
-                    "path": str(raw / "clip_001.generated_asset_lineage.json"),
-                    "lineage": {
-                        "generation": {
-                            "videoJobId": "vid_1",
-                            "videoResultUrl": "https://example.test/video.mp4",
-                        },
-                        "assets": {"localPaths": {}},
-                    },
-                }
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
-                patch.object(
-                    reel_gui, "update_asset_generation", return_value={"ok": True}
-                ),
-            ):
-                result = reel_gui.asset_create_video_api(
-                    {
-                        "prompt_json": str(prompt),
-                        "stem": "clip_001",
-                        "start_image": str(start),
-                        "campaign": "Campaign",
-                        "creator": "Stacey",
-                        "asset_generation_id": "asset_existing",
-                    },
-                    sync=1,
-                )
-
-            self.assertIsNone(captured["campaign"])
-            self.assertIsNone(captured["creator"])
-            self.assertEqual(result["asset_generation_id"], "asset_existing")
-
-    def test_gui_fanout_dry_run_crops_each_detected_panel_and_updates_lineage(self):
-        import operator_tools as reel_gui
-        from PIL import Image
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            data = root / "project_data"
-            raw.mkdir(parents=True)
-            source = data / "generated_assets" / "clip_001_soul_image.png"
-            source.parent.mkdir(parents=True)
-            image = Image.new("RGB", (324, 224), (245, 245, 245))
-            colors = [
-                (180, 40, 40),
-                (40, 150, 90),
-                (60, 90, 190),
-                (190, 160, 40),
-                (170, 70, 170),
-                (40, 170, 180),
-            ]
-            for idx, color in enumerate(colors):
-                col = idx % 3
-                row = idx // 3
-                for x in range(12 + col * 100, 12 + (col + 1) * 100):
-                    for y in range(12 + row * 100, 12 + (row + 1) * 100):
-                        image.putpixel((x, y), color)
-            image.save(source)
-            prompt = root / "prompts" / "clip_001_grok.json"
-            prompt.parent.mkdir()
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            lineage = raw / "clip_001.generated_asset_lineage.json"
-            lineage.write_text(
-                json.dumps(
-                    {"generation": {}, "assets": {"localPaths": {"image": str(source)}}}
-                ),
-                encoding="utf-8",
-            )
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "DATA_DIR", data),
-                patch.object(reel_gui, "RAW_DIR", raw),
-            ):
-                result = reel_gui.asset_fanout_panels_api(
-                    {
-                        "stem": "clip_001",
-                        "prompt_json": str(prompt),
-                        "source_image": str(source),
-                        "lineage_path": str(lineage),
-                        "dry_run": True,
-                    }
-                )
-
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["planned"], 6)
-            self.assertEqual(
-                result["gridDetection"]["gridPreset"], {"columns": 3, "rows": 2}
-            )
-            self.assertTrue(
-                all(
-                    Path(panel["startImagePath"]).exists()
-                    for panel in result["cropManifest"]["panelCrops"]
-                )
-            )
-            prompt_paths = {panel["promptJsonPath"] for panel in result["panels"]}
-            self.assertEqual(len(prompt_paths), 1)
-            self.assertTrue(
-                next(iter(prompt_paths)).endswith("_shared_kling_motion_prompt.json")
-            )
-            self.assertTrue(
-                all(panel["sharedMotionPrompt"] for panel in result["panels"])
-            )
-            updated = json.loads(lineage.read_text(encoding="utf-8"))
-            self.assertEqual(len(updated["generation"]["panelCrops"]), 6)
-            self.assertIn("panelStartImages", updated["assets"]["localPaths"])
-
-    def test_gui_fanout_honors_grid_layout_override(self):
-        import operator_tools as reel_gui
-        from PIL import Image
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            data = root / "project_data"
-            raw.mkdir(parents=True)
-            source = data / "generated_assets" / "clip_001_soul_image.png"
-            source.parent.mkdir(parents=True)
-            Image.new("RGB", (2048, 1536), (60, 50, 42)).save(source)
-            prompt = root / "prompts" / "clip_001_grok.json"
-            prompt.parent.mkdir()
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "DATA_DIR", data),
-                patch.object(reel_gui, "RAW_DIR", raw),
-            ):
-                result = reel_gui.asset_fanout_panels_api(
-                    {
-                        "stem": "clip_001",
-                        "prompt_json": str(prompt),
-                        "source_image": str(source),
-                        "grid_layout": "2x2",
-                        "dry_run": True,
-                    }
-                )
-
-            self.assertTrue(result["ok"])
-            self.assertEqual(result["planned"], 4)
-            self.assertEqual(
-                result["gridDetection"]["gridPreset"], {"columns": 2, "rows": 2}
-            )
-            self.assertEqual(result["gridDetection"]["confidence"], "operator_override")
-
-    def test_gui_fanout_create_records_partial_failures(self):
-        import operator_tools as reel_gui
-        from PIL import Image
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            data = root / "project_data"
-            raw.mkdir(parents=True)
-            source = data / "generated_assets" / "clip_001_soul_image.png"
-            source.parent.mkdir(parents=True)
-            Image.new("RGB", (300, 200), "white").save(source)
-            prompt = root / "prompts" / "clip_001_grok.json"
-            prompt.parent.mkdir()
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            def fake_create(plan, *, wait, download):
-                if "_panel_02_" in plan.stem:
-                    return {
-                        "ok": False,
-                        "path": str(raw / f"{plan.stem}.json"),
-                        "lineage": {"generation": {}},
-                        "error": "quota",
-                    }
-                return {
-                    "ok": True,
-                    "path": str(raw / f"{plan.stem}.json"),
-                    "lineage": {
-                        "generation": {
-                            "videoJobId": f"vid_{plan.selected_panel}",
-                            "videoResultUrl": f"https://example.test/{plan.selected_panel}.mp4",
-                        }
-                    },
-                }
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "DATA_DIR", data),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "create_video_asset", side_effect=fake_create),
-            ):
-                result = reel_gui.asset_fanout_panels_api(
-                    {
-                        "stem": "clip_001",
-                        "prompt_json": str(prompt),
-                        "source_image": str(source),
-                        "dry_run": False,
-                        "max_jobs": 3,
-                    },
-                    sync=1,
-                )
-
-            self.assertFalse(result["ok"])
-            self.assertEqual(result["created"], 2)
-            self.assertEqual(result["failed"], 1)
-            self.assertEqual(
-                [panel["status"] for panel in result["panels"]],
-                ["created", "failed", "created"],
-            )
-
-    def test_gui_download_video_uses_stored_asset_generation_url(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            cap = root / "01_captions"
-            raw.mkdir()
-            cap.mkdir()
-            prompt = root / "prompt.json"
-            prompt.write_text(
-                json.dumps(
-                    {
-                        "higgsfieldGridPrompt": "grid prompt",
-                        "klingMotionPrompt": "motion prompt",
-                        "notes": "ok",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            create_campaign(
-                root,
-                name="Download Campaign",
-                creator="Stacey",
-                account="acct",
-                platform="instagram_reels",
-            )
-            lineage = {
-                "source": {
-                    "selectedPanel": "full_image",
-                    "startImage": str(root / "start.png"),
-                },
-                "generation": {
-                    "soulId": "5828d958-91dd-4d6d-8909-934503f47644",
-                    "videoJobId": "vid_1",
-                    "videoResultUrl": "https://example.test/video.mp4",
-                    "raw": {
-                        "image": {
-                            "params": {
-                                "custom_reference_id": "5828d958-91dd-4d6d-8909-934503f47644"
-                            }
-                        }
-                    },
-                },
-                "assets": {"localPaths": {}},
-            }
-            record = record_asset_generation(
-                root,
-                campaign="Download Campaign",
-                creator="Stacey",
-                prompt_json_path=prompt,
-                stem="clip_001",
-                lineage_path=root / "lineage.json",
-                lineage=lineage,
-            )
-
-            def fake_download(url, out):
-                Path(out).write_bytes(b"mp4")
-                return str(out), None
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "CAP_DIR", cap),
-                patch.object(
-                    reel_gui.urllib.request, "urlretrieve", side_effect=fake_download
-                ),
-            ):
-                result = reel_gui.asset_download_video_api(
-                    {
-                        "stem": "clip_001",
-                        "prompt_json": str(prompt),
-                        "asset_generation_id": record["asset_generation_id"],
-                    }
-                )
-
-            self.assertEqual(result["downloaded_stem"], "clip_001")
-            self.assertTrue((raw / "clip_001.mp4").exists())
-            sidecar = json.loads(
-                (raw / "clip_001.generated_asset_lineage.json").read_text()
-            )
-            self.assertEqual(
-                sidecar["generation"]["videoResultUrl"],
-                "https://example.test/video.mp4",
-            )
-
-    def test_gui_prompt_generate_uses_live_grok_direct_prompt_preview(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            ref = root / "ref.jpg"
-            ref.write_bytes(b"jpg")
-            create_campaign(
-                root,
-                name="Prompt Campaign",
-                creator="Stacey",
-                account="acct",
-                platform="instagram_reels",
-            )
-            fake_raw = {
-                "output": [
-                    {
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": json.dumps(
-                                    {
-                                        "image_prompt": (
-                                            "Create one high-quality native 2x3 grid featuring six variations of the exact same stunning woman "
-                                            "with a perfect face, deep cleavage, round ass emphasis, skin-tight fabric cling, bright lighting, and sharp focus"
-                                        ),
-                                        "notes": "manual Grok image prompt response shape",
-                                    }
-                                ),
-                            }
-                        ]
-                    }
-                ]
-            }
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch("generate_prompts.load_xai_api_key", return_value="key"),
-                patch("generate_prompts.call_grok", return_value=fake_raw) as grok,
-            ):
-                result = reel_gui.prompt_generate_api(
-                    {
-                        "reference_image": str(ref),
-                        "out": str(root / "prompt.json"),
-                        "campaign": "Prompt Campaign",
-                        "creator": "Stacey",
-                    }
-                )
-
-            self.assertTrue(result["dry_run"])
-            self.assertEqual(
-                result["prompt_mode"], REFERENCE_FACTORY_SEXY_REALISTIC_MODE
-            )
-            self.assertEqual(
-                result["prompt_source"], "live_grok_direct_higgsfield_prompt"
-            )
-            self.assertIn("cleaned_prompt", result["lineage"])
-            self.assertNotIn(
-                "perfect face", result["lineage"]["cleaned_prompt"].lower()
-            )
-            self.assertNotIn("sharp focus", result["lineage"]["cleaned_prompt"].lower())
-            self.assertIn("instruction_preview", result)
-            grok.assert_called_once()
-            conn = campaign_connect(root)
-            count = conn.execute("SELECT COUNT(*) AS n FROM prompt_runs").fetchone()[
-                "n"
-            ]
-            self.assertEqual(count, 0)
-
-    def test_gui_active_action_labels_use_direct_reference_language(self):
-        import operator_tools as reel_gui
-
-        payload = json.dumps(reel_gui.next_action_for_status("Needs Soul")).lower()
-        self.assertIn("reference still", payload)
-        self.assertNotIn("grok", payload)
-        self.assertNotIn("2x3", payload)
-        self.assertNotIn("six panel", payload)
-        self.assertNotIn("cropped panel", payload)
-
-    def test_gui_direct_reference_dry_run_uses_active_single_image_path(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            data = root / "project_data"
-            raw.mkdir()
-            data.mkdir()
-            ref = root / "reference.jpg"
-            ref.write_bytes(b"jpg")
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "DATA_DIR", data),
-            ):
-                result = reel_gui.asset_reference_image_dry_run_api(
-                    {
-                        "reference": str(ref),
-                        "stem": "clip_001",
-                        "creator": "Stacey",
-                        "body_emphasis": "bust_hips",
-                        "wait": True,
-                    }
-                )
-
-            self.assertEqual(result["workflow"], "higgsfield_direct_reference_image")
-            command_text = " ".join(result["commands"][0])
-            self.assertIn("--image", result["commands"][0])
-            image_arg = result["commands"][0][
-                result["commands"][0].index("--image") + 1
-            ]
-            self.assertEqual(Path(image_arg).resolve(), ref.resolve())
-            self.assertIn("--custom_reference_id", result["commands"][0])
-            self.assertIn("d63ea9c7-b2c7-439c-bf0c-edfdf9938a36", result["commands"][0])
-            self.assertIn("--aspect_ratio 3:4", command_text)
-            prompt_arg = result["commands"][0][
-                result["commands"][0].index("--prompt") + 1
-            ].lower()
-            self.assertNotIn("grid_layout", prompt_arg)
-            self.assertNotIn("2x3", prompt_arg)
-            self.assertNotIn("six panel", prompt_arg)
-            self.assertNotIn("cropped panel", prompt_arg)
-
     def test_active_docs_describe_direct_reference_not_grok_grid_production(self):
         docs = [
             REEL_ROOT / "CURRENT_PRODUCTION_FLOW.md",
@@ -4367,8 +3055,13 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
             with (
-                patch("reel_url_import.shutil.which", return_value="/usr/bin/yt-dlp"),
-                patch("reel_url_import.subprocess.run", side_effect=fake_run),
+                patch(
+                    "reel_factory.reel_url_import.shutil.which",
+                    return_value="/usr/bin/yt-dlp",
+                ),
+                patch(
+                    "reel_factory.reel_url_import.subprocess.run", side_effect=fake_run
+                ),
             ):
                 result = download_reel_url(
                     "https://www.instagram.com/reel/example/",
@@ -4404,9 +3097,14 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
             with (
-                patch("reel_url_import.shutil.which", return_value="/usr/bin/yt-dlp"),
-                patch("reel_url_import.subprocess.run", side_effect=fake_run),
-                patch("reel_url_import.time.sleep", return_value=None),
+                patch(
+                    "reel_factory.reel_url_import.shutil.which",
+                    return_value="/usr/bin/yt-dlp",
+                ),
+                patch(
+                    "reel_factory.reel_url_import.subprocess.run", side_effect=fake_run
+                ),
+                patch("reel_factory.reel_url_import.time.sleep", return_value=None),
             ):
                 result = download_reel_url(
                     "https://www.instagram.com/reel/retry/",
@@ -4459,89 +3157,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
             self.assertTrue(result["skipped"])
             self.assertEqual(result["reason"], "already_imported_url")
             self.assertEqual(result["path"], str(existing))
-
-    def test_gui_reel_url_import_downloads_adds_reference_and_prompt(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            raw = root / "00_source_videos"
-            cap = root / "01_captions"
-            raw.mkdir()
-            cap.mkdir()
-            create_campaign(
-                root,
-                name="URL Campaign",
-                creator="Stacey",
-                account="acct",
-                platform="instagram_reels",
-            )
-
-            def fake_download(url, *, out_dir, stem):
-                out = Path(out_dir) / f"{stem}.mp4"
-                out.write_bytes(b"mp4")
-                return {
-                    "ok": True,
-                    "url": url,
-                    "stem": stem,
-                    "path": str(out.resolve()),
-                    "command": ["yt-dlp"],
-                    "sourceMetrics": {
-                        "view_count": 2222,
-                        "like_count": 333,
-                        "comment_count": 44,
-                        "upload_date": "20260701",
-                    },
-                    "infoJsonPath": str(raw / f"{stem}.info.json"),
-                }
-
-            fake_prompt = {
-                "ok": True,
-                "prompt_json_path": str(root / "prompts" / "clip_001_grok.json"),
-                "prompt": {
-                    "higgsfieldGridPrompt": "grid prompt",
-                    "klingMotionPrompt": "motion prompt",
-                    "notes": "ok",
-                },
-            }
-
-            with (
-                patch.object(reel_gui, "ROOT", root),
-                patch.object(reel_gui, "RAW_DIR", raw),
-                patch.object(reel_gui, "CAP_DIR", cap),
-                patch.object(reel_gui, "download_reel_url", side_effect=fake_download),
-                patch.object(reel_gui, "generate_prompt", return_value=fake_prompt),
-            ):
-                result = reel_gui.import_reel_url_api(
-                    {
-                        "url": "https://www.instagram.com/reel/example/",
-                        "campaign": "URL Campaign",
-                        "stem": "clip_001",
-                        "generate_prompt": True,
-                    }
-                )
-
-            self.assertEqual(result["stem"], "clip_001")
-            self.assertTrue((raw / "clip_001.mp4").exists())
-            self.assertTrue((cap / "clip_001.json").exists())
-            self.assertTrue(result["reference_record"]["reference_id"])
-            self.assertTrue(result["prompt"]["ok"])
-            conn = campaign_connect(root)
-            try:
-                ref = conn.execute(
-                    """
-                    SELECT source_views, source_likes, source_comments, source_posted_at
-                    FROM campaign_references
-                    WHERE reference_id = ?
-                    """,
-                    (result["reference_record"]["reference_id"],),
-                ).fetchone()
-            finally:
-                conn.close()
-            self.assertEqual(ref["source_views"], 2222)
-            self.assertEqual(ref["source_likes"], 333)
-            self.assertEqual(ref["source_comments"], 44)
-            self.assertEqual(ref["source_posted_at"], "2026-07-01T00:00:00+00:00")
 
     def test_campaign_reference_metrics_backfill_from_reel_url_sidecar(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4687,7 +3302,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "project_data" / "caption_generations.jsonl"
-            with patch("hook_ai.OllamaHookProvider", FakeProvider):
+            with patch("reel_factory.hook_ai.OllamaHookProvider", FakeProvider):
                 result = generate_hooks(
                     backend="ollama",
                     model="fake",
@@ -4729,7 +3344,7 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 self.temperature = temperature
                 return ["pick the door he would never open"]
 
-        with patch("hook_ai.OllamaHookProvider", FakeProvider):
+        with patch("reel_factory.hook_ai.OllamaHookProvider", FakeProvider):
             result = generate_hooks(
                 backend="ollama",
                 model="fake",
@@ -4857,28 +3472,6 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 )
             )
 
-    def test_save_hooks_preserves_generation_metadata(self):
-        import operator_tools as reel_gui
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cap_dir = Path(tmp)
-            generation = {
-                "generation_id": "capgen_test",
-                "model": "fake",
-                "backend": "ollama",
-                "caption_hashes": ["hash_1"],
-            }
-            with patch.object(reel_gui, "CAP_DIR", cap_dir):
-                result = reel_gui.save_hooks(
-                    "clip_001", {"hooks": ["hook one"], "generation": generation}
-                )
-            self.assertTrue(result["ok"])
-            sidecar = json.loads(
-                (cap_dir / "clip_001.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(sidecar["generation"]["generation_id"], "capgen_test")
-            self.assertEqual(sidecar["hooks"], ["hook one"])
-
     def test_semantic_duplicate_grouping_and_library_group(self):
         hooks = ["when he says he misses you", "when he says he misses u"]
         dupes = find_semantic_duplicates(hooks, threshold=0.55)
@@ -4985,8 +3578,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
                 },
             }
             with (
-                patch("qc_check._ffprobe_json", return_value=probe_json),
-                patch("qc_check._has_faststart", return_value=False),
+                patch("reel_factory.qc_check._ffprobe_json", return_value=probe_json),
+                patch("reel_factory.qc_check._has_faststart", return_value=False),
             ):
                 rec = probe_with_audio_mode(path, upload_ready=True)
 

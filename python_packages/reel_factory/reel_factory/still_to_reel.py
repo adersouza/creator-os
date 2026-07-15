@@ -14,12 +14,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from audio_intent import write_audio_intent
-from audio_mux import mux_audio
-from caption_render import render_caption_png
 from PIL import Image
 
 from pipeline_contracts import validate_generated_asset_lineage
+
+from .audio_intent import write_audio_intent
+from .audio_mux import mux_audio
+from .caption_render import render_caption_png
 
 try:
     from .fileops import atomic_write_text
