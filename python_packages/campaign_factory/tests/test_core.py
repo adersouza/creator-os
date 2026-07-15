@@ -29,11 +29,9 @@ from campaign_factory.adapters import threadsdash as threadsdash_adapter
 from campaign_factory.adapters.contentforge import audit_campaign
 from campaign_factory.adapters.threadsdash import (
     build_draft_payloads,
-    clear_preview_schedule,
     evaluate_export_readiness,
     export_threadsdash,
     preflight_supabase,
-    safe_live_smoke_export,
     summarize_threadsdash_usage,
     sync_performance_snapshots,
     sync_threadsdash_account_assignments,
@@ -8767,86 +8765,6 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
         cf.close()
 
 
-def test_content_graph_tracks_import_render_audit_approval_and_export(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    inserted: list[tuple[str, dict]] = []
-    upserted: list[tuple[str, dict, str]] = []
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def select(self, table, params):
-            return []
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            pass
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {
-                "id": f"{table}_{len([item for item in inserted if item[0] == table])}",
-                **row,
-            }
-
-        def upsert(self, table, row, *, on_conflict):
-            upserted.append((table, dict(row), on_conflict))
-            return [{**row}]
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-        ensure_exportable_distribution_plan(cf)
-        result = export_threadsdash(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            dry_run=False,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-            allow_warnings=True,
-        )
-
-        assert result["supabase"]["attempted"] is True
-        node_types = {
-            row["entity_type"]
-            for row in cf.conn.execute(
-                "SELECT entity_type FROM content_graph_nodes"
-            ).fetchall()
-        }
-        assert {
-            "campaign",
-            "source_asset",
-            "rendered_asset",
-            "audit_report",
-            "approval_decision",
-            "threadsdash_post",
-        } <= node_types
-        edge_types = {
-            row["relation_type"]
-            for row in cf.conn.execute(
-                "SELECT relation_type FROM content_graph_edges"
-            ).fetchall()
-        }
-        assert "campaign_contains_source_asset" in edge_types
-        assert "rendered_asset_to_audit_report" in edge_types
-        assert "rendered_asset_to_approval_decision" in edge_types
-        assert "rendered_asset_to_threadsdash_post" in edge_types
-        mirror_tables = {table for table, _row, _conflict in upserted}
-        assert {
-            "campaign_factory_entities",
-            "campaign_factory_edges",
-            "campaign_factory_post_links",
-        } <= mirror_tables
-    finally:
-        cf.close()
-
-
 def test_graph_id_for_and_ensure_graph_edge_direct(tmp_path: Path):
     # Direct coverage for the graph_id_for/ensure_graph_edge facade methods,
     # previously exercised only by the deleted test_core_characterization.py
@@ -11323,115 +11241,6 @@ def test_next_distribution_slot_uses_account_requirement_cap_and_gap(tmp_path: P
 
         assert first == slots[0]
         assert second == slots[2]
-    finally:
-        cf.close()
-
-
-def test_clear_preview_schedule_only_unschedules_campaign_factory_rows(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    rows = [
-        {
-            "id": "post_cf",
-            "user_id": "user_1",
-            "status": "scheduled",
-            "scheduled_for": "2026-05-20T14:00:00+00:00",
-            "media_urls": ["https://example.com/reel.mp4"],
-            "metadata": {
-                "previewScheduleOnly": True,
-                "campaign_factory": {
-                    "campaign_id": "may",
-                    "rendered_asset_id": "asset_1",
-                    "preview_schedule_only": True,
-                },
-            },
-        },
-        {
-            "id": "post_other_campaign",
-            "user_id": "user_1",
-            "status": "scheduled",
-            "scheduled_for": "2026-05-20T15:00:00+00:00",
-            "media_urls": ["https://example.com/other.mp4"],
-            "metadata": {"campaign_factory": {"campaign_id": "other"}},
-        },
-        {
-            "id": "post_manual",
-            "user_id": "user_1",
-            "status": "scheduled",
-            "scheduled_for": "2026-05-20T16:00:00+00:00",
-            "media_urls": ["https://example.com/manual.mp4"],
-            "metadata": {"source": "manual"},
-        },
-        {
-            "id": "post_published",
-            "user_id": "user_1",
-            "status": "published",
-            "scheduled_for": "2026-05-20T17:00:00+00:00",
-            "media_urls": ["https://example.com/published.mp4"],
-            "metadata": {"campaign_factory": {"campaign_id": "may"}},
-        },
-    ]
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def select(self, table, params):
-            assert table == "posts"
-            user_filter = params.get("user_id")
-            if user_filter == "eq.user_1":
-                return [dict(row) for row in rows]
-            return []
-
-        def update(self, table, values, filters):
-            assert table == "posts"
-            assert filters["user_id"] == "eq.user_1"
-            assert filters["status"] == "eq.scheduled"
-            post_id = filters["id"].removeprefix("eq.")
-            updated = []
-            for row in rows:
-                if (
-                    row["id"] == post_id
-                    and row["user_id"] == "user_1"
-                    and row["status"] == "scheduled"
-                ):
-                    row.update(values)
-                    updated.append(dict(row))
-            return updated
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        folder = tmp_path / "inputs"
-        folder.mkdir()
-        (folder / "a.mp4").write_bytes(b"source")
-        cf.import_folder(folder, campaign_slug="may", model_slug="model")
-
-        result = clear_preview_schedule(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-        )
-
-        cleared = rows[0]
-        other_campaign = rows[1]
-        manual = rows[2]
-        published = rows[3]
-        cleared_meta = cleared["metadata"]["campaign_factory"]
-
-        assert result["clearedCount"] == 1
-        assert result["remainingScheduledCount"] == 0
-        assert cleared["status"] == "draft"
-        assert cleared["scheduled_for"] is None
-        assert cleared["media_urls"] == ["https://example.com/reel.mp4"]
-        assert cleared_meta["previous_scheduled_for"] == "2026-05-20T14:00:00+00:00"
-        assert cleared_meta["unscheduled_reason"] == "audio_workflow_not_ready"
-        assert cleared_meta["preview_schedule_only"] is True
-        assert other_campaign["status"] == "scheduled"
-        assert manual["status"] == "scheduled"
-        assert published["status"] == "published"
     finally:
         cf.close()
 
@@ -14363,103 +14172,6 @@ def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(
         assert context["variant_family_id"] == "vfam_test"
     finally:
         cf.close()
-
-
-def test_threadsdash_insert_preserves_variant_first_class_columns(monkeypatch):
-    inserted: list[tuple[str, dict]] = []
-
-    class FakeClient:
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {"id": "post_1", **row}
-
-    draft = {
-        "userId": "user_1",
-        "instagramAccountId": "ig_1",
-        "content": "caption",
-        "topics": [],
-        "status": "draft",
-        "renderedAssetId": "asset_variant_1",
-        "distributionPlanId": "dist_1",
-        "campaignFactoryPostKey": "post_key_1",
-        "captionHash": "caption_hash_1",
-        "media": [{"type": "video"}],
-        "metadata": {
-            "campaign_factory": {
-                "content_fingerprint": "content_hash_1",
-                "concept_id": "concept_1",
-                "parent_asset_id": "asset_parent_1",
-                "variant_family_id": "vfam_1",
-                "variant_id": "var_1",
-            }
-        },
-    }
-
-    monkeypatch.delenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", raising=False)
-    with pytest.raises(
-        ValueError, match="raw ThreadsDashboard Supabase post writes are disabled"
-    ):
-        threadsdash_adapter._insert_draft_post(
-            FakeClient(),
-            draft=draft,
-            media_ref={"publicUrl": "https://cdn.example/video.mp4"},
-        )
-
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-    threadsdash_adapter._insert_draft_post(
-        FakeClient(),
-        draft=draft,
-        media_ref={"publicUrl": "https://cdn.example/video.mp4"},
-    )
-
-    post_row = inserted[0][1]
-    assert post_row["campaign_factory_content_fingerprint"] == "content_hash_1"
-    assert post_row["campaign_factory_concept_id"] == "concept_1"
-    assert post_row["campaign_factory_parent_asset_id"] == "asset_parent_1"
-    assert post_row["campaign_factory_variant_family_id"] == "vfam_1"
-    assert post_row["campaign_factory_variant_id"] == "var_1"
-
-
-def test_threadsdash_insert_preserves_feed_single_surface(monkeypatch):
-    inserted: list[tuple[str, dict]] = []
-
-    class FakeClient:
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {"id": "post_feed_1", **row}
-
-    draft = {
-        "userId": "user_1",
-        "instagramAccountId": "ig_1",
-        "content": "feed caption",
-        "topics": [],
-        "status": "draft",
-        "contentSurface": "feed_single",
-        "renderedAssetId": "asset_feed_1",
-        "distributionPlanId": "dist_feed_1",
-        "campaignFactoryPostKey": "post_key_feed_1",
-        "captionHash": "caption_hash_feed_1",
-        "media": [{"type": "image"}],
-        "metadata": {
-            "campaign_factory": {
-                "content_surface": "feed_single",
-                "ig_media_type": "IMAGE",
-                "content_fingerprint": "content_hash_feed_1",
-            }
-        },
-    }
-
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-    threadsdash_adapter._insert_draft_post(
-        FakeClient(),
-        draft=draft,
-        media_ref={"publicUrl": "https://cdn.example/feed.jpg"},
-    )
-
-    post_row = inserted[0][1]
-    assert post_row["media_type"] == "image"
-    assert post_row["ig_media_type"] == "IMAGE"
-    assert post_row["content_surface"] == "feed_single"
 
 
 def test_variant_metrics_rollup_groups_by_parent_family_and_variant(tmp_path: Path):
@@ -17986,220 +17698,6 @@ def test_explain_publishability_and_quarantine_bad_asset(tmp_path: Path):
         cf.close()
 
 
-def test_live_export_requires_explicit_confirmation_for_warnings(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    rows = []
-    inserted: list[tuple[str, dict]] = []
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def select(self, table, params):
-            return rows
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            pass
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {"id": f"{table}_1", **row}
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        cf.review_rendered_asset("asset_1", decision="approved")
-        add_audit_report(cf, overall_verdict="warn", warnings=["compression"])
-        cf.create_distribution_plan(
-            "asset_1",
-            instagram_account_id="ig_1",
-            planned_window_start="2026-06-05T15:00:00+00:00",
-            planned_window_end="2026-06-05T15:15:00+00:00",
-        )
-        try:
-            export_threadsdash(
-                cf,
-                campaign_slug="may",
-                user_id="user_1",
-                dry_run=False,
-                supabase_url="https://example.supabase.co",
-                supabase_service_role_key="service-role",
-                schedule_mode="live",
-            )
-        except ValueError as exc:
-            assert "warnings" in str(exc)
-        else:
-            raise AssertionError(
-                "live export should require explicit warning confirmation"
-            )
-
-        result = export_threadsdash(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            dry_run=False,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-            allow_warnings=True,
-            content_pillar="lifestyle",
-            cta_type="none",
-            language="en",
-            schedule_mode="live",
-        )
-        assert result["supabase"]["attempted"] is True
-        assert any(table == "posts" for table, _ in inserted)
-        post_row = next(row for table, row in inserted if table == "posts")
-        meta = post_row["metadata"]["campaign_factory"]
-        assert meta["caption_hash"]
-        assert meta["content_pillar"] == "lifestyle"
-        assert meta["cta_type"] == "none"
-        assert meta["language"] == "en"
-    finally:
-        cf.close()
-
-
-def test_threadsdash_live_export_builds_exact_supabase_rows(
-    tmp_path: Path, monkeypatch
-):
-    folder = tmp_path / "inputs"
-    folder.mkdir()
-    (folder / "a.mp4").write_bytes(b"source")
-    cf = make_factory(tmp_path)
-    inserted: list[tuple[str, dict]] = []
-    uploads: list[tuple[str, str]] = []
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            uploads.append((bucket, storage_path))
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {"id": f"{table}_1", **row}
-
-        def select(self, table, params):
-            return []
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        cf.import_folder(folder, campaign_slug="may", model_slug="model")
-        source = cf.assets_for_campaign(cf.campaign_by_slug("may")["id"])[0]
-        set_test_source_prompt(cf, source["id"])
-        rendered_path = tmp_path / "ok.mp4"
-        rendered_path.write_bytes(b"rendered")
-        now = "2026-01-01T00:00:00+00:00"
-        cf.conn.execute(
-            """
-            INSERT INTO rendered_assets
-            (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
-             caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
-             caption_generation_json, created_at, updated_at)
-            VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, 'ok.mp4', 'caption', 'caption_hash_1', ?,
-                    'v01_original', 'approved_candidate', 'approved', ?, ?, ?)
-            """,
-            (
-                source["campaign_id"],
-                source["id"],
-                str(rendered_path),
-                str(rendered_path),
-                json.dumps(
-                    {
-                        "schema": "campaign_factory.caption_outcome_context.v1",
-                        "caption_hash": "caption_hash_1",
-                        "caption_text": "caption",
-                        "instagram_post_caption": "new post",
-                        "instagram_post_caption_hash": threadsdash_adapter._text_hash(
-                            "new post"
-                        ),
-                        "caption_bank": "test_bank",
-                        "caption_banks": ["test_bank"],
-                        "creator_mix": "Test",
-                        "render_recipe": "v01_original",
-                        "captionPlacementPolicy": "focal_safe_v1",
-                        "captionPlacementDecision": {
-                            "status": "passed",
-                            "selectedLane": "top",
-                        },
-                    }
-                ),
-                json.dumps(
-                    {
-                        "instagram_post_caption": "new post",
-                        "audioIntent": {
-                            "schema": "pipeline.audio_intent.v1",
-                            "mode": "native_platform_audio",
-                            "required": False,
-                            "status": "not_required",
-                        },
-                    }
-                ),
-                now,
-                now,
-            ),
-        )
-        cf.conn.commit()
-        add_audit_report(cf)
-        ensure_exportable_distribution_plan(cf)
-        result = export_threadsdash(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            dry_run=False,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-        )
-        assert result["dryRun"] is False
-        assert uploads[0][0] == "media"
-        media_row = next(row for table, row in inserted if table == "media")
-        post_row = next(row for table, row in inserted if table == "posts")
-        assert set(media_row) >= {
-            "user_id",
-            "file_name",
-            "file_url",
-            "file_type",
-            "file_size",
-            "mime_type",
-            "storage_url",
-            "storage_path",
-            "tags",
-        }
-        assert "workspace_id" not in media_row
-        assert post_row["platform"] == "instagram"
-        assert post_row["status"] == "draft"
-        assert post_row["media_type"] == "reel"
-        assert post_row["ig_media_type"] == "REELS"
-        assert post_row["scheduled_for"] is None
-        assert post_row["campaign_factory_asset_id"] == "asset_1"
-        assert post_row["campaign_factory_distribution_plan_id"]
-        assert post_row["campaign_factory_post_key"]
-        assert post_row["campaign_factory_content_fingerprint"] == "hash_1"
-        assert post_row["campaign_factory_caption_hash"]
-        assert post_row["platform_draft_validated"] is True
-        assert "published_at" not in post_row
-        assert "ig_container_id" not in post_row
-        assert (
-            post_row["metadata"]["campaign_factory"]["rendered_asset_id"] == "asset_1"
-        )
-        assert post_row["metadata"]["campaign_factory"]["content_hash"] == "hash_1"
-        assert (
-            post_row["metadata"]["campaign_factory"]["source_content_hash"]
-            == source["content_hash"]
-        )
-        assert post_row["metadata"]["campaign_factory"]["caption_hash"]
-        assert post_row["metadata"]["campaign_factory"]["recipe"] == "v01_original"
-        assert post_row["metadata"]["campaign_factory"]["export_id"].startswith(
-            "tdexp_"
-        )
-    finally:
-        cf.close()
-
-
 def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
 
@@ -20589,73 +20087,6 @@ def test_verify_threadsdash_export_blocks_non_draft_posts(monkeypatch):
     )
 
 
-def test_safe_live_smoke_exports_one_draft_and_verifies(tmp_path: Path, monkeypatch):
-    cf = make_factory(tmp_path)
-    media_rows = {}
-    post_rows = {}
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def get_storage_bucket(self, bucket):
-            return {"id": bucket, "name": bucket}
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            assert bucket == "media"
-            assert file_path.exists()
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            if table == "media":
-                media_id = f"media_{len(media_rows) + 1}"
-                stored = {"id": media_id, **row}
-                media_rows[media_id] = stored
-                return stored
-            if table == "posts":
-                post_id = f"post_{len(post_rows) + 1}"
-                stored = {"id": post_id, **row}
-                post_rows[post_id] = stored
-                return stored
-            raise AssertionError(table)
-
-        def select(self, table, params):
-            if table == "media":
-                media_id = (params.get("id") or "").removeprefix("eq.")
-                return [media_rows[media_id]] if media_id in media_rows else []
-            if table == "posts":
-                post_id = (params.get("id") or "").removeprefix("eq.")
-                if post_id:
-                    return [post_rows[post_id]] if post_id in post_rows else []
-                return []
-            return []
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-        ensure_exportable_distribution_plan(cf)
-        result = safe_live_smoke_export(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-            supabase_storage_bucket="media",
-        )
-        assert result["ok"] is True
-        assert result["export"]["draftCount"] == 1
-        assert len(post_rows) == 1
-        post = next(iter(post_rows.values()))
-        assert post["status"] == "draft"
-        assert post["platform"] == "instagram"
-        assert post["scheduled_for"] is None
-        assert post["metadata"]["campaign_factory"]["rendered_asset_id"] == "asset_1"
-    finally:
-        cf.close()
-
-
 def test_export_can_target_one_rendered_asset(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
@@ -20801,62 +20232,6 @@ def test_run_reel_failure_records_failed_job_and_event(tmp_path: Path, monkeypat
         assert job["status"] == "failed"
         events = cf.events_for_campaign("may")
         assert any(event["eventType"] == "reel_render_failed" for event in events)
-    finally:
-        cf.close()
-
-
-def test_export_live_job_redacts_secrets_and_records_ids(tmp_path: Path, monkeypatch):
-    cf = make_factory(tmp_path)
-    media_rows = {}
-    post_rows = {}
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-            self.service_role_key = service_role_key
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            assert file_path.exists()
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            if table == "media":
-                media_id = f"media_{len(media_rows) + 1}"
-                media_rows[media_id] = {"id": media_id, **row}
-                return media_rows[media_id]
-            if table == "posts":
-                post_id = f"post_{len(post_rows) + 1}"
-                post_rows[post_id] = {"id": post_id, **row}
-                return post_rows[post_id]
-            raise AssertionError(table)
-
-        def select(self, table, params):
-            return []
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-        ensure_exportable_distribution_plan(cf)
-        result = export_threadsdash(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            dry_run=False,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-        )
-        job = cf.pipeline_job(result["pipelineJobId"])
-        serialized = json.dumps(job, sort_keys=True)
-        assert "service-role" not in serialized
-        assert job["status"] == "succeeded"
-        assert job["result"]["postIds"] == ["post_1"]
-        assert job["result"]["mediaIds"] == ["media_1"]
-        events = cf.events_for_campaign("may")
-        assert any(
-            event["eventType"] == "threadsdash_export_created" for event in events
-        )
     finally:
         cf.close()
 
@@ -21007,78 +20382,6 @@ def test_campaign_health_asset_detail_ranking_and_api(tmp_path: Path, monkeypatc
     )
     assert ready_response.status_code == 200
     assert ready_response.json()["ready"] is True
-
-
-def test_account_assignment_drives_draft_destinations_and_metadata(
-    tmp_path: Path, monkeypatch
-):
-    cf = make_factory(tmp_path)
-    inserted: list[tuple[str, dict]] = []
-    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
-
-    class FakeClient:
-        def __init__(self, url: str, service_role_key: str):
-            self.url = url
-
-        def upload_storage_object(self, bucket, storage_path, file_path, content_type):
-            pass
-
-        def insert_with_fallback(self, table, row, fallback_remove):
-            inserted.append((table, dict(row)))
-            return {"id": f"{table}_1", **row}
-
-        def select(self, table, params):
-            return []
-
-    monkeypatch.setattr(threadsdash_adapter, "SupabaseRestClient", FakeClient)
-    try:
-        add_rendered_asset(cf, tmp_path)
-        add_audit_report(cf)
-        cf.review_rendered_asset("asset_1", decision="approved")
-        assignment = cf.assign_asset_account(
-            "asset_1",
-            instagram_account_id="ig_acc_1",
-            planned_window_start="2026-05-15T10:00:00-04:00",
-            planned_window_end="2026-05-15T12:00:00-04:00",
-            notes="morning test",
-        )
-        assert assignment["instagram_account_id"] == "ig_acc_1"
-
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
-        draft = payload["drafts"][0]
-        assert draft["accountId"] is None
-        assert draft["instagramAccountId"] == "ig_acc_1"
-        assert draft["plannedWindowStart"] == "2026-05-15T10:00:00-04:00"
-        assert draft["plannedWindowEnd"] == "2026-05-15T12:00:00-04:00"
-        draft_metadata = draft["metadata"]["campaign_factory"]
-        assert draft_metadata["planned_window_start"] == "2026-05-15T10:00:00-04:00"
-        assert draft_metadata["planned_window_end"] == "2026-05-15T12:00:00-04:00"
-        assert draft_metadata["assignment_notes"] == "morning test"
-        cf.create_distribution_plan(
-            "asset_1",
-            instagram_account_id="ig_acc_1",
-            planned_window_start="2026-05-15T10:00:00-04:00",
-            planned_window_end="2026-05-15T12:00:00-04:00",
-            reason_code="morning test",
-        )
-
-        result = export_threadsdash(
-            cf,
-            campaign_slug="may",
-            user_id="user_1",
-            dry_run=False,
-            supabase_url="https://example.supabase.co",
-            supabase_service_role_key="service-role",
-        )
-        assert result["supabase"]["attempted"] is True
-        post_row = next(row for table, row in inserted if table == "posts")
-        assert post_row["instagram_account_id"] == "ig_acc_1"
-        metadata = post_row["metadata"]["campaign_factory"]
-        assert metadata["planned_window_start"] == "2026-05-15T10:00:00-04:00"
-        assert metadata["planned_window_end"] == "2026-05-15T12:00:00-04:00"
-        assert metadata["distribution_reason_code"] == "morning test"
-    finally:
-        cf.close()
 
 
 def test_instagram_distribution_plan_does_not_export_internal_account_id(
@@ -28160,3 +27463,88 @@ def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
 
     assert result["id"] == "media_1"
     assert upserted == [("media", "storage_path")]
+
+
+def test_campaign_factory_has_no_legacy_supabase_or_preview_write_surface(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cf = make_factory(tmp_path)
+    monkeypatch.setenv("CAMPAIGN_FACTORY_ENABLE_LEGACY_SUPABASE_WRITES", "1")
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        ensure_exportable_distribution_plan(cf)
+
+        for mode in ("preview", "live"):
+            with pytest.raises(ValueError, match="exports are draft-only"):
+                export_threadsdash(
+                    cf,
+                    campaign_slug="may",
+                    user_id="user_1",
+                    dry_run=False,
+                    schedule_mode=mode,
+                    supabase_url="https://example.supabase.co",
+                    supabase_service_role_key="service-role",
+                )
+
+        assert not hasattr(threadsdash_adapter, "_write_supabase")
+        assert not hasattr(threadsdash_adapter, "promote_preview_schedule")
+        assert not hasattr(threadsdash_adapter, "clear_preview_schedule")
+    finally:
+        cf.close()
+
+
+def test_content_graph_stays_local_until_threadsdash_draft_handoff(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+
+        node_types = {
+            row["entity_type"]
+            for row in cf.conn.execute(
+                "SELECT entity_type FROM content_graph_nodes"
+            ).fetchall()
+        }
+        assert {
+            "campaign",
+            "source_asset",
+            "rendered_asset",
+            "approval_decision",
+        } <= node_types
+        assert "threadsdash_post" not in node_types
+    finally:
+        cf.close()
+
+
+def test_account_assignment_is_preserved_in_draft_payload_without_direct_write(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.review_rendered_asset("asset_1", decision="approved")
+        assignment = cf.assign_asset_account(
+            "asset_1",
+            instagram_account_id="ig_acc_1",
+            planned_window_start="2026-05-15T10:00:00-04:00",
+            planned_window_end="2026-05-15T12:00:00-04:00",
+            notes="morning test",
+        )
+        assert assignment["instagram_account_id"] == "ig_acc_1"
+
+        draft = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")[
+            "drafts"
+        ][0]
+        metadata = draft["metadata"]["campaign_factory"]
+        assert draft["instagramAccountId"] == "ig_acc_1"
+        assert metadata["planned_window_start"] == "2026-05-15T10:00:00-04:00"
+        assert metadata["planned_window_end"] == "2026-05-15T12:00:00-04:00"
+        assert metadata["assignment_notes"] == "morning test"
+    finally:
+        cf.close()

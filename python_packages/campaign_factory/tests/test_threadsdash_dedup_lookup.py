@@ -1,18 +1,9 @@
-"""Failure-injection regression: dedup lookups must not swallow transient errors.
-
-Before the fix, _select_existing_campaign_factory_post and _select_post_by_id
-caught every RuntimeError from SupabaseRestClient and treated it as "no
-existing post". A provider 500 / timeout mid-export therefore made the caller
-insert a *duplicate* post, silently defeating the post_key dedup that makes
-export reruns safe. Only genuine schema mismatches (missing table/column on
-older dashboards) may fall through to the fallback lookup.
-"""
+"""Failure-injection regressions for read-only ThreadsDashboard post lookup."""
 
 from __future__ import annotations
 
 import pytest
 from campaign_factory.adapters.threadsdash import (
-    _select_existing_campaign_factory_post,
     _select_post_by_id,
 )
 
@@ -30,61 +21,6 @@ class _FakeClient:
         if isinstance(behavior, Exception):
             raise behavior
         return behavior or []
-
-
-def test_transient_link_lookup_failure_propagates():
-    client = _FakeClient(
-        {
-            "campaign_factory_post_links": RuntimeError(
-                "Supabase request failed: HTTP 500 internal error"
-            ),
-        }
-    )
-    with pytest.raises(RuntimeError, match="HTTP 500"):
-        _select_existing_campaign_factory_post(
-            client, user_id="user_1", post_key="key_1"
-        )
-    # Must not have fallen through to the posts metadata lookup.
-    assert client.calls == ["campaign_factory_post_links"]
-
-
-def test_transient_posts_metadata_lookup_failure_propagates():
-    client = _FakeClient(
-        {
-            "campaign_factory_post_links": [],
-            "posts": RuntimeError("Supabase request failed: HTTP 503 timeout"),
-        }
-    )
-    with pytest.raises(RuntimeError, match="HTTP 503"):
-        _select_existing_campaign_factory_post(
-            client, user_id="user_1", post_key="key_1"
-        )
-
-
-def test_missing_table_still_falls_back_to_metadata_lookup():
-    """Older dashboards without campaign_factory_post_links keep working."""
-    client = _FakeClient(
-        {
-            "campaign_factory_post_links": RuntimeError(
-                'relation "campaign_factory_post_links" does not exist'
-            ),
-            "posts": [
-                {
-                    "id": "post_9",
-                    "status": "draft",
-                    "platform": "instagram",
-                    "media_urls": [],
-                    "metadata": {"campaign_factory": {"post_key": "key_1"}},
-                }
-            ],
-        }
-    )
-    found = _select_existing_campaign_factory_post(
-        client, user_id="user_1", post_key="key_1"
-    )
-    assert found is not None
-    assert found["id"] == "post_9"
-    assert client.calls == ["campaign_factory_post_links", "posts"]
 
 
 def test_select_post_by_id_propagates_transient_failure():

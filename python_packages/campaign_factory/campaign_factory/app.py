@@ -14,12 +14,9 @@ from fastapi.responses import FileResponse
 
 from .adapters.contentforge import audit_campaign
 from .adapters.threadsdash import (
-    clear_preview_schedule,
     evaluate_export_readiness,
     export_threadsdash,
     preflight_supabase,
-    promote_preview_schedule,
-    safe_live_smoke_export,
     summarize_threadsdash_usage,
     sync_performance_snapshots,
     sync_threadsdash_account_assignments,
@@ -180,45 +177,6 @@ def plan_distribution(body: dict[str, Any] = Body(...)):
             mode=body.get("mode") or "preview",
             strategy=body.get("strategy") or "trial-heavy",
             replace=body.get("replace", True) is not False,
-        )
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
-@app.post("/api/promote-preview-schedule")
-def promote_preview(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return promote_preview_schedule(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            limit=int(body.get("limit") or 1000),
-        )
-    except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
-@app.post("/api/clear-preview-schedule")
-def clear_preview(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return clear_preview_schedule(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            limit=int(body.get("limit") or 1000),
-            reason=body.get("reason") or "audio_workflow_not_ready",
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1319,27 +1277,6 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             metadata={"error": str(exc)},
         )
         cf.fail_pipeline_job(pipeline_job["id"], str(exc))
-        raise HTTPException(400, str(exc)) from exc
-    finally:
-        cf.close()
-
-
-@app.post("/api/safe-live-smoke")
-def safe_live_smoke(body: dict[str, Any] = Body(...)):
-    cf = factory()
-    try:
-        return safe_live_smoke_export(
-            cf,
-            campaign_slug=body["campaign"],
-            user_id=body["userId"],
-            supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
-            supabase_service_role_key=body.get("supabaseServiceRoleKey")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-            supabase_storage_bucket=body.get("supabaseStorageBucket")
-            or os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
-            allow_warnings=bool(body.get("allowWarnings")),
-        )
-    except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
         cf.close()

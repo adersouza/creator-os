@@ -10,12 +10,9 @@ import uvicorn
 from .adapters.contentforge import audit_campaign, audit_review_batch_manifest
 from .adapters.threadsdash import (
     SupabaseRestClient,
-    clear_preview_schedule,
     evaluate_export_readiness,
     export_threadsdash,
     preflight_supabase,
-    promote_preview_schedule,
-    safe_live_smoke_export,
     summarize_threadsdash_usage,
     sync_performance_snapshots,
     sync_threadsdash_account_assignments,
@@ -517,20 +514,6 @@ def main() -> int:
         "--supabase-service-role-key",
         default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
     )
-
-    live_smoke = sub.add_parser("safe-live-smoke")
-    live_smoke.add_argument("--campaign", required=True)
-    live_smoke.add_argument("--user-id", required=True)
-    live_smoke.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    live_smoke.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-    )
-    live_smoke.add_argument(
-        "--supabase-storage-bucket",
-        default=os.environ.get("SUPABASE_STORAGE_BUCKET", "media"),
-    )
-    live_smoke.add_argument("--allow-warnings", action="store_true")
 
     usage = sub.add_parser("threadsdash-usage")
     usage.add_argument("--campaign", required=True)
@@ -1063,29 +1046,6 @@ def main() -> int:
     plan_dist.add_argument("--mode", choices=["preview", "live"], default="preview")
     plan_dist.add_argument("--strategy", choices=["trial-heavy"], default="trial-heavy")
     plan_dist.add_argument("--no-replace", action="store_true")
-
-    promote = sub.add_parser("promote-preview-schedule")
-    promote.add_argument("--campaign", required=True)
-    promote.add_argument("--user-id", required=True)
-    promote.add_argument("--supabase-url", default=os.environ.get("SUPABASE_URL"))
-    promote.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-    )
-    promote.add_argument("--limit", type=int, default=1000)
-
-    clear_schedule = sub.add_parser("clear-preview-schedule")
-    clear_schedule.add_argument("--campaign", required=True)
-    clear_schedule.add_argument("--user-id", required=True)
-    clear_schedule.add_argument(
-        "--supabase-url", default=os.environ.get("SUPABASE_URL")
-    )
-    clear_schedule.add_argument(
-        "--supabase-service-role-key",
-        default=os.environ.get("SUPABASE_SERVICE_ROLE_KEY"),
-    )
-    clear_schedule.add_argument("--limit", type=int, default=1000)
-    clear_schedule.add_argument("--reason", default="audio_workflow_not_ready")
 
     account_plan = sub.add_parser("account-plan")
     account_plan.add_argument("--campaign", required=True)
@@ -2889,18 +2849,6 @@ def main() -> int:
                 )
                 cf.fail_pipeline_job(pipeline_job["id"], str(exc))
                 raise
-        elif args.cmd == "safe-live-smoke":
-            print_json(
-                safe_live_smoke_export(
-                    cf,
-                    campaign_slug=args.campaign,
-                    user_id=args.user_id,
-                    supabase_url=args.supabase_url,
-                    supabase_service_role_key=args.supabase_service_role_key,
-                    supabase_storage_bucket=args.supabase_storage_bucket,
-                    allow_warnings=args.allow_warnings,
-                )
-            )
         elif args.cmd == "threadsdash-usage":
             print_json(
                 summarize_threadsdash_usage(
@@ -3831,29 +3779,6 @@ def main() -> int:
                     mode=args.mode,
                     strategy=args.strategy,
                     replace=not args.no_replace,
-                )
-            )
-        elif args.cmd == "promote-preview-schedule":
-            print_json(
-                promote_preview_schedule(
-                    cf,
-                    campaign_slug=args.campaign,
-                    user_id=args.user_id,
-                    supabase_url=args.supabase_url,
-                    supabase_service_role_key=args.supabase_service_role_key,
-                    limit=args.limit,
-                )
-            )
-        elif args.cmd == "clear-preview-schedule":
-            print_json(
-                clear_preview_schedule(
-                    cf,
-                    campaign_slug=args.campaign,
-                    user_id=args.user_id,
-                    supabase_url=args.supabase_url,
-                    supabase_service_role_key=args.supabase_service_role_key,
-                    limit=args.limit,
-                    reason=args.reason,
                 )
             )
         elif args.cmd == "account-plan":
