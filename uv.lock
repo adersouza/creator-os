@@ -3082,7 +3082,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },
     { name = "pydantic" },
-    { name = "reel-factory" },
     { name = "uvicorn" },
 ]
 
@@ -3109,7 +3108,6 @@ requires-dist = [
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
-    { name = "reel-factory", editable = "python_packages/reel_factory" },
     { name = "timm", marker = "extra == 'embeddings'", specifier = ">=1,<2" },
     { name = "torch", marker = "extra == 'embeddings'", specifier = ">=2,<3" },
     { name = "torchvision", marker = "extra == 'embeddings'", specifier = ">=0.18,<1" },

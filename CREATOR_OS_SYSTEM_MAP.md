@@ -20,7 +20,7 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 | Component | Responsibility | Canonical source | Depends on | Primary state |
 |---|---|---|---|---|
-| Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts, Creator OS Core; selected Reel cost guards | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
+| Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts and Creator OS Core | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
 | Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, manifests, queue, caption banks, lineage sidecars |
 | Campaign Factory | creative plans, inventory, assignment, readiness, spend gates, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
 | ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |

@@ -48,7 +48,6 @@ from .patterns import (
     pattern_summary,
 )
 from .proof_verifier import verify_proof_bundle
-from .provider_doctor import provider_doctor
 from .public_metrics import (
     backfill_follower_metrics,
     export_learning_set,
@@ -404,26 +403,6 @@ def build_parser() -> argparse.ArgumentParser:
     audio_snapshot_list.add_argument("--platform")
     audio_snapshot_list.add_argument("--audio-catalog-id")
     audio_snapshot_list.add_argument("--limit", type=int, default=100)
-
-    doctor = sub.add_parser(
-        "provider-doctor",
-        help="Check local provider readiness without printing secrets",
-    )
-    doctor.add_argument(
-        "--require-gemini",
-        action="store_true",
-        help="Treat missing Gemini API key as blocked",
-    )
-    doctor.add_argument(
-        "--skip-xai-check",
-        action="store_true",
-        help="Skip xAI API reachability/billing check",
-    )
-    doctor.add_argument(
-        "--skip-higgsfield-auth",
-        action="store_true",
-        help="Skip Higgsfield auth and Soul ID checks",
-    )
 
     pattern_summary_parser = sub.add_parser(
         "pattern-summary", help="Summarize analyzed reference patterns"
@@ -948,14 +927,6 @@ def main(argv: list[str] | None = None) -> int:
                     platform=args.platform,
                     audio_catalog_id=args.audio_catalog_id,
                     limit=args.limit,
-                )
-            )
-        elif args.command == "provider-doctor":
-            print_json(
-                provider_doctor(
-                    require_gemini=args.require_gemini,
-                    check_xai=not args.skip_xai_check,
-                    check_higgsfield_auth=not args.skip_higgsfield_auth,
                 )
             )
         elif args.command == "pattern-summary":
