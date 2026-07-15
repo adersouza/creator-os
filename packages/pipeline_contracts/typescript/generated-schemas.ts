@@ -4471,6 +4471,72 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	threadsdashHandshake: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json",
+	  "title": "Campaign Factory ThreadsDashboard Read-Only Handshake v1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "traceId",
+	    "contracts",
+	    "capabilities"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.threadsdash_handshake.v1"
+	    },
+	    "traceId": {
+	      "type": "string",
+	      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+	    },
+	    "contracts": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "draftPayload",
+	        "generatedAssetLineage",
+	        "audioIntent",
+	        "performanceMetrics"
+	      ],
+	      "properties": {
+	        "draftPayload": {
+	          "const": "campaign_factory.threadsdash_drafts.v2"
+	        },
+	        "generatedAssetLineage": {
+	          "const": "reel_factory.generated_asset_lineage.v2"
+	        },
+	        "audioIntent": {
+	          "const": "pipeline.audio_intent.v1"
+	        },
+	        "performanceMetrics": {
+	          "const": "threadsdashboard.post_metric_history.read.v1"
+	        }
+	      }
+	    },
+	    "capabilities": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "draftOnly",
+	        "schedulingAllowed",
+	        "publishingAllowed"
+	      ],
+	      "properties": {
+	        "draftOnly": {
+	          "const": true
+	        },
+	        "schedulingAllowed": {
+	          "const": false
+	        },
+	        "publishingAllowed": {
+	          "const": false
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	variantAssignment: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.variant_assignment.v1",
@@ -4665,6 +4731,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
+	{ key: "threadsdashHandshake", filename: "threadsdash_handshake.v1.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json" },
 	{ key: "variantAssignment", filename: "variant_assignment.v1.schema.json", id: "campaign_factory.variant_assignment.v1" },
 	{ key: "videoAnalysis", filename: "video_analysis.v1.schema.json", id: "reference_factory.video_analysis.v1" },
 ] as const;
