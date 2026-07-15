@@ -82,7 +82,7 @@ def build_draft_payloads(
 ) -> dict[str, Any]:
     if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
         raise ValueError("review-only handoff requires schedule_mode='draft'")
-    manifest = factory.export_manifest(
+    manifest = factory.domains.export_summary.export_manifest(
         campaign_slug=campaign_slug, review_only=review_only
     )
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
@@ -97,7 +97,9 @@ def build_draft_payloads(
     distribution_plans_by_asset: dict[str, list[dict[str, Any]]] = {}
     require_distribution_plan = False
     if normalized_schedule_mode in {"preview", "live"}:
-        distribution_plans = factory.distribution_plans_for_campaign(campaign_slug)
+        distribution_plans = (
+            factory.domains.distribution.distribution_plans_for_campaign(campaign_slug)
+        )
         require_distribution_plan = bool(distribution_plans)
         for plan in distribution_plans:
             distribution_plans_by_asset.setdefault(plan["renderedAssetId"], []).append(
@@ -180,7 +182,7 @@ def build_draft_payloads(
                 )
             )
             learning_cohort = _learning_cohort_metadata(asset)
-            publishability = factory.explain_publishability(
+            publishability = factory.domains.publishability.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
             )
@@ -321,7 +323,7 @@ def build_draft_payloads(
                 "distributionReasonCode": destination.get("reasonCode"),
                 "smartLink": destination.get("smartLink"),
                 "ctaText": destination.get("ctaText"),
-                "accountProfile": factory.model_account_profile(
+                "accountProfile": factory.domains.models.model_account_profile(
                     asset.get("modelId") or ""
                 ),
                 "recipe": asset.get("recipe"),
@@ -506,7 +508,9 @@ def _draft_destinations_for_asset(
     plans = (
         plans
         if plans is not None
-        else factory.distribution_plans_for_asset(asset["renderedAssetId"])
+        else factory.domains.distribution.distribution_plans_for_asset(
+            asset["renderedAssetId"]
+        )
     )
     asset_content_surface = normalize_content_surface(
         asset.get("contentSurface") or asset.get("content_surface")
@@ -538,7 +542,9 @@ def _draft_destinations_for_asset(
         ]
     if require_distribution_plan:
         return []
-    assignments = factory.assignments_for_asset(asset["renderedAssetId"])
+    assignments = factory.domains.campaign_overview.assignments_for_asset(
+        asset["renderedAssetId"]
+    )
     if assignments:
         return [
             {
@@ -594,7 +600,7 @@ def _audio_recommendations_for_destination(
         reference_pattern.get("captionArchetype"),
         asset.get("recipe"),
     ]
-    recommendations = factory.recommend_audio(
+    recommendations = factory.domains.audio_recommendations.recommend_audio(
         platform="instagram",
         content_tags=[str(tag) for tag in content_tags if tag],
         account_tags=[str(account)],

@@ -75,8 +75,8 @@ def sync_performance_snapshots(
         raise ValueError(
             "supabase_url and supabase_service_role_key are required for performance sync"
         )
-    campaign = factory.campaign_by_slug(campaign_slug)
-    pipeline_job = factory.create_pipeline_job(
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "sync_performance",
         campaign["id"],
         {
@@ -87,7 +87,7 @@ def sync_performance_snapshots(
             "limit": limit,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         client = _threadsdash_client.SupabaseRestClient(
             supabase_url.rstrip("/"), supabase_service_role_key
@@ -379,7 +379,7 @@ def sync_performance_snapshots(
                     snapshot["id"] = existing["id"]
                 else:
                     inserted += 1
-                post_graph_id = factory.ensure_graph_node(
+                post_graph_id = factory.domains.graph.ensure_graph_node(
                     "threadsdash_post",
                     external_system="threadsdash.posts",
                     external_id=snapshot["post_id"],
@@ -409,7 +409,7 @@ def sync_performance_snapshots(
                         "missingGraphIds": required_missing,
                     }
                     warnings.append(warning)
-                    factory.create_exception(
+                    factory.domains.exceptions.create_exception(
                         reason_code="performance_sync_missing_graph_ids",
                         severity="medium",
                         campaign_id=campaign["id"],
@@ -418,13 +418,13 @@ def sync_performance_snapshots(
                         commit=False,
                     )
                 if not rendered_graph_id and snapshot["rendered_asset_id"]:
-                    rendered_graph_id = factory.graph_id_for(
+                    rendered_graph_id = factory.domains.graph.graph_id_for(
                         "rendered_assets",
                         snapshot["rendered_asset_id"],
                         entity_type="rendered_asset",
                     )
                 before_edges = factory.conn.total_changes
-                factory.ensure_graph_edge_strict(
+                factory.domains.ensure_graph_edge_strict(
                     rendered_graph_id,
                     post_graph_id,
                     "rendered_asset_to_threadsdash_post",
@@ -432,7 +432,7 @@ def sync_performance_snapshots(
                     campaign_id=campaign["id"],
                     source_operation="threadsdash_performance_sync",
                 )
-                performance_graph_id = factory.ensure_graph_node(
+                performance_graph_id = factory.domains.graph.ensure_graph_node(
                     "performance_snapshot",
                     local_table="performance_snapshots",
                     local_id=snapshot["id"],
@@ -446,7 +446,7 @@ def sync_performance_snapshots(
                         "saves": snapshot["saves"],
                     },
                 )
-                factory.ensure_graph_edge_strict(
+                factory.domains.ensure_graph_edge_strict(
                     post_graph_id,
                     performance_graph_id,
                     "threadsdash_post_to_performance_snapshot",
@@ -454,7 +454,7 @@ def sync_performance_snapshots(
                     campaign_id=campaign["id"],
                     source_operation="threadsdash_performance_sync",
                 )
-                recommendation_graph_id = factory.ensure_graph_node(
+                recommendation_graph_id = factory.domains.graph.ensure_graph_node(
                     "recommendation_input",
                     external_system="campaign_factory.recommendation_input",
                     external_id=snapshot["id"],
@@ -463,7 +463,7 @@ def sync_performance_snapshots(
                         "campaignId": campaign["id"],
                     },
                 )
-                factory.ensure_graph_edge_strict(
+                factory.domains.ensure_graph_edge_strict(
                     performance_graph_id,
                     recommendation_graph_id,
                     "performance_snapshot_to_recommendation_input",
@@ -471,8 +471,10 @@ def sync_performance_snapshots(
                     campaign_id=campaign["id"],
                     source_operation="threadsdash_performance_sync",
                 )
-                audio_rollup = factory.record_audio_performance_snapshot(
-                    snapshot, commit=False
+                audio_rollup = (
+                    factory.domains.audio_operations.record_audio_performance_snapshot(
+                        snapshot, commit=False
+                    )
                 )
                 if audio_rollup:
                     performance_payload = (
@@ -501,25 +503,25 @@ def sync_performance_snapshots(
                         else {}
                     )
                     if isinstance(selection, dict) and selection:
-                        audio_selection_graph_id = factory.ensure_graph_node(
+                        audio_selection_graph_id = factory.domains.graph.ensure_graph_node(
                             "audio_selection",
                             external_system="threadsdash.audio_selection",
                             external_id=f"{snapshot['post_id']}:{audio_rollup['audioKey']}",
                             payload={"postId": snapshot["post_id"], "audio": selection},
                         )
-                        factory.ensure_graph_edge(
+                        factory.domains.graph.ensure_graph_edge(
                             audio_selection_graph_id,
                             post_graph_id,
                             "audio_selection_to_threadsdash_post",
                         )
-                        factory.ensure_graph_edge(
+                        factory.domains.graph.ensure_graph_edge(
                             audio_selection_graph_id,
                             performance_graph_id,
                             "audio_selection_to_performance_snapshot",
                         )
                 if existing and factory.conn.total_changes > before_edges:
                     backfilled_edges += 1
-        factory.set_graph_sync_state(
+        factory.domains.graph.set_sync_state(
             "threadsdash.performance",
             {
                 "campaign": campaign_slug,
@@ -552,7 +554,9 @@ def sync_performance_snapshots(
             if campaign_slug == COHORT_ID
             else None
         )
-        summary = factory.performance_summary(campaign_slug)
+        summary = factory.domains.performance_summary_repo.performance_summary(
+            campaign_slug
+        )
         learning_readiness = closed_loop_learning_status(
             factory.conn, campaign_slug=campaign_slug
         )
@@ -587,7 +591,7 @@ def sync_performance_snapshots(
             "pipelineTraceId": f"trace_performance_sync_{pipeline_job['id']}",
         }
         validate_performance_sync(result)
-        factory.record_event(
+        factory.domains.events.record_event(
             "performance_synced",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -614,7 +618,7 @@ def sync_performance_snapshots(
                 "warnings": warnings,
             },
         )
-        factory.finish_pipeline_job(
+        factory.domains.events.finish_pipeline_job(
             pipeline_job["id"],
             {
                 "postsScanned": len(rows),
@@ -637,7 +641,7 @@ def sync_performance_snapshots(
         )
         return result
     except Exception as exc:
-        factory.record_event(
+        factory.domains.events.record_event(
             "performance_synced",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -645,7 +649,7 @@ def sync_performance_snapshots(
             message=f"Performance sync failed: {exc}",
             metadata={"error": str(exc)},
         )
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -732,7 +736,7 @@ def _dead_letter_performance_sync_row(
     severity: str,
 ) -> None:
     post_id = str(row.get("id") or new_id("threadsdash_post"))
-    post_graph_id = factory.ensure_graph_node(
+    post_graph_id = factory.domains.graph.ensure_graph_node(
         "threadsdash_post",
         external_system="threadsdash.posts",
         external_id=post_id,
@@ -745,7 +749,7 @@ def _dead_letter_performance_sync_row(
         },
     )
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    factory.create_exception(
+    factory.domains.exceptions.create_exception(
         reason_code=reason_code,
         severity=severity,
         campaign_id=campaign_id,
@@ -1172,11 +1176,13 @@ def _metrics_eligibility_for_threadsdash_row(
         blockers.append("missing_rendered_asset_id")
     else:
         try:
-            asset = factory.rendered_asset(str(rendered_asset_id))
+            asset = factory.domains.rendered_asset(str(rendered_asset_id))
         except ValueError:
             asset = None
             blockers.append("rendered_asset_not_found")
-        if factory._active_quarantine_for_asset(str(rendered_asset_id)):
+        if factory.domains.publishability.active_quarantine_for_asset(
+            str(rendered_asset_id)
+        ):
             blockers.append("quarantined_asset")
         if asset:
             local_content_hash = asset.get("content_hash")

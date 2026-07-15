@@ -257,8 +257,8 @@ def sync_threadsdash_account_assignments(
         raise ValueError(
             "supabase_url and supabase_service_role_key are required for assignment sync"
         )
-    campaign = factory.campaign_by_slug(campaign_slug)
-    pipeline_job = factory.create_pipeline_job(
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "sync_threadsdash_assignments",
         campaign["id"],
         {
@@ -269,7 +269,7 @@ def sync_threadsdash_account_assignments(
             "limit": limit,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         client = _threadsdash_client.SupabaseRestClient(
             supabase_url.rstrip("/"), supabase_service_role_key
@@ -294,7 +294,7 @@ def sync_threadsdash_account_assignments(
                 skipped += 1
                 continue
             try:
-                asset = factory.rendered_asset(rendered_asset_id)
+                asset = factory.domains.rendered_asset(rendered_asset_id)
             except Exception:
                 skipped += 1
                 continue
@@ -317,7 +317,7 @@ def sync_threadsdash_account_assignments(
             ):
                 skipped += 1
                 continue
-            factory.assign_asset_account(
+            factory.domains.campaign_overview.assign_asset_account(
                 rendered_asset_id,
                 account_id=local_account_id,
                 instagram_account_id=instagram_account_id,
@@ -338,7 +338,7 @@ def sync_threadsdash_account_assignments(
             "skipped": skipped,
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.record_event(
+        factory.domains.events.record_event(
             "threadsdash_assignments_synced",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -351,10 +351,10 @@ def sync_threadsdash_account_assignments(
                 "skipped": skipped,
             },
         )
-        factory.finish_pipeline_job(pipeline_job["id"], result)
+        factory.domains.events.finish_pipeline_job(pipeline_job["id"], result)
         return result
     except Exception as exc:
-        factory.record_event(
+        factory.domains.events.record_event(
             "threadsdash_assignments_synced",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -362,7 +362,7 @@ def sync_threadsdash_account_assignments(
             message=f"ThreadsDash assignment sync failed: {exc}",
             metadata={"error": str(exc)},
         )
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
@@ -381,7 +381,7 @@ def sync_threadsdash_instagram_accounts(
             "supabase_url and supabase_service_role_key are required for account sync"
         )
     creator_slug = _sync_slug(creator)
-    model = factory.upsert_model(creator_slug, creator)
+    model = factory.domains.models.upsert_model(creator_slug, creator)
     matcher = (match or creator or "").strip().lower()
     client = _threadsdash_client.SupabaseRestClient(
         supabase_url.rstrip("/"), supabase_service_role_key
@@ -436,7 +436,7 @@ def sync_threadsdash_instagram_accounts(
             "SELECT id FROM accounts WHERE handle = ? AND platform = 'instagram'",
             (username,),
         ).fetchone()
-        account = factory.upsert_account(
+        account = factory.domains.models.upsert_account(
             username,
             platform="instagram",
             external_id=str(row.get("id") or ""),

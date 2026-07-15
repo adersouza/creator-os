@@ -172,10 +172,10 @@ def evaluate_export_readiness(
     publish_mode: str | None = None,
     review_only: bool = False,
 ) -> dict[str, Any]:
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "export_readiness",
         campaign["id"],
         {
@@ -192,9 +192,9 @@ def evaluate_export_readiness(
             "reviewOnly": review_only,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
-        dashboard = factory.dashboard(campaign_slug)
+        dashboard = factory.domains.campaign_overview.dashboard(campaign_slug)
         payload = _draft_payload.build_draft_payloads(
             factory,
             campaign_slug=campaign_slug,
@@ -300,7 +300,7 @@ def evaluate_export_readiness(
                         "campaign_audio_unresolved: select audio before ThreadsDashboard export"
                     )
                 compatible, mismatch_reason, _profile = (
-                    factory.account_compatible_with_model(
+                    factory.domains.models.account_compatible_with_model(
                         asset.get("model_slug")
                         or asset.get("modelId")
                         or draft.get("modelId")
@@ -404,7 +404,7 @@ def evaluate_export_readiness(
             "assets": sorted(rows, key=lambda row: row["operatorScore"], reverse=True),
             "pipelineJobId": pipeline_job["id"],
         }
-        factory.record_event(
+        factory.domains.events.record_event(
             "export_readiness_checked",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -418,7 +418,7 @@ def evaluate_export_readiness(
                 "usageChecked": result["usageChecked"],
             },
         )
-        factory.finish_pipeline_job(
+        factory.domains.events.finish_pipeline_job(
             pipeline_job["id"],
             {
                 "expectedDraftCount": result["expectedDraftCount"],
@@ -430,7 +430,7 @@ def evaluate_export_readiness(
         )
         return result
     except Exception as exc:
-        factory.record_event(
+        factory.domains.events.record_event(
             "export_readiness_checked",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -438,7 +438,7 @@ def evaluate_export_readiness(
             message=f"Export readiness failed: {exc}",
             metadata={"error": str(exc)},
         )
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 

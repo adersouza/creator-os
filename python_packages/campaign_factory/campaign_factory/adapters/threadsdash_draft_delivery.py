@@ -315,10 +315,10 @@ def export_threadsdash(
         raise ValueError("review-only handoff requires schedule_mode='draft'")
     if not dry_run:
         require_global_write_allowed("ThreadsDashboard draft export")
-    campaign = factory.campaign_by_slug(campaign_slug)
+    campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
-    pipeline_job = factory.create_pipeline_job(
+    pipeline_job = factory.domains.events.create_pipeline_job(
         "threadsdash_export",
         campaign["id"],
         {
@@ -346,9 +346,9 @@ def export_threadsdash(
             "reviewOnly": review_only,
         },
     )
-    factory.start_pipeline_job(pipeline_job["id"])
-    model_slug = factory._model_slug_for_campaign(campaign["id"])
-    dirs = factory.campaign_dirs(model_slug, campaign["slug"])
+    factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     try:
         export_id = new_id("tdexp")
         variation_result = None
@@ -517,7 +517,7 @@ def export_threadsdash(
             (result.get("dashboardIngest") or {}).get("postIds") or []
         )
         post_ids = supabase_post_ids or dashboard_post_ids
-        factory.record_event(
+        factory.domains.events.record_event(
             "threadsdash_export_created",
             campaign_id=campaign["id"],
             threadsdash_export_id=export_id,
@@ -541,7 +541,7 @@ def export_threadsdash(
             commit=False,
         )
         factory.conn.commit()
-        factory.finish_pipeline_job(
+        factory.domains.events.finish_pipeline_job(
             pipeline_job["id"],
             {
                 "manifestPath": str(out_path),
@@ -586,7 +586,7 @@ def export_threadsdash(
                 utc_now(),
             ),
         )
-        factory.record_event(
+        factory.domains.events.record_event(
             "threadsdash_export_created",
             campaign_id=campaign["id"],
             pipeline_job_id=pipeline_job["id"],
@@ -594,7 +594,7 @@ def export_threadsdash(
             message=f"ThreadsDash export failed: {exc}",
             metadata={"error": str(exc), "dryRun": dry_run},
         )
-        factory.fail_pipeline_job(pipeline_job["id"], str(exc))
+        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
 
 
