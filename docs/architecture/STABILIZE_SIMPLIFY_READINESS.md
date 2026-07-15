@@ -40,7 +40,7 @@ the sole approval, scheduling, publishing, and Instagram account authority.
 | Surface | Current status | Evidence required for PASS |
 |---|---|---|
 | Source | PASS locally | clean tree; `make verify` passed: ContentForge 129, contracts 24 TS + 54 Python, Core 16, Campaign 687, Reference 111, Reel 435, integration 63, offline prompt regressions 3/3; architecture, artifacts, and secret scan passed |
-| CI | NOT_RUN | required GitHub checks on the pushed branch/PR |
+| CI | PASS on PR #440 / merge `3cc2e45a` | Python, JavaScript, architecture, contracts, hygiene, changes, and secret scan passed; CodeQL, Trivy, and SBOM were path-filtered skips rather than failures |
 | Runtime | FAIL on the pre-cutover status check | runtime is still at `2d605a3b`, does not match the reviewed source, and contains untracked runtime artifacts; require a clean exact-SHA runtime and verified LaunchAgent paths |
 | Canonical state | NOT_RUN | applied migration manifest, verified restore, switched private env, and one complete operating cycle |
 | ThreadsDashboard seam | NOT_RUN live | source endpoint is merged in ThreadsDashboard, but the local handshake URL/secret are not configured; require a deployed valid request with zero product writes plus invalid/stale/replay rejection |
