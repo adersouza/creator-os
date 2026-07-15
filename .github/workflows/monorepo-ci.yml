@@ -42,7 +42,6 @@ jobs:
               - 'packages/pipeline_contracts/**'
               - 'scripts/**/*.py'
               - 'scripts/**/*.sh'
-              - 'scripts/run/**'
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'

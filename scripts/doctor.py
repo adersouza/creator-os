@@ -26,7 +26,6 @@ BUSINESS_FIXTURE = ROOT / "tests/fixtures/doctor/creator_os_business_audit_fixtu
 
 CURRENT_DOC_ROOTS = (
     ROOT / "README.md",
-    ROOT / "ARCHITECTURE.md",
     ROOT / "CREATOR_OS_SYSTEM_MAP.md",
     ROOT / "PIPELINE_STATE.md",
     ROOT / "AGENTS.md",
@@ -933,7 +932,7 @@ def documentation_audit(_fixture: dict[str, Any], _quick: bool) -> Result:
         failures=failures,
         reason_ok="current docs match ContentForge safety wording and current pipeline state; archive docs excluded",
         affected=[str(path.relative_to(ROOT)) for path in current_doc_files()],
-        evidence="README.md, ARCHITECTURE.md, CREATOR_OS_SYSTEM_MAP.md, PIPELINE_STATE.md, AGENTS.md, docs/ excluding archive",
+        evidence="README.md, CREATOR_OS_SYSTEM_MAP.md, PIPELINE_STATE.md, AGENTS.md, docs/ excluding archive",
         next_action="Fix stale current-doc wording; leave clearly archived docs alone.",
     )
 
@@ -1878,7 +1877,7 @@ def release_hygiene_audit(fixture: dict[str, Any], _quick: bool) -> Result:
         if warnings
         else "working tree and local release branch hygiene are clean",
         "git status --short --branch && git for-each-ref --format=%(refname:short) refs/heads",
-        evidence="docs/audits/creator_os_release_hygiene_checklist.md",
+        evidence="CREATOR_OS_SYSTEM_MAP.md and docs/architecture/tooling_hardening.md",
         affected=warnings,
         next_action="Resolve dirty tree and branch cleanup before tagging/merging."
         if warnings

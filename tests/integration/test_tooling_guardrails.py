@@ -19,14 +19,18 @@ def _action_major(uses: str, action: str) -> int | None:
     return int(version) if version.isdigit() else None
 
 
-def _assert_action_major_allowed(steps: list[dict], action: str, allowed: set[int]) -> None:
+def _assert_action_major_allowed(
+    steps: list[dict], action: str, allowed: set[int]
+) -> None:
     majors = [
         major
         for step in steps
         if (major := _action_major(step.get("uses", ""), action)) is not None
     ]
     assert majors, f"{action} must be present"
-    assert set(majors).issubset(allowed), f"{action} majors {majors} must be in {sorted(allowed)}"
+    assert set(majors).issubset(allowed), (
+        f"{action} majors {majors} must be in {sorted(allowed)}"
+    )
 
 
 def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
@@ -43,7 +47,10 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     assert "--output trivy-results.sarif" in trivy_step["with"]["args"]
     assert "--exit-code 1" in trivy_step["with"]["args"]
     assert "--skip-dirs apps/dashboard" not in trivy_step["with"]["args"]
-    assert any(step.get("uses") == "github/codeql-action/upload-sarif@v4" for step in trivy_steps)
+    assert any(
+        step.get("uses") == "github/codeql-action/upload-sarif@v4"
+        for step in trivy_steps
+    )
     assert any(
         step.get("name") == "Gate Trivy HIGH/CRITICAL findings"
         and "exit 1" in step.get("run", "")
@@ -89,11 +96,13 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     assert "-t js" in sbom_runs
     assert "uv export" in sbom_runs
     assert "--all-extras" not in sbom_runs
-    _assert_action_major_allowed(jobs["sbom"]["steps"], "actions/upload-artifact", {4, 7})
+    _assert_action_major_allowed(
+        jobs["sbom"]["steps"], "actions/upload-artifact", {4, 7}
+    )
     assert jobs["sbom"]["permissions"]["attestations"] == "write"
     assert jobs["sbom"]["permissions"]["id-token"] == "write"
     assert any(
-            step.get("uses") == "actions/attest-build-provenance@v4.1.1"
+        step.get("uses") == "actions/attest-build-provenance@v4.1.1"
         for step in jobs["sbom"]["steps"]
     )
 
@@ -113,7 +122,6 @@ def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> No
     assert "- 'packages/pipeline_contracts/**'" in py_filters
     assert "- 'scripts/**/*.py'" in py_filters
     assert "- 'scripts/**/*.sh'" in py_filters
-    assert "- 'scripts/run/**'" in py_filters
 
 
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
@@ -134,7 +142,9 @@ def test_scorecard_workflow_is_report_mode() -> None:
     scorecard_steps = jobs["scorecard"]["steps"]
 
     scorecard_step = next(
-        step for step in scorecard_steps if step.get("uses") == "ossf/scorecard-action@v2.4.3"
+        step
+        for step in scorecard_steps
+        if step.get("uses") == "ossf/scorecard-action@v2.4.3"
     )
     assert scorecard_step["continue-on-error"] is True
     assert scorecard_step["with"]["results_format"] == "sarif"
@@ -144,7 +154,9 @@ def test_scorecard_workflow_is_report_mode() -> None:
         for step in scorecard_steps
         if step.get("name") == "Upload Scorecard report artifact"
     ]
-    _assert_action_major_allowed(scorecard_artifact_steps, "actions/upload-artifact", {4, 7})
+    _assert_action_major_allowed(
+        scorecard_artifact_steps, "actions/upload-artifact", {4, 7}
+    )
     sarif_upload = next(
         step
         for step in scorecard_steps
@@ -199,12 +211,16 @@ def test_secret_scan_and_ignore_defaults_cover_local_secret_files() -> None:
 def test_architecture_guard_configs_are_narrow_and_present() -> None:
     depcruise = (ROOT / ".dependency-cruiser.cjs").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    python_checker = (ROOT / "scripts/check-python-architecture-boundaries.py").read_text(encoding="utf-8")
+    python_checker = (
+        ROOT / "scripts/check-python-architecture-boundaries.py"
+    ).read_text(encoding="utf-8")
 
     assert "pipeline-contracts-remain-foundational" in depcruise
     assert "tribe-research-not-operational-gate" in depcruise
     assert "pipeline_contracts remains foundational" in pyproject
-    assert "campaign_factory core does not import reference_factory directly" in pyproject
+    assert (
+        "campaign_factory core does not import reference_factory directly" in pyproject
+    )
     assert "BOUNDARIES" in python_checker
 
 
@@ -228,16 +244,19 @@ def test_governance_docs_cover_runtime_promotion_and_runbooks() -> None:
     promotion = (ROOT / "docs/architecture/monorepo_deployment_promotion.md").read_text(
         encoding="utf-8"
     )
-    media_provenance = (ROOT / "docs/architecture/media_provenance_contract.md").read_text(
-        encoding="utf-8"
-    )
+    media_provenance = (
+        ROOT / "docs/architecture/media_provenance_contract.md"
+    ).read_text(encoding="utf-8")
     runbooks = (ROOT / "docs/runbooks/operator_failure_runbooks.md").read_text(
         encoding="utf-8"
     )
 
     assert "Production Promotion Checklist" in promotion
-    assert "Dashboard production deployment must stay on the external ThreadsDashboard" in promotion
-    assert "schema\": \"creator_os.media_provenance.v1" in media_provenance
+    assert (
+        "Dashboard production deployment must stay on the external ThreadsDashboard"
+        in promotion
+    )
+    assert 'schema": "creator_os.media_provenance.v1' in media_provenance
     assert "Do not use provenance alone as a publishability" in media_provenance
     for heading in [
         "Publish Preflight Failure",

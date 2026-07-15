@@ -3013,10 +3013,10 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_active_docs_describe_direct_reference_not_grok_grid_production(self):
         docs = [
-            REEL_ROOT / "CURRENT_PRODUCTION_FLOW.md",
+            REEL_ROOT / "README.md",
             REEL_ROOT / "PIPELINE_BOUNDARIES.md",
             REEL_ROOT / "AGENTS.md",
-            REEL_ROOT / "docs/next_chat_reel_factory_handoff.md",
+            REEL_ROOT.parents[1] / "CREATOR_OS_SYSTEM_MAP.md",
         ]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in docs).lower()
         self.assertIn("direct reference-image", combined)

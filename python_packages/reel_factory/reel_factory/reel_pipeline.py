@@ -6,9 +6,9 @@ Audio is intentionally stripped (-an) — attach trending sounds in-app or via
 your downstream Juno33 muxer. The orchestrator outputs silent, captioned MP4s.
 
 Usage:
-    python reel_pipeline.py --root .
-    python reel_pipeline.py --root . --recipes v01_original v05_hflip
-    python reel_pipeline.py --root . --dry-run
+    python -m reel_factory.reel_pipeline --root .
+    python -m reel_factory.reel_pipeline --root . --recipes v01_original v05_hflip
+    python -m reel_factory.reel_pipeline --root . --dry-run
 """
 
 from __future__ import annotations
@@ -30,26 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# Script-mode bootstrap: when run as `python reel_pipeline.py ...`, only this
-# directory is on sys.path. Sibling modules that do `from reel_factory.x
-# import ...` need the package parent dir importable too.
-if __package__ in (None, ""):
-    _pkg_parent = str(Path(__file__).resolve().parent.parent)
-    if _pkg_parent not in sys.path:
-        # Append (not prepend) so sibling modules in this directory keep
-        # priority over same-named compat shims in the parent directory.
-        sys.path.append(_pkg_parent)
-    # pipeline_contracts lives in the workspace package dir; when running
-    # outside the uv venv it must be added explicitly. (The root-level
-    # ./pipeline_contracts is a stale partial copy — do not use it.)
-    _contracts_parent = str(
-        Path(__file__).resolve().parents[3] / "packages" / "pipeline_contracts"
-    )
-    if _contracts_parent not in sys.path:
-        sys.path.append(_contracts_parent)
-
 from pipeline_contracts import validate_generated_asset_lineage
-from reel_factory.perceptual import enrich_lineage_identity, load_json
 
 from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from .campaign_store import link_campaign_output
@@ -69,11 +50,13 @@ from .caption_scene_fit import (
     topic_caption_banks,
 )
 from .discoverability_safety import discoverability_safe_content_contract
+from .fileops import atomic_write_text
 from .graph_builder import ENCODER_PROFILES, caption_overlay_enable, target_dimensions
 from .graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd
 from .graph_builder import build_video_filter as build_graph_video_filter
 from .identity_verification import get_identity_provider
 from .media_metadata import normalize_media_metadata
+from .perceptual import enrich_lineage_identity, load_json
 from .placement import (
     CaptionSegmentPlan,
     PlacementSummary,
@@ -91,11 +74,6 @@ from .project_config import load_config
 from .recipe_loader import load_recipes
 from .render_plan import RenderPlan, validate_account_scope
 from .variation_engine import get_pack_version, vary_caption_text
-
-try:
-    from .fileops import atomic_write_text
-except ImportError:  # script mode: package dir itself is on sys.path
-    from fileops import atomic_write_text
 
 AUDIO_SELECTION_PATH_KEYS = ("local_path", "localPath", "path", "file_path", "filePath")
 
