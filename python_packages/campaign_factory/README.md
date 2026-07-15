@@ -12,11 +12,13 @@ the product UI, scheduling, or publishing.
 Use the repository command from the monorepo root:
 
 ```bash
-scripts/creator-os campaign-prepare --confirm-write \
+scripts/creator-os generate --mode library_reuse --apply \
   --folder /path/to/media --campaign campaign_slug --model model_slug
 
-scripts/creator-os static-reel --dry-run \
-  --campaign campaign_slug --still /path/to/accepted.png
+scripts/creator-os generate --list-modes
+
+scripts/creator-os generate --mode soul_static --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png
 
 scripts/creator-os readiness --campaign campaign_slug --user-id user_id
 
@@ -24,9 +26,13 @@ scripts/creator-os draft-export --dry-run \
   --campaign campaign_slug --user-id user_id --max-drafts 10
 ```
 
-`campaign-prepare` never exports and disables auto-approval. `draft-export`
-forces draft schedule mode; `--apply` may write validated drafts but cannot
-schedule or publish.
+Library reuse never exports and disables auto-approval. `draft-export` forces
+draft schedule mode; `--apply` may write validated drafts but cannot schedule
+or publish.
+
+Every new generation run uses `generate --mode <mode>`. The Campaign Factory
+mode catalog is the only source for mode identifiers, costs, inputs, outputs,
+and approval gates; no package or root command silently chooses a mode.
 
 ## Package CLI
 

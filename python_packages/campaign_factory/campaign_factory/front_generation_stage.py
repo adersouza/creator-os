@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -38,8 +39,8 @@ def run_front_generation_stage(
     creator: str | None = None,
     soul_id: str | None = None,
     soul_name: str | None = None,
+    animation_mode: str,
     scene_type: str = "room_selfie",
-    animation_mode: str = "kling",
     dry_run: bool = True,
     apply: bool = False,
     enable_paid_generation: bool = False,
@@ -266,8 +267,12 @@ def _enforce_paid_generation_guard(
 ) -> None:
     if not enable_paid_generation:
         raise PermissionError("paid generation requires --enable-paid-generation")
-    if budget_cap_credits is None or budget_cap_credits <= 0:
-        raise ValueError("paid generation requires --budget-cap-credits")
+    if (
+        budget_cap_credits is None
+        or not math.isfinite(float(budget_cap_credits))
+        or budget_cap_credits <= 0
+    ):
+        raise ValueError("paid generation requires a finite --budget-cap-credits")
 
 
 def _build_stages(
@@ -522,7 +527,10 @@ def _build_stages(
                 "paid": False,
                 "estimatedCostCredits": 0,
                 "commands": [],
-                "reason": "Run animation motion-edit separately after this paid still gate.",
+                "reason": (
+                    "Resume generation run --mode motion_edit with the accepted still; "
+                    "the canonical workflow retains this static fallback first."
+                ),
             }
         )
     else:

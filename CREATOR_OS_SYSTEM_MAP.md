@@ -64,9 +64,9 @@ at validated draft handoff.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
-All modes are review-gated. The active default is direct reference-image Soul
-generation. Soul ID owns identity. Prompt and asset lineage are retained.
-Native audio remains an intent, not a burned track.
+All modes are review-gated and require explicit selection; there is no active
+generation default. Soul ID owns identity. Prompt and asset lineage are
+retained. Native audio remains an intent, not a burned track.
 
 ## QC, Readiness, And Draft Handoff
 
@@ -103,13 +103,11 @@ not equivalent to real metric history; learning proof requires measured rows.
 | `status` | read-only live source/runtime/config/DB report; unprobed systems are `NOT_RUN` |
 | `doctor` | read-only fixture-backed integrity audit |
 | `reference-refresh --dry-run|--apply` | local Reference/Audio database and export workflow |
-| `campaign-prepare --confirm-write` | local review batch only; no export or auto-approval |
-| `generation-modes` | read-only creative workflow mode catalog |
-| `static-reel --dry-run|--apply` | free local accepted-still MP4 |
+| `generate --list-modes` | read-only canonical mode catalog with cost and gates |
+| `generate --mode <mode> --dry-run|--apply` | the only generation workflow; mode is mandatory and no mode may schedule or publish |
 | `readiness` | read-only campaign readiness |
 | `draft-export --dry-run|--apply` | bounded validated drafts only; never schedule/publish |
 | `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
-| `paid-generation` | requires paid confirmation, target identity, exact workspace, and finite credit cap |
 
 Package-local CLIs remain thin implementation boundaries:
 

@@ -34,9 +34,9 @@ from .closed_loop_proof import (
 from .config import get_settings
 from .control import operator_control_check
 from .core import CampaignFactory
-from .creative_modes import creative_workflow_modes
+from .creative_modes import creative_workflow_mode_ids, creative_workflow_modes
 from .daily_library_production import run_daily_library_production
-from .front_generation_stage import run_front_generation_stage
+from .generation_workflow import run_generation_workflow
 from .kling_selection_stage import run_kling_selection_stage
 from .learning_cohort import (
     assign_learning_cohort_references,
@@ -50,8 +50,6 @@ from .learning_cohort import (
     run_learning_cohort_day,
 )
 from .learning_readiness import closed_loop_learning_status
-from .motion_edit_stage import run_motion_edit_stage
-from .proactive_cycle_stage import run_proactive_cycle_stage
 from .quality_calibration import track_q_calibration_status
 from .readiness_report import build_mass_production_readiness_report
 from .reel_ledger_promotion import (
@@ -59,7 +57,6 @@ from .reel_ledger_promotion import (
     promote_reel_ledger,
     promotion_reconciliation_report,
 )
-from .static_mp4_stage import run_static_mp4_stage
 from .trial_reels import (
     graduate_trial_reel,
     record_trial_observation,
@@ -232,94 +229,61 @@ def main() -> int:
     variation_run.add_argument("--dry-run", action="store_true")
     variation_run.add_argument("--apply", action="store_true")
 
-    animation = sub.add_parser("animation")
-    animation_sub = animation.add_subparsers(dest="animation_cmd", required=True)
-    motion_edit = animation_sub.add_parser("motion-edit")
-    motion_edit.add_argument("--campaign", required=True)
-    motion_edit.add_argument("--still", required=True)
-    caption_group = motion_edit.add_mutually_exclusive_group(required=True)
-    caption_group.add_argument("--caption")
-    caption_group.add_argument("--caption-file")
-    motion_edit.add_argument("--duration", type=float, default=5.0)
-    motion_edit.add_argument("--dry-run", action="store_true")
-    motion_edit.add_argument("--apply", action="store_true")
-    motion_edit.add_argument("--allow-upscale", action="store_true")
-    motion_edit.add_argument("--enable-variation", action="store_true")
-    motion_edit.add_argument("--variation-preset", default="ig_subtle")
-    static_mp4 = animation_sub.add_parser("static-mp4")
-    static_mp4.add_argument("--campaign", required=True)
-    static_mp4.add_argument("--still", required=True)
-    static_mp4.add_argument("--duration", type=float)
-    static_mp4.add_argument("--dry-run", action="store_true")
-    static_mp4.add_argument("--apply", action="store_true")
-    static_mp4.add_argument("--allow-upscale", action="store_true")
-
     generation = sub.add_parser("generation")
     generation_sub = generation.add_subparsers(dest="generation_cmd", required=True)
     generation_sub.add_parser("modes")
-    front_link = generation_sub.add_parser("front-link")
-    front_link.add_argument("--campaign", required=True)
-    front_link.add_argument("--reference-image", required=True)
-    soul_group = front_link.add_mutually_exclusive_group(required=True)
-    soul_group.add_argument("--creator")
-    soul_group.add_argument("--soul-id")
-    soul_group.add_argument("--soul-name")
-    front_link.add_argument("--scene-type", default="room_selfie")
-    front_link.add_argument(
-        "--animation-mode", choices=["static", "kling", "motion_edit"], default="static"
+    generation_run = generation_sub.add_parser(
+        "run", help="run exactly one explicit generation mode; never publishes"
     )
-    front_link.add_argument("--accepted-still")
-    front_link.add_argument("--kling-selection-receipt")
-    front_link.add_argument(
-        "--budget-cap-credits",
-        type=float,
-        help="Maximum native Higgsfield credits allowed for each provider call.",
+    generation_run.add_argument(
+        "--mode", choices=creative_workflow_mode_ids(), required=True
     )
-    front_link.add_argument("--enable-paid-generation", action="store_true")
-    front_link.add_argument("--wait", action="store_true")
-    front_link.add_argument("--download", action="store_true")
-    front_link.add_argument("--enable-variation", action="store_true")
-    front_link.add_argument("--variation-preset", default="ig_subtle")
-    front_link.add_argument("--dry-run", action="store_true")
-    front_link.add_argument("--apply", action="store_true")
+    generation_run.add_argument("--campaign", required=True)
+    generation_execution = generation_run.add_mutually_exclusive_group(required=True)
+    generation_execution.add_argument("--dry-run", action="store_true")
+    generation_execution.add_argument("--apply", action="store_true")
+    generation_run.add_argument("--reference-image", type=Path)
+    generation_run.add_argument("--accepted-still", type=Path)
+    generation_run.add_argument("--kling-selection-receipt", type=Path)
+    generation_run.add_argument("--reference-video", type=Path)
+    generation_run.add_argument("--target", dest="creator")
+    generation_run.add_argument("--soul-id")
+    generation_run.add_argument("--workspace", type=Path)
+    generation_run.add_argument("--confirm-paid", action="store_true")
+    generation_run.add_argument("--max-credits", type=float)
+    generation_run.add_argument("--caption")
+    generation_run.add_argument("--duration", type=float)
+    generation_run.add_argument("--count", type=int, default=3)
+    generation_run.add_argument("--account")
+    generation_run.add_argument("--folder", type=Path)
+    generation_run.add_argument("--model")
+    generation_run.add_argument(
+        "--format", choices=["reel", "slideshow", "auto"], default="auto"
+    )
+    generation_run.add_argument("--variant-count", type=int, default=20)
+    generation_run.add_argument("--workers", type=int, default=3)
+    generation_run.add_argument("--first-frame-approval-id")
+    generation_run.add_argument("--last-frame-approval-id")
+    generation_run.add_argument("--operator-selected", action="store_true")
+    generation_run.add_argument("--rights-confirmed", action="store_true")
+    generation_run.add_argument(
+        "--preferred-provider", choices=["auto", "seedance", "kling"], default="auto"
+    )
+    generation_run.add_argument(
+        "--available-provider",
+        choices=["seedance", "kling"],
+        action="append",
+        default=[],
+    )
+    generation_run.add_argument("--allow-upscale", action="store_true")
+    generation_run.add_argument("--wait", action="store_true")
+    generation_run.add_argument("--download", action="store_true")
     select_kling = generation_sub.add_parser("select-kling")
     select_kling.add_argument("--campaign", required=True)
     select_kling.add_argument("--rendered-asset-id", action="append", required=True)
     select_kling.add_argument("--batch-id")
     select_kling.add_argument("--dry-run", action="store_true")
     select_kling.add_argument("--apply", action="store_true")
-
-    proactive = sub.add_parser("proactive-cycle")
-    proactive_sub = proactive.add_subparsers(dest="proactive_cmd", required=True)
-    proactive_run = proactive_sub.add_parser("run")
-    proactive_run.add_argument("--campaign", required=True)
-    proactive_run.add_argument("--count", type=int, default=3)
-    proactive_run.add_argument("--account")
-    proactive_run.add_argument("--reference-image")
-    proactive_run.add_argument(
-        "--generation-mode",
-        choices=[
-            "existing_asset",
-            "front_generation_static",
-            "motion_edit",
-            "front_generation_kling",
-        ],
-        default="existing_asset",
-    )
-    proactive_run.add_argument("--enable-variation", action="store_true")
-    proactive_run.add_argument("--enable-export", action="store_true")
-    proactive_run.add_argument("--enable-schedule", action="store_true")
-    proactive_run.add_argument(
-        "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
-    )
-    proactive_run.add_argument("--user-id")
-    proactive_run.add_argument("--dry-run", action="store_true")
-    proactive_run.add_argument("--apply", action="store_true")
-    proactive_run.add_argument("--enable-live", action="store_true")
-    proactive_run.add_argument("--enable-paid-generation", action="store_true")
-    proactive_run.add_argument("--budget-cap-usd", type=float)
-    proactive_run.add_argument("--idempotency-key")
-    proactive_run.add_argument("--kill-switch", action="store_true")
 
     audit = sub.add_parser("audit")
     audit.add_argument("--campaign", required=True)
@@ -2570,66 +2534,44 @@ def main() -> int:
                         contentforge_base_url=args.contentforge_base_url,
                     )
                 )
-        elif args.cmd == "animation":
-            if args.animation_cmd == "motion-edit":
-                caption = (
-                    args.caption
-                    if args.caption is not None
-                    else Path(args.caption_file).read_text(encoding="utf-8").strip()
-                )
-                print_json(
-                    run_motion_edit_stage(
-                        cf,
-                        campaign_slug=args.campaign,
-                        still_path=Path(args.still),
-                        caption=caption,
-                        duration_seconds=args.duration,
-                        dry_run=not args.apply or args.dry_run,
-                        apply=args.apply,
-                        enable_variation=args.enable_variation,
-                        variation_preset=args.variation_preset,
-                        allow_upscale=args.allow_upscale,
-                    )
-                )
-            elif args.animation_cmd == "static-mp4":
-                print_json(
-                    run_static_mp4_stage(
-                        cf,
-                        campaign_slug=args.campaign,
-                        still_path=Path(args.still),
-                        duration_seconds=args.duration,
-                        dry_run=not args.apply or args.dry_run,
-                        apply=args.apply,
-                        allow_upscale=args.allow_upscale,
-                    )
-                )
         elif args.cmd == "generation":
             if args.generation_cmd == "modes":
                 print_json(creative_workflow_modes())
-            elif args.generation_cmd == "front-link":
+            elif args.generation_cmd == "run":
                 print_json(
-                    run_front_generation_stage(
+                    run_generation_workflow(
                         cf,
+                        mode=args.mode,
                         campaign_slug=args.campaign,
-                        reference_image_path=Path(args.reference_image),
+                        reference_image_path=args.reference_image,
+                        accepted_still_path=args.accepted_still,
+                        kling_selection_receipt_path=args.kling_selection_receipt,
+                        reference_video_path=args.reference_video,
                         creator=args.creator,
                         soul_id=args.soul_id,
-                        soul_name=args.soul_name,
-                        scene_type=args.scene_type,
-                        animation_mode=args.animation_mode,
-                        accepted_still_path=Path(args.accepted_still)
-                        if args.accepted_still
-                        else None,
-                        kling_selection_receipt_path=Path(args.kling_selection_receipt)
-                        if args.kling_selection_receipt
-                        else None,
-                        budget_cap_credits=args.budget_cap_credits,
-                        enable_paid_generation=args.enable_paid_generation,
+                        workspace=args.workspace,
+                        paid_confirmation=args.confirm_paid,
+                        max_credits=args.max_credits,
+                        caption=args.caption,
+                        duration_seconds=args.duration,
+                        count=args.count,
+                        account=args.account,
+                        library_folder=args.folder,
+                        model_slug=args.model,
+                        output_format=args.format,
+                        variant_count=args.variant_count,
+                        workers=args.workers,
+                        first_frame_approval_id=args.first_frame_approval_id,
+                        last_frame_approval_id=args.last_frame_approval_id,
+                        operator_selected=args.operator_selected,
+                        rights_confirmed=args.rights_confirmed,
+                        preferred_provider=args.preferred_provider,
+                        available_providers=args.available_provider
+                        or ("seedance", "kling"),
+                        allow_upscale=args.allow_upscale,
                         wait=args.wait,
                         download=args.download,
-                        enable_variation=args.enable_variation,
-                        variation_preset=args.variation_preset,
-                        dry_run=not args.apply or args.dry_run,
+                        dry_run=args.dry_run,
                         apply=args.apply,
                     )
                 )
@@ -2642,32 +2584,6 @@ def main() -> int:
                         batch_id=args.batch_id,
                         dry_run=not args.apply or args.dry_run,
                         apply=args.apply,
-                    )
-                )
-        elif args.cmd == "proactive-cycle":
-            if args.proactive_cmd == "run":
-                print_json(
-                    run_proactive_cycle_stage(
-                        cf,
-                        campaign_slug=args.campaign,
-                        count=args.count,
-                        account=args.account,
-                        reference_image_path=Path(args.reference_image)
-                        if args.reference_image
-                        else None,
-                        generation_mode=args.generation_mode,
-                        enable_variation=args.enable_variation,
-                        enable_export=args.enable_export,
-                        enable_schedule=args.enable_schedule,
-                        schedule_mode=args.schedule_mode,
-                        user_id=args.user_id,
-                        dry_run=not args.apply or args.dry_run,
-                        apply=args.apply,
-                        enable_live=args.enable_live,
-                        enable_paid_generation=args.enable_paid_generation,
-                        budget_cap_usd=args.budget_cap_usd,
-                        idempotency_key=args.idempotency_key,
-                        kill_switch=args.kill_switch,
                     )
                 )
         elif args.cmd == "audit":

@@ -69,7 +69,10 @@ from campaign_factory.contracts import (
 from campaign_factory.control import operator_control_check
 from campaign_factory.core import CampaignFactory
 from campaign_factory.cost_tracker import ensure_cost_table, record_ai_cost
-from campaign_factory.creative_modes import creative_workflow_modes
+from campaign_factory.creative_modes import (
+    creative_workflow_menu,
+    creative_workflow_modes,
+)
 from campaign_factory.daily_library_production import run_daily_library_production
 from campaign_factory.db import _repair_source_asset_fk_references
 from campaign_factory.distribution import _normalize_schedule_mode
@@ -695,7 +698,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
     assert any(check["name"] == "reference_bank" for check in result["checks"])
     assert any(check["name"] == "schema.audio_intent" for check in result["checks"])
     assert any(check["name"] == "ffmpeg" for check in result["checks"])
-    assert "campaign-prepare" in result["commands"]["makeBatch"]
+    assert "generate --mode library_reuse" in result["commands"]["makeBatch"]
     assert result["commands"]["checkContentForge"].endswith(" build")
     assert result["commands"]["startCampaignFactory"].startswith(
         "uv run --package campaign-factory campaign-factory serve"
@@ -704,7 +707,7 @@ def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
         "uv run --package reference-factory python -m reference_factory.cli"
     )
     assert result["commands"]["makeBatch"].startswith(
-        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} campaign-prepare --confirm-write"
+        f"{CREATOR_OS_ROOT / 'scripts' / 'creator-os'} generate --mode library_reuse --apply"
     )
     assert "cd " not in "\n".join(result["commands"].values())
 
@@ -4655,6 +4658,7 @@ def test_front_generation_dry_run_plans_paid_path_without_db_mutation(
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=True,
         )
 
@@ -4708,6 +4712,7 @@ def test_front_generation_global_kill_switch_blocks_before_paid_provider_call(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -4789,6 +4794,7 @@ def test_front_generation_prompt_pack_uses_selected_reference_pattern(
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=True,
         )
 
@@ -4841,6 +4847,7 @@ def test_front_generation_apply_fails_closed_without_enable_flag(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 budget_cap_credits=10,
@@ -4874,6 +4881,7 @@ def test_front_generation_apply_requires_budget_cap(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -4903,6 +4911,7 @@ def test_front_generation_live_paid_path_requires_wait_and_download(
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -4938,6 +4947,7 @@ def test_front_generation_apply_automatically_materializes_static_candidates_bef
             campaign_slug="may",
             reference_image_path=reference,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5057,6 +5067,7 @@ def test_front_generation_preserves_original_static_when_sexy_candidate_fails_qc
                 campaign_slug="may",
                 reference_image_path=reference,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5112,6 +5123,7 @@ def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
             reference_image_path=reference,
             accepted_still_path=accepted,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=True,
         )
 
@@ -5161,6 +5173,7 @@ def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
             accepted_still_path=accepted,
             kling_selection_receipt_path=selection_receipt,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5244,6 +5257,7 @@ def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
             accepted_still_path=accepted,
             kling_selection_receipt_path=selection_receipt,
             creator="Stacey",
+            animation_mode="kling",
             dry_run=False,
             apply=True,
             enable_paid_generation=True,
@@ -5289,6 +5303,7 @@ def test_front_generation_enable_variation_requires_downloaded_video(
                 accepted_still_path=accepted,
                 kling_selection_receipt_path=selection_receipt,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5350,7 +5365,9 @@ def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
     catalog = creative_workflow_modes()
 
     assert catalog["schema"] == "campaign_factory.creative_workflow_modes.v1"
-    assert catalog["defaultMode"] == "library_reuse"
+    assert "defaultMode" not in catalog
+    assert catalog["selectionRequired"] is True
+    assert catalog["modePrompt"] == "Which Creator OS mode do you want for this run?"
     modes = {mode["id"]: mode for mode in catalog["modes"]}
     assert set(modes) == {
         "library_reuse",
@@ -5362,10 +5379,21 @@ def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
     assert modes["soul_static"]["paidVideoGeneration"] is False
     assert modes["best_only_kling"]["staticFallbackRequired"] is True
     assert modes["reference_video_remix"]["entrypoint"] == (
-        "reel_factory.reference_video_remix"
+        "generation run --mode reference_video_remix"
     )
+    assert all(mode["costLabel"] for mode in modes.values())
+    assert all(mode["requiredApprovals"] for mode in modes.values())
     assert all(mode["humanReviewRequired"] is True for mode in modes.values())
+    assert all(mode["schedulingAllowed"] is False for mode in modes.values())
     assert all(mode["publishingAllowed"] is False for mode in modes.values())
+    assert creative_workflow_menu().splitlines() == [
+        "Which Creator OS mode do you want for this run?",
+        "1. Library reuse — free",
+        "2. Soul still + static MP4 — paid still generation, free MP4",
+        "3. Local motion edit — free",
+        "4. Best-only Kling — paid video",
+        "5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video",
+    ]
 
 
 def test_generation_modes_cli_lists_all_operator_paths(tmp_path: Path):
@@ -5425,6 +5453,7 @@ def test_front_generation_kling_failure_preserves_static_fallback(
                 accepted_still_path=accepted,
                 kling_selection_receipt_path=selection_receipt,
                 creator="Stacey",
+                animation_mode="kling",
                 dry_run=False,
                 apply=True,
                 enable_paid_generation=True,
@@ -5463,6 +5492,7 @@ def test_proactive_cycle_dry_run_plans_draft_first_report(tmp_path: Path):
             campaign_slug="may",
             count=1,
             account="ig_1",
+            generation_mode="existing_asset",
             dry_run=True,
         )
 
@@ -5482,7 +5512,7 @@ def test_proactive_cycle_dry_run_plans_draft_first_report(tmp_path: Path):
         cf.close()
 
 
-def test_proactive_cycle_cli_outputs_dry_run_report(tmp_path: Path):
+def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -5496,12 +5526,15 @@ def test_proactive_cycle_cli_outputs_dry_run_report(tmp_path: Path):
             sys.executable,
             "-m",
             "campaign_factory.cli",
-            "proactive-cycle",
+            "generation",
             "run",
+            "--mode",
+            "library_reuse",
             "--campaign",
             "may",
             "--count",
             "1",
+            "--dry-run",
         ],
         cwd=PACKAGE_ROOT,
         text=True,
@@ -5520,8 +5553,10 @@ def test_proactive_cycle_cli_outputs_dry_run_report(tmp_path: Path):
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["schema"] == "campaign_factory.proactive_cycle_run.v1"
+    assert payload["schema"] == "campaign_factory.generation_workflow_run.v1"
+    assert payload["mode"] == "library_reuse"
     assert payload["dryRun"] is True
+    assert payload["result"]["schema"] == "campaign_factory.proactive_cycle_run.v1"
     assert payload["publishingAllowed"] is False
 
 
@@ -5537,6 +5572,7 @@ def test_proactive_cycle_live_apply_fails_closed_without_required_flags(tmp_path
                 cf,
                 campaign_slug="may",
                 count=1,
+                generation_mode="existing_asset",
                 dry_run=False,
                 apply=True,
             )
@@ -5561,6 +5597,7 @@ def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(
             cf,
             campaign_slug="may",
             count=1,
+            generation_mode="existing_asset",
             idempotency_key="cycle-dry-1",
             dry_run=True,
         )
@@ -5571,6 +5608,7 @@ def test_proactive_cycle_idempotent_report_replay_does_not_create_second_job(
             cf,
             campaign_slug="may",
             count=1,
+            generation_mode="existing_asset",
             idempotency_key="cycle-dry-1",
             dry_run=True,
         )
@@ -5629,6 +5667,7 @@ def test_proactive_cycle_live_mode_runs_only_safe_dry_run_subactions(
             cf,
             campaign_slug="may",
             count=1,
+            generation_mode="existing_asset",
             dry_run=False,
             apply=True,
             enable_live=True,
@@ -6315,11 +6354,13 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
             sys.executable,
             "-m",
             "campaign_factory.cli",
-            "animation",
-            "motion-edit",
+            "generation",
+            "run",
+            "--mode",
+            "motion_edit",
             "--campaign",
             "may",
-            "--still",
+            "--accepted-still",
             str(still_path),
             "--caption",
             "CLI dry run caption",
@@ -6343,8 +6384,14 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    validate_motion_edit_render(payload["render"])
-    assert payload["registeredAsset"] is None
+    assert payload["mode"] == "motion_edit"
+    assert payload["publishingAllowed"] is False
+    motion = payload["result"]["motionEdit"]
+    static = payload["result"]["staticFallback"]
+    validate_motion_edit_render(motion["render"])
+    assert motion["registeredAsset"] is None
+    assert static["paidGeneration"] is False
+    assert static["render"]["audioBurned"] is False
     conn = sqlite3.connect(tmp_path / "campaign_factory.sqlite")
     try:
         assert conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0

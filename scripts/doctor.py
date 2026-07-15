@@ -137,7 +137,7 @@ def run_live_status(
         category="Provider readiness",
         status="NOT_RUN",
         reason="no provider or paid-credit API probe was run",
-        command="creator-os paid-generation ...",
+        command="creator-os generate --mode soul_static --apply --confirm-paid ...",
         evidence=(
             f"generation_policy={generation_env}; present={generation_env.is_file()}"
         ),

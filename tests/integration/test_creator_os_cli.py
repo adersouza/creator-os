@@ -26,10 +26,11 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
 
     assert result.returncode == 0
     assert "component" not in result.stdout
-    assert "campaign-prepare" in result.stdout
-    assert "generation-modes" in result.stdout
+    assert "campaign-prepare" not in result.stdout
+    assert "generate" in result.stdout
     assert "draft-export" in result.stdout
-    assert "paid-generation" in result.stdout
+    assert "paid-generation" not in result.stdout
+    assert "static-reel" not in result.stdout
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1"])
@@ -37,7 +38,10 @@ def test_paid_generation_requires_a_positive_finite_credit_cap(
     value: str, tmp_path: Path
 ) -> None:
     result = _run(
-        "paid-generation",
+        "generate",
+        "--mode",
+        "best_only_kling",
+        "--apply",
         "--confirm-paid",
         "--target",
         "stacey",
@@ -59,11 +63,13 @@ def test_static_reel_requires_a_positive_finite_duration(
     value: str, tmp_path: Path
 ) -> None:
     result = _run(
-        "static-reel",
+        "generate",
+        "--mode",
+        "soul_static",
         "--dry-run",
         "--campaign",
         "campaign",
-        "--still",
+        "--accepted-still",
         str(tmp_path / "accepted.png"),
         f"--duration={value}",
     )
@@ -104,7 +110,7 @@ def test_draft_export_forces_draft_mode(monkeypatch: pytest.MonkeyPatch) -> None
     assert "publish" not in " ".join(command)
 
 
-def test_generation_modes_uses_read_only_campaign_catalog(
+def test_generate_list_modes_uses_read_only_campaign_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     namespace = runpy.run_path(str(CLI))
@@ -117,7 +123,7 @@ def test_generation_modes_uses_read_only_campaign_catalog(
     monkeypatch.setitem(namespace, "_run", fake_run)
     namespace["main"].__globals__["_run"] = fake_run
 
-    assert namespace["main"](["generation-modes"]) == 0
+    assert namespace["main"](["generate", "--list-modes"]) == 0
     assert commands == [
         [
             "uv",
@@ -129,3 +135,58 @@ def test_generation_modes_uses_read_only_campaign_catalog(
             "modes",
         ]
     ]
+
+
+def test_generate_requires_explicit_mode() -> None:
+    result = _run("generate", "--dry-run", "--campaign", "campaign")
+
+    assert result.returncode == 2
+    assert "--mode MODE | --list-modes" in result.stderr
+
+
+def test_generate_routes_explicit_mode_to_campaign_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert (
+        namespace["main"](
+            [
+                "generate",
+                "--mode",
+                "reference_video_remix",
+                "--dry-run",
+                "--campaign",
+                "campaign",
+                "--reference-video",
+                str(tmp_path / "reference.mp4"),
+                "--target",
+                "Stacey",
+                "--soul-id",
+                "soul_1",
+                "--workspace",
+                str(ROOT),
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert command[:6] == [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "campaign-factory",
+        "generation",
+    ]
+    assert command[6:10] == ["run", "--mode", "reference_video_remix", "--campaign"]
+    assert "--dry-run" in command
+    assert "publish" not in " ".join(command)
