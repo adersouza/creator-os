@@ -449,6 +449,7 @@ def test_explicit_instagram_trial_reel_manifest_includes_trial_fields(tmp_path: 
             instagram_account_id="ig_good",
             instagram_trial_reels=True,
             trial_graduation_strategy="MANUAL",
+            trial_group_id="trial_group_test",
         )
         explanation = cf.domains.publishability.explain_publishability(
             "asset_1", distribution_plan_id=plan["id"]
@@ -469,6 +470,72 @@ def test_explicit_instagram_trial_reel_manifest_includes_trial_fields(tmp_path: 
         assert manifest["ig_media_type"] == "REELS"
         assert manifest["instagram_trial_reels"] is True
         assert manifest["trial_graduation_strategy"] == "MANUAL"
+        draft = build_draft_payloads(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            surface="trial_reel",
+        )["drafts"][0]
+        assert draft["instagramTrialReels"] is True
+        assert draft["shareToFeed"] is False
+        assert draft["metadata"]["shareToFeed"] is False
+        assert draft["metadata"]["trialGroupId"] == "trial_group_test"
+        assert draft["metadata"]["campaign_factory"]["share_to_feed"] is False
+    finally:
+        cf.close()
+
+
+def test_regular_reel_export_isolated_from_ineligible_trial_destination(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.distribution.create_distribution_plan(
+            "asset_1",
+            surface="regular_reel",
+            instagram_account_id="ig_regular",
+        )
+        project_trial_account(
+            cf,
+            "ig_trial",
+            "unknown",
+            scopes=[],
+            checked_at=None,
+        )
+        campaign = cf.domains.campaign_by_slug("may")
+        cf.conn.execute(
+            """
+            INSERT INTO distribution_plans
+            (id, campaign_id, rendered_asset_id, instagram_account_id,
+             surface, content_surface, instagram_trial_reels,
+             trial_graduation_strategy, created_at, updated_at)
+            VALUES ('dist_trial_stale', ?, 'asset_1', 'ig_trial',
+                    'trial_reel', 'reel', 1, 'MANUAL', ?, ?)
+            """,
+            (campaign["id"], "2026-07-15T04:30:00+00:00", "2026-07-15T04:30:00+00:00"),
+        )
+        cf.conn.commit()
+
+        regular = build_draft_payloads(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            surface="regular_reel",
+        )
+        assert len(regular["drafts"]) == 1
+        assert regular["drafts"][0]["distributionSurface"] == "regular_reel"
+        assert regular["drafts"][0]["instagramTrialReels"] is False
+
+        with pytest.raises(ValueError, match="trial_publish_scope_missing"):
+            build_draft_payloads(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                surface="trial_reel",
+            )
     finally:
         cf.close()
 

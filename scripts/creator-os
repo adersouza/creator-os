@@ -142,6 +142,19 @@ def _parser() -> argparse.ArgumentParser:
     draft.add_argument("--user-id", required=True)
     draft.add_argument("--max-drafts", type=int, required=True)
     draft.add_argument("--rendered-asset-id", action="append", default=[])
+    draft.add_argument(
+        "--surface",
+        choices=[
+            "regular_reel",
+            "trial_reel",
+            "story",
+            "story_cta",
+            "feed_single",
+            "feed_carousel",
+        ],
+        default="regular_reel",
+        help="Export one explicit distribution surface (default: regular_reel)",
+    )
     draft.add_argument("--review-only", action="store_true")
 
     return parser
@@ -287,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
             command.append("--dry-run")
         if args.review_only:
             command.append("--review-only")
+        command.extend(["--surface", args.surface])
         for asset_id in args.rendered_asset_id:
             command.extend(["--rendered-asset-id", asset_id])
         return _run(command)

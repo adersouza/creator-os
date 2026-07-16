@@ -405,6 +405,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 language=args.language,
                 max_drafts=args.max_drafts,
                 rendered_asset_ids=args.rendered_asset_id or None,
+                surface=args.surface,
                 schedule_mode=args.schedule_mode,
                 enable_variation=args.enable_variation,
                 variation_preset=args.variation_preset,

@@ -89,7 +89,14 @@ scripts/creator-os readiness --campaign campaign_slug --user-id user_id
 
 # Draft-only handoff: explicit preview or bounded write; never schedule/publish
 scripts/creator-os draft-export --dry-run \
-  --campaign campaign_slug --user-id user_id --max-drafts 10
+  --campaign campaign_slug --user-id user_id --max-drafts 10 \
+  --surface regular_reel
+
+# Trial Reels are always an explicit, isolated batch and stay fail-closed on
+# account OAuth/capability evidence.
+scripts/creator-os draft-export --dry-run \
+  --campaign campaign_slug --user-id user_id --max-drafts 2 \
+  --surface trial_reel
 
 # Metrics/learning sync: explicit preview or apply
 scripts/creator-os performance-sync --dry-run

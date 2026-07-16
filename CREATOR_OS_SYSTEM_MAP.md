@@ -175,6 +175,14 @@ reason. Campaign policy is fail-closed:
 - autonomous planning cannot supply that authorization and can select only an
   account projected as `eligible`.
 
+The root `draft-export` command exports one distribution surface at a time and
+defaults to `regular_reel`. Use `--surface trial_reel` explicitly for a Trial
+batch. An ineligible Trial destination cannot abort or contaminate a regular
+Reel batch. Explicit Trial drafts carry `instagramTrialReels=true`, a valid
+`MANUAL` or `SS_PERFORMANCE` graduation strategy, and `shareToFeed=false`.
+ThreadsDashboard rejects contradictory Trial-plus-Feed payloads before approval
+or publishing.
+
 The authorization and capability snapshot are stored on the distribution plan,
 so a later account-sync change cannot rewrite what was authorized. Reconnecting
 an account resets the external capability to `unknown`; the next normal account
