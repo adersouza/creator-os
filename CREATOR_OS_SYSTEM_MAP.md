@@ -22,22 +22,33 @@ As of 2026-07-16, the reviewed code-bearing simplification baseline on `main`
 is `e47946cdfdb566855fa5a753ce243ca53a6a7bac`. PRs #448 through #458 are merged,
 and every required path-selected CI and secret-scan check passed. Skipped
 CodeQL, Trivy, SBOM, Python, or JavaScript jobs were path-filtered rather than
-failures. A later documentation-only merge may advance `main` without changing
-that code-bearing baseline.
+failures. Documentation-only merges may advance `main` without changing that
+code-bearing baseline.
 
-The separate runtime checkout remains clean and detached at
-`5ba5ccc7e248513e3809fded2564fc483c14a1c7`. It has not been promoted to the
-current source. The last audited `creator-os status --live-read-only` returned
-seven `PASS` findings and one `WARN`: canonical roots, configuration, contracts,
-Campaign state, the HMAC handshake, and the provider probe passed, while the
-source/runtime SHA mismatch remained explicit. This source/seam proof does not
-substitute for final-SHA runtime promotion.
+The final operational proof began with the source and detached runtime both
+clean and equal at `a85ddead835bec937b950a5e1848e253cbbf73e1`. The authoritative
+final runtime identity is the equality of `source_sha` and `runtime_sha` emitted
+by `creator-os status --live-read-only`, rather than a SHA embedded in this
+document: merging this documentation necessarily creates a later docs-only
+revision. That resulting revision is the final runtime target; operational
+closure requires `source_sha == runtime_sha`.
 
-The live handshake claimed its nonce and wrote zero ThreadsDashboard product
-rows. The Higgsfield account, workspace, Soul/Kling/Seedance availability,
-balance, and free quote passed while creating zero provider jobs and zero cost
-events. No paid generation, draft export, scheduling, or publishing occurred
-during this simplification.
+The live status proof passed the HMAC and provider probes under trace
+`trace_39fc17ae1f094da28eb8f520f83fcfed`. The HMAC handshake claimed its nonce
+and wrote zero ThreadsDashboard product rows. The Higgsfield account,
+workspace, Soul/Kling/Seedance availability, balance, and free quote passed
+while creating zero provider jobs and zero cost events. No paid generation,
+draft export, account reconnect, scheduling, or publishing occurred during this
+simplification or its operational proof.
+
+Backup and machine-runtime proof also completed. Structured runtime backup
+`20260716T022453Z` passed a clean restore. Local snapshot
+`20260715_222835` has private `0700` directories, `0600` SQLite files, and four
+databases with successful integrity checks. Restic/Supabase snapshot
+`405582cdb5b2c9fd9d380273bd29748ee426d6a0dbdd8c4f3ad2901842b4bd7d` passed
+the offsite check and full restore drill. The ops-digest and performance-sync
+LaunchAgents both last exited zero from the pinned runtime. The normal sync at
+`2026-07-16T02:32:03Z` was idempotent and left counts unchanged.
 
 Existing ThreadsDashboard evidence still proves five regular Reels published
 once with Instagram identities and real metric history, but those posts lack
@@ -385,11 +396,14 @@ factories or add another service:
    is about 1.3 GB. Do not confuse retained evidence with source architecture or
    delete it before preservation and the applicable cleanup gate.
 
-The practical next order is operational rather than architectural: repair the
-machine-local backup and ops-digest paths, create and verify a fresh backup,
-promote the exact reviewed SHA, rerun live read-only probes and one normal
-performance/learning cycle, then accumulate the real 10-post and 50-post
-evidence. The report-only retained-evidence gate cannot run before 2026-07-22
-and one complete post-promotion operating cycle; deletion still requires
-separate authorization. Redis/RQ, Temporal, another dashboard, and a factory
-merge would increase—not reduce—the current complexity.
+The practical next order is evidence accumulation rather than more architecture
+work. The resulting docs-only revision is the final runtime target, and
+operational closure requires exact source/runtime SHA equality in live status.
+Then the system must accumulate the real 10-post and 50-post learning evidence
+and establish Trial eligibility account by account. Retained
+rollback evidence remains protected through `2026-07-22T21:28:51Z` and one
+complete post-promotion operating cycle; deletion still requires separate
+authorization. No Time Machine destination is configured, but that is a
+non-blocking warning because the verified Restic/Supabase repository is the
+offsite backup layer. Redis/RQ, Temporal, another dashboard, and a factory merge
+would increase—not reduce—the current complexity.

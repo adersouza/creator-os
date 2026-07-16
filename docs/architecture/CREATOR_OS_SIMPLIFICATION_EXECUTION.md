@@ -133,22 +133,23 @@ command.
 
 | Surface | Verdict | Evidence and remaining action |
 |---|---|---|
-| Source | PASS | reviewed code-bearing baseline `e47946cdfdb566855fa5a753ce243ca53a6a7bac`; PRs #448–#458 merged; a documentation-only merge may advance `main` |
+| Source | PASS | reviewed code-bearing baseline `e47946cdfdb566855fa5a753ce243ca53a6a7bac`; PRs #448–#458 merged; source was clean at `a85ddead835bec937b950a5e1848e253cbbf73e1` before this docs-only closure |
 | CI | PASS | every required path-selected Python/JavaScript, architecture, contracts, hygiene, and secret-scan check passed; path-filtered skips were not failures |
-| Runtime | NOT_PROMOTED | clean detached runtime `5ba5ccc7e248513e3809fded2564fc483c14a1c7` does not equal current source |
-| Live seams | PASS_FROM_SOURCE; RECHECK_REQUIRED | HMAC nonce claimed and zero product rows written; last status had seven PASS and one runtime WARN; rerun after promotion |
-| Provider | PASS_READ_ONLY | account, workspace, models, balance, and free quote passed with zero provider jobs and zero cost events; no paid smoke ran |
+| Runtime | PASS_AT_OPERATIONAL_CHECKPOINT | source and runtime were clean and equal at `a85ddead`; the resulting docs-only revision is the final runtime target, and operational closure requires `source_sha == runtime_sha` from `creator-os status` rather than a SHA hard-coded here |
+| Live seams | PASS_READ_ONLY | trace `trace_39fc17ae1f094da28eb8f520f83fcfed`; HMAC nonce claimed, signature/contract checks passed, and zero product rows were written |
+| Provider | PASS_READ_ONLY | same trace; account, workspace, models, balance, and free quote passed with zero provider jobs and zero cost events; no paid smoke ran |
 | Publishing | UNCHANGED / OUT_OF_SCOPE | simplification published nothing; prior five-Reel ThreadsDashboard proof remains separate and those posts lack Campaign lineage |
 | Trial eligibility | BLOCKED_EXTERNAL | Stacey roster is 0 eligible, 2 denied, and 64 unknown; unknown is not autonomous eligibility |
 | Measured learning | BLOCKED_BY_EVIDENCE | one real eligible 1h row, zero eligible 24h/72h rows, 0/10 completed reconciled posts, and 0/50 autonomy evidence |
-| Backups | FINAL_RELEASE_PROOF_PENDING | the structured runtime backup predates the final SHA; create and clean-restore a fresh manifest-backed backup after machine-path repair |
-| LaunchAgents | REPAIR_REQUIRED | performance/cohort still execute old runtime; ops digest last exited 1 and receives the mutable source checkout as `--data-root` |
-| Retention | WAITING | retained evidence remains protected through at least 2026-07-22 and one complete post-promotion operating cycle; no deletion is authorized |
+| Backups | PASS | structured backup `20260716T022453Z` passed a clean restore; local snapshot `20260715_222835` has `0700` directories, `0600` database files, and four integrity-clean databases; Restic/Supabase snapshot `405582cdb5b2c9fd9d380273bd29748ee426d6a0dbdd8c4f3ad2901842b4bd7d` passed the offsite check and full restore drill on 2026-07-16 |
+| LaunchAgents | PASS | ops-digest and performance-sync last exited zero from the pinned runtime; the normal performance/learning sync at `2026-07-16T02:32:03Z` was idempotent and left counts unchanged |
+| Retention | WAITING | retained evidence remains protected through `2026-07-22T21:28:51Z` and one complete post-promotion operating cycle; no deletion is authorized |
+| Time Machine | NON_BLOCKING_WARNING | no destination is configured; verified Restic/Supabase remains the offsite layer |
 
-The machine-local backup script must read any retained caption-bank copy from
-the pinned `creator-os-runtime` checkout rather than the mutable source checkout.
-The ops-digest data root must likewise stop targeting the source checkout. After
-those repairs, create and verify a fresh backup, promote the exact source SHA,
-rerun `creator-os status --live-read-only`, and complete one normal idempotent
-performance/learning cycle. Until those checks exist, this ledger does not claim
-final runtime or live operational closure.
+The machine-local backup and ops-digest path repairs, fresh structured/local/
+offsite backups, clean restore drills, runtime promotion, live read-only probes,
+and one normal idempotent performance/learning cycle are complete. The resulting
+docs-only revision is the final runtime target; operational closure requires
+`source_sha == runtime_sha`. The document does not embed that self-invalidating
+SHA. No paid generation, schedule, publish, or account reconnect occurred, and
+the handshake wrote no product rows.
