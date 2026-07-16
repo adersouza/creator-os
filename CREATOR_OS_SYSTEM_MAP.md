@@ -62,6 +62,59 @@ The Stacey Trial projection remains 66 accounts: zero `eligible`, two `denied`,
 and 64 `unknown`, with no stored OAuth-scope verification. Trial autonomy remains
 closed; unknown accounts require separate bounded canary authorization.
 
+## Lifecycle Overview
+
+The system has three distinct bands: create and validate, publish, and return
+real evidence. Creator OS Core and Pipeline Contracts are foundations shared by
+the Creator OS stages, not additional workflow steps.
+
+```mermaid
+flowchart TB
+    Operator["Operator"]
+    Providers["Higgsfield<br/>Soul · Kling · Seedance"]
+
+    subgraph CreatorOS["Creator OS<br/>Core + Pipeline Contracts underpin every stage"]
+        direction LR
+        Reference["Reference Factory<br/>Learn"]
+        Plan["Campaign Factory<br/>Plan · assign · authorize"]
+        Reel["Reel Factory<br/>Create · preserve lineage"]
+        Quality["ContentForge<br/>Inspect · block"]
+        Gate["Campaign Factory<br/>Approve · package · sign"]
+
+        Reference -->|"knowledge pack"| Plan
+        Plan -->|"work order"| Reel
+        Reel --> Quality
+        Quality -->|"QC verdict"| Gate
+    end
+
+    subgraph Production["Production edge"]
+        direction LR
+        Dashboard["ThreadsDashboard / Juno<br/>Review · schedule · publish"]
+        Instagram["Instagram / Meta"]
+
+        Dashboard -->|"approved publish"| Instagram
+    end
+
+    subgraph Evidence["Evidence return — real rows only"]
+        direction RL
+        DashboardMetrics["ThreadsDashboard metrics"]
+        CampaignMetrics["Campaign performance"]
+        ReferenceLearning["Reference learning"]
+
+        DashboardMetrics -->|"performance sync"| CampaignMetrics
+        CampaignMetrics -->|"measured provenance"| ReferenceLearning
+    end
+
+    Operator --> Reference
+    Providers -.->|"generation only"| Reel
+    Gate -->|"validated HMAC draft"| Dashboard
+    Instagram -.->|"real metrics"| DashboardMetrics
+    ReferenceLearning -.->|"knowledge refresh"| Reference
+```
+
+The next section records implementation ownership and foundational
+dependencies separately from this lifecycle view.
+
 ## Ownership And Dependencies
 
 | Component | Responsibility | Canonical source | Depends on | Primary state |
