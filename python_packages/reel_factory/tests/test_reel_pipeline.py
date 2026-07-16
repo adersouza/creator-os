@@ -66,6 +66,37 @@ from pipeline_contracts import ContractValidationError, validate_generated_asset
 
 
 class ReelPipelineTests(unittest.TestCase):
+    def test_split_modules_preserve_compatibility_entrypoint(self):
+        from reel_factory import (
+            reel_pipeline,
+            reel_pipeline_render,
+            reel_pipeline_selection,
+            reel_pipeline_support,
+        )
+
+        self.assertIs(reel_pipeline.Recipe, reel_pipeline_support.Recipe)
+        self.assertIs(reel_pipeline.CaptionSet, reel_pipeline_support.CaptionSet)
+        self.assertIs(reel_pipeline.process_one, reel_pipeline_render.process_one)
+        self.assertEqual(reel_pipeline.amain.__module__, "reel_factory.reel_pipeline")
+        self.assertEqual(reel_pipeline.main.__module__, "reel_factory.reel_pipeline")
+        self.assertEqual(
+            reel_pipeline.run_watch_mode.__module__, "reel_factory.reel_pipeline"
+        )
+        self.assertIs(
+            reel_pipeline.apply_caption_fit_to_caption_set,
+            reel_pipeline_selection.apply_caption_fit_to_caption_set,
+        )
+        self.assertEqual(
+            reel_pipeline._selected_audio_for_mux.__module__,
+            "reel_factory.reel_pipeline",
+        )
+
+        entrypoint_source = Path(reel_pipeline.__file__).read_text(encoding="utf-8")
+        self.assertIn("async def amain", entrypoint_source)
+        self.assertIn("argparse.ArgumentParser", entrypoint_source)
+        self.assertIn("def run_watch_mode", entrypoint_source)
+        self.assertNotIn("reel_pipeline_cli", entrypoint_source)
+
     def test_audio_selection_local_path_reads_nested_metadata(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2117,7 +2148,8 @@ class ReelPipelineTests(unittest.TestCase):
 
         with (
             patch(
-                "reel_factory.reel_pipeline.sys.executable", "/repo/.venv/bin/python"
+                "reel_factory.reel_pipeline.sys.executable",
+                "/repo/.venv/bin/python",
             ),
             patch(
                 "reel_factory.reel_pipeline.get_identity_provider",
@@ -2131,7 +2163,8 @@ class ReelPipelineTests(unittest.TestCase):
 
         with (
             patch(
-                "reel_factory.reel_pipeline.sys.executable", "/repo/.venv/bin/python"
+                "reel_factory.reel_pipeline.sys.executable",
+                "/repo/.venv/bin/python",
             ),
             patch(
                 "reel_factory.reel_pipeline.get_identity_provider",
@@ -2147,7 +2180,10 @@ class ReelPipelineTests(unittest.TestCase):
             venv_python.parent.mkdir(parents=True)
             venv_python.symlink_to(Path(sys.executable).resolve())
             with (
-                patch("reel_factory.reel_pipeline.sys.executable", str(venv_python)),
+                patch(
+                    "reel_factory.reel_pipeline.sys.executable",
+                    str(venv_python),
+                ),
                 patch(
                     "reel_factory.reel_pipeline.get_identity_provider",
                     return_value=FakeInsightFaceProvider(),
