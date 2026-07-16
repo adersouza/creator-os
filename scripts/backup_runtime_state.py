@@ -20,7 +20,10 @@ from creator_os_core.runtime_state import (
     sha256_file,
     sqlite_integrity,
     vacuum_into,
-    verify_clean_restore,
+)
+from creator_os_core.runtime_state_evidence import (
+    load_json_manifest,
+    verify_sqlite_evidence,
 )
 
 DB_PATHS = (
@@ -77,7 +80,11 @@ def backup_runtime_state(
     )
 
     for name, source, backup_rel in databases:
-        entry = {"name": name, "source": str(source), "status": "missing"}
+        entry: dict[str, Any] = {
+            "name": name,
+            "source": str(source),
+            "status": "missing",
+        }
         if source.exists():
             dest = target / "databases" / backup_rel
             vacuum_into(source, dest)
@@ -149,29 +156,29 @@ def backup_configured_runtime_state(
 def verify_backup(backup_dir: Path) -> dict[str, Any]:
     backup_dir = backup_dir.expanduser().resolve()
     manifest_path = backup_dir / MANIFEST_NAME
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _, manifest = load_json_manifest(manifest_path)
     verified: list[dict[str, Any]] = []
     for entry in manifest["databases"]:
         if entry["status"] != "backed_up":
             continue
         path = backup_dir / entry["path"]
-        actual_hash = sha256_file(path)
-        checks = sqlite_integrity(path)
-        mode = oct(path.stat().st_mode & 0o777)
-        if (
-            actual_hash != entry["sha256"]
-            or checks["integrity"] != "ok"
-            or mode != "0o600"
-        ):
+        evidence = verify_sqlite_evidence(
+            path,
+            expected_sha256=entry["sha256"],
+            required_mode="0o600",
+            require_clean_restore=True,
+        )
+        if not evidence["valid"]:
             raise RuntimeError(f"Backup verification failed: {entry['name']}")
-        restored = verify_clean_restore(path)
+        snapshot = evidence["snapshot"]
         verified.append(
             {
                 "name": entry["name"],
-                "sha256": actual_hash,
-                "mode": mode,
-                **checks,
-                "cleanRestore": restored,
+                "sha256": snapshot["sha256"],
+                "mode": snapshot["mode"],
+                "integrity": snapshot["integrity"],
+                "rowCounts": snapshot["rowCounts"],
+                "cleanRestore": evidence["cleanRestore"],
             }
         )
     return {"backupDir": str(backup_dir), "status": "ok", "databases": verified}

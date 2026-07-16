@@ -9,9 +9,7 @@ operation.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 import sqlite3
 import sys
 from datetime import UTC, datetime, timedelta
@@ -21,17 +19,20 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "packages/creator_os_core"))
 
-from creator_os_core.runtime_state import (  # noqa: E402
-    sha256_file,
-    sqlite_snapshot,
-    verify_clean_restore,
+from creator_os_core.runtime_state_evidence import (  # noqa: E402
+    load_json_manifest,
+    parse_utc_timestamp,
+    permission_mode,
+    retention_deadline_evidence,
+    scan_active_path_references,
+    tree_snapshot,
+    verify_sqlite_evidence,
 )
 
 REPORT_SCHEMA = "creator_os.runtime_state_cleanup_eligibility.v1"
 MIGRATION_SCHEMA = "creator_os.runtime_state_migration.v1"
 OPERATING_CYCLE_SCHEMA = "creator_os.operating_cycle_evidence.v1"
 BACKUP_MANIFEST_NAME = "backup-manifest.json"
-PRIVATE_PATTERNS = ("*.env", "*.key", "*.pem", "secrets.toml")
 OPERATING_CYCLE_CHECKS = (
     "runtimeShaMatched",
     "performanceSyncSucceeded",
@@ -43,48 +44,6 @@ EXPECTED_DATABASES = {
     "reel_manifest",
     "render_queue",
 }
-
-
-def _parse_time(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError(f"timestamp must include a timezone: {value}")
-    return parsed.astimezone(UTC)
-
-
-def _tree_snapshot(path: Path, *, exclude_private: bool = False) -> dict[str, Any]:
-    path = path.expanduser().resolve()
-    files: list[Path] = []
-
-    def collect(directory: Path, ancestors: frozenset[Path]) -> None:
-        resolved = directory.resolve()
-        if resolved in ancestors:
-            raise ValueError(f"directory symlink cycle detected: {directory}")
-        nested_ancestors = ancestors | {resolved}
-        for entry in sorted(os.scandir(directory), key=lambda item: item.name):
-            item = Path(entry.path)
-            if entry.is_dir(follow_symlinks=True):
-                collect(item, nested_ancestors)
-            elif entry.is_file(follow_symlinks=True) and not (
-                exclude_private
-                and any(item.match(pattern) for pattern in PRIVATE_PATTERNS)
-            ):
-                files.append(item)
-
-    collect(path, frozenset())
-    digest = hashlib.sha256()
-    total_bytes = 0
-    for item in sorted(files):
-        relative = item.relative_to(path).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(sha256_file(item).encode("ascii"))
-        total_bytes += item.stat().st_size
-    return {
-        "path": str(path),
-        "files": len(files),
-        "bytes": total_bytes,
-        "treeSha256": digest.hexdigest(),
-    }
 
 
 def _check(name: str, passed: bool, evidence: dict[str, Any]) -> dict[str, Any]:
@@ -122,8 +81,8 @@ def _verify_operating_cycle(
         )
     try:
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        completed_at = _parse_time(str(evidence["completedAt"]))
-        applied_at = _parse_time(str(migration["appliedAt"]))
+        completed_at = parse_utc_timestamp(str(evidence["completedAt"]))
+        applied_at = parse_utc_timestamp(str(migration["appliedAt"]))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         return _check(
             "operating-cycle",
@@ -160,14 +119,13 @@ def _verify_originals(
         source = Path(row["source"]).expanduser().resolve()
         expected = row["verification"]["source"]
         try:
-            current = sqlite_snapshot(source)
-            exact = (
-                current["integrity"] == "ok"
-                and current["sha256"] == expected["sha256"]
-                and current["rowCounts"] == expected["rowCounts"]
+            evidence = verify_sqlite_evidence(
+                source,
+                expected_sha256=expected["sha256"],
+                expected_row_counts=expected["rowCounts"],
             )
+            exact = evidence["valid"]
         except (FileNotFoundError, OSError, sqlite3.DatabaseError):
-            current = None
             exact = False
         passed = passed and exact
         rows.append(
@@ -197,7 +155,7 @@ def _verify_originals(
             continue
         expected = row["sourceSnapshot"]
         try:
-            current = _tree_snapshot(source, exclude_private=True)
+            current = tree_snapshot(source, exclude_private=True)
             exact = all(
                 current[key] == expected[key]
                 for key in ("files", "bytes", "treeSha256")
@@ -225,20 +183,21 @@ def _verify_canonical_databases(migration: dict[str, Any]) -> dict[str, Any]:
     for row in migration.get("databases", []):
         destination = Path(row["destination"]).expanduser().resolve()
         try:
-            current = sqlite_snapshot(destination)
-            restore = verify_clean_restore(destination)
-            valid = (
-                current["integrity"] == "ok"
-                and current["mode"] == "0o600"
-                and oct(destination.parent.stat().st_mode & 0o777) == "0o700"
-                and restore["integrity"] == "ok"
+            sqlite_evidence = verify_sqlite_evidence(
+                destination,
+                required_mode="0o600",
+                required_parent_mode="0o700",
+                require_clean_restore=True,
             )
+            current = sqlite_evidence["snapshot"]
+            restore = sqlite_evidence["cleanRestore"]
+            valid = sqlite_evidence["valid"]
             evidence = {
                 "name": row["name"],
                 "path": str(destination),
                 "integrity": current["integrity"],
                 "mode": current["mode"],
-                "parentMode": oct(destination.parent.stat().st_mode & 0o777),
+                "parentMode": permission_mode(destination.parent),
                 "cleanRestore": restore["integrity"],
                 "rowCountsChangedSinceCutover": current["rowCounts"]
                 != row["verification"]["destination"]["rowCounts"],
@@ -264,8 +223,8 @@ def _verify_backup(
     backup_dir = backup_dir.expanduser().resolve()
     manifest_path = backup_dir / BACKUP_MANIFEST_NAME
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        created_at = _parse_time(str(manifest["createdAt"]))
+        _, manifest = load_json_manifest(manifest_path)
+        created_at = parse_utc_timestamp(str(manifest["createdAt"]))
     except (
         FileNotFoundError,
         KeyError,
@@ -285,8 +244,8 @@ def _verify_backup(
     }
     rows: list[dict[str, Any]] = []
     found: set[str] = set()
-    manifest_mode = oct(manifest_path.stat().st_mode & 0o777)
-    backup_mode = oct(backup_dir.stat().st_mode & 0o777)
+    manifest_mode = permission_mode(manifest_path)
+    backup_mode = permission_mode(backup_dir)
     passed = (
         timedelta(0) <= now - created_at <= max_age
         and manifest_mode == "0o600"
@@ -299,15 +258,18 @@ def _verify_backup(
         found.add(name)
         path = backup_dir / entry["path"]
         try:
-            snapshot = sqlite_snapshot(path)
-            restore = verify_clean_restore(path)
+            sqlite_evidence = verify_sqlite_evidence(
+                path,
+                expected_sha256=entry["sha256"],
+                required_mode="0o600",
+                require_clean_restore=True,
+            )
+            snapshot = sqlite_evidence["snapshot"]
+            restore = sqlite_evidence["cleanRestore"]
             valid = (
                 str(Path(entry["source"]).expanduser().resolve())
                 == expected_sources[name]
-                and snapshot["sha256"] == entry["sha256"]
-                and snapshot["integrity"] == "ok"
-                and snapshot["mode"] == "0o600"
-                and restore["integrity"] == "ok"
+                and sqlite_evidence["valid"]
             )
             evidence = {
                 "name": name,
@@ -337,49 +299,15 @@ def _verify_backup(
     )
 
 
-def _active_files(roots: list[Path]) -> tuple[list[Path], list[dict[str, str]]]:
-    files: set[Path] = set()
-    errors: list[dict[str, str]] = []
-    for root in roots:
-        resolved = root.expanduser().resolve()
-        if resolved.is_file():
-            files.add(resolved)
-        elif resolved.is_dir():
-            try:
-                files.update(
-                    path
-                    for path in resolved.rglob("*")
-                    if path.is_file() and path.stat().st_size <= 1024 * 1024
-                )
-            except OSError as exc:
-                errors.append({"root": str(resolved), "error": str(exc)})
-        else:
-            errors.append({"root": str(resolved), "error": "path is missing"})
-    return sorted(files), errors
-
-
 def _verify_active_references(
     candidates: list[dict[str, Any]], roots: list[Path]
 ) -> dict[str, Any]:
-    references: list[dict[str, str]] = []
     candidate_paths = {row["path"] for row in candidates}
-    active_files, errors = _active_files(roots)
-    for config_path in active_files:
-        try:
-            text = config_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for old_path in candidate_paths:
-            if old_path in text:
-                references.append({"config": str(config_path), "oldPath": old_path})
+    evidence = scan_active_path_references(candidate_paths, roots)
     return _check(
         "active-old-path-references",
-        not references and not errors,
-        {
-            "roots": [str(root.expanduser().resolve()) for root in roots],
-            "references": references,
-            "scanErrors": errors,
-        },
+        not evidence["references"] and not evidence["scanErrors"],
+        evidence,
     )
 
 
@@ -393,19 +321,23 @@ def cleanup_eligibility_report(
     max_backup_age_hours: float = 24.0,
 ) -> dict[str, Any]:
     now = (now or datetime.now(UTC)).astimezone(UTC)
-    manifest_path = manifest_path.expanduser().resolve()
-    migration = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path, migration = load_json_manifest(manifest_path)
     if (
         migration.get("schema") != MIGRATION_SCHEMA
         or migration.get("status") != "migrated"
     ):
         raise ValueError("not a completed Creator OS state migration manifest")
 
-    retain_until = _parse_time(str(migration["rollbackRetainUntil"]))
+    retention_evidence = retention_deadline_evidence(
+        str(migration["rollbackRetainUntil"]), now=now
+    )
     retention = _check(
         "rollback-retention",
-        now >= retain_until,
-        {"now": now.isoformat(), "retainUntil": retain_until.isoformat()},
+        retention_evidence["elapsed"],
+        {
+            "now": retention_evidence["now"],
+            "retainUntil": retention_evidence["retainUntil"],
+        },
     )
     originals, candidates = _verify_originals(migration)
     checks = [
