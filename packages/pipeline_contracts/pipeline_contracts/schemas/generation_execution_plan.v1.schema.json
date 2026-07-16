@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.generation_execution_plan.v1",
+  "title": "Campaign Factory Generation Execution Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "creativeMode",
+    "stillStrategy",
+    "motionStrategy",
+    "costClassification",
+    "providers",
+    "models",
+    "requiredApprovals",
+    "providerAuthorization",
+    "requiredLineage",
+    "qcRequirements",
+    "staticFallbackBehavior",
+    "allowedOutputSurface",
+    "paidImageGeneration",
+    "paidVideoGeneration",
+    "humanReviewRequired",
+    "schedulingAllowed",
+    "publishingAllowed"
+  ],
+  "properties": {
+    "schema": {"const": "campaign_factory.generation_execution_plan.v1"},
+    "creativeMode": {
+      "enum": [
+        "library_reuse",
+        "soul_static",
+        "motion_edit",
+        "best_only_kling",
+        "reference_video_remix"
+      ]
+    },
+    "stillStrategy": {
+      "enum": [
+        "owned_library_asset",
+        "soul_reference_pair",
+        "accepted_still",
+        "accepted_rank_one_still",
+        "soul_endpoint_pair"
+      ]
+    },
+    "motionStrategy": {
+      "enum": [
+        "library_existing_media",
+        "static_mp4_only",
+        "local_motion_edit",
+        "kling_best_only",
+        "seedance_or_kling_remix"
+      ]
+    },
+    "costClassification": {
+      "enum": [
+        "free",
+        "paid_still_free_video",
+        "paid_video",
+        "paid_still_and_video"
+      ]
+    },
+    "providers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "models": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "requiredApprovals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "providerAuthorization": {
+      "enum": ["forbidden", "required_per_paid_call"]
+    },
+    "requiredLineage": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "qcRequirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "staticFallbackBehavior": {
+      "enum": [
+        "not_required",
+        "required_for_every_accepted_still",
+        "required_before_motion",
+        "required_before_paid_motion",
+        "required_for_endpoint_candidates"
+      ]
+    },
+    "allowedOutputSurface": {"const": "campaign_review"},
+    "paidImageGeneration": {"type": "boolean"},
+    "paidVideoGeneration": {"type": "boolean"},
+    "humanReviewRequired": {"const": true},
+    "schedulingAllowed": {"const": false},
+    "publishingAllowed": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"creativeMode": {"const": "library_reuse"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "owned_library_asset"},
+        "motionStrategy": {"const": "library_existing_media"},
+        "costClassification": {"const": "free"},
+        "providerAuthorization": {"const": "forbidden"},
+        "staticFallbackBehavior": {"const": "not_required"},
+        "paidImageGeneration": {"const": false},
+        "paidVideoGeneration": {"const": false}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "soul_static"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "soul_reference_pair"},
+        "motionStrategy": {"const": "static_mp4_only"},
+        "costClassification": {"const": "paid_still_free_video"},
+        "providerAuthorization": {"const": "required_per_paid_call"},
+        "staticFallbackBehavior": {"const": "required_for_every_accepted_still"},
+        "paidImageGeneration": {"const": true},
+        "paidVideoGeneration": {"const": false}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "motion_edit"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "accepted_still"},
+        "motionStrategy": {"const": "local_motion_edit"},
+        "costClassification": {"const": "free"},
+        "providerAuthorization": {"const": "forbidden"},
+        "staticFallbackBehavior": {"const": "required_before_motion"},
+        "paidImageGeneration": {"const": false},
+        "paidVideoGeneration": {"const": false}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "best_only_kling"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "accepted_rank_one_still"},
+        "motionStrategy": {"const": "kling_best_only"},
+        "costClassification": {"const": "paid_video"},
+        "providerAuthorization": {"const": "required_per_paid_call"},
+        "staticFallbackBehavior": {"const": "required_before_paid_motion"},
+        "paidImageGeneration": {"const": false},
+        "paidVideoGeneration": {"const": true}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "reference_video_remix"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "soul_endpoint_pair"},
+        "motionStrategy": {"const": "seedance_or_kling_remix"},
+        "costClassification": {"const": "paid_still_and_video"},
+        "providerAuthorization": {"const": "required_per_paid_call"},
+        "staticFallbackBehavior": {"const": "required_for_endpoint_candidates"},
+        "paidImageGeneration": {"const": true},
+        "paidVideoGeneration": {"const": true}
+      }}
+    }
+  ]
+}

@@ -24,6 +24,7 @@ from .core import (
     sha256_file,
     slugify,
 )
+from .generation_execution_plan import GenerationExecutionPlan
 from .kling_selection_stage import validate_kling_selection_receipt
 from .persistence import utc_now
 from .provider_spend import (
@@ -46,7 +47,7 @@ def run_front_generation_stage(
     creator: str | None = None,
     soul_id: str | None = None,
     soul_name: str | None = None,
-    animation_mode: str,
+    execution_plan: GenerationExecutionPlan,
     scene_type: str = "room_selfie",
     dry_run: bool = True,
     apply: bool = False,
@@ -60,8 +61,19 @@ def run_front_generation_stage(
     variation_preset: str = "ig_subtle",
 ) -> dict[str, Any]:
     """Plan or submit the paid front-generation path behind fail-closed guards."""
-    if animation_mode not in {"static", "kling", "motion_edit"}:
-        raise ValueError("animation_mode must be static, kling, or motion_edit")
+    execution_plan_payload = execution_plan.to_contract()
+    if execution_plan.creative_mode not in {"soul_static", "best_only_kling"}:
+        raise ValueError(
+            f"{execution_plan.creative_mode} does not use the front-generation worker"
+        )
+    animation_mode = execution_plan.front_animation_mode
+    if (
+        execution_plan.creative_mode == "best_only_kling"
+        and accepted_still_path is None
+    ):
+        raise ValueError("best_only_kling requires an accepted still")
+    if animation_mode != "kling" and kling_selection_receipt_path is not None:
+        raise ValueError("Kling selection receipt requires best_only_kling mode")
     if not creator and not soul_id and not soul_name:
         raise ValueError("creator, soul_id, or soul_name is required")
     if kling_selection_receipt_path is not None and accepted_still_path is None:
@@ -81,8 +93,12 @@ def run_front_generation_stage(
         scene_type=scene_type,
         reference_pattern=reference_pattern,
     )
+    execution_plan_path = _write_execution_plan_pack(
+        dirs["reel_inputs"] / f"{stem}.generation_execution_plan.json",
+        execution_plan_payload,
+    )
     paid_generation_required = _paid_generation_required(
-        animation_mode=animation_mode,
+        execution_plan=execution_plan,
         accepted_still_path=accepted_still_path,
         kling_selection_receipt_path=kling_selection_receipt_path,
     )
@@ -95,6 +111,8 @@ def run_front_generation_stage(
             "campaign": campaign_slug,
             "referenceImagePath": str(reference_image),
             "animationMode": animation_mode,
+            "executionPlan": execution_plan_payload,
+            "executionPlanPath": str(execution_plan_path),
             "dryRun": dry_run,
             "apply": apply,
             "enablePaidGeneration": enable_paid_generation,
@@ -130,7 +148,8 @@ def run_front_generation_stage(
             creator=creator,
             soul_id=soul_id,
             soul_name=soul_name,
-            animation_mode=animation_mode,
+            execution_plan=execution_plan,
+            execution_plan_path=execution_plan_path,
             prompt_path=prompt_path,
             accepted_still_path=accepted_still_path,
             kling_selection_receipt_path=kling_selection_receipt_path,
@@ -180,7 +199,12 @@ def run_front_generation_stage(
         )
         registered_asset = None
         variation = None
-        if apply and not dry_run and accepted_still_path and animation_mode == "kling":
+        if (
+            apply
+            and not dry_run
+            and accepted_still_path
+            and execution_plan.motion_strategy == "kling_best_only"
+        ):
             video_result = _stage_result(stages, "kling_video")
             video_path = _local_video_path(video_result)
             if video_path is not None:
@@ -214,6 +238,7 @@ def run_front_generation_stage(
             "campaign": campaign_slug,
             "dryRun": dry_run or not apply,
             "apply": bool(apply and not dry_run),
+            "executionPlan": execution_plan_payload,
             "plan": plan,
             "registeredStaticAsset": registered_static_asset,
             "registeredStaticAssets": registered_static_assets,
@@ -233,12 +258,13 @@ def run_front_generation_stage(
 
 def _paid_generation_required(
     *,
-    animation_mode: str,
+    execution_plan: GenerationExecutionPlan,
     accepted_still_path: Path | None,
     kling_selection_receipt_path: Path | None,
 ) -> bool:
-    return accepted_still_path is None or (
-        animation_mode == "kling" and kling_selection_receipt_path is not None
+    return (execution_plan.paid_image_generation and accepted_still_path is None) or (
+        execution_plan.paid_video_generation
+        and kling_selection_receipt_path is not None
     )
 
 
@@ -295,7 +321,8 @@ def _build_stages(
     creator: str | None,
     soul_id: str | None,
     soul_name: str | None,
-    animation_mode: str,
+    execution_plan: GenerationExecutionPlan,
+    execution_plan_path: Path,
     prompt_path: Path,
     accepted_still_path: Path | None,
     kling_selection_receipt_path: Path | None,
@@ -305,6 +332,7 @@ def _build_stages(
     download: bool,
 ) -> list[dict[str, Any]]:
     stages: list[dict[str, Any]] = []
+    animation_mode = execution_plan.front_animation_mode
     if accepted_still_path is None:
         static_batches: list[dict[str, Any]] = []
         image_result = _invoke_generate_assets(
@@ -320,6 +348,8 @@ def _build_stages(
                 *_runtime_generation_args(
                     wait=wait, download=download, dry_run=dry_run
                 ),
+                "--execution-plan-file",
+                str(execution_plan_path),
             ],
         )
         if not dry_run:
@@ -384,6 +414,8 @@ def _build_stages(
                     *_runtime_generation_args(
                         wait=wait, download=download, dry_run=False
                     ),
+                    "--execution-plan-file",
+                    str(execution_plan_path),
                 ],
             )
             _require_generation_ok(sexy_result, "text-only Soul sexy variant")
@@ -460,33 +492,6 @@ def _build_stages(
                     "result": static_batch,
                 }
             )
-        if animation_mode == "static":
-            pass
-        elif animation_mode == "motion_edit":
-            stages.append(
-                {
-                    "name": "motion_edit",
-                    "status": "blocked",
-                    "paid": False,
-                    "estimatedCostCredits": 0,
-                    "commands": [],
-                    "reason": "Motion edit requires the accepted still path.",
-                }
-            )
-        else:
-            stages.append(
-                {
-                    "name": "kling_video",
-                    "status": "blocked",
-                    "paid": True,
-                    "estimatedCostCredits": None,
-                    "commands": [],
-                    "reason": (
-                        "Kling requires an accepted static fallback, safe audit, "
-                        "human approval, and best-only selection receipt."
-                    ),
-                }
-            )
         return stages
 
     accepted_still = Path(accepted_still_path).expanduser().resolve()
@@ -530,75 +535,69 @@ def _build_stages(
     )
     if animation_mode == "static":
         return stages
-    if animation_mode == "motion_edit":
-        stages.append(
-            {
-                "name": "motion_edit",
-                "status": "planned",
-                "paid": False,
-                "estimatedCostCredits": 0,
-                "commands": [],
-                "reason": (
-                    "Resume generation run --mode motion_edit with the accepted still; "
-                    "the canonical workflow retains this static fallback first."
-                ),
-            }
-        )
-    else:
-        if kling_selection_receipt_path is None:
-            stages.append(
-                {
-                    "name": "kling_video",
-                    "status": "blocked",
-                    "paid": True,
-                    "estimatedCostCredits": None,
-                    "commands": [],
-                    "reason": (
-                        "Kling is blocked until this static candidate wins an "
-                        "approved multi-candidate ranking batch."
-                    ),
-                }
-            )
-            return stages
-        selection = validate_kling_selection_receipt(
-            factory,
-            receipt_path=kling_selection_receipt_path,
-            accepted_still_path=accepted_still,
-            selected_static_asset=static_result.get("registeredAsset"),
-        )
-        video_result = _invoke_generate_assets(
-            factory,
-            [
-                "video-dry-run" if dry_run else "video",
-                "--prompt-json",
-                str(prompt_path),
-                "--stem",
-                stem,
-                "--start-image",
-                str(accepted_still),
-                "--campaign",
-                campaign_slug,
-                *_credit_args(campaign_slug, budget_cap_credits),
-                *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-                *_runtime_generation_args(
-                    wait=wait, download=download, dry_run=dry_run
-                ),
-            ],
-        )
-        if not dry_run:
-            _require_generation_ok(video_result, "Kling video")
-        video_result["klingSelectionReceipt"] = selection
+    if kling_selection_receipt_path is None:
         stages.append(
             {
                 "name": "kling_video",
-                "status": "planned" if dry_run else "submitted",
+                "status": "blocked",
                 "paid": True,
-                "estimatedCostCredits": _provider_quote_amount(video_result),
-                "commands": video_result.get("commands") or [],
-                "result": video_result,
+                "estimatedCostCredits": None,
+                "commands": [],
+                "reason": (
+                    "Kling is blocked until this static candidate wins an "
+                    "approved multi-candidate ranking batch."
+                ),
             }
         )
+        return stages
+    selection = validate_kling_selection_receipt(
+        factory,
+        receipt_path=kling_selection_receipt_path,
+        accepted_still_path=accepted_still,
+        selected_static_asset=static_result.get("registeredAsset"),
+    )
+    video_result = _invoke_generate_assets(
+        factory,
+        [
+            "video-dry-run" if dry_run else "video",
+            "--prompt-json",
+            str(prompt_path),
+            "--stem",
+            stem,
+            "--start-image",
+            str(accepted_still),
+            "--campaign",
+            campaign_slug,
+            *_credit_args(campaign_slug, budget_cap_credits),
+            *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
+            *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
+            "--execution-plan-file",
+            str(execution_plan_path),
+        ],
+    )
+    if not dry_run:
+        _require_generation_ok(video_result, "Kling video")
+    video_result["klingSelectionReceipt"] = selection
+    stages.append(
+        {
+            "name": "kling_video",
+            "status": "planned" if dry_run else "submitted",
+            "paid": True,
+            "estimatedCostCredits": _provider_quote_amount(video_result),
+            "commands": video_result.get("commands") or [],
+            "result": video_result,
+        }
+    )
     return stages
+
+
+def _write_execution_plan_pack(path: Path, payload: dict[str, Any]) -> Path:
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _combine_generated_static_candidate_batches(
