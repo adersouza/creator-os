@@ -107,13 +107,22 @@ def test_generation_execution_plan_rejects_policy_drift() -> None:
         validate_generation_execution_plan(payload)
 
 
-def test_contentforge_campaign_audit_response_rejects_missing_full_response_field() -> (
+def test_contentforge_campaign_audit_response_accepts_optional_diagnostics_missing() -> (
     None
 ):
     payload = load_example("contentforge_campaign_audit_response")
-    del payload["audioFitSignals"]
+    del payload["animationMode"]
+    del payload["allowStaticOpening"]
+    del payload["timings"]
 
-    with pytest.raises(ContractValidationError, match="audioFitSignals"):
+    validate_contentforge_campaign_audit_response(payload)
+
+
+def test_contentforge_campaign_audit_response_rejects_missing_decision_field() -> None:
+    payload = load_example("contentforge_campaign_audit_response")
+    del payload["readinessSummary"]
+
+    with pytest.raises(ContractValidationError, match="readinessSummary"):
         validate_contentforge_campaign_audit_response(payload)
 
 

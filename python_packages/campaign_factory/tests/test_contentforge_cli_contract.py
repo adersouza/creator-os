@@ -42,7 +42,7 @@ def test_campaign_profile_rejects_drifted_node_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     response = load_example("contentforge_campaign_audit_response")
-    del response["timings"]
+    del response["readinessSummary"]
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -51,7 +51,9 @@ def test_campaign_profile_rejects_drifted_node_response(
         ),
     )
 
-    with pytest.raises(RuntimeError, match="response contract violation.*timings"):
+    with pytest.raises(
+        RuntimeError, match="response contract violation.*readinessSummary"
+    ):
         run_contentforge(
             _contentforge_root(tmp_path),
             "similarity",

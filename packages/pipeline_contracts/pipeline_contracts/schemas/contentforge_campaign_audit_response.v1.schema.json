@@ -7,8 +7,6 @@
   "required": [
     "contractVersion",
     "auditProfile",
-    "animationMode",
-    "allowStaticOpening",
     "targetFile",
     "comparisonFiles",
     "layers",
@@ -32,7 +30,6 @@
     "audioFitSignals",
     "referenceMatch",
     "multiAccountOriginalityAudit",
-    "timings",
     "filesAnalyzed"
   ],
   "properties": {

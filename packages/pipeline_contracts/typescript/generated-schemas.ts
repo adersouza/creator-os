@@ -2110,8 +2110,6 @@ export const generatedPipelineContractSchemas = {
 	  "required": [
 	    "contractVersion",
 	    "auditProfile",
-	    "animationMode",
-	    "allowStaticOpening",
 	    "targetFile",
 	    "comparisonFiles",
 	    "layers",
@@ -2135,7 +2133,6 @@ export const generatedPipelineContractSchemas = {
 	    "audioFitSignals",
 	    "referenceMatch",
 	    "multiAccountOriginalityAudit",
-	    "timings",
 	    "filesAnalyzed"
 	  ],
 	  "properties": {
