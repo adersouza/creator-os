@@ -53,6 +53,14 @@ uv run --package reel-factory python -m reel_factory.pipeline_run --help
 uv run --package reel-factory python -m reel_factory.review_batch_guard --help
 ```
 
+`reel_pipeline.py` remains the real command boundary: it owns argument parsing,
+run coordination, audio-intent finalization, and watch mode. Its heavy worker
+responsibilities are split by stage: `reel_pipeline_render.py` renders one
+output, `reel_pipeline_selection.py` discovers and fits captions/recipes, and
+`reel_pipeline_support.py` owns shared render policy and lineage helpers. The
+entrypoint exposes only the caller-proven compatibility names in `__all__`;
+new internal callers import the owning module directly.
+
 `pipeline_run` never calculates campaign strategy. It requires `--plan` with a
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
