@@ -45,6 +45,7 @@ from .inventory_planning import InventoryPlanningRepository
 from .inventory_recovery import InventoryRecoveryRepository
 from .inventory_reservations import InventoryReservationRepository
 from .learning_score import account_reward_baselines as _account_reward_baselines
+from .library_reuse import LibraryReuseRepository
 from .lifecycle_reporting import LifecycleReportingRepository
 from .live_acceptance import LiveAcceptanceRepository
 from .live_scale import LiveScaleRepository
@@ -287,6 +288,25 @@ class CampaignDomainServices:
             upsert_model=self.models.upsert_model,
             upsert_campaign=self.models.upsert_campaign,
             upsert_account=self.models.upsert_account,
+            create_pipeline_job=self.events.create_pipeline_job,
+            start_pipeline_job=self.events.start_pipeline_job,
+            finish_pipeline_job=self.events.finish_pipeline_job,
+            fail_pipeline_job=self.events.fail_pipeline_job,
+            record_event=self.events.record_event,
+            ensure_graph_node=self.graph.ensure_graph_node,
+            ensure_graph_edge=self.graph.ensure_graph_edge,
+            graph_id_for=self.graph.graph_id_for,
+        )
+        self.library_reuse = LibraryReuseRepository(
+            conn,
+            new_id=new_id,
+            slugify=slugify,
+            utc_now=utc_now,
+            sha256_file=sha256_file,
+            upsert_model=self.models.upsert_model,
+            upsert_campaign=self.models.upsert_campaign,
+            campaign_dirs=self.campaign_dirs,
+            audit_campaign=audit_campaign,
             create_pipeline_job=self.events.create_pipeline_job,
             start_pipeline_job=self.events.start_pipeline_job,
             finish_pipeline_job=self.events.finish_pipeline_job,
