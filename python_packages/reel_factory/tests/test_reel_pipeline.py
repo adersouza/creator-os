@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -47,17 +48,13 @@ from reel_factory.reel_pipeline import (
     compute_job_key,
     effective_placement_mode_for_caption,
     enforce_production_identity_provider,
-    ensure_source_asset_lineage,
     limit_render_pool,
-    load_asset_prompt_set,
     normalize_rendered_mp4_metadata,
     phone_creation_time,
     reconcile_interrupted_temp_outputs,
-    source_lineage_path_for,
     timed_caption_band,
     vary_band_within_lane,
     write_caption_lineage_sidecar,
-    write_generated_asset_lineage_sidecar,
     write_required_similarity_audit,
 )
 from reel_factory.render_plan import RenderPlan
@@ -66,6 +63,24 @@ from pipeline_contracts import ContractValidationError, validate_generated_asset
 
 
 class ReelPipelineTests(unittest.TestCase):
+    def test_reel_pipeline_rejects_retired_asset_prompt_escape_hatch(self):
+        from reel_factory import reel_pipeline
+
+        stderr = io.StringIO()
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["reel_pipeline", "--asset-prompt-json", "prompt.json"],
+            ),
+            patch.object(sys, "stderr", stderr),
+            self.assertRaises(SystemExit) as exc_info,
+        ):
+            reel_pipeline.main()
+
+        self.assertEqual(exc_info.exception.code, 2)
+        self.assertIn("unrecognized arguments: --asset-prompt-json", stderr.getvalue())
+
     def test_split_modules_preserve_compatibility_entrypoint(self):
         from reel_factory import (
             reel_pipeline,
@@ -1786,7 +1801,6 @@ class ReelPipelineTests(unittest.TestCase):
             phone_finalize=False,
             rerender_all=True,
             strict_preflight=True,
-            asset_prompt_json=None,
         )
         cmd = build_single_job_enqueue_cmd(
             root=Path("/tmp/reel"),
@@ -1841,7 +1855,6 @@ class ReelPipelineTests(unittest.TestCase):
             phone_finalize=True,
             rerender_all=False,
             strict_preflight=False,
-            asset_prompt_json=None,
         )
 
         cmd = build_single_job_enqueue_cmd(
@@ -1854,53 +1867,6 @@ class ReelPipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(cmd[cmd.index("--font") + 1], DEFAULT_CAPTION_FONT)
-
-    def test_generated_asset_lineage_sidecar_references_source_lineage(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            clean = root / "clean.json"
-            src = root / "clip_001.mp4"
-            out = root / "out.mp4"
-            src.write_bytes(b"source")
-            out.write_bytes(b"output")
-            clean.write_text(
-                '{"higgsfieldGridPrompt":"grid","klingMotionPrompt":"motion","notes":"ok"}',
-                encoding="utf-8",
-            )
-            prompt_set, prompt_path = load_asset_prompt_set(clean)
-            source_lineage = ensure_source_asset_lineage(
-                src,
-                prompt_set=prompt_set,
-                prompt_source_path=prompt_path,
-            )
-            with patch(
-                "reel_factory.reel_pipeline.enrich_lineage_identity",
-                side_effect=lambda payload, *_args, **_kwargs: {
-                    **payload,
-                    "contentFingerprint": "a" * 64,
-                    "perceptualFingerprint": "phash64:0000000000000000",
-                    "perceptualClusterId": "phash64:0000000000000000",
-                    "perceptualAlgorithm": "frame_sampled_phash_v1",
-                    "sourceFamilyId": "reference_1",
-                },
-            ):
-                sidecar = write_generated_asset_lineage_sidecar(
-                    out,
-                    source_lineage_path=source_lineage,
-                    render_job_key="job",
-                    source_hash="src-hash",
-                )
-            source_data = json.loads(source_lineage.read_text(encoding="utf-8"))
-            data = json.loads(sidecar.read_text(encoding="utf-8"))
-            self.assertEqual(source_lineage, source_lineage_path_for(src))
-            self.assertEqual(
-                source_data["generation"]["prompts"]["higgsfieldGridPrompt"], "grid"
-            )
-            self.assertEqual(data["source"]["sourceLineagePath"], str(source_lineage))
-            self.assertEqual(data["schema"], "reel_factory.generated_asset_lineage.v1")
-            self.assertEqual(data["generation"]["tool"], "reel_factory.reel_pipeline")
-            self.assertEqual(data["render"]["renderJobKey"], "job")
-            self.assertTrue(data["review"]["humanReviewRequired"])
 
     def test_generated_asset_lineage_contract_rejects_malformed_payload(self):
         with self.assertRaises(ContractValidationError):
@@ -2057,17 +2023,6 @@ class ReelPipelineTests(unittest.TestCase):
                         }
                     ],
                 )
-
-    def test_generated_asset_lineage_rejects_legacy_prompt_json(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            legacy = Path(tmp) / "legacy.json"
-            legacy.write_text(
-                '{"soul_id_2x3_prompt":"grid","kling_video_prompt":"motion","kling_negative_prompt":"bad"}',
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(ValueError, "unsupported fields"):
-                load_asset_prompt_set(legacy)
 
     def test_job_key_changes_for_non_default_ratio(self):
         recipe = Recipe("v01_original")

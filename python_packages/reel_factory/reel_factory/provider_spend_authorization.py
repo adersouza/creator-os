@@ -113,7 +113,6 @@ def spend_scope_args_for_plan(plan: Any, *, mode: str) -> list[str]:
         ("--video-reference", getattr(plan, "video_reference", None)),
         ("--image-model", getattr(plan, "image_model", None)),
         ("--video-model", getattr(plan, "video_model", None)),
-        ("--image-mode", getattr(plan, "image_mode", None)),
         ("--image-aspect-ratio", getattr(plan, "image_aspect_ratio", None)),
         ("--image-quality", getattr(plan, "image_quality", None)),
         ("--video-aspect-ratio", getattr(plan, "video_aspect_ratio", None)),

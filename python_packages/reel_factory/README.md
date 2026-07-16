@@ -82,17 +82,11 @@ audio.
 ## Legacy Boundary
 
 The normal root command does not expose Grok/grid/cropped-panel/Qwen/Ollama/
-Florence/visual-schema generation. Orphaned overnight-grid, reference-grid, and
-visual benchmark harnesses were deleted. Remaining old-looking modules are kept
-only when a current import, orchestrator compatibility path, QC seam, or
-fail-closed guard proves a caller:
-
-- `deprecated_generators.py` blocks deprecated execution by default.
-- selected prompt/Grok helpers remain imported by anatomy/reference and gated
-  orchestrator compatibility.
-- grid crop utilities retain active import/test coverage but are not a default
-  generation command.
-- FFmpeg/FFprobe paths remain active rendering and evidence infrastructure.
+Florence/visual-schema generation. The legacy prompt-generation, six-pack, and
+manual grid-crop execution paths were removed after repository and runtime
+caller proof. The narrow XAI vision transport remains only for fail-closed
+anatomy/postability QC. FFmpeg/FFprobe paths remain active rendering and
+evidence infrastructure.
 
 ## State And Source
 

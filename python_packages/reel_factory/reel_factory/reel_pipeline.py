@@ -77,14 +77,11 @@ from .reel_pipeline_support import (
     centered_static_caption_band,
     compute_job_key,
     effective_placement_mode_for_caption,
-    ensure_source_asset_lineage,
-    load_asset_prompt_set,
     log,
     phone_creation_time,
     reexec_with_homebrew_gi_env_if_needed,
     resolve_caption_font_policy,
     sha256_file,
-    source_lineage_path_for,
     timed_caption_band,
     vary_band_within_lane,
     write_caption_lineage_sidecar,
@@ -114,9 +111,7 @@ __all__ = [
     "compute_job_key",
     "effective_placement_mode_for_caption",
     "enforce_production_identity_provider",
-    "ensure_source_asset_lineage",
     "limit_render_pool",
-    "load_asset_prompt_set",
     "main",
     "normalize_rendered_mp4_metadata",
     "phone_creation_time",
@@ -125,7 +120,6 @@ __all__ = [
     "resolve_caption_font_policy",
     "resolve_segment_bands",
     "run_watch_mode",
-    "source_lineage_path_for",
     "timed_caption_band",
     "vary_band_within_lane",
     "write_caption_lineage_sidecar",
@@ -205,12 +199,6 @@ async def amain(args):
 
     manifest = Manifest(manifest_path)
     reconcile_interrupted_temp_outputs(proc_dir, manifest)
-    asset_prompt_info = (
-        load_asset_prompt_set(Path(args.asset_prompt_json))
-        if args.asset_prompt_json
-        else None
-    )
-
     # ── Load per-account profile (if --account set) ────────────────────
     account: dict = {}
     if args.account:
@@ -366,20 +354,10 @@ async def amain(args):
                 src_dims=src_dims_cache.get(src_hash, (1080, 1920)),
                 video_stem=video.stem,
             )
-            prompt_text = ""
-            if asset_prompt_info:
-                prompt_set, _prompt_source_path = asset_prompt_info
-                prompt_text = "\n".join(
-                    [
-                        prompt_set.higgsfieldGridPrompt,
-                        prompt_set.klingMotionPrompt,
-                        prompt_set.notes,
-                    ]
-                )
             reel_scene_tags = classify_reel_scene_tags(
                 frame_type=frame_type,
                 video_stem=video.stem,
-                prompt_text=prompt_text,
+                prompt_text="",
             )
             if args.caption_topic == "off":
                 caption_topic = None
@@ -387,7 +365,7 @@ async def amain(args):
                 caption_topic = infer_caption_topic_for_reel(
                     frame_type=frame_type,
                     video_stem=video.stem,
-                    prompt_text=prompt_text,
+                    prompt_text="",
                 )
             else:
                 caption_topic = args.caption_topic
@@ -565,7 +543,6 @@ async def amain(args):
                             placement_debug=args.placement_debug,
                             phone_finalize=args.phone_finalize,
                             rerender_all=args.rerender_all,
-                            asset_prompt_info=asset_prompt_info,
                             caption_lineage=video_cap_set.hook_lineage.get(hook_idx),
                             account_scope=account_scope,
                             requested_band=video_cap_set.band,
@@ -1080,11 +1057,6 @@ def main():
         choices=["sqlite", "redis", "rq"],
         default="sqlite",
         help="queue backend for --enqueue-only (rq uses the Redis-compatible backend)",
-    )
-    ap.add_argument(
-        "--asset-prompt-json",
-        default=None,
-        help="Optional clean Grok prompt JSON to validate and write as generated asset lineage sidecars.",
     )
     ap.add_argument(
         "--ai-qc",

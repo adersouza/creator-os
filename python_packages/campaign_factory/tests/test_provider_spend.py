@@ -70,6 +70,26 @@ def _scope(tmp_path: Path) -> dict:
     )
 
 
+def test_combined_create_alias_is_not_an_authorizable_runtime_mode(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="mode is not a paid generation mode: create"):
+        build_generate_assets_spend_scope(
+            ["create", "--stem", "clip_1", "--soul-id", "soul_1"],
+            root=tmp_path,
+        )
+
+
+def test_canonical_image_scope_represents_exactly_one_provider_call(
+    tmp_path: Path,
+) -> None:
+    scope = _scope(tmp_path)
+
+    assert scope["mode"] == "image"
+    assert scope["providerCallCount"] == 1
+    assert scope["providerModels"] == ["text2image_soul_v2"]
+
+
 def test_campaign_issues_consumes_and_records_authoritative_cost(
     tmp_path: Path,
 ) -> None:

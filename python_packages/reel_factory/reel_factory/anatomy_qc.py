@@ -3,10 +3,9 @@
 
 The failure mode that matters -- a butt on the wrong side, a merged limb, six
 fingers -- is exactly what MediaPipe/pose geometry CANNOT catch: it force-fits a
-skeleton to garbage and reports "fine". A vision model catches it. This reuses
-the Grok-vision seam already wired for reference analysis
-(`generate_prompts.build_xai_payload`/`call_grok`) -- no new deps -- and asks one
-tight question: is the anatomy physically plausible?
+skeleton to garbage and reports "fine". A vision model catches it through the
+narrow XAI vision transport and asks one tight question: is the anatomy
+physically plausible?
 
 Fail-closed: if the provider is missing or the call fails, the image is NOT
 auto-approved (`available=False`, `plausible=None`, `is_postable=False`). An
@@ -23,7 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .generate_prompts import (
+from .xai_vision import (
     DEFAULT_MODEL,
     build_xai_payload,
     call_grok,

@@ -881,7 +881,7 @@ def _generated_prompt_text(lineage: dict[str, Any]) -> str:
 def _invoke_generate_assets(factory: Any, args: list[str]) -> dict[str, Any]:
     authorization: dict[str, Any] | None = None
     authorization_path: Path | None = None
-    if args and args[0] in {"create", "image", "reference-image", "video"}:
+    if args and args[0] in {"image", "reference-image", "video"}:
         secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
         scope = build_generate_assets_spend_scope(
             args, root=factory.settings.reel_factory_root

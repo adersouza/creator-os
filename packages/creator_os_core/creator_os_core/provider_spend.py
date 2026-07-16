@@ -18,7 +18,7 @@ from typing import Any
 
 AUTHORIZATION_SCHEMA = "campaign_factory.provider_spend_authorization.v1"
 HIGGSFIELD_CREDIT_UNIT = "higgsfield_credits"
-PAID_GENERATION_MODES = {"create", "image", "reference-image", "video"}
+PAID_GENERATION_MODES = {"image", "reference-image", "video"}
 
 
 class SpendAuthorizationError(PermissionError):
@@ -91,16 +91,13 @@ def build_generate_assets_spend_scope(
     start_image = path_option("--start-image")
     end_image = path_option("--end-image")
     video_reference = path_option("--video-reference")
-    image_count = 6 if options.get("--image-mode") == "six-pack" else 1
-    provider_calls = image_count if mode == "image" else 1
-    if mode == "create":
-        provider_calls += 1
+    provider_calls = 1
     provider_models: list[str] = []
-    if mode in {"create", "image", "reference-image"}:
-        provider_models.extend(
-            [str(options.get("--image-model") or "text2image_soul_v2")] * image_count
+    if mode in {"image", "reference-image"}:
+        provider_models.append(
+            str(options.get("--image-model") or "text2image_soul_v2")
         )
-    if mode in {"create", "video"}:
+    if mode == "video":
         provider_models.append(str(options.get("--video-model") or "kling3_0"))
     scope = {
         "mode": mode,
