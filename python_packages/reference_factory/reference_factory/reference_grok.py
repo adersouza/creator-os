@@ -27,7 +27,7 @@ from .prompt_records import (
     write_jsonl_records as _write_jsonl_records,
 )
 from .reference_analysis import _json_from_model_text
-from .reference_analysis_queue import (
+from .reference_intake import (
     import_reference_analysis,
     queue_reference_analysis,
 )
@@ -55,7 +55,6 @@ def analyze_reference_with_grok_api(
     api_key: str | None = None,
     prompt_style: str = "imageat",
     ffmpeg: str = "ffmpeg",
-    _chat_completion: Any = None,
 ) -> dict[str, object]:
     resolved_key = (
         api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
@@ -94,7 +93,7 @@ def analyze_reference_with_grok_api(
                 ffmpeg=ffmpeg,
             )
             prompt = _grok_prompt_builder(job, prompt_style=prompt_style)
-            response = (_chat_completion or _xai_chat_completion)(
+            response = _xai_chat_completion(
                 api_key=resolved_key,
                 model=model,
                 prompt=prompt,
@@ -163,7 +162,6 @@ def compile_prompts_with_grok_api(
     api_key: str | None = None,
     ffmpeg: str = "ffmpeg",
     instructions: str | None = None,
-    _chat_completion: Any = None,
 ) -> dict[str, object]:
     resolved_key = (
         api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
@@ -190,7 +188,7 @@ def compile_prompts_with_grok_api(
     reference_image = _grok_reference_image(
         reference_media, frame_dir=frame_dir, reference_id=reference_id, ffmpeg=ffmpeg
     )
-    response = (_chat_completion or _xai_chat_completion)(
+    response = _xai_chat_completion(
         api_key=resolved_key,
         model=model,
         prompt=_grok_prompt_compiler_prompt(

@@ -26,11 +26,10 @@ from .config import DEFAULT_DB_PATH
 from .db import connect
 from .reference_intake import (
     export_analysis_queue,
-    export_video_prompts,
-    generate_video_prompts,
     import_reference_analysis,
     queue_reference_analysis,
 )
+from .reference_prompt_generation import export_video_prompts, generate_video_prompts
 from .review import (
     reference_detail,
     reference_query,
