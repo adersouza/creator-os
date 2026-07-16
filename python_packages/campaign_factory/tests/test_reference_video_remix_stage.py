@@ -14,8 +14,8 @@ from campaign_factory.reference_video_remix_stage import (
     probe_reference_video,
     run_reference_video_remix_stage,
 )
+from campaign_test_support import add_source_asset, make_factory
 from PIL import Image
-from test_core import add_source_asset, make_factory
 
 
 class FakeStructuralSeams:

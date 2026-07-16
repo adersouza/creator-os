@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 from campaign_factory.db import init_db
-from test_core import add_rendered_asset, isolate_account_groups, make_factory
+from campaign_test_support import (
+    add_rendered_asset,
+    isolate_account_groups,
+    make_factory,
+)
 
 
 def _plan_count(cf, rendered_asset_id: str = "asset_1") -> int:

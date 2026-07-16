@@ -11,11 +11,11 @@ PIPELINE_CONTRACTS = MONOREPO_ROOT / "packages" / "pipeline_contracts"
 if PIPELINE_CONTRACTS.exists():
     sys.path.insert(0, str(PIPELINE_CONTRACTS))
 
-# Make sibling test modules (e.g. test_core helpers) importable under
+# Make the narrow sibling support modules importable under
 # --import-mode=importlib, where test files are NOT auto-added to sys.path.
-# `from tests.test_core import ...` cannot work from the monorepo root: the
+# `from tests.campaign_test_support import ...` cannot work from the monorepo root: the
 # repo-root `tests/` directory shadows the `tests` name, and this directory
-# has no __init__.py. Bare `from test_core import ...` + this path entry does.
+# has no __init__.py. Bare support-module imports plus this path entry do.
 _TESTS_DIR = str(Path(__file__).resolve().parent)
 if _TESTS_DIR not in sys.path:
     sys.path.insert(0, _TESTS_DIR)
