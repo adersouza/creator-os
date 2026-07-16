@@ -257,6 +257,22 @@ def test_campaign_draft_payload_v2_rejects_trial_collaborators():
         validate_campaign_draft_payload(payload)
 
 
+def test_campaign_draft_payload_v2_rejects_strategy_without_trial_flag():
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    payload["drafts"][0]["trialGraduationStrategy"] = "MANUAL"
+
+    with pytest.raises(ContractValidationError, match="trialGraduationStrategy"):
+        validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v2_requires_regular_reels_in_feed():
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    payload["drafts"][0]["shareToFeed"] = False
+
+    with pytest.raises(ContractValidationError, match="shareToFeed"):
+        validate_campaign_draft_payload(payload)
+
+
 def test_recommendation_accuracy_report_requires_causal_graph_ids():
     payload = load_example("recommendation_accuracy_report")
     del payload["reportGraphId"]

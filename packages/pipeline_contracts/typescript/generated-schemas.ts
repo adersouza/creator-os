@@ -1903,6 +1903,47 @@ export const generatedPipelineContractSchemas = {
 	                }
 	              }
 	            }
+	          },
+	          {
+	            "if": {
+	              "required": [
+	                "instagramTrialReels"
+	              ],
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": false
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "trialGraduationStrategy": {
+	                  "const": null
+	                }
+	              }
+	            }
+	          },
+	          {
+	            "if": {
+	              "required": [
+	                "distributionSurface"
+	              ],
+	              "properties": {
+	                "distributionSurface": {
+	                  "const": "regular_reel"
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": false
+	                },
+	                "shareToFeed": {
+	                  "const": true
+	                }
+	              }
+	            }
 	          }
 	        ]
 	      }
