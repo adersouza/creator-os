@@ -252,36 +252,53 @@ def _run_library_reuse_mode(
     require_generation_execution_mode(execution_plan, "library_reuse")
     _require(library_folder, "library_folder")
     folder = Path(library_folder).expanduser().resolve()
-    if not folder.is_dir():
-        raise FileNotFoundError(f"library folder not found: {folder}")
     _require(model_slug, "model_slug")
     if variant_count <= 0 or workers <= 0:
         raise ValueError("variant_count and workers must be positive")
     if output_format not in {"reel", "slideshow", "auto"}:
         raise ValueError("output_format must be reel, slideshow, or auto")
+    if output_format == "slideshow":
+        raise ValueError(
+            "library_reuse_output_format_unsupported: Library Reuse preserves MP4s "
+            "one-to-one and cannot render a slideshow"
+        )
     if dry_run:
+        selections = factory.domains.library_reuse.plan(folder)
         return {
             "schema": "campaign_factory.library_reuse_preflight.v1",
             "status": "planned",
             "folder": str(folder),
             "model": model_slug,
-            "format": output_format,
-            "variantCount": variant_count,
-            "workers": workers,
+            "format": "reel",
+            "selectedCount": len(selections),
+            "selected": [
+                {
+                    "sourcePath": str(item.source_path),
+                    "sourceSha256": item.source_sha256,
+                    "mediaIdentity": item.media_identity,
+                    "outputFilename": item.output_filename,
+                }
+                for item in selections
+            ],
+            "variantCountRequested": variant_count,
+            "variantsCreated": 0,
+            "workersRequested": workers,
+            "renderingPerformed": False,
             "providerCalls": 0,
             "paidGenerationAllowed": False,
             "autoApprovalAllowed": False,
             "draftExportAllowed": False,
+            "distributionDefaults": {
+                "surface": "regular_reel",
+                "instagramTrialReels": False,
+                "shareToFeed": True,
+                "collaborators": [],
+            },
         }
-    return factory.domains.make_batch_repo.make_batch(
+    return factory.domains.library_reuse.run(
         folder=folder,
         campaign_slug=campaign_slug,
         model_slug=model_slug,
-        output_format=output_format,
-        variant_count=variant_count,
-        dry_run_export=True,
-        workers=workers,
-        auto_approve_warning_only=False,
     )
 
 
