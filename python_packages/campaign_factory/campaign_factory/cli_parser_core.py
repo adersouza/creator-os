@@ -319,7 +319,7 @@ def register_core_commands(sub) -> None:
             "feed_single",
             "feed_carousel",
         ],
-        default=None,
+        default="regular_reel",
         help="Export only the selected distribution surface",
     )
     export.add_argument(

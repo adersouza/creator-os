@@ -12,7 +12,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from creator_os_core.fileops import atomic_write_text
 from creator_os_core.runtime_guards import require_global_write_allowed
-from reel_factory.reference_video_remix import (
+from reel_factory.worker_api import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,
 )

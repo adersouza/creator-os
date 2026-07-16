@@ -1339,11 +1339,16 @@ def _draft_metadata(
     if draft.get("previewScheduleOnly"):
         metadata["previewScheduleOnly"] = True
     if instagram_trial_reels:
+        trial_graduation_strategy = (
+            str(draft.get("trialGraduationStrategy") or "").strip().upper()
+        )
+        if trial_graduation_strategy not in {"MANUAL", "SS_PERFORMANCE"}:
+            raise ValueError(
+                "Trial Reel draft requires trialGraduationStrategy=MANUAL or SS_PERFORMANCE"
+            )
         metadata["trialReels"] = True
         metadata["shareToFeed"] = False
-        metadata["trialGraduationStrategy"] = (
-            draft.get("trialGraduationStrategy") or "MANUAL"
-        )
+        metadata["trialGraduationStrategy"] = trial_graduation_strategy
     else:
         metadata["shareToFeed"] = bool(draft.get("shareToFeed"))
     if draft.get("trialGroupId"):

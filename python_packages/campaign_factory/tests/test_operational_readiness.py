@@ -91,6 +91,25 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
             second=0, microsecond=0
         )
         isolate_account_groups(cf, [f"stacey_{index}" for index in range(1, 6)])
+        projected_at = datetime.now(UTC).isoformat()
+        for account_idx in range(5):
+            instagram_account_id = f"stacey_{account_idx + 1}"
+            account_row = cf.conn.execute(
+                "SELECT id FROM accounts WHERE external_id = ?",
+                (instagram_account_id,),
+            ).fetchone()
+            cf.domains.models.project_instagram_account_evidence(
+                account_row["id"],
+                capability="eligible",
+                oauth_granted_scopes=["instagram_business_content_publish"],
+                oauth_scopes_verified_at=projected_at,
+                checked_at=projected_at,
+                reason="test_fixture_eligible",
+                is_active=True,
+                status="active",
+                needs_reauth=False,
+                projection_observed_at=projected_at,
+            )
         for day in range(7):
             for account_idx in range(5):
                 account = f"stacey_{account_idx + 1}"
@@ -105,6 +124,10 @@ def test_mass_production_readiness_report_can_mark_pilot_ready(tmp_path: Path):
                         instagram_account_id=account,
                         planned_window_start=slot.isoformat(),
                         planned_window_end=(slot + timedelta(minutes=30)).isoformat(),
+                        instagram_trial_reels=surface == "trial_reel",
+                        trial_graduation_strategy=(
+                            "MANUAL" if surface == "trial_reel" else None
+                        ),
                     )
 
         report = build_mass_production_readiness_report(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -79,8 +80,14 @@ def project_account(
     needs_reauth: bool = False,
     capability: str = "eligible",
     scopes: list[str] | None = None,
+    projection_age_hours: float | None = 0,
 ) -> dict:
     account = cf.domains.models.upsert_account(handle, external_id=external_id)
+    projection_observed_at = (
+        None
+        if projection_age_hours is None
+        else (datetime.now(UTC) - timedelta(hours=projection_age_hours)).isoformat()
+    )
     return cf.domains.models.project_instagram_account_evidence(
         account["id"],
         capability=capability,
@@ -94,7 +101,7 @@ def project_account(
         status=status,
         needs_reauth=needs_reauth,
         sync_cohort="warm",
-        projection_observed_at="2026-07-15T12:00:00+00:00",
+        projection_observed_at=projection_observed_at,
     )
 
 
@@ -175,6 +182,72 @@ def test_trial_unknown_requires_bounded_canary_and_known_scope(tmp_path: Path):
         assert blocked["allowed"] is False
         assert allowed["decisionReason"] == "trial_capability_operator_canary"
         assert allowed["allowed"] is True
+    finally:
+        cf.close()
+
+
+@pytest.mark.parametrize(
+    ("projection_age_hours", "reason"),
+    [
+        (None, "trial_account_projection_observed_at_missing"),
+        (25, "trial_account_projection_stale"),
+    ],
+)
+def test_trial_fails_closed_on_missing_or_stale_account_projection(
+    tmp_path: Path,
+    projection_age_hours: float | None,
+    reason: str,
+):
+    cf = make_factory(tmp_path)
+    try:
+        account = project_account(
+            cf,
+            capability="eligible",
+            scopes=["instagram_business_content_publish"],
+            projection_age_hours=projection_age_hours,
+        )
+
+        decision = evaluate_account_eligibility(
+            cf.conn,
+            account_id=account["id"],
+            surface="trial_reel",
+            requires_trial_capability=True,
+        )
+
+        assert decision["allowed"] is False
+        assert decision["decisionReason"] == reason
+        assert decision["operatorAction"] == "sync_threadsdashboard_account_projection"
+    finally:
+        cf.close()
+
+
+def test_trial_fails_closed_on_invalid_account_projection_timestamp(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        account = project_account(
+            cf,
+            capability="eligible",
+            scopes=["instagram_business_content_publish"],
+        )
+        cf.conn.execute(
+            "UPDATE accounts SET threadsdash_projection_observed_at = 'not-a-date' "
+            "WHERE id = ?",
+            (account["id"],),
+        )
+        cf.conn.commit()
+
+        decision = evaluate_account_eligibility(
+            cf.conn,
+            account_id=account["id"],
+            surface="trial_reel",
+            requires_trial_capability=True,
+        )
+
+        assert decision["allowed"] is False
+        assert (
+            decision["decisionReason"] == "trial_account_projection_observed_at_invalid"
+        )
+        assert decision["account"]["projectionObservedAt"] is None
     finally:
         cf.close()
 

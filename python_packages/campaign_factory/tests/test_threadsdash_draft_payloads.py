@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -666,12 +667,33 @@ def test_distribution_plan_exports_trial_and_story_surfaces(tmp_path: Path):
             default_smart_link="https://example.com/stacey",
             story_cta_text="new post is up",
         )
+        projected_at = datetime.now(UTC).isoformat()
+        account = cf.domains.models.upsert_account(
+            "fixture_ig_good", external_id="ig_good"
+        )
+        cf.domains.models.project_instagram_account_evidence(
+            account["id"],
+            capability="eligible",
+            oauth_granted_scopes=[
+                "instagram_business_basic",
+                "instagram_business_content_publish",
+            ],
+            oauth_scopes_verified_at=projected_at,
+            checked_at=projected_at,
+            reason="meta_trial_reel_publish_succeeded",
+            is_active=True,
+            status="active",
+            needs_reauth=False,
+            projection_observed_at=projected_at,
+        )
         trial = cf.domains.distribution.create_distribution_plan(
             "asset_1",
             surface="trial_reel",
             instagram_account_id="ig_good",
             planned_window_start="2026-01-02T10:00:00+00:00",
             reason_code="test_uncertain_winner",
+            instagram_trial_reels=True,
+            trial_graduation_strategy="MANUAL",
         )
         story = cf.domains.distribution.create_distribution_plan(
             "asset_1",
@@ -698,12 +720,16 @@ def test_distribution_plan_exports_trial_and_story_surfaces(tmp_path: Path):
             ]
             is True
         )
-        assert "trialReels" not in by_surface["trial_reel"]["metadata"]
+        assert by_surface["trial_reel"]["metadata"]["trialReels"] is True
+        assert by_surface["trial_reel"]["metadata"]["shareToFeed"] is False
+        assert (
+            by_surface["trial_reel"]["metadata"]["trialGraduationStrategy"] == "MANUAL"
+        )
         assert (
             by_surface["trial_reel"]["metadata"]["campaign_factory"][
                 "instagram_trial_reels"
             ]
-            is False
+            is True
         )
         assert (
             by_surface["trial_reel"]["metadata"]["campaign_factory"]["trial_reel"]
@@ -739,6 +765,39 @@ def test_distribution_plan_exports_trial_and_story_surfaces(tmp_path: Path):
             == "model"
         )
         assert by_surface["trial_reel"]["campaignId"] == "may"
+    finally:
+        cf.close()
+
+
+def test_trial_draft_metadata_rejects_missing_graduation_strategy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        monkeypatch.setattr(
+            threadsdash_payload_adapter,
+            "_draft_destinations_for_asset",
+            lambda *_args, **_kwargs: [
+                {
+                    "accountId": "account_1",
+                    "instagramAccountId": "ig_1",
+                    "distributionSurface": "trial_reel",
+                    "contentSurface": "reel",
+                    "instagramTrialReels": True,
+                    "trialGraduationStrategy": None,
+                    "accountEligibility": {"allowed": True},
+                }
+            ],
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Trial Reel draft requires trialGraduationStrategy",
+        ):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
     finally:
         cf.close()
 

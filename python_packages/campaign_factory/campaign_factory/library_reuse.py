@@ -235,14 +235,19 @@ class LibraryReuseRepository:
                     "library_reuse_validation_count_mismatch",
                     f"expected {len(rendered_ids)} ContentForge reports, got {len(reports)}",
                 )
-            manifest["status"] = "validated"
+            failed_count = sum(
+                1
+                for report in reports
+                if report.get("failedChecks") or report.get("overallVerdict") == "fail"
+            )
+            manifest_status = "validated_with_failures" if failed_count else "validated"
+            validation_status = "complete_with_failures" if failed_count else "complete"
+            manifest["status"] = manifest_status
             manifest["validation"] = {
-                "status": "complete",
+                "status": validation_status,
                 "hashVerifiedCount": len(rendered_ids),
                 "contentForgeReportCount": len(reports),
-                "failedCount": sum(
-                    1 for report in reports if report.get("failedChecks")
-                ),
+                "failedCount": failed_count,
                 "warningCount": sum(
                     1
                     for report in reports
@@ -255,10 +260,17 @@ class LibraryReuseRepository:
                 "library_reuse_completed",
                 campaign_id=campaign["id"],
                 pipeline_job_id=pipeline_job["id"],
-                status="success",
-                message=f"Library Reuse preserved {len(rendered_ids)} MP4s",
+                status="warning" if failed_count else "success",
+                message=(
+                    f"Library Reuse preserved {len(rendered_ids)} MP4s; "
+                    f"ContentForge failed {failed_count}"
+                    if failed_count
+                    else f"Library Reuse preserved {len(rendered_ids)} MP4s"
+                ),
                 metadata={
                     "manifestPath": str(manifest_path),
+                    "manifestStatus": manifest_status,
+                    "failedCount": failed_count,
                     "selectedCount": len(selections),
                     "renderedAssetIds": rendered_ids,
                     "providerCalls": 0,
@@ -269,7 +281,7 @@ class LibraryReuseRepository:
             self._finish_pipeline_job(
                 pipeline_job["id"],
                 {
-                    "status": "validated",
+                    "status": manifest_status,
                     "manifestPath": str(manifest_path),
                     "selectedCount": len(selections),
                     "renderedAssetIds": rendered_ids,

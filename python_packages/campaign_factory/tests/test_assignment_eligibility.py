@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -300,6 +301,7 @@ def test_manual_trial_graduation_is_same_account_idempotent_and_not_queued(
             oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
             checked_at=None,
             reason=None,
+            projection_observed_at=datetime.now(UTC).isoformat(),
         )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
@@ -372,6 +374,7 @@ def test_trial_graduation_hard_fails_without_lineage_fingerprint(tmp_path: Path)
             oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
             checked_at=None,
             reason=None,
+            projection_observed_at=datetime.now(UTC).isoformat(),
         )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],
@@ -434,6 +437,7 @@ def test_trial_ranking_report_has_one_and_twenty_four_hour_windows(tmp_path: Pat
             oauth_scopes_verified_at="2026-07-09T11:00:00+00:00",
             checked_at=None,
             reason=None,
+            projection_observed_at=datetime.now(UTC).isoformat(),
         )
         trial = cf.domains.distribution.create_distribution_plan(
             asset["id"],

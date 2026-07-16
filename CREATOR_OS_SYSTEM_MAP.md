@@ -18,20 +18,20 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-As of 2026-07-16, the reviewed code-bearing simplification baseline on `main`
-is `e47946cdfdb566855fa5a753ce243ca53a6a7bac`. PRs #448 through #458 are merged,
-and every required path-selected CI and secret-scan check passed. Skipped
-CodeQL, Trivy, SBOM, Python, or JavaScript jobs were path-filtered rather than
-failures. Documentation-only merges may advance `main` without changing that
-code-bearing baseline.
+This review began on 2026-07-16 from source `main` at
+`b6c1bf3fc223e86820dd8716d41392e310d7bb69`. The latest code-bearing merge in
+that baseline is the Library Reuse preservation fix from PR #462 at
+`62f95a09eda44b4751f44c2622e6ae9050368938`; PR #463 then advanced `main` with
+this lifecycle diagram. Every required check for both merges passed. Later
+source merges may advance `main`; use Git rather than this historical baseline
+to determine the current source SHA.
 
-The final operational proof began with the source and detached runtime both
-clean and equal at `a85ddead835bec937b950a5e1848e253cbbf73e1`. The authoritative
-final runtime identity is the equality of `source_sha` and `runtime_sha` emitted
-by `creator-os status --live-read-only`, rather than a SHA embedded in this
-document: merging this documentation necessarily creates a later docs-only
-revision. That resulting revision is the final runtime target; operational
-closure requires `source_sha == runtime_sha`.
+The detached runtime remains separately pinned at
+`65998959cf0735aefb87595dcd553012e5ecbafe` (PR #461). Its read-only status
+proof passed 8/8 at that SHA, but the Library Reuse fix and later documentation
+are source-only until an explicit runtime promotion is authorized. Operational
+closure always requires a fresh `creator-os status --live-read-only` result;
+source merge, runtime promotion, and live proof are separate facts.
 
 The live status proof passed the HMAC and provider probes under trace
 `trace_39fc17ae1f094da28eb8f520f83fcfed`. The HMAC handshake claimed its nonce
@@ -58,9 +58,10 @@ or 72-hour snapshots, zero of ten completed reconciled posts, and zero of fifty
 posts satisfying the 1h+24h autonomy gate. `CreativeKnowledgeService` therefore
 remains deferred by evidence.
 
-The Stacey Trial projection remains 66 accounts: zero `eligible`, two `denied`,
-and 64 `unknown`, with no stored OAuth-scope verification. Trial autonomy remains
-closed; unknown accounts require separate bounded canary authorization.
+Trial capability counts and OAuth evidence are live ThreadsDashboard facts and
+must be read from a fresh account projection. Do not preserve roster counts in
+this durable map. Trial autonomy remains closed unless the selected account has
+a fresh projection and satisfies the explicit capability policy below.
 
 ## Lifecycle Overview
 
@@ -121,7 +122,7 @@ dependencies separately from this lifecycle view.
 |---|---|---|---|---|
 | Reference Factory | intake, human labels, winner patterns, prompt packs, audio recommendations, outcome learning | `python_packages/reference_factory/reference_factory` | Pipeline Contracts and Creator OS Core | `REFERENCE_FACTORY_DB`, `REFERENCE_FACTORY_DATA_ROOT` |
 | Reel Factory | Soul stills, free static MP4s, optional motion/Kling, placement/rendering, worker media lineage | `python_packages/reel_factory/reel_factory` | Pipeline Contracts, Creator OS Core, FFmpeg and optional local models/providers | local media, render queue/cache, derived media features, caption banks, lineage sidecars |
-| Campaign Factory | creative plans, inventory, assignment, approvals, provider-spend authorization/ledger, readiness, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | Reel Factory commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
+| Campaign Factory | creative plans, inventory, assignment, approvals, provider-spend authorization/ledger, readiness, QC requests, draft construction, performance ingestion | `python_packages/campaign_factory/campaign_factory` | stable Reel Factory worker API and commands, ContentForge CLI, Pipeline Contracts, Creator OS Core | `CAMPAIGN_FACTORY_DB`, campaign artifact directories |
 | ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |
 | Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
 | Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
@@ -146,6 +147,17 @@ strict contracts between them.
 Dependency direction is inward toward Pipeline Contracts and Creator OS Core.
 Reel and Reference do not import Campaign ownership. Campaign may invoke
 package-owned Reel/ContentForge commands but remains the only campaign brain.
+The only in-process Reel dependency allowed from Campaign is the narrow
+`reel_factory.worker_api` facade for pure caption-bank and remix-plan helpers;
+generation and rendering continue through worker commands and lineage
+contracts. Repository architecture checks reject imports of other Reel Factory
+internals from Campaign.
+
+`repurposer` is not a factory or lifecycle stage. It is an isolated optional
+zero-cost variation utility packaged beside Campaign Factory and reached only
+through the explicit variation stage. It does not own campaign state,
+generation, providers, scheduling, or publishing, and it must not import Reel
+Factory generation internals.
 
 ## Active End-To-End Flow
 
@@ -178,7 +190,8 @@ at validated draft handoff.
 
 - `library_reuse`: import an explicit media folder for an explicit model without
   provider generation. Folder and model are required; there is no proactive
-  recommendation alias.
+  recommendation alias. ContentForge failures remain review-only but are
+  reported honestly as `validated_with_failures`, never `validated`.
 - `soul_static`: direct Soul still plus local static MP4.
 - `motion_edit`: deterministic local motion while retaining the static fallback.
 - `best_only_kling`: paid animation of one separately approved rank-one still.
@@ -220,19 +233,25 @@ ThreadsDashboard consumer snapshot.
 ThreadsDashboard remains the capability authority. Its account projection into
 Campaign Factory carries the exact OAuth granted scopes, verification time,
 Trial capability (`unknown`, `eligible`, or `denied`), check time, and denial
-reason. Campaign policy is fail-closed:
+reason. Trial eligibility also requires `projectionObservedAt` to be valid and
+no more than 24 hours old. Campaign policy is fail-closed:
 
 - `denied` is never selectable;
 - known-missing publishing scope is never selectable;
 - `unknown` requires an explicit per-plan `operator_canary` authorization;
 - autonomous planning cannot supply that authorization and can select only an
   account projected as `eligible`.
+- missing, invalid, or stale account projection evidence requires a new
+  ThreadsDashboard account sync.
 
 The root `draft-export` command exports one distribution surface at a time and
 defaults to `regular_reel`. Use `--surface trial_reel` explicitly for a Trial
 batch. An ineligible Trial destination cannot abort or contaminate a regular
-Reel batch. Explicit Trial drafts carry `instagramTrialReels=true`, a valid
-`MANUAL` or `SS_PERFORMANCE` graduation strategy, and `shareToFeed=false`.
+Reel batch. `trial_reel` and `instagramTrialReels=true` are a bidirectional
+invariant: either without the other is rejected before account gating. Explicit
+Trial drafts carry a stored `MANUAL` or `SS_PERFORMANCE` graduation strategy
+and `shareToFeed=false`; missing strategy data is rejected rather than silently
+defaulted.
 ThreadsDashboard rejects contradictory Trial-plus-Feed payloads before approval
 or publishing.
 
@@ -241,10 +260,9 @@ so a later account-sync change cannot rewrite what was authorized. Reconnecting
 an account resets the external capability to `unknown`; the next normal account
 sync projects the new evidence into Campaign Factory.
 
-The current projected Stacey roster is 66 accounts: 0 `eligible`, 2 `denied`,
-and 64 `unknown`. None currently has stored OAuth-scope verification. Trial
-automation therefore remains closed; `unknown` permits only a separately
-authorized one-account operator canary, never autonomous selection.
+Current projected roster counts belong in read-only status evidence, not this
+map. `unknown` permits only a separately authorized one-account operator
+canary, never autonomous selection.
 
 ## Learning Return Path
 

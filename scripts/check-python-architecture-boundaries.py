@@ -12,6 +12,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CAMPAIGN_REEL_WORKER_API = "reel_factory.worker_api"
 
 BOUNDARIES: tuple[
     tuple[Path, str, tuple[str, ...], dict[str, tuple[Path, ...]]], ...
@@ -64,10 +65,23 @@ def main() -> int:
                 )
                 continue
             for line, imported in _imports(tree):
-                if imported in forbidden and path not in allowlist.get(imported, ()):
+                imported_root = imported.split(".", 1)[0]
+                if imported_root in forbidden and path not in allowlist.get(
+                    imported_root, ()
+                ):
                     rel = path.relative_to(ROOT)
                     violations.append(
-                        f"{rel}:{line}: {source_name} must not import {imported}"
+                        f"{rel}:{line}: {source_name} must not import {imported_root}"
+                    )
+                if (
+                    source_name == "campaign_factory"
+                    and imported_root == "reel_factory"
+                    and imported != CAMPAIGN_REEL_WORKER_API
+                ):
+                    rel = path.relative_to(ROOT)
+                    violations.append(
+                        f"{rel}:{line}: campaign_factory may import Reel Factory "
+                        f"only through {CAMPAIGN_REEL_WORKER_API}"
                     )
 
     if violations:
@@ -82,11 +96,9 @@ def _imports(tree: ast.AST) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found.extend(
-                (node.lineno, alias.name.split(".", 1)[0]) for alias in node.names
-            )
+            found.extend((node.lineno, alias.name) for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
-            found.append((node.lineno, node.module.split(".", 1)[0]))
+            found.append((node.lineno, node.module))
     return found
 
 

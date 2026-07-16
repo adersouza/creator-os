@@ -43,6 +43,23 @@ def _stub_audit(cf: Any) -> None:
     cf.domains.library_reuse._audit_campaign = audit
 
 
+def _stub_failing_audit(cf: Any) -> None:
+    def audit(**kwargs: Any) -> dict[str, Any]:
+        return {
+            "reports": [
+                {
+                    "renderedAssetId": asset_id,
+                    "failedChecks": ["safe_zone"],
+                    "warnings": [],
+                    "overallVerdict": "fail",
+                }
+                for asset_id in kwargs["rendered_asset_ids"]
+            ]
+        }
+
+    cf.domains.library_reuse._audit_campaign = audit
+
+
 def _run(cf: Any, folder: Path, *, campaign: str = "may") -> dict[str, Any]:
     return run_generation_workflow(
         cf,
@@ -90,6 +107,41 @@ def test_library_reuse_preserves_one_mp4_without_render_or_paid_activity(
             cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
             == 0
         )
+    finally:
+        cf.close()
+
+
+def test_library_reuse_reports_contentforge_failures_honestly(tmp_path: Path) -> None:
+    folder = tmp_path / "library"
+    _write_library(folder, 1)
+    cf = make_factory(tmp_path)
+    try:
+        _stub_failing_audit(cf)
+
+        result = _run(cf, folder)["result"]
+
+        assert result["status"] == "validated_with_failures"
+        assert result["validation"] == {
+            "status": "complete_with_failures",
+            "hashVerifiedCount": 1,
+            "contentForgeReportCount": 1,
+            "failedCount": 1,
+            "warningCount": 0,
+        }
+        assert result["humanReviewRequired"] is True
+        assert result["autoApprovalAllowed"] is False
+        assert result["draftExportAllowed"] is False
+        job = cf.conn.execute(
+            "SELECT status, result_json FROM pipeline_jobs WHERE job_type = 'library_reuse'"
+        ).fetchone()
+        assert job["status"] == "succeeded"
+        assert json.loads(job["result_json"])["status"] == "validated_with_failures"
+        event = cf.conn.execute(
+            "SELECT status, metadata_json FROM activity_events "
+            "WHERE event_type = 'library_reuse_completed'"
+        ).fetchone()
+        assert event["status"] == "warning"
+        assert json.loads(event["metadata_json"])["failedCount"] == 1
     finally:
         cf.close()
 

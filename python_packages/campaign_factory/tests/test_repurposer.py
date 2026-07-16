@@ -325,11 +325,10 @@ def test_variant_pipeline_passes_account_index_to_audio_engine(
 
 
 def test_visual_engine_skips_cleanly_when_video_to_video_is_unsupported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"media")
-    monkeypatch.setattr("repurposer.engines.visual.AssetGenerationPlan", None)
 
     assert (
         VisualEngine.apply(
