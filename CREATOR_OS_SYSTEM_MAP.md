@@ -18,21 +18,38 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-As of 2026-07-15, the current code-bearing baseline is merge `bd96be81` (PR
-#444), and subsequent status-only documentation changes have been promoted to
-the clean detached runtime in lockstep with `main`. `creator-os status
---live-read-only` is the authority for the exact current source/runtime SHA. The
-canonical private roots, state migration, clean restore, fresh local backup,
-live HMAC handshake, and Higgsfield account/workspace/model/balance/free-quote
-probes are verified. The promoted code-bearing runtime also completed the
-normal performance/learning sync at `2026-07-15T22:45:29Z`. A future source
-repair must still earn its own merge, CI proof, and exact-SHA runtime promotion.
+As of 2026-07-16, the reviewed code-bearing simplification baseline on `main`
+is `e47946cdfdb566855fa5a753ce243ca53a6a7bac`. PRs #448 through #458 are merged,
+and every required path-selected CI and secret-scan check passed. Skipped
+CodeQL, Trivy, SBOM, Python, or JavaScript jobs were path-filtered rather than
+failures. A later documentation-only merge may advance `main` without changing
+that code-bearing baseline.
 
-The operational learning loop is healthy but not yet statistically proven. A
-post-promotion LaunchAgent run scanned four posts, imported/updated one eligible
-snapshot, and completed one Reference fanout. Current eligible evidence is one
-post with a real 1-hour row, zero with a 24-hour row, and zero with both. The
-10-consecutive-post proof and 50-post autonomy gate remain intentionally closed.
+The separate runtime checkout remains clean and detached at
+`5ba5ccc7e248513e3809fded2564fc483c14a1c7`. It has not been promoted to the
+current source. The last audited `creator-os status --live-read-only` returned
+seven `PASS` findings and one `WARN`: canonical roots, configuration, contracts,
+Campaign state, the HMAC handshake, and the provider probe passed, while the
+source/runtime SHA mismatch remained explicit. This source/seam proof does not
+substitute for final-SHA runtime promotion.
+
+The live handshake claimed its nonce and wrote zero ThreadsDashboard product
+rows. The Higgsfield account, workspace, Soul/Kling/Seedance availability,
+balance, and free quote passed while creating zero provider jobs and zero cost
+events. No paid generation, draft export, scheduling, or publishing occurred
+during this simplification.
+
+Existing ThreadsDashboard evidence still proves five regular Reels published
+once with Instagram identities and real metric history, but those posts lack
+Campaign asset lineage and do not count toward Creator OS learning readiness.
+Campaign currently has one real eligible 1-hour snapshot, zero eligible 24-hour
+or 72-hour snapshots, zero of ten completed reconciled posts, and zero of fifty
+posts satisfying the 1h+24h autonomy gate. `CreativeKnowledgeService` therefore
+remains deferred by evidence.
+
+The Stacey Trial projection remains 66 accounts: zero `eligible`, two `denied`,
+and 64 `unknown`, with no stored OAuth-scope verification. Trial autonomy remains
+closed; unknown accounts require separate bounded canary authorization.
 
 ## Ownership And Dependencies
 
@@ -284,12 +301,16 @@ code no longer defaults generated exports back into a Git checkout.
 
 ### Active
 
-- `generate_assets.py`: direct reference-image Soul generation, lineage, paid
-  quote/reservation/consumption gates, optional Kling.
+- `generate_assets.py`: narrow command orchestration for direct reference-image
+  Soul generation and optional Kling; provider, QC, lineage, and asset models
+  live in focused `generation_*` modules.
+- `reel_pipeline.py`: root Reel worker orchestration; rendering, selection, and
+  support concerns live in focused `reel_pipeline_*` modules.
 - `generate_variants.py`: captured-prompt original/sexy candidate contract.
 - `static_mp4.py` and motion-edit modules: local fallback/upgrade.
 - `reel_motion_prompt.py`: deterministic accepted-still Kling prompt.
 - `placement.py`, `caption_render.py`, and caption-bank modules: safe overlays.
+- `xai_vision.py`: narrow XAI transport retained only for anatomy/postability QC.
 - ContentForge and Campaign readiness/export adapters.
 
 ### Compatibility-required or legacy-but-called
@@ -342,22 +363,33 @@ codebase. The remaining mess is bounded and is not a reason to merge the
 factories or add another service:
 
 1. Reel Pipeline and Reference intake were split by semantic stages without
-   changing their public operator workflows; keep the resulting modules narrow.
-2. Campaign Factory is roughly 71,000 lines across many domain modules. Its
-   largest active modules are now below 1,500 lines, so further reduction should
-   remove dead workflows and duplicated policy rather than mechanically split
-   files.
-3. Static analysis reports 39 unused ContentForge exports. Remove them in a
-   dedicated slice only after proving none are dynamic CLI/worker boundaries.
-4. Legacy Reel prompt generation, six-pack generation, and manual grid-crop
+   changing their public operator workflows; the largest resulting production
+   module is 1,160 lines.
+2. Asset generation was split by provider, QC, lineage, and model ownership;
+   `generate_assets.py` is now 1,080 lines and its largest companion is 652.
+3. Campaign Factory is 72,333 production lines across domain modules and its
+   active adapter subpackage. Its largest active module is 1,459 lines, so
+   further reduction should remove dead
+   workflows and duplicated policy rather than mechanically split files.
+4. The 27,102-line pre-split Campaign test monolith was replaced by real domain
+   suites with a largest test module of 3,313 lines. All 481 test definitions
+   and 495 collected cases were preserved.
+5. ContentForge export adjudication reduced Knip's unused-export count from 39
+   to zero while preserving its two headless commands, dynamic audio-fit seam,
+   resumable jobs, FFmpeg builders, and QC behavior. The remaining Knip output
+   is 14 documented host binaries and one intentional compatibility alias pair.
+6. Legacy Reel prompt generation, six-pack generation, and manual grid-crop
    execution were deleted after repository and runtime zero-caller proof.
-5. The source checkout still contains retained databases, models, media, and
+7. The source checkout still contains retained databases, models, media, and
    real-run evidence for rollback. The largest ignored temporary evidence tree
    is about 1.3 GB. Do not confuse retained evidence with source architecture or
    delete it before preservation and the applicable cleanup gate.
 
-The practical next simplification order is therefore: finish the real 10-post
-learning proof, pass the July 22 report-only cleanup gate, remove verified dead
-exports/workflows, then split the two oversized worker modules when their tests
-can preserve behavior. Redis/RQ, Temporal, another dashboard, and a factory
+The practical next order is operational rather than architectural: repair the
+machine-local backup and ops-digest paths, create and verify a fresh backup,
+promote the exact reviewed SHA, rerun live read-only probes and one normal
+performance/learning cycle, then accumulate the real 10-post and 50-post
+evidence. The report-only retained-evidence gate cannot run before 2026-07-22
+and one complete post-promotion operating cycle; deletion still requires
+separate authorization. Redis/RQ, Temporal, another dashboard, and a factory
 merge would increase—not reduce—the current complexity.
