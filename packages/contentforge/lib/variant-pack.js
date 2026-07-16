@@ -1,5 +1,5 @@
 import path from "path";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { existsSync, readdirSync, statSync, writeFileSync } from "fs";
 import { runPipeline } from "./pipeline.js";
 import { resolveUploadPath, resolveRunFinalDir, clientUploadPath } from "./paths.js";
 import { averageHashSimilarity, multiFrameHash, temporalHashSimilarity } from "./detector.js";
@@ -268,15 +268,7 @@ export async function runVariantPack(input, sendEvent) {
   return report;
 }
 
-export async function loadVariantPack(runId) {
-  var finalDir = resolveRunFinalDir(runId);
-  if (!finalDir) throw new Error("Invalid runId");
-  var reportPath = path.join(finalDir, "variant_pack.json");
-  if (!existsSync(reportPath)) throw new Error("Variant pack report not found");
-  return JSON.parse(readFileSync(reportPath, "utf8"));
-}
-
-export async function buildVariantPackReport({ runId, sourcePath, request, complete, events = [] }) {
+async function buildVariantPackReport({ runId, sourcePath, request, complete, events = [] }) {
   var outputDir = resolveRunFinalDir(runId);
   if (!outputDir) throw new Error("Invalid run output directory");
   var sourceHashes = await multiFrameHash(sourcePath, true);

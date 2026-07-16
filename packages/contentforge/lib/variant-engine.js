@@ -1,4 +1,4 @@
-export var VARIANT_PRESETS = {
+var VARIANT_PRESETS = {
   quality: {
     id: "quality",
     label: "Quality First",
@@ -76,7 +76,7 @@ export var VARIANT_PRESETS = {
   },
 };
 
-export var DEFAULT_QUALITY_GATE = {
+var DEFAULT_QUALITY_GATE = {
   enabled: true,
   minQuality: 88,
   minDifference: 15,
@@ -118,10 +118,6 @@ export function getVariantPreset(presetId, options = {}, fallbackLevel) {
   };
 }
 
-export function variantLevelForPreset(presetId, fallbackLevel) {
-  return getVariantPreset(presetId, {}, fallbackLevel).level;
-}
-
 function clampNumber(value, min, max, fallback) {
   var parsed = parseFloat(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -141,14 +137,6 @@ export function normalizeQualityGate(value = {}) {
   };
 }
 
-export function validateQualityGate(value = {}) {
-  if (!value || typeof value !== "object") return true;
-  var fields = ["minQuality", "minDifference", "maxCrossSimilarity", "maxAttempts"];
-  return fields.every(function (field) {
-    return value[field] === undefined || Number.isFinite(Number(value[field]));
-  });
-}
-
 export function evaluateQualityGate(candidate, gate = DEFAULT_QUALITY_GATE) {
   var reasons = [];
   var checks = candidate.checks || [];
@@ -165,7 +153,7 @@ export function evaluateQualityGate(candidate, gate = DEFAULT_QUALITY_GATE) {
   };
 }
 
-export function scoreQuality({ mediaInfo = {}, qualityMetrics = {}, checks = [], warnings = [] } = {}) {
+function scoreQuality({ mediaInfo = {}, qualityMetrics = {}, checks = [], warnings = [] } = {}) {
   var score = 100;
   if (qualityMetrics.vmaf !== null && qualityMetrics.vmaf !== undefined && qualityMetrics.vmaf > 1) {
     if (qualityMetrics.vmaf < 70) score -= 20;
@@ -189,7 +177,7 @@ export function scoreQuality({ mediaInfo = {}, qualityMetrics = {}, checks = [],
   return Math.round(Math.max(0, Math.min(100, score)));
 }
 
-export function scoreDifference({ sourceSimilarity = 1, exactMatch = false, signals = {} } = {}) {
+function scoreDifference({ sourceSimilarity = 1, exactMatch = false, signals = {} } = {}) {
   var score = exactMatch ? 0 : (1 - Math.max(0, Math.min(1, sourceSimilarity))) * 100;
   if (signals.audioDifferent) score += 5;
   if (signals.temporalDifferent) score += 8;
@@ -197,7 +185,7 @@ export function scoreDifference({ sourceSimilarity = 1, exactMatch = false, sign
   return Math.round(Math.max(0, Math.min(100, score)));
 }
 
-export function recommendedAction(qualityRetained, differenceFromOriginal) {
+function recommendedAction(qualityRetained, differenceFromOriginal) {
   if (qualityRetained < 75) return "reject";
   if (qualityRetained < 86 || differenceFromOriginal < 8) return "review";
   return "keep";

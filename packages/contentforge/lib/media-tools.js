@@ -1,20 +1,6 @@
-import { execFile, spawnSync } from "child_process";
-import crypto from "crypto";
-import { mkdir, readdir, stat } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-import {
-  ensureInside,
-  getRunFinalDir,
-  resolveRunFile,
-  resolveUploadPath,
-  safeBasename,
-} from "./paths.js";
-import { createTextOverlayPng, overlayYExpression } from "./overlay.js";
+import { spawnSync } from "child_process";
+import { overlayYExpression } from "./overlay.js";
 
-var VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
-var IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic"]);
-var AUDIO_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"]);
 var filterSupportCache = new Map();
 
 function hasFfmpegFilter(name) {
@@ -25,21 +11,6 @@ function hasFfmpegFilter(name) {
   var supported = new RegExp("\\b" + name + "\\b").test(output);
   filterSupportCache.set(name, supported);
   return supported;
-}
-
-function runTool(command, args, options = {}) {
-  return new Promise(function (resolve, reject) {
-    execFile(command, args, {
-      timeout: options.timeout || 120000,
-      maxBuffer: options.maxBuffer || 4 * 1024 * 1024,
-    }, function (error, stdout, stderr) {
-      if (error) {
-        reject(new Error((stderr || error.message).slice(-1200)));
-      } else {
-        resolve(stdout || "");
-      }
-    });
-  });
 }
 
 export function buildConvertArgs(inputPath, outputPath, mode, options = {}) {
@@ -161,126 +132,4 @@ function buildAtempo(speed) {
   }
   parts.push("atempo=" + remaining.toFixed(4));
   return parts.join(",");
-}
-
-async function createToolRun(prefix) {
-  var runId = crypto.randomBytes(4).toString("hex");
-  var finalDir = getRunFinalDir(runId);
-  await mkdir(finalDir, { recursive: true });
-  return { runId, finalDir, prefix: prefix || "tool" };
-}
-
-function resolveInput({ inputFile, runId, filename }) {
-  if (runId && filename) {
-    var safeName = safeBasename(filename);
-    var runFile = resolveRunFile(runId, safeName);
-    if (!safeName || !runFile || !existsSync(runFile)) return null;
-    return runFile;
-  }
-  var uploadPath = resolveUploadPath(inputFile);
-  if (!uploadPath || !existsSync(uploadPath)) return null;
-  return uploadPath;
-}
-
-function outputUrl(runId, name) {
-  return "/api/preview?runId=" + encodeURIComponent(runId) + "&file=" + encodeURIComponent(name);
-}
-
-async function listOutputFiles(runId, finalDir) {
-  var entries = await readdir(finalDir);
-  var files = [];
-  for (var entry of entries) {
-    var stats = await stat(path.join(finalDir, entry));
-    if (!stats.isFile() || entry.startsWith("overlay_")) continue;
-    files.push({ name: entry, size: stats.size, url: outputUrl(runId, entry) });
-  }
-  return files.sort(function (a, b) { return a.name.localeCompare(b.name); });
-}
-
-export async function convertMedia(params) {
-  var inputPath = resolveInput(params);
-  if (!inputPath) {
-    var err = new Error("Input file not found");
-    err.status = 404;
-    throw err;
-  }
-  var mode = params.mode || "mp4";
-  var ext = mode === "jpg" ? ".jpg" : mode === "gif" ? ".gif" : ".mp4";
-  var sourceExt = path.extname(inputPath).toLowerCase();
-  if (mode === "jpg" && !IMAGE_EXTS.has(sourceExt) && !VIDEO_EXTS.has(sourceExt)) throw new Error("Unsupported image source");
-  if ((mode === "mp4" || mode === "gif") && !VIDEO_EXTS.has(sourceExt)) throw new Error("Unsupported video source");
-
-  var run = await createToolRun("convert");
-  var base = path.basename(inputPath).replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 50);
-  var outName = "convert_" + base + ext;
-  var outputPath = ensureInside(run.finalDir, path.join(run.finalDir, outName));
-  await runTool("ffmpeg", buildConvertArgs(inputPath, outputPath, mode, params));
-  return { runId: run.runId, files: await listOutputFiles(run.runId, run.finalDir) };
-}
-
-export async function exportGif(params) {
-  return convertMedia({ ...params, mode: "gif" });
-}
-
-export async function generateClips(params) {
-  var inputPath = resolveInput(params);
-  if (!inputPath) {
-    var err = new Error("Input file not found");
-    err.status = 404;
-    throw err;
-  }
-  var duration = Math.max(2, Math.min(120, parseFloat(params.clipLength) || 15));
-  var count = Math.max(1, Math.min(20, parseInt(params.count, 10) || 5));
-  var run = await createToolRun("clips");
-  for (var i = 0; i < count; i++) {
-    var start = i * duration;
-    var outName = "clip_" + String(i + 1).padStart(2, "0") + ".mp4";
-    var outPath = ensureInside(run.finalDir, path.join(run.finalDir, outName));
-    await runTool("ffmpeg", buildClipArgs(inputPath, outPath, start, duration));
-  }
-  return { runId: run.runId, files: await listOutputFiles(run.runId, run.finalDir) };
-}
-
-export async function generateFrames(params) {
-  var inputPath = resolveInput(params);
-  if (!inputPath) {
-    var err = new Error("Input file not found");
-    err.status = 404;
-    throw err;
-  }
-  var everySeconds = Math.max(0.2, Math.min(30, parseFloat(params.everySeconds) || 1));
-  var maxFrames = Math.max(1, Math.min(200, parseInt(params.maxFrames, 10) || 20));
-  var run = await createToolRun("frames");
-  var outputPattern = ensureInside(run.finalDir, path.join(run.finalDir, "frame_%03d.png"));
-  await runTool("ffmpeg", buildFramesArgs(inputPath, outputPattern, everySeconds, maxFrames));
-  return { runId: run.runId, files: await listOutputFiles(run.runId, run.finalDir) };
-}
-
-export async function editMedia(params) {
-  var inputPath = resolveInput(params);
-  if (!inputPath) {
-    var err = new Error("Input file not found");
-    err.status = 404;
-    throw err;
-  }
-  var replacementAudioPath = null;
-  if (params.replacementAudioFile) {
-    replacementAudioPath = resolveUploadPath(params.replacementAudioFile);
-    var audioExt = replacementAudioPath ? path.extname(replacementAudioPath).toLowerCase() : "";
-    if (!replacementAudioPath || !existsSync(replacementAudioPath) || !AUDIO_EXTS.has(audioExt)) {
-      var audioErr = new Error("Replacement audio file not found or unsupported");
-      audioErr.status = 404;
-      throw audioErr;
-    }
-  }
-  var run = await createToolRun("edit");
-  var outPath = ensureInside(run.finalDir, path.join(run.finalDir, "edited.mp4"));
-  var overlayPath = await createTextOverlayPng({
-    ...params,
-    width: params.width || 1080,
-    height: params.height || 1920,
-    outputDir: path.join(run.finalDir, "_assets"),
-  });
-  await runTool("ffmpeg", buildEditArgs(inputPath, outPath, { ...params, overlayImagePath: overlayPath }, replacementAudioPath));
-  return { runId: run.runId, files: await listOutputFiles(run.runId, run.finalDir) };
 }

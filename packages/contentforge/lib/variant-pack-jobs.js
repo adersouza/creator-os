@@ -160,7 +160,7 @@ export async function loadVariantPackJob(runId) {
   return publicJob(job);
 }
 
-export async function runVariantPackJob(runId) {
+async function runVariantPackJob(runId) {
   await ensureJobDir();
   var job = readJob(runId);
   if (!job || TERMINAL_STATUSES.has(job.status)) return job;

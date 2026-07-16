@@ -5,9 +5,9 @@ var LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 export var PROJECT_ROOT = path.dirname(LIB_DIR);
 export var UPLOADS_DIR = path.join(PROJECT_ROOT, "uploads");
 export var OUTPUT_DIR = path.join(PROJECT_ROOT, "output");
-export var RUNS_DIR = path.join(OUTPUT_DIR, "runs");
+var RUNS_DIR = path.join(OUTPUT_DIR, "runs");
 export var LEGACY_FINAL_DIR = path.join(OUTPUT_DIR, "final");
-export var REFERENCE_DIR = path.join(OUTPUT_DIR, "reference");
+var REFERENCE_DIR = path.join(OUTPUT_DIR, "reference");
 
 var RUN_ID_RE = /^[a-f0-9]{8}$/i;
 
@@ -15,7 +15,7 @@ export function isValidRunId(runId) {
   return typeof runId === "string" && RUN_ID_RE.test(runId);
 }
 
-export function safeBasename(filename) {
+function safeBasename(filename) {
   if (!filename || typeof filename !== "string") return null;
   var base = path.basename(filename);
   if (!base || base === "." || base === "..") return null;

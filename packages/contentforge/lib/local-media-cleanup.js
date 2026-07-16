@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { OUTPUT_DIR, PROJECT_ROOT, UPLOADS_DIR } from "./paths.js";
 
-export var LOCAL_MEDIA_TARGETS = [
+var LOCAL_MEDIA_TARGETS = [
   UPLOADS_DIR,
   path.join(OUTPUT_DIR, "final"),
   path.join(OUTPUT_DIR, "runs"),
