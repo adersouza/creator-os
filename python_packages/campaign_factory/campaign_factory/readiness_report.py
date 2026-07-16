@@ -9,6 +9,13 @@ from typing import TYPE_CHECKING, Any
 from .assignment_eligibility import asset_identity
 from .caption_outcome import context_has_signal, load_context_json
 from .persistence import json_load, utc_now
+from .readiness_finding import (
+    ReadinessFindingPayload,
+    ReadinessSeverity,
+    make_readiness_finding,
+    readiness_finding_payloads,
+    readiness_findings_from_codes,
+)
 
 if TYPE_CHECKING:
     from .core import CampaignFactory
@@ -101,6 +108,7 @@ class ReadinessReportRepository:
     def surface_readiness_scorecard(self) -> dict[str, Any]:
         audit = self._surface_maturity_audit()
         surfaces: dict[str, dict[str, Any]] = {}
+        findings: list[ReadinessFindingPayload] = []
         for surface, row in (audit.get("surfaces") or {}).items():
             proof_count = sum(
                 1
@@ -114,6 +122,17 @@ class ReadinessReportRepository:
                 if row.get(key)
             )
             rating = round((proof_count / 5) * 10, 1)
+            surface_findings = readiness_finding_payloads(
+                readiness_findings_from_codes(
+                    [str(code) for code in row.get("blockers") or []],
+                    severity="blocker",
+                    evidence={
+                        "source": "surface_readiness_scorecard",
+                        "contentSurface": surface,
+                    },
+                )
+            )
+            findings.extend(surface_findings)
             surfaces[surface] = {
                 "publishProof": bool(row.get("publishProof")),
                 "metricsProof": bool(row.get("metricsProof")),
@@ -121,11 +140,13 @@ class ReadinessReportRepository:
                 "inventoryProof": bool(row.get("draftProof")),
                 "rating": rating,
                 "blockers": row.get("blockers") or [],
+                "findings": surface_findings,
                 "wouldWrite": False,
             }
         return {
             "schema": "creator_os.surface_readiness_scorecard.v1",
             "surfaces": surfaces,
+            "findings": findings,
             "wouldWrite": False,
         }
 
@@ -461,6 +482,7 @@ def build_mass_production_readiness_report(
         snapshots_missing_caption_context=snapshots_missing_caption_context,
         threadsdash_readiness=threadsdash_readiness,
     )
+    findings = _readiness_findings_from_blocker_ranking(blockers)
     scale_readiness = _scale_readiness(
         readiness_state=readiness_state,
         approved_count=len(approved_assets),
@@ -549,6 +571,7 @@ def build_mass_production_readiness_report(
         "postedStatusCoverage": _posted_coverage(asset_reports),
         "metricsSyncStatus": metrics,
         "blockerRanking": blockers,
+        "findings": findings,
         "readinessScore": readiness_state,
         "markdownSummary": summary,
     }
@@ -1107,6 +1130,35 @@ def _blocker(
     code: str, message: str, details: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     return {"code": code, "message": message, "details": details or {}}
+
+
+def _readiness_findings_from_blocker_ranking(
+    blockers: dict[str, list[dict[str, Any]]],
+) -> list[ReadinessFindingPayload]:
+    severity_by_section: dict[str, ReadinessSeverity] = {
+        "preventsProduction": "blocker",
+        "risksLosingTracking": "warning",
+        "risksDuplicatePosting": "warning",
+        "risksWastingPaidGeneration": "warning",
+        "niceToHave": "info",
+    }
+    findings = []
+    for section, items in blockers.items():
+        severity = severity_by_section.get(section, "warning")
+        for item in items:
+            findings.append(
+                make_readiness_finding(
+                    str(item.get("code") or "unmapped_readiness_blocker"),
+                    severity=severity,
+                    evidence={
+                        "source": "mass_production_readiness_report",
+                        "section": section,
+                        "message": item.get("message"),
+                        "details": item.get("details") or {},
+                    },
+                )
+            )
+    return readiness_finding_payloads(findings)
 
 
 def _markdown_summary(
