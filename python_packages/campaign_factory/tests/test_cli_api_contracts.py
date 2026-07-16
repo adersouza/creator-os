@@ -72,9 +72,7 @@ def test_export_threadsdash_api_defaults_to_regular_reel_surface(monkeypatch):
 
     monkeypatch.setattr(app_module, "export_threadsdash", fake_export)
 
-    assert app_module.export_td({"campaign": "may", "userId": "user_1"}) == {
-        "ok": True
-    }
+    assert app_module.export_td({"campaign": "may", "userId": "user_1"}) == {"ok": True}
     assert captured["surface"] == "regular_reel"
 
 

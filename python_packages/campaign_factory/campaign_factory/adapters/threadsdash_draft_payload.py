@@ -123,13 +123,9 @@ def build_draft_payloads(
                     or asset.get("content_surface")
                 ),
                 distribution_surface=distribution_surface,
-                media_type=asset.get("mediaType")
-                or asset.get("media_type")
-                or "video",
+                media_type=asset.get("mediaType") or asset.get("media_type") or "video",
                 instagram_trial_reels=bool(destination.get("instagramTrialReels")),
-                trial_graduation_strategy=destination.get(
-                    "trialGraduationStrategy"
-                ),
+                trial_graduation_strategy=destination.get("trialGraduationStrategy"),
             )
             account_eligibility = destination.get("accountEligibility") or {}
             if not account_eligibility.get("allowed", False):
