@@ -141,6 +141,7 @@ def test_contract_schema_examples_validate():
         "campaign_draft_payload.v1.example.json",
         "campaign_draft_payload.v2.example.json",
         "caption_outcome_context.v1.example.json",
+        "contentforge_campaign_audit_response.v1.example.json",
         "creative_plan.v1.example.json",
         "front_generation_plan.v1.example.json",
         "generated_asset_lineage.v1.example.json",
@@ -174,7 +175,7 @@ def test_contentforge_smoke_contract_rejects_malformed_response():
     try:
         assert_contentforge_contract_response(bad)
     except AssertionError as exc:
-        assert "unexpected ContentForge verdict" in str(exc)
+        assert "overallVerdict" in str(exc)
     else:
         raise AssertionError("malformed ContentForge response passed smoke validation")
 

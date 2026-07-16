@@ -16,7 +16,10 @@ from .adapters.threadsdash_draft_payload import build_draft_payloads
 from .adapters.threadsdash_draft_readiness import evaluate_export_readiness
 from .config import Settings, resolve_repo_roots
 from .contracts import (
+    ContractValidationError,
+    load_example,
     validate_audio_catalog_export,
+    validate_contentforge_campaign_audit_response,
     validate_performance_sync,
     validate_threadsdash_draft_payload,
 )
@@ -30,23 +33,7 @@ SMOKE_SNAPSHOT_CSV = """platform,native_audio_id,observed_at,trend_status,usage_
 instagram,ig_runway_pop,2026-05-22T11:00:00+00:00,trending,140000,0.33,0.82,manual smoke fixture,Local-only smoke observation
 """
 
-CONTENTFORGE_SMOKE_RESPONSE = {
-    "contractVersion": "campaign_factory_audit.v1.10",
-    "auditProfile": "campaign_factory_v1",
-    "targetFile": "rendered_smoke.mp4",
-    "layers": {},
-    "verdicts": {},
-    "verdictCodes": {"forensics": "forensics_pass", "readability": "caption_readable"},
-    "overallVerdict": "pass",
-    "readinessSummary": {
-        "summaryText": "Upload-ready smoke candidate.",
-        "uploadReady": True,
-        "blockingReasons": [],
-        "warnings": [],
-        "recommendedAction": "approve_candidate",
-    },
-    "filesAnalyzed": 1,
-}
+CONTENTFORGE_SMOKE_RESPONSE = load_example("contentforge_campaign_audit_response")
 
 
 def write_smoke_audio_csv(path: Path) -> Path:
@@ -494,30 +481,10 @@ def _write_threadsdash_audio_gate_fixture(
 
 
 def assert_contentforge_contract_response(response: dict[str, Any]) -> dict[str, Any]:
-    required = [
-        "contractVersion",
-        "auditProfile",
-        "targetFile",
-        "overallVerdict",
-        "readinessSummary",
-        "filesAnalyzed",
-    ]
-    missing = [key for key in required if key not in response]
-    if missing:
-        raise AssertionError(f"ContentForge smoke response missing {missing}")
-    if response["auditProfile"] != "campaign_factory_v1":
-        raise AssertionError(
-            f"unexpected ContentForge audit profile: {response['auditProfile']}"
-        )
-    if response["overallVerdict"] not in {"pass", "warn", "fail"}:
-        raise AssertionError(
-            f"unexpected ContentForge verdict: {response['overallVerdict']}"
-        )
-    readiness = response.get("readinessSummary")
-    if not isinstance(readiness, dict) or not isinstance(
-        readiness.get("uploadReady"), bool
-    ):
-        raise AssertionError(f"malformed ContentForge readiness summary: {readiness}")
+    try:
+        validate_contentforge_campaign_audit_response(response)
+    except ContractValidationError as exc:
+        raise AssertionError(f"malformed ContentForge response: {exc}") from exc
     return response
 
 

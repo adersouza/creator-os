@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { resolveRunFinalDir, resolveUploadPath } from "./paths.js";
 import { getPythonCommand } from "./python-runtime.js";
 import { CAMPAIGN_FACTORY_AUDIT_CONFIG, campaignFactoryThresholds } from "./campaign-factory-audit-config.js";
+import { assertCampaignFactoryAuditResponse } from "./campaign-factory-contract.js";
 import { runMultiAccountOriginalityAudit } from "./campaign-originality-audit.js";
 import { buildCreativeQualityAudit } from "./creative-quality-audit.js";
 import { buildViralityGate } from "./virality-gate.js";
@@ -2143,6 +2144,9 @@ export async function POST(request) {
       timings,
       filesAnalyzed: files.length,
     };
+    if (auditProfile === "campaign_factory_v1") {
+      assertCampaignFactoryAuditResponse(responseBody);
+    }
     if (scopedDirToCleanup) await rm(scopedDirToCleanup, { recursive: true, force: true });
     return Response.json(responseBody);
   } catch (error) {

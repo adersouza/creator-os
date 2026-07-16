@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pipeline_contracts import (
     ContractValidationError,
+    load_example,
     load_schema,
     schema_path,
     validate_audio_catalog_export,
     validate_audio_intent,
+    validate_contentforge_campaign_audit_response,
     validate_contract,
     validate_front_generation_plan,
     validate_generated_asset_lineage,
@@ -23,11 +25,13 @@ from pipeline_contracts import (
 
 __all__ = [
     "ContractValidationError",
+    "load_example",
     "load_schema",
     "schema_path",
     "validate_audio_catalog_export",
     "validate_audio_intent",
     "validate_contract",
+    "validate_contentforge_campaign_audit_response",
     "validate_front_generation_plan",
     "validate_generation_execution_plan",
     "validate_generated_asset_lineage",

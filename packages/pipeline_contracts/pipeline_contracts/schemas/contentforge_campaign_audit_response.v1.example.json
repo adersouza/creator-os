@@ -1,0 +1,56 @@
+{
+  "contractVersion": "campaign_factory_audit.v1.10",
+  "auditProfile": "campaign_factory_v1",
+  "animationMode": null,
+  "allowStaticOpening": false,
+  "targetFile": "campaign_factory_variant_example.mp4",
+  "comparisonFiles": [],
+  "layers": {},
+  "verdicts": {},
+  "verdictCodes": {},
+  "overallVerdict": "pass",
+  "readinessSummary": {
+    "summaryText": "Upload-ready candidate with no blocking audit issues.",
+    "blockingReasons": [],
+    "warnings": [],
+    "blockingCodes": [],
+    "warningCodes": [],
+    "topWarnings": [],
+    "operatorLabels": {
+      "blocking": [],
+      "needsReview": [],
+      "advisory": [],
+      "informational": []
+    },
+    "uploadReady": true,
+    "recommendedAction": "approve_candidate"
+  },
+  "ocr": null,
+  "captionBoxes": [],
+  "safeZoneScore": null,
+  "readabilityScore": null,
+  "hookVisibilityScore": null,
+  "safeZone": null,
+  "readability": null,
+  "coverCandidates": [],
+  "hookVisibility": null,
+  "watchability": null,
+  "creativeQuality": null,
+  "virality": null,
+  "videoAnalysis": null,
+  "audioFitSignals": {
+    "schema": "contentforge.audio_fit_signals.v1",
+    "scoringEnabled": false,
+    "advisoryOnly": true,
+    "variantTags": [],
+    "reasons": [],
+    "note": "Tags are advisory only."
+  },
+  "referenceMatch": null,
+  "multiAccountOriginalityAudit": null,
+  "timings": {
+    "totalMs": 0,
+    "layersMs": {}
+  },
+  "filesAnalyzed": 1
+}

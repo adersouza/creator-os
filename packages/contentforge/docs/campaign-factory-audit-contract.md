@@ -35,6 +35,11 @@ unavailable.
 ContentForge preserves the existing `/api/similarity` response and extends it
 with Campaign Factory fields:
 
+The machine-readable contract is
+`packages/pipeline_contracts/pipeline_contracts/schemas/contentforge_campaign_audit_response.v1.schema.json`.
+ContentForge validates the response before returning it, and Campaign Factory
+validates it again after the Node subprocess boundary.
+
 ```json
 {
   "contractVersion": "campaign_factory_audit.v1.10",
