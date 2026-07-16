@@ -13,27 +13,67 @@ from reference_factory.prompt_records import (
     write_jsonl_records,
 )
 from reference_factory.public_metrics import _prompt_card_from_post
-from reference_factory.reference_intake import (
+from reference_factory.reference_analysis import (
     _build_image_prompt_json_from_analysis,
-    _canonical_tool,
-    _closeness_controls,
     _compose_higgsfield_from_image_json,
-    _compose_kling_main_prompt,
-    _find_prompt_record,
     _json_from_model_text,
-    _motion_directives,
     _normalize_analysis,
+)
+from reference_factory.reference_grok import (
     _normalize_compiled_prompt_set,
-    _read_jsonl_records,
-    _record_reference_id,
     _validate_compiled_prompt_set,
-    _write_jsonl_records,
+)
+from reference_factory.reference_intake import (
     export_analysis_queue,
-    export_video_prompts,
-    generate_video_prompts,
     import_reference_analysis,
     queue_reference_analysis,
 )
+from reference_factory.reference_intake_contracts import (
+    _canonical_tool,
+    _closeness_controls,
+)
+from reference_factory.reference_prompt_generation import (
+    _compose_kling_main_prompt,
+    _motion_directives,
+    export_video_prompts,
+    generate_video_prompts,
+)
+
+
+def test_reference_intake_owns_a_narrow_orchestration_surface() -> None:
+    from reference_factory import reference_intake
+
+    expected = {
+        "analyze_reference_local",
+        "export_analysis_queue",
+        "export_video_analyses",
+        "import_reference_analysis",
+        "queue_reference_analysis",
+    }
+    assert set(reference_intake.__all__) == expected
+    assert all(
+        getattr(reference_intake, name).__module__ == reference_intake.__name__
+        for name in expected
+    )
+    source = Path(reference_intake.__file__).read_text(encoding="utf-8")
+    assert "ruff: noqa: F401" not in source
+    assert "reference_grok" not in source
+    assert "reference_gemini" not in source
+
+
+def test_cli_and_server_use_semantic_module_owners() -> None:
+    from reference_factory import cli, server
+
+    assert cli.generate_video_prompts.__module__.endswith(
+        ".reference_prompt_generation"
+    )
+    assert cli.analyze_reference_with_gemini_api.__module__.endswith(
+        ".reference_gemini"
+    )
+    assert cli.compile_prompts_with_grok_api.__module__.endswith(".reference_grok")
+    assert server.generate_video_prompts.__module__.endswith(
+        ".reference_prompt_generation"
+    )
 
 
 def make_conn(tmp_path: Path) -> sqlite3.Connection:
@@ -278,16 +318,16 @@ def test_json_prompt_compiler_helpers_parse_validate_and_roundtrip(
         }
     )
 
-    _write_jsonl_records(records_path, records)
-    loaded = _read_jsonl_records(records_path)
+    write_jsonl_records(records_path, records)
+    loaded = read_jsonl_records(records_path)
     _validate_compiled_prompt_set(compiled)
 
     assert parsed == {"ok": True, "items": [1]}
     assert loaded == records
-    assert _record_reference_id(loaded[1]) == "ref_b"
-    assert _find_prompt_record(loaded, "ref_a") == records[0]
+    assert record_reference_id(loaded[1]) == "ref_b"
+    assert find_prompt_record(loaded, "ref_a") == records[0]
     assert "exactly three columns and two rows" in compiled["soul_id_2x3_prompt"]
-    assert _read_jsonl_records(tmp_path / "missing.jsonl") == []
+    assert read_jsonl_records(tmp_path / "missing.jsonl") == []
 
 
 def test_prompt_record_helpers_are_stable_outside_reference_intake(

@@ -77,20 +77,26 @@ from reference_factory.public_metrics import (
     import_apify_metrics,
     top_public_posts,
 )
-from reference_factory.reference_intake import (
-    _grok_prompt_builder,
+from reference_factory.reference_analysis import (
     _json_from_model_text,
     _store_pattern_and_analysis,
-    _validate_prompt_contract,
-    analyze_reference_local,
+)
+from reference_factory.reference_gemini import import_gemini_app_response
+from reference_factory.reference_grok import (
+    _grok_prompt_builder,
     compile_prompts_with_grok_api,
+)
+from reference_factory.reference_intake import (
+    analyze_reference_local,
     export_video_analyses,
+    import_reference_analysis,
+    queue_reference_analysis,
+)
+from reference_factory.reference_prompt_generation import (
+    _validate_prompt_contract,
     export_video_prompts,
     gemini_analysis_prompt,
     generate_video_prompts,
-    import_gemini_app_response,
-    import_reference_analysis,
-    queue_reference_analysis,
 )
 from reference_factory.review import (
     export_gold,
@@ -1243,7 +1249,7 @@ def test_compile_prompts_with_grok_api_updates_prompt_jsonl(
         )
 
     monkeypatch.setattr(
-        "reference_factory.reference_intake._xai_chat_completion", fake_completion
+        "reference_factory.reference_grok._xai_chat_completion", fake_completion
     )
 
     result = compile_prompts_with_grok_api(
@@ -1325,7 +1331,7 @@ def test_compile_prompts_with_grok_api_rejects_weak_breakdown(
         )
 
     monkeypatch.setattr(
-        "reference_factory.reference_intake._xai_chat_completion", fake_completion
+        "reference_factory.reference_grok._xai_chat_completion", fake_completion
     )
 
     try:

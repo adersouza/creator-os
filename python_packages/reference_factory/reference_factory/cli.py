@@ -55,19 +55,22 @@ from .public_metrics import (
     import_apify_metrics,
     top_public_posts,
 )
-from .reference_intake import (
-    analyze_reference_local,
+from .reference_gemini import (
     analyze_reference_with_gemini_api,
+    import_gemini_app_response,
+)
+from .reference_grok import (
     analyze_reference_with_grok_api,
     compile_prompts_with_grok_api,
+)
+from .reference_intake import (
+    analyze_reference_local,
     export_analysis_queue,
     export_video_analyses,
-    export_video_prompts,
-    generate_video_prompts,
-    import_gemini_app_response,
     import_reference_analysis,
     queue_reference_analysis,
 )
+from .reference_prompt_generation import export_video_prompts, generate_video_prompts
 from .review import build_shortlist, export_gold, label_reference, review_batch
 from .scan import scan_source
 from .tiktok_archive import import_tiktok_archive
