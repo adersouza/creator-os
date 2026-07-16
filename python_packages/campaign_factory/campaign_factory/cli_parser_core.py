@@ -310,6 +310,19 @@ def register_core_commands(sub) -> None:
     export.add_argument("--max-drafts", type=int)
     export.add_argument("--rendered-asset-id", action="append", default=[])
     export.add_argument(
+        "--surface",
+        choices=[
+            "regular_reel",
+            "trial_reel",
+            "story",
+            "story_cta",
+            "feed_single",
+            "feed_carousel",
+        ],
+        default=None,
+        help="Export only the selected distribution surface",
+    )
+    export.add_argument(
         "--schedule-mode", choices=["draft", "preview", "live"], default="draft"
     )
     export.add_argument(

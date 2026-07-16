@@ -58,6 +58,7 @@ def build_draft_payloads(
     cta_type: str | None = None,
     language: str | None = None,
     rendered_asset_ids: list[str] | None = None,
+    surface: str | None = None,
     schedule_mode: str = "draft",
     enable_variation: bool = False,
     publish_mode: str | None = None,
@@ -70,6 +71,9 @@ def build_draft_payloads(
     )
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
+    normalized_surface = (
+        _normalize_distribution_surface(surface) if surface is not None else None
+    )
     variation_index: dict[str, dict[str, Any]] = {}
     if enable_variation:
         from ..variation_stage import load_variant_assignment_index
@@ -106,6 +110,11 @@ def build_draft_payloads(
             require_distribution_plan=require_distribution_plan,
         )
         for destination in destinations:
+            distribution_surface = _normalize_distribution_surface(
+                destination.get("distributionSurface")
+            )
+            if normalized_surface and distribution_surface != normalized_surface:
+                continue
             account_eligibility = destination.get("accountEligibility") or {}
             if not account_eligibility.get("allowed", False):
                 reason = account_eligibility.get("decisionReason") or "unavailable"
@@ -136,9 +145,6 @@ def build_draft_payloads(
                 else 0,
                 "uploadedAt": utc_now(),
             }
-            distribution_surface = _normalize_distribution_surface(
-                destination.get("distributionSurface")
-            )
             post_caption = _instagram_post_caption_for_export(
                 asset,
                 caption=caption,
@@ -305,6 +311,7 @@ def build_draft_payloads(
                 "handoffMode": "review_only" if review_only else "publishable_draft",
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
+                "shareToFeed": not bool(destination.get("instagramTrialReels")),
                 "trialGroupId": destination.get("trialGroupId"),
                 "pairedRenderedAssetId": destination.get("pairedRenderedAssetId"),
                 "distributionReasonCode": destination.get("reasonCode"),
@@ -477,6 +484,7 @@ def _review_only_handoff_manifest(draft: dict[str, Any]) -> dict[str, Any]:
         or "review_only_unassigned",
         "instagram_trial_reels": bool(draft.get("instagramTrialReels")),
         "trial_graduation_strategy": draft.get("trialGraduationStrategy"),
+        "share_to_feed": bool(draft.get("shareToFeed")),
         "trial_group_id": draft.get("trialGroupId"),
         "handoffMode": "review_only",
         "approvalRequired": True,
@@ -1314,6 +1322,7 @@ def _draft_metadata(
             "smart_link": draft.get("smartLink"),
             "cta_text": draft.get("ctaText"),
             "instagram_trial_reels": instagram_trial_reels,
+            "share_to_feed": bool(draft.get("shareToFeed")),
             "trial_graduation_strategy": draft.get("trialGraduationStrategy")
             if instagram_trial_reels
             else None,
@@ -1331,11 +1340,14 @@ def _draft_metadata(
         metadata["previewScheduleOnly"] = True
     if instagram_trial_reels:
         metadata["trialReels"] = True
+        metadata["shareToFeed"] = False
         metadata["trialGraduationStrategy"] = (
             draft.get("trialGraduationStrategy") or "MANUAL"
         )
-        if draft.get("trialGroupId"):
-            metadata["trialGroupId"] = draft.get("trialGroupId")
+    else:
+        metadata["shareToFeed"] = bool(draft.get("shareToFeed"))
+    if draft.get("trialGroupId"):
+        metadata["trialGroupId"] = draft.get("trialGroupId")
     if isinstance(cover_frame, dict):
         if (
             isinstance(cover_frame.get("image_url"), str)
