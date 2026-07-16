@@ -668,12 +668,16 @@ class CampaignFactory:
             return run_audit(self, *args, **kwargs)
 
         def evaluate_export_readiness(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            from .adapters.threadsdash import evaluate_export_readiness as evaluate
+            from .adapters.threadsdash_draft_readiness import (
+                evaluate_export_readiness as evaluate,
+            )
 
             return evaluate(self, *args, **kwargs)
 
         def export_threadsdash(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            from .adapters.threadsdash import export_threadsdash as export
+            from .adapters.threadsdash_draft_delivery import (
+                export_threadsdash as export,
+            )
 
             return export(self, *args, **kwargs)
 

@@ -204,7 +204,7 @@ def variant_for_destination(
 def _account_targets_for_asset(
     factory: Any, asset: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    from .adapters.threadsdash import _draft_destinations_for_asset
+    from .adapters.threadsdash_draft_payload import _draft_destinations_for_asset
 
     destinations = _draft_destinations_for_asset(factory, asset)
     targets: list[dict[str, Any]] = []

@@ -304,7 +304,7 @@ class LifecycleReportingRepository:
             )
             if supabase_url and service_key and user_id:
                 try:
-                    from .adapters.threadsdash import SupabaseRestClient
+                    from .adapters.threadsdash_client import SupabaseRestClient
 
                     client = SupabaseRestClient(supabase_url.rstrip("/"), service_key)
                     posts = client.select(

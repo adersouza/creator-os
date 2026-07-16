@@ -3,15 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from .adapters.contentforge import audit_campaign
-from .adapters.threadsdash import (
-    evaluate_export_readiness,
-    export_threadsdash,
-    preflight_supabase,
+from .adapters.threadsdash_account_projection import (
     summarize_threadsdash_usage,
-    sync_performance_snapshots,
     sync_threadsdash_account_assignments,
+)
+from .adapters.threadsdash_draft_delivery import export_threadsdash
+from .adapters.threadsdash_draft_readiness import (
+    evaluate_export_readiness,
+    preflight_supabase,
     verify_threadsdash_export,
 )
+from .adapters.threadsdash_metrics_ingestion import sync_performance_snapshots
 from .cli_support import (
     decision_ledger_kwargs,
     load_hooks,

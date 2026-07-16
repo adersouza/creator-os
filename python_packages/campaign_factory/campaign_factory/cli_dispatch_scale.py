@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .adapters.contentforge import audit_review_batch_manifest
-from .adapters.threadsdash import (
+from .adapters.threadsdash_account_projection import (
     sync_threadsdash_instagram_accounts,
 )
 from .cli_support import (
