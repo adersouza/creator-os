@@ -21,8 +21,8 @@ reel_factory/embedding_index.py:text_for_path:58
 reel_factory/embedding_index.py:duplicate_risk:235
 reel_factory/embedding_provider.py:get_embedding_provider:95
 reel_factory/embedding_provider.py:get_embedding_provider:102
-reel_factory/generate_assets.py:detect_grid_status:209
-reel_factory/generate_assets.py:single_image_layout_status:229
+reel_factory/generate_assets.py:detect_grid_status:221
+reel_factory/generate_assets.py:single_image_layout_status:241
 reel_factory/generate_prompts.py:video_duration:164
 reel_factory/generate_prompts.py:frame_is_visible:179
 reel_factory/generate_prompts.py:_safe_fragment:302

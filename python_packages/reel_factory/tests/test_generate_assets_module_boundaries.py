@@ -5,6 +5,15 @@ from pathlib import Path
 
 from reel_factory import generate_assets
 from reel_factory.generation_asset_models import (
+    CAPABILITY_SCHEMA,
+    DIRECT_REFERENCE_SEED_PROMPT,
+    DOWNLOAD_CHUNK_BYTES,
+    DOWNLOAD_TIMEOUT_SECONDS,
+    IMAGE_MODEL_CANDIDATES,
+    MIN_IMAGE_RESULT_BYTES,
+    MIN_VIDEO_RESULT_BYTES,
+    VIDEO_MODEL_CANDIDATES,
+    VIDEO_SOUND_MODELS,
     AssetGenerationPlan,
     DirectReferenceImagePlan,
 )
@@ -46,6 +55,15 @@ def test_generate_assets_keeps_compatibility_imports() -> None:
     assert generate_assets.HiggsfieldCliAdapter is HiggsfieldCliAdapter
     assert generate_assets.HiggsfieldCommandError is HiggsfieldCommandError
     assert generate_assets.build_source_lineage is build_source_lineage
+    assert generate_assets.CAPABILITY_SCHEMA == CAPABILITY_SCHEMA
+    assert generate_assets.DIRECT_REFERENCE_SEED_PROMPT == DIRECT_REFERENCE_SEED_PROMPT
+    assert generate_assets.DOWNLOAD_CHUNK_BYTES == DOWNLOAD_CHUNK_BYTES
+    assert generate_assets.DOWNLOAD_TIMEOUT_SECONDS == DOWNLOAD_TIMEOUT_SECONDS
+    assert generate_assets.IMAGE_MODEL_CANDIDATES == IMAGE_MODEL_CANDIDATES
+    assert generate_assets.MIN_IMAGE_RESULT_BYTES == MIN_IMAGE_RESULT_BYTES
+    assert generate_assets.MIN_VIDEO_RESULT_BYTES == MIN_VIDEO_RESULT_BYTES
+    assert generate_assets.VIDEO_MODEL_CANDIDATES == VIDEO_MODEL_CANDIDATES
+    assert generate_assets.VIDEO_SOUND_MODELS == VIDEO_SOUND_MODELS
 
 
 def test_generate_assets_coordinator_does_not_reown_extracted_implementations() -> None:
@@ -59,6 +77,9 @@ def test_generate_assets_coordinator_does_not_reown_extracted_implementations() 
 
 def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
     parser = generate_assets._parser()
+    assert parser.description == (
+        "Generate and track Higgsfield/Kling source assets from clean prompt JSON."
+    )
     actions = {
         action.dest: action for action in parser._actions if action.dest != "help"
     }
@@ -113,3 +134,26 @@ def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
         "capabilities",
         "failed-generations",
     )
+
+
+def test_generated_video_qc_uses_the_historical_module_sampler_seam(
+    monkeypatch, tmp_path: Path
+) -> None:
+    video = tmp_path / "clip.mp4"
+    frame = tmp_path / "frame.jpg"
+    calls: list[Path] = []
+
+    def sample(path: Path) -> list[Path]:
+        calls.append(path)
+        return [frame]
+
+    monkeypatch.setattr(generate_assets, "_sample_video_frames", sample)
+    monkeypatch.setattr(generate_assets, "assess_image_qc", lambda *args, **kwargs: {})
+    monkeypatch.setattr(generate_assets, "is_image_postable", lambda assessment: True)
+
+    result = generate_assets.generated_video_qc(
+        {"video": str(video)}, root=tmp_path, required=True
+    )
+
+    assert calls == [video]
+    assert result["status"] == "passed"

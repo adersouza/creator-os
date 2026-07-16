@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Generate and track Higgsfield/Kling source assets from clean prompt JSON.
-
-This module intentionally remains the stable import and CLI surface. Provider
-transport, QC, value objects, and lineage builders live in focused sibling
-modules; orchestration stays here so existing test seams and callers keep the
-same patch points and stdout/exit behavior.
-"""
+"""Generate and track Higgsfield/Kling source assets from clean prompt JSON."""
 
 from __future__ import annotations
 
@@ -24,11 +18,20 @@ from .asset_prompt_contract import AssetPromptSet
 from .deprecated_generators import guard_deprecated_generator
 from .evidence_store import record_asset_generation, validate_generation_soul
 from .generation_asset_models import (
+    CAPABILITY_SCHEMA,
     DEFAULT_DIRECT_REFERENCE_IMAGE_ASPECT_RATIO,
     DEFAULT_GRID_IMAGE_ASPECT_RATIO,
+    DIRECT_REFERENCE_SEED_PROMPT,
+    DOWNLOAD_CHUNK_BYTES,
+    DOWNLOAD_TIMEOUT_SECONDS,
     IMAGE_MODEL,
+    IMAGE_MODEL_CANDIDATES,
+    MIN_IMAGE_RESULT_BYTES,
+    MIN_VIDEO_RESULT_BYTES,
     POLICY_BOUND_WORKER_MODES,
     VIDEO_MODEL,
+    VIDEO_MODEL_CANDIDATES,
+    VIDEO_SOUND_MODELS,
     AssetGenerationPlan,
     DirectReferenceImagePlan,
     direct_reference_lineage_path,
@@ -122,7 +125,16 @@ _run_json = _provider_run_json
 _run_text = _provider_run_text
 _COMPAT_TRANSPORT_MODULES = (subprocess, urllib.request)
 _COMPAT_REEXPORTED_HELPERS = (
+    CAPABILITY_SCHEMA,
+    DIRECT_REFERENCE_SEED_PROMPT,
+    DOWNLOAD_CHUNK_BYTES,
+    DOWNLOAD_TIMEOUT_SECONDS,
     HiggsfieldCliAdapter,
+    IMAGE_MODEL_CANDIDATES,
+    MIN_IMAGE_RESULT_BYTES,
+    MIN_VIDEO_RESULT_BYTES,
+    VIDEO_MODEL_CANDIDATES,
+    VIDEO_SOUND_MODELS,
     build_model_list_cmd,
     build_soul_list_cmd,
     build_upload_cmd,
@@ -463,7 +475,7 @@ def generated_video_qc(
         root=root,
         required=required,
         vision_call=vision_call,
-        frame_sampler=frame_sampler,
+        frame_sampler=frame_sampler or _sample_video_frames,
         assess_image_call=assess_image_qc,
         is_postable_call=is_image_postable,
     )
