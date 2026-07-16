@@ -2101,6 +2101,391 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	contentforgeCampaignAuditResponse: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "contentforge.campaign_factory_audit_response.v1",
+	  "title": "ContentForge Campaign Factory Audit Response",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "contractVersion",
+	    "auditProfile",
+	    "targetFile",
+	    "comparisonFiles",
+	    "layers",
+	    "verdicts",
+	    "verdictCodes",
+	    "overallVerdict",
+	    "readinessSummary",
+	    "ocr",
+	    "captionBoxes",
+	    "safeZoneScore",
+	    "readabilityScore",
+	    "hookVisibilityScore",
+	    "safeZone",
+	    "readability",
+	    "coverCandidates",
+	    "hookVisibility",
+	    "watchability",
+	    "creativeQuality",
+	    "virality",
+	    "videoAnalysis",
+	    "audioFitSignals",
+	    "referenceMatch",
+	    "multiAccountOriginalityAudit",
+	    "filesAnalyzed"
+	  ],
+	  "properties": {
+	    "contractVersion": {
+	      "const": "campaign_factory_audit.v1.10"
+	    },
+	    "auditProfile": {
+	      "const": "campaign_factory_v1"
+	    },
+	    "animationMode": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "allowStaticOpening": {
+	      "type": "boolean"
+	    },
+	    "targetFile": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "comparisonFiles": {
+	      "type": "array",
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
+	      },
+	      "uniqueItems": true
+	    },
+	    "layers": {
+	      "type": "object",
+	      "additionalProperties": true
+	    },
+	    "verdicts": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "$ref": "#/$defs/verdict"
+	      }
+	    },
+	    "verdictCodes": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "type": "string",
+	        "minLength": 1
+	      }
+	    },
+	    "overallVerdict": {
+	      "$ref": "#/$defs/verdict"
+	    },
+	    "readinessSummary": {
+	      "$ref": "#/$defs/readinessSummary"
+	    },
+	    "ocr": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "captionBoxes": {
+	      "type": "array",
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "safeZoneScore": {
+	      "$ref": "#/$defs/nullableScore"
+	    },
+	    "readabilityScore": {
+	      "$ref": "#/$defs/nullableScore"
+	    },
+	    "hookVisibilityScore": {
+	      "$ref": "#/$defs/nullableScore"
+	    },
+	    "safeZone": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "readability": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "coverCandidates": {
+	      "type": "array",
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "hookVisibility": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "watchability": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "creativeQuality": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "virality": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "videoAnalysis": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "audioFitSignals": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "scoringEnabled",
+	        "advisoryOnly",
+	        "variantTags",
+	        "reasons",
+	        "note"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "contentforge.audio_fit_signals.v1"
+	        },
+	        "scoringEnabled": {
+	          "const": false
+	        },
+	        "advisoryOnly": {
+	          "const": true
+	        },
+	        "variantTags": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "reasons": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "note": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "referenceMatch": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "multiAccountOriginalityAudit": {
+	      "$ref": "#/$defs/nullableObject"
+	    },
+	    "timings": {
+	      "type": "object",
+	      "required": [
+	        "totalMs",
+	        "layersMs"
+	      ],
+	      "properties": {
+	        "totalMs": {
+	          "type": "number",
+	          "minimum": 0
+	        },
+	        "layersMs": {
+	          "type": "object",
+	          "additionalProperties": {
+	            "type": "number",
+	            "minimum": 0
+	          }
+	        }
+	      },
+	      "additionalProperties": true
+	    },
+	    "filesAnalyzed": {
+	      "type": "integer",
+	      "minimum": 1
+	    }
+	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "overallVerdict": {
+	            "const": "fail"
+	          }
+	        },
+	        "required": [
+	          "overallVerdict"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "readinessSummary": {
+	            "properties": {
+	              "uploadReady": {
+	                "const": false
+	              }
+	            }
+	          }
+	        }
+	      },
+	      "else": {
+	        "properties": {
+	          "readinessSummary": {
+	            "properties": {
+	              "uploadReady": {
+	                "const": true
+	              }
+	            }
+	          }
+	        }
+	      }
+	    }
+	  ],
+	  "$defs": {
+	    "verdict": {
+	      "enum": [
+	        "pass",
+	        "warn",
+	        "fail"
+	      ]
+	    },
+	    "nullableObject": {
+	      "type": [
+	        "object",
+	        "null"
+	      ]
+	    },
+	    "nullableScore": {
+	      "type": [
+	        "number",
+	        "null"
+	      ],
+	      "minimum": 0,
+	      "maximum": 100
+	    },
+	    "stringArray": {
+	      "type": "array",
+	      "items": {
+	        "type": "string"
+	      }
+	    },
+	    "readinessItem": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "code",
+	        "message",
+	        "label",
+	        "severity",
+	        "operatorLabel"
+	      ],
+	      "properties": {
+	        "code": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "message": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "label": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "severity": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operatorLabel": {
+	          "enum": [
+	            "blocking",
+	            "needs review",
+	            "advisory",
+	            "informational"
+	          ]
+	        }
+	      }
+	    },
+	    "readinessSummary": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "summaryText",
+	        "blockingReasons",
+	        "warnings",
+	        "blockingCodes",
+	        "warningCodes",
+	        "topWarnings",
+	        "operatorLabels",
+	        "uploadReady",
+	        "recommendedAction"
+	      ],
+	      "properties": {
+	        "summaryText": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "blockingReasons": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "warnings": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "blockingCodes": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "warningCodes": {
+	          "$ref": "#/$defs/stringArray"
+	        },
+	        "topWarnings": {
+	          "type": "array",
+	          "items": {
+	            "$ref": "#/$defs/readinessItem"
+	          }
+	        },
+	        "operatorLabels": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "blocking",
+	            "needsReview",
+	            "advisory",
+	            "informational"
+	          ],
+	          "properties": {
+	            "blocking": {
+	              "type": "array",
+	              "items": {
+	                "$ref": "#/$defs/readinessItem"
+	              }
+	            },
+	            "needsReview": {
+	              "type": "array",
+	              "items": {
+	                "$ref": "#/$defs/readinessItem"
+	              }
+	            },
+	            "advisory": {
+	              "type": "array",
+	              "items": {
+	                "$ref": "#/$defs/readinessItem"
+	              }
+	            },
+	            "informational": {
+	              "type": "array",
+	              "items": {
+	                "$ref": "#/$defs/readinessItem"
+	              }
+	            }
+	          }
+	        },
+	        "uploadReady": {
+	          "type": "boolean"
+	        },
+	        "recommendedAction": {
+	          "enum": [
+	            "approve_candidate",
+	            "review",
+	            "reject"
+	          ]
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	creativePlan: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.creative_plan.v1",
@@ -6356,6 +6741,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "campaignDraftPayload", filename: "campaign_draft_payload.v1.schema.json", id: "campaign_factory.threadsdash_drafts.v1" },
 	{ key: "campaignDraftPayloadV2", filename: "campaign_draft_payload.v2.schema.json", id: "campaign_factory.threadsdash_drafts.v2" },
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
+	{ key: "contentforgeCampaignAuditResponse", filename: "contentforge_campaign_audit_response.v1.schema.json", id: "contentforge.campaign_factory_audit_response.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
 	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },

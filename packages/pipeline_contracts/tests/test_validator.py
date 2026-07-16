@@ -13,6 +13,7 @@ from pipeline_contracts import (
     validate_campaign_draft_payload,
     validate_campaign_draft_payload_strict,
     validate_caption_outcome_context,
+    validate_contentforge_campaign_audit_response,
     validate_creative_plan,
     validate_front_generation_plan,
     validate_generated_asset_lineage,
@@ -51,6 +52,9 @@ def test_named_validators_accept_examples():
     validate_assignment_eligibility(load_example("assignment_eligibility"))
     validate_campaign_draft_payload(load_example("campaign_draft_payload"))
     validate_caption_outcome_context(load_example("caption_outcome_context"))
+    validate_contentforge_campaign_audit_response(
+        load_example("contentforge_campaign_audit_response")
+    )
     validate_audio_catalog_export(load_example("audio_catalog_export"))
     validate_performance_sync(load_example("performance_sync"))
     validate_post_metric_history_read(load_example("post_metric_history.read"))
@@ -101,6 +105,25 @@ def test_generation_execution_plan_rejects_policy_drift() -> None:
 
     with pytest.raises(ContractValidationError, match="motionStrategy"):
         validate_generation_execution_plan(payload)
+
+
+def test_contentforge_campaign_audit_response_accepts_optional_diagnostics_missing() -> (
+    None
+):
+    payload = load_example("contentforge_campaign_audit_response")
+    del payload["animationMode"]
+    del payload["allowStaticOpening"]
+    del payload["timings"]
+
+    validate_contentforge_campaign_audit_response(payload)
+
+
+def test_contentforge_campaign_audit_response_rejects_missing_decision_field() -> None:
+    payload = load_example("contentforge_campaign_audit_response")
+    del payload["readinessSummary"]
+
+    with pytest.raises(ContractValidationError, match="readinessSummary"):
+        validate_contentforge_campaign_audit_response(payload)
 
 
 def test_threadsdash_handshake_rejects_publish_authority() -> None:

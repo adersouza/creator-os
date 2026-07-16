@@ -5,6 +5,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .contracts import (
+    ContractValidationError,
+    validate_contentforge_campaign_audit_response,
+)
+
 
 def run_contentforge(
     root: Path | str,
@@ -43,4 +48,11 @@ def run_contentforge(
         raise RuntimeError("ContentForge returned a non-object response")
     if parsed.get("error"):
         raise RuntimeError(f"ContentForge error: {parsed['error']}")
+    if command == "similarity" and payload.get("auditProfile") == "campaign_factory_v1":
+        try:
+            validate_contentforge_campaign_audit_response(parsed)
+        except ContractValidationError as exc:
+            raise RuntimeError(
+                f"ContentForge response contract violation: {exc}"
+            ) from exc
     return parsed

@@ -1337,6 +1337,10 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
         cf.conn.commit()
         audit = audit_campaign(cf, campaign_slug="launch")
         assert audit["reports"][0]["status"] == "needs_review"
+        blocked = export_threadsdash(
+            cf, campaign_slug="launch", user_id="user_1", dry_run=True
+        )
+        assert blocked["draftCount"] == 0
         cf.domains.finished_video.approve_rendered_asset("asset_smoke")
         exported = export_threadsdash(
             cf, campaign_slug="launch", user_id="user_1", dry_run=True
