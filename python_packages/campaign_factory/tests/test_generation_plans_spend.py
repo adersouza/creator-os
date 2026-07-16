@@ -1616,6 +1616,7 @@ def test_generation_run_library_reuse_outputs_dry_run_report(tmp_path: Path):
 
     library = tmp_path / "library"
     library.mkdir()
+    (library / "selected.mp4").write_bytes(b"selected-library-mp4")
     result = subprocess.run(
         [
             sys.executable,

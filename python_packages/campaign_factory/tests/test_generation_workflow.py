@@ -9,6 +9,7 @@ from campaign_factory.generation_workflow import (
     _run_motion_edit_mode,
     run_generation_workflow,
 )
+from campaign_test_support import make_factory
 
 
 def test_workflow_builds_and_passes_one_canonical_plan(
@@ -99,26 +100,33 @@ def test_library_reuse_folder_preflight_is_free_and_review_only(
 ) -> None:
     folder = tmp_path / "library"
     folder.mkdir()
+    source = folder / "selected.mp4"
+    source.write_bytes(b"selected-library-mp4")
+    cf = make_factory(tmp_path)
+    try:
+        result = run_generation_workflow(
+            cf,
+            mode="library_reuse",
+            campaign_slug="campaign",
+            library_folder=folder,
+            model_slug="stacey",
+            output_format="reel",
+            variant_count=10,
+            workers=2,
+            dry_run=True,
+            apply=False,
+        )
 
-    result = run_generation_workflow(
-        object(),
-        mode="library_reuse",
-        campaign_slug="campaign",
-        library_folder=folder,
-        model_slug="stacey",
-        output_format="reel",
-        variant_count=10,
-        workers=2,
-        dry_run=True,
-        apply=False,
-    )
-
-    assert result["mode"] == "library_reuse"
-    assert result["result"]["providerCalls"] == 0
-    assert result["result"]["paidGenerationAllowed"] is False
-    assert result["result"]["autoApprovalAllowed"] is False
-    assert result["schedulingAllowed"] is False
-    assert result["publishingAllowed"] is False
+        assert result["mode"] == "library_reuse"
+        assert result["result"]["selectedCount"] == 1
+        assert result["result"]["providerCalls"] == 0
+        assert result["result"]["paidGenerationAllowed"] is False
+        assert result["result"]["autoApprovalAllowed"] is False
+        assert result["result"]["renderingPerformed"] is False
+        assert result["schedulingAllowed"] is False
+        assert result["publishingAllowed"] is False
+    finally:
+        cf.close()
 
 
 def test_library_reuse_requires_explicit_folder_and_model(tmp_path: Path) -> None:
