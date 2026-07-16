@@ -1476,6 +1476,11 @@ export const generatedPipelineContractSchemas = {
 	        "required": [
 	          "platform",
 	          "status",
+	          "distributionSurface",
+	          "instagramTrialReels",
+	          "trialGraduationStrategy",
+	          "shareToFeed",
+	          "collaborators",
 	          "metadata"
 	        ],
 	        "properties": {
@@ -1486,10 +1491,32 @@ export const generatedPipelineContractSchemas = {
 	            "type": "string"
 	          },
 	          "distributionSurface": {
-	            "type": [
-	              "string",
-	              "null"
+	            "type": "string",
+	            "enum": [
+	              "regular_reel",
+	              "trial_reel",
+	              "story",
+	              "story_cta",
+	              "feed_single",
+	              "feed_carousel"
 	            ]
+	          },
+	          "instagramTrialReels": {
+	            "type": "boolean"
+	          },
+	          "trialGraduationStrategy": {
+	            "enum": [
+	              null,
+	              "MANUAL",
+	              "SS_PERFORMANCE"
+	            ]
+	          },
+	          "shareToFeed": {
+	            "type": "boolean"
+	          },
+	          "collaborators": {
+	            "type": "array",
+	            "maxItems": 0
 	          },
 	          "metadata": {
 	            "type": "object",
@@ -1825,7 +1852,100 @@ export const generatedPipelineContractSchemas = {
 	            },
 	            "additionalProperties": true
 	          }
-	        }
+	        },
+	        "allOf": [
+	          {
+	            "if": {
+	              "required": [
+	                "distributionSurface"
+	              ],
+	              "properties": {
+	                "distributionSurface": {
+	                  "const": "trial_reel"
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": true
+	                },
+	                "trialGraduationStrategy": {
+	                  "enum": [
+	                    "MANUAL",
+	                    "SS_PERFORMANCE"
+	                  ]
+	                },
+	                "shareToFeed": {
+	                  "const": false
+	                }
+	              }
+	            }
+	          },
+	          {
+	            "if": {
+	              "required": [
+	                "instagramTrialReels"
+	              ],
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": true
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "distributionSurface": {
+	                  "const": "trial_reel"
+	                },
+	                "shareToFeed": {
+	                  "const": false
+	                }
+	              }
+	            }
+	          },
+	          {
+	            "if": {
+	              "required": [
+	                "instagramTrialReels"
+	              ],
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": false
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "trialGraduationStrategy": {
+	                  "const": null
+	                }
+	              }
+	            }
+	          },
+	          {
+	            "if": {
+	              "required": [
+	                "distributionSurface"
+	              ],
+	              "properties": {
+	                "distributionSurface": {
+	                  "const": "regular_reel"
+	                }
+	              }
+	            },
+	            "then": {
+	              "properties": {
+	                "instagramTrialReels": {
+	                  "const": false
+	                },
+	                "shareToFeed": {
+	                  "const": true
+	                }
+	              }
+	            }
+	          }
+	        ]
 	      }
 	    },
 	    "pipelineTraceId": {

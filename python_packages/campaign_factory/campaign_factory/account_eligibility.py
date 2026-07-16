@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pipeline_contracts import validate_account_eligibility_decision
@@ -12,6 +12,8 @@ TRIAL_REEL_PUBLISH_SCOPES = {
     "instagram_content_publish",
     "instagram_business_content_publish",
 }
+TRIAL_ACCOUNT_PROJECTION_MAX_AGE = timedelta(hours=24)
+TRIAL_ACCOUNT_PROJECTION_FUTURE_SKEW = timedelta(minutes=5)
 
 
 class AccountEligibilityError(ValueError):
@@ -62,6 +64,9 @@ def evaluate_account_eligibility(
     projected_active = _nullable_bool((row or {}).get("threadsdash_is_active"))
     needs_reauth = _nullable_bool((row or {}).get("threadsdash_needs_reauth"))
     projected_status = str((row or {}).get("threadsdash_status") or "unknown").lower()
+    projection_observed_at, projection_freshness = _projection_freshness(
+        (row or {}).get("threadsdash_projection_observed_at")
+    )
     health = health_decision if isinstance(health_decision, dict) else {}
     health_blockers = [str(item) for item in health.get("blockers") or []]
     health_warnings = [str(item) for item in health.get("warnings") or []]
@@ -115,7 +120,11 @@ def evaluate_account_eligibility(
         )
         operator_action = "resolve_account_health_blocker"
     elif requires_trial_capability:
-        if scopes is None:
+        if projection_freshness != "fresh":
+            allowed = False
+            decision_reason = f"trial_account_projection_{projection_freshness}"
+            operator_action = "sync_threadsdashboard_account_projection"
+        elif scopes is None:
             allowed = False
             decision_reason = "trial_oauth_scope_evidence_missing"
             operator_action = "reconnect_account_and_record_oauth_scopes"
@@ -167,9 +176,7 @@ def evaluate_account_eligibility(
             "status": projected_status,
             "needsReauth": needs_reauth,
             "syncCohort": (row or {}).get("threadsdash_sync_cohort"),
-            "projectionObservedAt": (row or {}).get(
-                "threadsdash_projection_observed_at"
-            ),
+            "projectionObservedAt": projection_observed_at,
         },
         "oauth": {
             "grantedScopes": scopes,
@@ -197,6 +204,25 @@ def evaluate_account_eligibility(
     }
     validate_account_eligibility_decision(decision)
     return decision
+
+
+def _projection_freshness(value: Any) -> tuple[str | None, str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None, "observed_at_missing"
+    try:
+        observed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None, "observed_at_invalid"
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=UTC)
+    observed = observed.astimezone(UTC)
+    age = datetime.now(UTC) - observed
+    if age < -TRIAL_ACCOUNT_PROJECTION_FUTURE_SKEW:
+        return observed.isoformat(), "observed_at_invalid"
+    if age > TRIAL_ACCOUNT_PROJECTION_MAX_AGE:
+        return observed.isoformat(), "stale"
+    return observed.isoformat(), "fresh"
 
 
 def enforce_account_eligibility(

@@ -235,6 +235,7 @@ class ModelRepository:
         oauth_scopes_verified_at: str | None,
         checked_at: str | None,
         reason: str | None,
+        projection_observed_at: str | None = None,
     ) -> dict[str, Any]:
         """Compatibility wrapper for callers projecting only Trial evidence."""
         return self.project_instagram_account_evidence(
@@ -244,6 +245,7 @@ class ModelRepository:
             oauth_scopes_verified_at=oauth_scopes_verified_at,
             checked_at=checked_at,
             reason=reason,
+            projection_observed_at=projection_observed_at,
         )
 
     def project_instagram_account_evidence(

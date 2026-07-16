@@ -18,6 +18,7 @@ from campaign_factory.audio_smoke import (
     CONTENTFORGE_SMOKE_RESPONSE,
     assert_contentforge_contract_response,
 )
+from campaign_factory.cli_parser import build_cli_parser
 from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_motion_edit_render,
@@ -46,6 +47,33 @@ CLI_PYTHONPATH = os.pathsep.join(
         str(MONOREPO_ROOT / "packages" / "pipeline_contracts"),
     ]
 )
+
+
+def test_export_threadsdash_cli_defaults_to_regular_reel_surface():
+    args = build_cli_parser().parse_args(
+        ["export-threadsdash", "--campaign", "may", "--user-id", "user_1"]
+    )
+
+    assert args.surface == "regular_reel"
+
+
+def test_export_threadsdash_api_defaults_to_regular_reel_surface(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeFactory:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def fake_export(_factory, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(app_module, "export_threadsdash", fake_export)
+
+    assert app_module.export_td({"campaign": "may", "userId": "user_1"}) == {"ok": True}
+    assert captured["surface"] == "regular_reel"
 
 
 def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):

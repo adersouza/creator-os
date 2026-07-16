@@ -90,3 +90,25 @@ def test_database_schema_and_migrations_remain_separate() -> None:
     assert "def _repair_" not in _source("db.py")
     assert "SCHEMA =" in _source("db_schema.py")
     assert "def _migrate_" in _source("db_migrations.py")
+
+
+def test_campaign_reel_imports_use_public_worker_api() -> None:
+    imports: list[tuple[str, int, str]] = []
+    for path in PACKAGE.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module == "reel_factory" or node.module.startswith(
+                    "reel_factory."
+                ):
+                    imports.append((path.name, node.lineno, node.module))
+            elif isinstance(node, ast.Import):
+                imports.extend(
+                    (path.name, node.lineno, alias.name)
+                    for alias in node.names
+                    if alias.name == "reel_factory"
+                    or alias.name.startswith("reel_factory.")
+                )
+
+    assert imports
+    assert {module for _, _, module in imports} == {"reel_factory.worker_api"}

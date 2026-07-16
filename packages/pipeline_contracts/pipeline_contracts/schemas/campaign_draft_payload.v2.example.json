@@ -6,6 +6,10 @@
       "platform": "instagram",
       "status": "draft",
       "distributionSurface": "regular_reel",
+      "instagramTrialReels": false,
+      "trialGraduationStrategy": null,
+      "shareToFeed": true,
+      "collaborators": [],
       "metadata": {
         "campaign_factory": {
           "graph_id": "cg_rendered_asset_assetsmoke01",

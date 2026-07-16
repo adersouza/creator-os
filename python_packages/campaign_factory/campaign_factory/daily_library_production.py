@@ -485,7 +485,7 @@ def _identity_reference_fingerprint(factory: CampaignFactory) -> str:
 def _daily_hooks(
     factory: CampaignFactory, *, count: int, seed_key: str
 ) -> list[dict[str, Any]]:
-    from reel_factory.caption_bank import load_or_build_caption_bank_store
+    from reel_factory.worker_api import load_or_build_caption_bank_store
 
     store = load_or_build_caption_bank_store(factory.settings.reel_factory_root)
     seed = int(hashlib.sha256(seed_key.encode()).hexdigest()[:16], 16)

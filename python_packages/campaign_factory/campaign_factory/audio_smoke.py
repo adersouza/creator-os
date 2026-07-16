@@ -677,7 +677,7 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, {str(reel_root)!r})
-from reel_factory.audio_intent import read_audio_intent
+from reel_factory.worker_api import read_audio_intent
 
 root = Path({str(fixture_root)!r})
 root.mkdir(parents=True, exist_ok=True)

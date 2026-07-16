@@ -360,6 +360,10 @@ class DistributionRepository:
         trial_graduation_strategy: str | None,
     ) -> str | None:
         strategy = (trial_graduation_strategy or "").strip().upper() or None
+        if distribution_surface == "trial_reel" and not instagram_trial_reels:
+            raise ValueError("trial_reel surface requires instagram_trial_reels=true")
+        if instagram_trial_reels and distribution_surface != "trial_reel":
+            raise ValueError("instagram_trial_reels=true requires trial_reel surface")
         if not instagram_trial_reels:
             if strategy:
                 raise ValueError(

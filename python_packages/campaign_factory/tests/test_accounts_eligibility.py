@@ -44,6 +44,7 @@ def project_trial_account(
         f"fixture_{external_id}",
         external_id=external_id,
     )
+    observed_at = datetime.now(UTC).isoformat()
     return factory.domains.models.project_instagram_trial_capability(
         account["id"],
         capability=capability,
@@ -53,6 +54,7 @@ def project_trial_account(
         ),
         checked_at=checked_at,
         reason=reason,
+        projection_observed_at=observed_at,
     )
 
 
@@ -402,7 +404,7 @@ def test_regular_reel_manifest_defaults_instagram_trial_reels_false(tmp_path: Pa
         cf.close()
 
 
-def test_internal_trial_or_proof_campaign_does_not_set_instagram_trial_reels(
+def test_trial_surface_requires_explicit_instagram_trial_reel_intent(
     tmp_path: Path,
 ):
     cf = make_factory(tmp_path)
@@ -413,18 +415,43 @@ def test_internal_trial_or_proof_campaign_does_not_set_instagram_trial_reels(
         add_audit_report(cf)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
 
-        plan = cf.domains.distribution.create_distribution_plan(
-            "asset_1", surface="trial_reel", instagram_account_id="ig_good"
+        with pytest.raises(
+            ValueError,
+            match="trial_reel surface requires instagram_trial_reels=true",
+        ):
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1", surface="trial_reel", instagram_account_id="ig_good"
+            )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM distribution_plans").fetchone()[0]
+            == 0
         )
-        explanation = cf.domains.publishability.explain_publishability(
-            "asset_1", distribution_plan_id=plan["id"]
-        )
+    finally:
+        cf.close()
 
-        manifest = explanation["handoff_manifest"]
-        assert plan["surface"] == "trial_reel"
-        assert plan["instagramTrialReels"] is False
-        assert manifest["instagram_trial_reels"] is False
-        assert manifest["trial_graduation_strategy"] is None
+
+def test_instagram_trial_reel_intent_requires_trial_surface(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        with pytest.raises(
+            ValueError,
+            match="instagram_trial_reels=true requires trial_reel surface",
+        ):
+            cf.domains.distribution.create_distribution_plan(
+                "asset_1",
+                surface="regular_reel",
+                instagram_account_id="ig_good",
+                instagram_trial_reels=True,
+                trial_graduation_strategy="MANUAL",
+            )
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM distribution_plans").fetchone()[0]
+            == 0
+        )
     finally:
         cf.close()
 
