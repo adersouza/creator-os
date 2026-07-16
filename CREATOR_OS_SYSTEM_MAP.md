@@ -294,10 +294,7 @@ code no longer defaults generated exports back into a Git checkout.
 
 ### Compatibility-required or legacy-but-called
 
-- `deprecated_generators.py`: active fail-closed guard; do not delete.
-- selected Grok/prompt helpers imported by anatomy/reference compatibility;
-  hidden from the root operator command.
-- grid crop utilities with active tests/imports; not a default generation path.
+- narrow XAI vision helpers used by anatomy/postability QC;
 - FFmpeg-dependent probe/render/QC paths; active infrastructure.
 - root `pipeline_contracts/__init__.py`: import shim for current callers.
 
@@ -308,7 +305,9 @@ code no longer defaults generated exports back into a Git checkout.
 - Campaign static dashboard assets;
 - unused ContentForge golden-capture script;
 - orphaned overnight-grid, reference-grid-production, visual benchmark, and
-  Reel-owned outcome/orchestrator/approval harnesses, tests, and docs.
+  Reel-owned outcome/orchestrator/approval harnesses, tests, and docs;
+- legacy Reel prompt generation, six-pack generation, and manual grid-crop
+  execution paths.
 
 ## State, Artifacts, And Contracts
 
@@ -342,18 +341,16 @@ Creator OS is no longer architecturally tangled, but it is still a large
 codebase. The remaining mess is bounded and is not a reason to merge the
 factories or add another service:
 
-1. `reel_pipeline.py` is about 3,500 lines and
-   `reference_intake.py` is about 3,900 lines. Split them by existing stages
-   only when changing those stages; do not create wrapper-only packages.
+1. Reel Pipeline and Reference intake were split by semantic stages without
+   changing their public operator workflows; keep the resulting modules narrow.
 2. Campaign Factory is roughly 71,000 lines across many domain modules. Its
    largest active modules are now below 1,500 lines, so further reduction should
    remove dead workflows and duplicated policy rather than mechanically split
    files.
 3. Static analysis reports 39 unused ContentForge exports. Remove them in a
    dedicated slice only after proving none are dynamic CLI/worker boundaries.
-4. Legacy grid/six-pack helpers remain hidden from the root workflow but still
-   have real imports/tests. Delete them only after zero-caller proof; they are
-   not active generation defaults.
+4. Legacy Reel prompt generation, six-pack generation, and manual grid-crop
+   execution were deleted after repository and runtime zero-caller proof.
 5. The source checkout still contains retained databases, models, media, and
    real-run evidence for rollback. The largest ignored temporary evidence tree
    is about 1.3 GB. Do not confuse retained evidence with source architecture or

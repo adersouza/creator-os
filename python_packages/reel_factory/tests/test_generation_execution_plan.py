@@ -166,34 +166,16 @@ def test_read_only_modes_do_not_require_execution_plan(
     assert json.loads(capsys.readouterr().out)["mode"] == "capabilities"
 
 
-def test_explicit_legacy_dry_run_remains_compatible_without_execution_plan(
-    tmp_path: Path,
+@pytest.mark.parametrize("removed_mode", ["create", "dry-run"])
+def test_combined_worker_aliases_no_longer_parse(
+    removed_mode: str,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    prompt = tmp_path / "prompt.json"
-    prompt.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        generate_assets,
-        "dry_run",
-        lambda _plan, *, wait: {"mode": "legacy-dry-run", "wait": wait},
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "generate_assets",
-            "dry-run",
-            "--prompt-json",
-            str(prompt),
-            "--stem",
-            "legacy",
-            "--creator",
-            "Stacey",
-            "--root",
-            str(tmp_path),
-        ],
-    )
+    monkeypatch.setattr(sys, "argv", ["generate_assets", removed_mode])
 
-    assert generate_assets.main() == 0
-    assert json.loads(capsys.readouterr().out)["mode"] == "legacy-dry-run"
+    with pytest.raises(SystemExit) as exc_info:
+        generate_assets.main()
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

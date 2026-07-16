@@ -8,7 +8,6 @@ import shlex
 import time
 from pathlib import Path
 
-from .asset_prompt_contract import AssetPromptSet
 from .graph_builder import build_video_filter as build_graph_video_filter
 from .graph_builder import caption_overlay_enable, target_dimensions
 from .manifest import Manifest
@@ -35,7 +34,6 @@ from .reel_pipeline_support import (
     centered_static_caption_band,
     compute_job_key,
     effective_placement_mode_for_caption,
-    ensure_source_asset_lineage,
     log,
     normalize_rendered_mp4_metadata,
     phone_creation_time,
@@ -77,7 +75,6 @@ async def process_one(
     placement_debug: bool = False,
     phone_finalize: bool = True,
     rerender_all: bool = False,
-    asset_prompt_info: tuple[AssetPromptSet, Path] | None = None,
     caption_lineage: dict | None = None,
     account_scope: str = "local_review",
     requested_band: str | None = None,
@@ -679,17 +676,12 @@ async def process_one(
             source_clip=src.stem,
             rendered_output=str(out_path),
         )
-        source_lineage_path = None
-        if asset_prompt_info:
-            prompt_set, prompt_source_path = asset_prompt_info
-            source_lineage_path = ensure_source_asset_lineage(
-                src,
-                prompt_set=prompt_set,
-                prompt_source_path=prompt_source_path,
-            )
+        source_lineage_path = src.with_suffix(".generated_asset_lineage.json")
         write_generated_asset_lineage_sidecar(
             out_path,
-            source_lineage_path=source_lineage_path,
+            source_lineage_path=(
+                source_lineage_path if source_lineage_path.is_file() else None
+            ),
             render_job_key=key,
             source_hash=src_hash,
         )

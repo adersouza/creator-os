@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
 from reel_factory import generate_assets
 from reel_factory.generation_asset_models import (
     CAPABILITY_SCHEMA,
@@ -25,7 +26,12 @@ from reel_factory.generation_provider import (
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "reel_factory"
 SPLIT_MODULES = {
-    "generate_assets.py": {"create_assets", "create_image_asset", "main"},
+    "generate_assets.py": {
+        "create_direct_reference_image_asset",
+        "create_image_asset",
+        "create_video_asset",
+        "main",
+    },
     "generation_asset_models.py": {"AssetGenerationPlan", "DirectReferenceImagePlan"},
     "generation_provider.py": {"HiggsfieldCliAdapter", "probe_higgsfield_capabilities"},
     "generation_qc.py": {"generated_image_qc", "generated_video_qc"},
@@ -73,6 +79,9 @@ def test_generate_assets_coordinator_does_not_reown_extracted_implementations() 
     assert "DirectReferenceImagePlan" not in definitions
     assert "build_source_lineage" not in definitions
     assert "direct_reference_lineage" not in definitions
+    assert "create_assets" not in definitions
+    assert "dry_run" not in definitions
+    assert "image_mode" not in AssetGenerationPlan.__dataclass_fields__
 
 
 def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
@@ -97,7 +106,6 @@ def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
         "end_image",
         "video_reference",
         "selected_panel",
-        "image_mode",
         "out_dir",
         "image_aspect_ratio",
         "image_quality",
@@ -121,8 +129,6 @@ def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
         "force",
     }
     assert tuple(actions["mode"].choices) == (
-        "create",
-        "dry-run",
         "image",
         "image-dry-run",
         "reference-image",
@@ -134,6 +140,21 @@ def test_generate_assets_cli_preserves_the_complete_argument_surface() -> None:
         "capabilities",
         "failed-generations",
     )
+    assert parser.allow_abbrev is False
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["create"],
+        ["dry-run"],
+        ["image", "--image-mode", "six-pack"],
+        ["image", "--asset-prompt-json", "prompt.json"],
+    ],
+)
+def test_generate_assets_parser_rejects_retired_interfaces(argv: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        generate_assets._parser().parse_args(argv)
 
 
 def test_generated_video_qc_uses_the_historical_module_sampler_seam(

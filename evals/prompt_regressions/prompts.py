@@ -14,12 +14,32 @@ for relative in (
 ):
     sys.path.insert(0, str(ROOT / relative))
 
-from reel_factory.generate_prompts import (  # noqa: E402
-    build_higgsfield_reference_prompt_instruction,
-)
 from reel_factory.reference_video_remix import (  # noqa: E402
     gemini_motion_analysis_instruction,
 )
+
+
+def build_higgsfield_reference_prompt_instruction(
+    creative_direction: str = "",
+) -> str:
+    """Captured offline Soul-reference prompt surface used only by Promptfoo."""
+    direction = creative_direction.strip()
+    extra = f"\nExtra direction from operator: {direction}\n" if direction else ""
+    return (
+        "Reference image attached.\n\n"
+        "Make a prompt similar to this reference image for me to use in Higgsfield with Soul ID on my AI model.\n"
+        "Make sure to get the pose down correctly, including body angle, camera angle, hand placement, crop, clothing, lighting, and setting.\n"
+        "Make sure the prompt is sexy, body-forward, realistic, and amateur smartphone-style, while staying faithful to the reference pose, outfit, and setting.\n"
+        "Do not mention hair, hairstyle, hair color, tattoos, identity traits, usernames, captions, UI, watermarks, or negative prompts.\n"
+        "Do not make a grid, panel sheet, collage, or variation set. Write for exactly one standalone image.\n"
+        "Do not say the reference image will be passed into Higgsfield. The final prompt must stand on its own.\n"
+        f"{extra}\n"
+        "Return only this JSON:\n"
+        "{\n"
+        '  "image_prompt": "...",\n'
+        '  "notes": "..."\n'
+        "}"
+    )
 
 
 def render_prompt(context: dict[str, Any]) -> str:

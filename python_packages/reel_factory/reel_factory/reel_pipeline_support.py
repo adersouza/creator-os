@@ -15,7 +15,6 @@ from pathlib import Path
 
 from pipeline_contracts import validate_generated_asset_lineage
 
-from .asset_prompt_contract import AssetPromptSet, parse_asset_prompt_response
 from .discoverability_safety import discoverability_safe_content_contract
 from .fileops import atomic_write_text
 from .graph_builder import build_ffmpeg_cmd as build_graph_ffmpeg_cmd
@@ -715,13 +714,6 @@ def build_caption_placement_qc_row(
     }
 
 
-def load_asset_prompt_set(path: Path | None) -> tuple[AssetPromptSet, Path] | None:
-    if path is None:
-        return None
-    resolved = path.expanduser().resolve()
-    return parse_asset_prompt_response(resolved.read_text(encoding="utf-8")), resolved
-
-
 def write_generated_asset_lineage_sidecar(
     out_path: Path,
     *,
@@ -919,51 +911,6 @@ def write_caption_lineage_sidecar(
     return sidecar
 
 
-def source_lineage_path_for(src: Path) -> Path:
-    return src.with_suffix(".generated_asset_lineage.json")
-
-
-def ensure_source_asset_lineage(
-    src: Path,
-    *,
-    prompt_set: AssetPromptSet,
-    prompt_source_path: Path,
-) -> Path:
-    path = source_lineage_path_for(src)
-    if path.exists():
-        return path
-    payload = {
-        "schema": "reel_factory.generated_asset_lineage.v2",
-        "createdAt": int(time.time()),
-        "source": {
-            "stem": src.stem,
-            "promptSourcePath": str(prompt_source_path),
-            "sourceVideoPath": str(src),
-        },
-        "generation": {
-            "tool": "higgsfield_kling_manual",
-            "workflow": "manual_prompt_to_imported_video",
-            "models": {
-                "image": "text2image_soul_v2",
-                "video": "kling3_0",
-            },
-            "prompts": asdict(prompt_set),
-        },
-        "assets": {
-            "localPaths": {
-                "video": str(src),
-            },
-        },
-        "review": {
-            "humanReviewRequired": True,
-        },
-    }
-    atomic_write_text(
-        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    return path
-
-
 SELF_SOURCE_SCHEMA = "reel_factory.self_source.v1"
 
 
@@ -1143,11 +1090,6 @@ def build_single_job_enqueue_cmd(
         cmd += ["--account", account_scope]
     if args.strict_preflight:
         cmd.append("--strict-preflight")
-    if args.asset_prompt_json:
-        cmd += [
-            "--asset-prompt-json",
-            str(Path(args.asset_prompt_json).expanduser().resolve()),
-        ]
     if getattr(args, "ai_qc", False):
         cmd.append("--ai-qc")
     if getattr(args, "readiness", False):

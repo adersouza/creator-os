@@ -130,7 +130,7 @@ def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
             "reel_factory.generation_worker_lineage.v1"
         ),
         "python_packages/reel_factory/reel_factory/reel_pipeline_support.py": (
-            "reel_factory.generated_asset_lineage.v2"
+            "reel_factory.generated_asset_lineage.v1"
         ),
     }
 

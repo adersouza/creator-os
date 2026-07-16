@@ -56,7 +56,6 @@ output/
 graphify-out/
 
 # Local prompt/model experiments
-/*.grok_lineage.json
 /test_*.json
 /test_*.jpg
 /test_*.png

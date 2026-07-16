@@ -64,7 +64,6 @@ class AssetGenerationPlan:
     campaign: str | None = None
     creator: str | None = None
     selected_panel: str | None = None
-    image_mode: str = "single"
     image_aspect_ratio: str = DEFAULT_GRID_IMAGE_ASPECT_RATIO
     image_quality: str = "2k"
     video_aspect_ratio: str = "9:16"

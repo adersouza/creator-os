@@ -15,7 +15,6 @@ from PIL import Image
 
 from .anatomy_qc import assess_image_qc, is_image_postable
 from .asset_prompt_contract import AssetPromptSet
-from .deprecated_generators import guard_deprecated_generator
 from .evidence_store import record_asset_generation, validate_generation_soul
 from .generation_asset_models import (
     CAPABILITY_SCHEMA,
@@ -195,42 +194,6 @@ def _soul_id_for_direct_plan(
     return resolve_soul_id(name)
 
 
-def _six_pack_prompts(prompt: AssetPromptSet) -> list[AssetPromptSet]:
-    guard_deprecated_generator("six_pack")
-    return [
-        AssetPromptSet(
-            higgsfieldGridPrompt=(
-                f"{prompt.higgsfieldGridPrompt}\n\nRender only outfit variation {idx} from the six listed variations. "
-                "Same pose, camera angle, room, framing, vertical composition, outfit family, lighting, and body emphasis."
-            ),
-            klingMotionPrompt=prompt.klingMotionPrompt,
-            notes=prompt.notes,
-        )
-        for idx in range(1, 7)
-    ]
-
-
-def detect_grid_status(image_path: str | Path | None) -> dict[str, Any]:
-    guard_deprecated_generator("grid_status_detection")
-    if not image_path:
-        return {"status": "missing", "isGrid": False}
-    path = Path(image_path)
-    try:
-        with Image.open(path) as im:
-            width, height = im.size
-    except Exception as exc:
-        return {"status": "unreadable", "isGrid": False, "error": str(exc)}
-    ratio = width / height if height else 0.0
-    is_grid = 0.85 <= ratio <= 1.20 and width >= 900 and height >= 900
-    return {
-        "status": "native_2x3_grid" if is_grid else "single_image_or_invalid_grid",
-        "isGrid": is_grid,
-        "width": width,
-        "height": height,
-        "ratio": ratio,
-    }
-
-
 def single_image_layout_status(image_path: str | Path | None) -> dict[str, Any]:
     payload: dict[str, Any] = {"status": "single_image_layout", "isGrid": False}
     if not image_path:
@@ -246,67 +209,23 @@ def single_image_layout_status(image_path: str | Path | None) -> dict[str, Any]:
     return payload
 
 
-def dry_run(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
+def dry_run_image_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
     prompt = load_prompt(plan.prompt_json)
     soul_id = _soul_id_for_plan(plan, dry=True)
-    image_prompts = (
-        _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
-    )
-    image_cmds = [
-        build_image_cmd(
-            image_prompt,
-            reference=None,
-            soul_id=soul_id,
-            model=plan.image_model,
-            aspect_ratio=plan.image_aspect_ratio,
-            quality=plan.image_quality,
-            wait=wait,
-        )
-        for image_prompt in image_prompts
-    ]
-    video_cmd = build_video_cmd(
+    command = build_image_cmd(
         prompt,
-        start_image=plan.start_image or "<image_job_id>",
-        end_image=plan.end_image,
-        video_reference=plan.video_reference,
-        model=plan.video_model,
-        aspect_ratio=plan.video_aspect_ratio,
-        duration=plan.video_duration,
-        mode=plan.video_mode,
-        sound=plan.video_sound,
+        reference=None,
+        soul_id=soul_id,
+        model=plan.image_model,
+        aspect_ratio=plan.image_aspect_ratio,
+        quality=plan.image_quality,
         wait=wait,
     )
     return {
         "ok": True,
         "dry_run": True,
-        "commands": image_cmds + [video_cmd],
-        "lineage_path": str(lineage_path(plan)),
-    }
-
-
-def dry_run_image_asset(plan: AssetGenerationPlan, *, wait: bool) -> dict[str, Any]:
-    prompt = load_prompt(plan.prompt_json)
-    soul_id = _soul_id_for_plan(plan, dry=True)
-    image_prompts = (
-        _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
-    )
-    commands = [
-        build_image_cmd(
-            image_prompt,
-            reference=None,
-            soul_id=soul_id,
-            model=plan.image_model,
-            aspect_ratio=plan.image_aspect_ratio,
-            quality=plan.image_quality,
-            wait=wait,
-        )
-        for image_prompt in image_prompts
-    ]
-    return {
-        "ok": True,
-        "dry_run": True,
         "workflow": "higgsfield_soul_v2_image_only",
-        "commands": commands,
+        "commands": [command],
         "lineage_path": str(lineage_path(plan)),
     }
 
@@ -481,10 +400,10 @@ def generated_video_qc(
     )
 
 
-def create_assets(
-    plan: AssetGenerationPlan, *, wait: bool = False, download: bool = False
+def create_image_asset(
+    plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
 ) -> dict[str, Any]:
-    spend_authorization = _authorize_plan(plan, mode="create")
+    spend_authorization = _authorize_plan(plan, mode="image")
     capabilities = ensure_required_capabilities(
         plan.source_dir.parent, plan.image_model, plan.video_model
     )
@@ -497,6 +416,7 @@ def create_assets(
     raw: dict[str, Any] = {}
     soul_id = _soul_id_for_plan(plan, dry=False)
     upload_id = None
+    local_paths: dict[str, str] = {}
     image_cmd = build_image_cmd(
         prompt,
         reference=None,
@@ -525,241 +445,12 @@ def create_assets(
             spend_authorization=spend_authorization,
         )
     steps.append(_step("image_create", image_cmd, raw["image"]))
-    identity_validation = validate_generation_soul(raw["image"], soul_id)
     image_job_id = extract_id(raw["image"])
     image_url = extract_url(raw["image"])
-    video_cmd = build_video_cmd(
-        prompt,
-        start_image=plan.start_image or image_job_id or image_url,
-        end_image=plan.end_image,
-        video_reference=plan.video_reference,
-        model=resolved["videoModel"],
-        aspect_ratio=plan.video_aspect_ratio,
-        duration=plan.video_duration,
-        mode=plan.video_mode,
-        sound=plan.video_sound,
-        wait=wait,
-    )
-    commands.append(video_cmd)
-    try:
-        raw["video"] = _run_json(video_cmd)
-    except HiggsfieldCommandError as exc:
-        return _record_generation_failure(
-            plan,
-            prompt=prompt,
-            commands=commands,
-            steps=steps,
-            raw=raw,
-            error=exc,
-            stage="video_create",
-            capabilities=capabilities,
-            soul_id=soul_id,
-            soul_name=plan.soul_name,
-            spend_authorization=spend_authorization,
-        )
-    steps.append(_step("video_create", video_cmd, raw["video"]))
-    video_job_id = extract_id(raw["video"])
-    video_status = extract_status(raw["video"])
-    video_url = extract_url(raw["video"])
-    local_paths: dict[str, str] = {}
     if download and image_url:
         local_paths["image"] = str(
-            download_result(image_url, plan.out_dir / f"{plan.stem}_soul_image")
+            download_result(image_url, plan.out_dir / f"{plan.stem}_soul_image.png")
         )
-    if download and video_url:
-        local_paths["video"] = str(
-            download_result(video_url, plan.out_dir / f"{plan.stem}.mp4")
-        )
-    payload = build_source_lineage(
-        plan,
-        prompt=prompt,
-        commands=commands,
-        upload_id=upload_id,
-        soul_id=soul_id,
-        soul_name=plan.soul_name,
-        image_job_id=image_job_id,
-        image_result_url=image_url,
-        video_job_id=video_job_id,
-        video_result_url=video_url,
-        local_paths=local_paths,
-        raw=raw,
-        actual_models=resolved,
-    )
-    payload["generation"]["identityValidation"] = identity_validation
-    payload["generation"]["spendAuthorization"] = _authorization_evidence(
-        spend_authorization
-    )
-    payload["generation"]["steps"] = steps
-    payload["generation"]["capabilities"] = {
-        "schema": capabilities.get("schema"),
-        "createdAt": capabilities.get("createdAt"),
-        "validation": validate_required_capabilities(
-            capabilities, plan.image_model, plan.video_model
-        ),
-    }
-    if identity_validation["status"] == "invalid":
-        payload["generation"]["status"] = "invalid_identity"
-    if video_status and video_status != "completed":
-        payload["generation"]["status"] = "video_failed"
-        payload["generation"]["error"] = (
-            f"video job {video_job_id or ''} returned status {video_status}".strip()
-        )
-    video_qc = (
-        {"status": "skipped", "reason": "video_job_not_completed", "results": []}
-        if video_status and video_status != "completed"
-        else generated_video_qc(
-            local_paths, root=plan.source_dir.parent, required=download
-        )
-    )
-    payload["review"]["generatedVideoQc"] = video_qc
-    payload["generation"]["providerExecution"] = _provider_execution_evidence(
-        spend_authorization,
-        [
-            {
-                "provider": "higgsfield",
-                "operation": "image_create",
-                "model": resolved["imageModel"],
-                "raw": raw.get("image"),
-            },
-            {
-                "provider": "kling",
-                "operation": "video_create",
-                "model": resolved["videoModel"],
-                "raw": raw.get("video"),
-            },
-        ],
-    )
-    if video_qc["status"] == "failed":
-        payload["generation"]["status"] = "video_qc_rejected"
-        payload["generation"]["failure"] = {
-            "stage": "generated_video_qc",
-            "reason": generated_video_qc_failure_reason(video_qc),
-        }
-    path = lineage_path(plan)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(
-        path, json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    if video_status and video_status != "completed":
-        return {
-            "ok": False,
-            "path": str(path),
-            "lineage": payload,
-            "campaign_record": None,
-            "error": payload["generation"]["error"],
-        }
-    if video_qc["status"] == "failed":
-        return {
-            "ok": False,
-            "path": str(path),
-            "lineage": payload,
-            "campaign_record": None,
-            "error": payload["generation"]["failure"]["reason"],
-        }
-    campaign_record = None
-    if plan.campaign or plan.creator:
-        campaign_record = record_asset_generation(
-            plan.source_dir.parent,
-            campaign=plan.campaign,
-            creator=plan.creator or plan.soul_name,
-            prompt_json_path=plan.prompt_json,
-            stem=plan.stem,
-            lineage_path=path,
-            lineage=payload,
-        )
-    return {
-        "ok": True,
-        "path": str(path),
-        "lineage": payload,
-        "campaign_record": campaign_record,
-    }
-
-
-def create_image_asset(
-    plan: AssetGenerationPlan, *, wait: bool = False, download: bool = True
-) -> dict[str, Any]:
-    spend_authorization = _authorize_plan(plan, mode="image")
-    capabilities = ensure_required_capabilities(
-        plan.source_dir.parent, plan.image_model, plan.video_model
-    )
-    resolved = resolve_generation_models(
-        capabilities, plan.image_model, plan.video_model
-    )
-    prompt = load_prompt(plan.prompt_json)
-    commands: list[list[str]] = []
-    steps: list[dict[str, Any]] = []
-    raw: dict[str, Any] = {}
-    soul_id = _soul_id_for_plan(plan, dry=False)
-    upload_id = None
-    image_prompts = (
-        _six_pack_prompts(prompt) if plan.image_mode == "six-pack" else [prompt]
-    )
-    image_job_ids: list[str] = []
-    image_urls: list[str] = []
-    local_paths: dict[str, str] = {}
-    raw_images: list[dict[str, Any]] = []
-    for idx, image_prompt in enumerate(image_prompts, start=1):
-        image_cmd = build_image_cmd(
-            image_prompt,
-            reference=None,
-            soul_id=soul_id,
-            model=resolved["imageModel"],
-            identity_flag=resolved["imageIdentityFlag"],
-            aspect_ratio=plan.image_aspect_ratio,
-            quality=plan.image_quality,
-            wait=wait,
-        )
-        commands.append(image_cmd)
-        try:
-            image_raw = _run_json(image_cmd)
-        except HiggsfieldCommandError as exc:
-            return _record_generation_failure(
-                plan,
-                prompt=prompt,
-                commands=commands,
-                steps=steps,
-                raw=raw,
-                error=exc,
-                stage=f"image_create_{idx:02d}"
-                if plan.image_mode == "six-pack"
-                else "image_create",
-                capabilities=capabilities,
-                soul_id=soul_id,
-                soul_name=plan.soul_name,
-                spend_authorization=spend_authorization,
-            )
-        raw_images.append(image_raw)
-        step_name = (
-            f"image_create_{idx:02d}"
-            if plan.image_mode == "six-pack"
-            else "image_create"
-        )
-        steps.append(_step(step_name, image_cmd, image_raw))
-        image_job_id = extract_id(image_raw)
-        image_url = extract_url(image_raw)
-        if image_job_id:
-            image_job_ids.append(image_job_id)
-        if image_url:
-            image_urls.append(image_url)
-        if download and image_url:
-            if plan.image_mode == "six-pack":
-                image_path = (
-                    plan.out_dir / f"{plan.stem}_six_pack" / f"variation_{idx:02d}.png"
-                )
-                key = f"variation_{idx:02d}"
-            else:
-                image_path = plan.out_dir / f"{plan.stem}_soul_image.png"
-                key = "image"
-            local_paths[key] = str(download_result(image_url, image_path))
-    raw["image"] = (
-        raw_images
-        if plan.image_mode == "six-pack"
-        else (raw_images[0] if raw_images else {})
-    )
-    image_job_id = image_job_ids[0] if image_job_ids else None
-    image_url = image_urls[0] if image_urls else None
-    if plan.image_mode == "six-pack" and local_paths.get("variation_01"):
-        local_paths["image"] = local_paths["variation_01"]
     payload = build_source_lineage(
         plan,
         prompt=prompt,
@@ -780,8 +471,8 @@ def create_image_asset(
     payload["generation"]["spendAuthorization"] = _authorization_evidence(
         spend_authorization
     )
-    payload["generation"]["imageJobIds"] = image_job_ids
-    payload["generation"]["imageResultUrls"] = image_urls
+    payload["generation"]["imageJobIds"] = [image_job_id] if image_job_id else []
+    payload["generation"]["imageResultUrls"] = [image_url] if image_url else []
     payload["generation"]["steps"] = steps
     payload["generation"]["capabilities"] = {
         "schema": capabilities.get("schema"),
@@ -790,15 +481,7 @@ def create_image_asset(
             capabilities, plan.image_model, plan.video_model
         ),
     }
-    payload["generation"]["grid"] = (
-        single_image_layout_status(local_paths.get("image"))
-        if plan.image_mode != "six-pack"
-        else {
-            "status": "six_pack_separate_images",
-            "isGrid": False,
-            "count": len([key for key in local_paths if key.startswith("variation_")]),
-        }
-    )
+    payload["generation"]["grid"] = single_image_layout_status(local_paths.get("image"))
     qc = generated_image_qc(
         local_paths,
         root=plan.source_dir.parent,
@@ -813,9 +496,8 @@ def create_image_asset(
                 "provider": "higgsfield",
                 "operation": "image_create",
                 "model": resolved["imageModel"],
-                "raw": image_raw,
+                "raw": raw["image"],
             }
-            for image_raw in raw_images
         ],
     )
     path = lineage_path(plan)
@@ -1183,7 +865,6 @@ def _plan_from_args(args) -> AssetGenerationPlan:
         campaign=args.campaign,
         creator=args.creator,
         selected_panel=args.selected_panel,
-        image_mode=args.image_mode,
         image_aspect_ratio=args.image_aspect_ratio or DEFAULT_GRID_IMAGE_ASPECT_RATIO,
         image_quality=args.image_quality,
         video_aspect_ratio=args.video_aspect_ratio,
@@ -1246,12 +927,10 @@ def _direct_plan_from_args(args) -> DirectReferenceImagePlan:
 
 
 def _parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     ap.add_argument(
         "mode",
         choices=[
-            "create",
-            "dry-run",
             "image",
             "image-dry-run",
             "reference-image",
@@ -1285,7 +964,6 @@ def _parser() -> argparse.ArgumentParser:
         help="Reference reel/video for models that accept --video, e.g. Seedance 2.0",
     )
     ap.add_argument("--selected-panel")
-    ap.add_argument("--image-mode", choices=["single", "six-pack"], default="single")
     ap.add_argument("--out-dir", default="00_source_videos")
     ap.add_argument("--image-aspect-ratio")
     ap.add_argument("--image-quality", default="2k")
@@ -1365,19 +1043,6 @@ def main() -> int:
             else create_direct_reference_image_asset(
                 plan, wait=args.wait, download=args.download
             )
-        )
-    elif args.mode in {"create", "dry-run"}:
-        if not args.prompt_json or not args.stem:
-            raise SystemExit("--prompt-json and --stem are required")
-        if not args.soul_id and not args.soul_name and not args.creator:
-            raise SystemExit(
-                "--creator, --soul-id, or --soul-name is required so Soul V2 uses the creator identity"
-            )
-        plan = _plan_from_args(args)
-        result = (
-            dry_run(plan, wait=args.wait)
-            if args.mode == "dry-run"
-            else create_assets(plan, wait=args.wait, download=args.download)
         )
     elif args.mode in {"image", "image-dry-run"}:
         if not args.prompt_json or not args.stem:

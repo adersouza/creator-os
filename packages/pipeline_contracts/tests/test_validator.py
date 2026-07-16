@@ -25,6 +25,7 @@ from pipeline_contracts import (
     validate_pattern_card,
     validate_performance_sync,
     validate_post_metric_history_read,
+    validate_provider_spend_authorization,
     validate_recommendation_accuracy_report,
     validate_recommendation_next_batch,
     validate_reference_factory_knowledge_pack,
@@ -83,6 +84,15 @@ def test_named_validators_accept_examples():
         load_example("recommendation_accuracy_report")
     )
     validate_threadsdash_handshake(load_example("threadsdash_handshake"))
+
+
+def test_provider_spend_v1_retains_historical_combined_create_receipts() -> None:
+    payload = load_example("provider_spend_authorization")
+    payload["scope"]["mode"] = "create"
+    payload["scope"]["providerModels"] = ["text2image_soul_v2", "kling3_0"]
+    payload["scope"]["providerCallCount"] = 2
+
+    validate_provider_spend_authorization(payload)
 
 
 def test_generation_execution_plan_rejects_policy_drift() -> None:
