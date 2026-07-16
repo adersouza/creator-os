@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from test_core import make_factory
+from campaign_test_support import make_factory
 
 from pipeline_contracts import load_example
 
