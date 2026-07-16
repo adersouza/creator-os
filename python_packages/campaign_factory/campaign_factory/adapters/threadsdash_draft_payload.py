@@ -115,6 +115,22 @@ def build_draft_payloads(
             )
             if normalized_surface and distribution_surface != normalized_surface:
                 continue
+            factory.domains.distribution.validate_instagram_trial_reel_intent(
+                content_surface=normalize_content_surface(
+                    destination.get("contentSurface")
+                    or destination.get("content_surface")
+                    or asset.get("contentSurface")
+                    or asset.get("content_surface")
+                ),
+                distribution_surface=distribution_surface,
+                media_type=asset.get("mediaType")
+                or asset.get("media_type")
+                or "video",
+                instagram_trial_reels=bool(destination.get("instagramTrialReels")),
+                trial_graduation_strategy=destination.get(
+                    "trialGraduationStrategy"
+                ),
+            )
             account_eligibility = destination.get("accountEligibility") or {}
             if not account_eligibility.get("allowed", False):
                 reason = account_eligibility.get("decisionReason") or "unavailable"
@@ -312,6 +328,7 @@ def build_draft_payloads(
                 "instagramTrialReels": bool(destination.get("instagramTrialReels")),
                 "trialGraduationStrategy": destination.get("trialGraduationStrategy"),
                 "shareToFeed": not bool(destination.get("instagramTrialReels")),
+                "collaborators": [],
                 "trialGroupId": destination.get("trialGroupId"),
                 "pairedRenderedAssetId": destination.get("pairedRenderedAssetId"),
                 "distributionReasonCode": destination.get("reasonCode"),

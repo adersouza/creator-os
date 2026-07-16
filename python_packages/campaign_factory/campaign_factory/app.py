@@ -1077,6 +1077,7 @@ def export_readiness(body: dict[str, Any] = Body(...)):
             content_pillar=body.get("contentPillar"),
             cta_type=body.get("ctaType"),
             language=body.get("language"),
+            surface=body.get("surface") or "regular_reel",
             review_only=bool(body.get("reviewOnly")),
         )
     except Exception as exc:
@@ -1107,6 +1108,7 @@ def export_td(body: dict[str, Any] = Body(...)):
             if body.get("maxDrafts") is not None
             else None,
             rendered_asset_ids=body.get("renderedAssetIds") or None,
+            surface=body.get("surface") or "regular_reel",
             schedule_mode=body.get("scheduleMode") or "draft",
             threadsdash_ingest_url=body.get("threadsdashIngestUrl")
             or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")

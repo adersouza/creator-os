@@ -303,7 +303,7 @@ def export_threadsdash(
     language: str | None = None,
     max_drafts: int | None = None,
     rendered_asset_ids: list[str] | None = None,
-    surface: str | None = None,
+    surface: str | None = "regular_reel",
     schedule_mode: str = "draft",
     threadsdash_ingest_url: str | None = None,
     threadsdash_ingest_secret: str | None = None,

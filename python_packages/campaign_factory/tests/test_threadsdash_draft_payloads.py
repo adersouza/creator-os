@@ -713,6 +713,10 @@ def test_distribution_plan_exports_trial_and_story_surfaces(tmp_path: Path):
         }
         assert set(by_surface) == {"trial_reel", "story_cta"}
         assert by_surface["trial_reel"]["status"] == "draft"
+        assert by_surface["trial_reel"]["instagramTrialReels"] is True
+        assert by_surface["trial_reel"]["trialGraduationStrategy"] == "MANUAL"
+        assert by_surface["trial_reel"]["shareToFeed"] is False
+        assert by_surface["trial_reel"]["collaborators"] == []
         assert by_surface["trial_reel"]["scheduledFor"] == "2026-01-02T10:00:00+00:00"
         assert (
             by_surface["trial_reel"]["metadata"]["campaign_factory"][
@@ -795,9 +799,42 @@ def test_trial_draft_metadata_rejects_missing_graduation_strategy(
 
         with pytest.raises(
             ValueError,
-            match="Trial Reel draft requires trialGraduationStrategy",
+            match="trial_graduation_strategy is required",
         ):
             build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+    finally:
+        cf.close()
+
+
+def test_export_rejects_legacy_unflagged_trial_distribution_plan(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        add_audit_report(cf)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        campaign = cf.domains.campaign_by_slug("may")
+        cf.conn.execute(
+            """
+            INSERT INTO distribution_plans
+            (id, campaign_id, rendered_asset_id, surface, content_surface,
+             instagram_trial_reels, created_at, updated_at)
+            VALUES ('dist_legacy_unflagged_trial', ?, 'asset_1', 'trial_reel',
+                    'reel', 0, '2026-07-16T00:00:00+00:00',
+                    '2026-07-16T00:00:00+00:00')
+            """,
+            (campaign["id"],),
+        )
+        cf.conn.commit()
+
+        with pytest.raises(
+            ValueError, match="trial_reel surface requires instagram_trial_reels=true"
+        ):
+            build_draft_payloads(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                surface="trial_reel",
+            )
     finally:
         cf.close()
 

@@ -223,6 +223,40 @@ def test_campaign_draft_payload_requires_generated_asset_lineage():
         validate_campaign_draft_payload(payload)
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "distributionSurface",
+        "instagramTrialReels",
+        "trialGraduationStrategy",
+        "shareToFeed",
+        "collaborators",
+    ],
+)
+def test_campaign_draft_payload_v2_requires_distribution_controls(field: str):
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    del payload["drafts"][0][field]
+
+    with pytest.raises(ContractValidationError, match=field):
+        validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v2_rejects_unflagged_trial_surface():
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    payload["drafts"][0]["distributionSurface"] = "trial_reel"
+
+    with pytest.raises(ContractValidationError, match="instagramTrialReels"):
+        validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v2_rejects_trial_collaborators():
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    payload["drafts"][0]["collaborators"] = ["unexpected_account"]
+
+    with pytest.raises(ContractValidationError):
+        validate_campaign_draft_payload(payload)
+
+
 def test_recommendation_accuracy_report_requires_causal_graph_ids():
     payload = load_example("recommendation_accuracy_report")
     del payload["reportGraphId"]
