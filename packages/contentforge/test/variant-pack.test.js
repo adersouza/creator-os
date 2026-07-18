@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { rm } from "fs/promises";
 import path from "path";
 import {
+  exactRenderedEvidenceMap,
   normalizeVariantPackRequest,
   planVariantFamilyRecipes,
   readabilityScoreFor,
   scoreVariantRecommendation,
+  validateKlingEditorialRequest,
 } from "../lib/variant-pack.js";
 import { OUTPUT_DIR } from "../lib/paths.js";
 import {
@@ -71,7 +73,7 @@ test("variant pack falls back to balanced preset and no captions", function () {
 });
 
 test("variant pack accepts every operator preset", function () {
-  for (var preset of ["caption_safe", "caption_safe_v2", "strong_safe", "subtle", "balanced", "strong"]) {
+  for (var preset of ["caption_safe", "caption_safe_v2", "strong_safe", "kling_editorial", "subtle", "balanced", "strong"]) {
     var request = normalizeVariantPackRequest({
       source: "sample.mp4",
       variationPreset: preset,
@@ -80,6 +82,72 @@ test("variant pack accepts every operator preset", function () {
     assert.equal(request.variationPreset, preset);
     assert.equal(request.variantCount, 3);
   }
+});
+
+test("kling editorial defaults to two, caps at four, and never preserves pre-burned captions", function () {
+  var defaults = normalizeVariantPackRequest({
+    source: "sample.mp4",
+    variationPreset: "kling_editorial",
+    preserveBurnedCaptions: true,
+    sourceCaptionState: "uncaptioned_verified",
+    sourceCaptionEvidence: "raw_generation_manifest:123",
+  });
+  var capped = normalizeVariantPackRequest({
+    source: "sample.mp4",
+    variationPreset: "kling_editorial",
+    variantCount: 30,
+  });
+
+  assert.equal(defaults.variantCount, 2);
+  assert.equal(defaults.preserveBurnedCaptions, false);
+  assert.equal(defaults.sourceCaptionState, "uncaptioned_verified");
+  assert.equal(defaults.sourceCaptionEvidence, "raw_generation_manifest:123");
+  assert.equal(capped.variantCount, 4);
+});
+
+test("variant report binding accepts only exact filename evidence and rejects collisions", function () {
+  var evidence = exactRenderedEvidenceMap([
+    { filename: "rendered-b.mp4", recipe: { familyName: "tail_trim" } },
+  ]);
+
+  assert.equal(evidence.get("rendered-a.mp4"), undefined);
+  assert.equal(evidence.get("rendered-b.mp4").recipe.familyName, "tail_trim");
+  assert.throws(
+    () => exactRenderedEvidenceMap([
+      { filename: "duplicate.mp4" },
+      { filename: "duplicate.mp4" },
+    ]),
+    /variant_pack_duplicate_render_evidence/
+  );
+  assert.throws(
+    () => exactRenderedEvidenceMap([{ filename: "../escape.mp4" }]),
+    /variant_pack_render_evidence_filename_invalid/
+  );
+});
+
+test("kling editorial rejects captions before timing edits and missing source evidence", function () {
+  assert.throws(
+    () => validateKlingEditorialRequest({
+      captionMode: "supplied_hooks",
+      suppliedHooks: ["hook"],
+      sourceCaptionState: "uncaptioned_verified",
+      sourceCaptionEvidence: "manifest:123",
+    }),
+    /kling_editorial_captions_must_render_after_timing/
+  );
+  assert.throws(
+    () => validateKlingEditorialRequest({
+      captionMode: "none",
+      suppliedHooks: [],
+    }),
+    /kling_editorial_uncaptioned_source_evidence_missing/
+  );
+  assert.equal(validateKlingEditorialRequest({
+    captionMode: "none",
+    suppliedHooks: [],
+    sourceCaptionState: "uncaptioned_verified",
+    sourceCaptionEvidence: "manifest:123",
+  }), true);
 });
 
 test("caption-safe variant pack preserves burned captions by default", function () {

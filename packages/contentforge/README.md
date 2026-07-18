@@ -24,6 +24,31 @@ Campaign Factory invokes these commands as a subprocess with a timeout and
 fails closed on missing executables, nonzero exits, empty output, invalid JSON,
 or a non-object response.
 
+### Kling editorial timing derivatives
+
+The `kling_editorial` variant-pack preset provides the deterministic batch
+equivalent of conservative timeline edits in CapCut: trim the first four
+frames, trim the final two frames, retime to `1.03x`, and retime to `0.97x`.
+It produces two derivatives by default and at most four.
+
+This preset accepts only a source explicitly verified as uncaptioned. It never
+calls a generation provider, changes color or framing, spoofs metadata, or
+renders captions. Every result records the exact FFmpeg arguments, source and
+output SHA-256, measured media properties, and the recipe bound to that output
+filename. Results remain `pending_reel_factory`; Reel Factory must make a
+placement decision and render captions afterward.
+
+```json
+{
+  "source": "uploads/kling_source.mp4",
+  "variationPreset": "kling_editorial",
+  "variantCount": 4,
+  "captionMode": "none",
+  "sourceCaptionState": "uncaptioned_verified",
+  "sourceCaptionEvidence": "higgsfield_generation_manifest:<generation-id>"
+}
+```
+
 ## Local data
 
 - `uploads/`: staged source media.

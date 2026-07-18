@@ -6,6 +6,7 @@ import { averageHashSimilarity, multiFrameHash, temporalHashSimilarity } from ".
 import { getFastQualityMetrics } from "./quality-metrics.js";
 import { getQaSignals, probeMedia, validateMediaInfo } from "./reels.js";
 import { variantScoreBundle } from "./variant-engine.js";
+import { runKlingEditorialDerivatives } from "./editorial-derivatives.js";
 
 var PACK_PRESETS = {
   caption_safe: {
@@ -117,6 +118,40 @@ var PACK_PRESETS = {
       sharpen: false,
     },
   },
+  kling_editorial: {
+    variantPreset: "quality",
+    label: "Kling Editorial Timing",
+    schema: "contentforge.variant_pack.v2",
+    minVariation: 0,
+    minOperationDiversity: 20,
+    minQuality: 90,
+    minReadability: 0,
+    minFocalSafety: 95,
+    defaultCount: 2,
+    maxCount: 4,
+    recipes: [
+      "trim first four frames",
+      "trim last two frames",
+      "speed up by three percent",
+      "slow down by three percent",
+    ],
+    familySequence: ["head_trim", "tail_trim", "speed_up", "slow_down"],
+    exactRenderer: true,
+    variantOptions: {
+      preserveBurnedCaptions: false,
+      preserveColor: true,
+      preserveAudio: true,
+      preserveGeometry: true,
+      preserveFrameRate: true,
+      allowHorizontalFlip: false,
+      allowStrongColorShift: false,
+      cropAmount: 0,
+      colorShiftAmount: 0,
+      speedShiftAmount: 0,
+      preserveFrame: true,
+      sharpen: false,
+    },
+  },
   subtle: {
     variantPreset: "quality",
     label: "Subtle",
@@ -143,14 +178,19 @@ export function normalizeVariantPackRequest(input = {}) {
   var source = input.source || input.inputFile;
   var safeSource = clientUploadPath(source);
   var preset = PACK_PRESETS[input.variationPreset] ? input.variationPreset : "balanced";
-  var count = Math.max(1, Math.min(30, parseInt(input.variantCount || input.count || 8, 10) || 8));
+  var presetDefinition = PACK_PRESETS[preset];
+  var defaultCount = presetDefinition.defaultCount || 8;
+  var maxCount = presetDefinition.maxCount || 30;
+  var count = Math.max(1, Math.min(maxCount, parseInt(input.variantCount || input.count || defaultCount, 10) || defaultCount));
   var captionMode = ["none", "keep_original", "generated_hooks", "supplied_hooks"].includes(input.captionMode)
     ? input.captionMode
     : "none";
   var suppliedHooks = Array.isArray(input.suppliedHooks)
     ? input.suppliedHooks.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
-  var preserveBurnedCaptions = !!(input.preserveBurnedCaptions || input.captionBurned || preset === "caption_safe" || preset === "caption_safe_v2" || preset === "strong_safe");
+  var preserveBurnedCaptions = preset === "kling_editorial"
+    ? false
+    : !!(input.preserveBurnedCaptions || input.captionBurned || preset === "caption_safe" || preset === "caption_safe_v2" || preset === "strong_safe");
   return {
     source: safeSource,
     variantCount: count,
@@ -159,12 +199,14 @@ export function normalizeVariantPackRequest(input = {}) {
     suppliedHooks,
     recipeSet: Array.isArray(input.recipeSet) ? input.recipeSet.filter(Boolean) : [],
     preserveBurnedCaptions,
+    sourceCaptionState: input.sourceCaptionState || null,
+    sourceCaptionEvidence: input.sourceCaptionEvidence || null,
   };
 }
 
 export function planVariantFamilyRecipes(request = {}) {
   var preset = PACK_PRESETS[request.variationPreset] || PACK_PRESETS.balanced;
-  var count = Math.max(1, Math.min(30, parseInt(request.variantCount || 8, 10) || 8));
+  var count = Math.max(1, Math.min(preset.maxCount || 30, parseInt(request.variantCount || preset.defaultCount || 8, 10) || preset.defaultCount || 8));
   var sequence = preset.familySequence || ["generic_variant"];
   var recipes = [];
   for (var index = 0; index < count; index++) {
@@ -188,6 +230,10 @@ function buildFamilyRecipe({ presetId, familyName, variantIndex, round }) {
     crop_zoom_family: ["centered_1_03x", "face_safe_1_05x", "upper_body_1_07x", "slight_left_1_04x", "slight_right_1_04x"],
     color_profile: ["metadata_srgb", "metadata_display_p3", "metadata_rec709"],
     audio_offset: ["offset_plus_0_30s", "offset_plus_0_50s", "offset_plus_0_80s"],
+    head_trim: ["trim_head_4_frames"],
+    tail_trim: ["trim_tail_2_frames"],
+    speed_up: ["speed_1_03x"],
+    slow_down: ["speed_0_97x"],
     generic_variant: ["generic_safe"],
   };
   var profileList = profiles[familyName] || profiles.generic_variant;
@@ -211,8 +257,8 @@ function buildFamilyRecipe({ presetId, familyName, variantIndex, round }) {
 
 function operationSignalsForFamily(familyName) {
   return {
-    coverFrameDifferent: familyName === "cover_frame",
-    temporalDifferent: familyName === "timing_trim",
+    coverFrameDifferent: familyName === "cover_frame" || familyName === "head_trim",
+    temporalDifferent: ["timing_trim", "head_trim", "tail_trim", "speed_up", "slow_down"].includes(familyName),
     captionLaneDifferent: familyName === "caption_lane_timing",
     cropFamilyDifferent: familyName === "crop_zoom_family",
     colorProfileDifferent: familyName === "color_profile",
@@ -220,7 +266,7 @@ function operationSignalsForFamily(familyName) {
     containerMetadataDifferent: familyName === "container_metadata",
     encoderSignatureDifferent: familyName === "encoder_signature",
     handoffManifestDifferent: familyName === "handoff_manifest",
-    metadataChanged: true,
+    metadataChanged: ["color_profile", "container_metadata", "encoder_signature", "handoff_manifest"].includes(familyName),
     horizontalFlip: false,
     heavyColorShift: false,
     artificialDegradation: false,
@@ -238,22 +284,40 @@ export async function runVariantPack(input, sendEvent) {
   var preset = PACK_PRESETS[request.variationPreset];
   var events = [];
   var complete = null;
-  var pipelineConfig = {
-    inputFile: request.source,
-    numEdits: request.variantCount,
-    spinsPerEdit: 1,
-    variantPreset: preset.variantPreset,
-    qualityGate: preset.qualityGate || { enabled: false },
-    vertical: true,
-    outputProfile: "organic",
-    variantOptions: variantOptionsForCaptions(request),
-    signal: input.signal,
-  };
-  await runPipeline(pipelineConfig, function (event) {
+  function captureEvent(event) {
     events.push(event);
     if (event.type === "complete") complete = event;
     if (sendEvent) sendEvent(event);
-  });
+  }
+  if (preset.exactRenderer) {
+    validateKlingEditorialRequest(request);
+    complete = await runKlingEditorialDerivatives({
+      sourcePath,
+      sourceClientPath: request.source,
+      variantCount: request.variantCount,
+      sourceCaptionState: request.sourceCaptionState,
+      sourceCaptionEvidence: request.sourceCaptionEvidence,
+      signal: input.signal,
+      sendEvent: captureEvent,
+    });
+    captureEvent({
+      type: "complete",
+      ...complete,
+    });
+  } else {
+    var pipelineConfig = {
+      inputFile: request.source,
+      numEdits: request.variantCount,
+      spinsPerEdit: 1,
+      variantPreset: preset.variantPreset,
+      qualityGate: preset.qualityGate || { enabled: false },
+      vertical: true,
+      outputProfile: "organic",
+      variantOptions: variantOptionsForCaptions(request),
+      signal: input.signal,
+    };
+    await runPipeline(pipelineConfig, captureEvent);
+  }
   if (!complete?.runId) {
     throw new Error("Variant pack run did not complete");
   }
@@ -274,6 +338,7 @@ async function buildVariantPackReport({ runId, sourcePath, request, complete, ev
   var sourceHashes = await multiFrameHash(sourcePath, true);
   var previous = [];
   var plannedRecipes = planVariantFamilyRecipes(request);
+  var renderedEvidence = exactRenderedEvidenceMap(complete.renderedArtifacts);
   var files = readdirSync(outputDir)
     .filter((name) => VIDEO_EXTS.has(path.extname(name).toLowerCase()))
     .sort();
@@ -289,7 +354,8 @@ async function buildVariantPackReport({ runId, sourcePath, request, complete, ev
       previous,
       preset: request.variationPreset,
       caption: captionForIndex(request, index),
-      familyRecipe: plannedRecipes[index] || null,
+      familyRecipe: renderedEvidence.get(filename)?.recipe || null,
+      renderEvidence: renderedEvidence.get(filename) || null,
     });
     previous.push({ frameHashes: result._frameHashes });
     delete result._frameHashes;
@@ -313,6 +379,11 @@ async function buildVariantPackReport({ runId, sourcePath, request, complete, ev
     variationPreset: request.variationPreset,
     recipeList: presetRecipeList(request),
     plannedFamilies: plannedRecipes,
+    rendererBinding: renderedEvidence.size
+      ? "exact_artifact_recipe_evidence"
+      : "no_exact_recipe_evidence",
+    captionStatus: complete.captionStatus || null,
+    providerActivity: complete.providerActivity || null,
     complete: {
       total: complete.total || results.length,
       attempted: complete.attempted || 0,
@@ -331,7 +402,36 @@ async function buildVariantPackReport({ runId, sourcePath, request, complete, ev
   };
 }
 
-async function scoreVariant({ filePath, filename, sourcePath, sourceHashes, previous, preset, caption, familyRecipe = null }) {
+export function validateKlingEditorialRequest(request = {}) {
+  if (request.captionMode !== "none" || (request.suppliedHooks || []).length) {
+    throw new Error("kling_editorial_captions_must_render_after_timing");
+  }
+  if (
+    request.sourceCaptionState !== "uncaptioned_verified" ||
+    !String(request.sourceCaptionEvidence || "").trim()
+  ) {
+    throw new Error("kling_editorial_uncaptioned_source_evidence_missing");
+  }
+  return true;
+}
+
+export function exactRenderedEvidenceMap(renderedArtifacts = []) {
+  var evidence = new Map();
+  for (var artifact of renderedArtifacts || []) {
+    var filename = artifact?.filename;
+    if (!filename) throw new Error("variant_pack_render_evidence_filename_missing");
+    if (filename !== path.basename(filename)) {
+      throw new Error("variant_pack_render_evidence_filename_invalid:" + filename);
+    }
+    if (evidence.has(filename)) {
+      throw new Error("variant_pack_duplicate_render_evidence:" + filename);
+    }
+    evidence.set(filename, artifact);
+  }
+  return evidence;
+}
+
+async function scoreVariant({ filePath, filename, sourcePath, sourceHashes, previous, preset, caption, familyRecipe = null, renderEvidence = null }) {
   var mediaInfo = await probeMedia(filePath);
   var validation = validateMediaInfo(mediaInfo, "organic");
   var qa = await getQaSignals(filePath, mediaInfo);
@@ -403,12 +503,26 @@ async function scoreVariant({ filePath, filename, sourcePath, sourceHashes, prev
   }
   return {
     file: filename,
+    filePath,
     recipe: preset + "_variant",
     caption,
     familyName: familyRecipe?.familyName || null,
     variantFamilyRecipe: familyRecipe?.variantFamilyRecipe || null,
+    operationDetails: familyRecipe?.operationDetails || null,
+    expectedDurationSeconds: familyRecipe?.expectedDurationSeconds || null,
     operationSet: familyRecipe?.operationSet || preset,
     operationSignals: familyRecipe?.operationSignals || {},
+    rendererBinding: renderEvidence ? "exact_artifact_recipe_evidence" : "no_exact_recipe_evidence",
+    renderEvidence: renderEvidence ? {
+      ffmpegArgs: renderEvidence.ffmpegArgs,
+      sourceSha256: renderEvidence.sourceSha256,
+      outputSha256: renderEvidence.outputSha256,
+      sourceMedia: renderEvidence.sourceMedia,
+      outputMedia: renderEvidence.outputMedia,
+      expectedDurationSeconds: renderEvidence.expectedDurationSeconds,
+    } : null,
+    captionStatus: renderEvidence?.captionStatus || null,
+    providerActivity: renderEvidence?.providerActivity || null,
     uploadReady,
     variationScore,
     qualityScore: bundle.qualityRetained,
