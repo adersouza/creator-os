@@ -1105,7 +1105,15 @@ class ReelPipelineTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["captionHash"], "final_rendered_hash")
             self.assertEqual(
+                payload["bankCaptionHash"],
+                "bank_hash_before_linebreak_rendering",
+            )
+            self.assertEqual(
                 payload["captionOutcomeContext"]["caption_hash"], "final_rendered_hash"
+            )
+            self.assertEqual(
+                payload["captionOutcomeContext"]["bank_caption_hash"],
+                "bank_hash_before_linebreak_rendering",
             )
 
     def test_static_caption_side_band_falls_back_to_centered_lane(self):
@@ -1552,10 +1560,13 @@ class ReelPipelineTests(unittest.TestCase):
         by_name = {recipe.name: recipe for recipe in recipes}
         names = [recipe.name for recipe in recipes]
         self.assertIn("v00_passthrough", names)
+        self.assertIn("v00_captioned_passthrough", names)
         self.assertIn("v01_original", names)
         self.assertIn("v11_colorgrade_cool", names)
         self.assertFalse(by_name["v00_passthrough"].burn_caption)
         self.assertFalse(by_name["v00_passthrough"].camera_variation)
+        self.assertTrue(by_name["v00_captioned_passthrough"].burn_caption)
+        self.assertFalse(by_name["v00_captioned_passthrough"].camera_variation)
         self.assertFalse(by_name["v09_caption_bg"].camera_variation)
 
     def test_passthrough_recipe_skips_caption_overlay(self):
@@ -1575,6 +1586,31 @@ class ReelPipelineTests(unittest.TestCase):
         joined = " ".join(cmd)
         self.assertNotIn("overlay=", joined)
         self.assertNotIn("cap.png", joined)
+
+    def test_captioned_passthrough_burns_overlay_without_camera_variation(self):
+        recipe = Recipe(
+            "v00_captioned_passthrough",
+            burn_caption=True,
+            camera_variation=False,
+        )
+        plan = RenderPlan(
+            src=Path("in.mp4"),
+            caption_pngs=[(Path("cap.png"), 0.0, None)],
+            recipe=recipe,
+            out=Path("tmp/out.mp4"),
+            duration=3.0,
+            fonts_dir=Path("fonts"),
+            src_hash="abc",
+            src_dims=(1080, 1920),
+        )
+        cmd = build_ffmpeg_cmd(plan, "ffmpeg")
+        joined = " ".join(cmd)
+        video_filter = build_video_filter(plan)
+        self.assertIn("overlay=", joined)
+        self.assertIn("cap.png", joined)
+        self.assertNotIn("trim=", video_filter)
+        self.assertNotIn("noise=", video_filter)
+        self.assertNotIn("hue=", video_filter)
 
     def test_recipe_config_rejects_invalid_values(self):
         with tempfile.TemporaryDirectory() as tmp:

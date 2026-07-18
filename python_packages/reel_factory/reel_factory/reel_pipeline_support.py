@@ -784,6 +784,9 @@ def build_caption_outcome_context(
     return {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": caption_hash,
+        "bank_caption_hash": _first_text(
+            lineage.get("bankCaptionHash"), lineage.get("bank_caption_hash")
+        ),
         "caption_text": _first_text(
             lineage.get("rawCaptionText"), lineage.get("raw_caption_text"), caption_text
         ),
@@ -850,6 +853,9 @@ def _caption_lineage_with_outcome_context(
         return None
     enriched = dict(lineage)
     if caption_hash:
+        selected_hash = _first_text(enriched.get("captionHash"))
+        if selected_hash and selected_hash != caption_hash:
+            enriched.setdefault("bankCaptionHash", selected_hash)
         enriched["captionHash"] = caption_hash
         enriched.pop("captionOutcomeContext", None)
     if not isinstance(enriched.get("captionOutcomeContext"), dict):

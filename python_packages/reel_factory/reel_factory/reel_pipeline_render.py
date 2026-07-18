@@ -439,6 +439,7 @@ async def process_one(
             preview_path,
             {
                 **(caption_lineage or {}),
+                "captionBurnedIn": bool(recipe.burn_caption),
                 "captionPlacementPolicy": placement_policy,
                 "captionPlacementDecision": {
                     **(
@@ -669,7 +670,10 @@ async def process_one(
         caption_hash = sha256_str(caption_for_manifest)
         write_caption_lineage_sidecar(
             out_path,
-            caption_lineage,
+            {
+                **(caption_lineage or {}),
+                "captionBurnedIn": bool(recipe.burn_caption),
+            },
             caption_text=caption_for_manifest,
             caption_hash=caption_hash,
             render_recipe=recipe.name,
@@ -764,6 +768,7 @@ async def process_one(
     placement_lineage = {
         **(caption_lineage or {}),
         "captionHash": caption_hash,
+        "captionBurnedIn": bool(recipe.burn_caption),
         "captionPlacementPolicy": placement_policy,
         "captionPlacementDecision": {
             **(placement_decision if isinstance(placement_decision, dict) else {}),

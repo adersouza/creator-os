@@ -5,6 +5,11 @@
     "camera_variation": false
   },
   {
+    "name": "v00_captioned_passthrough",
+    "burn_caption": true,
+    "camera_variation": false
+  },
+  {
     "name": "v01_original",
     "trim_tail": 0.5
   },
