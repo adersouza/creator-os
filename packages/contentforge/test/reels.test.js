@@ -88,6 +88,7 @@ test("edit args compose trim scale speed and loudness filters", function () {
     speed: 1.25,
     width: 1080,
     height: 1920,
+    fps: 30,
     normalizeAudio: true,
     overlayText: "Demo text",
     overlayPosition: "top",
@@ -95,6 +96,7 @@ test("edit args compose trim scale speed and loudness filters", function () {
   assert.equal(args.includes("-ss"), true);
   assert.equal(args.includes("-t"), true);
   assert.equal(args[args.indexOf("-vf") + 1].includes("scale=1080:1920"), true);
+  assert.equal(args[args.indexOf("-vf") + 1].includes("fps=30"), true);
   assert.equal(args[args.indexOf("-af") + 1].includes("loudnorm"), true);
 });
 

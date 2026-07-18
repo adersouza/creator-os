@@ -90,8 +90,10 @@ export function buildEditArgs(inputPath, outputPath, options = {}, replacementAu
   var speed = Math.max(0.25, Math.min(4, parseFloat(options.speed) || 1));
   var width = parseInt(options.width, 10);
   var height = parseInt(options.height, 10);
+  var fps = parseFloat(options.fps);
   if (width > 0 && height > 0) filters.push("scale=" + width + ":" + height + ":flags=lanczos");
   if (speed !== 1) filters.push("setpts=" + (1 / speed).toFixed(4) + "*PTS");
+  if (speed !== 1 && Number.isFinite(fps) && fps > 0) filters.push("fps=" + fps);
   var overlay = buildOverlayFilter(options);
   if (overlay) filters.push(overlay);
   if (overlayImagePath) {
