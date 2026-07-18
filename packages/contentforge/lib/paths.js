@@ -4,7 +4,9 @@ import { fileURLToPath } from "url";
 var LIB_DIR = path.dirname(fileURLToPath(import.meta.url));
 export var PROJECT_ROOT = path.dirname(LIB_DIR);
 export var UPLOADS_DIR = path.join(PROJECT_ROOT, "uploads");
-export var OUTPUT_DIR = path.join(PROJECT_ROOT, "output");
+export var OUTPUT_DIR = path.resolve(
+  process.env.CONTENTFORGE_OUTPUT_DIR || path.join(PROJECT_ROOT, "output")
+);
 var RUNS_DIR = path.join(OUTPUT_DIR, "runs");
 export var LEGACY_FINAL_DIR = path.join(OUTPUT_DIR, "final");
 var REFERENCE_DIR = path.join(OUTPUT_DIR, "reference");
