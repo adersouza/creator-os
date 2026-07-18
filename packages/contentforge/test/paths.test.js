@@ -13,6 +13,10 @@ import {
 } from "../lib/paths.js";
 import { acquireProcessLock } from "../lib/process-lock.js";
 
+test("output directory is absolute", function () {
+  assert.equal(path.isAbsolute(OUTPUT_DIR), true);
+});
+
 test("resolveUploadPath keeps uploads inside the uploads directory", function () {
   assert.equal(resolveUploadPath("../secret.mp4"), path.join(UPLOADS_DIR, "secret.mp4"));
   assert.equal(resolveUploadPath("uploads/video.mp4"), path.join(UPLOADS_DIR, "video.mp4"));

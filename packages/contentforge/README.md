@@ -38,6 +38,10 @@ output SHA-256, measured media properties, and the recipe bound to that output
 filename. Results remain `pending_reel_factory`; Reel Factory must make a
 placement decision and render captions afterward.
 
+Set `CONTENTFORGE_OUTPUT_DIR` to an absolute run-scoped directory when invoking
+the renderer from Creator OS. This keeps resumable state and generated media
+outside the source checkout.
+
 ```json
 {
   "source": "uploads/kling_source.mp4",
