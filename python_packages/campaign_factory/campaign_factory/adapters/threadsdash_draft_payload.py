@@ -93,6 +93,28 @@ def build_draft_payloads(
                 plan
             )
     selected_ids = set(rendered_asset_ids or [])
+    if selected_ids:
+        manifest_assets = list(manifest.get("assets") or [])
+        available_ids = {
+            str(asset.get("renderedAssetId") or "") for asset in manifest_assets
+        }
+        missing_ids = sorted(selected_ids - available_ids)
+        if missing_ids:
+            raise ValueError(
+                "selected rendered assets are not exportable in this campaign: "
+                + ", ".join(missing_ids)
+            )
+        # The signed dashboard request must describe only the selected batch.
+        # Keeping the campaign-wide manifest here can exceed the production
+        # request limit and also misrepresents the exact export boundary.
+        manifest = {
+            **manifest,
+            "assets": [
+                asset
+                for asset in manifest_assets
+                if asset.get("renderedAssetId") in selected_ids
+            ],
+        }
     drafts = []
     for asset in manifest["assets"]:
         if selected_ids and asset["renderedAssetId"] not in selected_ids:

@@ -984,8 +984,9 @@ def _upload_media(
         "media", user_id, local_path.name, local_path.stat().st_size
     )
     storage_path = f"campaign_factory/{user_id}/{stable_key}-{safe_name}"
-    try:
-        existing_rows = client.select(
+
+    def select_existing() -> list[dict[str, Any]]:
+        return client.select(
             "media",
             {
                 "select": "id,file_name,file_url,storage_url,storage_path,url,tags",
@@ -993,8 +994,11 @@ def _upload_media(
                 "limit": "1",
             },
         )
-    except RuntimeError:
-        existing_rows = []
+
+    # A failed read is not evidence that the row is absent. Fail before the
+    # storage upload so a degraded database cannot turn a read outage into
+    # additional object and row writes.
+    existing_rows = select_existing()
     if existing_rows:
         row = existing_rows[0]
         public_url = (
@@ -1033,17 +1037,33 @@ def _upload_media(
         "url": public_url,
         "tags": tags,
     }
+    reused = False
     try:
-        upserted = client.upsert("media", base_row, on_conflict="storage_path")
-        row = upserted[0] if isinstance(upserted, list) and upserted else upserted
-    except (AttributeError, RuntimeError):
         row = client.insert_with_fallback("media", base_row, fallback_remove=["url"])
-    return {
+    except RuntimeError as insert_error:
+        # Production's storage_path uniqueness is enforced by a partial index,
+        # which PostgREST cannot target with on_conflict=storage_path. Recover
+        # a concurrent or ambiguously committed plain insert with one exact
+        # read instead of issuing a second write.
+        try:
+            recovered_rows = select_existing()
+        except RuntimeError as recovery_error:
+            raise RuntimeError(
+                "media insert failed and its exact recovery read also failed"
+            ) from recovery_error
+        if not recovered_rows:
+            raise insert_error
+        row = recovered_rows[0]
+        reused = True
+    result = {
         "id": row.get("id"),
         "publicUrl": public_url,
         "storagePath": storage_path,
         "fileName": local_path.name,
     }
+    if reused:
+        result["reused"] = True
+    return result
 
 
 def _batch_guardrail_warnings(

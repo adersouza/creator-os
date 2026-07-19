@@ -196,6 +196,62 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         cf.close()
 
 
+def test_threadsdash_selected_batch_prunes_manifest_and_fails_on_missing_ids(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        second_path = tmp_path / "second.mp4"
+        second_path.write_bytes(b"second")
+        second = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        second.update(
+            id="asset_2",
+            content_hash="hash_2",
+            output_path=str(second_path),
+            campaign_path=str(second_path),
+            filename=second_path.name,
+            caption_hash="caption_hash_2",
+        )
+        columns = list(second)
+        cf.conn.execute(
+            f"INSERT INTO rendered_assets ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            [second[column] for column in columns],
+        )
+        cf.conn.commit()
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        cf.domains.finished_video.review_rendered_asset("asset_2", decision="approved")
+
+        payload = build_draft_payloads(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            rendered_asset_ids=["asset_2"],
+        )
+
+        assert [
+            asset["renderedAssetId"] for asset in payload["manifest"]["assets"]
+        ] == ["asset_2"]
+        assert [draft["renderedAssetId"] for draft in payload["drafts"]] == ["asset_2"]
+        with pytest.raises(
+            ValueError,
+            match="selected rendered assets are not exportable.*missing_asset",
+        ):
+            build_draft_payloads(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                rendered_asset_ids=["missing_asset"],
+            )
+    finally:
+        cf.close()
+
+
 def test_threadsdash_export_enabled_variation_maps_account_media(
     tmp_path: Path, monkeypatch
 ):

@@ -2452,10 +2452,10 @@ def test_threadsdash_export_preview_failure_writes_no_evidence(
         cf.close()
 
 
-def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
+def test_upload_media_inserts_media_row_without_invalid_upsert(tmp_path: Path) -> None:
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"video")
-    upserted: list[tuple[str, str]] = []
+    inserted: list[tuple[str, dict[str, object]]] = []
 
     class FakeClient:
         url = "https://example.supabase.co"
@@ -2468,9 +2468,10 @@ def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
         ):
             assert upsert is True
 
-        def upsert(self, table, row, *, on_conflict):
-            upserted.append((table, on_conflict))
-            return [{"id": "media_1", **row}]
+        def insert_with_fallback(self, table, row, fallback_remove):
+            inserted.append((table, row))
+            assert fallback_remove == ["url"]
+            return {"id": "media_1", **row}
 
     result = threadsdash_delivery_adapter._upload_media(
         FakeClient(),
@@ -2481,4 +2482,144 @@ def test_upload_media_upserts_media_row_by_storage_path(tmp_path: Path) -> None:
     )
 
     assert result["id"] == "media_1"
-    assert upserted == [("media", "storage_path")]
+    assert [table for table, _row in inserted] == ["media"]
+
+
+def test_upload_media_reuses_existing_row_without_writes(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            return [
+                {
+                    "id": "media_existing",
+                    "file_name": "already-there.mp4",
+                    "storage_url": "https://cdn.example/existing.mp4",
+                }
+            ]
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise AssertionError("existing media must not be uploaded again")
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            raise AssertionError("existing media must not be inserted again")
+
+    result = threadsdash_delivery_adapter._upload_media(
+        FakeClient(),
+        bucket="media",
+        user_id="user_1",
+        local_path=media,
+        tags=["campaign_factory"],
+    )
+
+    assert result["id"] == "media_existing"
+    assert result["publicUrl"] == "https://cdn.example/existing.mp4"
+    assert result["storagePath"].startswith("campaign_factory/user_1/")
+    assert result["fileName"] == "already-there.mp4"
+    assert result["reused"] is True
+
+
+def test_upload_media_fails_closed_when_initial_read_fails(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            raise RuntimeError("database unavailable")
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise AssertionError("failed read must stop before upload")
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            raise AssertionError("failed read must stop before insert")
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        threadsdash_delivery_adapter._upload_media(
+            FakeClient(),
+            bucket="media",
+            user_id="user_1",
+            local_path=media,
+            tags=["campaign_factory"],
+        )
+
+
+def test_upload_media_recovers_ambiguous_insert_with_exact_read(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+    reads = 0
+    inserts = 0
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                return []
+            return [{"id": "media_committed", "file_name": "clip.mp4"}]
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            return None
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            nonlocal inserts
+            inserts += 1
+            raise RuntimeError("connection closed after commit")
+
+    result = threadsdash_delivery_adapter._upload_media(
+        FakeClient(),
+        bucket="media",
+        user_id="user_1",
+        local_path=media,
+        tags=["campaign_factory"],
+    )
+
+    assert result["id"] == "media_committed"
+    assert result["reused"] is True
+    assert reads == 2
+    assert inserts == 1
+
+
+def test_upload_media_does_not_retry_uncommitted_insert_failure(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"video")
+    reads = 0
+    inserts = 0
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            nonlocal reads
+            reads += 1
+            return []
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            return None
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            nonlocal inserts
+            inserts += 1
+            raise RuntimeError("insert rejected")
+
+    with pytest.raises(RuntimeError, match="insert rejected"):
+        threadsdash_delivery_adapter._upload_media(
+            FakeClient(),
+            bucket="media",
+            user_id="user_1",
+            local_path=media,
+            tags=["campaign_factory"],
+        )
+
+    assert reads == 2
+    assert inserts == 1
