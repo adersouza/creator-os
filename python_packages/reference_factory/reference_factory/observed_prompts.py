@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from pipeline_contracts import validate_higgsfield_soul_image_prompt
+from pipeline_contracts.validator import validate_higgsfield_soul_image_prompt
 
 from .db import json_dump, json_load
 from .identity import content_hash, stable_reference_id
