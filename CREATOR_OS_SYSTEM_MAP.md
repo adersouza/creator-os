@@ -137,6 +137,9 @@ python_packages/reel_factory/reel_factory
   placement, captions, rendering, provider workers, local SQLite render queue
 python_packages/campaign_factory/campaign_factory
   plans, assignment, spend authority, readiness, handoff, metric ingestion
+python_packages/campaign_factory/repurposer
+  optional zero-provider-cost variation worker reached only through Campaign's
+  explicit variation stage; not a lifecycle stage or second control plane
 
 packages/contentforge
   direct headless CLI for media inspection, distinctness, and blocking QC
@@ -382,6 +385,10 @@ Creator OS operator command.
 
 ## Repository And Automation Entrypoints
 
+- GitHub Actions has one owner: repository-root `.github/workflows/` contains
+  `monorepo-ci.yml`, `security.yml`, and `scorecard.yml`. Package-local workflow
+  copies are intentionally absent because GitHub does not execute them in this
+  monorepo and they drift from the canonical gates.
 - Make: `install`, `reel-models`, `test`, `verify`, `backup-runtime`, and local
   Campaign API/Reference review development targets.
 - pnpm: contract sync/check, static checks, architecture, artifacts, Graphify,
@@ -391,6 +398,17 @@ Creator OS operator command.
   `run_weekly_improvement_digest.sh`, and `run_campaign_factory.sh`.
 - The real LaunchAgents and private environment files are machine-local and are
   not stored or modified here.
+
+## Documentation Ownership
+
+- `README.md` is the concise supported-entrypoint guide.
+- This file is the durable architecture and ownership source of truth.
+- `PIPELINE_STATE.md` records current source capability without freezing
+  volatile operational counts or SHAs.
+- `docs/architecture/` contains active implementation and promotion policy.
+- `docs/archive/` and explicitly labelled historical snapshots are context only.
+- Current runtime, provider, account, publication, and metric truth belongs in
+  fresh status output and dated evidence under `~/.creator-os/analysis/`.
 
 ## Runtime And Configuration Resolution
 

@@ -25,7 +25,8 @@ publishing, QStash, metrics sync, account health, or production inventory.
 - GitHub Actions configuration lives only in the repository-root
   `.github/workflows/`. Package-local workflow copies are intentionally absent:
   GitHub would not execute them in this monorepo, and they drifted from the
-  canonical CI/security gates.
+  canonical CI/security gates. `monorepo-ci.yml`, `security.yml`, and
+  `scorecard.yml` are the complete supported workflow set.
 - OpenSSF Scorecard runs in report mode. Pull requests upload the SARIF as a
   normal artifact; push/scheduled runs upload SARIF to code scanning after the
   first baseline exists. It is intentionally non-blocking until the baseline is

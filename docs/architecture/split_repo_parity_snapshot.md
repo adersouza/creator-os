@@ -1,7 +1,14 @@
-# Split Repo Parity Snapshot
+# Split Repo Parity Snapshot (Historical)
 
 Captured locally during the monorepo promotion-prep pass and refreshed after
 the split-repo cleanup/merge pass.
+
+This dated snapshot is retained only as migration evidence. The listed SHAs,
+branches, inventory counts, and rollout state are not current operational
+truth. Creator OS is now the canonical integration source, the pinned
+`creator-os-runtime` checkout is the explicit machine runtime, and
+ThreadsDashboard remains the separate product repository. Do not route current
+commands or rollback work from this table.
 
 | Split repo | Branch | HEAD | Status |
 |---|---:|---:|---|
@@ -27,7 +34,7 @@ This is source parity, not production runtime promotion:
   bento-dashboard UI branch remains separate on
   `origin/codex/dashboard-pending-ui-and-cap-review`.
 
-## Required Before Final Promotion
+## Historical Requirements Recorded At Capture
 
 1. Keep generated media, DB files, local model weights, caches, and output
    folders out of source.
@@ -37,7 +44,7 @@ This is source parity, not production runtime promotion:
    blindly; Creator OS no longer carries a committed Dashboard app.
 4. Build the 50-account inventory buffer before attempting the next scale gate.
 
-## Latest Staged Acceptance Snapshot
+## Staged Acceptance Snapshot At Capture
 
 The monorepo Campaign Factory CLI reproduced the current 25-account readiness
 against a copied split-repo SQLite database on June 14, 2026. The source runtime

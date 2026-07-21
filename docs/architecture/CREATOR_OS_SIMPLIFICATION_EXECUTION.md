@@ -1,6 +1,11 @@
-# Creator OS Simplification Execution Ledger
+# Creator OS Simplification Execution Ledger (Historical Closure Record)
 
 Date started: 2026-07-15
+
+This dated ledger preserves the evidence and decisions from that simplification
+operation. Its SHAs, counts, backup identities, Trial projection, and runtime
+status are not current operational truth. Use `PIPELINE_STATE.md`, the runtime
+promotion guide, and fresh `creator-os status` output for current work.
 
 This ledger implements the locked Creator OS simplification goal. It separates
 source, CI, runtime, live seams, provider evidence, publishing evidence,

@@ -1,6 +1,10 @@
-# Creator OS Stabilize/Simplify Readiness
+# Creator OS Stabilize/Simplify Readiness (Historical)
 
 Date: 2026-07-15
+
+This is the dated readiness record for the original stabilization operation,
+not a current source/runtime report. Re-run the supported status and verification
+commands before relying on any operational claim.
 
 This report keeps source, CI, runtime, live seams, providers, publishing, and
 measured learning separate. A local implementation or passing test is not a
