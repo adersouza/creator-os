@@ -472,11 +472,16 @@ code no longer defaults generated exports back into a Git checkout.
 - flat Reel package facades and delegation-only tests;
 - Reel `operator_tools`, metrics HTTP routes, and unserved static browser assets;
 - Campaign static dashboard assets;
+- inert package-local GitHub workflows superseded by the root monorepo CI and
+  security workflows;
 - unused ContentForge golden-capture script;
 - orphaned overnight-grid, reference-grid-production, visual benchmark, and
   Reel-owned outcome/orchestrator/approval harnesses, tests, and docs;
 - legacy Reel prompt generation, six-pack generation, and manual grid-crop
-  execution paths.
+  execution paths, including the empty experiments package and obsolete grid
+  guide;
+- redundant standalone Campaign smoke/proof wrappers whose supported behavior
+  remains available through the package CLI and combined pipeline smoke.
 
 ## State, Artifacts, And Contracts
 

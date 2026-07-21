@@ -26,9 +26,9 @@ def test_flat_compatibility_modules_are_not_packaged() -> None:
 def test_canonical_packages_are_discovered() -> None:
     includes = _pyproject()["tool"]["setuptools"]["packages"]["find"]["include"]
 
-    assert includes == ["experiments*", "reel_factory*"]
+    assert includes == ["reel_factory*"]
     assert (PACKAGE_ROOT / "reel_factory/__init__.py").exists()
-    assert (PACKAGE_ROOT / "experiments/__init__.py").exists()
+    assert not (PACKAGE_ROOT / "experiments/__init__.py").exists()
 
 
 def test_standalone_dependencies_are_pinned_and_resolvable() -> None:

@@ -37,4 +37,6 @@ High-priority reminders:
 - Native platform audio is not burned into MP4s. Emit/consume `audio_intent.v1`
   and let ThreadsDashboard select and verify native audio before publish.
 
-Legacy Grok/grid experiment files may remain for old tests, but they are not current production guidance.
+Legacy Grok/grid execution files and the empty experiments package have been
+removed. Keep any explicit experimental analysis in Reference Factory and do
+not recreate a second Reel Factory generation path.

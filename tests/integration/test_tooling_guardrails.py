@@ -107,6 +107,17 @@ def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
     )
 
 
+def test_github_workflows_have_one_monorepo_owner() -> None:
+    nested_workflows = [
+        *sorted((ROOT / "packages").glob("*/.github/workflows/*")),
+        *sorted((ROOT / "python_packages").glob("*/.github/workflows/*")),
+    ]
+
+    assert nested_workflows == []
+    assert (ROOT / ".github/workflows/monorepo-ci.yml").exists()
+    assert (ROOT / ".github/workflows/security.yml").exists()
+
+
 def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
     filters = workflow["jobs"]["changes"]["steps"][1]["with"]["filters"]
