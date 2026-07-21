@@ -1,4 +1,4 @@
-import { COLOR_PRESETS, CROP_STYLES, BORDER_STYLES, DEVICE_PREFIXES } from "./presets.js";
+import { COLOR_PRESETS, CROP_STYLES, BORDER_STYLES } from "./presets.js";
 import { applyOutputProfileArgs, containBlurFilterForProfile, getReelsProfile, scaleFilterForProfile } from "./reels-profiles.js";
 import { getVariantPreset } from "./variant-engine.js";
 import { spawnSync } from "child_process";
@@ -22,10 +22,6 @@ function rand(min, max) {
 
 function randInt(min, max) {
   return Math.floor(rand(min, max + 1));
-}
-
-function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 export function escapeDrawtext(value) {
@@ -119,117 +115,8 @@ function pushImageFilters(args, filters, options = {}) {
   args.push("-map", "[v]", "-frames:v", "1");
 }
 
-function generateDeviceFilename() {
-  var prefix = pick(DEVICE_PREFIXES);
-  var ts = Date.now() - randInt(86400000, 86400000 * 30);
-  var date = new Date(ts);
-  var y = date.getFullYear();
-  var mo = String(date.getMonth() + 1).padStart(2, "0");
-  var d = String(date.getDate()).padStart(2, "0");
-  var h = String(date.getHours()).padStart(2, "0");
-  var mi = String(date.getMinutes()).padStart(2, "0");
-  var se = String(date.getSeconds()).padStart(2, "0");
-  var ms = String(date.getMilliseconds()).padStart(3, "0");
-  var dateStr = y + mo + d;
-  var timeStr = h + mi + se;
-
-  if (prefix === "IMG_" || prefix === "VID_") {
-    return prefix + dateStr + "_" + timeStr + "_" + randInt(100, 999);
-  }
-  if (prefix === "PXL_") {
-    return prefix + dateStr + "_" + timeStr + ms;
-  }
-  if (prefix === "RPReplay_") {
-    return prefix + "Final" + dateStr + randInt(10, 99);
-  }
-  return prefix + dateStr + "_" + randInt(1000, 9999);
-}
-
-// ─── Device Profiles (research-backed container forensics) ───
-// Each profile matches the encoding characteristics of real device captures.
-// Source: compression forensics research — container atoms, bitrate, GOP, audio rate, handler names.
-
-var DEVICE_PROFILES = {
-  iphone: {
-    models: ["iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 15 Pro Max", "iPhone 15 Pro", "iPhone 14 Pro", "iPhone 13"],
-    software: ["18.0", "18.1", "17.6.1", "17.4.1", "17.3", "17.1.1", "16.7.2"],
-    bitrate: function() { return randInt(20000, 24000); },
-    maxrate: function() { return randInt(26000, 30000); },
-    crf: null, // iPhone uses ABR, not CRF — we use -b:v instead
-    gop: function() { return 60; }, // 2s GOP at 30fps
-    bframes: function() { return randInt(1, 2); },
-    refs: function() { return randInt(2, 4); },
-    audioRate: 44100,
-    audioBitrate: 128,
-    handlerVideo: "Core Media Video",
-    handlerAudio: "Core Media Audio",
-    profile: "high",
-    level: "4.2",
-    colorFlags: true,
-    x264Params: function(br, gop, bf, refs) {
-      return "keyint=" + gop + ":min-keyint=" + Math.floor(gop / 2) +
-        ":bframes=" + bf + ":ref=" + refs +
-        ":weightp=0:aq-mode=1:no-mbtree:cqm=flat" +
-        ":nal-hrd=cbr:vbv-maxrate=" + Math.round(br * 1.3) + ":vbv-bufsize=" + Math.round(br * 1.3) +
-        ":colorprim=bt709:transfer=bt709:colormatrix=bt709";
-    },
-  },
-  samsung: {
-    models: ["Samsung SM-S928B", "Samsung SM-S926B", "Samsung SM-S911B", "Samsung SM-G991B", "Samsung SM-A546B"],
-    software: ["Android 15", "Android 14", "OneUI 6.1", "OneUI 7.0"],
-    bitrate: function() { return randInt(17000, 20000); },
-    maxrate: function() { return randInt(20000, 24000); },
-    crf: null,
-    gop: function() { return 30; }, // 1s GOP at 30fps (Android default)
-    bframes: function() { return 0; }, // Android hardware encoders don't use B-frames
-    refs: function() { return randInt(1, 2); },
-    audioRate: 48000,
-    audioBitrate: 256,
-    handlerVideo: "VideoHandle",
-    handlerAudio: "SoundHandle",
-    profile: "high",
-    level: "4.1",
-    colorFlags: true,
-    x264Params: function(br, gop, bf, refs) {
-      return "keyint=" + gop + ":min-keyint=" + gop + ":scenecut=0" +
-        ":bframes=0:ref=" + refs +
-        ":weightp=0:no-mbtree:aq-mode=0" +
-        ":nal-hrd=cbr:vbv-maxrate=" + Math.round(br * 1.2) + ":vbv-bufsize=" + Math.round(br * 1.2) +
-        ":cqm=flat:me=dia:subme=1:trellis=0" +
-        ":colorprim=bt709:transfer=bt709:colormatrix=bt709";
-    },
-  },
-  pixel: {
-    models: ["Pixel 9 Pro", "Pixel 9", "Pixel 8 Pro", "Pixel 8", "Pixel 7a"],
-    software: ["Android 15", "Android 14"],
-    bitrate: function() { return randInt(12000, 16000); },
-    maxrate: function() { return randInt(16000, 20000); },
-    crf: null,
-    gop: function() { return 30; },
-    bframes: function() { return 0; },
-    refs: function() { return 1; },
-    audioRate: 48000,
-    audioBitrate: 192,
-    handlerVideo: "VideoHandle",
-    handlerAudio: "SoundHandle",
-    profile: "high",
-    level: "4.1",
-    colorFlags: true,
-    x264Params: function(br, gop, _bf, _refs) {
-      return "keyint=" + gop + ":min-keyint=" + gop + ":scenecut=0" +
-        ":bframes=0:ref=1" +
-        ":weightp=0:no-mbtree:aq-mode=0" +
-        ":nal-hrd=cbr:vbv-maxrate=" + Math.round(br * 1.2) + ":vbv-bufsize=" + Math.round(br * 1.2) +
-        ":cqm=flat:me=dia:subme=1:trellis=0" +
-        ":colorprim=bt709:transfer=bt709:colormatrix=bt709";
-    },
-  },
-};
-
-function pickDeviceProfile() {
-  var types = Object.keys(DEVICE_PROFILES);
-  var type = pick(types);
-  return { type, profile: DEVICE_PROFILES[type] };
+function generateVariantFilename() {
+  return "contentforge_variant_" + Date.now() + "_" + randInt(100000, 999999);
 }
 
 // ─── Phase 1: Creative Remix ───
@@ -318,13 +205,7 @@ export function buildPhase1Args(inputPath, outputPath, editIndex, opts) {
   return args;
 }
 
-// ─── Phase 2: Hash Breaking + Device Profile Spoofing ───
-// Research-backed (2026):
-// - PDQ: 256-bit DCT hash on 64x64 grid, 31-bit Hamming threshold
-// - SSCD: 512-d neural embeddings, cosine similarity >= 0.75 = match
-// - Texture bias exploit: sharpen + grain shift embeddings 0.10-0.25 at SSIM > 0.90
-// - Audio fingerprinting: pitch shift ±5-50 cents + time stretch breaks spectral landmarks
-// - Container forensics: encoder strings, handler names, bitrate, ftyp, SEI
+// ─── Phase 2: quality-preserving editorial variation ───
 
 export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical, outputProfile, variantPresetId, variantOptions) {
   if (hasAudio === undefined) hasAudio = true;
@@ -340,15 +221,15 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   var allowGeometryTransforms = geometryTransformsAllowed(variantOptions || {});
   var allowFrameRateTransforms = frameRateTransformsAllowed(variantOptions || {});
 
-  // Pick a random device profile per variant
-  var { profile: dev } = pickDeviceProfile();
-  var bitrate = parseInt(reelProfile.videoBitrate, 10) || dev.bitrate();
-  var gop = dev.gop();
-  var bframes = dev.bframes();
-  var refs = dev.refs();
+  var dev = {
+    audioRate: reelProfile.audioRate || 48000,
+    level: reelProfile.fps >= 60 ? "5.1" : "4.2",
+    profile: "high",
+    colorFlags: true,
+  };
+  var gop = Math.max(1, Math.round((reelProfile.fps || 30) * 2));
 
-  // ─── "clean" level: metadata + imperceptible transforms only ───
-  // Research-backed: crop + time warp + pitch shift are all invisible but defeat fingerprinting
+  // ─── "clean" level: conservative editorial transforms only ───
   if (level === "clean" || variantPreset.id === "quality") {
     var attemptIndex = parseInt(variantPreset.attemptIndex || 0, 10) || 0;
     var speedShiftClean = allowTimingTransforms ? rand(1 - variantPreset.speedShift, 1 + variantPreset.speedShift) : 1;
@@ -420,8 +301,6 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
       args.push("-an");
     }
 
-    // Device-matched encoding
-    var fakeDateClean = new Date(Date.now() - randInt(86400000, 86400000 * 60));
     if (allowFrameRateTransforms) args.push("-r", String(reelProfile.fps));
     args.push("-c:v", "libx264", "-preset", "slow", "-crf", String(variantPreset.videoCrf), "-profile:v", "high", "-level", reelProfile.fps >= 60 ? "5.1" : dev.level);
     args.push("-maxrate", reelProfile.maxrate, "-bufsize", reelProfile.bufsize);
@@ -433,12 +312,6 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
     }
     if (hasAudio) {
       args.push("-c:a", "aac", "-b:a", reelProfile.audioBitrate, "-ar", String(reelProfile.audioRate || dev.audioRate));
-    }
-    args.push("-map_metadata", "-1");
-    args.push("-metadata", "creation_time=" + fakeDateClean.toISOString());
-    args.push("-metadata:s:v", "handler_name=" + dev.handlerVideo);
-    if (hasAudio) {
-      args.push("-metadata:s:a", "handler_name=" + dev.handlerAudio);
     }
     args.push("-loglevel", "warning");
     args.push("-y", outputPath);
@@ -491,7 +364,7 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
       ":iw*(1-" + rotCropPct.toFixed(4) + ")/2:ih*(1-" + rotCropPct.toFixed(4) + ")/2");
   }
 
-  if (allowGeometryTransforms && (level === "stealth" || level === "heavy")) {
+  if (allowGeometryTransforms && level === "heavy") {
     var driftCropPct = rand(0.93, 0.97);
     var cx = "(iw*(1-" + driftCropPct.toFixed(3) + ")/2)+(iw*" + driftAmpX.toFixed(4) + "*sin(n/" + driftFreqX.toFixed(0) + "))";
     var cy = "(ih*(1-" + driftCropPct.toFixed(3) + ")/2)+(ih*" + driftAmpY.toFixed(4) + "*cos(n/" + driftFreqY.toFixed(0) + "))";
@@ -504,18 +377,11 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
     filters.push("scale=1920:1080:flags=lanczos");
   }
 
-  if (allowTimingTransforms && (level === "stealth" || level === "heavy")) {
+  if (allowTimingTransforms && level === "heavy") {
     var ptsMultiplier = (1 / speedShift).toFixed(4);
     filters.push("setpts=PTS*" + ptsMultiplier + "*(1+" + warpAmp.toFixed(4) + "*sin(PTS/" + warpPeriod.toFixed(2) + "))");
   } else if (allowTimingTransforms) {
     filters.push("setpts=" + (1 / speedShift).toFixed(4) + "*PTS");
-  }
-
-  if (level === "stealth") {
-    var lumaAmp = randInt(2, 4);
-    var lumaWaveX = randInt(60, 120);
-    var lumaSpeed = rand(0.06, 0.15);
-    filters.push("geq=lum='lum(X\\,Y)+" + lumaAmp + "*sin(X/" + lumaWaveX + "+N*" + lumaSpeed.toFixed(3) + ")':cb='cb(X\\,Y)':cr='cr(X\\,Y)'");
   }
 
   if (allowColorTransforms && variantPreset.colorShift > 0) {
@@ -550,12 +416,10 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
     args.push("-an");
   }
 
-  var fakeDate = new Date(Date.now() - randInt(86400000, 86400000 * 60));
   if (allowFrameRateTransforms) args.push("-r", String(reelProfile.fps));
   args.push("-c:v", "libx264", "-preset", variantPreset.id === "strong" ? "medium" : "slow", "-crf", String(variantPreset.videoCrf), "-profile:v", dev.profile, "-level", reelProfile.fps >= 60 ? "5.1" : dev.level);
   args.push("-maxrate", reelProfile.maxrate, "-bufsize", reelProfile.bufsize);
   args.push("-g", String(gop));
-  args.push("-x264-params", dev.x264Params(bitrate, gop, bframes, refs));
   args.push("-pix_fmt", "yuv420p", "-movflags", "+faststart");
   if (dev.colorFlags) {
     args.push("-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709");
@@ -564,25 +428,13 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   if (hasAudio) {
     args.push("-c:a", "aac", "-b:a", reelProfile.audioBitrate, "-ar", String(reelProfile.audioRate || dev.audioRate));
   }
-  args.push("-map_metadata", "-1");
-  args.push("-metadata", "creation_time=" + fakeDate.toISOString());
-  args.push("-metadata:s:v", "handler_name=" + dev.handlerVideo);
-  if (hasAudio) {
-    args.push("-metadata:s:a", "handler_name=" + dev.handlerAudio);
-  }
   args.push("-loglevel", "warning");
   args.push("-y", outputPath);
 
   return args;
 }
 
-// ─── Image Hash Breaking ───
-// Research-backed (2026):
-// PDQ: 64x64 DCT grid → 256-bit hash, 31-bit Hamming threshold
-// SSCD: 512-d neural embeddings, cosine >= 0.75 = match
-// Texture bias: sharpen + grain shift embeddings disproportionately to perceptual quality
-// 3-5% crop shifts content on grid → Hamming 30-83 bits (over threshold)
-// Combined: PSNR >40 dB (visually lossless) but unique hash per variant
+// ─── Image editorial variation ───
 
 export function buildImageArgs(inputPath, outputPath, index, opts) {
   var level = opts.level || "clean";
@@ -610,9 +462,6 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
     var cleanArgs = ["-i", inputPath];
     pushImageFilters(cleanArgs, cleanFilters, opts.variantOptions || {});
     cleanArgs.push("-q:v", String(randInt(variantPreset.imageQuality[0], variantPreset.imageQuality[1])));
-    cleanArgs.push("-map_metadata", "-1");
-    var cleanDate = new Date(Date.now() - randInt(86400000, 86400000 * 60));
-    cleanArgs.push("-metadata", "creation_time=" + cleanDate.toISOString());
     cleanArgs.push("-loglevel", "warning");
     cleanArgs.push("-y", outputPath);
     return cleanArgs;
@@ -646,7 +495,7 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
   }
 
   // ─── Sub-degree rotation: defeats neural embeddings ───
-  if (level === "medium" || level === "heavy" || level === "stealth") {
+  if (level === "medium" || level === "heavy") {
     var rotateDeg = rand(0.1, 0.5) * (Math.random() > 0.5 ? 1 : -1);
     var rotateRad = rotateDeg * 0.01745;
     filters.push("rotate=" + rotateRad.toFixed(6) + ":fillcolor=white:bilinear=1");
@@ -655,8 +504,7 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
       ":iw*(1-" + trimPct.toFixed(4) + ")/2:ih*(1-" + trimPct.toFixed(4) + ")/2");
   }
 
-  // ─── Texture bias exploit: sharpen (shifts embeddings >> perceptual impact) ───
-  // Research: unsharp=3:3:0.8 at SSIM > 0.92 shifts embedding cosine by 0.05-0.15
+  // ─── Optional sharpening for perceived clarity ───
   if (variantPreset.sharpen) {
     var sharpStr = rand(0.4, 0.8);
     filters.push("unsharp=3:3:" + sharpStr.toFixed(1) + ":3:3:0.0");
@@ -668,7 +516,7 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
   }
 
   // ─── Subtle color balance shift ───
-  if (allowColorTransforms && level === "stealth") {
+  if (allowColorTransforms && level === "heavy") {
     var cbRS = rand(-0.02, 0.02);
     var cbGS = rand(-0.02, 0.02);
     var cbBS = rand(-0.02, 0.02);
@@ -696,19 +544,10 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
   var quality = randInt(variantPreset.imageQuality[0], variantPreset.imageQuality[1]);
   args.push("-q:v", String(quality));
 
-  // Strip ALL metadata
-  args.push("-map_metadata", "-1");
-
-  // Spoofed metadata matching real device
-  var fakeDate = new Date(Date.now() - randInt(86400000, 86400000 * 60));
-  args.push("-metadata", "creation_time=" + fakeDate.toISOString());
-
-  // NOTE: Do NOT add encoder= metadata. Real device photos don't have Lavf/Lavc strings.
-
   args.push("-loglevel", "warning");
   args.push("-y", outputPath);
 
   return args;
 }
 
-export { generateDeviceFilename };
+export { generateVariantFilename };

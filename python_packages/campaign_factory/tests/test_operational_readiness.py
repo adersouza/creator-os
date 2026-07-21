@@ -981,9 +981,13 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
             "feed_carousel",
             "trial_reel",
         }
-        assert surface["surfaces"]["reel"]["publishProof"] is True
-        assert surface["surfaces"]["story"]["publishProof"] is False
-        assert surface["surfaces"]["feed_carousel"]["metricsProof"] is False
+        assert surface["evidenceStatus"] == "planning_model_only"
+        assert surface["surfaces"]["reel"]["publishProof"] is None
+        assert (
+            surface["surfaces"]["reel"]["declaredCapabilities"]["publishProof"] is True
+        )
+        assert surface["surfaces"]["story"]["publishProof"] is None
+        assert surface["surfaces"]["feed_carousel"]["metricsProof"] is None
         assert surface["wouldWrite"] is False
         assert operator["schema"] == "creator_os.operator_load_audit.v1"
         assert operator["firstBreakingPoint"] in {"100_accounts", "200_accounts"}
@@ -1012,8 +1016,11 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
         assert complexity["expectedComplexityReductionPct"] >= 20
         assert complexity["wouldWrite"] is False
         assert final["schema"] == "creator_os.9_5_readiness_report.v1"
-        assert final["currentScore"] >= 8.5
-        assert final["scores"]["200Accounts"] < final["currentScore"]
+        assert final["currentScore"] is None
+        assert final["releaseReady"] is False
+        assert final["evidenceStatus"] == "unverified_planning_model"
+        assert final["failureRecoveryReadiness"]["failureInjectionPassed"] is False
+        assert final["idempotencyReadiness"]["idempotent"] is False
         assert final["scores"]["1000Accounts"] < final["scores"]["500Accounts"]
         assert len(final["top10RemainingRisks"]) == 10
         assert final["exactPathTo9_5"]

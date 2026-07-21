@@ -348,6 +348,7 @@ def create_smoke_campaign_asset(
     )
     rendered_path = workspace / "rendered_smoke.mp4"
     rendered_path.write_bytes(b"smoke rendered")
+    rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
     now = "2026-05-22T00:00:00+00:00"
     caption = "fit check hook"
     caption_hash = _smoke_text_hash(caption)
@@ -375,12 +376,13 @@ def create_smoke_campaign_asset(
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
          caption_generation_json, metadata_json, created_at, updated_at)
-        VALUES ('asset_smoke', ?, ?, 'smoke_hash', ?, ?, 'rendered_smoke.mp4',
+        VALUES ('asset_smoke', ?, ?, ?, ?, ?, 'rendered_smoke.mp4',
                 ?, ?, ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
         """,
         (
             source["campaign_id"],
             source["id"],
+            rendered_hash,
             str(rendered_path),
             str(rendered_path),
             caption,

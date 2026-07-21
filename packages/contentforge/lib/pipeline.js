@@ -1,60 +1,15 @@
-import { spawn, execFile } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import crypto from "crypto";
 import { mkdirSync, unlinkSync, rmSync, writeFileSync } from "fs";
-import { buildPhase1Args, buildPhase2Args, buildImageArgs, generateDeviceFilename } from "./ffmpeg.js";
+import { buildPhase1Args, buildPhase2Args, buildImageArgs, generateVariantFilename } from "./ffmpeg.js";
 import { PROJECT_ROOT, getRunEditsDir, getRunFinalDir, resolveUploadPath } from "./paths.js";
-import { getPythonCommand } from "./python-runtime.js";
 import { averageHashSimilarity, multiFrameHash, temporalHashSimilarity } from "./detector.js";
 import { getFastQualityMetrics } from "./quality-metrics.js";
 import { getQaSignals, probeMedia, validateMediaInfo } from "./reels.js";
 import { getReelsProfile } from "./reels-profiles.js";
 import { createTextOverlayPng } from "./overlay.js";
 import { evaluateQualityGate, getVariantPreset, normalizeQualityGate, normalizeVariantPreset, variantScoreBundle } from "./variant-engine.js";
-
-/**
- * Post-process a video file to strip forensic tells:
- * - x264 UUID SEI in H.264 bitstream
- * - Lavf/Lavc/x264 strings in container atoms
- * - ©too encoder tool atom
- */
-function sanitizeVideo(filePath) {
-  return new Promise(function (resolve) {
-    var scriptPath = path.join(PROJECT_ROOT, "lib", "sanitize.py");
-    execFile(getPythonCommand(), [scriptPath, filePath], { timeout: 15000 }, function (err, stdout) {
-      if (err) {
-        resolve({ error: err.message });
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        resolve({ error: "Failed to parse sanitizer output" });
-      }
-    });
-  });
-}
-
-/**
- * Post-process a JPEG file to randomize its quantization tables.
- * Each variant gets a unique QT fingerprint — prevents batch-origin detection.
- */
-function randomizeJpegQT(filePath) {
-  return new Promise(function (resolve) {
-    var scriptPath = path.join(PROJECT_ROOT, "lib", "jpeg_randomize_qt.py");
-    execFile(getPythonCommand(), [scriptPath, filePath, "85", "95"], { timeout: 10000 }, function (err, stdout) {
-      if (err) {
-        resolve({ error: err.message });
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        resolve({ error: "Failed to parse QT randomizer output" });
-      }
-    });
-  });
-}
 
 // 5 minute timeout per FFmpeg process
 var PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -436,7 +391,7 @@ export async function runPipeline(config, sendEvent) {
       for (var candidateAttempt = 0; candidateAttempt < maxAttempts && !kept; candidateAttempt++) {
       attempted++;
       attemptedCandidates++;
-      var filename = generateDeviceFilename() + ".mp4";
+      var filename = generateVariantFilename() + ".mp4";
       var outputPath = path.join(finalDir, filename);
 
       sendEvent({
@@ -453,11 +408,6 @@ export async function runPipeline(config, sendEvent) {
 
       try {
         await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); }, null, signal);
-        // Post-process: strip x264 SEI + Lavf strings
-        var sanResult = await sanitizeVideo(outputPath);
-        if (sanResult.results && sanResult.results[0] && sanResult.results[0].patches && sanResult.results[0].patches.length > 0) {
-          sendEvent({ type: "log", text: "  \u2692 sanitized " + sanResult.results[0].patches.length + " forensic tell(s)\n" });
-        }
         var candidateReport = await buildVideoCandidateReport({ sourcePath: inputPath, sourceHashes, keptReports, outputPath, outputProfile, qualityGate });
         if (!candidateReport.passed) {
           rejectedCandidates++;
@@ -559,7 +509,7 @@ export async function runPipeline(config, sendEvent) {
       for (var candidateAttempt = 0; candidateAttempt < maxAttempts && !kept; candidateAttempt++) {
       attempted++;
       attemptedCandidates++;
-      var filename = generateDeviceFilename() + ".mp4";
+      var filename = generateVariantFilename() + ".mp4";
       var outputPath = path.join(finalDir, filename);
 
       sendEvent({
@@ -577,11 +527,6 @@ export async function runPipeline(config, sendEvent) {
 
       try {
         await runFFmpeg(p2args, function (log) { sendEvent({ type: "log", text: log }); }, null, signal);
-        // Post-process: strip x264 SEI + Lavf strings
-        var sanResult = await sanitizeVideo(outputPath);
-        if (sanResult.results && sanResult.results[0] && sanResult.results[0].patches && sanResult.results[0].patches.length > 0) {
-          sendEvent({ type: "log", text: "  \u2692 sanitized " + sanResult.results[0].patches.length + " forensic tell(s)\n" });
-        }
         var candidateReport = await buildVideoCandidateReport({ sourcePath: inputPath, sourceHashes, keptReports, outputPath, outputProfile, qualityGate });
         if (!candidateReport.passed) {
           rejectedCandidates++;
@@ -714,7 +659,7 @@ export async function runImagePipeline(config, sendEvent) {
     attempted++;
     attemptedCandidates++;
     var outputFormat = variantPreset.outputFormat === "webp" ? "webp" : "jpg";
-    var filename = generateDeviceFilename() + "." + outputFormat;
+    var filename = generateVariantFilename() + "." + outputFormat;
     var outputPath = path.join(finalDir, filename);
 
     sendEvent({
@@ -731,17 +676,6 @@ export async function runImagePipeline(config, sendEvent) {
 
     try {
       await runFFmpeg(imgArgs, function (log) { sendEvent({ type: "log", text: log }); }, IMAGE_TIMEOUT_MS);
-      if (outputFormat === "jpg") {
-        var qtResult = await randomizeJpegQT(outputPath);
-        if (qtResult.results && qtResult.results[0] && qtResult.results[0].qtRandomized) {
-          sendEvent({ type: "log", text: "  \u2692 QT randomized (q=" + qtResult.results[0].quality + ")\n" });
-        }
-      }
-      // Post-process: strip Lavc/Lavf strings from JPEG binary
-      var sanResult = await sanitizeVideo(outputPath);
-      if (sanResult.results && sanResult.results[0] && sanResult.results[0].patches && sanResult.results[0].patches.length > 0) {
-        sendEvent({ type: "log", text: "  \u2692 sanitized " + sanResult.results[0].patches.length + " forensic tell(s)\n" });
-      }
       var candidateReport = await buildImageCandidateReport({ sourceHashes, keptReports, outputPath, qualityGate });
       if (!candidateReport.passed) {
         rejectedCandidates++;

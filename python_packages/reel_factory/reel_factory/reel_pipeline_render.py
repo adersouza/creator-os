@@ -8,7 +8,10 @@ import shlex
 import time
 from pathlib import Path
 
-from pipeline_contracts import evaluate_overlay_semantic_completeness
+from pipeline_contracts import (
+    evaluate_overlay_semantic_completeness,
+    evaluate_overlay_timing,
+)
 
 from .graph_builder import build_video_filter as build_graph_video_filter
 from .graph_builder import caption_overlay_enable, target_dimensions
@@ -89,7 +92,8 @@ async def process_one(
         else caption
     )
     overlay_semantic_qc = evaluate_overlay_semantic_completeness(
-        caption if recipe.burn_caption else None
+        caption if recipe.burn_caption else None,
+        require_overlay=bool(recipe.burn_caption),
     )
     key = compute_job_key(
         src_hash,
@@ -280,6 +284,47 @@ async def process_one(
                 )
                 for i, s in enumerate(seg_plans)
             ]
+
+    effective_dur = max(0.1, duration - recipe.trim_head - recipe.trim_tail)
+    caption_timing_qc = evaluate_overlay_timing(
+        [
+            {
+                "text": segment.text,
+                "start": segment.start,
+                "end": segment.end,
+            }
+            for segment in seg_plans
+        ],
+        duration_seconds=effective_dur,
+    )
+    if recipe.burn_caption and caption_timing_qc.get("passed") is not True:
+        failure_reasons = caption_timing_qc.get("failure_reasons") or [
+            "overlay_timing_qc_failed"
+        ]
+        error = "burned_overlay_timing_invalid:" + ",".join(failure_reasons)
+        blocked_path = out_dir / (
+            f"{src.stem}_h{hook_idx:02d}_{recipe.name}_timing_blocked.mp4"
+        )
+        log.error(f"BLOCK {src.stem} h{hook_idx} {recipe.name}: {error}")
+        if not dry_run:
+            manifest.add_failure(
+                src.stem,
+                recipe,
+                caption_for_manifest,
+                blocked_path,
+                key,
+                duration,
+                error,
+                encoder=output_profile,
+                target_ratio=target_ratio,
+            )
+        return {
+            "status": "failed",
+            "key": key,
+            "error": error,
+            "overlaySemanticQc": overlay_semantic_qc,
+            "captionTimingQc": caption_timing_qc,
+        }
 
     seg_plans = await resolve_segment_bands(
         src,
@@ -472,6 +517,7 @@ async def process_one(
             {
                 **(caption_lineage or {}),
                 "captionBurnedIn": bool(recipe.burn_caption),
+                "captionTimingQc": caption_timing_qc,
                 "captionPlacementPolicy": placement_policy,
                 "captionPlacementDecision": {
                     **(
@@ -705,6 +751,7 @@ async def process_one(
             {
                 **(caption_lineage or {}),
                 "captionBurnedIn": bool(recipe.burn_caption),
+                "captionTimingQc": caption_timing_qc,
             },
             caption_text=caption_for_manifest,
             caption_hash=caption_hash,
@@ -802,6 +849,7 @@ async def process_one(
         "captionHash": caption_hash,
         "captionBurnedIn": bool(recipe.burn_caption),
         "overlaySemanticQc": overlay_semantic_qc,
+        "captionTimingQc": caption_timing_qc,
         "captionPlacementPolicy": placement_policy,
         "captionPlacementDecision": {
             **(placement_decision if isinstance(placement_decision, dict) else {}),
@@ -826,6 +874,8 @@ async def process_one(
     )
     caption_context["overlaySemanticQc"] = overlay_semantic_qc
     caption_context["overlay_semantic_qc"] = overlay_semantic_qc
+    caption_context["captionTimingQc"] = caption_timing_qc
+    caption_context["caption_timing_qc"] = caption_timing_qc
     manifest.add_variation(
         src.stem,
         recipe,
@@ -849,6 +899,7 @@ async def process_one(
             "captionPosition": caption_position,
             "captionPlacementPolicy": placement_policy,
             "captionPlacementDecision": placement_lineage["captionPlacementDecision"],
+            "captionTimingQc": caption_timing_qc,
             "metadataNormalization": metadata_normalization,
             "generationId": generation_id,
             "renderJobKey": key,

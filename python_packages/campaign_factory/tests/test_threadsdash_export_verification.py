@@ -20,6 +20,9 @@ from campaign_factory.adapters import (
     threadsdash_draft_delivery as threadsdash_delivery_adapter,
 )
 from campaign_factory.adapters import (
+    threadsdash_draft_integrity as threadsdash_integrity_adapter,
+)
+from campaign_factory.adapters import (
     threadsdash_draft_payload as threadsdash_payload_adapter,
 )
 from campaign_factory.adapters import (
@@ -69,6 +72,71 @@ def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
             user_id="operator",
             dry_run=False,
         )
+
+
+@pytest.mark.parametrize(
+    "blocker",
+    [
+        "usage_check_unavailable",
+        "asset_1:exact_render_published",
+        "asset_1:draft_payload_contract_invalid",
+        "asset_1:batch_duplicate_caption",
+    ],
+)
+def test_threadsdash_export_readiness_blockers_prevent_all_external_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocker: str
+) -> None:
+    cf = make_factory(tmp_path)
+    calls = {"upload": 0, "ingest": 0}
+
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter._draft_payload,
+        "build_draft_payloads",
+        lambda *_args, **_kwargs: {"drafts": []},
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "evaluate_export_readiness",
+        lambda *_args, **_kwargs: {
+            "liveExportAllowed": False,
+            "blockingReasons": [blocker],
+            "warnings": [],
+        },
+    )
+
+    def unexpected_upload(*_args, **_kwargs):
+        calls["upload"] += 1
+        raise AssertionError("media upload must not run after failed readiness")
+
+    def unexpected_ingest(*_args, **_kwargs):
+        calls["ingest"] += 1
+        raise AssertionError("dashboard ingest must not run after failed readiness")
+
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        unexpected_upload,
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_post_threadsdash_draft_ingest",
+        unexpected_ingest,
+    )
+    try:
+        add_rendered_asset(cf, tmp_path)
+        with pytest.raises(
+            ValueError,
+            match="export blocked by readiness before external writes",
+        ):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+            )
+        assert calls == {"upload": 0, "ingest": 0}
+    finally:
+        cf.close()
 
 
 def test_usage_summary_preserves_exact_rendered_asset_scope(monkeypatch):
@@ -161,6 +229,8 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
 
         def select(self, table, params):
             assert table == "posts"
+            if "campaign_factory_post_key" not in params:
+                return []
             return [
                 {
                     "id": "post_ingest_1",
@@ -491,7 +561,18 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
             )
         raise OSError("supabase unavailable in unresolved-media regression")
 
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def select(self, table, params):
+            return []
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise OSError("storage upload unavailable")
+
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)
         add_audit_report(cf)
@@ -781,11 +862,12 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(
             self.url = url
 
         def select(self, table, params):
-            return rows
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
-        source, _ = add_rendered_asset(cf, tmp_path)
+        source, rendered_path = add_rendered_asset(cf, tmp_path)
+        rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
         rows.append(
             {
                 "id": "post_1",
@@ -802,7 +884,7 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(
                         "campaign_id": "may",
                         "source_asset_id": source["id"],
                         "rendered_asset_id": "asset_1",
-                        "content_hash": "hash_1",
+                        "content_hash": rendered_hash,
                         "source_content_hash": source["content_hash"],
                         "caption_hash": "caption_hash_1",
                     }
@@ -856,11 +938,12 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
             self.url = url
 
         def select(self, table, params):
-            return rows
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
-        source, _ = add_rendered_asset(cf, tmp_path)
+        source, rendered_path = add_rendered_asset(cf, tmp_path)
+        rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
         rows.append(
             {
                 "id": "post_1",
@@ -875,7 +958,7 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
                         "campaign_id": "may",
                         "source_asset_id": source["id"],
                         "rendered_asset_id": "asset_1",
-                        "content_hash": "hash_1",
+                        "content_hash": rendered_hash,
                         "source_content_hash": source["content_hash"],
                         "caption_hash": "caption_hash_1",
                     }
@@ -924,7 +1007,7 @@ def test_export_readiness_warns_on_batch_calendar_guardrails(tmp_path: Path):
                     f"asset_{idx}",
                     source["campaign_id"],
                     source["id"],
-                    f"hash_{idx}",
+                    threadsdash_integrity_adapter.sha256_file(rendered_path),
                     str(rendered_path),
                     str(rendered_path),
                     rendered_path.name,
@@ -959,7 +1042,7 @@ def test_live_export_blocks_same_rendered_asset_to_same_account_batch(
             self.url = url
 
         def select(self, table, params):
-            return rows
+            return _slice_rows(rows, params)
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
@@ -1015,6 +1098,7 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
         set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
+        rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
         now = "2026-01-01T00:00:00+00:00"
         context = {
             "schema": "campaign_factory.caption_outcome_context.v1",
@@ -1040,13 +1124,14 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
              caption, recipe, audit_status, review_state, caption_generation_json,
              caption_hash, caption_outcome_context_json, created_at, updated_at)
-            VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, 'ok.mp4',
+            VALUES ('asset_1', ?, ?, ?, ?, ?, 'ok.mp4',
              'caption', 'v01_original', 'approved_candidate', 'approved', '{}',
              'caption_hash_1', ?, ?, ?)
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                rendered_hash,
                 str(rendered_path),
                 str(rendered_path),
                 json.dumps(context, ensure_ascii=False, sort_keys=True),
@@ -1466,6 +1551,7 @@ def test_notify_publish_resolves_only_audio_handoff_metric_blockers(tmp_path: Pa
             "publish_mode": "notify",
             "handoff_status": "completed",
             "manual_publish_confirmed_at": "2026-07-11T19:14:41Z",
+            "published_at": "2026-07-11T19:14:41Z",
             "instagram_post_id": "ig_media_1",
             "permalink": "https://www.instagram.com/reel/example/",
         }
@@ -1511,7 +1597,7 @@ def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatc
     try:
         add_rendered_asset(cf, tmp_path)
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
-        try:
+        with pytest.raises(ValueError, match="exports are draft-only"):
             export_threadsdash(
                 cf,
                 campaign_slug="may",
@@ -1521,10 +1607,6 @@ def test_live_export_blocks_without_passing_readiness(tmp_path: Path, monkeypatc
                 supabase_service_role_key="service-role",
                 schedule_mode="live",
             )
-        except ValueError as exc:
-            assert "missing_audit" in str(exc)
-        else:
-            raise AssertionError("live export should block without an audit")
     finally:
         cf.close()
 
@@ -1559,7 +1641,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
                             "campaign_id": "may",
                             "source_asset_id": "src_1",
                             "rendered_asset_id": "asset_1",
-                            "content_hash": "hash_1",
+                            "content_hash": rendered_hash,
                             "source_content_hash": "source_hash_1",
                         }
                     },
@@ -1599,14 +1681,22 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
         set_test_source_prompt(cf, "src_1")
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
+        rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
         now = "2026-01-01T00:00:00+00:00"
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_1', ?, 'src_1', 'hash_1', ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
+            VALUES ('asset_1', ?, 'src_1', ?, ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
-            (source["campaign_id"], str(rendered_path), str(rendered_path), now, now),
+            (
+                source["campaign_id"],
+                rendered_hash,
+                str(rendered_path),
+                str(rendered_path),
+                now,
+                now,
+            ),
         )
         cf.conn.commit()
 
@@ -1620,7 +1710,7 @@ def test_threadsdash_usage_summarizes_existing_campaign_posts(
         asset = usage["assets"][0]
         assert asset["usage"]["published"] == 1
         assert usage["sourceUsage"]["src_1"]["total"] == 2
-        assert usage["contentHashUsage"]["hash_1"]["published"] == 1
+        assert usage["contentHashUsage"][rendered_hash]["published"] == 1
         assert usage["accountUsage"]["ig_1"]["published"] == 1
         assert usage["surfaceUsage"]["reel"]["published"] == 1
         assert usage["surfaceUsage"]["story"]["draft"] == 1
@@ -1803,7 +1893,8 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
 
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
-        source, _ = add_rendered_asset(cf, tmp_path)
+        source, rendered_path = add_rendered_asset(cf, tmp_path)
+        rendered_hash = threadsdash_integrity_adapter.sha256_file(rendered_path)
         post_rows.append(
             {
                 "id": "post_history_1",
@@ -1814,11 +1905,14 @@ def test_sync_performance_snapshots_imports_threadsdash_metric_history(
                 "created_at": "2026-01-02T00:00:00+00:00",
                 "updated_at": "2026-01-03T00:00:00+00:00",
                 "published_at": "2026-01-02T01:00:00+00:00",
+                "instagram_post_id": "ig_post_history_1",
                 "permalink": "https://instagram.test/p/history",
                 "views": 900,
                 "likes_count": 60,
                 "metadata": {
-                    "campaign_factory": threadsdash_campaign_factory_metadata(source),
+                    "campaign_factory": threadsdash_campaign_factory_metadata(
+                        source, content_hash=rendered_hash
+                    ),
                 },
             }
         )
@@ -2082,16 +2176,18 @@ def test_export_can_target_one_rendered_asset(tmp_path: Path):
         source, _ = add_rendered_asset(cf, tmp_path)
         second_path = tmp_path / "second.mp4"
         second_path.write_bytes(b"rendered 2")
+        second_hash = threadsdash_integrity_adapter.sha256_file(second_path)
         now = "2026-01-01T00:00:00+00:00"
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_2', ?, ?, 'hash_2', ?, ?, 'second.mp4', 'caption two', 'v01_original', 'approved_candidate', 'approved', ?, ?)
+            VALUES ('asset_2', ?, ?, ?, ?, ?, 'second.mp4', 'caption two', 'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                second_hash,
                 str(second_path),
                 str(second_path),
                 now,
@@ -2539,13 +2635,16 @@ def test_upload_media_inserts_media_row_without_invalid_upsert(tmp_path: Path) -
         user_id="user_1",
         local_path=media,
         tags=["campaign_factory"],
+        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
     )
 
     assert result["id"] == "media_1"
     assert [table for table, _row in inserted] == ["media"]
 
 
-def test_upload_media_reuses_existing_row_without_writes(tmp_path: Path) -> None:
+def test_upload_media_reuses_existing_row_after_refreshing_exact_bytes(
+    tmp_path: Path,
+) -> None:
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"video")
 
@@ -2561,8 +2660,11 @@ def test_upload_media_reuses_existing_row_without_writes(tmp_path: Path) -> None
                 }
             ]
 
-        def upload_storage_object(self, *_args, **_kwargs):
-            raise AssertionError("existing media must not be uploaded again")
+        def upload_storage_object(
+            self, bucket, storage_path, file_path, content_type, *, upsert=False
+        ):
+            assert upsert is True
+            assert Path(file_path).read_bytes() == b"video"
 
         def insert_with_fallback(self, *_args, **_kwargs):
             raise AssertionError("existing media must not be inserted again")
@@ -2573,12 +2675,13 @@ def test_upload_media_reuses_existing_row_without_writes(tmp_path: Path) -> None
         user_id="user_1",
         local_path=media,
         tags=["campaign_factory"],
+        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
     )
 
     assert result["id"] == "media_existing"
-    assert result["publicUrl"] == "https://cdn.example/existing.mp4"
+    assert result["publicUrl"].endswith(result["storagePath"])
     assert result["storagePath"].startswith("campaign_factory/user_1/")
-    assert result["fileName"] == "already-there.mp4"
+    assert result["fileName"] == "clip.mp4"
     assert result["reused"] is True
 
 
@@ -2605,6 +2708,28 @@ def test_upload_media_fails_closed_when_initial_read_fails(tmp_path: Path) -> No
             user_id="user_1",
             local_path=media,
             tags=["campaign_factory"],
+            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
+        )
+
+
+def test_upload_media_rejects_bytes_changed_after_approval(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"changed")
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, *_args, **_kwargs):
+            raise AssertionError("hash mismatch must stop before remote reads")
+
+    with pytest.raises(ValueError, match="media changed after draft approval"):
+        threadsdash_delivery_adapter._upload_media(
+            FakeClient(),
+            bucket="media",
+            user_id="user_1",
+            local_path=media,
+            tags=["campaign_factory"],
+            expected_sha256="0" * 64,
         )
 
 
@@ -2640,6 +2765,7 @@ def test_upload_media_recovers_ambiguous_insert_with_exact_read(
         user_id="user_1",
         local_path=media,
         tags=["campaign_factory"],
+        expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
     )
 
     assert result["id"] == "media_committed"
@@ -2679,6 +2805,7 @@ def test_upload_media_does_not_retry_uncommitted_insert_failure(
             user_id="user_1",
             local_path=media,
             tags=["campaign_factory"],
+            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
         )
 
     assert reads == 2

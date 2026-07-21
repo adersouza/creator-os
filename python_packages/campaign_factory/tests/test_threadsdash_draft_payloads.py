@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +19,9 @@ from campaign_factory.adapters.threadsdash_account_projection import (
     sync_threadsdash_account_assignments,
 )
 from campaign_factory.adapters.threadsdash_draft_delivery import export_threadsdash
+from campaign_factory.adapters.threadsdash_draft_integrity import (
+    asset_caption_is_burned,
+)
 from campaign_factory.adapters.threadsdash_draft_payload import build_draft_payloads
 from campaign_factory.adapters.threadsdash_draft_readiness import (
     evaluate_export_readiness,
@@ -196,6 +200,23 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         cf.close()
 
 
+def test_threadsdash_export_rehashes_approved_media_before_handoff(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        _, rendered_path = add_rendered_asset(cf, tmp_path)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        rendered_path.write_bytes(b"changed after approval")
+
+        with pytest.raises(
+            ValueError, match="rendered_media_content_hash_mismatch:asset_1"
+        ):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+    finally:
+        cf.close()
+
+
 def test_threadsdash_export_blocks_incomplete_burned_overlay_regression(
     tmp_path: Path,
 ):
@@ -241,7 +262,7 @@ def test_overlay_semantic_gate_does_not_treat_clean_media_as_burned_caption():
         "generatedAssetLineage": {"captionBurnedIn": False},
     }
 
-    assert threadsdash_payload_adapter._asset_caption_is_burned(asset) is False
+    assert asset_caption_is_burned(asset) is False
 
 
 def test_threadsdash_export_preserves_real_timed_overlay_payoff_qc(tmp_path: Path):
@@ -253,6 +274,81 @@ def test_threadsdash_export_preserves_real_timed_overlay_payoff_qc(tmp_path: Pat
                 "segments": [
                     {"text": "men, stop doing this:", "end": 3.0},
                     {"text": "sending one-word replies", "start": 3.0},
+                ]
+            },
+            sort_keys=True,
+        )
+        context = {
+            "schema": "campaign_factory.caption_outcome_context.v1",
+            "caption_hash": threadsdash_client_adapter._text_hash(caption),
+            "caption_text": caption,
+            "captionTimingQc": {
+                "schema": "pipeline.overlay_timing_qc.v1",
+                "passed": True,
+                "duration_seconds": 6.0,
+                "segment_count": 2,
+                "segments": [
+                    {
+                        "index": 0,
+                        "text": "men, stop doing this:",
+                        "start": 0.0,
+                        "end": 3.0,
+                        "failure_reasons": [],
+                    },
+                    {
+                        "index": 1,
+                        "text": "sending one-word replies",
+                        "start": 3.0,
+                        "end": 6.0,
+                        "failure_reasons": [],
+                    },
+                ],
+                "failure_reasons": [],
+            },
+        }
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET caption = ?, caption_hash = ?, caption_outcome_context_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                caption,
+                threadsdash_client_adapter._text_hash(caption),
+                json.dumps(context),
+            ),
+        )
+        cf.conn.commit()
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        qc = payload["drafts"][0]["metadata"]["campaign_factory"]["overlay_semantic_qc"]
+
+        assert qc["passed"] is True
+        assert qc["decision"] == "timed_payoff_present"
+        assert qc["distinct_segment_count"] == 2
+        assert payload["drafts"][0]["captionTimingQc"]["passed"] is True
+        assert (
+            payload["drafts"][0]["metadata"]["campaign_factory"]["caption_timing_qc"][
+                "passed"
+            ]
+            is True
+        )
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_blocks_timed_overlay_without_resolved_timing_proof(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        caption = json.dumps(
+            {
+                "segments": [
+                    {"text": "men, stop doing this:", "end": 2.0},
+                    {"text": "sending one-word replies", "start": 99.0},
                 ]
             },
             sort_keys=True,
@@ -277,12 +373,14 @@ def test_threadsdash_export_preserves_real_timed_overlay_payoff_qc(tmp_path: Pat
         cf.conn.commit()
         cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
 
-        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
-        qc = payload["drafts"][0]["metadata"]["campaign_factory"]["overlay_semantic_qc"]
-
-        assert qc["passed"] is True
-        assert qc["decision"] == "timed_payoff_present"
-        assert qc["distinct_segment_count"] == 2
+        with pytest.raises(
+            ValueError,
+            match=(
+                "burned_overlay_timing_unverified:"
+                "missing_resolved_overlay_timing_proof:asset_1"
+            ),
+        ):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
     finally:
         cf.close()
 
@@ -302,7 +400,7 @@ def test_threadsdash_selected_batch_prunes_manifest_and_fails_on_missing_ids(
         )
         second.update(
             id="asset_2",
-            content_hash="hash_2",
+            content_hash=hashlib.sha256(second_path.read_bytes()).hexdigest(),
             output_path=str(second_path),
             campaign_path=str(second_path),
             filename=second_path.name,
@@ -453,16 +551,18 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "ok.mp4"
         rendered_path.write_bytes(b"rendered")
+        rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
         now = "2026-01-01T00:00:00+00:00"
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, caption_generation_json, created_at, updated_at)
-            VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?, ?)
+            VALUES ('asset_1', ?, ?, ?, ?, ?, 'ok.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?, ?)
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                rendered_hash,
                 str(rendered_path),
                 str(rendered_path),
                 json.dumps(
@@ -484,7 +584,7 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert payload["drafts"][0]["status"] == "draft"
         assert payload["drafts"][0]["platform"] == "instagram"
         assert payload["drafts"][0]["instagramAccountId"] is None
-        assert payload["drafts"][0]["contentHash"] == "hash_1"
+        assert payload["drafts"][0]["contentHash"] == rendered_hash
         assert payload["drafts"][0]["sourceContentHash"] == source["content_hash"]
         assert payload["drafts"][0]["captionHash"]
         assert payload["drafts"][0]["recipe"] == "v01_original"
@@ -513,7 +613,7 @@ def test_threadsdash_export_dry_run_creates_draft_payload_only(tmp_path: Path):
         assert metadata["rendered_asset_graph_id"] == metadata["graph_id"]
         assert metadata["source_asset_id"] == source["id"]
         assert metadata["rendered_asset_id"] == "asset_1"
-        assert metadata["content_hash"] == "hash_1"
+        assert metadata["content_hash"] == rendered_hash
         assert metadata["source_content_hash"] == source["content_hash"]
         assert metadata["caption_hash"] == payload["drafts"][0]["captionHash"]
         assert metadata["recipe"] == "v01_original"
@@ -605,16 +705,18 @@ def test_threadsdash_audio_intent_defaults_to_needs_operator_selection_without_r
         set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "needs_audio.mp4"
         rendered_path.write_bytes(b"rendered")
+        rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
         now = "2026-01-01T00:00:00+00:00"
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_audio', ?, ?, 'hash_audio', ?, ?, 'needs_audio.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
+            VALUES ('asset_audio', ?, ?, ?, ?, ?, 'needs_audio.mp4', 'caption', 'v01_original', 'approved_candidate', 'approved', ?, ?)
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                rendered_hash,
                 str(rendered_path),
                 str(rendered_path),
                 now,
@@ -1338,6 +1440,8 @@ def test_sync_threadsdash_account_assignments_imports_calendar_accounts(
 
         def select(self, table, params):
             assert table == "posts"
+            if int(params.get("offset", "0")) > 0:
+                return []
             return [
                 {
                     "id": "post_1",

@@ -676,6 +676,9 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
             "id": "post_feed_single_v2",
             "status": "published",
             "platform": "instagram",
+            "instagram_post_id": "ig_feed_single_v2",
+            "permalink": "https://instagram.test/p/feed-single-v2",
+            "published_at": "2026-01-02T01:00:00+00:00",
             "content_surface": "feed_single",
             "ig_media_type": "IMAGE",
             "content": readiness["instagramPostCaption"],
@@ -698,6 +701,20 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
 
         assert eligibility["eligible"] is True
         assert "handoff_manifest_version_invalid" not in eligibility["blockingReasons"]
+
+        missing_identity = dict(row)
+        missing_identity.pop("instagram_post_id")
+        missing_identity.pop("permalink")
+        missing_identity.pop("published_at")
+        blocked = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+            cf, row=missing_identity, meta=meta
+        )
+        assert blocked["eligible"] is False
+        assert set(blocked["blockingReasons"]) >= {
+            "missing_instagram_post_id",
+            "missing_instagram_permalink",
+            "missing_instagram_published_at",
+        }
     finally:
         cf.close()
 
@@ -729,6 +746,9 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
             "id": "post_story_metrics",
             "status": "published",
             "platform": "instagram",
+            "instagram_post_id": "ig_story_metrics",
+            "permalink": "https://instagram.test/s/story-metrics",
+            "published_at": "2026-01-02T01:00:00+00:00",
             "content_surface": "story",
             "ig_media_type": "STORIES",
             "content": "",
@@ -884,6 +904,7 @@ def test_sync_performance_snapshots_imports_metrics_once(tmp_path: Path, monkeyp
                 "updated_at": "2026-01-03T00:00:00+00:00",
                 "published_at": "2026-01-02T01:00:00+00:00",
                 "permalink": "https://instagram.test/p/1",
+                "instagram_post_id": "ig_post_1",
                 "views": 1200,
                 "ig_impressions": 1800,
                 "likes_count": 80,
@@ -1107,6 +1128,8 @@ def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
                         "created_at": "2026-01-02T00:00:00+00:00",
                         "updated_at": "2026-01-03T01:00:00+00:00",
                         "published_at": "2026-01-02T01:00:00+00:00",
+                        "permalink": "https://instagram.test/p/fallback-1",
+                        "instagram_post_id": "ig_post_fallback_1",
                         "views": 1200,
                         "likes_count": 80,
                         "metadata": {
@@ -1144,24 +1167,20 @@ def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
             "SELECT metrics_eligible, history_source, lineage_v2_valid FROM performance_snapshots WHERE post_id = ?",
             ("post_fallback_1",),
         ).fetchone()
-        assert result["inserted"] == 1
+        assert result["inserted"] == 0
         assert result["postsScanned"] == 2
-        assert result["postsImported"] == 1
+        assert result["postsImported"] == 0
         assert result["metricHistoryError"] == error
-        assert result["historySources"] == {"post_row_fallback": 1}
-        assert result["fallbackRows"] == 1
+        assert result["historySources"] == {}
+        assert result["fallbackRows"] == 0
         assert result["learningIneligiblePosts"] == 2
-        assert result["learningIneligibleSnapshots"] == 1
+        assert result["learningIneligibleSnapshots"] == 0
         assert result["learningIneligibleReasons"] == {
-            "fallback_history_source": 1,
+            "metrics_not_observed": 1,
             "manual_no_lineage": 1,
         }
         assert result["learningReadiness"]["counts"]["eligiblePosts"] == 0
-        assert dict(stored) == {
-            "metrics_eligible": 1,
-            "history_source": "post_row_fallback",
-            "lineage_v2_valid": 1,
-        }
+        assert stored is None
     finally:
         cf.close()
 
@@ -1369,6 +1388,8 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(
                 "updated_at": "2026-01-03T00:00:00+00:00",
                 "published_at": "2026-01-02T01:00:00+00:00",
                 "permalink": "https://instagram.test/p/caption-outcome",
+                "instagram_post_id": "ig_post_caption_outcome",
+                "metrics_observed_at": "2026-01-03T00:00:00+00:00",
                 "views": 1400,
                 "likes_count": 90,
                 "ig_comment_count": 10,
@@ -1487,6 +1508,9 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
                 "created_at": "2026-01-02T00:00:00+00:00",
                 "updated_at": "2026-01-02T00:00:00+00:00",
                 "published_at": "2026-01-02T01:00:00+00:00",
+                "permalink": "https://instagram.test/p/transport-recipe",
+                "instagram_post_id": "ig_post_transport_recipe",
+                "metrics_observed_at": "2026-01-03T00:00:00+00:00",
                 "metadata": {"campaign_factory": metadata},
             }
         )
@@ -1687,17 +1711,19 @@ def test_lifecycle_report_derives_published_and_metrics_imported_states(tmp_path
         assert published["rows"][0]["blockingReason"] == "awaiting_metrics"
 
         campaign = cf.domains.campaign_by_slug("may")
+        rendered_hash = cf.domains.rendered_asset("asset_1")["content_hash"]
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, recipe, post_id, platform, status, instagram_account_id, snapshot_at, views, raw_json, created_at)
-            VALUES ('perf_1', ?, 'asset_1', ?, 'hash_1', ?, 'caption_hash_1', 'v01_original',
+            VALUES ('perf_1', ?, 'asset_1', ?, ?, ?, 'caption_hash_1', 'v01_original',
                     'post_1', 'instagram', 'published', 'ig_1', '2026-01-02T01:00:00+00:00', 123, '{}', '2026-01-02T01:00:00+00:00')
             """,
             (
                 campaign["id"],
                 cf.domains.asset_import.assets_for_campaign(campaign["id"])[0]["id"],
+                rendered_hash,
                 cf.domains.asset_import.assets_for_campaign(campaign["id"])[0][
                     "content_hash"
                 ],
@@ -1744,19 +1770,21 @@ def test_lifecycle_report_ignores_null_report_context_fields_after_metrics_impor
             "asset_1", instagram_account_id="ig_1"
         )
         campaign = cf.domains.campaign_by_slug("may")
+        rendered_hash = cf.domains.rendered_asset("asset_1")["content_hash"]
         cf.conn.execute(
             """
             INSERT INTO performance_snapshots
             (id, campaign_id, rendered_asset_id, source_asset_id, content_hash, source_content_hash,
              caption_hash, caption_outcome_context_json, recipe, post_id, platform, status,
              instagram_account_id, snapshot_at, views, raw_json, created_at)
-            VALUES ('perf_1', ?, 'asset_1', ?, 'hash_1', ?, 'caption_hash_1', ?,
+            VALUES ('perf_1', ?, 'asset_1', ?, ?, ?, 'caption_hash_1', ?,
                     'v01_original', 'post_1', 'instagram', 'published', 'ig_1',
                     '2026-01-02T01:00:00+00:00', 123, '{}', '2026-01-02T01:00:00+00:00')
             """,
             (
                 campaign["id"],
                 source["id"],
+                rendered_hash,
                 source["content_hash"],
                 json.dumps(
                     {

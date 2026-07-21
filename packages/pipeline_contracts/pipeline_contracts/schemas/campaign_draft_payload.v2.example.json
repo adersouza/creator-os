@@ -25,6 +25,13 @@
           "visible_caption_verification": "pass",
           "expected_visual_verification": "pass",
           "content_fingerprint": "content_fp_rendered_asset_smoke",
+          "overlay_semantic_qc": {
+            "passed": true,
+            "failure_reasons": [],
+            "timed_sequence": false,
+            "policy_version": "overlay_semantic_policy_v3"
+          },
+          "caption_timing_qc": {},
           "caption_hash": "caption_hash_rendered",
           "instagram_post_caption": "lmk #fyp",
           "instagram_post_caption_hash": "instagram_post_caption_hash_rendered",

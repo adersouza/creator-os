@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .creative_modes import creative_workflow_mode
 from .front_generation_stage import run_front_generation_stage
@@ -12,13 +12,10 @@ from .generation_execution_plan import (
     require_generation_execution_mode,
 )
 from .motion_edit_stage import run_motion_edit_stage
-from .reference_video_remix_stage import (
-    JsonCommandReferenceVideoRemixSeams,
-    ReferenceVideoRemixSeams,
-    plan_reference_video_remix_stage,
-    run_reference_video_remix_stage,
-)
 from .static_mp4_stage import run_static_mp4_stage
+
+if TYPE_CHECKING:
+    from .reference_video_remix_stage import ReferenceVideoRemixSeams
 
 
 def run_generation_workflow(
@@ -159,6 +156,15 @@ def run_generation_workflow(
             apply=apply,
         )
     else:
+        # Reference-video remix carries optional OpenCV/PySceneDetect dependencies.
+        # Import them only after the operator explicitly selects that paid mode so
+        # the free Library Reuse path remains independently runnable.
+        from .reference_video_remix_stage import (
+            JsonCommandReferenceVideoRemixSeams,
+            plan_reference_video_remix_stage,
+            run_reference_video_remix_stage,
+        )
+
         _require(reference_video_path, "reference_video_path")
         _require(creator, "creator")
         _require(soul_id, "soul_id")

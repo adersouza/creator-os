@@ -225,7 +225,7 @@ def _select_threadsdash_posts_paged(
         base_params["metadata->campaign_factory->>campaign_id"] = f"in.({values})"
     rich_select = (
         "id,status,platform,media_type,ig_media_type,content_surface,account_id,instagram_account_id,created_at,updated_at,scheduled_for,"
-        "published_at,permalink,instagram_post_id,publish_mode,handoff_status,manual_publish_confirmed_at,content,metadata,views_count,ig_views,"
+        "published_at,permalink,instagram_post_id,metrics_observed_at,publish_mode,handoff_status,manual_publish_confirmed_at,content,metadata,views_count,ig_views,"
         "likes_count,replies_count,ig_comment_count,"
         "shares_count,ig_shares,ig_saved,"
         "ig_reach,ig_impressions,"
@@ -274,9 +274,14 @@ def _is_missing_column_error(exc: Exception) -> bool:
 def _select_threadsdash_posts(
     client: SupabaseRestClient, *, user_id: str, limit: int
 ) -> list[dict[str, Any]]:
-    rows, _truncated = _select_threadsdash_posts_paged(
+    rows, truncated = _select_threadsdash_posts_paged(
         client, user_id=user_id, limit=limit
     )
+    if truncated:
+        raise RuntimeError(
+            "threadsdash_posts_truncated: increase the explicit read limit; "
+            "partial post history cannot prove deduplication or assignment safety"
+        )
     return rows
 
 

@@ -19,7 +19,11 @@ High-priority reminders:
   `d63ea9c7-b2c7-439c-bf0c-edfdf9938a36`.
 - Active stills are direct Higgsfield reference-image generations with `--image <reference>`.
 - Active still aspect ratio is `9:16`.
-- Do not append prompt text for Stacey reference generations. No body-emphasis flags, no captured-prompt reruns, and no "make it sexier" prompt hacks in the active path.
+- A normal reference-conditioned still is one pass. When the operator explicitly
+  requests the settled Original + Sexy comparison, follow the repository-root
+  two-pass recipe exactly: preserve Pass 1 as Original, clean its captured
+  prompt, and make the append-only body-emphasis Sexy variant text-only. Never
+  attempt to inject the edit into the reference-conditioned pass.
 - Do not make Grok, Qwen, Ollama, Florence, visual-schema extraction, grids, or panel crops the default operator path.
 - Use `reel_motion_prompt.py` for accepted-still Kling prompts.
 - Do not automate Instagram/private APIs/logins/publishing.

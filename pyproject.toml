@@ -96,6 +96,7 @@ source_modules = ["pipeline_contracts"]
 forbidden_modules = [
   "campaign_factory",
   "reference_factory",
+  "reel_factory",
   "repurposer",
 ]
 

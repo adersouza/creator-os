@@ -8,7 +8,6 @@ from typing import Any
 from .config import RepurposeConfig
 from .engines.audio import AudioEngine
 from .engines.editorial import EditorialEngine
-from .engines.micro import MicroEngine
 from .engines.polish import PolishEngine
 from .engines.visual import VisualEngine
 from .qa.quality import QualityGate
@@ -191,14 +190,10 @@ class VariantPipeline:
                 transformed = transformed or current != self.master
 
             if config.enable_micro:
-                print(f"Applying Layer 5 (Micro) to variant {index}")
-                current = MicroEngine.apply(
-                    current,
-                    stage_dir / "05_micro.mp4",
-                    strip_metadata=config.strip_metadata,
-                    inject_noise=config.inject_noise,
+                raise RuntimeError(
+                    "micro metadata/noise transformations are prohibited; "
+                    "use editorial changes with preserved provenance"
                 )
-                transformed = transformed or current != self.master
 
             final = (
                 self.output_dir

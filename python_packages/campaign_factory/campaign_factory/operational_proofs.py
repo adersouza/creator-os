@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import math
 import sqlite3
 from typing import Any
@@ -29,20 +28,19 @@ class OperationalProofRepository:
         rows = [
             {
                 "scenario": scenario,
-                "detected": True,
-                "contained": True,
-                "recovered": True,
+                "detected": None,
+                "contained": None,
+                "recovered": None,
                 "mechanism": mechanism,
+                "evidenceStatus": "not_executed",
                 "wouldWrite": False,
             }
             for scenario, mechanism in scenarios
         ]
         return {
             "schema": "creator_os.failure_injection_suite.v1",
-            "failureInjectionPassed": all(
-                row["detected"] and row["contained"] and row["recovered"]
-                for row in rows
-            ),
+            "failureInjectionPassed": False,
+            "evidenceStatus": "simulation_catalog_only",
             "scenarios": rows,
             "wouldWrite": False,
         }
@@ -57,27 +55,25 @@ class OperationalProofRepository:
             "decision_ledger_writes",
         ]
         rows = []
-        unsafe = []
         for name in path_names:
-            final_state = hashlib.sha256(
-                f"creator_os:{name}:idempotent".encode()
-            ).hexdigest()[:16]
             row = {
                 "path": name,
-                "sameRequestOnce": final_state,
-                "sameRequestTwice": final_state,
-                "sameRequestTenTimes": final_state,
-                "idempotent": True,
+                "sameRequestOnce": None,
+                "sameRequestTwice": None,
+                "sameRequestTenTimes": None,
+                "idempotent": None,
                 "evidence": self.idempotency_evidence_for_path(name),
+                "evidenceStatus": "not_executed",
                 "wouldWrite": False,
             }
             rows.append(row)
-            if not row["idempotent"]:
-                unsafe.append(name)
         return {
             "schema": "creator_os.idempotency_proof.v1",
-            "idempotent": not unsafe,
-            "unsafePaths": unsafe,
+            "idempotent": False,
+            "idempotencyProven": False,
+            "unsafePaths": [],
+            "unverifiedPaths": path_names,
+            "evidenceStatus": "simulation_catalog_only",
             "paths": rows,
             "wouldWrite": False,
         }
@@ -135,16 +131,22 @@ class OperationalProofRepository:
         }
         scored = {}
         for surface, checks in surfaces.items():
-            score = sum(2 for passed in checks.values() if passed)
+            declared_checks = dict(checks)
+            unverified_checks = {name: None for name in checks}
             scored[surface] = {
-                **checks,
-                "maturityScore": score,
-                "blockers": blockers[surface],
+                **unverified_checks,
+                "declaredCapabilities": declared_checks,
+                "maturityScore": 0,
+                "blockers": sorted(
+                    set([*blockers[surface], "live_surface_evidence_not_supplied"])
+                ),
+                "evidenceStatus": "not_verified_from_live_receipts",
                 "wouldWrite": False,
             }
         return {
             "schema": "creator_os.surface_maturity_audit.v1",
             "surfaces": scored,
+            "evidenceStatus": "planning_model_only",
             "wouldWrite": False,
         }
 

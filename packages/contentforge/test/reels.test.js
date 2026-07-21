@@ -196,6 +196,20 @@ test("quality-first image args avoid aggressive default filters", function () {
   assert.doesNotMatch(text, /rotate=/);
 });
 
+test("editorial variants preserve provenance and never spoof capture metadata", function () {
+  for (var args of [
+    buildPhase2Args("in.mp4", "out.mp4", "clean", true, true, "organic", "quality", {}),
+    buildPhase2Args("in.mp4", "out.mp4", "heavy", true, true, "organic", "strong", {}),
+    buildImageArgs("in.png", "out.jpg", 0, { variantPreset: "quality", variantOptions: {} }),
+  ]) {
+    var joined = args.join(" ");
+    assert.equal(args.includes("-map_metadata"), false);
+    assert.doesNotMatch(joined, /creation_time=/);
+    assert.doesNotMatch(joined, /handler_name=/);
+    assert.equal(args.includes("-x264-params"), false);
+  }
+});
+
 test("variant presets and score bundles normalize quality-first defaults", function () {
   var preset = getVariantPreset("quality");
   assert.equal(preset.preserveFrame, true);

@@ -1,4 +1,7 @@
-from pipeline_contracts import evaluate_overlay_semantic_completeness
+from pipeline_contracts import (
+    evaluate_overlay_semantic_completeness,
+    evaluate_overlay_timing,
+)
 
 
 def test_exact_incomplete_overlay_regression_is_blocked() -> None:
@@ -129,3 +132,56 @@ def test_clean_media_without_overlay_passes() -> None:
 
     assert result["passed"] is True
     assert result["decision"] == "no_burned_overlay"
+
+
+def test_burned_overlay_requires_nonempty_text() -> None:
+    result = evaluate_overlay_semantic_completeness(
+        {"segments": []}, require_overlay=True
+    )
+
+    assert result["passed"] is False
+    assert result["failure_reasons"] == ["missing_burned_overlay_text"]
+    assert result["timed_sequence"] is True
+
+
+def test_resolved_timing_rejects_payoff_after_media_ends() -> None:
+    result = evaluate_overlay_timing(
+        [
+            {"text": "men, stop doing this:", "start": 0.0, "end": 2.0},
+            {"text": "sending one-word replies", "start": 99.0, "end": None},
+        ],
+        duration_seconds=5.0,
+    )
+
+    assert result["passed"] is False
+    assert "overlay_segment_outside_media_duration" in result["failure_reasons"]
+
+
+def test_resolved_timing_rejects_empty_invalid_and_unordered_segments() -> None:
+    result = evaluate_overlay_timing(
+        [
+            {"text": "payoff", "start": 2.0, "end": 2.0},
+            {"text": "", "start": 1.0, "end": 3.0},
+        ],
+        duration_seconds=5.0,
+    )
+
+    assert result["passed"] is False
+    assert set(result["failure_reasons"]) == {
+        "missing_burned_overlay_text",
+        "non_monotonic_overlay_start",
+        "non_positive_overlay_interval",
+    }
+
+
+def test_resolved_timing_accepts_visible_ordered_sequence() -> None:
+    result = evaluate_overlay_timing(
+        [
+            {"text": "wait for it:", "start": 0.0, "end": 2.0},
+            {"text": "the reveal", "start": 2.0, "end": None},
+        ],
+        duration_seconds=5.0,
+    )
+
+    assert result["passed"] is True
+    assert result["segments"][1]["end"] == 5.0

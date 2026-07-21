@@ -1,6 +1,5 @@
 from .audio import AudioEngine
 from .editorial import EditorialEngine
-from .micro import MicroEngine
 from .polish import PolishEngine
 from .visual import VisualEngine
 
@@ -9,5 +8,4 @@ __all__ = [
     "AudioEngine",
     "VisualEngine",
     "PolishEngine",
-    "MicroEngine",
 ]

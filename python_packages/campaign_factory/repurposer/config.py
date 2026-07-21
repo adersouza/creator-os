@@ -6,9 +6,7 @@ class RepurposeConfig:
     """Constraints and logic configuration for a given variant generation run."""
 
     target_platform: str  # "reels", "tiktok", "shorts"
-    aggressiveness: (
-        float  # 0.0 to 1.0 (how heavy the spoofing and re-ordering should be)
-    )
+    aggressiveness: float  # 0.0 to 1.0 (editorial transformation intensity)
 
     # Layer 1: Editorial
     enable_editorial: bool = True
@@ -30,10 +28,9 @@ class RepurposeConfig:
     zoom_factor: float = 1.05
     color_shift: bool = True
 
-    # Layer 5: Micro
+    # Removed platform-avoidance layer. Retained only to fail closed on stale
+    # manifests that attempt to turn it back on.
     enable_micro: bool = False
-    strip_metadata: bool = True
-    inject_noise: bool = True
 
     @classmethod
     def from_preset(cls, preset_name: str) -> "RepurposeConfig":
@@ -51,8 +48,6 @@ class RepurposeConfig:
                 zoom_factor=1.1,
                 color_shift=True,
                 enable_micro=False,
-                strip_metadata=True,
-                inject_noise=True,
             )
         elif preset_name == "ig_subtle":
             return cls(
@@ -68,7 +63,5 @@ class RepurposeConfig:
                 zoom_factor=1.02,
                 color_shift=False,
                 enable_micro=False,
-                strip_metadata=True,
-                inject_noise=False,
             )
         return cls(target_platform="reels", aggressiveness=0.5, enable_micro=False)

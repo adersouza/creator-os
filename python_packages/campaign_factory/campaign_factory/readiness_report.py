@@ -237,10 +237,12 @@ class ReadinessReportRepository:
         operator = self._operator_load_audit()
         failure = self._failure_injection_suite()
         idempotency = self._idempotency_proof()
-        current_score = 8.8 if acceptance.get("acceptancePassed") else 8.5
+        current_score = None
         return {
             "schema": "creator_os.9_5_readiness_report.v1",
             "currentScore": current_score,
+            "releaseReady": False,
+            "evidenceStatus": "unverified_planning_model",
             "scores": {
                 "current": current_score,
                 "200Accounts": 7.4,
@@ -259,10 +261,13 @@ class ReadinessReportRepository:
             "failureRecoveryReadiness": {
                 "failureInjectionPassed": failure["failureInjectionPassed"],
                 "scenarioCount": len(failure["scenarios"]),
+                "evidenceStatus": failure["evidenceStatus"],
             },
             "idempotencyReadiness": {
                 "idempotent": idempotency["idempotent"],
                 "unsafePaths": idempotency["unsafePaths"],
+                "unverifiedPaths": idempotency["unverifiedPaths"],
+                "evidenceStatus": idempotency["evidenceStatus"],
             },
             "surfaceMaturity": surface["surfaces"],
             "top10RemainingRisks": [

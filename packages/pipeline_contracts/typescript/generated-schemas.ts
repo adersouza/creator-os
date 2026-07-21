@@ -1539,7 +1539,9 @@ export const generatedPipelineContractSchemas = {
 	                  "handoff_manifest",
 	                  "readiness_checks_pass",
 	                  "visualQcStatus",
-	                  "identityVerificationStatus"
+	                  "identityVerificationStatus",
+	                  "overlay_semantic_qc",
+	                  "caption_timing_qc"
 	                ],
 	                "properties": {
 	                  "asset_state": {
@@ -1589,6 +1591,56 @@ export const generatedPipelineContractSchemas = {
 	                  },
 	                  "content_fingerprint": {
 	                    "type": "string"
+	                  },
+	                  "overlay_semantic_qc": {
+	                    "type": "object",
+	                    "required": [
+	                      "passed",
+	                      "failure_reasons"
+	                    ],
+	                    "properties": {
+	                      "passed": {
+	                        "type": "boolean"
+	                      },
+	                      "failure_reasons": {
+	                        "type": "array",
+	                        "items": {
+	                          "type": "string"
+	                        }
+	                      },
+	                      "timed_sequence": {
+	                        "type": "boolean"
+	                      },
+	                      "policy_version": {
+	                        "type": "string"
+	                      }
+	                    },
+	                    "additionalProperties": true
+	                  },
+	                  "caption_timing_qc": {
+	                    "type": "object",
+	                    "properties": {
+	                      "passed": {
+	                        "type": "boolean"
+	                      },
+	                      "failure_reasons": {
+	                        "type": "array",
+	                        "items": {
+	                          "type": "string"
+	                        }
+	                      },
+	                      "segment_count": {
+	                        "type": "integer",
+	                        "minimum": 0
+	                      },
+	                      "duration_seconds": {
+	                        "type": [
+	                          "number",
+	                          "null"
+	                        ]
+	                      }
+	                    },
+	                    "additionalProperties": true
 	                  },
 	                  "publishability_failure_reasons": {
 	                    "type": "array",
@@ -1847,6 +1899,51 @@ export const generatedPipelineContractSchemas = {
 	                    ]
 	                  }
 	                },
+	                "allOf": [
+	                  {
+	                    "if": {
+	                      "properties": {
+	                        "overlay_semantic_qc": {
+	                          "required": [
+	                            "timed_sequence"
+	                          ],
+	                          "properties": {
+	                            "timed_sequence": {
+	                              "const": true
+	                            }
+	                          }
+	                        }
+	                      }
+	                    },
+	                    "then": {
+	                      "properties": {
+	                        "caption_timing_qc": {
+	                          "required": [
+	                            "passed",
+	                            "failure_reasons",
+	                            "segment_count",
+	                            "duration_seconds"
+	                          ],
+	                          "properties": {
+	                            "passed": {
+	                              "const": true
+	                            },
+	                            "failure_reasons": {
+	                              "maxItems": 0
+	                            },
+	                            "segment_count": {
+	                              "minimum": 1
+	                            },
+	                            "duration_seconds": {
+	                              "type": "number",
+	                              "exclusiveMinimum": 0
+	                            }
+	                          }
+	                        }
+	                      }
+	                    }
+	                  }
+	                ],
 	                "additionalProperties": true
 	              }
 	            },

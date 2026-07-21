@@ -1628,7 +1628,10 @@ def test_register_parent_reel_creates_concept_registry_row(tmp_path: Path):
             "SELECT * FROM concepts WHERE id = ?", (parent["conceptId"],)
         ).fetchone()
         assert row["parent_asset_id"] == "asset_1"
-        assert row["content_fingerprint"] == "hash_1"
+        assert (
+            row["content_fingerprint"]
+            == cf.domains.rendered_asset("asset_1")["content_hash"]
+        )
     finally:
         cf.close()
 
@@ -2446,6 +2449,15 @@ def test_posts_read_detects_truncation_at_limit():
     # final call is the 1-row truncation probe
     assert client.calls[-1]["limit"] == "1"
     assert client.calls[-1]["offset"] == "1000"
+
+
+def test_posts_compatibility_reader_fails_closed_on_truncation():
+    client = _paged_posts_client(total_rows=1001)
+
+    with pytest.raises(RuntimeError, match="threadsdash_posts_truncated"):
+        threadsdash_client_adapter._select_threadsdash_posts(
+            client, user_id="user_1", limit=1000
+        )
 
 
 def test_campaign_filtered_posts_read_accepts_internal_id_and_slug():

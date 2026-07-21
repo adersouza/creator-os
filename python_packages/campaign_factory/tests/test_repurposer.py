@@ -7,7 +7,6 @@ import pytest
 from repurposer.config import RepurposeConfig
 from repurposer.engines.audio import AudioEngine
 from repurposer.engines.editorial import EditorialEngine
-from repurposer.engines.micro import MicroEngine
 from repurposer.engines.polish import PolishEngine
 from repurposer.engines.visual import VisualEngine
 from repurposer.pipeline import RepurposeError, VariantPipeline
@@ -95,6 +94,35 @@ def test_repurpose_presets_keep_micro_off_by_default():
     assert RepurposeConfig.from_preset("ig_subtle").enable_micro is False
     assert RepurposeConfig.from_preset("tiktok_aggressive").enable_micro is False
     assert RepurposeConfig.from_preset("custom").enable_micro is False
+
+
+def test_variant_pipeline_rejects_removed_platform_avoidance_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    master = _tiny_mp4(tmp_path / "master.mp4")
+    monkeypatch.setattr(
+        RepurposeConfig,
+        "from_preset",
+        classmethod(
+            lambda cls, name: cls(
+                target_platform="reels",
+                aggressiveness=0.0,
+                enable_editorial=False,
+                enable_audio=False,
+                enable_generative=False,
+                enable_polish=False,
+                enable_micro=True,
+            )
+        ),
+    )
+
+    with pytest.raises(RepurposeError, match="prohibited"):
+        VariantPipeline(
+            master,
+            target_count=1,
+            platform="reels",
+            output_dir=tmp_path / "variants",
+        ).generate_batch("stale_avoidance_preset")
 
 
 def test_ig_subtle_preset_uses_audio_layer_for_account_distinctness():
@@ -206,8 +234,6 @@ def test_ffmpeg_engines_raise_when_command_fails(
 
     with pytest.raises(RuntimeError, match="ffmpeg exploded"):
         PolishEngine.apply(source, tmp_path / "polish.mp4")
-    with pytest.raises(RuntimeError, match="ffmpeg exploded"):
-        MicroEngine.apply(source, tmp_path / "micro.mp4")
     with pytest.raises(RuntimeError, match="ffmpeg exploded"):
         AudioEngine.apply(source, tmp_path / "audio.mp4", music_track=track)
 

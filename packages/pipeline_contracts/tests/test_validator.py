@@ -296,6 +296,27 @@ def test_campaign_draft_payload_v2_requires_regular_reels_in_feed():
         validate_campaign_draft_payload(payload)
 
 
+def test_campaign_draft_payload_v2_requires_passing_resolved_timing_for_timed_overlay():
+    payload = load_example("campaign_draft_payload.v2.example.json")
+    campaign_factory = payload["drafts"][0]["metadata"]["campaign_factory"]
+    campaign_factory["overlay_semantic_qc"]["timed_sequence"] = True
+
+    with pytest.raises(ContractValidationError, match="caption_timing_qc"):
+        validate_campaign_draft_payload(payload)
+
+    campaign_factory["caption_timing_qc"] = {
+        "passed": True,
+        "failure_reasons": [],
+        "segment_count": 2,
+        "duration_seconds": 7.5,
+    }
+    validate_campaign_draft_payload(payload)
+
+    campaign_factory["caption_timing_qc"]["passed"] = False
+    with pytest.raises(ContractValidationError, match="caption_timing_qc"):
+        validate_campaign_draft_payload(payload)
+
+
 def test_recommendation_accuracy_report_requires_causal_graph_ids():
     payload = load_example("recommendation_accuracy_report")
     del payload["reportGraphId"]

@@ -916,6 +916,7 @@ def test_contentforge_audit_uses_selected_reference_pattern(
         audit_profile=None,
         layers,
         originality_reference_files=None,
+        run_id=None,
     ):
         seen["layers"] = layers
         seen["references"] = originality_reference_files

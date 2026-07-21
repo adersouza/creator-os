@@ -355,7 +355,8 @@ def test_failure_injection_and_idempotency_proofs_are_simulation_only(tmp_path: 
 
         assert cf.conn.total_changes == before
         assert failures["schema"] == "creator_os.failure_injection_suite.v1"
-        assert failures["failureInjectionPassed"] is True
+        assert failures["failureInjectionPassed"] is False
+        assert failures["evidenceStatus"] == "simulation_catalog_only"
         assert {item["scenario"] for item in failures["scenarios"]} == {
             "duplicate_publish_callback",
             "double_qstash_dispatch",
@@ -369,19 +370,24 @@ def test_failure_injection_and_idempotency_proofs_are_simulation_only(tmp_path: 
             "stale_account_restriction",
         }
         assert all(
-            item["detected"] and item["contained"] and item["recovered"]
+            item["evidenceStatus"] == "not_executed" for item in failures["scenarios"]
+        )
+        assert all(
+            item["detected"] is None
+            and item["contained"] is None
+            and item["recovered"] is None
             for item in failures["scenarios"]
         )
         assert failures["wouldWrite"] is False
         assert idempotency["schema"] == "creator_os.idempotency_proof.v1"
-        assert idempotency["idempotent"] is True
+        assert idempotency["idempotent"] is False
+        assert idempotency["idempotencyProven"] is False
+        assert idempotency["evidenceStatus"] == "simulation_catalog_only"
         assert idempotency["unsafePaths"] == []
-        assert all(
-            item["sameRequestOnce"]
-            == item["sameRequestTwice"]
-            == item["sameRequestTenTimes"]
-            for item in idempotency["paths"]
-        )
+        assert set(idempotency["unverifiedPaths"]) == {
+            item["path"] for item in idempotency["paths"]
+        }
+        assert all(item["idempotent"] is None for item in idempotency["paths"])
         assert idempotency["wouldWrite"] is False
     finally:
         cf.close()

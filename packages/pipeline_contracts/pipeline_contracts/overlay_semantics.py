@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
 SCHEMA = "pipeline.overlay_semantic_qc.v1"
-POLICY_VERSION = "overlay_payoff_v2"
+POLICY_VERSION = "overlay_payoff_v3"
+TIMING_SCHEMA = "pipeline.overlay_timing_qc.v1"
 
 _GENERIC_STOP_SETUP = re.compile(
     r"^(?:(?:men|guys|boys|girls|women|ladies|people|y['’]?all)\s*[,!—-]?\s*)?"
@@ -38,7 +40,9 @@ _ENUMERATED_PROMISE = re.compile(
 )
 
 
-def evaluate_overlay_semantic_completeness(value: Any) -> dict[str, Any]:
+def evaluate_overlay_semantic_completeness(
+    value: Any, *, require_overlay: bool = False
+) -> dict[str, Any]:
     """Fail closed only for objectively unfinished burned-overlay copy.
 
     The policy deliberately does not impose arbitrary length, word-count, ASCII,
@@ -57,9 +61,18 @@ def evaluate_overlay_semantic_completeness(value: Any) -> dict[str, Any]:
         "caption_hash": caption_hash,
         "segment_count": len(segments),
         "distinct_segment_count": len(distinct_segments),
+        "timed_sequence": _timed_caption_payload(value),
     }
 
     if not segments:
+        if require_overlay:
+            return {
+                **base,
+                "passed": False,
+                "decision": "blocked",
+                "reason": "missing_burned_overlay_text",
+                "failure_reasons": ["missing_burned_overlay_text"],
+            }
         return {
             **base,
             "passed": True,
@@ -130,6 +143,79 @@ def evaluate_overlay_semantic_completeness(value: Any) -> dict[str, Any]:
     }
 
 
+def evaluate_overlay_timing(
+    segments: list[dict[str, Any]], *, duration_seconds: float
+) -> dict[str, Any]:
+    """Validate the resolved on-screen timing plan against the rendered clip.
+
+    Callers must pass the post-redistribution plan actually given to FFmpeg, not
+    the raw authoring input. Overlap is allowed for persistent headers, but each
+    segment must have a finite, positive visible interval and starts must remain
+    ordered.
+    """
+
+    failures: list[str] = []
+    resolved: list[dict[str, Any]] = []
+    try:
+        duration = float(duration_seconds)
+    except (TypeError, ValueError):
+        duration = math.nan
+    if not math.isfinite(duration) or duration <= 0:
+        failures.append("invalid_overlay_media_duration")
+    if not segments:
+        failures.append("missing_burned_overlay_text")
+
+    previous_start = -math.inf
+    for index, segment in enumerate(segments):
+        text = _normalize_text(str(segment.get("text") or ""))
+        try:
+            start = float(segment.get("start", 0.0))
+            raw_end = segment.get("end")
+            end = duration if raw_end is None else float(raw_end)
+        except (TypeError, ValueError):
+            start = math.nan
+            end = math.nan
+        segment_failures: list[str] = []
+        if not text:
+            segment_failures.append("missing_burned_overlay_text")
+        if not math.isfinite(start) or not math.isfinite(end):
+            segment_failures.append("non_finite_overlay_timing")
+        else:
+            if start < 0:
+                segment_failures.append("negative_overlay_start")
+            if start < previous_start:
+                segment_failures.append("non_monotonic_overlay_start")
+            if end <= start:
+                segment_failures.append("non_positive_overlay_interval")
+            if math.isfinite(duration) and (start >= duration or end > duration + 1e-6):
+                segment_failures.append("overlay_segment_outside_media_duration")
+            previous_start = start
+        failures.extend(segment_failures)
+        resolved.append(
+            {
+                "index": index,
+                "text": text,
+                "start": start if math.isfinite(start) else None,
+                "end": end if math.isfinite(end) else None,
+                "failure_reasons": sorted(set(segment_failures)),
+            }
+        )
+
+    unique_failures = sorted(set(failures))
+    return {
+        "schema": TIMING_SCHEMA,
+        "policy_version": "resolved_overlay_timing_v1",
+        "passed": not unique_failures,
+        "duration_seconds": duration if math.isfinite(duration) else None,
+        "segment_count": len(segments),
+        "segments": resolved,
+        "failure_reasons": unique_failures,
+        "reason": "resolved_overlay_timing_visible"
+        if not unique_failures
+        else unique_failures[0],
+    }
+
+
 def _incomplete_reason(text: str) -> str | None:
     if _GENERIC_STOP_SETUP.fullmatch(text):
         return "missing_overlay_payoff_after_setup"
@@ -170,6 +256,21 @@ def _caption_segments(value: Any) -> list[str]:
             return _caption_segments(decoded)
     normalized = _normalize_text(stripped)
     return [normalized] if normalized else []
+
+
+def _timed_caption_payload(value: Any) -> bool:
+    if isinstance(value, dict):
+        return isinstance(value.get("segments"), list)
+    if isinstance(value, list):
+        return True
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped[:1] in {"{", "["}:
+            try:
+                return _timed_caption_payload(json.loads(stripped))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return False
+    return False
 
 
 def _normalize_segment_values(values: list[Any]) -> list[str]:
