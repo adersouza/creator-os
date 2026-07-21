@@ -101,7 +101,7 @@ def has_human_semantic_approval(*records: Any) -> bool:
 
 def validate_caption_overlay_integrity(
     asset: dict[str, Any], caption_context: dict[str, Any], caption: str
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     caption_is_burned = asset_caption_is_burned(asset)
     human_approval = has_human_semantic_approval(
         caption_context,
@@ -142,6 +142,25 @@ def validate_caption_overlay_integrity(
             + ",".join(str(reason) for reason in failure_reasons)
             + f":{asset['renderedAssetId']}"
         )
+    if semantic_qc.get("timed_sequence") is True:
+        assert isinstance(timing_qc, dict)
+        timing_qc = {
+            **timing_qc,
+            "applicable": True,
+            "passed": True,
+            "failure_reasons": [],
+            "segment_count": int(timing_qc.get("segment_count") or 0),
+            "duration_seconds": timing_qc.get("duration_seconds"),
+        }
+    else:
+        timing_qc = {
+            "schema": "pipeline.overlay_timing_qc.v1",
+            "applicable": False,
+            "passed": True,
+            "failure_reasons": [],
+            "segment_count": 0,
+            "duration_seconds": None,
+        }
     return semantic_qc, timing_qc
 
 

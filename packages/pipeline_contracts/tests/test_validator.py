@@ -134,6 +134,18 @@ def test_threadsdash_handshake_rejects_publish_authority() -> None:
         validate_threadsdash_handshake(payload)
 
 
+def test_threadsdash_handshake_v2_negotiates_v3_with_v2_fallback() -> None:
+    payload = load_example("threadsdash_handshake.v2.example.json")
+
+    validate_threadsdash_handshake(payload)
+
+    payload["contracts"]["draftPayload"]["supported"].remove(
+        "campaign_factory.threadsdash_drafts.v2"
+    )
+    with pytest.raises(ContractValidationError, match="supported"):
+        validate_threadsdash_handshake(payload)
+
+
 def test_validator_reports_nested_required_field():
     payload = load_example("campaign_draft_payload")
     del payload["drafts"][0]["metadata"]["campaign_factory"]["audio_intent"]["gates"][
@@ -296,8 +308,33 @@ def test_campaign_draft_payload_v2_requires_regular_reels_in_feed():
         validate_campaign_draft_payload(payload)
 
 
-def test_campaign_draft_payload_v2_requires_passing_resolved_timing_for_timed_overlay():
+def test_campaign_draft_payload_v2_preserves_legacy_payload_compatibility():
     payload = load_example("campaign_draft_payload.v2.example.json")
+    campaign_factory = payload["drafts"][0]["metadata"]["campaign_factory"]
+
+    campaign_factory.pop("overlay_semantic_qc", None)
+    campaign_factory.pop("caption_timing_qc", None)
+
+    validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v3_requires_explicit_non_timed_qc():
+    payload = load_example("campaign_draft_payload.v3.example.json")
+    campaign_factory = payload["drafts"][0]["metadata"]["campaign_factory"]
+
+    for field in ("overlay_semantic_qc", "caption_timing_qc"):
+        removed = campaign_factory.pop(field)
+        with pytest.raises(ContractValidationError, match=field):
+            validate_campaign_draft_payload(payload)
+        campaign_factory[field] = removed
+
+    campaign_factory["caption_timing_qc"] = {}
+    with pytest.raises(ContractValidationError, match="caption_timing_qc"):
+        validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v3_requires_passing_resolved_timing_for_timed_overlay():
+    payload = load_example("campaign_draft_payload.v3.example.json")
     campaign_factory = payload["drafts"][0]["metadata"]["campaign_factory"]
     campaign_factory["overlay_semantic_qc"]["timed_sequence"] = True
 
@@ -305,6 +342,7 @@ def test_campaign_draft_payload_v2_requires_passing_resolved_timing_for_timed_ov
         validate_campaign_draft_payload(payload)
 
     campaign_factory["caption_timing_qc"] = {
+        "applicable": True,
         "passed": True,
         "failure_reasons": [],
         "segment_count": 2,
@@ -313,6 +351,17 @@ def test_campaign_draft_payload_v2_requires_passing_resolved_timing_for_timed_ov
     validate_campaign_draft_payload(payload)
 
     campaign_factory["caption_timing_qc"]["passed"] = False
+    with pytest.raises(ContractValidationError, match="caption_timing_qc"):
+        validate_campaign_draft_payload(payload)
+
+
+def test_campaign_draft_payload_v3_rejects_timing_applicability_mismatch():
+    payload = load_example("campaign_draft_payload.v3.example.json")
+    campaign_factory = payload["drafts"][0]["metadata"]["campaign_factory"]
+    campaign_factory["caption_timing_qc"]["applicable"] = True
+    campaign_factory["caption_timing_qc"]["segment_count"] = 1
+    campaign_factory["caption_timing_qc"]["duration_seconds"] = 5.0
+
     with pytest.raises(ContractValidationError, match="caption_timing_qc"):
         validate_campaign_draft_payload(payload)
 

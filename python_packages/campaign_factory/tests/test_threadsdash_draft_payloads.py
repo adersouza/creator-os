@@ -40,6 +40,8 @@ from campaign_test_support import (
     set_test_source_prompt,
 )
 
+from pipeline_contracts import validate_threadsdash_draft_payload_strict
+
 
 def test_audio_catalog_recommendations_feed_threadsdash_audio_intent(
     tmp_path: Path, monkeypatch
@@ -190,12 +192,57 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         assert draft["media"][0]["fileName"] == rendered_path.name
         assert draft["metadata"]["campaign_factory"]["variant_assignment"] is None
         lineage = draft["metadata"]["campaign_factory"]["generated_asset_lineage"]
-        assert payload["schema"] == "campaign_factory.threadsdash_drafts.v2"
+        assert payload["schema"] == "campaign_factory.threadsdash_drafts.v3"
+        timing_qc = draft["metadata"]["campaign_factory"]["caption_timing_qc"]
+        assert timing_qc == {
+            "schema": "pipeline.overlay_timing_qc.v1",
+            "applicable": False,
+            "passed": True,
+            "failure_reasons": [],
+            "segment_count": 0,
+            "duration_seconds": None,
+        }
         assert lineage["schema"] == "reel_factory.generated_asset_lineage.v2"
         assert lineage["variationApplied"] is False
         assert lineage["variantId"] is None
         assert lineage["audioId"] is None
         assert len(lineage["audioIntentFingerprint"]) == 64
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_can_explicitly_emit_legacy_v2(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        add_audit_report(cf)
+
+        payload = build_draft_payloads(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            draft_payload_schema="v2",
+        )
+
+        assert payload["schema"] == "campaign_factory.threadsdash_drafts.v2"
+        validate_threadsdash_draft_payload_strict(payload)
+    finally:
+        cf.close()
+
+
+def test_threadsdash_export_rejects_unknown_draft_contract_before_build(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="draft_payload_schema"):
+            build_draft_payloads(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                draft_payload_schema="v4",
+            )
     finally:
         cf.close()
 

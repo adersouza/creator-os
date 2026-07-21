@@ -18,6 +18,7 @@ ACCOUNT_ELIGIBILITY_DECISION_SCHEMA = "account_eligibility_decision.v1.schema.js
 ASSIGNMENT_ELIGIBILITY_SCHEMA = "assignment_eligibility.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA = "campaign_draft_payload.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA = "campaign_draft_payload.v2.schema.json"
+CAMPAIGN_DRAFT_PAYLOAD_V3_SCHEMA = "campaign_draft_payload.v3.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_SCHEMA = CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA
 AUDIO_CATALOG_EXPORT_SCHEMA = "audio_catalog_export.v1.schema.json"
 PERFORMANCE_SYNC_SCHEMA = "performance_sync.v1.schema.json"
@@ -43,7 +44,9 @@ REPURPOSING_PLAN_SCHEMA = "repurposing_plan.v1.schema.json"
 VARIANT_ASSIGNMENT_SCHEMA = "variant_assignment.v1.schema.json"
 MOTION_EDIT_RENDER_SCHEMA = "motion_edit_render.v1.schema.json"
 FRONT_GENERATION_PLAN_SCHEMA = "front_generation_plan.v1.schema.json"
-THREADSDASH_HANDSHAKE_SCHEMA = "threadsdash_handshake.v1.schema.json"
+THREADSDASH_HANDSHAKE_V1_SCHEMA = "threadsdash_handshake.v1.schema.json"
+THREADSDASH_HANDSHAKE_V2_SCHEMA = "threadsdash_handshake.v2.schema.json"
+THREADSDASH_HANDSHAKE_SCHEMA = THREADSDASH_HANDSHAKE_V1_SCHEMA
 REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA = (
     "reference_factory_knowledge_pack.v1.schema.json"
 )
@@ -60,6 +63,7 @@ SCHEMA_NAMES = {
     "campaign_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "campaign_draft_payload_v1": CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA,
     "campaign_draft_payload_v2": CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA,
+    "campaign_draft_payload_v3": CAMPAIGN_DRAFT_PAYLOAD_V3_SCHEMA,
     "threadsdash_draft_payload": CAMPAIGN_DRAFT_PAYLOAD_SCHEMA,
     "audio_catalog_export": AUDIO_CATALOG_EXPORT_SCHEMA,
     "performance_sync": PERFORMANCE_SYNC_SCHEMA,
@@ -94,6 +98,8 @@ SCHEMA_NAMES = {
     "campaign_factory_front_generation_plan": FRONT_GENERATION_PLAN_SCHEMA,
     "threadsdash_handshake": THREADSDASH_HANDSHAKE_SCHEMA,
     "campaign_factory_threadsdash_handshake": THREADSDASH_HANDSHAKE_SCHEMA,
+    "threadsdash_handshake_v1": THREADSDASH_HANDSHAKE_V1_SCHEMA,
+    "threadsdash_handshake_v2": THREADSDASH_HANDSHAKE_V2_SCHEMA,
     "reference_factory_knowledge_pack": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
     "reference_factory_knowledge_pack_v1": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
     "provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
@@ -178,10 +184,13 @@ def validate_campaign_draft_payload(
         schema_name = CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA
     elif schema_id == "campaign_factory.threadsdash_drafts.v2":
         schema_name = CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA
+    elif schema_id == "campaign_factory.threadsdash_drafts.v3":
+        schema_name = CAMPAIGN_DRAFT_PAYLOAD_V3_SCHEMA
     else:
         raise ContractValidationError(
-            "$.schema must be campaign_factory.threadsdash_drafts.v1 or "
-            "campaign_factory.threadsdash_drafts.v2"
+            "$.schema must be campaign_factory.threadsdash_drafts.v1, "
+            "campaign_factory.threadsdash_drafts.v2, or "
+            "campaign_factory.threadsdash_drafts.v3"
         )
     validate_contract(value, schema_name)
     if strict_graph_ids:
@@ -320,7 +329,17 @@ def validate_front_generation_plan(value: Any) -> None:
 
 
 def validate_threadsdash_handshake(value: Any) -> None:
-    validate_contract(value, THREADSDASH_HANDSHAKE_SCHEMA)
+    schema_id = value.get("schema") if isinstance(value, dict) else None
+    if schema_id == "campaign_factory.threadsdash_handshake.v1":
+        schema_name = THREADSDASH_HANDSHAKE_V1_SCHEMA
+    elif schema_id == "campaign_factory.threadsdash_handshake.v2":
+        schema_name = THREADSDASH_HANDSHAKE_V2_SCHEMA
+    else:
+        raise ContractValidationError(
+            "$.schema must be campaign_factory.threadsdash_handshake.v1 or "
+            "campaign_factory.threadsdash_handshake.v2"
+        )
+    validate_contract(value, schema_name)
 
 
 def validate_reference_factory_knowledge_pack(value: Any) -> None:
@@ -363,6 +382,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "assignment_eligibility.v1.example.json": validate_assignment_eligibility,
         "campaign_draft_payload.v1.example.json": validate_campaign_draft_payload,
         "campaign_draft_payload.v2.example.json": validate_campaign_draft_payload,
+        "campaign_draft_payload.v3.example.json": validate_campaign_draft_payload,
         "audio_catalog_export.v1.example.json": validate_audio_catalog_export,
         "performance_sync.v1.example.json": validate_performance_sync,
         "post_metric_history.read.v1.example.json": validate_post_metric_history_read,
@@ -388,6 +408,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "provider_spend_authorization.v1.example.json": validate_provider_spend_authorization,
         "contentforge_campaign_audit_response.v1.example.json": validate_contentforge_campaign_audit_response,
         "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
+        "threadsdash_handshake.v2.example.json": validate_threadsdash_handshake,
     }
     checks = []
     for filename, validator in validators.items():

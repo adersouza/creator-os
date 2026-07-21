@@ -1122,6 +1122,7 @@ def export_td(body: dict[str, Any] = Body(...)):
             threadsdash_ingest_secret=body.get("threadsdashIngestSecret")
             or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET"),
             review_only=bool(body.get("reviewOnly")),
+            draft_payload_schema=body.get("draftPayloadSchema") or "v3",
         )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -20,6 +20,7 @@ REQUIRED_THREADSDASH_SCHEMAS = (
     "audio_intent.v1.schema.json",
     "campaign_draft_payload.v1.schema.json",
     "campaign_draft_payload.v2.schema.json",
+    "campaign_draft_payload.v3.schema.json",
     "caption_outcome_context.v1.schema.json",
     "creative_plan.v1.schema.json",
     "front_generation_plan.v1.schema.json",
@@ -36,6 +37,8 @@ REQUIRED_THREADSDASH_SCHEMAS = (
     "repurposing_plan.v1.schema.json",
     "variant_assignment.v1.schema.json",
     "video_analysis.v1.schema.json",
+    "threadsdash_handshake.v1.schema.json",
+    "threadsdash_handshake.v2.schema.json",
 )
 
 

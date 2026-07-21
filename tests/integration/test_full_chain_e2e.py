@@ -37,8 +37,13 @@ from campaign_factory.adapters import threadsdash_client as threadsdash_client_a
 from campaign_factory.adapters import (
     threadsdash_draft_payload as threadsdash_payload_adapter,
 )
+from campaign_factory.adapters import (
+    threadsdash_handshake as threadsdash_handshake_adapter,
+)
 from campaign_factory.adapters.threadsdash import (
     export_drafts as export_threadsdash,
+)
+from campaign_factory.adapters.threadsdash import (
     sync_metrics as sync_performance_snapshots,
 )
 from campaign_factory.config import Settings
@@ -432,7 +437,7 @@ _INGEST_URL = "https://dashboard.example.com/api/campaign-factory/drafts/ingest"
 
 
 def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
-    """Patch urlopen (ingest) + SupabaseRestClient (reconcile/read) at the seam."""
+    """Patch handshake, ingest, and read clients at the external dashboard seam."""
     remote_url = "https://cdn.example.com/campaigns/e2e/asset.mp4"
     _patch_remote_media(monkeypatch, remote_url)
     monkeypatch.setattr(
@@ -465,7 +470,59 @@ def _wire_dashboard(monkeypatch: pytest.MonkeyPatch, dashboard: _FakeDashboard):
         resp.post_ids = post_ids
         return resp
 
+    class _HandshakeResp:
+        status = 200
+
+        def __init__(self, body: dict[str, Any]):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return json.dumps(self.body).encode("utf-8")
+
+    def fake_handshake(request, timeout):
+        proposal = json.loads(request.data.decode("utf-8"))
+        draft_proposal = proposal["contracts"]["draftPayload"]
+        assert draft_proposal == {
+            "preferred": "campaign_factory.threadsdash_drafts.v3",
+            "supported": [
+                "campaign_factory.threadsdash_drafts.v3",
+                "campaign_factory.threadsdash_drafts.v2",
+            ],
+        }
+        return _HandshakeResp(
+            {
+                "success": True,
+                "schema": "threadsdashboard.campaign_factory_handshake.v2",
+                "ok": True,
+                "traceId": proposal["traceId"],
+                "authMode": "hmac",
+                "nonceClaimed": True,
+                "contracts": {
+                    "draftPayload": draft_proposal["preferred"],
+                    "supportedDraftPayloads": draft_proposal["supported"],
+                    "generatedAssetLineage": proposal["contracts"][
+                        "generatedAssetLineage"
+                    ],
+                    "audioIntent": proposal["contracts"]["audioIntent"],
+                    "performanceMetrics": proposal["contracts"]["performanceMetrics"],
+                },
+                "capabilities": proposal["capabilities"],
+                "productRowsWritten": 0,
+            }
+        )
+
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        threadsdash_handshake_adapter,
+        "_open_threadsdash_handshake_request",
+        fake_handshake,
+    )
 
 
 def _export_drafts(export: dict[str, Any]) -> list[dict[str, Any]]:

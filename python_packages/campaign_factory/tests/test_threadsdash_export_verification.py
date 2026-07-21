@@ -74,6 +74,29 @@ def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
         )
 
 
+def test_unknown_draft_contract_fails_before_pipeline_state_or_external_writes(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="draft_payload_schema"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+                draft_payload_schema="v4",
+            )
+
+        assert cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
+            == 0
+        )
+    finally:
+        cf.close()
+
+
 @pytest.mark.parametrize(
     "blocker",
     [
@@ -177,6 +200,67 @@ def test_threadsdash_export_warnings_require_explicit_operator_override(
         cf.close()
 
 
+def test_threadsdash_contract_negotiation_failure_prevents_media_and_product_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    calls = {"upload": 0, "ingest": 0}
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter._draft_payload,
+        "build_draft_payloads",
+        lambda *_args, **_kwargs: {
+            "schema": "campaign_factory.threadsdash_drafts.v3",
+            "campaign": "may",
+            "drafts": [],
+        },
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "evaluate_export_readiness",
+        lambda *_args, **_kwargs: {
+            "liveExportAllowed": True,
+            "blockingReasons": [],
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_negotiate_threadsdash_draft_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("ThreadsDashboard draft contract mismatch")
+        ),
+    )
+
+    def unexpected_upload(*_args, **_kwargs):
+        calls["upload"] += 1
+
+    def unexpected_ingest(*_args, **_kwargs):
+        calls["ingest"] += 1
+
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        unexpected_upload,
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_post_threadsdash_draft_ingest",
+        unexpected_ingest,
+    )
+    try:
+        add_rendered_asset(cf, tmp_path)
+        with pytest.raises(ValueError, match="draft contract mismatch"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+            )
+        assert calls == {"upload": 0, "ingest": 0}
+    finally:
+        cf.close()
+
+
 def test_freeze_exact_draft_batch_can_select_one_destination_of_shared_asset() -> None:
     payload = {
         "campaign": "may",
@@ -223,6 +307,7 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
 ) -> None:
     cf = make_factory(tmp_path)
     observed: dict[str, list[str]] = {}
+    boundary_order: list[str] = []
     drafts = [
         {
             "userId": "user_1",
@@ -255,6 +340,7 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
     )
 
     def readiness(*_args, **kwargs):
+        boundary_order.append("readiness")
         observed["readiness"] = keys(kwargs["draft_payload"])
         return {
             "liveExportAllowed": True,
@@ -263,12 +349,22 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
         }
 
     def upload(_factory, payload, **_kwargs):
+        boundary_order.append("upload")
         observed["upload"] = keys(payload)
         return []
 
     def ingest(payload, **_kwargs):
+        boundary_order.append("ingest")
         observed["ingest"] = keys(payload)
         return {"success": True, "postIds": ["post_1"], "writtenDrafts": 1}
+
+    def negotiate(**kwargs):
+        boundary_order.append("negotiation")
+        observed["negotiation"] = [kwargs["payload_schema"]]
+        return {
+            "status": "PASS",
+            "selectedDraftPayload": kwargs["payload_schema"],
+        }
 
     monkeypatch.setattr(
         threadsdash_delivery_adapter, "evaluate_export_readiness", readiness
@@ -285,6 +381,11 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
         threadsdash_delivery_adapter,
         "validate_threadsdash_draft_payload_strict",
         lambda _payload: None,
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_negotiate_threadsdash_draft_payload",
+        negotiate,
     )
     monkeypatch.setattr(
         threadsdash_delivery_adapter, "_post_threadsdash_draft_ingest", ingest
@@ -312,9 +413,11 @@ def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
         assert result["draftCount"] == 1
         assert observed == {
             "readiness": ["draft_asset_1_ig_1"],
+            "negotiation": ["campaign_factory.threadsdash_drafts.v2"],
             "upload": ["draft_asset_1_ig_1"],
             "ingest": ["draft_asset_1_ig_1"],
         }
+        assert boundary_order == ["readiness", "negotiation", "upload", "ingest"]
     finally:
         cf.close()
 
@@ -425,6 +528,14 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
 
     monkeypatch.setattr(
         threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_negotiate_threadsdash_draft_payload",
+        lambda **kwargs: {
+            "status": "PASS",
+            "selectedDraftPayload": kwargs["payload_schema"],
+        },
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     original_build_draft_payloads = threadsdash_payload_adapter.build_draft_payloads
@@ -552,6 +663,14 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
 
     monkeypatch.setattr(
         threadsdash_client_adapter, "_open_threadsdash_ingest_request", fake_urlopen
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_negotiate_threadsdash_draft_payload",
+        lambda **kwargs: {
+            "status": "PASS",
+            "selectedDraftPayload": kwargs["payload_schema"],
+        },
     )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     monkeypatch.setattr(threadsdash_client_adapter.time, "sleep", lambda _seconds: None)
@@ -752,6 +871,14 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
             raise OSError("storage upload unavailable")
 
     monkeypatch.setattr(threadsdash_client_adapter, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_negotiate_threadsdash_draft_payload",
+        lambda **kwargs: {
+            "status": "PASS",
+            "selectedDraftPayload": kwargs["payload_schema"],
+        },
+    )
     monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FakeClient)
     try:
         add_rendered_asset(cf, tmp_path)

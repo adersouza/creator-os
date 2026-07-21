@@ -54,6 +54,10 @@ from .threadsdash_draft_destinations import (
     draft_destinations_for_asset as _draft_destinations_for_asset,
 )
 
+DRAFT_PAYLOAD_SCHEMA_V2 = "campaign_factory.threadsdash_drafts.v2"
+DRAFT_PAYLOAD_SCHEMA_V3 = "campaign_factory.threadsdash_drafts.v3"
+DEFAULT_DRAFT_PAYLOAD_SCHEMA = DRAFT_PAYLOAD_SCHEMA_V3
+
 
 def build_draft_payloads(
     factory: CampaignFactory,
@@ -70,7 +74,11 @@ def build_draft_payloads(
     enable_variation: bool = False,
     publish_mode: str | None = None,
     review_only: bool = False,
+    draft_payload_schema: str = DEFAULT_DRAFT_PAYLOAD_SCHEMA,
 ) -> dict[str, Any]:
+    normalized_draft_payload_schema = _normalize_draft_payload_schema(
+        draft_payload_schema
+    )
     if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
         raise ValueError("review-only handoff requires schedule_mode='draft'")
     manifest = factory.domains.export_summary.export_manifest(
@@ -422,12 +430,29 @@ def build_draft_payloads(
             )
             drafts.append(draft)
     return {
-        "schema": "campaign_factory.threadsdash_drafts.v2",
+        "schema": normalized_draft_payload_schema,
         "campaign": campaign_slug,
         "handoffMode": "review_only" if review_only else "publishable_draft",
         "manifest": manifest,
         "drafts": drafts,
     }
+
+
+def _normalize_draft_payload_schema(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "v2": DRAFT_PAYLOAD_SCHEMA_V2,
+        DRAFT_PAYLOAD_SCHEMA_V2: DRAFT_PAYLOAD_SCHEMA_V2,
+        "v3": DRAFT_PAYLOAD_SCHEMA_V3,
+        DRAFT_PAYLOAD_SCHEMA_V3: DRAFT_PAYLOAD_SCHEMA_V3,
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            "draft_payload_schema must be campaign_factory.threadsdash_drafts.v2 "
+            "or campaign_factory.threadsdash_drafts.v3"
+        ) from exc
 
 
 def _normalize_publish_mode(publish_mode: str | None) -> str | None:

@@ -7,6 +7,7 @@ import {
 	generatedPipelineContractSchemas,
 	audioIntentSchema,
 	campaignDraftPayloadV2Schema,
+	campaignDraftPayloadV3Schema,
 	pipelineContractSchemas,
 	validateAudioIntentContract,
 	validateCampaignFactoryDraftPayload,
@@ -53,6 +54,9 @@ describe("TypeScript pipeline contract validators", () => {
 			"campaign_draft_payload.v2.schema.json",
 		);
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
+			"campaign_draft_payload.v3.schema.json",
+		);
+		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
 			"owned_library_lineage.v1.schema.json",
 		);
 		expect(generatedPipelineContractSchemaManifest.map((schema) => schema.filename)).toContain(
@@ -84,6 +88,9 @@ describe("TypeScript pipeline contract validators", () => {
 		expect(audioIntentSchema).toBe(generatedPipelineContractSchemas.audioIntent);
 		expect(campaignDraftPayloadV2Schema).toBe(
 			generatedPipelineContractSchemas.campaignDraftPayloadV2,
+		);
+		expect(campaignDraftPayloadV3Schema).toBe(
+			generatedPipelineContractSchemas.campaignDraftPayloadV3,
 		);
 	});
 
@@ -138,9 +145,27 @@ describe("TypeScript pipeline contract validators", () => {
 		);
 	});
 
-	it("dual-accepts v1 and v2 draft payloads", () => {
+	it("accepts historical v1/v2 and strict v3 draft payloads", () => {
 		expect(validateCampaignFactoryDraftPayload(versionedExample("campaign_draft_payload", 1))).toEqual([]);
 		expect(validateCampaignFactoryDraftPayload(versionedExample("campaign_draft_payload", 2))).toEqual([]);
+		expect(validateCampaignFactoryDraftPayload(versionedExample("campaign_draft_payload", 3))).toEqual([]);
+	});
+
+	it("preserves v2 payloads without v3 caption integrity proof", () => {
+		const payload = versionedExample("campaign_draft_payload", 2);
+		delete payload.drafts[0].metadata.campaign_factory.overlay_semantic_qc;
+		delete payload.drafts[0].metadata.campaign_factory.caption_timing_qc;
+
+		expect(validateCampaignFactoryDraftPayload(payload)).toEqual([]);
+	});
+
+	it("requires explicit caption integrity proof in v3", () => {
+		const payload = versionedExample("campaign_draft_payload", 3);
+		delete payload.drafts[0].metadata.campaign_factory.caption_timing_qc.applicable;
+
+		expect(validateCampaignFactoryDraftPayload(payload)).toEqual(
+			expect.arrayContaining([expect.stringContaining("caption_timing_qc")]),
+		);
 	});
 
 	it("requires promptId in v2 lineage", () => {

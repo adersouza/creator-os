@@ -20,7 +20,12 @@ from .threadsdash_hmac import signed_headers
 HANDSHAKE_PATH = "/api/campaign-factory/handshake"
 INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_ALLOWED_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
-EXPECTED_RESPONSE_SCHEMA = "threadsdashboard.campaign_factory_handshake.v1"
+RESPONSE_SCHEMA_V1 = "threadsdashboard.campaign_factory_handshake.v1"
+RESPONSE_SCHEMA_V2 = "threadsdashboard.campaign_factory_handshake.v2"
+HANDSHAKE_SCHEMA_V1 = "campaign_factory.threadsdash_handshake.v1"
+HANDSHAKE_SCHEMA_V2 = "campaign_factory.threadsdash_handshake.v2"
+DRAFT_PAYLOAD_SCHEMA_V2 = "campaign_factory.threadsdash_drafts.v2"
+DRAFT_PAYLOAD_SCHEMA_V3 = "campaign_factory.threadsdash_drafts.v3"
 
 OpenRequest = Callable[[Request, float], Any]
 
@@ -30,12 +35,29 @@ class _RejectRedirects(HTTPRedirectHandler):
         return None
 
 
-def build_handshake_payload(trace_id: str) -> dict[str, Any]:
+def _open_threadsdash_handshake_request(request: Request, timeout: float) -> Any:
+    """Open one no-redirect handshake request; kept injectable for seam tests."""
+    return build_opener(_RejectRedirects()).open(request, timeout=timeout)
+
+
+def build_handshake_payload(
+    trace_id: str, *, handshake_schema: str = HANDSHAKE_SCHEMA_V2
+) -> dict[str, Any]:
+    if handshake_schema not in {HANDSHAKE_SCHEMA_V1, HANDSHAKE_SCHEMA_V2}:
+        raise ValueError("handshake_schema must be v1 or v2")
+    draft_payload_contract: str | dict[str, Any]
+    if handshake_schema == HANDSHAKE_SCHEMA_V1:
+        draft_payload_contract = DRAFT_PAYLOAD_SCHEMA_V2
+    else:
+        draft_payload_contract = {
+            "preferred": DRAFT_PAYLOAD_SCHEMA_V3,
+            "supported": [DRAFT_PAYLOAD_SCHEMA_V3, DRAFT_PAYLOAD_SCHEMA_V2],
+        }
     payload = {
-        "schema": "campaign_factory.threadsdash_handshake.v1",
+        "schema": handshake_schema,
         "traceId": trace_id,
         "contracts": {
-            "draftPayload": "campaign_factory.threadsdash_drafts.v2",
+            "draftPayload": draft_payload_contract,
             "generatedAssetLineage": "reel_factory.generated_asset_lineage.v2",
             "audioIntent": "pipeline.audio_intent.v1",
             "performanceMetrics": "threadsdashboard.post_metric_history.read.v1",
@@ -129,11 +151,14 @@ def run_threadsdash_handshake(
     nonce: str | None = None,
     env: Mapping[str, str] | None = None,
     open_request: OpenRequest | None = None,
+    handshake_schema: str = HANDSHAKE_SCHEMA_V2,
 ) -> dict[str, Any]:
     """Validate the seam without creating drafts, posts, or schedules."""
     actual_trace_id = trace_id or f"trace_{uuid.uuid4().hex}"
     safe_url = validate_handshake_url(url, env=env)
-    payload = build_handshake_payload(actual_trace_id)
+    payload = build_handshake_payload(
+        actual_trace_id, handshake_schema=handshake_schema
+    )
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     signature_timestamp = str(timestamp or int(time.time()))
     signature_nonce = nonce or uuid.uuid4().hex
@@ -152,9 +177,7 @@ def run_threadsdash_handshake(
             ),
         },
     )
-    opener = open_request or (
-        lambda req, timeout: build_opener(_RejectRedirects()).open(req, timeout=timeout)
-    )
+    opener = open_request or _open_threadsdash_handshake_request
     try:
         with opener(request, 10.0) as response:
             status = int(getattr(response, "status", 200))
@@ -175,12 +198,38 @@ def run_threadsdash_handshake(
     expected = payload["contracts"]
     if not isinstance(result, dict) or result.get("success") is not True:
         raise RuntimeError("ThreadsDashboard handshake did not return success")
+    response_contracts = result.get("contracts")
+    contract_ok = response_contracts == expected
+    selected_draft_payload: str | None = None
+    if handshake_schema == HANDSHAKE_SCHEMA_V2:
+        proposed = expected["draftPayload"]
+        response_contracts = (
+            response_contracts if isinstance(response_contracts, dict) else {}
+        )
+        selected_draft_payload = response_contracts.get("draftPayload")
+        supported = response_contracts.get("supportedDraftPayloads")
+        contract_ok = (
+            isinstance(proposed, dict)
+            and selected_draft_payload == proposed.get("preferred")
+            and isinstance(supported, list)
+            and all(item in supported for item in proposed.get("supported") or [])
+            and response_contracts.get("generatedAssetLineage")
+            == expected["generatedAssetLineage"]
+            and response_contracts.get("audioIntent") == expected["audioIntent"]
+            and response_contracts.get("performanceMetrics")
+            == expected["performanceMetrics"]
+        )
+    expected_response_schema = (
+        RESPONSE_SCHEMA_V2
+        if handshake_schema == HANDSHAKE_SCHEMA_V2
+        else RESPONSE_SCHEMA_V1
+    )
     invariants = {
-        "schema": result.get("schema") == EXPECTED_RESPONSE_SCHEMA,
+        "schema": result.get("schema") == expected_response_schema,
         "trace": result.get("traceId") == actual_trace_id,
         "auth": result.get("authMode") == "hmac",
         "nonce": result.get("nonceClaimed") is True,
-        "contracts": result.get("contracts") == expected,
+        "contracts": contract_ok,
         "capabilities": result.get("capabilities") == payload["capabilities"],
         "zeroProductRows": result.get("productRowsWritten") == 0,
     }
@@ -196,6 +245,7 @@ def run_threadsdash_handshake(
         "authMode": "hmac",
         "nonceClaimed": True,
         "productRowsWritten": 0,
-        "contracts": expected,
+        "contracts": response_contracts,
+        "selectedDraftPayload": selected_draft_payload or DRAFT_PAYLOAD_SCHEMA_V2,
         "capabilities": payload["capabilities"],
     }

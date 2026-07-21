@@ -52,6 +52,7 @@ from .threadsdash_client import (
     _validate_threadsdash_ingest_url,
 )
 from .threadsdash_draft_payload import (
+    DEFAULT_DRAFT_PAYLOAD_SCHEMA,
     _draft_media_types,
     _draft_metadata,
     _normalize_publish_mode,
@@ -61,6 +62,12 @@ from .threadsdash_draft_readiness import (
     _batch_guardrail_findings,
     _draft_notify_audio_deferred,
     evaluate_export_readiness,
+)
+from .threadsdash_handshake import (
+    HANDSHAKE_SCHEMA_V1,
+    HANDSHAKE_SCHEMA_V2,
+    configured_handshake_url,
+    run_threadsdash_handshake,
 )
 
 
@@ -326,9 +333,13 @@ def export_threadsdash(
     variation_preset: str = "ig_subtle",
     publish_mode: str | None = None,
     review_only: bool = False,
+    draft_payload_schema: str = DEFAULT_DRAFT_PAYLOAD_SCHEMA,
 ) -> dict[str, Any]:
     if max_drafts is not None and max_drafts < 0:
         raise ValueError("max_drafts must be non-negative")
+    normalized_draft_payload_schema = _draft_payload._normalize_draft_payload_schema(
+        draft_payload_schema
+    )
     if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
         raise ValueError("review-only handoff requires schedule_mode='draft'")
     if not dry_run:
@@ -374,6 +385,7 @@ def export_threadsdash(
                 "enableVariation": enable_variation,
                 "variationPreset": variation_preset,
                 "reviewOnly": review_only,
+                "draftPayloadSchema": normalized_draft_payload_schema,
             },
         )
         factory.domains.events.start_pipeline_job(pipeline_job["id"])
@@ -416,6 +428,7 @@ def export_threadsdash(
             enable_variation=enable_variation,
             publish_mode=normalized_publish_mode,
             review_only=review_only,
+            draft_payload_schema=normalized_draft_payload_schema,
         )
         payload = _freeze_exact_draft_batch(payload, max_drafts=max_drafts)
         readiness = evaluate_export_readiness(
@@ -457,6 +470,17 @@ def export_threadsdash(
                 "allow_warnings: " + ", ".join(warning_codes)
             )
         uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
+        # Validate the exact local payload before any handshake, storage upload,
+        # nonce claim, or ingest write. The second validation below proves that
+        # remote-media hydration did not invalidate the contract.
+        validate_threadsdash_draft_payload_strict(payload)
+        contract_negotiation: dict[str, Any] | None = None
+        if uses_dashboard_ingest:
+            contract_negotiation = _negotiate_threadsdash_draft_payload(
+                payload_schema=str(payload.get("schema") or ""),
+                ingest_url=threadsdash_ingest_url,
+                ingest_secret=threadsdash_ingest_secret,
+            )
         dashboard_ingest_media: list[dict[str, Any]] = []
         if uses_dashboard_ingest:
             dashboard_ingest_media = _upload_media_for_dashboard_ingest(
@@ -501,6 +525,7 @@ def export_threadsdash(
                 "postIds": [],
                 "media": dashboard_ingest_media,
             },
+            "contractNegotiation": contract_negotiation,
             "path": None if dry_run else str(out_path),
             "wouldWritePath": str(out_path) if dry_run else None,
             "pipelineJobId": None if pipeline_job is None else pipeline_job["id"],
@@ -592,6 +617,10 @@ def export_threadsdash(
                 "blockingReasons": readiness.get("blockingReasons") or [],
                 "warnings": readiness.get("warnings") or [],
                 "scheduleMode": normalized_schedule_mode,
+                "draftPayloadSchema": payload.get("schema"),
+                "selectedDraftPayload": (contract_negotiation or {}).get(
+                    "selectedDraftPayload"
+                ),
                 "previewCleanup": result.get("previewCleanup") or {},
             },
             commit=False,
@@ -606,6 +635,10 @@ def export_threadsdash(
                 "mediaIds": media_ids,
                 "postIds": post_ids,
                 "scheduleMode": normalized_schedule_mode,
+                "draftPayloadSchema": payload.get("schema"),
+                "selectedDraftPayload": (contract_negotiation or {}).get(
+                    "selectedDraftPayload"
+                ),
                 "previewCleanup": result.get("previewCleanup") or {},
             },
         )
@@ -626,6 +659,7 @@ def export_threadsdash(
             "createdAt": utc_now(),
             "scheduleMode": normalized_schedule_mode,
             "pipelineJobId": pipeline_job["id"],
+            "draftPayloadSchema": normalized_draft_payload_schema,
             "error": str(exc),
         }
         failed_path.parent.mkdir(parents=True, exist_ok=True)
@@ -655,6 +689,59 @@ def export_threadsdash(
         )
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _negotiate_threadsdash_draft_payload(
+    *,
+    payload_schema: str,
+    ingest_url: str | None,
+    ingest_secret: str | None,
+) -> dict[str, Any]:
+    """Negotiate the exact draft contract before any product or media write."""
+    resolved_ingest_url = (
+        ingest_url
+        or os.environ.get("THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL")
+        or os.environ.get("CAMPAIGN_FACTORY_DRAFT_INGEST_URL")
+    )
+    secret = ingest_secret or os.environ.get("CAMPAIGN_FACTORY_INGEST_SECRET")
+    if not resolved_ingest_url:
+        raise ValueError(
+            "threadsdash_ingest_url or THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL "
+            "is required before live draft contract negotiation"
+        )
+    if not secret:
+        raise ValueError(
+            "threadsdash_ingest_secret or CAMPAIGN_FACTORY_INGEST_SECRET is "
+            "required before live draft contract negotiation"
+        )
+    handshake_env = dict(os.environ)
+    handshake_env["THREADSDASH_CAMPAIGN_FACTORY_INGEST_URL"] = resolved_ingest_url
+    handshake_url = configured_handshake_url(handshake_env)
+    if not handshake_url:
+        raise ValueError(
+            "ThreadsDashboard handshake URL could not be derived from the ingest URL"
+        )
+    if payload_schema == _draft_payload.DRAFT_PAYLOAD_SCHEMA_V3:
+        handshake_schema = HANDSHAKE_SCHEMA_V2
+    elif payload_schema == _draft_payload.DRAFT_PAYLOAD_SCHEMA_V2:
+        handshake_schema = HANDSHAKE_SCHEMA_V1
+    else:
+        raise ValueError(
+            f"draft payload contract is not negotiable: {payload_schema or 'missing'}"
+        )
+    result = run_threadsdash_handshake(
+        url=handshake_url,
+        secret=secret,
+        env=handshake_env,
+        handshake_schema=handshake_schema,
+    )
+    selected = str(result.get("selectedDraftPayload") or "")
+    if selected != payload_schema:
+        raise ValueError(
+            "ThreadsDashboard selected a different draft payload contract: "
+            f"requested {payload_schema}, selected {selected or 'missing'}"
+        )
+    return result
 
 
 def _upload_media_for_dashboard_ingest(
