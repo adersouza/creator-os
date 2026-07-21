@@ -1140,15 +1140,16 @@ def _draft_metadata(
         or publishability.get("failureReasons")
         or []
     )
-    asset_state = str(
-        publishability.get("asset_state")
-        or publishability.get("assetState")
-        or (
-            "exportable"
-            if handoff_manifest and not failure_reasons
-            else "approved_but_not_publishable"
-        )
+    raw_asset_state = publishability.get("asset_state") or publishability.get(
+        "assetState"
     )
+    if not isinstance(raw_asset_state, str) or not raw_asset_state.strip():
+        rendered_asset_id = str(draft.get("renderedAssetId") or "unknown")
+        raise ValueError(
+            "campaign_factory_asset_state_missing:"
+            f"{rendered_asset_id}:refusing_to_infer_exportability"
+        )
+    asset_state = raw_asset_state.strip().lower()
     instagram_trial_reels = bool(
         draft.get("instagramTrialReels")
         or draft.get("isInstagramTrialReel")

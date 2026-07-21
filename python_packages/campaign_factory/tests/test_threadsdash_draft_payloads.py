@@ -1227,6 +1227,30 @@ def test_threadsdash_draft_metadata_does_not_fallback_content_to_instagram_capti
     )
 
 
+def test_threadsdash_draft_metadata_refuses_to_infer_missing_asset_state():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "campaign_factory_asset_state_missing:asset_1:"
+            "refusing_to_infer_exportability"
+        ),
+    ):
+        threadsdash_payload_adapter._draft_metadata(
+            {
+                "campaignId": "campaign_1",
+                "renderedAssetId": "asset_1",
+                "sourceAssetId": "source_1",
+                "publishability": {
+                    "publishability_failure_reasons": [],
+                    "handoff_manifest": {
+                        "manifest_version": 2,
+                        "asset_id": "asset_1",
+                    },
+                },
+            }
+        )
+
+
 def test_variant_lineage_is_added_to_publishability_and_handoff_manifest(
     tmp_path: Path,
 ):
