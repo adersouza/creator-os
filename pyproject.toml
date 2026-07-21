@@ -60,10 +60,11 @@ ignore_missing_imports = true
 warn_unused_ignores = false
 check_untyped_defs = false
 exclude = "(^|/)(\\.venv|\\.uv-cache|node_modules|graphify-out|tests)/"
-# CI gates only the type-clean packages (`pnpm typecheck:py`). Typing backlog as
-# of adoption: campaign_factory ~581, reference_factory ~149, reel_factory ~119
-# (mostly union-attr / None-safety). Graduate a package into the CI gate once it
-# reaches zero — run `uv run mypy <path>` locally to chip away.
+# CI strictly gates the type-clean Pipeline Contracts package. The remaining
+# backlog is also count-gated by `scripts/check_mypy_backlog.py` so it cannot
+# grow or be hidden by checking fewer files. Current ceilings are Campaign
+# Factory 889, Reference Factory 174, and Reel Factory 95. Lower a ceiling when
+# a package improves; graduate the package to the strict gate at zero.
 
 [tool.ruff]
 target-version = "py311"

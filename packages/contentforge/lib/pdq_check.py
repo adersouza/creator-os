@@ -37,7 +37,7 @@ def compute_pdq(image_path):
 def extract_frame(video_path, output_path):
     """Extract first frame from video as JPEG for PDQ hashing."""
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
                 "ffmpeg",
                 "-i",
@@ -52,8 +52,8 @@ def extract_frame(video_path, output_path):
             capture_output=True,
             timeout=10,
         )
-        return os.path.exists(output_path)
-    except Exception:
+        return completed.returncode == 0 and os.path.exists(output_path)
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -183,12 +183,9 @@ def main():
                 cross_safe_target_violations += 1
 
     # Cleanup temp files
-    try:
-        import shutil
+    import shutil
 
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-    except Exception:
-        pass
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # Stats
     avg_dist = sum(distances) / len(distances) if distances else None

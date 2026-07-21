@@ -346,6 +346,18 @@ export function buildDetectorVerdicts(results, auditProfile = "default", options
       verdicts.sscd = Number.isFinite(avgSim) ? (avgSim < 0.50 ? "pass" : avgSim < 0.75 ? "warn" : "fail") : "warn";
     }
   }
+  var temporal = results.temporal;
+  if (temporal) {
+    var temporalStats = temporal.stats;
+    if (temporal.available === false || temporal.error || !temporalStats) {
+      verdicts.temporal = "warn";
+    } else if (Number(temporalStats.analysisErrorCount || 0) > 0) {
+      verdicts.temporal = "warn";
+    } else {
+      verdicts.temporal = temporalStats.failCount === 0 ? "pass" :
+        temporalStats.failCount <= 2 ? "warn" : "fail";
+    }
+  }
   return verdicts;
 }
 
@@ -2061,12 +2073,6 @@ export async function POST(request) {
         refStats.fail > 0 ? "fail" : refStats.warn > 0 ? "warn" : "pass";
     } else if (layers.includes("reference") && results.reference?.error) {
       verdicts.reference = "warn";
-    }
-    if (results.temporal?.stats) {
-      verdicts.temporal = results.temporal.stats.failCount === 0 ? "pass" :
-        results.temporal.stats.failCount <= 2 ? "warn" : "fail";
-    } else if (layers.includes("temporal") && results.temporal?.available === false) {
-      verdicts.temporal = "warn";
     }
     if (results.ssim?.stats) {
       verdicts.ssim = Number.isFinite(results.ssim.stats.avg) ? (results.ssim.stats.avg >= 0.80 ? "pass" : results.ssim.stats.avg >= 0.60 ? "warn" : "fail") : "warn";

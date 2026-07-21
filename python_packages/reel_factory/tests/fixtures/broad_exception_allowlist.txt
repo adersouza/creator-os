@@ -10,15 +10,8 @@ reel_factory/anatomy_qc.py:assess_image_qc:185
 reel_factory/audio_mux.py:audio_stream_count:44
 reel_factory/audio_mux.py:_audio_meta:71
 reel_factory/audio_mux.py:mux_root:246
-reel_factory/caption_bank.py:build:326
-reel_factory/caption_bank.py:_history_captions:629
-reel_factory/caption_bank.py:_history_captions:640
 reel_factory/caption_render.py:render_caption_png:329
 reel_factory/discoverability_safety.py:audit_caption_sources:103
-reel_factory/embedding_index.py:text_for_path:32
-reel_factory/embedding_index.py:text_for_path:42
-reel_factory/embedding_index.py:text_for_path:58
-reel_factory/embedding_index.py:duplicate_risk:235
 reel_factory/embedding_provider.py:get_embedding_provider:95
 reel_factory/embedding_provider.py:get_embedding_provider:102
 reel_factory/generate_assets.py:single_image_layout_status:204

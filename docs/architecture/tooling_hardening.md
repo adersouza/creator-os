@@ -27,6 +27,10 @@ publishing, QStash, metrics sync, account health, or production inventory.
   first baseline exists. It is intentionally non-blocking until the baseline is
   reviewed.
 - `pnpm check:arch` runs TypeScript and Python architecture-boundary checks.
+- `pnpm typecheck:py` strictly gates Pipeline Contracts and enforces
+  non-increasing mypy backlogs plus minimum checked-file counts for Campaign,
+  Reference, and Reel Factory. A reduced error count must lower the recorded
+  ceiling; excluding files cannot make the gate pass.
 - `pnpm check:prompts` runs Promptfoo against local captured fixtures and local
   Python providers only. It disables hosted generation, telemetry, sharing,
   updates, and caching; prompt output is never sent to a paid grader.

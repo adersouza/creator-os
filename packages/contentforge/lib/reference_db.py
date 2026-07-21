@@ -89,7 +89,7 @@ def compute_pdq_hash(image_path):
 
 def extract_frame(video_path, output_path):
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
                 "ffmpeg",
                 "-i",
@@ -104,8 +104,8 @@ def extract_frame(video_path, output_path):
             capture_output=True,
             timeout=10,
         )
-        return os.path.exists(output_path)
-    except:
+        return completed.returncode == 0 and os.path.exists(output_path)
+    except (OSError, subprocess.SubprocessError):
         return False
 
 

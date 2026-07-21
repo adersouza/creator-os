@@ -29,7 +29,7 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             parts.append(json.dumps(data, ensure_ascii=False)[:4000])
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError):
             pass
     sidecar = path.with_suffix(path.suffix + ".generated_asset_lineage.json")
     if sidecar.exists():
@@ -39,7 +39,7 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
                     json.loads(sidecar.read_text(encoding="utf-8")), ensure_ascii=False
                 )[:4000]
             )
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError):
             pass
     if root:
         db = manifest_db_path(root)
@@ -55,7 +55,7 @@ def text_for_path(path: Path, root: Path | None = None) -> str:
                         "reel_features "
                         + json.dumps(dict(feature), ensure_ascii=False)[:4000]
                     )
-            except Exception:
+            except (OSError, sqlite3.Error):
                 pass
     return "\n".join(parts)
 
@@ -232,7 +232,7 @@ def duplicate_risk(
     for candidate_path in (prior_paths or [])[:limit]:
         try:
             resolved = Path(candidate_path).expanduser().resolve()
-        except Exception:
+        except (OSError, RuntimeError):
             continue
         if resolved == path:
             continue
