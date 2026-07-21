@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import hashlib
 import io
@@ -51,6 +52,7 @@ from reel_factory.reel_pipeline import (
     limit_render_pool,
     normalize_rendered_mp4_metadata,
     phone_creation_time,
+    process_one,
     reconcile_interrupted_temp_outputs,
     timed_caption_band,
     vary_band_within_lane,
@@ -63,6 +65,80 @@ from pipeline_contracts import ContractValidationError, validate_generated_asset
 
 
 class ReelPipelineTests(unittest.TestCase):
+    def test_incomplete_overlay_is_blocked_before_render_or_cache_reuse(self):
+        class RecordingManifest:
+            def __init__(self):
+                self.failures = []
+
+            def add_failure(self, *args, **kwargs):
+                self.failures.append((args, kwargs))
+
+            def has_job(self, _key):
+                raise AssertionError("semantic gate must run before cache reuse")
+
+        with tempfile.TemporaryDirectory() as td:
+            manifest = RecordingManifest()
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    "men, stop doing this:",
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    manifest,
+                    "4ddd4a07",
+                    13.666,
+                    {},
+                    {},
+                    asyncio.Semaphore(1),
+                )
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(
+            result["error"],
+            "burned_overlay_semantic_incomplete:missing_overlay_payoff_after_setup",
+        )
+        self.assertFalse(result["overlaySemanticQc"]["passed"])
+        self.assertEqual(len(manifest.failures), 1)
+
+    def test_incomplete_hook_is_allowed_when_recipe_does_not_burn_overlay(self):
+        class CachedManifest:
+            def __init__(self):
+                self.failures = []
+
+            def add_failure(self, *args, **kwargs):
+                self.failures.append((args, kwargs))
+
+            def has_job(self, _key):
+                return True
+
+            def materialize_cached_job(self, _source_stem, _key):
+                return True
+
+        with tempfile.TemporaryDirectory() as td:
+            manifest = CachedManifest()
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    "men, stop doing this:",
+                    0,
+                    Recipe("clean", burn_caption=False),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    manifest,
+                    "4ddd4a07",
+                    13.666,
+                    {},
+                    {},
+                    asyncio.Semaphore(1),
+                )
+            )
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(manifest.failures, [])
+
     def test_reel_pipeline_rejects_retired_asset_prompt_escape_hatch(self):
         from reel_factory import reel_pipeline
 

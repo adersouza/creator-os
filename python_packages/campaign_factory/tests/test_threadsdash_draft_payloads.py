@@ -196,6 +196,97 @@ def test_threadsdash_export_disabled_variation_preserves_master_media(tmp_path: 
         cf.close()
 
 
+def test_threadsdash_export_blocks_incomplete_burned_overlay_regression(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        caption = "men, stop doing this:"
+        context = {
+            "schema": "campaign_factory.caption_outcome_context.v1",
+            "caption_hash": threadsdash_client_adapter._text_hash(caption),
+            "caption_text": caption,
+        }
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET caption = ?, caption_hash = ?, caption_outcome_context_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                caption,
+                threadsdash_client_adapter._text_hash(caption),
+                json.dumps(context),
+            ),
+        )
+        cf.conn.commit()
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                "burned_overlay_semantic_incomplete:"
+                "missing_overlay_payoff_after_setup:asset_1"
+            ),
+        ):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+    finally:
+        cf.close()
+
+
+def test_overlay_semantic_gate_does_not_treat_clean_media_as_burned_caption():
+    asset = {
+        "caption": "men, stop doing this:",
+        "generatedAssetLineage": {"captionBurnedIn": False},
+    }
+
+    assert threadsdash_payload_adapter._asset_caption_is_burned(asset) is False
+
+
+def test_threadsdash_export_preserves_real_timed_overlay_payoff_qc(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        caption = json.dumps(
+            {
+                "segments": [
+                    {"text": "men, stop doing this:", "end": 3.0},
+                    {"text": "sending one-word replies", "start": 3.0},
+                ]
+            },
+            sort_keys=True,
+        )
+        context = {
+            "schema": "campaign_factory.caption_outcome_context.v1",
+            "caption_hash": threadsdash_client_adapter._text_hash(caption),
+            "caption_text": caption,
+        }
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET caption = ?, caption_hash = ?, caption_outcome_context_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                caption,
+                threadsdash_client_adapter._text_hash(caption),
+                json.dumps(context),
+            ),
+        )
+        cf.conn.commit()
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        payload = build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+        qc = payload["drafts"][0]["metadata"]["campaign_factory"]["overlay_semantic_qc"]
+
+        assert qc["passed"] is True
+        assert qc["decision"] == "timed_payoff_present"
+        assert qc["distinct_segment_count"] == 2
+    finally:
+        cf.close()
+
+
 def test_threadsdash_selected_batch_prunes_manifest_and_fails_on_missing_ids(
     tmp_path: Path,
 ):

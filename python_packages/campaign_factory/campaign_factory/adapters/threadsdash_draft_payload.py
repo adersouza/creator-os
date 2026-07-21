@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
+from pipeline_contracts import evaluate_overlay_semantic_completeness
+
 from ..caption_outcome import (
     build_caption_outcome_context,
 )
@@ -124,6 +126,22 @@ def build_draft_payloads(
         caption_context = _caption_context_for_export(
             asset, caption=caption, file_path=file_path
         )
+        overlay_semantic_qc = evaluate_overlay_semantic_completeness(
+            (caption_context.get("caption_text") or caption)
+            if _asset_caption_is_burned(asset)
+            else None
+        )
+        caption_context["overlaySemanticQc"] = overlay_semantic_qc
+        caption_context["overlay_semantic_qc"] = overlay_semantic_qc
+        if overlay_semantic_qc.get("passed") is not True:
+            failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
+                "overlay_semantic_qc_failed"
+            ]
+            raise ValueError(
+                "burned_overlay_semantic_incomplete:"
+                + ",".join(str(reason) for reason in failure_reasons)
+                + f":{asset['renderedAssetId']}"
+            )
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)
         destinations = _draft_destinations_for_asset(
             factory,
@@ -328,6 +346,7 @@ def build_draft_payloads(
                 "sourceContentHash": asset.get("sourceContentHash"),
                 "captionHash": caption_hash,
                 "captionOutcomeContext": caption_context,
+                "overlaySemanticQc": overlay_semantic_qc,
                 "instagramPostCaption": post_caption["instagram_post_caption"],
                 "instagramPostCaptionHash": post_caption["instagram_post_caption_hash"],
                 "captionCta": post_caption["caption_cta"],
@@ -721,6 +740,25 @@ def _caption_context_for_export(
     )
 
 
+def _asset_caption_is_burned(asset: dict[str, Any]) -> bool:
+    records = [
+        asset,
+        asset.get("generatedAssetLineage"),
+        asset.get("captionOutcomeContext"),
+        asset.get("captionGeneration"),
+    ]
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in ("captionBurnedIn", "caption_burned_in"):
+            if isinstance(record.get(key), bool):
+                return bool(record[key])
+    # Legacy assets do not always carry the boolean. If they contain caption
+    # text, fail closed as a burned overlay rather than silently treating it as
+    # a separate Instagram post caption.
+    return bool(str(asset.get("caption") or "").strip())
+
+
 def _learning_cohort_metadata(asset: dict[str, Any]) -> dict[str, Any] | None:
     candidates = (
         asset.get("learningCohort"),
@@ -1077,6 +1115,13 @@ def _draft_metadata(
         if isinstance(draft.get("captionOutcomeContext"), dict)
         else {}
     )
+    overlay_semantic_qc = (
+        draft.get("overlaySemanticQc")
+        if isinstance(draft.get("overlaySemanticQc"), dict)
+        else caption_context.get("overlaySemanticQc")
+        or caption_context.get("overlay_semantic_qc")
+        or {}
+    )
     failure_reasons = list(
         publishability.get("publishability_failure_reasons")
         or publishability.get("failureReasons")
@@ -1271,6 +1316,7 @@ def _draft_metadata(
             or draft.get("captionHash"),
             "captionOutcomeContext": caption_context,
             "caption_outcome_context": caption_context,
+            "overlay_semantic_qc": overlay_semantic_qc,
             "caption_generation": draft.get("captionGeneration") or {},
             "recipe": draft.get("recipe"),
             "reference_pattern": draft.get("referencePattern") or {},

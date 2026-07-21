@@ -209,6 +209,18 @@ def _campaign_factory_manifest_blockers(
             )
         if meta.get("quarantined"):
             blockers.append(f"{rendered_asset_id}:quarantined_asset")
+        overlay_semantic_qc = meta.get("overlay_semantic_qc")
+        if (
+            isinstance(overlay_semantic_qc, dict)
+            and overlay_semantic_qc.get("passed") is False
+        ):
+            reasons = overlay_semantic_qc.get("failure_reasons") or [
+                "overlay_semantic_qc_failed"
+            ]
+            blockers.extend(
+                f"{rendered_asset_id}:overlay_semantic_qc:{reason}"
+                for reason in reasons
+            )
         if require_remote_media_urls:
             blockers.extend(
                 _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)

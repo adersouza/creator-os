@@ -1012,8 +1012,18 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
         metadata_context = payload["drafts"][0]["metadata"]["campaign_factory"][
             "captionOutcomeContext"
         ]
-        assert exported_context == context
-        assert metadata_context == context
+        for key, value in context.items():
+            assert exported_context[key] == value
+            assert metadata_context[key] == value
+        assert exported_context["overlaySemanticQc"]["passed"] is True
+        assert (
+            metadata_context["overlaySemanticQc"]
+            == exported_context["overlaySemanticQc"]
+        )
+        assert (
+            exported_context["overlay_semantic_qc"]
+            == exported_context["overlaySemanticQc"]
+        )
         assert exported_context["creator_model"] is None
     finally:
         cf.close()

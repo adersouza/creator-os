@@ -393,6 +393,7 @@ def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path
                     "formula": "{short claim} + one emoji",
                     "exampleCaptions": [
                         "DM me",
+                        "men, stop doing this:",
                         "this caption is intentionally way too long for schedule safe burned reel placement",
                         "GOING LIVE TONIGHT!!!",
                         "he can’t resist me 😈",
