@@ -411,6 +411,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 variation_preset=args.variation_preset,
                 publish_mode=args.publish_mode,
                 review_only=args.review_only,
+                draft_payload_schema=args.draft_payload_schema,
             )
         )
         return 0

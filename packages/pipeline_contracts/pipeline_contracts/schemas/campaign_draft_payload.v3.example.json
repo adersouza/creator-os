@@ -1,0 +1,100 @@
+{
+  "schema": "campaign_factory.threadsdash_drafts.v3",
+  "campaign": "caption_integrity_smoke",
+  "handoffMode": "publishable_draft",
+  "drafts": [
+    {
+      "platform": "instagram",
+      "status": "draft",
+      "distributionSurface": "regular_reel",
+      "instagramTrialReels": false,
+      "trialGraduationStrategy": null,
+      "shareToFeed": true,
+      "collaborators": [],
+      "metadata": {
+        "campaign_factory": {
+          "asset_state": "publishable_candidate",
+          "approved": true,
+          "captioned_render_present": true,
+          "visible_caption_verification": "pass",
+          "expected_visual_verification": "pass",
+          "content_fingerprint": "content_fp_rendered_asset_smoke",
+          "instagram_post_caption": "Hard launch energy.",
+          "instagram_post_caption_hash": "instagram_post_caption_hash_rendered",
+          "overlay_semantic_qc": {
+            "passed": true,
+            "failure_reasons": [],
+            "timed_sequence": false,
+            "policy_version": "overlay_payoff_v2"
+          },
+          "caption_timing_qc": {
+            "applicable": false,
+            "passed": true,
+            "failure_reasons": [],
+            "segment_count": 0,
+            "duration_seconds": null
+          },
+          "generated_asset_lineage": {
+            "schema": "reel_factory.generated_asset_lineage.v2",
+            "pipelineTraceId": "trace_generated_asset_003",
+            "campaignId": "campaign_smoke",
+            "recipeId": "static_mp4",
+            "captionHash": "caption_hash_rendered",
+            "renderedAssetId": "asset_smoke",
+            "contentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "variationApplied": false,
+            "variantId": null,
+            "audioIntentFingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "source": {
+              "referenceId": "ref_001",
+              "promptId": "prompt_001"
+            },
+            "generation": {
+              "tool": "reel_factory.static_mp4"
+            },
+            "review": {
+              "humanReviewRequired": true,
+              "status": "approved"
+            }
+          },
+          "captionOutcomeContext": {
+            "schema": "campaign_factory.caption_outcome_context.v1",
+            "caption_hash": "caption_hash_rendered",
+            "caption_text": "Hard launch energy."
+          },
+          "audio_intent": {
+            "schema": "pipeline.audio_intent.v1",
+            "mode": "native_platform_audio",
+            "required": false,
+            "status": "not_required",
+            "platform": "instagram",
+            "recommendations": [],
+            "gates": {
+              "allow_draft_export": true,
+              "allow_publish": false
+            }
+          },
+          "handoff_manifest": {
+            "manifest_version": 1,
+            "asset_id": "asset_smoke",
+            "render_file_id": "render_file_smoke",
+            "content_fingerprint": "content_fp_rendered_asset_smoke",
+            "caption_hash": "caption_hash_rendered",
+            "captionOutcomeContext": {
+              "schema": "campaign_factory.caption_outcome_context.v1"
+            },
+            "visual_verification_id": "visual_verify_smoke",
+            "caption_verification_id": "caption_verify_smoke",
+            "audio_id": "not_required",
+            "distribution_plan_id": "dist_smoke",
+            "exported_by_system": "campaign_factory",
+            "exported_at": "2026-07-21T12:00:00Z"
+          },
+          "readiness_checks_pass": true,
+          "visualQcStatus": "passed",
+          "identityVerificationStatus": "passed"
+        }
+      }
+    }
+  ]
+}

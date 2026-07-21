@@ -221,7 +221,14 @@ def _validate_against_threadsdash_snapshot(payload: dict[str, Any]) -> None:
         if isinstance(schema_id, str) and schema_id:
             resources.append((schema_id, resource))
     registry = Registry().with_resources(resources)
-    draft_schema_path = schema_dir / "campaign_draft_payload.v2.schema.json"
+    schema_version = str(payload.get("schema") or "").rsplit(".v", 1)[-1]
+    if schema_version not in {"2", "3"}:
+        raise AssertionError(
+            f"unsupported dashboard draft schema: {payload.get('schema')}"
+        )
+    draft_schema_path = (
+        schema_dir / f"campaign_draft_payload.v{schema_version}.schema.json"
+    )
     draft_schema = json.loads(draft_schema_path.read_text(encoding="utf-8"))
     errors = sorted(
         Draft202012Validator(draft_schema, registry=registry).iter_errors(payload),

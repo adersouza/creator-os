@@ -14,6 +14,8 @@ export const CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID =
 	generatedPipelineContractSchemas.campaignDraftPayload.$id;
 export const CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID =
 	generatedPipelineContractSchemas.campaignDraftPayloadV2.$id;
+export const CAMPAIGN_DRAFT_PAYLOAD_V3_SCHEMA_ID =
+	generatedPipelineContractSchemas.campaignDraftPayloadV3.$id;
 export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
 	CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID;
 export const AUDIO_CATALOG_EXPORT_SCHEMA_ID =
@@ -132,6 +134,8 @@ export const campaignDraftPayloadSchema =
 	generatedPipelineContractSchemas.campaignDraftPayload;
 export const campaignDraftPayloadV2Schema =
 	generatedPipelineContractSchemas.campaignDraftPayloadV2;
+export const campaignDraftPayloadV3Schema =
+	generatedPipelineContractSchemas.campaignDraftPayloadV3;
 
 export const repurposingPlanSchema =
 	generatedPipelineContractSchemas.repurposingPlan;
@@ -808,6 +812,8 @@ export function validateCampaignFactoryDraftPayload(
 			? generatedPipelineContractSchemas.campaignDraftPayload
 			: value.schema === CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID
 				? generatedPipelineContractSchemas.campaignDraftPayloadV2
+				: value.schema === CAMPAIGN_DRAFT_PAYLOAD_V3_SCHEMA_ID
+					? generatedPipelineContractSchemas.campaignDraftPayloadV3
 				: null;
 	const errors = contractSchema
 		? schemaErrors(contractSchema, value, "draft payload")

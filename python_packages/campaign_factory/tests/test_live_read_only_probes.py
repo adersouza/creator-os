@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from campaign_factory.adapters import threadsdash_draft_delivery
 from campaign_factory.adapters.threadsdash_handshake import (
     build_handshake_payload,
     configured_handshake_url,
@@ -43,15 +44,24 @@ def test_handshake_validates_zero_write_response_and_uses_shared_trace() -> None
     def open_request(request, timeout: float):
         captured["request"] = request
         captured["timeout"] = timeout
+        proposal = build_handshake_payload(trace_id)
         response = {
             "success": True,
-            "schema": "threadsdashboard.campaign_factory_handshake.v1",
+            "schema": "threadsdashboard.campaign_factory_handshake.v2",
             "ok": True,
             "traceId": trace_id,
             "authMode": "hmac",
             "nonceClaimed": True,
-            "contracts": build_handshake_payload(trace_id)["contracts"],
-            "capabilities": build_handshake_payload(trace_id)["capabilities"],
+            "contracts": {
+                "draftPayload": proposal["contracts"]["draftPayload"]["preferred"],
+                "supportedDraftPayloads": proposal["contracts"]["draftPayload"][
+                    "supported"
+                ],
+                "generatedAssetLineage": proposal["contracts"]["generatedAssetLineage"],
+                "audioIntent": proposal["contracts"]["audioIntent"],
+                "performanceMetrics": proposal["contracts"]["performanceMetrics"],
+            },
+            "capabilities": proposal["capabilities"],
             "productRowsWritten": 0,
         }
         return Response(json.dumps(response).encode())
@@ -69,10 +79,47 @@ def test_handshake_validates_zero_write_response_and_uses_shared_trace() -> None
     assert result["status"] == "PASS"
     assert result["productRowsWritten"] == 0
     assert result["traceId"] == trace_id
+    assert result["selectedDraftPayload"] == "campaign_factory.threadsdash_drafts.v3"
     assert captured["timeout"] == 10.0
     request = captured["request"]
     assert request.get_method() == "POST"
     assert request.get_header("X-campaign-factory-signature").startswith("v1=")
+
+
+def test_handshake_v1_remains_available_for_legacy_probe() -> None:
+    trace_id = "trace_legacy_1234567890"
+    proposal = build_handshake_payload(
+        trace_id,
+        handshake_schema="campaign_factory.threadsdash_handshake.v1",
+    )
+
+    def open_request(_request, _timeout: float):
+        return Response(
+            json.dumps(
+                {
+                    "success": True,
+                    "schema": "threadsdashboard.campaign_factory_handshake.v1",
+                    "ok": True,
+                    "traceId": trace_id,
+                    "authMode": "hmac",
+                    "nonceClaimed": True,
+                    "contracts": proposal["contracts"],
+                    "capabilities": proposal["capabilities"],
+                    "productRowsWritten": 0,
+                }
+            ).encode()
+        )
+
+    result = run_threadsdash_handshake(
+        url="http://localhost:3000/api/campaign-factory/handshake",
+        secret="test-secret",
+        trace_id=trace_id,
+        env={"CAMPAIGN_FACTORY_ALLOW_LOCAL_THREADSDASH_INGEST": "1"},
+        open_request=open_request,
+        handshake_schema="campaign_factory.threadsdash_handshake.v1",
+    )
+
+    assert result["selectedDraftPayload"] == "campaign_factory.threadsdash_drafts.v2"
 
 
 def test_handshake_configuration_and_url_fail_closed() -> None:
@@ -90,6 +137,67 @@ def test_handshake_configuration_and_url_fail_closed() -> None:
         validate_handshake_url("https://example.com/api/campaign-factory/handshake")
     with pytest.raises(ValueError, match="must use https"):
         validate_handshake_url("http://juno33.com/api/campaign-factory/handshake")
+
+
+@pytest.mark.parametrize(
+    ("payload_schema", "expected_handshake"),
+    [
+        (
+            "campaign_factory.threadsdash_drafts.v3",
+            "campaign_factory.threadsdash_handshake.v2",
+        ),
+        (
+            "campaign_factory.threadsdash_drafts.v2",
+            "campaign_factory.threadsdash_handshake.v1",
+        ),
+    ],
+)
+def test_live_export_negotiates_the_exact_requested_contract_before_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    payload_schema: str,
+    expected_handshake: str,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def handshake(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "status": "PASS",
+            "selectedDraftPayload": payload_schema,
+        }
+
+    monkeypatch.setattr(
+        threadsdash_draft_delivery, "run_threadsdash_handshake", handshake
+    )
+    result = threadsdash_draft_delivery._negotiate_threadsdash_draft_payload(
+        payload_schema=payload_schema,
+        ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
+        ingest_secret="secret",
+    )
+
+    assert result["selectedDraftPayload"] == payload_schema
+    assert captured["handshake_schema"] == expected_handshake
+    assert captured["url"] == "https://juno33.com/api/campaign-factory/handshake"
+
+
+def test_live_export_rejects_a_negotiated_contract_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        threadsdash_draft_delivery,
+        "run_threadsdash_handshake",
+        lambda **_kwargs: {
+            "status": "PASS",
+            "selectedDraftPayload": "campaign_factory.threadsdash_drafts.v2",
+        },
+    )
+
+    with pytest.raises(ValueError, match="selected a different draft payload"):
+        threadsdash_draft_delivery._negotiate_threadsdash_draft_payload(
+            payload_schema="campaign_factory.threadsdash_drafts.v3",
+            ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
+            ingest_secret="secret",
+        )
 
 
 def test_provider_probe_calls_only_allowlisted_read_only_commands(

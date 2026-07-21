@@ -334,6 +334,15 @@ def register_core_commands(sub) -> None:
     export.add_argument("--enable-variation", action="store_true")
     export.add_argument("--variation-preset", default="ig_subtle")
     export.add_argument(
+        "--draft-payload-schema",
+        choices=["v3", "v2"],
+        default="v3",
+        help=(
+            "ThreadsDashboard draft contract. v3 is current; use v2 only for an "
+            "explicit compatibility rollback."
+        ),
+    )
+    export.add_argument(
         "--review-only",
         action="store_true",
         help="Export review_ready assets as unapproved, unscheduled review drafts",

@@ -1539,9 +1539,7 @@ export const generatedPipelineContractSchemas = {
 	                  "handoff_manifest",
 	                  "readiness_checks_pass",
 	                  "visualQcStatus",
-	                  "identityVerificationStatus",
-	                  "overlay_semantic_qc",
-	                  "caption_timing_qc"
+	                  "identityVerificationStatus"
 	                ],
 	                "properties": {
 	                  "asset_state": {
@@ -1591,56 +1589,6 @@ export const generatedPipelineContractSchemas = {
 	                  },
 	                  "content_fingerprint": {
 	                    "type": "string"
-	                  },
-	                  "overlay_semantic_qc": {
-	                    "type": "object",
-	                    "required": [
-	                      "passed",
-	                      "failure_reasons"
-	                    ],
-	                    "properties": {
-	                      "passed": {
-	                        "type": "boolean"
-	                      },
-	                      "failure_reasons": {
-	                        "type": "array",
-	                        "items": {
-	                          "type": "string"
-	                        }
-	                      },
-	                      "timed_sequence": {
-	                        "type": "boolean"
-	                      },
-	                      "policy_version": {
-	                        "type": "string"
-	                      }
-	                    },
-	                    "additionalProperties": true
-	                  },
-	                  "caption_timing_qc": {
-	                    "type": "object",
-	                    "properties": {
-	                      "passed": {
-	                        "type": "boolean"
-	                      },
-	                      "failure_reasons": {
-	                        "type": "array",
-	                        "items": {
-	                          "type": "string"
-	                        }
-	                      },
-	                      "segment_count": {
-	                        "type": "integer",
-	                        "minimum": 0
-	                      },
-	                      "duration_seconds": {
-	                        "type": [
-	                          "number",
-	                          "null"
-	                        ]
-	                      }
-	                    },
-	                    "additionalProperties": true
 	                  },
 	                  "publishability_failure_reasons": {
 	                    "type": "array",
@@ -1899,51 +1847,6 @@ export const generatedPipelineContractSchemas = {
 	                    ]
 	                  }
 	                },
-	                "allOf": [
-	                  {
-	                    "if": {
-	                      "properties": {
-	                        "overlay_semantic_qc": {
-	                          "required": [
-	                            "timed_sequence"
-	                          ],
-	                          "properties": {
-	                            "timed_sequence": {
-	                              "const": true
-	                            }
-	                          }
-	                        }
-	                      }
-	                    },
-	                    "then": {
-	                      "properties": {
-	                        "caption_timing_qc": {
-	                          "required": [
-	                            "passed",
-	                            "failure_reasons",
-	                            "segment_count",
-	                            "duration_seconds"
-	                          ],
-	                          "properties": {
-	                            "passed": {
-	                              "const": true
-	                            },
-	                            "failure_reasons": {
-	                              "maxItems": 0
-	                            },
-	                            "segment_count": {
-	                              "minimum": 1
-	                            },
-	                            "duration_seconds": {
-	                              "type": "number",
-	                              "exclusiveMinimum": 0
-	                            }
-	                          }
-	                        }
-	                      }
-	                    }
-	                  }
-	                ],
 	                "additionalProperties": true
 	              }
 	            },
@@ -2051,6 +1954,199 @@ export const generatedPipelineContractSchemas = {
 	        "null"
 	      ],
 	      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+	    }
+	  }
+	} as const,
+	campaignDraftPayloadV3: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "campaign_factory.threadsdash_drafts.v3",
+	  "title": "Campaign Factory ThreadsDashboard Draft Payload v3",
+	  "type": "object",
+	  "additionalProperties": true,
+	  "required": [
+	    "schema",
+	    "campaign",
+	    "drafts"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.threadsdash_drafts.v3"
+	    },
+	    "campaign": {
+	      "type": "string"
+	    },
+	    "userId": {
+	      "type": "string"
+	    },
+	    "handoffMode": {
+	      "type": "string",
+	      "enum": [
+	        "publishable_draft",
+	        "review_only"
+	      ]
+	    },
+	    "drafts": {
+	      "type": "array",
+	      "items": {
+	        "allOf": [
+	          {
+	            "$ref": "campaign_draft_payload.v2.schema.json#/properties/drafts/items"
+	          },
+	          {
+	            "type": "object",
+	            "properties": {
+	              "metadata": {
+	                "type": "object",
+	                "properties": {
+	                  "campaign_factory": {
+	                    "type": "object",
+	                    "required": [
+	                      "overlay_semantic_qc",
+	                      "caption_timing_qc"
+	                    ],
+	                    "properties": {
+	                      "overlay_semantic_qc": {
+	                        "type": "object",
+	                        "additionalProperties": true,
+	                        "required": [
+	                          "passed",
+	                          "failure_reasons",
+	                          "timed_sequence",
+	                          "policy_version"
+	                        ],
+	                        "properties": {
+	                          "passed": {
+	                            "const": true
+	                          },
+	                          "failure_reasons": {
+	                            "type": "array",
+	                            "maxItems": 0,
+	                            "items": {
+	                              "type": "string"
+	                            }
+	                          },
+	                          "timed_sequence": {
+	                            "type": "boolean"
+	                          },
+	                          "policy_version": {
+	                            "type": "string",
+	                            "minLength": 1
+	                          }
+	                        }
+	                      },
+	                      "caption_timing_qc": {
+	                        "type": "object",
+	                        "additionalProperties": true,
+	                        "required": [
+	                          "applicable",
+	                          "passed",
+	                          "failure_reasons",
+	                          "segment_count",
+	                          "duration_seconds"
+	                        ],
+	                        "properties": {
+	                          "applicable": {
+	                            "type": "boolean"
+	                          },
+	                          "passed": {
+	                            "const": true
+	                          },
+	                          "failure_reasons": {
+	                            "type": "array",
+	                            "maxItems": 0,
+	                            "items": {
+	                              "type": "string"
+	                            }
+	                          },
+	                          "segment_count": {
+	                            "type": "integer",
+	                            "minimum": 0
+	                          },
+	                          "duration_seconds": {
+	                            "type": [
+	                              "number",
+	                              "null"
+	                            ]
+	                          }
+	                        },
+	                        "allOf": [
+	                          {
+	                            "if": {
+	                              "properties": {
+	                                "applicable": {
+	                                  "const": true
+	                                }
+	                              }
+	                            },
+	                            "then": {
+	                              "properties": {
+	                                "segment_count": {
+	                                  "minimum": 1
+	                                },
+	                                "duration_seconds": {
+	                                  "type": "number",
+	                                  "exclusiveMinimum": 0
+	                                }
+	                              }
+	                            },
+	                            "else": {
+	                              "properties": {
+	                                "segment_count": {
+	                                  "const": 0
+	                                },
+	                                "duration_seconds": {
+	                                  "const": null
+	                                }
+	                              }
+	                            }
+	                          }
+	                        ]
+	                      }
+	                    },
+	                    "allOf": [
+	                      {
+	                        "if": {
+	                          "properties": {
+	                            "overlay_semantic_qc": {
+	                              "properties": {
+	                                "timed_sequence": {
+	                                  "const": true
+	                                }
+	                              }
+	                            }
+	                          }
+	                        },
+	                        "then": {
+	                          "properties": {
+	                            "caption_timing_qc": {
+	                              "properties": {
+	                                "applicable": {
+	                                  "const": true
+	                                }
+	                              }
+	                            }
+	                          }
+	                        },
+	                        "else": {
+	                          "properties": {
+	                            "caption_timing_qc": {
+	                              "properties": {
+	                                "applicable": {
+	                                  "const": false
+	                                }
+	                              }
+	                            }
+	                          }
+	                        }
+	                      }
+	                    ]
+	                  }
+	                }
+	              }
+	            }
+	          }
+	        ]
+	      }
 	    }
 	  }
 	} as const,
@@ -6660,6 +6756,105 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	threadsdashHandshakeV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/contracts/threadsdash_handshake.v2.schema.json",
+	  "title": "Campaign Factory ThreadsDashboard Contract Negotiation v2",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "traceId",
+	    "contracts",
+	    "capabilities"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.threadsdash_handshake.v2"
+	    },
+	    "traceId": {
+	      "type": "string",
+	      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+	    },
+	    "contracts": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "draftPayload",
+	        "generatedAssetLineage",
+	        "audioIntent",
+	        "performanceMetrics"
+	      ],
+	      "properties": {
+	        "draftPayload": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "preferred",
+	            "supported"
+	          ],
+	          "properties": {
+	            "preferred": {
+	              "const": "campaign_factory.threadsdash_drafts.v3"
+	            },
+	            "supported": {
+	              "type": "array",
+	              "minItems": 2,
+	              "uniqueItems": true,
+	              "items": {
+	                "enum": [
+	                  "campaign_factory.threadsdash_drafts.v3",
+	                  "campaign_factory.threadsdash_drafts.v2"
+	                ]
+	              },
+	              "allOf": [
+	                {
+	                  "contains": {
+	                    "const": "campaign_factory.threadsdash_drafts.v3"
+	                  }
+	                },
+	                {
+	                  "contains": {
+	                    "const": "campaign_factory.threadsdash_drafts.v2"
+	                  }
+	                }
+	              ]
+	            }
+	          }
+	        },
+	        "generatedAssetLineage": {
+	          "const": "reel_factory.generated_asset_lineage.v2"
+	        },
+	        "audioIntent": {
+	          "const": "pipeline.audio_intent.v1"
+	        },
+	        "performanceMetrics": {
+	          "const": "threadsdashboard.post_metric_history.read.v1"
+	        }
+	      }
+	    },
+	    "capabilities": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "draftOnly",
+	        "schedulingAllowed",
+	        "publishingAllowed"
+	      ],
+	      "properties": {
+	        "draftOnly": {
+	          "const": true
+	        },
+	        "schedulingAllowed": {
+	          "const": false
+	        },
+	        "publishingAllowed": {
+	          "const": false
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	variantAssignment: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.variant_assignment.v1",
@@ -6837,6 +7032,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "audioIntent", filename: "audio_intent.v1.schema.json", id: "pipeline.audio_intent.v1" },
 	{ key: "campaignDraftPayload", filename: "campaign_draft_payload.v1.schema.json", id: "campaign_factory.threadsdash_drafts.v1" },
 	{ key: "campaignDraftPayloadV2", filename: "campaign_draft_payload.v2.schema.json", id: "campaign_factory.threadsdash_drafts.v2" },
+	{ key: "campaignDraftPayloadV3", filename: "campaign_draft_payload.v3.schema.json", id: "campaign_factory.threadsdash_drafts.v3" },
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
 	{ key: "contentforgeCampaignAuditResponse", filename: "contentforge_campaign_audit_response.v1.schema.json", id: "contentforge.campaign_factory_audit_response.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
@@ -6861,6 +7057,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
 	{ key: "threadsdashHandshake", filename: "threadsdash_handshake.v1.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json" },
+	{ key: "threadsdashHandshakeV2", filename: "threadsdash_handshake.v2.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v2.schema.json" },
 	{ key: "variantAssignment", filename: "variant_assignment.v1.schema.json", id: "campaign_factory.variant_assignment.v1" },
 	{ key: "videoAnalysis", filename: "video_analysis.v1.schema.json", id: "reference_factory.video_analysis.v1" },
 ] as const;

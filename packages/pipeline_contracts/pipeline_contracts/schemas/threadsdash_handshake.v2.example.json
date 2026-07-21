@@ -1,0 +1,21 @@
+{
+  "schema": "campaign_factory.threadsdash_handshake.v2",
+  "traceId": "trace_handshake_v2_1234567890",
+  "contracts": {
+    "draftPayload": {
+      "preferred": "campaign_factory.threadsdash_drafts.v3",
+      "supported": [
+        "campaign_factory.threadsdash_drafts.v3",
+        "campaign_factory.threadsdash_drafts.v2"
+      ]
+    },
+    "generatedAssetLineage": "reel_factory.generated_asset_lineage.v2",
+    "audioIntent": "pipeline.audio_intent.v1",
+    "performanceMetrics": "threadsdashboard.post_metric_history.read.v1"
+  },
+  "capabilities": {
+    "draftOnly": true,
+    "schedulingAllowed": false,
+    "publishingAllowed": false
+  }
+}

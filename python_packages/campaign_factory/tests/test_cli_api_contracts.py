@@ -55,6 +55,23 @@ def test_export_threadsdash_cli_defaults_to_regular_reel_surface():
     )
 
     assert args.surface == "regular_reel"
+    assert args.draft_payload_schema == "v3"
+
+
+def test_export_threadsdash_cli_allows_explicit_v2_rollback():
+    args = build_cli_parser().parse_args(
+        [
+            "export-threadsdash",
+            "--campaign",
+            "may",
+            "--user-id",
+            "user_1",
+            "--draft-payload-schema",
+            "v2",
+        ]
+    )
+
+    assert args.draft_payload_schema == "v2"
 
 
 def test_export_threadsdash_api_defaults_to_regular_reel_surface(monkeypatch):
@@ -74,6 +91,32 @@ def test_export_threadsdash_api_defaults_to_regular_reel_surface(monkeypatch):
 
     assert app_module.export_td({"campaign": "may", "userId": "user_1"}) == {"ok": True}
     assert captured["surface"] == "regular_reel"
+    assert captured["draft_payload_schema"] == "v3"
+
+
+def test_export_threadsdash_api_allows_explicit_v2_rollback(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeFactory:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def fake_export(_factory, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(app_module, "export_threadsdash", fake_export)
+
+    assert app_module.export_td(
+        {
+            "campaign": "may",
+            "userId": "user_1",
+            "draftPayloadSchema": "v2",
+        }
+    ) == {"ok": True}
+    assert captured["draft_payload_schema"] == "v2"
 
 
 def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
@@ -140,6 +183,7 @@ def test_contract_schema_examples_validate():
         "audio_catalog_export.v1.example.json",
         "campaign_draft_payload.v1.example.json",
         "campaign_draft_payload.v2.example.json",
+        "campaign_draft_payload.v3.example.json",
         "caption_outcome_context.v1.example.json",
         "contentforge_campaign_audit_response.v1.example.json",
         "creative_plan.v1.example.json",
@@ -162,6 +206,7 @@ def test_contract_schema_examples_validate():
         "reference_video_remix_plan.v1.example.json",
         "reference_factory_knowledge_pack.v1.example.json",
         "threadsdash_handshake.v1.example.json",
+        "threadsdash_handshake.v2.example.json",
         "variant_assignment.v1.example.json",
         "video_analysis.v1.example.json",
     }
