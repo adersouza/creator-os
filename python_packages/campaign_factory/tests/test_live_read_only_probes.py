@@ -200,8 +200,10 @@ def test_live_export_rejects_a_negotiated_contract_mismatch(
         )
 
 
+@pytest.mark.parametrize("model_key", ["job_type", "job_set_type", "id", "model_id"])
 def test_provider_probe_calls_only_allowlisted_read_only_commands(
     tmp_path: Path,
+    model_key: str,
 ) -> None:
     artifact_root = tmp_path / "artifacts"
     artifact_root.mkdir()
@@ -214,11 +216,11 @@ def test_provider_probe_calls_only_allowlisted_read_only_commands(
         elif command[1:3] == ["workspace", "status"]:
             payload = {"workspace": {"id": "private"}}
         elif "--image" in command:
-            payload = [{"job_set_type": "text2image_soul_v2"}]
+            payload = [{model_key: "text2image_soul_v2"}]
         elif "--video" in command:
             payload = [
-                {"job_set_type": "kling_3_0"},
-                {"job_set_type": "seedance_2_0"},
+                {model_key: "kling_3_0"},
+                {model_key: "seedance_2_0"},
             ]
         else:
             payload = {"credits": 1, "credits_exact": 0.12}

@@ -15,7 +15,7 @@ reel_factory/discoverability_safety.py:audit_caption_sources:103
 reel_factory/embedding_provider.py:get_embedding_provider:95
 reel_factory/embedding_provider.py:get_embedding_provider:102
 reel_factory/generate_assets.py:single_image_layout_status:204
-reel_factory/generation_provider.py:download_result:648
+reel_factory/generation_provider.py:download_result:640
 reel_factory/generation_qc.py:generated_video_qc:122
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131

@@ -9,6 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.provider_models import model_identifiers
+
 SOUL_MODEL = "text2image_soul_v2"
 REQUIRED_VIDEO_MODEL_TOKENS = ("kling", "seedance")
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
@@ -114,11 +116,11 @@ def _json_command(run: Runner, command: list[str]) -> Any:
 def _model_names(value: Any) -> set[str]:
     if not isinstance(value, list):
         raise RuntimeError("provider model list was not returned")
-    return {
-        str(item.get("job_set_type", "")).lower()
-        for item in value
-        if isinstance(item, dict) and item.get("job_set_type")
-    }
+    names: set[str] = set()
+    for item in value:
+        if isinstance(item, dict):
+            names.update(model_identifiers(item))
+    return names
 
 
 def _number(value: Any, *keys: str) -> float | None:
