@@ -5,14 +5,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .creative_modes import creative_workflow_mode
-from .front_generation_stage import run_front_generation_stage
 from .generation_execution_plan import (
     GenerationExecutionPlan,
     build_generation_execution_plan,
     require_generation_execution_mode,
 )
-from .motion_edit_stage import run_motion_edit_stage
-from .static_mp4_stage import run_static_mp4_stage
 
 if TYPE_CHECKING:
     from .reference_video_remix_stage import ReferenceVideoRemixSeams
@@ -77,6 +74,8 @@ def run_generation_workflow(
     elif mode_id == "soul_static":
         require_generation_execution_mode(execution_plan, "soul_static")
         if accepted_still_path is not None:
+            from .static_mp4_stage import run_static_mp4_stage
+
             result = run_static_mp4_stage(
                 factory,
                 campaign_slug=campaign_slug,
@@ -87,6 +86,8 @@ def run_generation_workflow(
                 allow_upscale=allow_upscale,
             )
         else:
+            from .front_generation_stage import run_front_generation_stage
+
             _require(reference_image_path, "reference_image_path")
             _require(creator or soul_id, "creator or soul_id")
             if live:
@@ -125,6 +126,8 @@ def run_generation_workflow(
             allow_upscale=allow_upscale,
         )
     elif mode_id == "best_only_kling":
+        from .front_generation_stage import run_front_generation_stage
+
         require_generation_execution_mode(execution_plan, "best_only_kling")
         _require(reference_image_path, "reference_image_path")
         _require(accepted_still_path, "accepted_still_path")
@@ -320,6 +323,9 @@ def _run_motion_edit_mode(
     apply: bool,
     allow_upscale: bool,
 ) -> dict[str, Any]:
+    from .motion_edit_stage import run_motion_edit_stage
+    from .static_mp4_stage import run_static_mp4_stage
+
     require_generation_execution_mode(execution_plan, "motion_edit")
     _require(accepted_still_path, "accepted_still_path")
     caption = str(caption or "").strip()

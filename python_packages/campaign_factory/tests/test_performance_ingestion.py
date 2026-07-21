@@ -695,7 +695,15 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
 
         eligibility = (
             threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
-                cf, row=row, meta=meta
+                cf,
+                row=row,
+                meta=meta,
+                metric_history_rows=[
+                    {
+                        "post_id": "post_feed_single_v2",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ],
             )
         )
 
@@ -707,7 +715,15 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
         missing_identity.pop("permalink")
         missing_identity.pop("published_at")
         blocked = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
-            cf, row=missing_identity, meta=meta
+            cf,
+            row=missing_identity,
+            meta=meta,
+            metric_history_rows=[
+                {
+                    "post_id": "post_feed_single_v2",
+                    "snapshot_at": "2026-01-03T01:00:00+00:00",
+                }
+            ],
         )
         assert blocked["eligible"] is False
         assert set(blocked["blockingReasons"]) >= {
@@ -715,6 +731,30 @@ def test_feed_single_manifest_v2_is_metrics_eligible_after_publish(tmp_path: Pat
             "missing_instagram_permalink",
             "missing_instagram_published_at",
         }
+
+        no_history = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf, row=row, meta=meta, metric_history_rows=[]
+            )
+        )
+        assert no_history["eligible"] is False
+        assert "missing_metric_history_evidence" in no_history["blockingReasons"]
+
+        foreign_history = (
+            threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
+                cf,
+                row=row,
+                meta=meta,
+                metric_history_rows=[
+                    {
+                        "post_id": "different_post",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ],
+            )
+        )
+        assert foreign_history["eligible"] is False
+        assert "missing_metric_history_evidence" in foreign_history["blockingReasons"]
     finally:
         cf.close()
 
@@ -765,7 +805,15 @@ def test_story_metrics_eligibility_allows_blank_story_caption_hash(tmp_path: Pat
 
         eligibility = (
             threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
-                cf, row=row, meta=meta
+                cf,
+                row=row,
+                meta=meta,
+                metric_history_rows=[
+                    {
+                        "post_id": "post_story_metrics",
+                        "snapshot_at": "2026-01-03T01:00:00+00:00",
+                    }
+                ],
             )
         )
 
@@ -1104,7 +1152,7 @@ def test_metric_history_read_detects_truncation():
     assert len(rows) == 48
 
 
-def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
+def test_metric_history_failure_records_no_metrics_eligible_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     cf = make_factory(tmp_path)
@@ -1176,7 +1224,7 @@ def test_metric_history_failure_fails_open_but_fallback_is_learning_ineligible(
         assert result["learningIneligiblePosts"] == 2
         assert result["learningIneligibleSnapshots"] == 0
         assert result["learningIneligibleReasons"] == {
-            "metrics_not_observed": 1,
+            "metrics_not_eligible": 1,
             "manual_no_lineage": 1,
         }
         assert result["learningReadiness"]["counts"]["eligiblePosts"] == 0
@@ -1338,7 +1386,28 @@ def test_sync_performance_snapshots_imports_caption_outcome_context_columns(
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return []
+                return _slice_rows(
+                    [
+                        {
+                            "id": "hist_caption_outcome_24h",
+                            "post_id": "post_caption_outcome",
+                            "account_id": "ig_lola_1",
+                            "platform": "instagram",
+                            "snapshot_at": "2026-01-03T01:00:00+00:00",
+                            "hours_since_publish": 24,
+                            "views_count": 1400,
+                            "likes_count": 90,
+                            "replies_count": 10,
+                            "reposts_count": 0,
+                            "quotes_count": 0,
+                            "shares_count": 15,
+                            "saves_count": 24,
+                            "reach": 1200,
+                            "engagement_rate": 0.099,
+                        }
+                    ],
+                    params,
+                )
             assert table == "posts"
             assert params["user_id"] == "eq.user_1"
             offset = int(params.get("offset", 0))
@@ -1454,7 +1523,28 @@ def test_sync_performance_preserves_null_transport_fields_in_caption_context(
 
         def select(self, table, params):
             if table == "post_metric_history":
-                return []
+                return _slice_rows(
+                    [
+                        {
+                            "id": "hist_transport_recipe_24h",
+                            "post_id": "post_transport_recipe",
+                            "account_id": "ig_stacey_1",
+                            "platform": "instagram",
+                            "snapshot_at": "2026-01-03T01:00:00+00:00",
+                            "hours_since_publish": 24,
+                            "views_count": 100,
+                            "likes_count": 10,
+                            "replies_count": 1,
+                            "reposts_count": 0,
+                            "quotes_count": 0,
+                            "shares_count": 1,
+                            "saves_count": 2,
+                            "reach": 90,
+                            "engagement_rate": 0.15,
+                        }
+                    ],
+                    params,
+                )
             assert table == "posts"
             offset = int(params.get("offset", 0))
             limit = int(params.get("limit", len(rows)))

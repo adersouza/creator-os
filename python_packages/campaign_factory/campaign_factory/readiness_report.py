@@ -71,6 +71,10 @@ class ReadinessReportRepository:
         return {
             **proof,
             "schema": "creator_os.100_account_proof.v1",
+            "scenarioPassed": bool(proof.get("acceptancePassed")),
+            "acceptancePassed": None,
+            "operationallyProven": False,
+            "evidenceStatus": "synthetic_acceptance_scenario_only",
             "inventoryBuffer": 900,
             "warmingAccounts": 15,
             "restrictedAccounts": 5,
@@ -94,7 +98,10 @@ class ReadinessReportRepository:
                 "accounts": accounts,
                 "postsPerDay": posts,
                 "inventoryBuffer": posts * 3,
-                "acceptancePassed": bool(proof.get("acceptancePassed")),
+                "scenarioPassed": bool(proof.get("acceptancePassed")),
+                "acceptancePassed": None,
+                "operationallyProven": False,
+                "evidenceStatus": "synthetic_acceptance_scenario_only",
                 "blockedAccounts": proof.get("blockedAccounts"),
                 "inventoryShortfall": proof.get("inventoryShortfall"),
                 "wouldWrite": False,
@@ -102,6 +109,8 @@ class ReadinessReportRepository:
         return {
             "schema": "creator_os.volume_acceptance_suite.v1",
             "tiers": tiers,
+            "evidenceStatus": "synthetic_acceptance_scenarios_only",
+            "operationallyProven": False,
             "wouldWrite": False,
         }
 
@@ -162,33 +171,36 @@ class ReadinessReportRepository:
         )
         surface = self.surface_readiness_scorecard()
         scores = {
-            "architecture": 9.3,
-            "inventory": 9.4 if inventory_plan.get("repairActions") else 8.8,
-            "exceptionHandling": 9.4,
-            "operatorLoad": 9.0,
-            "surfaceCoverage": 8.8,
-            "learning": 8.9,
-            "scaleReadiness": 8.8 if proof_100.get("acceptancePassed") else 8.3,
+            "architecture": None,
+            "inventory": None,
+            "exceptionHandling": None,
+            "operatorLoad": None,
+            "surfaceCoverage": None,
+            "learning": None,
+            "scaleReadiness": None,
+            "overall": None,
         }
-        scores["overall"] = round(sum(scores.values()) / len(scores), 1)
         success = {
-            "canRun100Accounts": bool(proof_100.get("acceptancePassed")),
-            "canRun200Accounts": bool(
-                (volume.get("tiers") or {}).get("200", {}).get("acceptancePassed")
-            ),
+            "canRun100Accounts": None,
+            "canRun200Accounts": None,
             "largestRemainingOperationalRisk": "parent_inventory_throughput",
-            "inventoryAutopilotReady": bool(inventory_plan.get("repairActions")),
-            "exceptionQueueReady": True,
+            "inventoryAutopilotReady": None,
+            "inventoryRepairPlanAvailable": bool(inventory_plan.get("repairActions")),
+            "exceptionQueueReady": None,
             "requiredParentsPerDayKnown": int(
                 parent_plan.get("requiredParentsToday") or 0
             )
             == 53,
             "inventoryRepairPlanKnown": bool(inventory_plan.get("repairActions")),
-            "overallRating": "9.5+",
+            "overallRating": "unverified",
+            "operationallyProven": False,
+            "evidenceStatus": "planning_model_only",
         }
         final = {
-            "currentRating": 8.9,
-            "projectedRatingAfterSprint": max(9.5, scores["overall"]),
+            "currentRating": None,
+            "projectedRatingAfterSprint": None,
+            "releaseReady": False,
+            "evidenceStatus": "live_operational_evidence_not_supplied",
             "remainingBlockersTo10": [
                 "live 100+ account operational run",
                 "measured 53 parent/day Reel Factory throughput",
@@ -197,12 +209,15 @@ class ReadinessReportRepository:
         }
         return {
             "schema": "creator_os.10_0_readiness_report.v1",
+            "releaseReady": False,
+            "evidenceStatus": "unverified_planning_model",
             "scores": scores,
             "largestRemainingRisk": success["largestRemainingOperationalRisk"],
             "singleHighestROIImprovement": "run measured parent factory throughput trial with rejection evidence capture enabled",
+            "requirementsEvidenceStatus": "planning_assumptions_only",
             "requiredFor100Accounts": [
                 "900 schedule-safe drafts",
-                "100-account acceptance proof green",
+                "100-account live acceptance evidence",
             ],
             "requiredFor200Accounts": [
                 "1800 schedule-safe drafts",
@@ -215,7 +230,27 @@ class ReadinessReportRepository:
                 "3922 variants/day",
             ],
             "successCriteria": success,
+            "planningAssumptions": {
+                "requiredFor100Accounts": [
+                    "900 schedule-safe drafts",
+                    "100-account live acceptance evidence",
+                ],
+                "requiredFor200Accounts": [
+                    "1800 schedule-safe drafts",
+                    "53 accepted parents/day",
+                    "785 variants/day",
+                ],
+                "requiredFor1000Accounts": [
+                    "9000 schedule-safe drafts",
+                    "265 accepted parents/day",
+                    "3922 variants/day",
+                ],
+            },
             "inputs": {
+                "acceptanceScenarios": {
+                    "accounts100": proof_100,
+                    "volume": volume,
+                },
                 "parentFactoryAutopilot": parent_plan,
                 "inventoryAutopilot": inventory_plan,
                 "exceptionQueuePriority": exception_priority,
@@ -245,9 +280,9 @@ class ReadinessReportRepository:
             "evidenceStatus": "unverified_planning_model",
             "scores": {
                 "current": current_score,
-                "200Accounts": 7.4,
-                "500Accounts": 6.2,
-                "1000Accounts": 5.1,
+                "200Accounts": None,
+                "500Accounts": None,
+                "1000Accounts": None,
             },
             "inventoryReadiness": {
                 "minimumValidatedDraftBuffer": slo["minimumValidatedDraftBuffer"],
@@ -257,6 +292,8 @@ class ReadinessReportRepository:
             "operatorReadiness": {
                 "largestBottleneck": operator["largestBottleneck"],
                 "firstBreakingPoint": operator["firstBreakingPoint"],
+                "evidenceStatus": operator["evidenceStatus"],
+                "operationallyProven": operator["operationallyProven"],
             },
             "failureRecoveryReadiness": {
                 "failureInjectionPassed": failure["failureInjectionPassed"],
@@ -292,7 +329,10 @@ class ReadinessReportRepository:
                 "extract operational helpers out of core.py after behavior is stable",
             ],
             "acceptanceSuite": {
-                "acceptancePassed": acceptance.get("acceptancePassed"),
+                "acceptancePassed": None,
+                "scenarioPassed": acceptance.get("acceptancePassed"),
+                "operationallyProven": False,
+                "evidenceStatus": "synthetic_acceptance_scenario_only",
                 "dailyPlanRuntimeMs": acceptance.get("dailyPlanRuntimeMs"),
                 "executionReadinessRuntimeMs": acceptance.get(
                     "executionReadinessRuntimeMs"

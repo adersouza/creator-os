@@ -67,10 +67,6 @@ function horizontalFlipAllowed(options = {}) {
   return options.allowHorizontalFlip !== false && !options.preserveBurnedCaptions;
 }
 
-function strongVisualTransformsAllowed(options = {}) {
-  return options.allowStrongColorShift !== false && !options.preserveBurnedCaptions;
-}
-
 function colorTransformsAllowed(options = {}) {
   return options.preserveColor !== true;
 }
@@ -214,7 +210,6 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   var reelProfile = getReelsProfile(outputProfile);
   var variantPreset = getVariantPreset(variantPresetId, variantOptions || {}, level);
   var allowHflip = horizontalFlipAllowed(variantOptions || {});
-  var allowStrongTransforms = strongVisualTransformsAllowed(variantOptions || {});
   var allowColorTransforms = colorTransformsAllowed(variantOptions || {});
   var allowAudioTransforms = audioTransformsAllowed(variantOptions || {});
   var allowTimingTransforms = timingTransformsAllowed(variantOptions || {});
@@ -232,9 +227,9 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   // ─── "clean" level: conservative editorial transforms only ───
   if (level === "clean" || variantPreset.id === "quality") {
     var attemptIndex = parseInt(variantPreset.attemptIndex || 0, 10) || 0;
-    var speedShiftClean = allowTimingTransforms ? rand(1 - variantPreset.speedShift, 1 + variantPreset.speedShift) : 1;
-    var warpAmpClean = allowTimingTransforms ? rand(0, Math.max(0.001, variantPreset.speedShift * 0.8)) : 0;
-    var warpPeriodClean = rand(2, 5);
+    var speedShiftClean = allowTimingTransforms && (!hasAudio || allowAudioTransforms)
+      ? rand(1 - variantPreset.speedShift, 1 + variantPreset.speedShift)
+      : 1;
     var startOffset = allowTimingTransforms ? Math.min(0.85, attemptIndex * 0.085 + rand(0, 0.04)) : 0;
     var args = [];
     if (startOffset > 0) args.push("-ss", startOffset.toFixed(3));
@@ -281,22 +276,17 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
       vfClean.unshift("crop=iw*" + cropPctClean.toFixed(4) + ":ih*" + cropPctClean.toFixed(4) + ":iw*" + cropAnchorX.toFixed(4) + ":ih*" + cropAnchorY.toFixed(4));
     }
     if (allowTimingTransforms) {
-      vfClean.splice(vfClean.length - 1, 0, "setpts=PTS*" + ptsClean + "*(1+" + warpAmpClean.toFixed(4) + "*sin(PTS/" + warpPeriodClean.toFixed(2) + "))");
+      vfClean.splice(vfClean.length - 1, 0, "setpts=PTS*" + ptsClean);
     }
     if (allowColorTransforms && variantPreset.colorShift > 0) {
       vfClean.splice(2, 0, "eq=gamma=" + (1 + ((attemptBand - 3.5) * variantPreset.colorShift * 0.35)).toFixed(4) + ":saturation=" + (1 + ((attemptBand % 3) - 1) * variantPreset.colorShift).toFixed(4));
     }
     if (allowHflip && (attemptBand === 2 || attemptBand === 5)) vfClean.splice(2, 0, "hflip");
-    if (allowStrongTransforms && (attemptBand === 3 || attemptBand === 6)) vfClean.splice(2, 0, "rotate=" + (attemptBand === 3 ? "0.006" : "-0.006") + ":fillcolor=black:bilinear=1");
     if (cleanOverlay) vfClean.splice(vfClean.length - 1, 0, cleanOverlay);
     pushVideoFilters(args, vfClean, variantOptions || {}, hasAudio);
 
-    if (hasAudio && allowAudioTransforms) {
-      var pitchCentsClean = rand(-6, 6);
-      var pitchFactorClean = Math.pow(2, pitchCentsClean / 1200);
-      var origRateClean = dev.audioRate;
-      var shiftedRateClean = Math.round(origRateClean * pitchFactorClean);
-      args.push("-af", "asetrate=" + shiftedRateClean + ",aresample=" + origRateClean + ",atempo=" + speedShiftClean.toFixed(4));
+    if (hasAudio && allowAudioTransforms && speedShiftClean !== 1) {
+      args.push("-af", "atempo=" + speedShiftClean.toFixed(4));
     } else if (!hasAudio) {
       args.push("-an");
     }
@@ -318,21 +308,13 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
     return args;
   }
 
-  // ─── All other levels: full visual + audio transforms ───
+  // ─── Light and medium editorial transforms ───
   var gamma = rand(1 - variantPreset.colorShift, 1 + variantPreset.colorShift);
   var contrast = rand(1 - variantPreset.colorShift, 1 + variantPreset.colorShift);
   var saturation = rand(1 - variantPreset.colorShift * 1.5, 1 + variantPreset.colorShift * 1.5);
-  var hueShift = allowStrongTransforms ? rand(-variantPreset.colorShift * 80, variantPreset.colorShift * 80) : 0;
-  var noiseStr = allowStrongTransforms && variantPreset.id === "strong" ? randInt(2, 5) : 0;
-
-  // Per-spin structural randomization
-  var driftAmpX = rand(0.01, 0.02);
-  var driftAmpY = rand(0.01, 0.02);
-  var driftFreqX = rand(20, 40);
-  var driftFreqY = rand(25, 45);
-  var warpAmp = rand(0.005, Math.max(0.006, variantPreset.speedShift));
-  var warpPeriod = rand(2, 5);
-  var speedShift = rand(1 - variantPreset.speedShift, 1 + variantPreset.speedShift);
+  var speedShift = allowTimingTransforms && (!hasAudio || allowAudioTransforms)
+    ? rand(1 - variantPreset.speedShift, 1 + variantPreset.speedShift)
+    : 1;
 
   var filters = [];
 
@@ -340,14 +322,10 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   if (allowColorTransforms && variantPreset.colorShift > 0) {
     filters.push("eq=gamma=" + gamma.toFixed(3) + ":contrast=" + contrast.toFixed(3) + ":saturation=" + saturation.toFixed(3));
   }
-  if (allowColorTransforms && allowStrongTransforms) filters.push("hue=h=" + hueShift.toFixed(1));
-
-  if (variantPreset.sharpen && allowStrongTransforms) {
-    var sharpStr = rand(0.5, 1.0);
+  if (variantPreset.sharpen) {
+    var sharpStr = rand(0.3, 0.5);
     filters.push("unsharp=3:3:" + sharpStr.toFixed(1) + ":3:3:0.0");
   }
-
-  if (noiseStr > 0) filters.push("noise=c0s=" + noiseStr + ":c0f=t+u");
 
   if (allowHflip && Math.random() > 0.5) {
     filters.push("hflip");
@@ -355,7 +333,7 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
 
   var rotateDeg = 0;
   if (allowGeometryTransforms) {
-    rotateDeg = allowStrongTransforms ? rand(0.2, 0.8) * (Math.random() > 0.5 ? 1 : -1) : rand(0.05, 0.18) * (Math.random() > 0.5 ? 1 : -1);
+    rotateDeg = rand(0.05, 0.18) * (Math.random() > 0.5 ? 1 : -1);
     var rotateRad = rotateDeg * 0.01745;
     filters.push("rotate=" + rotateRad.toFixed(5) + ":fillcolor=black:bilinear=1");
 
@@ -364,31 +342,14 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
       ":iw*(1-" + rotCropPct.toFixed(4) + ")/2:ih*(1-" + rotCropPct.toFixed(4) + ")/2");
   }
 
-  if (allowGeometryTransforms && level === "heavy") {
-    var driftCropPct = rand(0.93, 0.97);
-    var cx = "(iw*(1-" + driftCropPct.toFixed(3) + ")/2)+(iw*" + driftAmpX.toFixed(4) + "*sin(n/" + driftFreqX.toFixed(0) + "))";
-    var cy = "(ih*(1-" + driftCropPct.toFixed(3) + ")/2)+(ih*" + driftAmpY.toFixed(4) + "*cos(n/" + driftFreqY.toFixed(0) + "))";
-    filters.push("crop=iw*" + driftCropPct.toFixed(3) + ":ih*" + driftCropPct.toFixed(3) + ":" + cx + ":" + cy);
-  }
-
   if (vertical) {
     filters.push(variantPreset.preserveFrame ? containBlurFilterForProfile(outputProfile) : scaleFilterForProfile(outputProfile));
   } else {
     filters.push("scale=1920:1080:flags=lanczos");
   }
 
-  if (allowTimingTransforms && level === "heavy") {
-    var ptsMultiplier = (1 / speedShift).toFixed(4);
-    filters.push("setpts=PTS*" + ptsMultiplier + "*(1+" + warpAmp.toFixed(4) + "*sin(PTS/" + warpPeriod.toFixed(2) + "))");
-  } else if (allowTimingTransforms) {
+  if (allowTimingTransforms) {
     filters.push("setpts=" + (1 / speedShift).toFixed(4) + "*PTS");
-  }
-
-  if (allowColorTransforms && variantPreset.colorShift > 0) {
-    var cbRS = rand(-0.03, 0.03);
-    var cbGS = rand(-0.03, 0.03);
-    var cbBS = rand(-0.03, 0.03);
-    filters.push("colorbalance=rs=" + cbRS.toFixed(3) + ":gs=" + cbGS.toFixed(3) + ":bs=" + cbBS.toFixed(3));
   }
 
   var phase2Overlay = overlayFilter(variantOptions || {});
@@ -398,26 +359,14 @@ export function buildPhase2Args(inputPath, outputPath, level, hasAudio, vertical
   var args = ["-i", inputPath];
   pushVideoFilters(args, filters, variantOptions || {}, hasAudio);
 
-  if (hasAudio && allowAudioTransforms) {
-    var audioFilters = [];
-    var pitchCents = rand(-50, 50);
-    var pitchFactor = Math.pow(2, pitchCents / 1200);
-    var origRate = dev.audioRate;
-    var shiftedRate = Math.round(origRate * pitchFactor);
-    audioFilters.push("asetrate=" + shiftedRate);
-    audioFilters.push("aresample=" + origRate);
-    var tempo = speedShift * rand(0.99, 1.01);
-    if (tempo < 0.5) tempo = 0.5;
-    if (tempo > 2.0) tempo = 2.0;
-    audioFilters.push("atempo=" + tempo.toFixed(4));
-    if (variantPreset.id === "strong") audioFilters.push("aecho=0.6:0.6:" + randInt(12, 30) + ":0.04");
-    args.push("-af", audioFilters.join(","));
+  if (hasAudio && allowAudioTransforms && speedShift !== 1) {
+    args.push("-af", "atempo=" + speedShift.toFixed(4));
   } else if (!hasAudio) {
     args.push("-an");
   }
 
   if (allowFrameRateTransforms) args.push("-r", String(reelProfile.fps));
-  args.push("-c:v", "libx264", "-preset", variantPreset.id === "strong" ? "medium" : "slow", "-crf", String(variantPreset.videoCrf), "-profile:v", dev.profile, "-level", reelProfile.fps >= 60 ? "5.1" : dev.level);
+  args.push("-c:v", "libx264", "-preset", "slow", "-crf", String(variantPreset.videoCrf), "-profile:v", dev.profile, "-level", reelProfile.fps >= 60 ? "5.1" : dev.level);
   args.push("-maxrate", reelProfile.maxrate, "-bufsize", reelProfile.bufsize);
   args.push("-g", String(gop));
   args.push("-pix_fmt", "yuv420p", "-movflags", "+faststart");
@@ -469,14 +418,14 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
 
   var filters = [];
 
-  // ─── Crop: PDQ's #1 weakness ───
+  // ─── Editorial crop ───
   var cropPct;
   if (level === "light") {
     cropPct = rand(Math.min(0.99, variantPreset.crop), 0.995);
   } else if (level === "medium") {
     cropPct = rand(Math.min(0.98, variantPreset.crop), 0.99);
   } else {
-    cropPct = rand(Math.min(0.97, variantPreset.crop), 0.985);
+    cropPct = rand(Math.min(0.98, variantPreset.crop), 0.99);
   }
 
   var maxOffset = 1 - cropPct;
@@ -485,7 +434,7 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
   filters.push("crop=iw*" + cropPct.toFixed(4) + ":ih*" + cropPct.toFixed(4) +
     ":iw*" + anchorX.toFixed(4) + ":ih*" + anchorY.toFixed(4));
 
-  // ─── Color modulation: flips DCT threshold bits ───
+  // ─── Mild color correction ───
   if (allowColorTransforms && level !== "light") {
     var gamma = rand(1 - variantPreset.colorShift, 1 + variantPreset.colorShift);
     var saturation = rand(1 - variantPreset.colorShift, 1 + variantPreset.colorShift);
@@ -494,8 +443,8 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
     filters.push("hue=h=" + Math.round(hueShift));
   }
 
-  // ─── Sub-degree rotation: defeats neural embeddings ───
-  if (level === "medium" || level === "heavy") {
+  // ─── Mild editorial rotation ───
+  if (level === "medium") {
     var rotateDeg = rand(0.1, 0.5) * (Math.random() > 0.5 ? 1 : -1);
     var rotateRad = rotateDeg * 0.01745;
     filters.push("rotate=" + rotateRad.toFixed(6) + ":fillcolor=white:bilinear=1");
@@ -510,21 +459,8 @@ export function buildImageArgs(inputPath, outputPath, index, opts) {
     filters.push("unsharp=3:3:" + sharpStr.toFixed(1) + ":3:3:0.0");
   }
 
-  // ─── Film grain: temporal+uniform noise exploits CNN texture sensitivity ───
-  if (variantPreset.id === "strong") {
-    filters.push("noise=c0s=" + randInt(2, 4) + ":c0f=t+u");
-  }
-
-  // ─── Subtle color balance shift ───
-  if (allowColorTransforms && level === "heavy") {
-    var cbRS = rand(-0.02, 0.02);
-    var cbGS = rand(-0.02, 0.02);
-    var cbBS = rand(-0.02, 0.02);
-    filters.push("colorbalance=rs=" + cbRS.toFixed(3) + ":gs=" + cbGS.toFixed(3) + ":bs=" + cbBS.toFixed(3));
-  }
-
   // ─── Random mirror (50% chance) ───
-  if (Math.random() > 0.5) {
+  if (horizontalFlipAllowed(opts.variantOptions || {}) && Math.random() > 0.5) {
     filters.push("hflip");
   }
 

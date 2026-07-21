@@ -245,6 +245,28 @@ returns evidence and `pass`, `warn`, or `fail`; it does not change campaign
 policy. Campaign Factory combines that evidence with approval, lineage,
 assignment, collision, publishability, and contract checks.
 
+The handoff freezes one stable draft-key batch before readiness, usage, upload,
+and ingest work. Every reused local or remote media object is materialized,
+SHA-256 verified against its declared source fingerprint, and copied to an
+immutable key without overwrite. Missing media, changed bytes, duplicate
+source mappings, output collisions, invalid asset state, or a non-exportable
+readiness verdict stops the batch before any external write.
+
+Burned overlays carry the exact resolved render plan, including duration-bound
+timed bands and the placement decision actually consumed by the renderer.
+Explicit timestamps outside the media duration are invalid rather than silently
+redistributed. Incomplete payoff text such as a standalone `before` label is
+blocked unless the pixels provide a verified resolution with recorded human
+semantic approval. `captionBurnedIn=true` means a successful render produced an
+output from real caption inputs; metadata alone cannot make that claim.
+
+ContentForge evidence identifies the local CLI execution surface and audited
+file count. Its supported variants are limited to mild/editorial transforms;
+strong distortion presets and platform-avoidance transformations are not part
+of the production quality path. Readiness scores remain `null` or explicitly
+unverified until backed by live operational evidence—fixture or simulated
+results are never presented as production ratings.
+
 Draft payloads validate against Pipeline Contracts before an HMAC-signed request
 to ThreadsDashboard's draft-ingest endpoint. HMAC tests cover signature,
 timestamp, and rejection behavior without sending real drafts. The supported

@@ -1,3 +1,5 @@
+import pytest
+
 from pipeline_contracts import (
     evaluate_overlay_semantic_completeness,
     evaluate_overlay_timing,
@@ -65,9 +67,8 @@ def test_serialized_timed_caption_manifest_is_understood() -> None:
     assert result["decision"] == "timed_payoff_present"
 
 
-def test_visually_resolved_labels_and_open_loops_are_not_overblocked() -> None:
+def test_self_contained_labels_and_open_loops_are_not_overblocked() -> None:
     for caption in (
-        "before gym:",
         "POV:",
         "men, stop sending one-word replies",
         "would you date me or run away?",
@@ -77,6 +78,29 @@ def test_visually_resolved_labels_and_open_loops_are_not_overblocked() -> None:
         assert result["passed"] is True, caption
 
 
+def test_before_state_requires_after_state_or_human_semantic_approval() -> None:
+    blocked = evaluate_overlay_semantic_completeness("before gym:")
+    approved = evaluate_overlay_semantic_completeness(
+        "before gym:", human_semantic_approval=True
+    )
+    timed = evaluate_overlay_semantic_completeness(
+        {
+            "segments": [
+                {"text": "before gym:", "start": 0.0, "end": 2.0},
+                {"text": "after gym: still smiling", "start": 2.0},
+            ]
+        },
+        duration_seconds=5.0,
+    )
+
+    assert blocked["passed"] is False
+    assert blocked["failure_reasons"] == ["missing_overlay_payoff_after_before_state"]
+    assert approved["passed"] is True
+    assert approved["decision"] == "human_semantic_approval"
+    assert timed["passed"] is True
+    assert timed["timing_verified"] is True
+
+
 def test_enumerated_promise_without_payoffs_is_blocked() -> None:
     result = evaluate_overlay_semantic_completeness("3 reasons why you should date me")
 
@@ -84,6 +108,18 @@ def test_enumerated_promise_without_payoffs_is_blocked() -> None:
     assert result["failure_reasons"] == ["missing_enumerated_overlay_payoffs"]
     assert result["required_payoff_count"] == 3
     assert result["payoff_segment_count"] == 0
+
+
+@pytest.mark.parametrize("count", [1, 10, 12, 100])
+def test_numbered_promise_detection_is_not_limited_to_two_through_nine(
+    count: int,
+) -> None:
+    result = evaluate_overlay_semantic_completeness(
+        f"{count} reasons why you should date me"
+    )
+
+    assert result["passed"] is False
+    assert result["required_payoff_count"] == count
 
 
 def test_enumerated_timed_caption_requires_every_promised_payoff() -> None:
@@ -185,3 +221,30 @@ def test_resolved_timing_accepts_visible_ordered_sequence() -> None:
 
     assert result["passed"] is True
     assert result["segments"][1]["end"] == 5.0
+    assert result["resolved_render_plan"]["segments"] == [
+        {
+            "index": 0,
+            "text": "wait for it:",
+            "start": 0.0,
+            "end": 2.0,
+        },
+        {
+            "index": 1,
+            "text": "the reveal",
+            "start": 2.0,
+            "end": 5.0,
+        },
+    ]
+
+
+def test_fully_implicit_timed_sequence_resolves_evenly() -> None:
+    result = evaluate_overlay_timing(
+        [{"text": "setup"}, {"text": "payoff"}],
+        duration_seconds=6.0,
+    )
+
+    assert result["passed"] is True
+    assert [(row["start"], row["end"]) for row in result["segments"]] == [
+        (0.0, 3.0),
+        (3.0, 6.0),
+    ]

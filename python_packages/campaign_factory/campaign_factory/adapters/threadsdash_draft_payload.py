@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
-from pipeline_contracts import evaluate_overlay_semantic_completeness
-
 from ..caption_outcome import (
     build_caption_outcome_context,
 )
@@ -25,14 +23,11 @@ from ..lineage_v2 import (
     lineage_v2_is_valid,
 )
 from .threadsdash_draft_integrity import (
-    asset_caption_is_burned,
     exported_content_hash,
     learning_cohort_metadata,
+    validate_caption_overlay_integrity,
     verify_rendered_media_asset,
     with_content_fingerprint,
-)
-from .threadsdash_draft_integrity import (
-    caption_timing_qc as resolve_caption_timing_qc,
 )
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
@@ -138,41 +133,9 @@ def build_draft_payloads(
         caption_context = _caption_context_for_export(
             asset, caption=caption, file_path=file_path
         )
-        caption_is_burned = asset_caption_is_burned(asset)
-        overlay_semantic_qc = evaluate_overlay_semantic_completeness(
-            (caption_context.get("caption_text") or caption)
-            if caption_is_burned
-            else None,
-            require_overlay=caption_is_burned,
+        overlay_semantic_qc, caption_timing_qc = validate_caption_overlay_integrity(
+            asset, caption_context, caption
         )
-        if overlay_semantic_qc.get("passed") is not True:
-            failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
-                "overlay_semantic_qc_failed"
-            ]
-            raise ValueError(
-                "burned_overlay_semantic_incomplete:"
-                + ",".join(str(reason) for reason in failure_reasons)
-                + f":{asset['renderedAssetId']}"
-            )
-        caption_timing_qc = resolve_caption_timing_qc(asset, caption_context)
-        if (
-            caption_is_burned
-            and overlay_semantic_qc.get("timed_sequence") is True
-            and (
-                not isinstance(caption_timing_qc, dict)
-                or caption_timing_qc.get("passed") is not True
-            )
-        ):
-            reasons = (
-                caption_timing_qc.get("failure_reasons")
-                if isinstance(caption_timing_qc, dict)
-                else None
-            ) or ["missing_resolved_overlay_timing_proof"]
-            raise ValueError(
-                "burned_overlay_timing_unverified:"
-                + ",".join(str(reason) for reason in reasons)
-                + f":{asset['renderedAssetId']}"
-            )
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)
         destinations = _draft_destinations_for_asset(
             factory,

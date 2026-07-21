@@ -769,6 +769,16 @@ def build_caption_outcome_context(
     creator_model: str | None = None,
 ) -> dict:
     lineage = caption_lineage if isinstance(caption_lineage, dict) else {}
+    resolved_render_plan = (
+        lineage.get("resolvedCaptionRenderPlan")
+        if isinstance(lineage.get("resolvedCaptionRenderPlan"), dict)
+        else None
+    )
+    resolved_caption_text = (
+        json.dumps(resolved_render_plan, sort_keys=True, ensure_ascii=False)
+        if resolved_render_plan
+        else None
+    )
     selected_banks = _text_list(
         lineage.get("selectedBanks")
         or lineage.get("selected_banks")
@@ -792,7 +802,10 @@ def build_caption_outcome_context(
             lineage.get("bankCaptionHash"), lineage.get("bank_caption_hash")
         ),
         "caption_text": _first_text(
-            lineage.get("rawCaptionText"), lineage.get("raw_caption_text"), caption_text
+            resolved_caption_text,
+            caption_text,
+            lineage.get("rawCaptionText"),
+            lineage.get("raw_caption_text"),
         ),
         "caption_bank": primary_bank,
         "caption_banks": selected_banks or ([primary_bank] if primary_bank else []),
@@ -837,6 +850,11 @@ def build_caption_outcome_context(
         else None,
         "captionTimingQc": lineage.get("captionTimingQc")
         if isinstance(lineage.get("captionTimingQc"), dict)
+        else None,
+        "resolvedCaptionRenderPlan": resolved_render_plan,
+        "captionBurnedIn": lineage.get("captionBurnedIn") is True,
+        "captionPixelRenderEvidence": lineage.get("captionPixelRenderEvidence")
+        if isinstance(lineage.get("captionPixelRenderEvidence"), dict)
         else None,
         "render_recipe": render_recipe,
         "source_clip": _first_text(

@@ -198,6 +198,7 @@ def evaluate_export_readiness(
     publish_mode: str | None = None,
     review_only: bool = False,
     record_evidence: bool = True,
+    draft_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
@@ -220,12 +221,17 @@ def evaluate_export_readiness(
                 "surface": surface,
                 "scheduleMode": normalized_schedule_mode,
                 "reviewOnly": review_only,
+                "draftKeys": [
+                    str(draft.get("campaignFactoryDraftKey") or "")
+                    for draft in (draft_payload or {}).get("drafts") or []
+                    if isinstance(draft, dict)
+                ],
             },
         )
         factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         dashboard = factory.domains.campaign_overview.dashboard(campaign_slug)
-        payload = _draft_payload.build_draft_payloads(
+        payload = draft_payload or _draft_payload.build_draft_payloads(
             factory,
             campaign_slug=campaign_slug,
             user_id=user_id,
@@ -237,6 +243,9 @@ def evaluate_export_readiness(
             schedule_mode=normalized_schedule_mode,
             publish_mode=normalized_publish_mode,
             review_only=review_only,
+        )
+        _validate_frozen_draft_payload_scope(
+            payload, campaign_slug=campaign_slug, user_id=user_id
         )
         draft_asset_ids = {draft["renderedAssetId"] for draft in payload["drafts"]}
         drafts_by_asset: dict[str, list[dict[str, Any]]] = {}
@@ -260,6 +269,7 @@ def evaluate_export_readiness(
                     supabase_service_role_key=supabase_service_role_key,
                     limit=limit,
                     rendered_asset_ids=rendered_asset_ids,
+                    draft_payload=payload,
                 )
             except Exception as exc:
                 usage_error = str(exc)
@@ -549,6 +559,28 @@ def _draft_notify_audio_deferred(draft: dict[str, Any]) -> bool:
         audio_intent=draft.get("audioIntent"),
         publishability=publishability,
     )
+
+
+def _validate_frozen_draft_payload_scope(
+    payload: dict[str, Any], *, campaign_slug: str, user_id: str
+) -> None:
+    if payload.get("campaign") != campaign_slug:
+        raise ValueError("frozen draft payload campaign does not match readiness scope")
+    drafts = payload.get("drafts")
+    if not isinstance(drafts, list):
+        raise ValueError("frozen draft payload drafts must be a list")
+    keys: list[str] = []
+    for draft in drafts:
+        if not isinstance(draft, dict):
+            raise ValueError("frozen draft payload contains a non-object draft")
+        if draft.get("userId") != user_id:
+            raise ValueError("frozen draft payload user does not match readiness scope")
+        key = str(draft.get("campaignFactoryDraftKey") or "").strip()
+        if not key:
+            raise ValueError("frozen draft payload contains a missing stable draft key")
+        keys.append(key)
+    if len(set(keys)) != len(keys):
+        raise ValueError("frozen draft payload contains duplicate stable draft keys")
 
 
 def _is_deferred_notify_audio_blocker(reason: Any) -> bool:

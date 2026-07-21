@@ -132,7 +132,7 @@ def _batch(
                 "schema": "creator_os.local_contentforge_full_batch_audit.v1",
                 "profile": contentforge_profile,
                 "variants": variants,
-                "httpOk": variants,
+                "auditedFileCount": variants,
                 "verdictCounts": {"pass": variants},
                 "blockingCodes": [],
                 "variantFiles": contentforge_variant_files

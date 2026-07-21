@@ -209,8 +209,14 @@ def sync_performance_snapshots(
                 }
                 warnings.append(warning)
             meta = _with_local_caption_outcome_context(factory, meta)
+            post_metric_history = metric_history_by_post.get(
+                str(row.get("id")) or "", []
+            )
             eligibility = _metrics_eligibility_for_threadsdash_row(
-                factory, row=row, meta=meta
+                factory,
+                row=row,
+                meta=meta,
+                metric_history_rows=post_metric_history,
             )
             if not eligibility["eligible"]:
                 skipped += 1
@@ -228,9 +234,7 @@ def sync_performance_snapshots(
                 skipped_rows.append(warning)
                 warnings.append(warning)
                 continue
-            performance_rows = _threadsdash_performance_rows(
-                row, metric_history_by_post.get(str(row.get("id")) or "", [])
-            )
+            performance_rows = _threadsdash_performance_rows(row, post_metric_history)
             if not performance_rows:
                 skipped += 1
                 post_id = str(row.get("id") or "unknown")
@@ -687,18 +691,7 @@ def _threadsdash_performance_rows(
     post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     if not metric_history_rows:
-        observed_at = post_row.get("metrics_observed_at") or post_row.get(
-            "metrics_updated_at"
-        )
-        if not observed_at:
-            return []
-        return [
-            {
-                **post_row,
-                "history_source": "post_row_fallback",
-                "metrics_observed_at": observed_at,
-            }
-        ]
+        return []
     return [
         _threadsdash_post_with_metric_history(post_row, history_row)
         for history_row in metric_history_rows
@@ -1188,7 +1181,11 @@ def _unique_identity(*values: Any) -> set[str]:
 
 
 def _metrics_eligibility_for_threadsdash_row(
-    factory: CampaignFactory, *, row: dict[str, Any], meta: dict[str, Any]
+    factory: CampaignFactory,
+    *,
+    row: dict[str, Any],
+    meta: dict[str, Any],
+    metric_history_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     blockers: list[str] = []
     post_id = row.get("id")
@@ -1203,6 +1200,15 @@ def _metrics_eligibility_for_threadsdash_row(
         blockers.append("missing_instagram_permalink")
     if not (row.get("published_at") or row.get("publishedAt")):
         blockers.append("missing_instagram_published_at")
+    matching_metric_history = [
+        history
+        for history in metric_history_rows or []
+        if isinstance(history, dict)
+        and str(history.get("post_id") or "") == str(post_id or "")
+        and bool(history.get("snapshot_at"))
+    ]
+    if not matching_metric_history:
+        blockers.append("missing_metric_history_evidence")
     rendered_asset_id = meta.get("rendered_asset_id")
     if not rendered_asset_id:
         blockers.append("missing_rendered_asset_id")

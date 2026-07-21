@@ -44,21 +44,6 @@ var VARIANT_PRESETS = {
     videoCrf: 16,
     imageQuality: [2, 3],
   },
-  strong: {
-    id: "strong",
-    label: "Strong",
-    level: "heavy",
-    qualityTarget: 82,
-    differenceTarget: 65,
-    crop: 0.945,
-    colorShift: 0.055,
-    speedShift: 0.05,
-    sharpen: true,
-    denoise: false,
-    preserveFrame: false,
-    videoCrf: 18,
-    imageQuality: [2, 4],
-  },
   custom: {
     id: "custom",
     label: "Custom",
@@ -88,10 +73,12 @@ var LEGACY_LEVEL_TO_PRESET = {
   clean: "quality",
   light: "light",
   medium: "medium",
-  heavy: "strong",
 };
 
 export function normalizeVariantPreset(value, fallbackLevel) {
+  if (value === "strong" || fallbackLevel === "heavy" || value === "heavy") {
+    throw new Error("contentforge_unsafe_variant_preset_removed");
+  }
   if (VARIANT_PRESETS[value]) return value;
   if (LEGACY_LEVEL_TO_PRESET[fallbackLevel]) return LEGACY_LEVEL_TO_PRESET[fallbackLevel];
   return "quality";

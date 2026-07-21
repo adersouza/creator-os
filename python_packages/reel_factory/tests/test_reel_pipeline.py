@@ -103,6 +103,206 @@ class ReelPipelineTests(unittest.TestCase):
         self.assertFalse(result["overlaySemanticQc"]["passed"])
         self.assertEqual(len(manifest.failures), 1)
 
+    def test_timed_setup_without_payoff_is_blocked_before_render(self):
+        class RecordingManifest:
+            def __init__(self):
+                self.failures = []
+
+            def add_failure(self, *args, **kwargs):
+                self.failures.append((args, kwargs))
+
+            def has_job(self, _key):
+                raise AssertionError("semantic gate must run before cache reuse")
+
+        with tempfile.TemporaryDirectory() as td:
+            manifest = RecordingManifest()
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    {
+                        "segments": [
+                            {"text": "men, stop doing this:", "start": 0, "end": 2}
+                        ]
+                    },
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    manifest,
+                    "4ddd4a07",
+                    5.0,
+                    {},
+                    {},
+                    asyncio.Semaphore(1),
+                )
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(
+            result["error"],
+            "burned_overlay_semantic_incomplete:missing_overlay_payoff_after_setup",
+        )
+        self.assertEqual(len(manifest.failures), 1)
+
+    def test_timed_payoff_at_99_seconds_is_rejected_not_redistributed(self):
+        class RecordingManifest:
+            def __init__(self):
+                self.failures = []
+
+            def add_failure(self, *args, **kwargs):
+                self.failures.append((args, kwargs))
+
+            def has_job(self, _key):
+                raise AssertionError("timing gate must run before cache reuse")
+
+        with tempfile.TemporaryDirectory() as td:
+            manifest = RecordingManifest()
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    {
+                        "segments": [
+                            {"text": "men, stop doing this:", "start": 0, "end": 2},
+                            {"text": "sending one-word replies", "start": 99},
+                        ]
+                    },
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    manifest,
+                    "4ddd4a07",
+                    5.0,
+                    {},
+                    {},
+                    asyncio.Semaphore(1),
+                )
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(result["error"].startswith("burned_overlay_timing_invalid:"))
+        self.assertIn(
+            "overlay_segment_outside_media_duration",
+            result["captionTimingQc"]["failure_reasons"],
+        )
+        self.assertEqual(len(manifest.failures), 1)
+
+    def test_dry_run_persists_resolved_plan_and_never_claims_burned_pixels(self):
+        class EmptyManifest:
+            def has_job(self, _key):
+                return False
+
+        summary = PlacementSummary(
+            lane="bottom",
+            scores={"top": 2.0, "center": 1.0, "bottom": 0.0},
+            sample_count=5,
+            reason="test",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    {
+                        "segments": [
+                            {"text": "men, stop doing this:", "end": 2.0},
+                            {"text": "sending one-word replies", "start": 2.0},
+                        ]
+                    },
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    EmptyManifest(),
+                    "4ddd4a07",
+                    5.0,
+                    {"4ddd4a07": "light"},
+                    {
+                        "4ddd4a07": (
+                            "lower_center",
+                            "ig",
+                            DEFAULT_CAPTION_FONT,
+                            summary,
+                        )
+                    },
+                    asyncio.Semaphore(1),
+                    dry_run=True,
+                )
+            )
+
+        persisted = json.loads(result["captionForManifest"])
+        self.assertEqual(result["status"], "dry")
+        self.assertFalse(result["captionBurnedIn"])
+        self.assertEqual(persisted["schema"], "pipeline.overlay_render_plan.v1")
+        self.assertEqual(
+            [(row["start"], row["end"]) for row in persisted["segments"]],
+            [(0.0, 2.0), (2.0, 5.0)],
+        )
+        self.assertEqual(
+            [row["band"] for row in persisted["segments"]],
+            ["top", "bottom"],
+        )
+
+    def test_timed_caption_preserves_supported_seconds_aliases(self):
+        class EmptyManifest:
+            def has_job(self, _key):
+                return False
+
+        summary = PlacementSummary(
+            lane="bottom",
+            scores={"top": 2.0, "center": 1.0, "bottom": 0.0},
+            sample_count=5,
+            reason="test",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            result = asyncio.run(
+                process_one(
+                    Path(td) / "clip_004.mp4",
+                    {
+                        "segments": [
+                            {
+                                "text": "men, stop doing this:",
+                                "start_seconds": 0.0,
+                                "end_seconds": 2.0,
+                            },
+                            {
+                                "text": "sending one-word replies",
+                                "start_seconds": 2.0,
+                                "end_seconds": 5.0,
+                            },
+                        ]
+                    },
+                    0,
+                    Recipe("v01_original"),
+                    Path(td) / "out",
+                    Path(td) / "fonts",
+                    EmptyManifest(),
+                    "4ddd4a07",
+                    5.0,
+                    {"4ddd4a07": "light"},
+                    {
+                        "4ddd4a07": (
+                            "lower_center",
+                            "ig",
+                            DEFAULT_CAPTION_FONT,
+                            summary,
+                        )
+                    },
+                    asyncio.Semaphore(1),
+                    dry_run=True,
+                )
+            )
+
+        persisted = json.loads(result["captionForManifest"])
+        self.assertEqual(result["status"], "dry")
+        self.assertEqual(
+            [(row["start"], row["end"]) for row in persisted["segments"]],
+            [(0.0, 2.0), (2.0, 5.0)],
+        )
+        self.assertEqual(
+            [row["band"] for row in persisted["segments"]],
+            ["top", "bottom"],
+        )
+
     def test_incomplete_hook_is_allowed_when_recipe_does_not_burn_overlay(self):
         class CachedManifest:
             def __init__(self):

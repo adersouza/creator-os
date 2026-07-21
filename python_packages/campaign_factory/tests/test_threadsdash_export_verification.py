@@ -139,6 +139,186 @@ def test_threadsdash_export_readiness_blockers_prevent_all_external_writes(
         cf.close()
 
 
+def test_threadsdash_export_warnings_require_explicit_operator_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter._draft_payload,
+        "build_draft_payloads",
+        lambda *_args, **_kwargs: {"campaign": "may", "drafts": []},
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "evaluate_export_readiness",
+        lambda *_args, **_kwargs: {
+            "liveExportAllowed": True,
+            "blockingReasons": [],
+            "warnings": ["asset_1:operator_review"],
+        },
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_upload_media_for_dashboard_ingest",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("warning override is required before external writes")
+        ),
+    )
+    try:
+        add_rendered_asset(cf, tmp_path)
+        with pytest.raises(ValueError, match="explicitly pass allow_warnings"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+            )
+    finally:
+        cf.close()
+
+
+def test_freeze_exact_draft_batch_can_select_one_destination_of_shared_asset() -> None:
+    payload = {
+        "campaign": "may",
+        "manifest": {
+            "assets": [
+                {"renderedAssetId": "asset_shared"},
+                {"renderedAssetId": "asset_other"},
+            ]
+        },
+        "drafts": [
+            {
+                "renderedAssetId": "asset_shared",
+                "instagramAccountId": "ig_1",
+                "campaignFactoryDraftKey": "draft_shared_ig_1",
+            },
+            {
+                "renderedAssetId": "asset_shared",
+                "instagramAccountId": "ig_2",
+                "campaignFactoryDraftKey": "draft_shared_ig_2",
+            },
+            {
+                "renderedAssetId": "asset_other",
+                "instagramAccountId": "ig_3",
+                "campaignFactoryDraftKey": "draft_other_ig_3",
+            },
+        ],
+    }
+
+    frozen = threadsdash_delivery_adapter._freeze_exact_draft_batch(
+        payload, max_drafts=1
+    )
+
+    assert [draft["campaignFactoryDraftKey"] for draft in frozen["drafts"]] == [
+        "draft_shared_ig_1"
+    ]
+    assert [asset["renderedAssetId"] for asset in frozen["manifest"]["assets"]] == [
+        "asset_shared"
+    ]
+    assert frozen["batchSelection"]["draftKeys"] == ["draft_shared_ig_1"]
+
+
+def test_export_max_drafts_uses_same_frozen_rows_for_every_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    observed: dict[str, list[str]] = {}
+    drafts = [
+        {
+            "userId": "user_1",
+            "renderedAssetId": "asset_1",
+            "instagramAccountId": "ig_1",
+            "campaignFactoryDraftKey": "draft_asset_1_ig_1",
+            "campaignFactoryPostKey": "post_asset_1_ig_1",
+        },
+        {
+            "userId": "user_1",
+            "renderedAssetId": "asset_1",
+            "instagramAccountId": "ig_2",
+            "campaignFactoryDraftKey": "draft_asset_1_ig_2",
+            "campaignFactoryPostKey": "post_asset_1_ig_2",
+        },
+    ]
+
+    def keys(payload: dict[str, Any]) -> list[str]:
+        return [draft["campaignFactoryDraftKey"] for draft in payload["drafts"]]
+
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter._draft_payload,
+        "build_draft_payloads",
+        lambda *_args, **_kwargs: {
+            "schema": "campaign_factory.threadsdash_drafts.v2",
+            "campaign": "may",
+            "manifest": {"assets": [{"renderedAssetId": "asset_1"}]},
+            "drafts": drafts,
+        },
+    )
+
+    def readiness(*_args, **kwargs):
+        observed["readiness"] = keys(kwargs["draft_payload"])
+        return {
+            "liveExportAllowed": True,
+            "blockingReasons": [],
+            "warnings": ["asset_1:operator_review"],
+        }
+
+    def upload(_factory, payload, **_kwargs):
+        observed["upload"] = keys(payload)
+        return []
+
+    def ingest(payload, **_kwargs):
+        observed["ingest"] = keys(payload)
+        return {"success": True, "postIds": ["post_1"], "writtenDrafts": 1}
+
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter, "evaluate_export_readiness", readiness
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter, "_upload_media_for_dashboard_ingest", upload
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_campaign_factory_manifest_blockers",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "validate_threadsdash_draft_payload_strict",
+        lambda _payload: None,
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter, "_post_threadsdash_draft_ingest", ingest
+    )
+    monkeypatch.setattr(
+        threadsdash_delivery_adapter,
+        "_reconcile_dashboard_ingest_post_ids",
+        lambda **_kwargs: ["post_1"],
+    )
+    try:
+        add_rendered_asset(cf, tmp_path)
+        result = export_threadsdash(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            dry_run=False,
+            max_drafts=1,
+            allow_warnings=True,
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+            threadsdash_ingest_url="https://juno33.com/api/campaign-factory/drafts/ingest",
+            threadsdash_ingest_secret="secret",
+        )
+
+        assert result["draftCount"] == 1
+        assert observed == {
+            "readiness": ["draft_asset_1_ig_1"],
+            "upload": ["draft_asset_1_ig_1"],
+            "ingest": ["draft_asset_1_ig_1"],
+        }
+    finally:
+        cf.close()
+
+
 def test_usage_summary_preserves_exact_rendered_asset_scope(monkeypatch):
     captured: dict[str, Any] = {}
 
@@ -1569,13 +1749,29 @@ def test_notify_publish_resolves_only_audio_handoff_metric_blockers(tmp_path: Pa
         }
 
         resolved = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
-            cf, row=row, meta=meta
+            cf,
+            row=row,
+            meta=meta,
+            metric_history_rows=[
+                {
+                    "post_id": "post_notify_metrics",
+                    "snapshot_at": "2026-07-11T20:14:41Z",
+                }
+            ],
         )
         assert resolved["eligible"] is True
 
         meta["publishability_failure_reasons"].append("identity_verification_failed")
         unsafe = threadsdash_metrics_adapter._metrics_eligibility_for_threadsdash_row(
-            cf, row=row, meta=meta
+            cf,
+            row=row,
+            meta=meta,
+            metric_history_rows=[
+                {
+                    "post_id": "post_notify_metrics",
+                    "snapshot_at": "2026-07-11T20:14:41Z",
+                }
+            ],
         )
         assert unsafe["eligible"] is False
         assert "publishability_failure_reasons_present" in unsafe["blockingReasons"]
@@ -2622,7 +2818,7 @@ def test_upload_media_inserts_media_row_without_invalid_upsert(tmp_path: Path) -
         def upload_storage_object(
             self, bucket, storage_path, file_path, content_type, *, upsert=False
         ):
-            assert upsert is True
+            assert upsert is False
 
         def insert_with_fallback(self, table, row, fallback_remove):
             inserted.append((table, row))
@@ -2642,7 +2838,7 @@ def test_upload_media_inserts_media_row_without_invalid_upsert(tmp_path: Path) -
     assert [table for table, _row in inserted] == ["media"]
 
 
-def test_upload_media_reuses_existing_row_after_refreshing_exact_bytes(
+def test_upload_media_reuses_existing_row_after_verifying_exact_remote_bytes(
     tmp_path: Path,
 ) -> None:
     media = tmp_path / "clip.mp4"
@@ -2660,11 +2856,13 @@ def test_upload_media_reuses_existing_row_after_refreshing_exact_bytes(
                 }
             ]
 
-        def upload_storage_object(
-            self, bucket, storage_path, file_path, content_type, *, upsert=False
-        ):
-            assert upsert is True
-            assert Path(file_path).read_bytes() == b"video"
+        def download_storage_object(self, bucket, storage_path):
+            assert bucket == "media"
+            assert storage_path.startswith("campaign_factory/user_1/")
+            return b"video"
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise AssertionError("verified existing media must not be overwritten")
 
         def insert_with_fallback(self, *_args, **_kwargs):
             raise AssertionError("existing media must not be inserted again")
@@ -2683,6 +2881,75 @@ def test_upload_media_reuses_existing_row_after_refreshing_exact_bytes(
     assert result["storagePath"].startswith("campaign_factory/user_1/")
     assert result["fileName"] == "clip.mp4"
     assert result["reused"] is True
+
+
+def test_upload_media_rejects_mismatched_existing_remote_without_writes(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"approved-video")
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            return [{"id": "media_existing", "storage_path": "stale"}]
+
+        def download_storage_object(self, bucket, storage_path):
+            return b"substituted-video"
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise AssertionError("fingerprint mismatch must not overwrite storage")
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            raise AssertionError("fingerprint mismatch must not write a media row")
+
+    with pytest.raises(ValueError, match="existing remote media fingerprint mismatch"):
+        threadsdash_delivery_adapter._upload_media(
+            FakeClient(),
+            bucket="media",
+            user_id="user_1",
+            local_path=media,
+            tags=["campaign_factory"],
+            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
+        )
+
+
+def test_upload_media_rejects_remote_row_deleted_during_verified_reuse(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"approved-video")
+    reads = 0
+
+    class FakeClient:
+        url = "https://example.supabase.co"
+
+        def select(self, table, params):
+            nonlocal reads
+            reads += 1
+            return [{"id": "media_existing"}] if reads == 1 else []
+
+        def download_storage_object(self, bucket, storage_path):
+            return b"approved-video"
+
+        def upload_storage_object(self, *_args, **_kwargs):
+            raise AssertionError("verified reuse must not upload")
+
+        def insert_with_fallback(self, *_args, **_kwargs):
+            raise AssertionError(
+                "disappearing reuse row must not be recreated implicitly"
+            )
+
+    with pytest.raises(RuntimeError, match="row disappeared before reuse"):
+        threadsdash_delivery_adapter._upload_media(
+            FakeClient(),
+            bucket="media",
+            user_id="user_1",
+            local_path=media,
+            tags=["campaign_factory"],
+            expected_sha256=threadsdash_delivery_adapter._sha256_file(media),
+        )
 
 
 def test_upload_media_fails_closed_when_initial_read_fails(tmp_path: Path) -> None:

@@ -5,6 +5,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import (
+    evaluate_overlay_semantic_completeness,
+    evaluate_overlay_timing,
+)
+
 
 def verify_rendered_media_asset(asset: dict[str, Any], file_path: Path) -> str:
     """Return the approved hash only when the current bytes still match it."""
@@ -57,8 +62,87 @@ def caption_timing_qc(
         for key in ("captionTimingQc", "caption_timing_qc"):
             value = record.get(key)
             if isinstance(value, dict):
-                return dict(value)
+                segments = value.get("segments")
+                duration = value.get("duration_seconds", value.get("durationSeconds"))
+                if isinstance(segments, list):
+                    recomputed = evaluate_overlay_timing(
+                        [dict(item) for item in segments if isinstance(item, dict)],
+                        duration_seconds=duration,
+                    )
+                    recomputed["recorded_passed"] = value.get("passed")
+                    return recomputed
+                return {
+                    **dict(value),
+                    "passed": False,
+                    "failure_reasons": ["missing_resolved_overlay_timing_segments"],
+                    "reason": "missing_resolved_overlay_timing_segments",
+                }
     return None
+
+
+def has_human_semantic_approval(*records: Any) -> bool:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        approval = record.get("humanSemanticApproval") or record.get(
+            "human_semantic_approval"
+        )
+        if (
+            isinstance(approval, dict)
+            and approval.get("approved") is True
+            and str(approval.get("reviewer") or "").strip()
+            and str(
+                approval.get("reviewedAt") or approval.get("reviewed_at") or ""
+            ).strip()
+        ):
+            return True
+    return False
+
+
+def validate_caption_overlay_integrity(
+    asset: dict[str, Any], caption_context: dict[str, Any], caption: str
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    caption_is_burned = asset_caption_is_burned(asset)
+    human_approval = has_human_semantic_approval(
+        caption_context,
+        asset,
+        asset.get("generatedAssetLineage"),
+        asset.get("captionGeneration"),
+    )
+    semantic_qc = evaluate_overlay_semantic_completeness(
+        (caption_context.get("caption_text") or caption) if caption_is_burned else None,
+        require_overlay=caption_is_burned,
+        human_semantic_approval=human_approval,
+    )
+    timing_qc = caption_timing_qc(asset, caption_context)
+    if caption_is_burned and semantic_qc.get("timed_sequence") is True:
+        if not isinstance(timing_qc, dict) or timing_qc.get("passed") is not True:
+            reasons = (
+                timing_qc.get("failure_reasons")
+                if isinstance(timing_qc, dict)
+                else None
+            ) or ["missing_resolved_overlay_timing_proof"]
+            raise ValueError(
+                "burned_overlay_timing_unverified:"
+                + ",".join(str(reason) for reason in reasons)
+                + f":{asset['renderedAssetId']}"
+            )
+        semantic_qc = evaluate_overlay_semantic_completeness(
+            {"segments": timing_qc.get("segments") or []},
+            require_overlay=True,
+            human_semantic_approval=human_approval,
+            duration_seconds=timing_qc.get("duration_seconds"),
+        )
+    if semantic_qc.get("passed") is not True:
+        failure_reasons = semantic_qc.get("failure_reasons") or [
+            "overlay_semantic_qc_failed"
+        ]
+        raise ValueError(
+            "burned_overlay_semantic_incomplete:"
+            + ",".join(str(reason) for reason in failure_reasons)
+            + f":{asset['renderedAssetId']}"
+        )
+    return semantic_qc, timing_qc
 
 
 def asset_caption_is_burned(asset: dict[str, Any]) -> bool:

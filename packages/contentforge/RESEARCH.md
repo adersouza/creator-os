@@ -15,10 +15,9 @@ Research compiled April 2026 via Claude Research. Nine deep-dive reports coverin
 - 256 coefficients compared to median = 256-bit binary hash
 - Match threshold: Hamming distance <= 31 bits (~12% BER)
 
-**Key weaknesses (what ContentForge exploits):**
-- 3-5% crop shifts content on DCT grid = Hamming 30-83 bits (crosses threshold)
-- Sub-degree rotation defeats crop-invariant neural embeddings
-- Color modulation (gamma, saturation, hue) flips DCT threshold bits
+**Detector sensitivities:** Crop, rotation, and color changes can move detector
+scores. ContentForge measures those changes to identify collisions; it does not
+apply transformations for the purpose of bypassing a platform detector.
 
 **Open-source replication:** `pdqhash` Python package produces identical output to Meta's production system. ContentForge's similarity checker uses this exact package.
 
@@ -54,17 +53,10 @@ Accounts reposting 10+ times in 30 days are removed from all recommendation surf
 
 **Cross-account target:** SSCD cosine similarity <0.75 between any two posts from same base content across accounts.
 
-**Texture bias exploit (key finding):**
-Neural networks rely on texture (not shape) for recognition — opposite of humans. This creates exploitable gaps:
-
-| FFmpeg filter | SSIM impact | Embedding shift | Disproportionate? |
-|---|---|---|---|
-| `unsharp=3:3:0.8` | > 0.92 | 0.05-0.15 | Yes — looks "crisper" |
-| `noise=c0s=8:c0f=t+u` (grain) | > 0.85 | 0.05-0.15 | Yes — barely visible |
-| YUV420 chroma round-trip | > 0.95 | measurable | Yes — imperceptible |
-| Combined pipeline | > 0.90 | 0.10-0.25 | Yes — crosses threshold |
-
-**ContentForge implementation:** Phase 2 uses increased sharpening (0.5-1.0 vs previous 0.3), temporal+uniform noise (t+u flag), and chroma subsampling.
+Texture and compression can affect neural similarity independently of perceived
+quality. ContentForge reports that uncertainty and uses it as a blocking or
+review signal. It does not add imperceptible noise or sharpening to manipulate
+an embedding score.
 
 ---
 
@@ -82,16 +74,10 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 4. Temporal sequence hashing — ordered hash sequences + DTW alignment
 5. Audio-visual sync — combined modality matching
 
-**Temporal attacks ranked by effectiveness:**
-1. **Non-uniform time remapping** (variable speed curves) — #1 most effective, breaks linear time assumption in DTW/TMK
-2. **Scene reordering + per-scene spatial transforms** — attacks temporal AND spatial
-3. **Audio replacement/desync** — eliminates strongest single signal
-4. **Constant speed changes > +-20%** — exceeds system tolerance
-5. **Frame dropping > 20%** — degrades temporal alignment
-
-**Key principle:** Stacking spatial + temporal + audio manipulations has multiplicative (not additive) effect.
-
-**ContentForge implementation:** Non-uniform time warp via sine-wave PTS modulation (amplitude increased to 0.03-0.07), speed shift widened to 0.93-1.07x.
+Temporal edits can affect matching and watchability. Supported ContentForge
+timing changes must be ordinary, operator-visible editorial decisions such as a
+meaningful trim or constant pacing adjustment. Non-uniform time warps and
+audio/video desynchronization are not supported modes.
 
 ---
 
@@ -103,18 +89,11 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 
 **Philips Robust Hash:** Energy differences across 33 Bark-scale bands = 32-bit sub-fingerprints. Match at BER < 0.35 (Hamming <= 2867/8192).
 
-**Attack effectiveness:**
-| Manipulation | Perceptual impact | Fingerprint impact |
-|---|---|---|
-| Pitch shift +-0.5 semitones | Barely noticeable | 10-30% accuracy loss |
-| Pitch shift +-1 semitone | Noticeable | Drops to 30-60% |
-| Pitch shift +-2 semitones | Obvious | Effectively broken |
-| Time stretch +-5% | Moderate | 50-70% match rate |
-| Pitch +-5-8 cents + stretch +-1-2% | Imperceptible (ODG > -0.5) | Substantial disruption |
-
-**Sweet spot:** Combined +-5-50 cent pitch shift + +-1-2% time stretch + psychoacoustically masked noise achieves ODG > -1.0 (transparent quality) while disrupting both frequency and temporal dimensions.
-
-**ContentForge implementation:** Per-variant pitch shifting via `asetrate`+`aresample` (+-50 cents), tempo matching to video speed shift, subtle echo for spectral peak smearing.
+Pitch, tempo, and replacement audio affect fingerprint results. ContentForge
+may inspect those signals, but it does not introduce pitch shifts, echoes, or
+masked noise to interfere with matching. A constant tempo adjustment is allowed
+only when it is part of an explicit editorial pacing change and audio remains
+synchronized.
 
 ---
 

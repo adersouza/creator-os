@@ -38,8 +38,8 @@ test("variant pack falls back to balanced preset and no captions", function () {
   assert.equal(request.captionMode, "none");
 });
 
-test("variant pack accepts every operator preset", function () {
-  for (var preset of ["caption_safe", "caption_safe_v2", "strong_safe", "kling_editorial", "subtle", "balanced", "strong"]) {
+test("variant pack accepts every safe operator preset", function () {
+  for (var preset of ["caption_safe", "caption_safe_v2", "strong_safe", "kling_editorial", "subtle", "balanced"]) {
     var request = normalizeVariantPackRequest({
       source: "sample.mp4",
       variationPreset: preset,
@@ -47,6 +47,15 @@ test("variant pack accepts every operator preset", function () {
     });
     assert.equal(request.variationPreset, preset);
     assert.equal(request.variantCount, 3);
+  }
+});
+
+test("variant pack rejects removed strong and heavy evasion modes", function () {
+  for (var variationPreset of ["strong", "heavy"]) {
+    assert.throws(
+      () => normalizeVariantPackRequest({ source: "sample.mp4", variationPreset }),
+      /contentforge_unsafe_variant_preset_removed/
+    );
   }
 });
 

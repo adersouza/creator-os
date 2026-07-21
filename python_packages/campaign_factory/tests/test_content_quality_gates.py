@@ -251,7 +251,7 @@ def test_review_batch_contentforge_audit_updates_manifest(
         contentforge_root=tmp_path / "contentforge",
         manifest_path=manifest,
         source_path=source,
-        contentforge_base_url="http://contentforge.test",
+        contentforge_base_url="cli://local",
     )
 
     updated_manifest = json.loads(manifest.read_text())
@@ -259,7 +259,8 @@ def test_review_batch_contentforge_audit_updates_manifest(
     assert audit_path.exists()
     assert report["auditProfile"] == "campaign_factory_v1"
     assert report["variants"] == 1
-    assert report["httpOk"] == 1
+    assert report["contentForgeMode"] == "cli_local"
+    assert report["auditedFileCount"] == 1
     assert report["verdictCounts"]["pass"] == 1
     assert captured["audit_profile"] == "campaign_factory_v1"
     assert captured["target_file"] == variant.name
@@ -375,7 +376,7 @@ def test_review_batch_contentforge_audit_writes_per_file_results(
         contentforge_root=tmp_path / "contentforge",
         manifest_path=manifest,
         source_path=source,
-        contentforge_base_url="http://contentforge.test",
+        contentforge_base_url="cli://local",
         animation_mode="static_image_mp4",
         allow_static_opening=True,
         per_file=True,
@@ -457,7 +458,7 @@ def test_review_batch_contentforge_audit_marks_missing_per_file_result_blocked(
         contentforge_root=tmp_path / "contentforge",
         manifest_path=manifest,
         source_path=source,
-        contentforge_base_url="http://contentforge.test",
+        contentforge_base_url="cli://local",
         per_file=True,
     )
 
@@ -518,7 +519,7 @@ def test_import_folder_accepts_guarded_reel_review_package(
             {
                 "auditProfile": "campaign_factory_v1",
                 "variants": 1,
-                "httpOk": 1,
+                "auditedFileCount": 1,
                 "verdictCounts": {"pass": 1, "fail": 0},
                 "overallVerdict": "pass",
                 "readinessSummary": {"uploadReady": True, "blockingCodes": []},
@@ -705,7 +706,7 @@ def test_import_folder_rejects_self_attested_reel_review_package(tmp_path: Path)
             {
                 "auditProfile": "campaign_factory_v1",
                 "variants": 1,
-                "httpOk": 1,
+                "auditedFileCount": 1,
                 "verdictCounts": {"pass": 1, "fail": 0},
                 "overallVerdict": "pass",
             }
@@ -844,7 +845,7 @@ def test_import_folder_rejects_stale_reel_review_package_hash(
             {
                 "auditProfile": "campaign_factory_v1",
                 "variants": 1,
-                "httpOk": 1,
+                "auditedFileCount": 1,
                 "verdictCounts": {"pass": 1, "fail": 0},
                 "overallVerdict": "pass",
             }
@@ -1106,7 +1107,7 @@ def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
         cf.close()
 
 
-def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch):
+def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
 
     def fake_similarity(
@@ -1147,10 +1148,12 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
     try:
         add_rendered_asset(cf, tmp_path)
         result = audit_campaign(
-            cf, campaign_slug="may", contentforge_base_url="http://contentforge.test"
+            cf, campaign_slug="may", contentforge_base_url="cli://local"
         )
         report = result["reports"][0]
         assert report["status"] == "approved_candidate"
+        assert report["contentForgeMode"] == "cli_local"
+        assert "contentForgeBaseUrl" not in report
         assert report["overallVerdict"] == "pass"
         assert report["auditProfile"] == "campaign_factory_v1"
         assert report["targetFile"].startswith("campaign_factory_variant_")
@@ -1162,6 +1165,19 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
         ).fetchone()
         assert row["overall_verdict"] == "pass"
         assert json.loads(row["verdicts_json"]) == {"pdq": "pass"}
+    finally:
+        cf.close()
+
+
+def test_contentforge_cli_audit_rejects_obsolete_http_mode(tmp_path: Path):
+    cf = make_factory(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="runs as cli_local"):
+            audit_campaign(
+                cf,
+                campaign_slug="may",
+                contentforge_base_url="http://contentforge.test",
+            )
     finally:
         cf.close()
 
@@ -1210,7 +1226,7 @@ def test_contentforge_audit_can_target_explicit_rendered_assets(
         result = audit_campaign(
             cf,
             campaign_slug="may",
-            contentforge_base_url="http://contentforge.test",
+            contentforge_base_url="cli://local",
             rendered_asset_ids=["asset_2"],
         )
         assert [report["renderedAssetId"] for report in result["reports"]] == [
@@ -1260,7 +1276,7 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
         contentforge_root=contentforge_root,
         source_path=source,
         variant_paths=[first, second],
-        contentforge_base_url="http://contentforge.test",
+        contentforge_base_url="cli://local",
         report_path=report_path,
     )
 
@@ -1268,13 +1284,14 @@ def test_variation_batch_audit_sends_all_siblings_and_writes_report(
     assert seen["layers"] == ["pdq", "sscd"]
     assert seen["target_file"].startswith("campaign_factory_variant_")
     assert len(seen["comparison_files"]) == 1
+    assert report["contentForgeMode"] == "cli_local"
     assert report["reportPath"] == str(report_path)
     assert (
         json.loads(report_path.read_text(encoding="utf-8"))["verdicts"]["pdq"] == "pass"
     )
 
 
-def test_contentforge_http_audit_records_warn_and_fail_results(
+def test_contentforge_cli_audit_records_warn_and_fail_results(
     tmp_path: Path, monkeypatch
 ):
     cf = make_factory(tmp_path)
@@ -1316,7 +1333,7 @@ def test_contentforge_http_audit_records_warn_and_fail_results(
         cf.close()
 
 
-def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
+def test_contentforge_cli_audit_keeps_review_only_layer_failures_nonblocking(
     tmp_path: Path, monkeypatch
 ):
     cf = make_factory(tmp_path)
@@ -1364,9 +1381,7 @@ def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
         cf.close()
 
 
-def test_contentforge_http_audit_handles_malformed_response(
-    tmp_path: Path, monkeypatch
-):
+def test_contentforge_cli_audit_handles_malformed_response(tmp_path: Path, monkeypatch):
     cf = make_factory(tmp_path)
 
     def fake_similarity(
