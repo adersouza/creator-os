@@ -259,6 +259,7 @@ def evaluate_export_readiness(
                     supabase_url=supabase_url,
                     supabase_service_role_key=supabase_service_role_key,
                     limit=limit,
+                    rendered_asset_ids=rendered_asset_ids,
                 )
             except Exception as exc:
                 usage_error = str(exc)

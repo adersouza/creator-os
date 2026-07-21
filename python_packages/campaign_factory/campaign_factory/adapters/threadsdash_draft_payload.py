@@ -131,8 +131,6 @@ def build_draft_payloads(
             if _asset_caption_is_burned(asset)
             else None
         )
-        caption_context["overlaySemanticQc"] = overlay_semantic_qc
-        caption_context["overlay_semantic_qc"] = overlay_semantic_qc
         if overlay_semantic_qc.get("passed") is not True:
             failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
                 "overlay_semantic_qc_failed"

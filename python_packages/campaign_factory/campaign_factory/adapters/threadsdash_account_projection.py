@@ -46,13 +46,17 @@ def summarize_threadsdash_usage(
     supabase_url: str | None,
     supabase_service_role_key: str | None,
     limit: int = 1000,
+    rendered_asset_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
         raise ValueError(
             "supabase_url and supabase_service_role_key are required for usage tracking"
         )
     payload = _draft_payload.build_draft_payloads(
-        factory, campaign_slug=campaign_slug, user_id=user_id
+        factory,
+        campaign_slug=campaign_slug,
+        user_id=user_id,
+        rendered_asset_ids=rendered_asset_ids,
     )
     client = _threadsdash_client.SupabaseRestClient(
         supabase_url.rstrip("/"), supabase_service_role_key

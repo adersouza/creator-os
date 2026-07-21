@@ -71,6 +71,57 @@ def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
         )
 
 
+def test_usage_summary_preserves_exact_rendered_asset_scope(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    def scoped_payload(*_args, **kwargs):
+        captured["renderedAssetIds"] = kwargs.get("rendered_asset_ids")
+        return {
+            "drafts": [
+                {
+                    "renderedAssetId": "asset_selected",
+                    "sourceAssetId": "source_selected",
+                    "campaignId": "campaign_selected",
+                    "contentHash": "content_selected",
+                    "sourceContentHash": "source_hash_selected",
+                    "captionHash": "caption_selected",
+                }
+            ]
+        }
+
+    class FakeClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+    monkeypatch.setattr(
+        threadsdash_accounts_adapter._draft_payload,
+        "build_draft_payloads",
+        scoped_payload,
+    )
+    monkeypatch.setattr(
+        threadsdash_accounts_adapter._threadsdash_client,
+        "SupabaseRestClient",
+        FakeClient,
+    )
+    monkeypatch.setattr(
+        threadsdash_accounts_adapter,
+        "_select_threadsdash_posts",
+        lambda *_args, **_kwargs: [],
+    )
+
+    usage = summarize_threadsdash_usage(
+        None,  # type: ignore[arg-type]
+        campaign_slug="may",
+        user_id="user_1",
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        rendered_asset_ids=["asset_selected"],
+    )
+
+    assert captured["renderedAssetIds"] == ["asset_selected"]
+    assert [row["renderedAssetId"] for row in usage["assets"]] == ["asset_selected"]
+
+
 def test_threadsdash_export_uses_dashboard_ingest_by_default(
     tmp_path: Path, monkeypatch
 ):
@@ -1015,14 +1066,13 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
         for key, value in context.items():
             assert exported_context[key] == value
             assert metadata_context[key] == value
-        assert exported_context["overlaySemanticQc"]["passed"] is True
+        assert exported_context == context
+        assert metadata_context == context
+        overlay_qc = payload["drafts"][0]["overlaySemanticQc"]
+        assert overlay_qc["passed"] is True
         assert (
-            metadata_context["overlaySemanticQc"]
-            == exported_context["overlaySemanticQc"]
-        )
-        assert (
-            exported_context["overlay_semantic_qc"]
-            == exported_context["overlaySemanticQc"]
+            payload["drafts"][0]["metadata"]["campaign_factory"]["overlay_semantic_qc"]
+            == overlay_qc
         )
         assert exported_context["creator_model"] is None
     finally:
