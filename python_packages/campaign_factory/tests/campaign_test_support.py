@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -71,6 +72,7 @@ def add_rendered_asset(
     set_test_source_prompt(cf, source["id"])
     rendered_path = tmp_path / filename
     rendered_path.write_bytes(b"rendered")
+    rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
     now = "2026-01-01T00:00:00+00:00"
     caption_context = {
         "schema": "campaign_factory.caption_outcome_context.v1",
@@ -109,11 +111,12 @@ def add_rendered_asset(
         (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
          caption, caption_hash, caption_outcome_context_json, recipe, audit_status, review_state,
          caption_generation_json, metadata_json, created_at, updated_at)
-        VALUES ('asset_1', ?, ?, 'hash_1', ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
+        VALUES ('asset_1', ?, ?, ?, ?, ?, ?, 'caption', 'caption_hash_1', ?, 'v01_original', 'pending', 'draft', ?, ?, ?, ?)
         """,
         (
             source["campaign_id"],
             source["id"],
+            rendered_hash,
             str(rendered_path),
             str(rendered_path),
             filename,

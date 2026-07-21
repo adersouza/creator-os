@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,29 @@ from campaign_factory.adapters import threadsdash_draft_payload
 from campaign_factory.generation_workflow import run_generation_workflow
 from campaign_factory.library_reuse import LibraryReuseError
 from campaign_test_support import make_factory
+
+
+def test_library_reuse_entrypoint_does_not_import_paid_video_dependencies() -> None:
+    script = """
+import builtins
+
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name == "cv2" or name.startswith("scenedetect"):
+        raise AssertionError(f"free Library Reuse imported paid-mode dependency: {name}")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+from campaign_factory.generation_workflow import run_generation_workflow
+assert callable(run_generation_workflow)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def _sha256(path: Path) -> str:
@@ -107,6 +132,43 @@ def test_library_reuse_preserves_one_mp4_without_render_or_paid_activity(
             cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
             == 0
         )
+    finally:
+        cf.close()
+
+
+def test_library_reuse_rejects_contentforge_reports_for_the_wrong_asset_set(
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "library"
+    _write_library(folder, 2)
+    cf = make_factory(tmp_path)
+
+    def mismatched_audit(**kwargs: Any) -> dict[str, Any]:
+        first = kwargs["rendered_asset_ids"][0]
+        return {
+            "reports": [
+                {
+                    "renderedAssetId": first,
+                    "failedChecks": [],
+                    "warnings": [],
+                    "overallVerdict": "pass",
+                },
+                {
+                    "renderedAssetId": first,
+                    "failedChecks": [],
+                    "warnings": [],
+                    "overallVerdict": "pass",
+                },
+            ]
+        }
+
+    try:
+        cf.domains.library_reuse._audit_campaign = mismatched_audit
+        with pytest.raises(
+            LibraryReuseError,
+            match="library_reuse_validation_identity_mismatch",
+        ):
+            _run(cf, folder)
     finally:
         cf.close()
 

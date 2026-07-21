@@ -192,6 +192,7 @@ def audit_variation_batch(
         source_path,
         variant_paths,
     ) as (staged_source, staged_variants):
+        run_id = staged_variants[0].parent.parent.name
         response = _post_similarity(
             contentforge_root,
             source=staged_source.name,
@@ -199,6 +200,7 @@ def audit_variation_batch(
             comparison_files=[path.name for path in staged_variants[1:]],
             audit_profile=DEFAULT_AUDIT_PROFILE,
             layers=["pdq", "sscd"],
+            run_id=run_id,
         )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report = {
@@ -257,6 +259,7 @@ def audit_review_batch_manifest(
     with _stage_contentforge_variation_batch(
         contentforge_root, source_path, variant_paths
     ) as (staged_source, staged_variants):
+        run_id = staged_variants[0].parent.parent.name
         response = _post_similarity(
             contentforge_root,
             source=staged_source.name,
@@ -266,6 +269,7 @@ def audit_review_batch_manifest(
             layers=layers or ["pdq", "sscd", "forensics"],
             animation_mode=animation_mode,
             allow_static_opening=allow_static_opening,
+            run_id=run_id,
         )
         if per_file:
             for original_path, staged_path in zip(
@@ -281,6 +285,7 @@ def audit_review_batch_manifest(
                         layers=layers or ["pdq", "sscd", "forensics"],
                         animation_mode=animation_mode,
                         allow_static_opening=allow_static_opening,
+                        run_id=run_id,
                     )
                     file_results.append(
                         _review_file_result(original_path, file_response)
@@ -483,6 +488,7 @@ def _audit_asset(
             post_kwargs = {
                 "source": staged_source.name,
                 "target_file": staged_path.name,
+                "run_id": staged_path.parent.parent.name,
                 "audit_profile": DEFAULT_AUDIT_PROFILE,
                 "layers": layers,
             }
@@ -534,7 +540,7 @@ def _audit_asset(
     )
     report = {
         "schema": "campaign_factory.contentforge_audit.v1",
-        "contentForgeMode": "http_similarity",
+        "contentForgeMode": "cli_similarity",
         "contentForgeBaseUrl": contentforge_base_url,
         "contentForgeRunId": run_id,
         "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
@@ -660,16 +666,11 @@ def _stage_contentforge_asset(
     if not media_path.exists():
         raise FileNotFoundError(media_path)
     uploads_dir = contentforge_root / "uploads"
-    final_dir = contentforge_root / "output" / "final"
-    backup_dir = (
-        contentforge_root
-        / "output"
-        / f".campaign_factory_backup_{uuid.uuid4().hex[:8]}"
-    )
+    token = uuid.uuid4().hex[:8]
+    run_root = contentforge_root / "output" / "runs" / token
+    final_dir = run_root / "final"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     final_dir.mkdir(parents=True, exist_ok=True)
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    token = uuid.uuid4().hex[:8]
     staged_source = (
         uploads_dir / f"campaign_factory_source_{token}{source_path.suffix.lower()}"
     )
@@ -677,13 +678,7 @@ def _stage_contentforge_asset(
         final_dir / f"campaign_factory_variant_{token}{media_path.suffix.lower()}"
     )
     staged_references: list[Path] = []
-    moved: list[tuple[Path, Path]] = []
     try:
-        for path in sorted(final_dir.iterdir()):
-            if path.is_file() and path.suffix.lower() in SUPPORTED_EXTS:
-                backup_path = backup_dir / path.name
-                shutil.move(str(path), str(backup_path))
-                moved.append((path, backup_path))
         shutil.copy2(source_path, staged_source)
         shutil.copy2(media_path, staged_path)
         for idx, reference_path in enumerate(reference_paths or [], 1):
@@ -709,13 +704,7 @@ def _stage_contentforge_asset(
             if staged_source.exists():
                 staged_source.unlink()
         finally:
-            for original, backup in reversed(moved):
-                if backup.exists():
-                    shutil.move(str(backup), str(original))
-            try:
-                backup_dir.rmdir()
-            except OSError:
-                pass
+            shutil.rmtree(run_root, ignore_errors=True)
 
 
 @contextmanager
@@ -730,27 +719,16 @@ def _stage_contentforge_variation_batch(
         missing = next(path for path in variant_paths if not path.exists())
         raise FileNotFoundError(missing)
     uploads_dir = contentforge_root / "uploads"
-    final_dir = contentforge_root / "output" / "final"
-    backup_dir = (
-        contentforge_root
-        / "output"
-        / f".campaign_factory_backup_{uuid.uuid4().hex[:8]}"
-    )
+    token = uuid.uuid4().hex[:8]
+    run_root = contentforge_root / "output" / "runs" / token
+    final_dir = run_root / "final"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     final_dir.mkdir(parents=True, exist_ok=True)
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    token = uuid.uuid4().hex[:8]
     staged_source = (
         uploads_dir / f"campaign_factory_source_{token}{source_path.suffix.lower()}"
     )
     staged_variants: list[Path] = []
-    moved: list[tuple[Path, Path]] = []
     try:
-        for path in sorted(final_dir.iterdir()):
-            if path.is_file() and path.suffix.lower() in SUPPORTED_EXTS:
-                backup_path = backup_dir / path.name
-                shutil.move(str(path), str(backup_path))
-                moved.append((path, backup_path))
         shutil.copy2(source_path, staged_source)
         for index, variant_path in enumerate(variant_paths, 1):
             staged_variant = (
@@ -766,13 +744,7 @@ def _stage_contentforge_variation_batch(
                 staged_variant.unlink(missing_ok=True)
             staged_source.unlink(missing_ok=True)
         finally:
-            for original, backup in reversed(moved):
-                if backup.exists():
-                    shutil.move(str(backup), str(original))
-            try:
-                backup_dir.rmdir()
-            except OSError:
-                pass
+            shutil.rmtree(run_root, ignore_errors=True)
 
 
 def _post_similarity(
@@ -786,6 +758,7 @@ def _post_similarity(
     comparison_files: list[str] | None = None,
     animation_mode: str | None = None,
     allow_static_opening: bool = False,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": source,
@@ -802,6 +775,8 @@ def _post_similarity(
         payload["animationMode"] = animation_mode
     if allow_static_opening:
         payload["allowStaticOpening"] = True
+    if run_id:
+        payload["runId"] = run_id
     return run_contentforge(contentforge_root, "similarity", payload, timeout=240)
 
 

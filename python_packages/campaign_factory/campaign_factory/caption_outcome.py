@@ -167,6 +167,7 @@ def build_caption_outcome_context(
         "sceneCompatibilityDecision",
         "sceneCompatibilityReason",
         "captionSceneFitVersion",
+        "captionTimingQc",
     ):
         if key not in context:
             value = _first_present(caption_lineage.get(key), lineage.get(key))

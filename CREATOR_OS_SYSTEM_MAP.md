@@ -18,50 +18,37 @@ state, paid providers, and ThreadsDashboard production have separate evidence.
 
 ## Current Operational Truth
 
-This review began on 2026-07-16 from source `main` at
-`b6c1bf3fc223e86820dd8716d41392e310d7bb69`. The latest code-bearing merge in
-that baseline is the Library Reuse preservation fix from PR #462 at
-`62f95a09eda44b4751f44c2622e6ae9050368938`; PR #463 then advanced `main` with
-this lifecycle diagram. Every required check for both merges passed. Later
-source merges may advance `main`; use Git rather than this historical baseline
-to determine the current source SHA.
+Operational truth is intentionally not hard-coded in this durable document.
+Source, runtime, account, queue, provider, and metric state all drift. Establish
+them from fresh evidence every time:
 
-The detached runtime remains separately pinned at
-`65998959cf0735aefb87595dcd553012e5ecbafe` (PR #461). Its read-only status
-proof passed 8/8 at that SHA, but the Library Reuse fix and later documentation
-are source-only until an explicit runtime promotion is authorized. Operational
-closure always requires a fresh `creator-os status --live-read-only` result;
-source merge, runtime promotion, and live proof are separate facts.
+```bash
+git fetch origin main
+git rev-parse origin/main
+/Users/aderdesouza/Developer/creator-os-runtime/scripts/creator-os \
+  status --live-read-only --json
+```
 
-The live status proof passed the HMAC and provider probes under trace
-`trace_39fc17ae1f094da28eb8f520f83fcfed`. The HMAC handshake claimed its nonce
-and wrote zero ThreadsDashboard product rows. The Higgsfield account,
-workspace, Soul/Kling/Seedance availability, balance, and free quote passed
-while creating zero provider jobs and zero cost events. No paid generation,
-draft export, account reconnect, scheduling, or publishing occurred during this
-simplification or its operational proof.
+Record the resulting source SHA, runtime SHA, trace ID, check counts, and dated
+receipts in a run-specific audit report under `~/.creator-os/analysis/`. A
+passing source verifier never proves runtime promotion. A passing read-only
+status never proves that a post published. A QStash receipt never proves an
+Instagram identity or metric row.
 
-Backup and machine-runtime proof also completed. Structured runtime backup
-`20260716T022453Z` passed a clean restore. Local snapshot
-`20260715_222835` has private `0700` directories, `0600` SQLite files, and four
-databases with successful integrity checks. Restic/Supabase snapshot
-`405582cdb5b2c9fd9d380273bd29748ee426d6a0dbdd8c4f3ad2901842b4bd7d` passed
-the offsite check and full restore drill. The ops-digest and performance-sync
-LaunchAgents both last exited zero from the pinned runtime. The normal sync at
-`2026-07-16T02:32:03Z` was idempotent and left counts unchanged.
+The minimum operational closure for a run is:
 
-Existing ThreadsDashboard evidence still proves five regular Reels published
-once with Instagram identities and real metric history, but those posts lack
-Campaign asset lineage and do not count toward Creator OS learning readiness.
-Campaign currently has one real eligible 1-hour snapshot, zero eligible 24-hour
-or 72-hour snapshots, zero of ten completed reconciled posts, and zero of fifty
-posts satisfying the 1h+24h autonomy gate. `CreativeKnowledgeService` therefore
-remains deferred by evidence.
+1. Exact source and runtime SHAs are recorded separately.
+2. Read-only status/config/database/HMAC/provider probes pass without product
+   writes, provider jobs, or cost events.
+3. Every production action has its own exact account, media, caption, mode, and
+   downstream receipt reconciliation.
+4. Learning remains off until genuine Instagram publication identity and
+   metric-history observations exist; missing observations are never zero.
 
-Trial capability counts and OAuth evidence are live ThreadsDashboard facts and
-must be read from a fresh account projection. Do not preserve roster counts in
-this durable map. Trial autonomy remains closed unless the selected account has
-a fresh projection and satisfies the explicit capability policy below.
+Historical backup, deployment, publication, experiment, and metric evidence
+belongs in dated audit artifacts, not in this map. Trial capability and OAuth
+scope counts likewise come only from a fresh ThreadsDashboard account
+projection.
 
 ## Lifecycle Overview
 

@@ -339,11 +339,13 @@ class _FakeDashboard:
         *,
         instagram_account_id: str,
         published_at: str,
+        instagram_post_id: str,
         permalink: str,
     ) -> None:
         post = self.posts[post_id]
         post["status"] = "published"
         post["published_at"] = published_at
+        post["instagram_post_id"] = instagram_post_id
         post["permalink"] = permalink
         post["instagram_account_id"] = instagram_account_id
 
@@ -611,6 +613,7 @@ def publish_with_metrics(
         post_id,
         instagram_account_id=instagram_account_id,
         published_at=published_at,
+        instagram_post_id=f"ig_{post_id}",
         permalink=f"https://instagram.test/p/{post_id}",
     )
     dashboard.add_metric_history(
@@ -781,6 +784,7 @@ def test_export_and_performance_sync_are_idempotent(
             campaign_slug="may",
             user_id="user_1",
             dry_run=False,
+            allow_warnings=True,
             threadsdash_ingest_url=_INGEST_URL,
             threadsdash_ingest_secret="ingest-secret",
             **_SUPABASE_KW,

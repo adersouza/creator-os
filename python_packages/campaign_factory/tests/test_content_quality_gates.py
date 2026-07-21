@@ -43,6 +43,69 @@ from campaign_test_support import (
 )
 
 
+def test_contentforge_staging_is_run_isolated_and_preserves_shared_final(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "contentforge"
+    shared_final = root / "output" / "final"
+    shared_final.mkdir(parents=True)
+    baseline = shared_final / "existing.mp4"
+    baseline.write_bytes(b"baseline")
+    source_a = tmp_path / "source_a.mp4"
+    media_a = tmp_path / "media_a.mp4"
+    source_b = tmp_path / "source_b.mp4"
+    media_b = tmp_path / "media_b.mp4"
+    source_a.write_bytes(b"source-a")
+    media_a.write_bytes(b"media-a")
+    source_b.write_bytes(b"source-b")
+    media_b.write_bytes(b"media-b")
+
+    with contentforge_adapter._stage_contentforge_asset(root, source_a, media_a) as (
+        _staged_source_a,
+        staged_a,
+        _references_a,
+    ):
+        run_a = staged_a.parent.parent
+        assert baseline.read_bytes() == b"baseline"
+        with contentforge_adapter._stage_contentforge_asset(
+            root, source_b, media_b
+        ) as (_staged_source_b, staged_b, _references_b):
+            run_b = staged_b.parent.parent
+            assert run_a != run_b
+            assert staged_a.read_bytes() == b"media-a"
+            assert staged_b.read_bytes() == b"media-b"
+            assert baseline.read_bytes() == b"baseline"
+        assert staged_a.exists()
+        assert not run_b.exists()
+
+    assert not run_a.exists()
+    assert baseline.read_bytes() == b"baseline"
+
+
+def test_contentforge_staging_exception_cleans_only_its_isolated_run(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "contentforge"
+    source = tmp_path / "source.mp4"
+    media = tmp_path / "media.mp4"
+    source.write_bytes(b"source")
+    media.write_bytes(b"media")
+    run_root: Path | None = None
+
+    with pytest.raises(RuntimeError, match="forced interruption"):
+        with contentforge_adapter._stage_contentforge_asset(root, source, media) as (
+            _staged_source,
+            staged,
+            _references,
+        ):
+            run_root = staged.parent.parent
+            raise RuntimeError("forced interruption")
+
+    assert run_root is not None
+    assert not run_root.exists()
+    assert not list((root / "output" / "runs").glob("*/final/*.mp4"))
+
+
 def test_import_folder_rejects_raw_reel_review_batch_manifest(tmp_path: Path):
     folder = tmp_path / "review_batch"
     folder.mkdir()
@@ -1047,7 +1110,13 @@ def test_contentforge_http_audit_records_pass_result(tmp_path: Path, monkeypatch
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        contentforge_root, *, source, target_file=None, audit_profile=None, layers
+        contentforge_root,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
     ):
         assert contentforge_root == cf.settings.contentforge_root
         assert source.startswith("campaign_factory_source_")
@@ -1211,7 +1280,13 @@ def test_contentforge_http_audit_records_warn_and_fail_results(
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        base_url, *, source, target_file=None, audit_profile=None, layers
+        base_url,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
     ):
         return {
             "layers": {"pdq": {}, "sscd": {}},
@@ -1247,7 +1322,13 @@ def test_contentforge_http_audit_keeps_review_only_layer_failures_nonblocking(
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        base_url, *, source, target_file=None, audit_profile=None, layers
+        base_url,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
     ):
         return {
             "layers": {"sscd": {}},
@@ -1289,7 +1370,13 @@ def test_contentforge_http_audit_handles_malformed_response(
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        base_url, *, source, target_file=None, audit_profile=None, layers
+        base_url,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
     ):
         return {"layers": {}, "verdicts": {}, "filesAnalyzed": 1}
 
@@ -1318,16 +1405,18 @@ def test_end_to_end_smoke_import_audit_approve_export(tmp_path: Path):
         set_test_source_prompt(cf, source["id"])
         rendered_path = tmp_path / "rendered.mp4"
         rendered_path.write_bytes(b"rendered")
+        rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
         now = "2026-01-01T00:00:00+00:00"
         cf.conn.execute(
             """
             INSERT INTO rendered_assets
             (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename, caption, recipe, audit_status, review_state, created_at, updated_at)
-            VALUES ('asset_smoke', ?, ?, 'hash_smoke', ?, ?, 'rendered.mp4', 'caption', 'v01_original', 'pending', 'draft', ?, ?)
+            VALUES ('asset_smoke', ?, ?, ?, ?, ?, 'rendered.mp4', 'caption', 'v01_original', 'pending', 'draft', ?, ?)
             """,
             (
                 source["campaign_id"],
                 source["id"],
+                rendered_hash,
                 str(rendered_path),
                 str(rendered_path),
                 now,
@@ -1448,7 +1537,8 @@ def test_publishability_blocks_passthrough_captioned_media_before_export(
         )
 
         with pytest.raises(
-            ValueError, match="export blocked by (publishability|handoff manifest)"
+            ValueError,
+            match="export blocked by (readiness|publishability|handoff manifest)",
         ):
             export_threadsdash(
                 cf,

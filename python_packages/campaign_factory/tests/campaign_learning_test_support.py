@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -38,14 +39,15 @@ def _threadsdash_lifecycle_post(
     rendered_asset_id: str = "asset_1",
     metadata_extra: dict | None = None,
 ) -> dict:
+    rendered_hash = hashlib.sha256(b"rendered").hexdigest()
     campaign_factory = {
         "campaign_id": "may",
         "rendered_asset_id": rendered_asset_id,
         "asset_id": rendered_asset_id,
         "asset_state": "exportable",
         "platform_state": "platform_draft_validated",
-        "content_hash": "hash_1",
-        "content_fingerprint": "hash_1",
+        "content_hash": rendered_hash,
+        "content_fingerprint": rendered_hash,
         "caption_hash": "caption_hash_1",
         "publishability_failure_reasons": [],
         "quarantined": False,
@@ -56,7 +58,7 @@ def _threadsdash_lifecycle_post(
             "manifest_version": 1,
             "asset_id": rendered_asset_id,
             "render_file_id": "render_file_lifecycle",
-            "content_fingerprint": "hash_1",
+            "content_fingerprint": rendered_hash,
             "caption_hash": "caption_hash_1",
             "captionOutcomeContext": {
                 "schema": "campaign_factory.caption_outcome_context.v1",
@@ -317,11 +319,12 @@ def threadsdash_campaign_factory_metadata(
     source: dict,
     *,
     rendered_asset_id: str = "asset_1",
-    content_hash: str = "hash_1",
+    content_hash: str | None = None,
     caption_hash: str = "caption_hash_1",
     recipe: str = "v01_original",
     context: dict | None = None,
 ) -> dict:
+    content_hash = content_hash or hashlib.sha256(b"rendered").hexdigest()
     context = context or {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": caption_hash,

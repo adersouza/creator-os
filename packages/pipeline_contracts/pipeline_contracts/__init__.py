@@ -1,3 +1,7 @@
+from .overlay_semantics import (
+    evaluate_overlay_semantic_completeness,
+    evaluate_overlay_timing,
+)
 from .validator import (
     SCHEMA_NAMES,
     ContractValidationError,
@@ -84,4 +88,6 @@ __all__ = [
     "validate_threadsdash_handshake",
     "validate_variant_assignment",
     "validate_video_analysis",
+    "evaluate_overlay_semantic_completeness",
+    "evaluate_overlay_timing",
 ]

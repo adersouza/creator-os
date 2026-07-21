@@ -243,6 +243,10 @@ class CaptionSet:
                 if isinstance(h, dict):
                     if "segments" not in h:
                         raise ValueError(f"hook dict missing 'segments' key in {path}")
+                    if not isinstance(h["segments"], list) or not h["segments"]:
+                        raise ValueError(
+                            f"hook dict requires non-empty 'segments' in {path}"
+                        )
                     parsed.append(h)
                 else:
                     s = str(h).strip()
@@ -830,6 +834,9 @@ def build_caption_outcome_context(
         "captionPlacementPolicy": _first_text(lineage.get("captionPlacementPolicy")),
         "captionPlacementDecision": lineage.get("captionPlacementDecision")
         if isinstance(lineage.get("captionPlacementDecision"), dict)
+        else None,
+        "captionTimingQc": lineage.get("captionTimingQc")
+        if isinstance(lineage.get("captionTimingQc"), dict)
         else None,
         "render_recipe": render_recipe,
         "source_clip": _first_text(

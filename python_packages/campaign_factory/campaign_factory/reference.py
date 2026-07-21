@@ -9,7 +9,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pipeline_contracts import validate_reference_factory_knowledge_pack
+from pipeline_contracts import (
+    evaluate_overlay_semantic_completeness,
+    validate_reference_factory_knowledge_pack,
+)
 
 from .config import Settings
 from .persistence import json_load
@@ -701,6 +704,8 @@ class ReferenceRepository:
     def reference_hook_is_schedule_safe(self, text: str) -> bool:
         normalized = " ".join(str(text or "").strip().split())
         if not normalized:
+            return False
+        if evaluate_overlay_semantic_completeness(normalized).get("passed") is not True:
             return False
         if "{" in normalized or "}" in normalized:
             return False

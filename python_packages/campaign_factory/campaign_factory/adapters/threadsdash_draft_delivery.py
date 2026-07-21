@@ -4,6 +4,9 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
+import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -209,6 +212,18 @@ def _campaign_factory_manifest_blockers(
             )
         if meta.get("quarantined"):
             blockers.append(f"{rendered_asset_id}:quarantined_asset")
+        overlay_semantic_qc = meta.get("overlay_semantic_qc")
+        if (
+            isinstance(overlay_semantic_qc, dict)
+            and overlay_semantic_qc.get("passed") is False
+        ):
+            reasons = overlay_semantic_qc.get("failure_reasons") or [
+                "overlay_semantic_qc_failed"
+            ]
+            blockers.extend(
+                f"{rendered_asset_id}:overlay_semantic_qc:{reason}"
+                for reason in reasons
+            )
         if require_remote_media_urls:
             blockers.extend(
                 _remote_media_url_blockers(draft, rendered_asset_id=rendered_asset_id)
@@ -312,6 +327,8 @@ def export_threadsdash(
     publish_mode: str | None = None,
     review_only: bool = False,
 ) -> dict[str, Any]:
+    if max_drafts is not None and max_drafts < 0:
+        raise ValueError("max_drafts must be non-negative")
     if review_only and _normalize_schedule_mode(schedule_mode) != "draft":
         raise ValueError("review-only handoff requires schedule_mode='draft'")
     if not dry_run:
@@ -319,6 +336,10 @@ def export_threadsdash(
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     normalized_schedule_mode = _normalize_schedule_mode(schedule_mode)
     normalized_publish_mode = _normalize_publish_mode(publish_mode)
+    if not dry_run and normalized_schedule_mode != "draft":
+        raise ValueError(
+            "Campaign Factory exports are draft-only; scheduling and publishing belong to ThreadsDashboard"
+        )
     if dry_run and enable_variation:
         raise ValueError(
             "read-only draft preview cannot generate variation artifacts; "
@@ -396,8 +417,11 @@ def export_threadsdash(
             publish_mode=normalized_publish_mode,
             review_only=review_only,
         )
-        if max_drafts is not None:
-            payload["drafts"] = payload["drafts"][: max(0, max_drafts)]
+        if max_drafts is not None and max_drafts < len(payload["drafts"]):
+            raise ValueError(
+                "max_drafts_cannot_define_an_integrity_batch: select exact "
+                "rendered_asset_ids so readiness and export evaluate the same rows"
+            )
         readiness = evaluate_export_readiness(
             factory,
             campaign_slug=campaign_slug,
@@ -414,15 +438,26 @@ def export_threadsdash(
             review_only=review_only,
             record_evidence=not dry_run,
         )
-        publishability_blockers = [
-            reason
-            for reason in readiness.get("blockingReasons") or []
-            if str(reason).startswith("publishability:")
-            or "threadsdash_draft_media_invalid_missing_burned_captions" in str(reason)
-        ]
-        if not dry_run and publishability_blockers and not review_only:
+        if not dry_run and readiness.get("liveExportAllowed") is not True:
+            readiness_blockers = [
+                str(reason)
+                for reason in readiness.get("blockingReasons") or []
+                if str(reason).strip()
+            ] or ["export_readiness_not_proven"]
             raise ValueError(
-                f"export blocked by publishability: {', '.join(publishability_blockers)}"
+                "export blocked by readiness before external writes: "
+                + ", ".join(readiness_blockers)
+            )
+        if not dry_run and readiness.get("warnings") and not allow_warnings:
+            warning_codes = [
+                str(item.get("code") or item.get("type") or item)
+                if isinstance(item, dict)
+                else str(item)
+                for item in readiness.get("warnings") or []
+            ]
+            raise ValueError(
+                "export has readiness warnings; review them or explicitly pass "
+                "allow_warnings: " + ", ".join(warning_codes)
             )
         uses_dashboard_ingest = not dry_run and normalized_schedule_mode == "draft"
         dashboard_ingest_media: list[dict[str, Any]] = []
@@ -663,6 +698,7 @@ def _upload_media_for_dashboard_ingest(
                     local_path=local_path,
                     tags=list(draft.get("_tags") or []),
                     media_key=draft.get("campaignFactoryMediaKey"),
+                    expected_sha256=str(draft.get("contentHash") or ""),
                 )
             except Exception as exc:
                 blockers = _remote_media_url_blockers(
@@ -972,9 +1008,19 @@ def _upload_media(
     local_path: Path,
     tags: list[str],
     media_key: str | None = None,
+    expected_sha256: str,
 ) -> dict[str, Any]:
     if not local_path.exists():
         raise FileNotFoundError(local_path)
+    expected_sha256 = expected_sha256.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("media upload requires a canonical SHA-256 fingerprint")
+    actual_sha256 = _sha256_file(local_path)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            "media changed after draft approval: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
     content_type = mimetypes.guess_type(local_path.name)[0] or "video/mp4"
     file_type = "image" if content_type.startswith("image/") else "video"
     safe_name = "".join(
@@ -999,27 +1045,23 @@ def _upload_media(
     # storage upload so a degraded database cannot turn a read outage into
     # additional object and row writes.
     existing_rows = select_existing()
-    if existing_rows:
-        row = existing_rows[0]
-        public_url = (
-            row.get("storage_url")
-            or row.get("file_url")
-            or row.get("url")
-            or f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
-        )
-        return {
-            "id": row.get("id"),
-            "publicUrl": public_url,
-            "storagePath": storage_path,
-            "fileName": row.get("file_name") or local_path.name,
-            "reused": True,
-        }
-    try:
-        client.upload_storage_object(
-            bucket, storage_path, local_path, content_type, upsert=True
-        )
-    except TypeError:
-        client.upload_storage_object(bucket, storage_path, local_path, content_type)
+    with tempfile.TemporaryDirectory(prefix="creator-os-approved-media-") as temp_dir:
+        approved_copy = Path(temp_dir) / local_path.name
+        shutil.copyfile(local_path, approved_copy)
+        copied_sha256 = _sha256_file(approved_copy)
+        if copied_sha256 != expected_sha256:
+            raise ValueError(
+                "media changed while creating immutable upload copy: "
+                f"expected {expected_sha256}, got {copied_sha256}"
+            )
+        try:
+            client.upload_storage_object(
+                bucket, storage_path, approved_copy, content_type, upsert=True
+            )
+        except TypeError:
+            client.upload_storage_object(
+                bucket, storage_path, approved_copy, content_type
+            )
     public_url = (
         f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
     )
@@ -1037,29 +1079,35 @@ def _upload_media(
         "url": public_url,
         "tags": tags,
     }
-    reused = False
-    try:
-        row = client.insert_with_fallback("media", base_row, fallback_remove=["url"])
-    except RuntimeError as insert_error:
-        # Production's storage_path uniqueness is enforced by a partial index,
-        # which PostgREST cannot target with on_conflict=storage_path. Recover
-        # a concurrent or ambiguously committed plain insert with one exact
-        # read instead of issuing a second write.
+    reused = bool(existing_rows)
+    if existing_rows:
+        row = existing_rows[0]
+    else:
         try:
-            recovered_rows = select_existing()
-        except RuntimeError as recovery_error:
-            raise RuntimeError(
-                "media insert failed and its exact recovery read also failed"
-            ) from recovery_error
-        if not recovered_rows:
-            raise insert_error
-        row = recovered_rows[0]
-        reused = True
+            row = client.insert_with_fallback(
+                "media", base_row, fallback_remove=["url"]
+            )
+        except RuntimeError as insert_error:
+            # Production's storage_path uniqueness is enforced by a partial index,
+            # which PostgREST cannot target with on_conflict=storage_path. Recover
+            # a concurrent or ambiguously committed plain insert with one exact
+            # read instead of issuing a second write.
+            try:
+                recovered_rows = select_existing()
+            except RuntimeError as recovery_error:
+                raise RuntimeError(
+                    "media insert failed and its exact recovery read also failed"
+                ) from recovery_error
+            if not recovered_rows:
+                raise insert_error
+            row = recovered_rows[0]
+            reused = True
     result = {
         "id": row.get("id"),
         "publicUrl": public_url,
         "storagePath": storage_path,
         "fileName": local_path.name,
+        "sha256": expected_sha256,
     }
     if reused:
         result["reused"] = True
@@ -1073,3 +1121,11 @@ def _batch_guardrail_warnings(
         key: list(findings.get("warnings") or [])
         for key, findings in _batch_guardrail_findings(drafts).items()
     }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

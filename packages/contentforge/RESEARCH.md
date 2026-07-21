@@ -118,7 +118,11 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 
 ---
 
-## 5. Platform Detection Stack (Beyond Content)
+## 5. Platform Forensics (Detection Evidence Only)
+
+This material is retained only to explain signals ContentForge may report. It
+must not be used to hide provenance, spoof devices, evade enforcement, or
+recommend account/network circumvention. The active product is detect-and-block.
 
 **Four-layer detection:**
 
@@ -129,17 +133,15 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 - Container atoms (ftyp, handler_name, timescale) identify encoding software
 
 ### Layer 2: Upload Timing
-- Burst uploads (5+ in 10 min) trigger shadow-throttling
-- Robotic scheduling (same second daily) flags as automation
-- No sleep-cycle gap = automated
-- Safe rates: TikTok 1-3/day, Instagram Reels 1-2/day, YouTube Shorts 1-3/day
-- Minimum 45 min between posts on same account
+- Rate limits and publishing policies change and are owned by each platform.
+- ContentForge does not schedule, throttle, or advise ways to evade enforcement.
+- Production pacing must use current platform documentation and the publishing
+  system's account-health guardrails.
 
 ### Layer 3: Device Fingerprinting
 - TikTok collects 40+ device signals via AppLog SDK
 - Meta maintains cross-app device graph (IG, FB, WhatsApp, Messenger)
 - Multiple accounts from one device share action budgets
-- Anti-detect browsers (AdsPower, GoLogin) create isolated profiles
 
 ### Layer 4: Network Analysis
 - IP classification: mobile (high trust) > residential > VPN (low) > datacenter (blocked)
@@ -147,50 +149,19 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 - Bipartite graph clustering links accounts sharing IPs
 - Residential proxy detection via behavioral analysis
 
-### Key operational data (from 293-account network):
-- 40-60% account attrition expected
-- Zero cross-engagement between own accounts
-- Ramp new accounts: 5 posts/day -> 6 -> 7 over first week
-- Content similarity score < 0.7 required before publish
+ContentForge similarity thresholds are quality and collision signals, not
+promises about distribution, moderation, or account survival.
 
 ---
 
 ## 6. Device Container Forensics
 
-**iPhone native recording signature:**
-- ftyp: `qt  ` (not `isom`)
-- mvhd timescale: 600 (not 1000)
-- Video track timescale: 600
-- Handler names: `Core Media Video` / `Core Media Audio`
-- Bitrate: 20-24 Mbps at 1080p30
-- Audio: AAC-LC at 44,100 Hz
-- B-frames: 1-2, refs: 2-4
-- colr atom: `nclc` type (not `nclx`)
-- Apple mdta/keys metadata system
-
-**Android (Samsung/Pixel) recording signature:**
-- ftyp: `isom` (same as FFmpeg default)
-- mvhd timescale: 1000
-- Video track timescale: 90,000
-- Handler names: `VideoHandle` / `SoundHandle`
-- Samsung bitrate: 17-20 Mbps, Pixel: 12-16 Mbps
-- Audio: AAC-LC at 48,000 Hz
-- B-frames: 0 (real-time hardware encoders skip these)
-- Refs: 1-2
-
-**FFmpeg default (what ContentForge used to output):**
-- encoder atom: `Lavf60.x` (instant forensic failure)
-- x264 UUID SEI with full parameter string
-- Handler: `VideoHandler` / `SoundHandler`
-- Bitrate: ~8-12 Mbps at CRF 18-21
-- Creation timestamp: epoch 0
-- No VUI color metadata
-
-**ContentForge v5 fix:** Per-variant random device profile (iPhone/Samsung/Pixel) with matched bitrate, GOP, B-frames, refs, handler names, audio rate, and color metadata. Uses ABR (like devices) instead of CRF (software tell).
-
-**Still requires post-processing to strip:**
-- x264 UUID SEI in bitstream (hardcoded, can't disable via FFmpeg flags)
-- Any residual Lavf strings in container
+Container and stream metadata can help identify transcoding, missing provenance,
+or unexpected changes between an input and output. ContentForge may inspect and
+report those signals as evidence. It must preserve honest source/output
+lineage; it must not synthesize a phone model, handler, creation time, encoder
+identity, or other capture signature, and it must not strip metadata to make an
+editorial derivative appear device-native.
 
 ---
 
@@ -219,13 +190,15 @@ Neural networks rely on texture (not shape) for recognition — opposite of huma
 **Key thresholds:**
 - delta QP > 6 between passes: readily detectable
 - delta QP < 3: challenging (55-65% accuracy)
-- Same-parameter re-encoding (QP1 = QP2, GOP1 = GOP2): hardest case — validates ContentForge's approach of randomizing params per variant
+- Same-parameter re-encoding (QP1 = QP2, GOP1 = GOP2): difficult to classify;
+  this is a detector limitation, not a transformation recommendation.
 
-**ContentForge mitigation:**
-- Randomized CRF/bitrate per variant (avoids same-parameter detection)
-- Device-matched GOP structure (30 for Android, 60 for iPhone)
-- ABR encoding instead of CRF (matches device behavior)
-- Randomized encoding parameters reduce inter-variant correlation
+**ContentForge policy:**
+- Preserve honest encoder/container provenance.
+- Report suspicious or missing provenance as evidence.
+- Use editorial transformations only when they improve the actual creative.
+- Never randomize encoder parameters, metadata, or device identity to evade
+  similarity or provenance systems.
 
 **Available for similarity checker (future):**
 - `jpegio` for DCT coefficient analysis on image variants
@@ -336,35 +309,23 @@ Thresholds calibrated against published benchmarks (DISC2021, Meta's own researc
 - **FAIL**: SSCD >=0.75 (90% precision copy threshold) OR PDQ <30
 - Cross-account target: SSCD cosine <0.75 between any two posts from same base content
 
-### Pipeline Upgrades v5
-- **Device profiles:** Random iPhone/Samsung/Pixel encoding per variant
-- **Texture bias exploit:** Increased sharpening (0.5-1.0) + temporal+uniform grain (t+u flag)
-- **Audio pitch shift:** +-50 cents via asetrate+aresample (imperceptible, ODG > -0.5)
-- **Wider speed range:** 0.93-1.07x (was 0.96-1.04x)
-- **Stronger time warp:** Amplitude 0.03-0.07 (was 0.02-0.04), non-uniform sine wave
-- **Proper container metadata:** Device-matched handler names, bitrates, color flags, audio sample rates
-- **Clean level:** Imperceptible transforms only (crop + micro warp + pitch shift), skips Phase 1
-- **Post-processing sanitizer:** Strips x264 UUID SEI from H.264 bitstream + Lavf/Lavc strings from container atoms (zero quality loss binary patching)
-- **JPEG QT randomization:** Each image variant gets a unique quantization table fingerprint via jpegio (prevents batch-origin detection)
+### Rejected Historical Approach
 
-### Post-Processing Pipeline (lib/sanitize.py)
-Applied automatically after every video variant:
-1. Scans H.264 bitstream for x264 UUID SEI (dc45e9bd-e6d9-48b7-962c-d820d923eeef) and nullifies it
-2. Nullifies (C)too encoder tool atom value
-3. Finds and blanks Lavf/Lavc/x264/ffmpeg strings in container atoms
-4. Verifies no forensic strings remain post-sanitization
-5. Binary patching preserves exact file size (no re-encoding)
+Earlier experiments proposed device profiles, invisible noise, encoder-string
+sanitization, randomized JPEG quantization tables, and metadata spoofing. Those
+features violated Creator OS's provenance and platform-safety boundary and were
+removed. They are not an active or acceptable ContentForge mode.
 
-### JPEG Post-Processing (lib/jpeg_randomize_qt.py)
-Applied automatically after every image variant:
-1. Generates randomized quantization tables per variant (+-5% perturbation from standard)
-2. Re-saves with unique QT fingerprint (quality range 85-95)
-3. Each variant appears to come from different software/device
+The supported variant path is ordinary editorial work: meaningful trim,
+sequencing, pacing, audio, caption, or framing changes with recorded FFmpeg
+arguments, source/output SHA-256, quality checks, and honest provenance.
 
 ### Remaining Limitations
-- **CABAC probability model patterns** — x264's adaptive arithmetic coding differs from hardware encoders at a statistical level. Cannot be changed without modifying x264 source.
-- **Macroblock mode distributions** — x264 explores more prediction modes than hardware encoders. Mitigated by `me=dia:subme=1:trellis=0` in Android profiles but not perfect.
-- **C2PA provenance** — Apple is deploying cryptographic content provenance signing. Once active for video, no amount of post-processing can forge a valid signature.
+- **Encoder fingerprints** — Different encoders leave different statistical and
+  container signatures. ContentForge records these honestly instead of trying
+  to imitate a capture device.
+- **C2PA provenance** — cryptographic provenance should be preserved and
+  validated when available; ContentForge must never attempt to forge it.
 - **Upload timing/rate limiting** — User responsibility (not ContentForge scope)
-- **Device fingerprinting** (AppLog SDK, cross-app graphs) — Platform-side, user must use separate devices/anti-detect browsers
-- **Network analysis** (IP/ASN/proxy detection) — User must use residential IPs/mobile proxies
+- **Device and network analysis** — platform-side concerns that are outside
+  ContentForge scope and never justify circumvention guidance.

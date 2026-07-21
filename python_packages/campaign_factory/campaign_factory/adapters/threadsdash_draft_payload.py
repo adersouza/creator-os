@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 
+from pipeline_contracts import evaluate_overlay_semantic_completeness
+
 from ..caption_outcome import (
     build_caption_outcome_context,
 )
@@ -21,6 +23,16 @@ from ..core import (
 from ..lineage_v2 import (
     finalize_lineage_v2,
     lineage_v2_is_valid,
+)
+from .threadsdash_draft_integrity import (
+    asset_caption_is_burned,
+    exported_content_hash,
+    learning_cohort_metadata,
+    verify_rendered_media_asset,
+    with_content_fingerprint,
+)
+from .threadsdash_draft_integrity import (
+    caption_timing_qc as resolve_caption_timing_qc,
 )
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
@@ -120,10 +132,47 @@ def build_draft_payloads(
         if selected_ids and asset["renderedAssetId"] not in selected_ids:
             continue
         file_path = Path(asset["filePath"])
+        actual_asset_hash = verify_rendered_media_asset(asset, file_path)
+        expected_asset_hash = actual_asset_hash
         caption = asset.get("caption") or ""
         caption_context = _caption_context_for_export(
             asset, caption=caption, file_path=file_path
         )
+        caption_is_burned = asset_caption_is_burned(asset)
+        overlay_semantic_qc = evaluate_overlay_semantic_completeness(
+            (caption_context.get("caption_text") or caption)
+            if caption_is_burned
+            else None,
+            require_overlay=caption_is_burned,
+        )
+        if overlay_semantic_qc.get("passed") is not True:
+            failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
+                "overlay_semantic_qc_failed"
+            ]
+            raise ValueError(
+                "burned_overlay_semantic_incomplete:"
+                + ",".join(str(reason) for reason in failure_reasons)
+                + f":{asset['renderedAssetId']}"
+            )
+        caption_timing_qc = resolve_caption_timing_qc(asset, caption_context)
+        if (
+            caption_is_burned
+            and overlay_semantic_qc.get("timed_sequence") is True
+            and (
+                not isinstance(caption_timing_qc, dict)
+                or caption_timing_qc.get("passed") is not True
+            )
+        ):
+            reasons = (
+                caption_timing_qc.get("failure_reasons")
+                if isinstance(caption_timing_qc, dict)
+                else None
+            ) or ["missing_resolved_overlay_timing_proof"]
+            raise ValueError(
+                "burned_overlay_timing_unverified:"
+                + ",".join(str(reason) for reason in reasons)
+                + f":{asset['renderedAssetId']}"
+            )
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)
         destinations = _draft_destinations_for_asset(
             factory,
@@ -167,6 +216,11 @@ def build_draft_payloads(
                 if variation_assignment
                 else file_path
             )
+            destination_content_hash = exported_content_hash(
+                destination_file_path,
+                approved_hash=actual_asset_hash,
+                is_derivative=bool(variation_assignment),
+            )
             media_id = f"media_{uuid.uuid4().hex[:12]}"
             media_item = {
                 "id": media_id,
@@ -208,11 +262,15 @@ def build_draft_payloads(
                     variant_assignment=variation_assignment,
                 )
             )
-            learning_cohort = _learning_cohort_metadata(asset)
+            learning_cohort = learning_cohort_metadata(asset)
             publishability = factory.domains.publishability.explain_publishability(
                 asset["renderedAssetId"],
                 distribution_plan_id=destination.get("distributionPlanId"),
             )
+            if variation_assignment:
+                publishability = with_content_fingerprint(
+                    publishability, destination_content_hash
+                )
             if review_only:
                 publishability = {
                     **publishability,
@@ -287,9 +345,7 @@ def build_draft_payloads(
                 or asset.get("renderedAssetGraphId")
                 or asset.get("graphId")
                 or asset["renderedAssetId"],
-                (variation_assignment or {}).get("variant_path")
-                or asset.get("contentHash")
-                or "",
+                destination_content_hash,
             )
             post_key = _stable_export_key("post", draft_key)
             draft = {
@@ -324,10 +380,15 @@ def build_draft_payloads(
                 "auditGraphId": asset.get("auditGraphId"),
                 "sourceAssetId": asset["sourceAssetId"],
                 "renderedAssetId": asset["renderedAssetId"],
-                "contentHash": asset.get("contentHash"),
+                "contentHash": destination_content_hash,
+                "parentContentHash": expected_asset_hash
+                if variation_assignment
+                else None,
                 "sourceContentHash": asset.get("sourceContentHash"),
                 "captionHash": caption_hash,
                 "captionOutcomeContext": caption_context,
+                "overlaySemanticQc": overlay_semantic_qc,
+                "captionTimingQc": caption_timing_qc,
                 "instagramPostCaption": post_caption["instagram_post_caption"],
                 "instagramPostCaptionHash": post_caption["instagram_post_caption_hash"],
                 "captionCta": post_caption["caption_cta"],
@@ -721,23 +782,6 @@ def _caption_context_for_export(
     )
 
 
-def _learning_cohort_metadata(asset: dict[str, Any]) -> dict[str, Any] | None:
-    candidates = (
-        asset.get("learningCohort"),
-        asset.get("learning_cohort"),
-        (asset.get("sourcePrompt") or {}).get("learning_cohort")
-        if isinstance(asset.get("sourcePrompt"), dict)
-        else None,
-        (asset.get("generatedAssetLineage") or {}).get("learning_cohort")
-        if isinstance(asset.get("generatedAssetLineage"), dict)
-        else None,
-    )
-    for candidate in candidates:
-        if isinstance(candidate, dict) and candidate.get("cohort_id"):
-            return dict(candidate)
-    return None
-
-
 def _build_audio_intent(
     existing: Any,
     *,
@@ -1077,6 +1121,20 @@ def _draft_metadata(
         if isinstance(draft.get("captionOutcomeContext"), dict)
         else {}
     )
+    overlay_semantic_qc = (
+        draft.get("overlaySemanticQc")
+        if isinstance(draft.get("overlaySemanticQc"), dict)
+        else caption_context.get("overlaySemanticQc")
+        or caption_context.get("overlay_semantic_qc")
+        or {}
+    )
+    caption_timing_qc = (
+        draft.get("captionTimingQc")
+        if isinstance(draft.get("captionTimingQc"), dict)
+        else caption_context.get("captionTimingQc")
+        or caption_context.get("caption_timing_qc")
+        or {}
+    )
     failure_reasons = list(
         publishability.get("publishability_failure_reasons")
         or publishability.get("failureReasons")
@@ -1271,6 +1329,8 @@ def _draft_metadata(
             or draft.get("captionHash"),
             "captionOutcomeContext": caption_context,
             "caption_outcome_context": caption_context,
+            "overlay_semantic_qc": overlay_semantic_qc,
+            "caption_timing_qc": caption_timing_qc,
             "caption_generation": draft.get("captionGeneration") or {},
             "recipe": draft.get("recipe"),
             "reference_pattern": draft.get("referencePattern") or {},

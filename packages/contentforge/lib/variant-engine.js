@@ -89,7 +89,6 @@ var LEGACY_LEVEL_TO_PRESET = {
   light: "light",
   medium: "medium",
   heavy: "strong",
-  stealth: "medium",
 };
 
 export function normalizeVariantPreset(value, fallbackLevel) {

@@ -407,7 +407,13 @@ def test_contentforge_cli_audit_handles_runner_unavailable(tmp_path: Path, monke
     cf = make_factory(tmp_path)
 
     def fake_similarity(
-        base_url, *, source, target_file=None, audit_profile=None, layers
+        base_url,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
     ):
         raise RuntimeError("ContentForge is unavailable")
 
@@ -1107,6 +1113,8 @@ def test_performance_api_endpoints_sync_and_summarize(tmp_path: Path, monkeypatc
                 "instagram_account_id": "ig_1",
                 "created_at": "2026-01-02T00:00:00+00:00",
                 "published_at": "2026-01-02T01:00:00+00:00",
+                "instagram_post_id": "ig_post_api_1",
+                "permalink": "https://www.instagram.com/reel/ig_post_api_1/",
                 "views_count": 111,
                 "ig_impressions": 444,
                 "ig_reach": 200,

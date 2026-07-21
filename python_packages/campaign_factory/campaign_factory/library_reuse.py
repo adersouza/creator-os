@@ -235,6 +235,18 @@ class LibraryReuseRepository:
                     "library_reuse_validation_count_mismatch",
                     f"expected {len(rendered_ids)} ContentForge reports, got {len(reports)}",
                 )
+            report_ids = [
+                str(report.get("renderedAssetId") or "") for report in reports
+            ]
+            if (
+                any(not report_id for report_id in report_ids)
+                or len(set(report_ids)) != len(report_ids)
+                or set(report_ids) != set(rendered_ids)
+            ):
+                raise LibraryReuseError(
+                    "library_reuse_validation_identity_mismatch",
+                    "ContentForge reports did not map one-to-one to the exact selected rendered assets",
+                )
             failed_count = sum(
                 1
                 for report in reports

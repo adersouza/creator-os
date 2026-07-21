@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -362,7 +363,10 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
         assert campaign_meta["asset_state"] == "exportable"
         assert campaign_meta["audio_id"] == "ig_audio_123"
         assert campaign_meta["handoff_manifest"]["asset_id"] == "asset_1"
-        assert campaign_meta["handoff_manifest"]["content_fingerprint"] == "hash_1"
+        assert (
+            campaign_meta["handoff_manifest"]["content_fingerprint"]
+            == hashlib.sha256((tmp_path / "ok.mp4").read_bytes()).hexdigest()
+        )
         assert campaign_meta["handoff_manifest"]["caption_hash"] == "caption_hash_1"
         assert campaign_meta["handoff_manifest"]["audio_id"] == "ig_audio_123"
         assert campaign_meta["publishability_failure_reasons"] == []
@@ -719,7 +723,8 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
         now = "2026-01-01T00:00:00+00:00"
         for i in range(2, 6):
             rendered_path = tmp_path / f"ok_{i}.mp4"
-            rendered_path.write_bytes(b"rendered")
+            rendered_path.write_bytes(f"rendered-{i}".encode())
+            rendered_hash = hashlib.sha256(rendered_path.read_bytes()).hexdigest()
             cf.conn.execute(
                 """
                 INSERT INTO rendered_assets
@@ -732,7 +737,7 @@ def test_plan_distribution_creates_trial_heavy_preview_plans(tmp_path: Path):
                     f"asset_{i}",
                     source["campaign_id"],
                     source["id"],
-                    f"hash_{i}",
+                    rendered_hash,
                     str(rendered_path),
                     str(rendered_path),
                     f"ok_{i}.mp4",

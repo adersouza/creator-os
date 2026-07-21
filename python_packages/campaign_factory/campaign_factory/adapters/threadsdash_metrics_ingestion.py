@@ -228,10 +228,26 @@ def sync_performance_snapshots(
                 skipped_rows.append(warning)
                 warnings.append(warning)
                 continue
-            tracked_rows.append(row)
-            for sync_row in _threadsdash_performance_rows(
+            performance_rows = _threadsdash_performance_rows(
                 row, metric_history_by_post.get(str(row.get("id")) or "", [])
-            ):
+            )
+            if not performance_rows:
+                skipped += 1
+                post_id = str(row.get("id") or "unknown")
+                learning_ineligible_post_ids.add(post_id)
+                learning_ineligible_reasons["metrics_not_observed"] = (
+                    learning_ineligible_reasons.get("metrics_not_observed", 0) + 1
+                )
+                warning = _performance_sync_skip_warning(
+                    row,
+                    reason="metrics_not_observed",
+                    learningIneligibleReason="metrics_not_observed",
+                )
+                skipped_rows.append(warning)
+                warnings.append(warning)
+                continue
+            tracked_rows.append(row)
+            for sync_row in performance_rows:
                 tracked_snapshot_count += 1
                 snapshot = _performance_snapshot_from_row(
                     campaign_id=campaign["id"],
@@ -671,7 +687,18 @@ def _threadsdash_performance_rows(
     post_row: dict[str, Any], metric_history_rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     if not metric_history_rows:
-        return [{**post_row, "history_source": "post_row_fallback"}]
+        observed_at = post_row.get("metrics_observed_at") or post_row.get(
+            "metrics_updated_at"
+        )
+        if not observed_at:
+            return []
+        return [
+            {
+                **post_row,
+                "history_source": "post_row_fallback",
+                "metrics_observed_at": observed_at,
+            }
+        ]
     return [
         _threadsdash_post_with_metric_history(post_row, history_row)
         for history_row in metric_history_rows
@@ -776,15 +803,12 @@ def _performance_snapshot_from_row(
                 "metric_history row missing validated snapshot_at; refusing post timestamp fallback"
             )
     else:
-        snapshot_at = (
-            row.get("metrics_updated_at")
-            or row.get("insights_updated_at")
-            or row.get("updated_at")
-            or row.get("published_at")
-            or row.get("publishedAt")
-            or row.get("created_at")
-            or utc_now()
-        )
+        snapshot_at = row.get("metrics_observed_at") or row.get("metrics_updated_at")
+        if not snapshot_at:
+            raise RuntimeError(
+                "post-row metrics missing explicit observation timestamp; "
+                "refusing lifecycle timestamp fallback"
+            )
     post_id = str(row.get("id") or new_id("post"))
     caption_hash = meta.get("caption_hash") or _text_hash(row.get("content") or "")
     caption_lineage = (
@@ -1171,6 +1195,14 @@ def _metrics_eligibility_for_threadsdash_row(
     status = str(row.get("status") or "").strip().lower()
     if status != "published":
         blockers.append("post_not_published")
+    if str(row.get("platform") or "").strip().lower() != "instagram":
+        blockers.append("platform_not_instagram")
+    if not str(row.get("instagram_post_id") or "").strip():
+        blockers.append("missing_instagram_post_id")
+    if not str(row.get("permalink") or "").strip():
+        blockers.append("missing_instagram_permalink")
+    if not (row.get("published_at") or row.get("publishedAt")):
+        blockers.append("missing_instagram_published_at")
     rendered_asset_id = meta.get("rendered_asset_id")
     if not rendered_asset_id:
         blockers.append("missing_rendered_asset_id")
