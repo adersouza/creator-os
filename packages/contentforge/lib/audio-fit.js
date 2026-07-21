@@ -374,5 +374,3 @@ export function scoreAudioFit(input = {}, options = {}) {
     },
   };
 }
-
-export const buildAudioFitScore = scoreAudioFit;

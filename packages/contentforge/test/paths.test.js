@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { rm } from "node:fs/promises";
 import {
   OUTPUT_DIR,
   UPLOADS_DIR,
@@ -11,7 +10,6 @@ import {
   resolveRunFile,
   resolveUploadPath,
 } from "../lib/paths.js";
-import { acquireProcessLock } from "../lib/process-lock.js";
 
 test("output directory is absolute", function () {
   assert.equal(path.isAbsolute(OUTPUT_DIR), true);
@@ -37,18 +35,4 @@ test("run-scoped output requires a valid run id and safe filename", function () 
 test("reference targets are limited to project uploads and output directories", function () {
   assert.equal(resolveAllowedReferenceTarget(path.join(OUTPUT_DIR, "reference"))?.startsWith(OUTPUT_DIR), true);
   assert.equal(resolveAllowedReferenceTarget("/tmp"), null);
-});
-
-test("process lock prevents concurrent local forge runs", async function () {
-  var name = "test-" + Date.now().toString(16);
-  var first = await acquireProcessLock(name, { staleMs: 60_000 });
-  var second = await acquireProcessLock(name, { staleMs: 60_000 });
-  try {
-    assert.equal(first.acquired, true);
-    assert.equal(second.acquired, false);
-  } finally {
-    await first.release();
-    await second.release();
-    await rm(path.join(OUTPUT_DIR, ".locks", name + ".lock"), { force: true });
-  }
 });

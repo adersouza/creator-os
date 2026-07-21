@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import {
 	generatedPipelineContractSchemaManifest,
+	generatedPipelineContractSchemas,
+	audioIntentSchema,
+	campaignDraftPayloadV2Schema,
+	pipelineContractSchemas,
 	validateAudioIntentContract,
 	validateCampaignFactoryDraftPayload,
 	validateFrontGenerationPlan,
@@ -73,6 +77,14 @@ describe("TypeScript pipeline contract validators", () => {
 			filename.endsWith(".schema.json"),
 		).length;
 		expect(generatedPipelineContractSchemaManifest).toHaveLength(canonicalSchemaCount);
+	});
+
+	it("exports canonical generated schemas without hand-written mirrors", () => {
+		expect(pipelineContractSchemas).toBe(generatedPipelineContractSchemas);
+		expect(audioIntentSchema).toBe(generatedPipelineContractSchemas.audioIntent);
+		expect(campaignDraftPayloadV2Schema).toBe(
+			generatedPipelineContractSchemas.campaignDraftPayloadV2,
+		);
 	});
 
 	it("validates structural reference-video analysis and remix plans", () => {

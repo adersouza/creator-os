@@ -45,10 +45,8 @@ async def _run_one(queue: Any, worker_id: str) -> bool:
     return True
 
 
-async def run_workers(
-    root: Path, *, workers: int = 3, once: bool = False, backend: str = "sqlite"
-) -> dict:
-    queue = get_queue(root, backend)
+async def run_workers(root: Path, *, workers: int = 3, once: bool = False) -> dict:
+    queue = get_queue(root)
     worker_ids = [
         f"{socket.gethostname()}-{i}-{int(time.time())}" for i in range(workers)
     ]
@@ -68,9 +66,6 @@ def main() -> int:
     ap.add_argument("--root", default=".")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--once", action="store_true")
-    ap.add_argument(
-        "--queue-backend", choices=["sqlite", "redis", "rq"], default="sqlite"
-    )
     args = ap.parse_args()
     print(
         json.dumps(
@@ -79,7 +74,6 @@ def main() -> int:
                     Path(args.root),
                     workers=args.workers,
                     once=args.once,
-                    backend=args.queue_backend,
                 )
             ),
             indent=2,

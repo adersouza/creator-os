@@ -8,53 +8,56 @@ export {
 	generatedPipelineContractSchemas,
 } from "./generated-schemas.js";
 
-export const AUDIO_INTENT_SCHEMA_ID = "pipeline.audio_intent.v1" as const;
+export const AUDIO_INTENT_SCHEMA_ID =
+	generatedPipelineContractSchemas.audioIntent.$id;
 export const CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID =
-	"campaign_factory.threadsdash_drafts.v1" as const;
+	generatedPipelineContractSchemas.campaignDraftPayload.$id;
 export const CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID =
-	"campaign_factory.threadsdash_drafts.v2" as const;
+	generatedPipelineContractSchemas.campaignDraftPayloadV2.$id;
 export const CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID =
 	CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA_ID;
 export const AUDIO_CATALOG_EXPORT_SCHEMA_ID =
-	"reference_factory.audio_catalog_export.v1" as const;
+	generatedPipelineContractSchemas.audioCatalogExport.$id;
 export const PERFORMANCE_SYNC_SCHEMA_ID =
-	"campaign_factory.performance_sync.v1" as const;
+	generatedPipelineContractSchemas.performanceSync.$id;
 export const POST_METRIC_HISTORY_READ_SCHEMA_ID =
-	"threadsdashboard.post_metric_history.read.v1" as const;
+	generatedPipelineContractSchemas.postMetricHistoryRead.$id;
 export const CAPTION_OUTCOME_CONTEXT_SCHEMA_ID =
-	"campaign_factory.caption_outcome_context.v1" as const;
-export const PATTERN_CARD_SCHEMA_ID = "reference_factory.pattern_card.v1" as const;
-export const VIDEO_ANALYSIS_SCHEMA_ID = "reference_factory.video_analysis.v1" as const;
+	generatedPipelineContractSchemas.captionOutcomeContext.$id;
+export const PATTERN_CARD_SCHEMA_ID =
+	generatedPipelineContractSchemas.patternCard.$id;
+export const VIDEO_ANALYSIS_SCHEMA_ID =
+	generatedPipelineContractSchemas.videoAnalysis.$id;
 export const REFERENCE_VIDEO_MOTION_ANALYSIS_SCHEMA_ID =
-	"reel_factory.reference_video_motion_analysis.v1" as const;
+	generatedPipelineContractSchemas.referenceVideoMotionAnalysis.$id;
 export const REFERENCE_VIDEO_REMIX_PLAN_SCHEMA_ID =
-	"reel_factory.reference_video_remix_plan.v1" as const;
+	generatedPipelineContractSchemas.referenceVideoRemixPlan.$id;
 export const HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID =
-	"reference_factory.higgsfield_soul_image_prompt.v1" as const;
+	generatedPipelineContractSchemas.higgsfieldSoulImagePrompt.$id;
 export const KLING_3_VIDEO_PROMPT_SCHEMA_ID =
-	"reference_factory.kling_3_video_prompt.v1" as const;
+	generatedPipelineContractSchemas.kling3VideoPrompt.$id;
 export const GENERATED_ASSET_LINEAGE_V1_SCHEMA_ID =
-	"reel_factory.generated_asset_lineage.v1" as const;
+	generatedPipelineContractSchemas.generatedAssetLineage.$id;
 export const GENERATED_ASSET_LINEAGE_V2_SCHEMA_ID =
-	"reel_factory.generated_asset_lineage.v2" as const;
+	generatedPipelineContractSchemas.generatedAssetLineageV2.$id;
 export const GENERATED_ASSET_LINEAGE_SCHEMA_ID =
 	GENERATED_ASSET_LINEAGE_V1_SCHEMA_ID;
 export const CREATIVE_PLAN_SCHEMA_ID =
-	"campaign_factory.creative_plan.v1" as const;
+	generatedPipelineContractSchemas.creativePlan.$id;
 export const RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID =
-	"campaign_factory.recommendation_accuracy_report.v1" as const;
+	generatedPipelineContractSchemas.recommendationAccuracyReport.$id;
 export const RECOMMENDATION_NEXT_BATCH_SCHEMA_ID =
-	"campaign_factory.recommendations.next_batch.v1" as const;
+	generatedPipelineContractSchemas.recommendationNextBatch.$id;
 export const REPURPOSING_PLAN_SCHEMA_ID =
-	"campaign_factory.repurposing_plan.v1" as const;
+	generatedPipelineContractSchemas.repurposingPlan.$id;
 export const VARIANT_ASSIGNMENT_SCHEMA_ID =
-	"campaign_factory.variant_assignment.v1" as const;
+	generatedPipelineContractSchemas.variantAssignment.$id;
 export const MOTION_EDIT_RENDER_SCHEMA_ID =
-	"reel_factory.motion_edit_render.v1" as const;
+	generatedPipelineContractSchemas.motionEditRender.$id;
 export const FRONT_GENERATION_PLAN_SCHEMA_ID =
-	"campaign_factory.front_generation_plan.v1" as const;
+	generatedPipelineContractSchemas.frontGenerationPlan.$id;
 export const GENERATION_EXECUTION_PLAN_SCHEMA_ID =
-	"campaign_factory.generation_execution_plan.v1" as const;
+	generatedPipelineContractSchemas.generationExecutionPlan.$id;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -124,555 +127,34 @@ export type HandoffManifest = {
 	variant_operations?: unknown;
 };
 
-export const audioIntentSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: AUDIO_INTENT_SCHEMA_ID,
-	title: "Pipeline Audio Intent",
-	type: "object",
-	required: ["schema", "mode", "required", "status", "platform", "recommendations", "gates"],
-	properties: {
-		schema: { const: AUDIO_INTENT_SCHEMA_ID },
-		mode: { type: "string" },
-		required: { type: "boolean" },
-		status: {
-			type: "string",
-			enum: [
-				"not_required",
-				"recommended",
-				"needs_operator_selection",
-				"selected",
-				"attached",
-				"verified",
-				"skipped",
-				"blocked",
-				"needs_review",
-				"burned",
-			],
-		},
-		platform: { type: "string" },
-		recommendations: { type: "array" },
-		decision: { type: ["object", "null"] },
-		gates: {
-			type: "object",
-			required: ["allow_draft_export", "allow_publish"],
-			properties: {
-				allow_draft_export: { type: "boolean" },
-				allow_publish: { type: "boolean" },
-			},
-		},
-	},
-} as const;
+export const audioIntentSchema = generatedPipelineContractSchemas.audioIntent;
+export const campaignDraftPayloadSchema =
+	generatedPipelineContractSchemas.campaignDraftPayload;
+export const campaignDraftPayloadV2Schema =
+	generatedPipelineContractSchemas.campaignDraftPayloadV2;
 
-export const campaignDraftPayloadSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID,
-	title: "Campaign Factory ThreadsDashboard Draft Payload",
-	type: "object",
-	required: ["schema", "campaign", "drafts"],
-	properties: {
-		schema: { const: CAMPAIGN_DRAFT_PAYLOAD_SCHEMA_ID },
-		campaign: { type: "string" },
-		drafts: { type: "array" },
-	},
-} as const;
+export const repurposingPlanSchema =
+	generatedPipelineContractSchemas.repurposingPlan;
 
-export const campaignDraftPayloadV2Schema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID,
-	title: "Campaign Factory ThreadsDashboard Draft Payload v2",
-	type: "object",
-	required: ["schema", "campaign", "drafts"],
-	properties: {
-		schema: { const: CAMPAIGN_DRAFT_PAYLOAD_V2_SCHEMA_ID },
-		campaign: { type: "string" },
-		drafts: { type: "array" },
-	},
-} as const;
+export const variantAssignmentSchema =
+	generatedPipelineContractSchemas.variantAssignment;
 
-export const repurposingPlanSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: REPURPOSING_PLAN_SCHEMA_ID,
-	type: "object",
-	additionalProperties: false,
-	required: ["schema", "master_asset_id", "preset_name", "target_count", "platform"],
-	properties: {
-		schema: { const: REPURPOSING_PLAN_SCHEMA_ID },
-		master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
-		preset_name: { type: "string", enum: ["tiktok_aggressive", "ig_subtle", "custom"] },
-		target_count: { type: "integer", minimum: 1, maximum: 500 },
-		platform: { type: "string" },
-		custom_config: { type: "object" },
-	},
-} as const;
+export const motionEditRenderSchema =
+	generatedPipelineContractSchemas.motionEditRender;
 
-export const variantAssignmentSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: VARIANT_ASSIGNMENT_SCHEMA_ID,
-	title: "Campaign Factory Variant Assignment",
-	type: "object",
-	additionalProperties: false,
-	required: [
-		"schema",
-		"campaign_slug",
-		"master_asset_id",
-		"master_asset_path",
-		"platform",
-		"generated_at",
-		"assignments",
-	],
-	properties: {
-		schema: { const: VARIANT_ASSIGNMENT_SCHEMA_ID },
-		campaign_slug: { type: "string", minLength: 1 },
-		master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
-		master_asset_path: { type: "string", minLength: 1 },
-		platform: { type: "string", minLength: 1 },
-		generated_at: { type: "string", minLength: 1 },
-		variation_enabled: { type: "boolean" },
-		assignments: {
-			type: "array",
-			minItems: 1,
-			items: {
-				type: "object",
-				additionalProperties: false,
-				required: [
-					"account_id",
-					"variant_asset_id",
-					"variant_path",
-					"parent_master_asset_id",
-					"preset_name",
-					"distinctness_scores",
-				],
-				properties: {
-					account_id: { type: "string", minLength: 1 },
-					instagram_account_id: { type: ["string", "null"] },
-					persona: { type: ["string", "null"] },
-					variant_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
-					variant_path: { type: "string", minLength: 1 },
-					parent_master_asset_id: { type: "string", pattern: "^[A-Za-z0-9._:-]+$" },
-					preset_name: { type: "string", minLength: 1 },
-					distinctness_scores: {
-						type: "object",
-						additionalProperties: false,
-						required: ["master_ssim", "sibling_max_ssim", "threshold"],
-						properties: {
-							master_ssim: { type: "number", minimum: 0, maximum: 1 },
-							sibling_max_ssim: { type: "number", minimum: 0, maximum: 1 },
-							threshold: { type: "number", minimum: 0, maximum: 1 },
-						},
-					},
-					lineage: { type: "object" },
-				},
-			},
-		},
-	},
-} as const;
+export const frontGenerationPlanSchema =
+	generatedPipelineContractSchemas.frontGenerationPlan;
 
-export const motionEditRenderSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: MOTION_EDIT_RENDER_SCHEMA_ID,
-	title: "Reel Factory Motion Edit Render",
-	type: "object",
-	additionalProperties: false,
-	required: [
-		"schema",
-		"animationMode",
-		"paidGeneration",
-		"estimatedCostUsd",
-		"stillPath",
-		"outputPath",
-		"durationSeconds",
-		"caption",
-		"audioIntentPath",
-		"lineagePath",
-		"quality",
-		"ffmpegCommand",
-	],
-	properties: {
-		schema: { const: MOTION_EDIT_RENDER_SCHEMA_ID },
-		animationMode: { const: "motion_edit" },
-		paidGeneration: { const: false },
-		estimatedCostUsd: { const: 0 },
-		stillPath: { type: "string", minLength: 1 },
-		outputPath: { type: "string", minLength: 1 },
-		durationSeconds: { type: "number", exclusiveMinimum: 0, maximum: 60 },
-		caption: { type: "string" },
-		audioIntentPath: { type: "string", minLength: 1 },
-		lineagePath: { type: "string", minLength: 1 },
-		quality: {
-			type: "object",
-			additionalProperties: false,
-			required: ["status", "width", "height", "fps", "durationSeconds"],
-			properties: {
-				status: { type: "string", enum: ["planned", "passed", "failed"] },
-				width: { type: "integer", minimum: 1 },
-				height: { type: "integer", minimum: 1 },
-				fps: { type: "number", exclusiveMinimum: 0 },
-				durationSeconds: { type: "number", exclusiveMinimum: 0 },
-				warnings: { type: "array", items: { type: "string" } },
-			},
-		},
-		ffmpegCommand: { type: "array", items: { type: "string" } },
-		dryRun: { type: "boolean" },
-	},
-} as const;
+export const audioCatalogExportSchema =
+	generatedPipelineContractSchemas.audioCatalogExport;
+export const performanceSyncSchema =
+	generatedPipelineContractSchemas.performanceSync;
+export const postMetricHistoryReadSchema =
+	generatedPipelineContractSchemas.postMetricHistoryRead;
+export const captionOutcomeContextSchema =
+	generatedPipelineContractSchemas.captionOutcomeContext;
 
-export const frontGenerationPlanSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: FRONT_GENERATION_PLAN_SCHEMA_ID,
-	title: "Campaign Factory Front Generation Plan",
-	type: "object",
-	additionalProperties: false,
-	required: [
-		"schema",
-		"campaign",
-		"referenceImagePath",
-		"soul",
-		"animationMode",
-		"dryRun",
-		"paidGenerationEnabled",
-		"projectedCostCredits",
-		"budgetCapCredits",
-		"budgetCapScope",
-		"budgetStatus",
-		"humanReviewRequired",
-		"publishingAllowed",
-		"stages",
-	],
-	properties: {
-		schema: { const: FRONT_GENERATION_PLAN_SCHEMA_ID },
-		campaign: { type: "string", minLength: 1 },
-		referenceImagePath: { type: "string", minLength: 1 },
-		soul: {
-			type: "object",
-			additionalProperties: false,
-			required: ["creator", "soulId", "soulName"],
-			properties: {
-				creator: { type: ["string", "null"] },
-				soulId: { type: ["string", "null"] },
-				soulName: { type: ["string", "null"] },
-			},
-		},
-		animationMode: { type: "string", enum: ["kling", "motion_edit"] },
-		dryRun: { type: "boolean" },
-		paidGenerationEnabled: { type: "boolean" },
-		projectedCostCredits: { type: ["number", "null"], minimum: 0 },
-		budgetCapCredits: { type: ["number", "null"], minimum: 0 },
-		budgetCapScope: { const: "per_provider_call" },
-		budgetStatus: {
-			type: "string",
-			enum: ["within_cap", "missing_cap", "quote_pending", "not_required"],
-		},
-		humanReviewRequired: { const: true },
-		publishingAllowed: { const: false },
-		stages: {
-			type: "array",
-			minItems: 1,
-			items: {
-				type: "object",
-				additionalProperties: false,
-				required: ["name", "status", "paid", "estimatedCostCredits", "commands"],
-				properties: {
-					name: {
-						type: "string",
-						enum: [
-							"soul_reference_image",
-							"soul_sexy_image",
-							"still_accept_gate",
-							"static_mp4",
-							"kling_video",
-							"motion_edit",
-							"variation",
-						],
-					},
-					status: {
-						type: "string",
-						enum: ["planned", "blocked", "skipped", "submitted", "waiting_for_review"],
-					},
-					paid: { type: "boolean" },
-					estimatedCostCredits: { type: ["number", "null"], minimum: 0 },
-					commands: {
-						type: "array",
-						items: { type: "array", items: { type: "string" } },
-					},
-					result: { type: "object" },
-					reason: { type: "string" },
-					variantSpec: { type: "object" },
-				},
-			},
-		},
-	},
-} as const;
-
-export const audioCatalogExportSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: AUDIO_CATALOG_EXPORT_SCHEMA_ID,
-	title: "Reference Factory Audio Catalog Export",
-	type: "object",
-	required: ["schema", "items"],
-	properties: {
-		schema: { const: AUDIO_CATALOG_EXPORT_SCHEMA_ID },
-		items: { type: "array" },
-	},
-} as const;
-
-export const performanceSyncSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: PERFORMANCE_SYNC_SCHEMA_ID,
-	title: "Campaign Factory Performance Sync",
-	type: "object",
-	required: ["schema", "campaign", "userId", "pipelineJobId", "pipelineTraceId", "summary"],
-	properties: {
-		schema: { const: PERFORMANCE_SYNC_SCHEMA_ID },
-		campaign: { type: "string" },
-		userId: { type: "string" },
-		pipelineJobId: { type: "string", minLength: 1 },
-		pipelineTraceId: { type: "string", minLength: 1 },
-		summary: { type: "object" },
-	},
-} as const;
-
-export const postMetricHistoryReadSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: POST_METRIC_HISTORY_READ_SCHEMA_ID,
-	title: "ThreadsDashboard Post Metric History Read",
-	type: "object",
-	required: ["schema", "rows"],
-	properties: {
-		schema: { const: POST_METRIC_HISTORY_READ_SCHEMA_ID },
-		rows: {
-			type: "array",
-			items: {
-				type: "object",
-				required: [
-					"id",
-					"post_id",
-					"account_id",
-					"platform",
-					"snapshot_at",
-					"hours_since_publish",
-					"views_count",
-					"likes_count",
-					"replies_count",
-					"reposts_count",
-					"quotes_count",
-					"shares_count",
-					"saves_count",
-					"reach",
-					"engagement_rate",
-				],
-			},
-		},
-	},
-} as const;
-
-export const captionOutcomeContextSchema = {
-	$schema: "https://json-schema.org/draft/2020-12/schema",
-	$id: CAPTION_OUTCOME_CONTEXT_SCHEMA_ID,
-	title: "Campaign Factory Caption Outcome Context",
-	type: "object",
-	required: ["schema"],
-	properties: {
-		schema: { const: CAPTION_OUTCOME_CONTEXT_SCHEMA_ID },
-		caption_hash: { type: ["string", "null"] },
-		caption_text: { type: ["string", "null"] },
-		caption_bank: { type: ["string", "null"] },
-		caption_banks: { type: ["array", "null"] },
-		creator_mix: { type: ["string", "null"] },
-		creator_model: { type: ["string", "null"] },
-		frame_type: { type: ["string", "null"] },
-		length_class: { type: ["string", "null"] },
-		format_class: { type: ["string", "null"] },
-		caption_fit_version: { type: ["string", "null"] },
-		suitability_decision: { type: ["string", "null"] },
-		suitability_reason: { type: ["string", "null"] },
-		captionSceneTags: { type: ["array", "null"] },
-		reelSceneTags: { type: ["array", "null"] },
-		sceneCompatibilityDecision: { type: ["string", "null"] },
-		sceneCompatibilityReason: { type: ["string", "null"] },
-		captionSceneFitVersion: { type: ["string", "null"] },
-		render_recipe: { type: ["string", "null"] },
-		source_clip: { type: ["string", "null"] },
-		rendered_output: { type: ["string", "null"] },
-	},
-} as const;
-
-export const pipelineContractSchemas = {
-	audioIntent: audioIntentSchema,
-	campaignDraftPayload: campaignDraftPayloadSchema,
-	campaignDraftPayloadV2: campaignDraftPayloadV2Schema,
-	audioCatalogExport: audioCatalogExportSchema,
-	performanceSync: performanceSyncSchema,
-	captionOutcomeContext: captionOutcomeContextSchema,
-	variantAssignment: variantAssignmentSchema,
-	motionEditRender: motionEditRenderSchema,
-	frontGenerationPlan: frontGenerationPlanSchema,
-	patternCard: {
-		$id: PATTERN_CARD_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "referenceId", "source", "visualFormat", "hookType", "captionArchetype"],
-		properties: {
-			schema: { const: PATTERN_CARD_SCHEMA_ID },
-			referenceId: { type: "string" },
-			source: { type: "object" },
-			visualFormat: { type: "string" },
-			hookType: { type: "string" },
-			captionArchetype: { type: "string" },
-			reviewTags: { type: "array" },
-			promptPattern: { type: "object" },
-			referenceUse: { type: "object" },
-			qualityScore: { type: "number" },
-			suggestedLabel: { type: "string" },
-		},
-	},
-	videoAnalysis: {
-		$id: VIDEO_ANALYSIS_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "referenceId", "provider", "model", "analysis"],
-		properties: {
-			schema: { const: VIDEO_ANALYSIS_SCHEMA_ID },
-			referenceId: { type: "string" },
-			provider: { type: "string" },
-			model: { type: "string" },
-			analysis: { type: "object" },
-			raw: { type: ["string", "null"] },
-		},
-	},
-	higgsfieldSoulImagePrompt: {
-		$id: HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "tool", "status", "sourceReferenceId", "sourcePatternId", "modelProfile", "higgsfieldGridPrompt"],
-		properties: {
-			schema: { const: HIGGSFIELD_SOUL_IMAGE_PROMPT_SCHEMA_ID },
-			tool: { const: "higgsfield_soul_id" },
-			status: { type: "string" },
-			sourceReferenceId: { type: "string" },
-			sourcePatternId: { type: "string" },
-			modelProfile: { type: ["string", "null"] },
-			higgsfieldGridPrompt: { type: "string" },
-			closenessControls: { type: "object" },
-			formatCard: { type: "object" },
-			aspectRatio: { type: "string" },
-			reviewNotes: { type: "array" },
-		},
-	},
-	kling3VideoPrompt: {
-		$id: KLING_3_VIDEO_PROMPT_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "tool", "status", "sourceReferenceId", "sourcePatternId", "modelProfile", "firstFrameInstruction", "mainPrompt", "negativePrompt", "closenessControls"],
-		properties: {
-			schema: { const: KLING_3_VIDEO_PROMPT_SCHEMA_ID },
-			tool: { const: "kling_3_video" },
-			status: { type: "string" },
-			sourceReferenceId: { type: "string" },
-			sourcePatternId: { type: "string" },
-			modelProfile: { type: ["string", "null"] },
-			firstFrameInstruction: { type: "string" },
-			mainPrompt: { type: "string" },
-			negativePrompt: { type: "string" },
-			closenessControls: { type: "object" },
-			scenes: { type: "array" },
-			aspectRatio: { type: "string" },
-			reviewNotes: { type: "array" },
-		},
-	},
-	generatedAssetLineage: {
-		$id: GENERATED_ASSET_LINEAGE_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "pipelineTraceId", "source", "generation", "review"],
-		properties: {
-			schema: { const: GENERATED_ASSET_LINEAGE_SCHEMA_ID },
-			pipelineTraceId: { type: "string", minLength: 1 },
-			source: { type: "object" },
-			generation: { type: "object" },
-			review: { type: "object" },
-			quality: { type: "object" },
-			asset_state: { type: "string", enum: ["approved_but_not_publishable", "publishable_candidate", "exportable", "invalid_retired_draft"] },
-			publishability_failure_reasons: { type: "array" },
-			blockingReason: { type: ["string", "null"] },
-			rootCause: { type: ["string", "null"] },
-		},
-	},
-	creativePlan: {
-		$id: CREATIVE_PLAN_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "id", "name", "platform", "goal", "target_account", "daily_base_video_target", "style_lanes", "model_profile", "source_accounts", "status", "counts", "next_actions"],
-		properties: {
-			schema: { const: CREATIVE_PLAN_SCHEMA_ID },
-			id: { type: "string" },
-			name: { type: "string" },
-			platform: { type: "string" },
-			goal: { type: "string" },
-			target_account: { type: "string" },
-			daily_base_video_target: { type: "integer" },
-			style_lanes: { type: "array", items: { type: "string" } },
-			model_profile: { type: "string" },
-			source_accounts: { type: "array", items: { type: "string" } },
-			status: { type: "string", enum: ["planned", "references_selected", "prompts_ready", "generated", "ingested", "rendered", "audited", "reviewed", "exported", "posted", "measured"] },
-			counts: { type: "object" },
-			next_actions: { type: "array", items: { type: "string" } },
-			linked_campaign: { type: ["string", "null"] },
-			created_at: { type: ["string", "null"] },
-			updated_at: { type: ["string", "null"] },
-		},
-	},
-	recommendationAccuracyReport: {
-		$id: RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID,
-		type: "object",
-		required: [
-			"schema",
-			"campaign",
-			"campaignGraphId",
-			"reportId",
-			"reportGraphId",
-			"windowDays",
-			"generatedAt",
-			"recommendationTrustScore",
-			"trustConfidence",
-			"overall",
-			"calibration",
-			"segments",
-			"drift",
-		],
-		properties: {
-			schema: { const: RECOMMENDATION_ACCURACY_REPORT_SCHEMA_ID },
-			campaign: { type: "string" },
-			campaignGraphId: { type: "string", minLength: 1 },
-			reportId: { type: "string", minLength: 1 },
-			reportGraphId: { type: "string", minLength: 1 },
-			account: { type: ["string", "null"] },
-			windowDays: { type: "integer" },
-			generatedAt: { type: "string" },
-			recommendationTrustScore: { type: "integer" },
-			trustConfidence: { type: "string", enum: ["insufficient", "directional", "usable", "strong"] },
-			overall: { type: "object" },
-			calibration: { type: "array" },
-			segments: { type: "object" },
-			drift: { type: "array" },
-			observations: { type: "array" },
-			warnings: { type: "array" },
-		},
-	},
-	recommendationNextBatch: {
-		$id: RECOMMENDATION_NEXT_BATCH_SCHEMA_ID,
-		type: "object",
-		required: ["schema", "campaign", "campaignGraphId", "persisted", "scoringVersion", "generatedAt", "count", "requestedCount", "inputHash", "items"],
-		properties: {
-			schema: { const: RECOMMENDATION_NEXT_BATCH_SCHEMA_ID },
-			campaign: { type: "string" },
-			campaignGraphId: { type: ["string", "null"] },
-			runId: { type: ["string", "null"] },
-			persisted: { type: "boolean" },
-			scoringVersion: { type: "string" },
-			generatedAt: { type: "string" },
-			count: { type: "integer" },
-			requestedCount: { type: "integer" },
-			account: { type: ["string", "null"] },
-			inputHash: { type: "string" },
-			warnings: { type: "array", items: { type: "string" } },
-			items: { type: "array" },
-		},
-	},
-} as const;
+export const pipelineContractSchemas = generatedPipelineContractSchemas;
 
 const AUDIO_INTENT_STATUSES = new Set([
 	"not_required",

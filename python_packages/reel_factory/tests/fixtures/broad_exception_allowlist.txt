@@ -56,7 +56,7 @@ reel_factory/reel_pipeline.py:amain:640
 reel_factory/reel_pipeline.py:amain:655
 reel_factory/reel_pipeline.py:amain:675
 reel_factory/reel_pipeline.py:_write_mux_audio_intents:770
-reel_factory/reel_pipeline.py:kick_pipeline:1121
+reel_factory/reel_pipeline.py:kick_pipeline:1115
 reel_factory/reel_pipeline_render.py:process_one:358
 reel_factory/reel_pipeline_render.py:process_one:422
 reel_factory/reel_pipeline_render.py:process_one:428
@@ -69,7 +69,6 @@ reel_factory/reel_pipeline_render.py:process_one:706
 reel_factory/reel_pipeline_render.py:process_one:745
 reel_factory/reel_pipeline_render.py:process_one:775
 reel_factory/reel_pipeline_render.py:process_one:824
-reel_factory/render_queue.py:__init__:192
 reel_factory/thumbnail_gen.py:generate_thumbnails:70
 reel_factory/whisper_sync.py:transcribe_clip:52
 reel_factory/whisper_sync.py:_has_audio_stream:158

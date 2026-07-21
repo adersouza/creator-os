@@ -115,6 +115,55 @@ dependencies separately from this lifecycle view.
 | Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
 | ThreadsDashboard | product UI, accounts, Supabase, approvals, scheduling, publishing, inbox, analytics, posting infrastructure | external `/Users/aderdesouza/Developer/ThreadsDashboard` | its own services and consumer contract snapshot | Supabase and deployed services |
 
+## Repository Map
+
+```text
+scripts/creator-os
+  operator CLI; selects one explicit workflow and never schedules or publishes
+
+packages/creator_os_core/creator_os_core
+  runtime paths, auth, SQLite/file safety, media probes, shared infrastructure
+
+packages/pipeline_contracts/pipeline_contracts/schemas
+  only hand-edited cross-component schemas
+packages/pipeline_contracts/typescript/generated-schemas.ts
+  generated TypeScript schema bundle
+packages/pipeline_contracts/typescript/index.ts
+  validator and semantic helper surface backed by the generated bundle
+
+python_packages/reference_factory/reference_factory
+  intake, human review, patterns, knowledge packs, learning provenance
+python_packages/reel_factory/reel_factory
+  placement, captions, rendering, provider workers, local SQLite render queue
+python_packages/campaign_factory/campaign_factory
+  plans, assignment, spend authority, readiness, handoff, metric ingestion
+
+packages/contentforge
+  direct headless CLI for media inspection, distinctness, and blocking QC
+
+tests/integration
+  cross-component, runtime-path, handoff, and operator-command evidence
+```
+
+The repository intentionally has no second control plane. TypeScript validators
+consume generated canonical schemas rather than maintaining hand-written schema
+mirrors. Reel Factory has one local SQLite render queue. ContentForge runs a
+bounded command directly; it has no HTTP server, daemon, background job API, or
+polling queue.
+
+## Failure And Authority Map
+
+| Failure | Owner that detects it | Required outcome |
+|---|---|---|
+| missing, substituted, or hash-mismatched source media | Reel/Campaign lineage checks | fail closed before QC or upload |
+| unsafe or unreadable overlay, incomplete timed payoff, no safe lane | Reel placement/semantic proof and ContentForge | reject the derivative or ship clean media with post-caption text |
+| duplicate or weakly distinct derivative | ContentForge plus Campaign readiness | block that derivative; never rewrite provenance |
+| invalid asset state, missing approval, or contract drift | Campaign Factory | no upload and no draft ingest |
+| stale account/OAuth/Trial capability | ThreadsDashboard projection consumed by Campaign | require a fresh projection; denied is never retried implicitly |
+| queue delivery or publish failure | ThreadsDashboard | preserve exact attempt state; never treat dispatch as publication |
+| missing Instagram identity or metric-history observation | ThreadsDashboard metrics and Campaign ingestion | exclude from learning; missing is not zero |
+| provider, budget, or authorization failure | Campaign spend authority and Reel worker | create no paid job without a signed one-time authorization |
+
 ## Practical Value Of Each Component
 
 | Component | Operational value | What becomes worse without it |
@@ -435,41 +484,26 @@ performance evidence.
 
 ## Remaining Complexity And Cleanup Order
 
-Creator OS is no longer architecturally tangled, but it is still a large
-codebase. The remaining mess is bounded and is not a reason to merge the
-factories or add another service:
+Creator OS is large but no longer missing an architectural component. Remaining
+complexity should be reduced only when caller and evidence checks prove a safe
+cut:
 
-1. Reel Pipeline and Reference intake were split by semantic stages without
-   changing their public operator workflows; the largest resulting production
-   module is 1,160 lines.
-2. Asset generation was split by provider, QC, lineage, and model ownership;
-   `generate_assets.py` is now 1,080 lines and its largest companion is 652.
-3. Campaign Factory is 72,333 production lines across domain modules and its
-   active adapter subpackage. Its largest active module is 1,459 lines, so
-   further reduction should remove dead
-   workflows and duplicated policy rather than mechanically split files.
-4. The 27,102-line pre-split Campaign test monolith was replaced by real domain
-   suites with a largest test module of 3,313 lines. All 481 test definitions
-   and 495 collected cases were preserved.
-5. ContentForge export adjudication reduced Knip's unused-export count from 39
-   to zero while preserving its two headless commands, dynamic audio-fit seam,
-   resumable jobs, FFmpeg builders, and QC behavior. The remaining Knip output
-   is 14 documented host binaries and one intentional compatibility alias pair.
-6. Legacy Reel prompt generation, six-pack generation, and manual grid-crop
-   execution were deleted after repository and runtime zero-caller proof.
-7. The source checkout still contains retained databases, models, media, and
-   real-run evidence for rollback. The largest ignored temporary evidence tree
-   is about 1.3 GB. Do not confuse retained evidence with source architecture or
-   delete it before preservation and the applicable cleanup gate.
+1. `scripts/doctor.py`, the Campaign composition root, and several domain
+   modules remain large. Split or delete behavior by ownership; do not add
+   forwarding facades or another service.
+2. Reference Grok compilation remains an explicit experimental CLI used by its
+   own tests. Keep it isolated from the active Soul path unless the operator
+   explicitly selects that experiment.
+3. ContentForge retains direct FFmpeg variation utilities because they have an
+   operator command and lineage/QC value. It does not retain an unserved job or
+   polling layer.
+4. Historical operational evidence, databases, models, and media are runtime
+   assets, not source-code cleanup candidates. Their dated cleanup gates and
+   retention decisions belong in run-specific reports.
+5. Operational maturity still requires genuine publication and equal-age metric
+   evidence. Source completeness must never be presented as performance proof.
 
-The practical next order is evidence accumulation rather than more architecture
-work. The resulting docs-only revision is the final runtime target, and
-operational closure requires exact source/runtime SHA equality in live status.
-Then the system must accumulate the real 10-post and 50-post learning evidence
-and establish Trial eligibility account by account. Retained
-rollback evidence remains protected through `2026-07-22T21:28:51Z` and one
-complete post-promotion operating cycle; deletion still requires separate
-authorization. No Time Machine destination is configured, but that is a
-non-blocking warning because the verified Restic/Supabase repository is the
-offsite backup layer. Redis/RQ, Temporal, another dashboard, and a factory merge
-would increase—not reduce—the current complexity.
+Redis/RQ, Temporal, another dashboard, and a factory merge would increase—not
+reduce—the current complexity. The supported architecture remains one Campaign
+control plane, narrow workers, canonical generated contracts, one production
+publisher, and evidence-gated learning.
