@@ -12,6 +12,7 @@ const FIXTURE_PATH = path.resolve("test/fixtures/detector-calibration/media_pair
 const PDQ_SCRIPT_PATH = path.resolve("lib/pdq_check.py");
 const SSCD_SCRIPT_PATH = path.resolve("lib/sscd_check.py");
 const TEMPORAL_SCRIPT_PATH = path.resolve("lib/temporal_pdq.py");
+const REFERENCE_DB_SCRIPT_PATH = path.resolve("lib/reference_db.py");
 
 async function loadPairs() {
   return JSON.parse(await readFile(FIXTURE_PATH, "utf8"));
@@ -147,4 +148,36 @@ test("python detector scripts expose calibrated thresholds without drift", async
   assert.match(temporalSource, /if\s+sim\s*>=\s*0\.90:/);
   assert.match(temporalSource, /elif\s+sim\s*>=\s*0\.70:/);
   assert.match(temporalSource, /"thresholds":\s*\{"filter":\s*0\.70,\s*"exact":\s*0\.90\}/);
+});
+
+test("python QC helpers surface frame failures and never catch BaseException", async function () {
+  var [pdqSource, sscdSource, temporalSource, referenceSource] = await Promise.all([
+    readFile(PDQ_SCRIPT_PATH, "utf8"),
+    readFile(SSCD_SCRIPT_PATH, "utf8"),
+    readFile(TEMPORAL_SCRIPT_PATH, "utf8"),
+    readFile(REFERENCE_DB_SCRIPT_PATH, "utf8"),
+  ]);
+
+  for (var source of [pdqSource, sscdSource, temporalSource, referenceSource]) {
+    assert.doesNotMatch(source, /except\s*:/);
+  }
+  assert.match(temporalSource, /src_hashes, src_hash_errors = compute_frame_hashes/);
+  assert.match(temporalSource, /var_hashes, var_hash_errors = compute_frame_hashes/);
+  assert.match(temporalSource, /"frameHashErrors": src_hash_errors/);
+  assert.match(temporalSource, /"frameHashErrors": var_hash_errors/);
+  assert.match(temporalSource, /"analysisErrorCount": analysis_error_count/);
+  assert.match(pdqSource, /completed\.returncode == 0/);
+  assert.match(sscdSource, /completed\.returncode == 0/);
+  assert.match(referenceSource, /completed\.returncode == 0/);
+});
+
+test("temporal frame-analysis errors cannot produce a passing verdict", function () {
+  var verdicts = buildDetectorVerdicts({
+    temporal: {
+      available: true,
+      stats: { failCount: 0, analysisErrorCount: 1 },
+    },
+  });
+
+  assert.equal(verdicts.temporal, "warn");
 });

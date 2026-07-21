@@ -7,6 +7,7 @@ import hashlib
 import json
 import random
 import re
+import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -323,7 +324,9 @@ class CaptionBankStore:
         for path in sorted((root / "01_captions").glob("*.json")):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
                 continue
             for index, hook in enumerate(payload.get("hooks") or []):
                 text = _hook_text(hook)
@@ -617,6 +620,7 @@ def _history_captions(root: Path) -> list[tuple[str, str]]:
     rows: dict[str, tuple[str, str]] = {}
     db_path = manifest_db_path(root)
     if db_path.exists():
+        conn = None
         try:
             conn = connect_sqlite(db_path, readonly=True, wal=False)
             for (text,) in conn.execute(
@@ -625,20 +629,34 @@ def _history_captions(root: Path) -> list[tuple[str, str]]:
                 clean = str(text).strip()
                 if clean:
                     rows[caption_hash(clean)] = (clean, "manifest.sqlite")
-            conn.close()
-        except Exception:
+        except (OSError, sqlite3.Error):
             pass
+        finally:
+            if conn is not None:
+                conn.close()
     json_path = root / "manifest.json"
     if json_path.exists():
         try:
             payload = json.loads(json_path.read_text(encoding="utf-8"))
-            for video in (payload.get("videos") or {}).values():
-                for variation in video.get("variations") or []:
-                    clean = str(variation.get("caption_text") or "").strip()
-                    if clean:
-                        rows.setdefault(caption_hash(clean), (clean, "manifest.json"))
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError):
             pass
+        else:
+            videos = payload.get("videos") if isinstance(payload, dict) else None
+            if isinstance(videos, dict):
+                for video in videos.values():
+                    if not isinstance(video, dict):
+                        continue
+                    variations = video.get("variations")
+                    if not isinstance(variations, list):
+                        continue
+                    for variation in variations:
+                        if not isinstance(variation, dict):
+                            continue
+                        clean = str(variation.get("caption_text") or "").strip()
+                        if clean:
+                            rows.setdefault(
+                                caption_hash(clean), (clean, "manifest.json")
+                            )
     return list(rows.values())
 
 

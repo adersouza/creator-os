@@ -33,7 +33,7 @@ def extract_frames(video_path, output_dir, fps=1, max_frames=15):
     """Extract frames at fixed FPS from video."""
     os.makedirs(output_dir, exist_ok=True)
     try:
-        subprocess.run(
+        completed = subprocess.run(
             [
                 "ffmpeg",
                 "-i",
@@ -51,6 +51,9 @@ def extract_frames(video_path, output_dir, fps=1, max_frames=15):
             timeout=30,
         )
 
+        if completed.returncode != 0:
+            return []
+
         frames = sorted(
             [
                 os.path.join(output_dir, f)
@@ -59,22 +62,28 @@ def extract_frames(video_path, output_dir, fps=1, max_frames=15):
             ]
         )
         return frames
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return []
 
 
 def compute_frame_hashes(frame_paths):
-    """Compute PDQ hash for each frame."""
+    """Compute PDQ hashes without silently weakening the audited frame set."""
     hashes = []
+    errors = []
     for fp in frame_paths:
         try:
-            img = Image.open(fp).convert("RGB")
-            arr = np.array(img)
+            with Image.open(fp) as image:
+                arr = np.array(image.convert("RGB"))
             h, q = pdqhash.compute(arr)
             hashes.append(h)
-        except:
-            pass
-    return hashes
+        except Exception as exc:
+            errors.append(
+                {
+                    "path": fp,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return hashes, errors
 
 
 def compute_level1_descriptor(hashes):
@@ -167,7 +176,19 @@ def main():
         )
         sys.exit(0)
 
-    src_hashes = compute_frame_hashes(src_frames)
+    src_hashes, src_hash_errors = compute_frame_hashes(src_frames)
+    if src_hash_errors:
+        shutil.rmtree(tmp_base, ignore_errors=True)
+        print(
+            json.dumps(
+                {
+                    "available": False,
+                    "reason": "Source frame hashing failed",
+                    "frameHashErrors": src_hash_errors,
+                }
+            )
+        )
+        sys.exit(0)
     src_descriptor = compute_level1_descriptor(src_hashes)
     if src_descriptor is None:
         print(
@@ -209,7 +230,18 @@ def main():
             )
             continue
 
-        var_hashes = compute_frame_hashes(var_frames)
+        var_hashes, var_hash_errors = compute_frame_hashes(var_frames)
+        if var_hash_errors:
+            results.append(
+                {
+                    "name": fname,
+                    "similarity": None,
+                    "verdict": None,
+                    "error": "Frame hashing failed",
+                    "frameHashErrors": var_hash_errors,
+                }
+            )
+            continue
         var_descriptor = compute_level1_descriptor(var_hashes)
 
         if var_descriptor is None:
@@ -249,16 +281,14 @@ def main():
         )
 
     # Cleanup
-    try:
-        shutil.rmtree(tmp_base, ignore_errors=True)
-    except:
-        pass
+    shutil.rmtree(tmp_base, ignore_errors=True)
 
     # Stats
     avg_sim = float(np.mean(similarities)) if similarities else None
     pass_count = sum(1 for s in similarities if s < 0.70)
     warn_count = sum(1 for s in similarities if 0.70 <= s < 0.90)
     fail_count = sum(1 for s in similarities if s >= 0.90)
+    analysis_error_count = sum(1 for result in results if result.get("error"))
 
     print(
         json.dumps(
@@ -270,6 +300,7 @@ def main():
                     "passCount": pass_count,
                     "warnCount": warn_count,
                     "failCount": fail_count,
+                    "analysisErrorCount": analysis_error_count,
                     "avgSimilarity": round(avg_sim, 4) if avg_sim is not None else None,
                     "sourceFrames": len(src_hashes),
                     "thresholds": {"filter": 0.70, "exact": 0.90},

@@ -295,7 +295,7 @@ def rebuild_recommendation_accuracy(body: dict[str, Any] = Body(...)):
 
 @app.post("/api/recommendations/{recommendation_item_id}/accept")
 def accept_recommendation(
-    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+    recommendation_item_id: str, body: dict[str, Any] = Body(default_factory=dict)
 ):
     cf = factory()
     try:
@@ -314,7 +314,7 @@ def accept_recommendation(
 
 @app.post("/api/recommendations/{recommendation_item_id}/reject")
 def reject_recommendation(
-    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+    recommendation_item_id: str, body: dict[str, Any] = Body(default_factory=dict)
 ):
     cf = factory()
     try:
@@ -357,7 +357,7 @@ def link_recommendation(recommendation_item_id: str, body: dict[str, Any] = Body
 
 @app.post("/api/recommendations/{recommendation_item_id}/measure")
 def measure_recommendation(
-    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+    recommendation_item_id: str, body: dict[str, Any] = Body(default_factory=dict)
 ):
     cf = factory()
     try:
@@ -375,7 +375,7 @@ def measure_recommendation(
 
 @app.post("/api/recommendations/{recommendation_item_id}/execute")
 def execute_recommendation(
-    recommendation_item_id: str, body: dict[str, Any] = Body(default={})
+    recommendation_item_id: str, body: dict[str, Any] = Body(default_factory=dict)
 ):
     cf = factory()
     try:
@@ -427,7 +427,9 @@ def exceptions(campaign: str | None = None, status: str = "open"):
 
 
 @app.post("/api/exceptions/{exception_id}/resolve")
-def resolve_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
+def resolve_exception(
+    exception_id: str, body: dict[str, Any] = Body(default_factory=dict)
+):
     cf = factory()
     try:
         return cf.domains.exceptions.resolve_exception(
@@ -442,7 +444,9 @@ def resolve_exception(exception_id: str, body: dict[str, Any] = Body(default={})
 
 
 @app.post("/api/exceptions/{exception_id}/snooze")
-def snooze_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
+def snooze_exception(
+    exception_id: str, body: dict[str, Any] = Body(default_factory=dict)
+):
     cf = factory()
     try:
         return cf.domains.exceptions.snooze_exception(
@@ -458,7 +462,9 @@ def snooze_exception(exception_id: str, body: dict[str, Any] = Body(default={}))
 
 
 @app.post("/api/exceptions/{exception_id}/reopen")
-def reopen_exception(exception_id: str, body: dict[str, Any] = Body(default={})):
+def reopen_exception(
+    exception_id: str, body: dict[str, Any] = Body(default_factory=dict)
+):
     cf = factory()
     try:
         return cf.domains.exceptions.reopen_exception(
