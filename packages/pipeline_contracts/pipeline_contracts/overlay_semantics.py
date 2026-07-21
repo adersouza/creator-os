@@ -7,8 +7,9 @@ import re
 from typing import Any
 
 SCHEMA = "pipeline.overlay_semantic_qc.v1"
-POLICY_VERSION = "overlay_payoff_v3"
+POLICY_VERSION = "overlay_payoff_v4"
 TIMING_SCHEMA = "pipeline.overlay_timing_qc.v1"
+RENDER_PLAN_SCHEMA = "pipeline.overlay_render_plan.v1"
 
 _GENERIC_STOP_SETUP = re.compile(
     r"^(?:(?:men|guys|boys|girls|women|ladies|people|y['’]?all)\s*[,!—-]?\s*)?"
@@ -34,14 +35,25 @@ _DANGLING_CLAUSE = re.compile(
     r"\s*(?:…|\.\.\.)?\s*$",
     re.IGNORECASE,
 )
+_BEFORE_AFTER_SETUP = re.compile(
+    r"^(?:before|pre)[\s-]+(?:gym|workout|training|class|work|date|party|"
+    r"makeup|glam|hair|outfit|transformation|glow[\s-]?up|getting ready)"
+    r"\s*(?::|…|\.\.\.)\s*$",
+    re.IGNORECASE,
+)
 _ENUMERATED_PROMISE = re.compile(
-    r"^(?P<count>[2-9])\s+(?:reasons?|ways?|things?|signs?|mistakes?|rules?|tips?)\b",
+    r"^(?P<count>[1-9]\d*)\s+"
+    r"(?:reasons?|ways?|things?|signs?|mistakes?|rules?|tips?)\b",
     re.IGNORECASE,
 )
 
 
 def evaluate_overlay_semantic_completeness(
-    value: Any, *, require_overlay: bool = False
+    value: Any,
+    *,
+    require_overlay: bool = False,
+    human_semantic_approval: bool = False,
+    duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Fail closed only for objectively unfinished burned-overlay copy.
 
@@ -51,6 +63,29 @@ def evaluate_overlay_semantic_completeness(
     that promises missing follow-up text. A real timed sequence passes when it
     contains at least two distinct, non-empty caption segments.
     """
+
+    timing_qc: dict[str, Any] | None = None
+    if _timed_caption_payload(value) and duration_seconds is not None:
+        timing_qc = evaluate_overlay_timing(
+            _raw_timed_segments(value), duration_seconds=duration_seconds
+        )
+        if timing_qc.get("passed") is not True:
+            failures = list(timing_qc.get("failure_reasons") or [])
+            return {
+                "schema": SCHEMA,
+                "policy_version": POLICY_VERSION,
+                "caption_hash": None,
+                "segment_count": int(timing_qc.get("segment_count") or 0),
+                "distinct_segment_count": 0,
+                "timed_sequence": True,
+                "timing_verified": False,
+                "human_semantic_approval": bool(human_semantic_approval),
+                "passed": False,
+                "decision": "blocked",
+                "reason": failures[0] if failures else "overlay_timing_invalid",
+                "failure_reasons": failures or ["overlay_timing_invalid"],
+            }
+        value = {"segments": timing_qc["segments"]}
 
     segments = _caption_segments(value)
     distinct_segments = list(dict.fromkeys(segments))
@@ -62,6 +97,8 @@ def evaluate_overlay_semantic_completeness(
         "segment_count": len(segments),
         "distinct_segment_count": len(distinct_segments),
         "timed_sequence": _timed_caption_payload(value),
+        "timing_verified": timing_qc is not None,
+        "human_semantic_approval": bool(human_semantic_approval),
     }
 
     if not segments:
@@ -125,6 +162,18 @@ def evaluate_overlay_semantic_completeness(
             }
         failure_reason = final_failure
 
+    if (
+        failure_reason == "missing_overlay_payoff_after_before_state"
+        and human_semantic_approval
+    ):
+        return {
+            **base,
+            "passed": True,
+            "decision": "human_semantic_approval",
+            "reason": "before_state_approved_as_visually_resolved",
+            "failure_reasons": [],
+        }
+
     if failure_reason:
         return {
             **base,
@@ -165,13 +214,26 @@ def evaluate_overlay_timing(
     if not segments:
         failures.append("missing_burned_overlay_text")
 
+    all_implicit = len(segments) > 1 and all(
+        "start" not in segment
+        and "end" not in segment
+        and "start_seconds" not in segment
+        and "end_seconds" not in segment
+        for segment in segments
+    )
     previous_start = -math.inf
     for index, segment in enumerate(segments):
         text = _normalize_text(str(segment.get("text") or ""))
         try:
-            start = float(segment.get("start", 0.0))
-            raw_end = segment.get("end")
-            end = duration if raw_end is None else float(raw_end)
+            if all_implicit and math.isfinite(duration):
+                segment_width = duration / len(segments)
+                start = index * segment_width
+                end = (index + 1) * segment_width
+            else:
+                raw_start = segment.get("start", segment.get("start_seconds", 0.0))
+                raw_end = segment.get("end", segment.get("end_seconds"))
+                start = float(raw_start)
+                end = duration if raw_end is None else float(raw_end)
         except (TypeError, ValueError):
             start = math.nan
             end = math.nan
@@ -191,17 +253,30 @@ def evaluate_overlay_timing(
                 segment_failures.append("overlay_segment_outside_media_duration")
             previous_start = start
         failures.extend(segment_failures)
-        resolved.append(
-            {
-                "index": index,
-                "text": text,
-                "start": start if math.isfinite(start) else None,
-                "end": end if math.isfinite(end) else None,
-                "failure_reasons": sorted(set(segment_failures)),
-            }
-        )
+        resolved_segment = {
+            "index": index,
+            "text": text,
+            "start": start if math.isfinite(start) else None,
+            "end": end if math.isfinite(end) else None,
+            "failure_reasons": sorted(set(segment_failures)),
+        }
+        if isinstance(segment.get("band"), str) and segment["band"].strip():
+            resolved_segment["band"] = segment["band"].strip()
+        resolved.append(resolved_segment)
 
     unique_failures = sorted(set(failures))
+    resolved_render_plan = {
+        "schema": RENDER_PLAN_SCHEMA,
+        "duration_seconds": duration if math.isfinite(duration) else None,
+        "segments": [
+            {
+                key: value
+                for key, value in segment.items()
+                if key in {"index", "text", "start", "end", "band"}
+            }
+            for segment in resolved
+        ],
+    }
     return {
         "schema": TIMING_SCHEMA,
         "policy_version": "resolved_overlay_timing_v1",
@@ -209,6 +284,7 @@ def evaluate_overlay_timing(
         "duration_seconds": duration if math.isfinite(duration) else None,
         "segment_count": len(segments),
         "segments": resolved,
+        "resolved_render_plan": resolved_render_plan,
         "failure_reasons": unique_failures,
         "reason": "resolved_overlay_timing_visible"
         if not unique_failures
@@ -223,6 +299,8 @@ def _incomplete_reason(text: str) -> str | None:
         return "missing_overlay_payoff_after_setup"
     if _UNRESOLVED_ACTION_SETUP.fullmatch(text):
         return "missing_overlay_payoff_after_setup"
+    if _BEFORE_AFTER_SETUP.fullmatch(text):
+        return "missing_overlay_payoff_after_before_state"
     if _DANGLING_CLAUSE.search(text):
         return "dangling_overlay_clause"
     return None
@@ -271,6 +349,26 @@ def _timed_caption_payload(value: Any) -> bool:
             except (TypeError, ValueError, json.JSONDecodeError):
                 return False
     return False
+
+
+def _raw_timed_segments(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        segments = value.get("segments")
+        return (
+            [dict(item) for item in segments if isinstance(item, dict)]
+            if isinstance(segments, list)
+            else []
+        )
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped[:1] in {"{", "["}:
+            try:
+                return _raw_timed_segments(json.loads(stripped))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return []
+    return []
 
 
 def _normalize_segment_values(values: list[Any]) -> list[str]:

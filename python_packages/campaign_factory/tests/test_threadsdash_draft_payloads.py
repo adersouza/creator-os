@@ -385,6 +385,53 @@ def test_threadsdash_export_blocks_timed_overlay_without_resolved_timing_proof(
         cf.close()
 
 
+def test_threadsdash_export_recomputes_timing_instead_of_trusting_passed_flag(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        segments = [
+            {"text": "men, stop doing this:", "start": 0.0, "end": 2.0},
+            {"text": "sending one-word replies", "start": 99.0, "end": 100.0},
+        ]
+        caption = json.dumps({"segments": segments}, sort_keys=True)
+        context = {
+            "schema": "campaign_factory.caption_outcome_context.v1",
+            "caption_hash": threadsdash_client_adapter._text_hash(caption),
+            "caption_text": caption,
+            "captionTimingQc": {
+                "schema": "pipeline.overlay_timing_qc.v1",
+                "passed": True,
+                "duration_seconds": 5.0,
+                "segments": segments,
+                "failure_reasons": [],
+            },
+        }
+        cf.conn.execute(
+            """
+            UPDATE rendered_assets
+            SET caption = ?, caption_hash = ?, caption_outcome_context_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                caption,
+                threadsdash_client_adapter._text_hash(caption),
+                json.dumps(context),
+            ),
+        )
+        cf.conn.commit()
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+
+        with pytest.raises(
+            ValueError,
+            match="burned_overlay_timing_unverified:.*outside_media_duration:asset_1",
+        ):
+            build_draft_payloads(cf, campaign_slug="may", user_id="user_1")
+    finally:
+        cf.close()
+
+
 def test_threadsdash_selected_batch_prunes_manifest_and_fails_on_missing_ids(
     tmp_path: Path,
 ):

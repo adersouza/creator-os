@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pipeline_contracts import evaluate_overlay_timing
+
 
 def verify_rendered_media_asset(asset: dict[str, Any], file_path: Path) -> str:
     """Return the approved hash only when the current bytes still match it."""
@@ -57,7 +59,21 @@ def caption_timing_qc(
         for key in ("captionTimingQc", "caption_timing_qc"):
             value = record.get(key)
             if isinstance(value, dict):
-                return dict(value)
+                segments = value.get("segments")
+                duration = value.get("duration_seconds", value.get("durationSeconds"))
+                if isinstance(segments, list):
+                    recomputed = evaluate_overlay_timing(
+                        [dict(item) for item in segments if isinstance(item, dict)],
+                        duration_seconds=duration,
+                    )
+                    recomputed["recorded_passed"] = value.get("passed")
+                    return recomputed
+                return {
+                    **dict(value),
+                    "passed": False,
+                    "failure_reasons": ["missing_resolved_overlay_timing_segments"],
+                    "reason": "missing_resolved_overlay_timing_segments",
+                }
     return None
 
 

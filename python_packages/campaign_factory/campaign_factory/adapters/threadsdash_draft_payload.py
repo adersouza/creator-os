@@ -60,6 +60,25 @@ from .threadsdash_draft_destinations import (
 )
 
 
+def _has_human_semantic_approval(*records: Any) -> bool:
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        approval = record.get("humanSemanticApproval") or record.get(
+            "human_semantic_approval"
+        )
+        if (
+            isinstance(approval, dict)
+            and approval.get("approved") is True
+            and str(approval.get("reviewer") or "").strip()
+            and str(
+                approval.get("reviewedAt") or approval.get("reviewed_at") or ""
+            ).strip()
+        ):
+            return True
+    return False
+
+
 def build_draft_payloads(
     factory: CampaignFactory,
     *,
@@ -139,21 +158,19 @@ def build_draft_payloads(
             asset, caption=caption, file_path=file_path
         )
         caption_is_burned = asset_caption_is_burned(asset)
+        human_semantic_approval = _has_human_semantic_approval(
+            caption_context,
+            asset,
+            asset.get("generatedAssetLineage"),
+            asset.get("captionGeneration"),
+        )
         overlay_semantic_qc = evaluate_overlay_semantic_completeness(
             (caption_context.get("caption_text") or caption)
             if caption_is_burned
             else None,
             require_overlay=caption_is_burned,
+            human_semantic_approval=human_semantic_approval,
         )
-        if overlay_semantic_qc.get("passed") is not True:
-            failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
-                "overlay_semantic_qc_failed"
-            ]
-            raise ValueError(
-                "burned_overlay_semantic_incomplete:"
-                + ",".join(str(reason) for reason in failure_reasons)
-                + f":{asset['renderedAssetId']}"
-            )
         caption_timing_qc = resolve_caption_timing_qc(asset, caption_context)
         if (
             caption_is_burned
@@ -171,6 +188,27 @@ def build_draft_payloads(
             raise ValueError(
                 "burned_overlay_timing_unverified:"
                 + ",".join(str(reason) for reason in reasons)
+                + f":{asset['renderedAssetId']}"
+            )
+        if (
+            caption_is_burned
+            and overlay_semantic_qc.get("timed_sequence") is True
+            and isinstance(caption_timing_qc, dict)
+            and caption_timing_qc.get("passed") is True
+        ):
+            overlay_semantic_qc = evaluate_overlay_semantic_completeness(
+                {"segments": caption_timing_qc.get("segments") or []},
+                require_overlay=True,
+                human_semantic_approval=human_semantic_approval,
+                duration_seconds=caption_timing_qc.get("duration_seconds"),
+            )
+        if overlay_semantic_qc.get("passed") is not True:
+            failure_reasons = overlay_semantic_qc.get("failure_reasons") or [
+                "overlay_semantic_qc_failed"
+            ]
+            raise ValueError(
+                "burned_overlay_semantic_incomplete:"
+                + ",".join(str(reason) for reason in failure_reasons)
                 + f":{asset['renderedAssetId']}"
             )
         caption_hash = caption_context.get("caption_hash") or _text_hash(caption)

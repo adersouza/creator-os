@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,12 +17,18 @@ from campaign_test_support import make_factory
 
 
 def test_library_reuse_entrypoint_does_not_import_paid_video_dependencies() -> None:
-    script = """
+    script = r"""
 import builtins
 
 original_import = builtins.__import__
 def guarded_import(name, *args, **kwargs):
-    if name == "cv2" or name.startswith("scenedetect"):
+    blocked = {
+        "campaign_factory.front_generation_stage",
+        "campaign_factory.motion_edit_stage",
+        "campaign_factory.static_mp4_stage",
+        "campaign_factory.reference_video_remix_stage",
+    }
+    if name == "cv2" or name.startswith("scenedetect") or name in blocked:
         raise AssertionError(f"free Library Reuse imported paid-mode dependency: {name}")
     return original_import(name, *args, **kwargs)
 
@@ -33,6 +41,18 @@ assert callable(run_generation_workflow)
         text=True,
         capture_output=True,
         check=False,
+        cwd=Path(__file__).resolve().parents[3],
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                str(path)
+                for path in (
+                    Path(__file__).resolve().parents[1],
+                    Path(__file__).resolve().parents[3] / "packages/pipeline_contracts",
+                    Path(__file__).resolve().parents[3] / "packages/creator_os_core",
+                )
+            ),
+        },
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -132,6 +152,36 @@ def test_library_reuse_preserves_one_mp4_without_render_or_paid_activity(
             cf.conn.execute("SELECT COUNT(*) AS c FROM render_jobs").fetchone()["c"]
             == 0
         )
+    finally:
+        cf.close()
+
+
+def test_library_reuse_apply_spawns_no_provider_or_paid_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = tmp_path / "library"
+    _write_library(folder, 1)
+    cf = make_factory(tmp_path)
+
+    def forbidden_subprocess(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("Library Reuse must not spawn provider or paid subprocesses")
+
+    async def forbidden_async_subprocess(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("Library Reuse must not spawn provider or paid subprocesses")
+
+    try:
+        _stub_audit(cf)
+        monkeypatch.setattr(subprocess, "run", forbidden_subprocess)
+        monkeypatch.setattr(subprocess, "Popen", forbidden_subprocess)
+        monkeypatch.setattr(
+            asyncio, "create_subprocess_exec", forbidden_async_subprocess
+        )
+
+        result = _run(cf, folder)["result"]
+
+        assert result["providerCalls"] == 0
+        assert result["paidGeneration"] is False
+        assert result["renderingPerformed"] is False
     finally:
         cf.close()
 
