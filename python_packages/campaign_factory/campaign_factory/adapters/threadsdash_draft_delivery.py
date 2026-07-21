@@ -417,11 +417,7 @@ def export_threadsdash(
             publish_mode=normalized_publish_mode,
             review_only=review_only,
         )
-        if max_drafts is not None and max_drafts < len(payload["drafts"]):
-            raise ValueError(
-                "max_drafts_cannot_define_an_integrity_batch: select exact "
-                "rendered_asset_ids so readiness and export evaluate the same rows"
-            )
+        payload = _freeze_exact_draft_batch(payload, max_drafts=max_drafts)
         readiness = evaluate_export_readiness(
             factory,
             campaign_slug=campaign_slug,
@@ -437,6 +433,7 @@ def export_threadsdash(
             publish_mode=normalized_publish_mode,
             review_only=review_only,
             record_evidence=not dry_run,
+            draft_payload=payload,
         )
         if not dry_run and readiness.get("liveExportAllowed") is not True:
             readiness_blockers = [
@@ -1045,23 +1042,40 @@ def _upload_media(
     # storage upload so a degraded database cannot turn a read outage into
     # additional object and row writes.
     existing_rows = select_existing()
-    with tempfile.TemporaryDirectory(prefix="creator-os-approved-media-") as temp_dir:
-        approved_copy = Path(temp_dir) / local_path.name
-        shutil.copyfile(local_path, approved_copy)
-        copied_sha256 = _sha256_file(approved_copy)
-        if copied_sha256 != expected_sha256:
+    if existing_rows:
+        remote_bytes = client.download_storage_object(bucket, storage_path)
+        remote_sha256 = hashlib.sha256(remote_bytes).hexdigest()
+        if remote_sha256 != expected_sha256:
             raise ValueError(
-                "media changed while creating immutable upload copy: "
-                f"expected {expected_sha256}, got {copied_sha256}"
+                "existing remote media fingerprint mismatch: "
+                f"expected {expected_sha256}, got {remote_sha256}"
             )
-        try:
-            client.upload_storage_object(
-                bucket, storage_path, approved_copy, content_type, upsert=True
+        confirmed_rows = select_existing()
+        if not confirmed_rows:
+            raise RuntimeError(
+                "verified remote media row disappeared before reuse; refusing stale media id"
             )
-        except TypeError:
-            client.upload_storage_object(
-                bucket, storage_path, approved_copy, content_type
-            )
+        existing_rows = confirmed_rows
+    else:
+        with tempfile.TemporaryDirectory(
+            prefix="creator-os-approved-media-"
+        ) as temp_dir:
+            approved_copy = Path(temp_dir) / local_path.name
+            shutil.copyfile(local_path, approved_copy)
+            copied_sha256 = _sha256_file(approved_copy)
+            if copied_sha256 != expected_sha256:
+                raise ValueError(
+                    "media changed while creating immutable upload copy: "
+                    f"expected {expected_sha256}, got {copied_sha256}"
+                )
+            try:
+                client.upload_storage_object(
+                    bucket, storage_path, approved_copy, content_type, upsert=False
+                )
+            except TypeError:
+                client.upload_storage_object(
+                    bucket, storage_path, approved_copy, content_type
+                )
     public_url = (
         f"{client.url}/storage/v1/object/public/{quote(bucket)}/{quote(storage_path)}"
     )
@@ -1120,6 +1134,52 @@ def _batch_guardrail_warnings(
     return {
         key: list(findings.get("warnings") or [])
         for key, findings in _batch_guardrail_findings(drafts).items()
+    }
+
+
+def _freeze_exact_draft_batch(
+    payload: dict[str, Any], *, max_drafts: int | None
+) -> dict[str, Any]:
+    """Freeze one deterministic draft-row batch before any readiness or write.
+
+    A rendered asset may expand to multiple account destinations, so an asset-id
+    scope alone cannot represent ``max_drafts`` exactly. The stable draft keys
+    are the integrity boundary shared by readiness, usage, upload, and ingest.
+    """
+    if max_drafts is None:
+        return payload
+    drafts = list(payload.get("drafts") or [])
+    selected = drafts[:max_drafts]
+    draft_keys = [
+        str(draft.get("campaignFactoryDraftKey") or "").strip()
+        for draft in selected
+        if isinstance(draft, dict)
+    ]
+    if len(draft_keys) != len(selected) or any(not key for key in draft_keys):
+        raise ValueError("exact draft batch contains a missing stable draft key")
+    if len(set(draft_keys)) != len(draft_keys):
+        raise ValueError("exact draft batch contains duplicate stable draft keys")
+    selected_asset_ids = {
+        str(draft.get("renderedAssetId") or "")
+        for draft in selected
+        if isinstance(draft, dict)
+    }
+    manifest = dict(payload.get("manifest") or {})
+    manifest["assets"] = [
+        asset
+        for asset in manifest.get("assets") or []
+        if str(asset.get("renderedAssetId") or "") in selected_asset_ids
+    ]
+    return {
+        **payload,
+        "manifest": manifest,
+        "drafts": selected,
+        "batchSelection": {
+            "mode": "payload_order_prefix_frozen_by_stable_draft_key",
+            "requestedMaxDrafts": max_drafts,
+            "selectedDraftCount": len(selected),
+            "draftKeys": draft_keys,
+        },
     }
 
 

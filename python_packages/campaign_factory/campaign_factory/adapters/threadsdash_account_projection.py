@@ -47,17 +47,24 @@ def summarize_threadsdash_usage(
     supabase_service_role_key: str | None,
     limit: int = 1000,
     rendered_asset_ids: list[str] | None = None,
+    draft_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
         raise ValueError(
             "supabase_url and supabase_service_role_key are required for usage tracking"
         )
-    payload = _draft_payload.build_draft_payloads(
+    payload = draft_payload or _draft_payload.build_draft_payloads(
         factory,
         campaign_slug=campaign_slug,
         user_id=user_id,
         rendered_asset_ids=rendered_asset_ids,
     )
+    if draft_payload is not None:
+        if payload.get("campaign") != campaign_slug:
+            raise ValueError("draft usage payload campaign does not match usage scope")
+        for draft in payload.get("drafts") or []:
+            if not isinstance(draft, dict) or draft.get("userId") != user_id:
+                raise ValueError("draft usage payload user does not match usage scope")
     client = _threadsdash_client.SupabaseRestClient(
         supabase_url.rstrip("/"), supabase_service_role_key
     )

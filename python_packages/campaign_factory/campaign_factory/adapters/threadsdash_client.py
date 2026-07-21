@@ -452,6 +452,11 @@ class SupabaseRestClient:
         )
         self._open_json_or_empty(request)
 
+    def download_storage_object(self, bucket: str, storage_path: str) -> bytes:
+        endpoint = f"{self.url}/storage/v1/object/{quote(bucket)}/{quote(storage_path)}"
+        request = Request(endpoint, method="GET", headers=self.headers())
+        return self._open_bytes(request)
+
     def get_storage_bucket(self, bucket: str) -> dict[str, Any]:
         endpoint = f"{self.url}/storage/v1/bucket/{quote(bucket)}"
         request = Request(endpoint, method="GET", headers=self.headers())
@@ -565,6 +570,16 @@ class SupabaseRestClient:
     def _open_json_or_empty(
         self, request: Request, *, retry_ambiguous: bool = True
     ) -> Any:
+        raw = self._open_bytes(request, retry_ambiguous=retry_ambiguous)
+        if not raw:
+            return {}
+        text = raw.decode("utf-8")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"raw": text}
+
+    def _open_bytes(self, request: Request, *, retry_ambiguous: bool = True) -> bytes:
         # Statuses where the server definitely did not process the request,
         # so retrying is always safe (even for non-idempotent POST inserts).
         safe_statuses = {408, 425, 429}
@@ -595,10 +610,4 @@ class SupabaseRestClient:
             time.sleep(0.25 * (2**attempt))
         else:  # pragma: no cover - loop either breaks or raises
             raise last_error or RuntimeError("Supabase request failed")
-        if not raw:
-            return {}
-        text = raw.decode("utf-8")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"raw": text}
+        return raw
