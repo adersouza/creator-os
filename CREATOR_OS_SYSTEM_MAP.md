@@ -137,6 +137,9 @@ python_packages/reel_factory/reel_factory
   placement, captions, rendering, provider workers, local SQLite render queue
 python_packages/campaign_factory/campaign_factory
   plans, assignment, spend authority, readiness, handoff, metric ingestion
+python_packages/campaign_factory/repurposer
+  optional zero-provider-cost variation worker reached only through Campaign's
+  explicit variation stage; not a lifecycle stage or second control plane
 
 packages/contentforge
   direct headless CLI for media inspection, distinctness, and blocking QC
@@ -382,6 +385,10 @@ Creator OS operator command.
 
 ## Repository And Automation Entrypoints
 
+- GitHub Actions has one owner: repository-root `.github/workflows/` contains
+  `monorepo-ci.yml`, `security.yml`, and `scorecard.yml`. Package-local workflow
+  copies are intentionally absent because GitHub does not execute them in this
+  monorepo and they drift from the canonical gates.
 - Make: `install`, `reel-models`, `test`, `verify`, `backup-runtime`, and local
   Campaign API/Reference review development targets.
 - pnpm: contract sync/check, static checks, architecture, artifacts, Graphify,
@@ -391,6 +398,17 @@ Creator OS operator command.
   `run_weekly_improvement_digest.sh`, and `run_campaign_factory.sh`.
 - The real LaunchAgents and private environment files are machine-local and are
   not stored or modified here.
+
+## Documentation Ownership
+
+- `README.md` is the concise supported-entrypoint guide.
+- This file is the durable architecture and ownership source of truth.
+- `PIPELINE_STATE.md` records current source capability without freezing
+  volatile operational counts or SHAs.
+- `docs/architecture/` contains active implementation and promotion policy.
+- `docs/archive/` and explicitly labelled historical snapshots are context only.
+- Current runtime, provider, account, publication, and metric truth belongs in
+  fresh status output and dated evidence under `~/.creator-os/analysis/`.
 
 ## Runtime And Configuration Resolution
 
@@ -472,11 +490,16 @@ code no longer defaults generated exports back into a Git checkout.
 - flat Reel package facades and delegation-only tests;
 - Reel `operator_tools`, metrics HTTP routes, and unserved static browser assets;
 - Campaign static dashboard assets;
+- inert package-local GitHub workflows superseded by the root monorepo CI and
+  security workflows;
 - unused ContentForge golden-capture script;
 - orphaned overnight-grid, reference-grid-production, visual benchmark, and
   Reel-owned outcome/orchestrator/approval harnesses, tests, and docs;
 - legacy Reel prompt generation, six-pack generation, and manual grid-crop
-  execution paths.
+  execution paths, including the empty experiments package and obsolete grid
+  guide;
+- redundant standalone Campaign smoke/proof wrappers whose supported behavior
+  remains available through the package CLI and combined pipeline smoke.
 
 ## State, Artifacts, And Contracts
 

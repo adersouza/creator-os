@@ -1,9 +1,13 @@
-# Creator OS Monorepo Phase 4 Acceptance
+# Creator OS Monorepo Phase 4 Acceptance (Completed)
 
-Phase 4 adds deterministic cross-pipeline acceptance tests for the monorepo.
-The tests prove contract compatibility only. They do not schedule, publish,
-export drafts, generate media, sync metrics, mutate account health, or write
-runtime inventory.
+Phase 4 established the deterministic cross-pipeline acceptance tests now
+retained in `tests/integration/`. This page is historical context for that test
+layer, not a current runtime-promotion checklist. Current promotion policy is
+[`monorepo_deployment_promotion.md`](./monorepo_deployment_promotion.md).
+
+The tests prove source and contract compatibility only. They do not schedule,
+publish, export production drafts, perform paid generation, sync live metrics,
+mutate account health, or write runtime inventory.
 
 ## Acceptance Gate
 
@@ -25,21 +29,22 @@ The integration suite lives in `tests/integration/` and verifies:
 
 ## What Phase 4 Does Not Prove
 
-Phase 4 does not make `creator-os` the production runtime source of truth.
-The split repos remain the trusted runtime baseline until these items are
-completed:
+Phase 4 acceptance still does not prove:
 
-- full monorepo CI runs the contract, JS, Python, integration, lint, typecheck, and artifact hygiene gates
-- split repo heads are compared against monorepo package heads after the current repair branches are merged
-- deployment paths are documented for Dashboard, ContentForge, and Python package workflows
-- staged operational checks confirm no scheduling, publishing, account-health, metrics, or inventory behavior changed
-- Graphify architecture output remains local and ignored unless a specific lightweight artifact is approved
+- that a merged Creator OS commit was promoted to the pinned runtime checkout;
+- that a paid provider is configured, healthy, or authorized;
+- that ThreadsDashboard accepted, scheduled, or published a draft;
+- that QStash delivered a publish action;
+- that Instagram returned publication identity or real metrics;
+- that Graphify output is current or approved for commit.
 
 ## Current Promotion Rule
 
-`creator-os` can replace any remaining split-repo runtime path only after the
-current promotion criteria in `docs/architecture/monorepo_deployment_promotion.md`
-are satisfied. The historical phased plan is archived at
-`docs/archive/MONOREPO_MIGRATION_MASTER_PLAN.md`. Until promotion is explicit,
-monorepo tests improve confidence, but runtime operations should continue from
-the verified deployment source for that component.
+Creator OS is now the canonical integration source. The pinned
+`creator-os-runtime` checkout changes only through the explicit source-to-runtime
+procedure in `monorepo_deployment_promotion.md`. ThreadsDashboard remains an
+external product repository. Historical component split repositories are not
+current runtime instructions or automatic rollback targets.
+
+The original phased migration plan remains archived at
+`docs/archive/MONOREPO_MIGRATION_MASTER_PLAN.md`.

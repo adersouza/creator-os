@@ -1,180 +1,177 @@
-# Creator OS Monorepo Deployment Promotion
+# Creator OS Runtime Promotion
 
-`creator-os/main` now has monorepo source gates through Phase 4, but the split
-repos remain the trusted runtime baseline until promotion is explicit.
+Creator OS `main` is the canonical integration source for Campaign Factory,
+Reel Factory, Reference Factory, ContentForge, Pipeline Contracts, Creator OS
+Core, and repository tooling. Runtime promotion is still explicit: the pinned
+machine checkout does not move merely because source code merges.
 
-## Current Promotion Status
+ThreadsDashboard remains a separate product repository and deployment. Creator
+OS promotion must never repoint, rebuild, or deploy ThreadsDashboard.
 
-```json
-{
-  "contractsCanonical": true,
-  "dashboardTestsPass": true,
-  "contentForgeTestsPass": true,
-  "reelFactoryTestsPass": true,
-  "campaignFactoryTestsPass": true,
-  "referenceFactoryTestsPass": true,
-  "integrationDryRunPasses": true,
-  "runtimeArtifactsIgnored": true,
-  "splitRepoParityVerified": true,
-  "splitRepoBranchesMerged": true,
-  "creatorOsMainMerged": true,
-  "stagedAcceptanceAgainstCopiedRuntimeDb": true,
-  "currentCertifiedStage": 25,
-  "nextStageTarget": 50,
-  "productionRuntimePromoted": false
-}
-```
-
-## Latest Non-Mutating Staged Acceptance
-
-On June 14, 2026, the monorepo Campaign Factory CLI was run against a copied
-Campaign Factory SQLite database:
+## Current Source And Runtime Model
 
 ```text
-/Users/aderdesouza/Developer/campaign_factory/campaign_factory.sqlite
-→ /tmp/creator_os_campaign_factory_runtime_check.sqlite
+Creator OS source
+  /Users/aderdesouza/Developer/creator-os
+  reviewed branches and canonical origin/main
+
+Creator OS machine runtime
+  /Users/aderdesouza/Developer/creator-os-runtime
+  clean pinned checkout promoted to one reviewed Creator OS commit
+
+ThreadsDashboard product source/runtime
+  /Users/aderdesouza/Developer/ThreadsDashboard
+  external UI, account, scheduling, publishing, and analytics owner
+
+Machine state
+  ~/.creator-os/
+  credentials, SQLite databases, artifacts, models, logs, and evidence
 ```
 
-This avoided mutating the split runtime database while proving the monorepo code
-path against current runtime-like state.
+The old component split repositories are historical rollback/source context,
+not the current Creator OS control plane. Do not run modern operations from a
+split-repo checkout merely because an old promotion document names it.
 
-```json
-{
-  "currentCertifiedStage": 25,
-  "nextStageTarget": 50,
-  "readyForNextStage": false,
-  "eligibleAccounts": 70,
-  "restrictedAccounts": 0,
-  "warmingAccounts": 0,
-  "availableInventory": 273,
-  "wouldWrite": false
-}
+## Four Separate Claims
+
+1. **Source verified:** local checks pass for an exact candidate commit.
+2. **Source merged:** required CI passes for the exact commit on `main`.
+3. **Runtime promoted:** the clean pinned runtime is deliberately moved to that
+   exact commit after backup and preflight evidence.
+4. **Operationally proven:** bounded live/read-only or separately authorized
+   operations produce the expected receipts and state transitions.
+
+None of these claims implies another. In particular, a merged commit is not a
+runtime promotion, and a read-only handshake is not publication proof.
+
+## CI Gates Before Promotion
+
+The canonical repository-root workflows own CI and security:
+
+- `.github/workflows/monorepo-ci.yml`
+- `.github/workflows/security.yml`
+- `.github/workflows/scorecard.yml`
+
+Package-local `.github/workflows/` copies are intentionally absent because
+GitHub does not execute them in this monorepo.
+
+Before promotion, the exact candidate must pass:
+
+```bash
+make verify
+pnpm security:secrets
+git diff --check
 ```
 
-The focused 25-account Reel gate also passed from the copied database:
-
-```json
-{
-  "accountTarget": 25,
-  "contentSurface": "reel",
-  "requiredInventory": 225,
-  "availableInventory": 270,
-  "eligibleAccounts": 70,
-  "acceptancePassed": true,
-  "blockingReasons": [],
-  "wouldWrite": false
-}
-```
-
-The 50-account stage remains blocked only by inventory:
-
-```json
-{
-  "accountTarget": 50,
-  "requiredInventory": 450,
-  "availableInventory": 273,
-  "acceptancePassed": false,
-  "blockingReasons": ["inventory_buffer_not_maintained"],
-  "wouldWrite": false
-}
-```
-
-## CI Gates Required Before Promotion
-
-The monorepo CI workflow at `.github/workflows/monorepo-ci.yml` runs:
-
-- `pnpm check:contracts`
-- `pnpm --filter contentforge test`
-- `uv sync --all-extras --all-packages`
-- `uv run pytest packages/pipeline_contracts/tests`
-- `uv run pytest python_packages/campaign_factory/tests`
-- `uv run pytest python_packages/reel_factory/tests`
-- `uv run pytest python_packages/reference_factory/tests`
-- `uv run pytest tests/integration`
-- Python `compileall`
-- git whitespace and runtime-artifact hygiene checks
-
-## Deployment Order
-
-Do not switch all runtime surfaces at once.
-
-1. Keep all current deployments running from split repos.
-2. Run monorepo CI in parallel on every migration branch.
-3. Verify `packages/contentforge` first because it has no publishing authority.
-4. Keep ThreadsDashboard deployed from `/Users/aderdesouza/Developer/ThreadsDashboard`.
-5. Promote Python package workflows after CLI parity is documented for each package.
-6. Keep split repos available as rollback paths until staged operations prove no drift.
+Required CI must also be green for the exact merged commit. Path-filtered job
+skips are not failures, but a local pass never substitutes for a failed or
+missing required check.
 
 ## Production Promotion Checklist
 
-Do not promote the monorepo runtime until every item below is checked against
-the current `creator-os/main` commit.
+### 1. Establish exact identity
+
+- Fetch `origin/main` and record the exact target SHA.
+- Confirm the target is reviewed and merged with required CI green.
+- Confirm the source worktree and pinned runtime checkout separately.
+- Refuse promotion from a dirty, ambiguous, or unreviewed checkout.
+
+### 2. Protect machine state
+
+- Create a fresh structured runtime backup.
+- Verify SQLite integrity and private file permissions.
+- Complete the documented temporary restore drill.
+- Preserve operational databases, media, models, receipts, and migration
+  evidence; source cleanup never authorizes deleting them.
+
+### 3. Re-run source and read-only gates
+
+- Run `make verify` from the exact target source.
+- Run `scripts/creator-os status --json` before changing the runtime.
+- If live seam verification is needed, run only
+  `status --live-read-only --json`; confirm zero product rows, provider jobs,
+  and cost events.
+- Treat provider, ThreadsDashboard, or account warnings as explicit blockers or
+  warnings according to their actual gate—never as an implicit pass.
+
+### 4. Promote only the pinned runtime
+
+- Move `/Users/aderdesouza/Developer/creator-os-runtime` to the exact approved
+  Creator OS commit using the supported runtime-promotion procedure.
+- Do not modify the developer source checkout as a promotion shortcut.
+- Do not copy databases or generated artifacts into the Git checkout.
+- Do not change credentials, schedules, posts, QStash, accounts, provider
+  state, or ThreadsDashboard deployment as part of source promotion.
+
+### 5. Verify post-promotion identity
+
+- Confirm the runtime checkout is clean and exactly matches the approved SHA.
+- Run `scripts/creator-os status --json` from the pinned runtime.
+- Re-run the read-only live probe only when configured and appropriate.
+- Verify LaunchAgent command paths still resolve to the pinned runtime and
+  canonical state roots.
+- Record the source SHA, runtime SHA, backup identity, status output, and trace
+  IDs in dated evidence under `~/.creator-os/analysis/`.
+
+### 6. Prove operations separately
+
+Runtime promotion does not authorize generation, export, scheduling, or
+publishing. Each later operation keeps its own approvals and evidence:
+
+- paid generation: explicit mode, target, confirmation, and finite cap;
+- draft export: bounded approved assets and validated payloads;
+- scheduling/publishing: ThreadsDashboard authorization and downstream proof;
+- learning: genuine Instagram publication identity and metric-history rows.
+
+## Component Boundaries During Promotion
 
 ### ContentForge
 
-- Run the monorepo ContentForge test suite.
-- Run a non-mutating variant-pack dry-run against fixtures.
-- Confirm no Campaign Factory commits occur on timeout or failed variant-pack
-  jobs.
-- Confirm the split `contentforge` repo is still available as rollback mirror.
+- Verify the headless CLI and current audit contracts.
+- Do not introduce a daemon, job service, or publishing authority.
+- Preserve generated audit output outside Git.
+
+### Campaign, Reel, And Reference
+
+- Promote the monorepo packages together at one reviewed Creator OS SHA.
+- Preserve Campaign as the sole control plane and Reel/Reference as workers.
+- Do not revive split-repo CLIs, flat facades, retired grid workflows, or
+  package-local CI as rollback mechanisms.
 
 ### Dashboard
 
-- Run contract sync, unit tests, typecheck, visual regression, and publish
-  preflight tests in the external ThreadsDashboard repository.
-- Do not point a Dashboard Vercel production project at Creator OS; there is no
-  committed dashboard runtime here.
-- Campaign Factory commands that need dashboard context must use
-  `/Users/aderdesouza/Developer/ThreadsDashboard` or `THREADSDASH_ROOT`.
-
-### Python CLIs
-
-- Prove Reel Factory direct-reference dry-run parity.
-- Prove Campaign Factory readiness and publishability dry-run parity.
-- Prove Reference Factory support command parity.
-- Run the non-mutating staged operational dry-run below from the monorepo path.
-
-### Rollback
-
-- Keep split repos read-only and deployable for at least one clean operating
-  cycle after promotion.
-- Document the deployed commit SHA for each promoted surface.
-- Keep environment variables and secrets unchanged during the first promotion.
-- Roll back by repointing deploy configuration to the prior split repo SHA; do
-  not patch production behavior during rollback.
-
-## Required Staged Operational Proof
-
-Before production runtime promotion, run a staged dry-run using non-production
-state or a disposable fixture database:
-
-```text
-reference fixture
-→ Reel Factory contract fixture
-→ Campaign Factory readiness/publishability dry-run
-→ ContentForge variant/readiness dry-run
-→ Campaign Factory handoff manifest
-→ Dashboard draft payload/preflight validation
-→ stop before export/schedule/publish
-```
-
-The staged proof must show:
-
-- no schedules created
-- no posts published
-- no drafts exported to production
-- no metrics or account-health mutation
-- no generated media committed
-- failure blockers are explicit when any gate fails
-
-## Promotion Blockers Remaining
-
-- Deployment configuration still points at split repos.
-- Production runtime has not been switched to the monorepo.
 - Dashboard production deployment must stay on the external ThreadsDashboard
-  repository unless the owner explicitly changes deployment routing.
-- The next scale gate is 50 accounts, blocked by inventory buffer
-  (`273 available` vs `450 required` in the latest copied-DB check).
+  repository unless the owner explicitly changes that architecture.
+- Validate shared contract snapshots across repositories before dependent
+  changes merge or deploy.
+- Never point a Dashboard Vercel project at Creator OS; Creator OS has no
+  product dashboard application.
 
-Until those are resolved, `creator-os` is the integration candidate, not the
-production runtime source of truth.
+## Rollback
+
+- Record the previously promoted Creator OS runtime SHA before promotion.
+- Roll back the pinned runtime to that exact reviewed SHA; do not patch runtime
+  files in place.
+- Keep canonical state and credentials unchanged unless the incident itself is
+  a state or credential incident with separately approved recovery steps.
+- After rollback, run status and read-only verification again and record the
+  result.
+- Do not use historical split repositories as an automatic rollback path; they
+  are not guaranteed to match current contracts or state layout.
+
+## Promotion Blockers
+
+Stop before changing the pinned runtime when any of these are true:
+
+- target commit is not exact, reviewed, merged, or CI-green;
+- source or runtime checkout is dirty or ambiguous;
+- backup, SQLite integrity, permissions, or restore proof is missing;
+- canonical contracts or the external ThreadsDashboard snapshot drift;
+- source verification fails;
+- the requested operation would also mutate production data, providers,
+  schedules, posts, accounts, credentials, or deployment routing without its
+  own explicit authorization.
+
+This document defines the promotion procedure. It intentionally contains no
+hard-coded “current” SHA, account count, inventory count, or provider balance;
+those values drift and must come from fresh evidence.

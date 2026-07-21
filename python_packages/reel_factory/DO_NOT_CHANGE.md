@@ -23,7 +23,10 @@ Do not make these the default operator path again:
 - `visual-schema`, `grok-direct`, or `json-structured` prompt modes.
 - Grid generation, `2x3`/six-panel outputs, cropped-panel fanout, or `_grok.json` prompt files.
 
-Legacy files may stay for old tests and explicit experiments, but current docs and GUI defaults must point to direct reference-image generation.
+The legacy execution files, empty experiments package, and grid-generation
+guide are removed. Do not recreate them; explicit reference-analysis
+experiments belong in Reference Factory and must remain isolated from the
+direct reference-image generation path.
 
 ## Platform And State Boundaries
 

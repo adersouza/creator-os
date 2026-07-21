@@ -10,6 +10,16 @@ The durable architecture and runtime map is
 [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md). Current operational
 truth is tracked in [`PIPELINE_STATE.md`](./PIPELINE_STATE.md).
 
+Documentation has three deliberately separate levels:
+
+- `README.md`: supported entrypoints and the shortest accurate introduction;
+- `CREATOR_OS_SYSTEM_MAP.md`: durable ownership, dependencies, and failure
+  boundaries;
+- `PIPELINE_STATE.md` plus dated evidence under `~/.creator-os/analysis/`:
+  current source capability and volatile operational proof.
+
+Historical migration plans and snapshots are not runtime instructions.
+
 ## Pipeline
 
 ```text
@@ -38,6 +48,13 @@ reference intake
 `creator_os_core` contains only shared authentication, atomic file operations,
 SQLite, vector, media-probe, runtime-path, and global runtime-guard helpers.
 
+The repository deliberately has one owner for each concern: one Campaign
+control plane, one Reel media worker, one Reference learning worker, one
+ContentForge quality boundary, one canonical schema source, and one external
+production publisher. GitHub Actions likewise lives only in the root
+`.github/workflows/`; package-local workflow copies are neither supported nor
+executed by GitHub in this monorepo.
+
 ## Active Creative Path
 
 The normal image path is one reference image through Higgsfield Soul V2 with an
@@ -51,8 +68,10 @@ If no safe lane exists, no overlay is forced. Native platform audio is carried
 as `audio_intent.v1`; it is not burned into the MP4.
 
 Grok, grid/cropped-panel, Qwen, Ollama, Florence, and visual-schema generation
-are not normal operator paths. A small number of legacy helpers remain only
-where current imports or fail-closed compatibility guards still require them.
+are not Reel Factory operator paths. Their retired execution code and empty
+experiment package are removed. The remaining legacy-labelled code is narrow
+and caller-proven: XAI anatomy/postability QC, fail-closed compatibility shims,
+and read-only historical evidence export.
 
 ## One Operator Command
 
@@ -67,7 +86,7 @@ scripts/creator-os status
 scripts/creator-os status --live-read-only
 
 # Read-only fixture-backed integrity audit
-scripts/creator-os doctor --quick
+scripts/creator-os doctor
 
 # Local reference/audio refresh: print the exact plan or explicitly apply it
 scripts/creator-os reference-refresh --dry-run
