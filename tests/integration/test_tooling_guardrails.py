@@ -273,3 +273,21 @@ def test_governance_docs_cover_runtime_promotion_and_runbooks() -> None:
         assert heading in runbooks
     assert "Do not touch:" in runbooks
     assert "Safe recovery boundary:" in runbooks
+
+
+def test_worker_surfaces_match_the_documented_local_runtime() -> None:
+    reel_root = ROOT / "python_packages/reel_factory"
+    contentforge_root = ROOT / "packages/contentforge"
+    system_map = (ROOT / "CREATOR_OS_SYSTEM_MAP.md").read_text(encoding="utf-8")
+
+    assert not (reel_root / "reel_factory/hook_spinner.py").exists()
+    assert "--queue-backend" not in (
+        reel_root / "reel_factory/reel_pipeline.py"
+    ).read_text(encoding="utf-8")
+    assert "RedisRenderQueue" not in (
+        reel_root / "reel_factory/render_queue.py"
+    ).read_text(encoding="utf-8")
+    assert not (contentforge_root / "lib/variant-pack-jobs.js").exists()
+    assert not (contentforge_root / "lib/process-lock.js").exists()
+    assert "one local SQLite render queue" in system_map
+    assert "no HTTP server, daemon, background job API, or" in system_map

@@ -63,7 +63,7 @@ from reel_factory.readiness_check import evaluate_output, run_readiness
 from reel_factory.reel_pipeline import Recipe
 from reel_factory.reel_url_import import download_reel_url, write_url_sidecar
 from reel_factory.render_plan import RenderPlan
-from reel_factory.render_queue import RenderQueue
+from reel_factory.render_queue import RenderQueue, get_queue
 from reel_factory.safe_zone import score_safe_zone
 from reel_factory.thumbnail_gen import thumbnail_path_for
 from reel_factory.xai_vision import build_xai_payload, response_text, strip_json_fence
@@ -1432,7 +1432,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_render_queue_state_transitions_and_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:
-            queue = RenderQueue(Path(tmp))
+            queue = get_queue(Path(tmp))
+            self.assertIsInstance(queue, RenderQueue)
             job_id = queue.enqueue(
                 job_key="abc",
                 command=["python3", "--version"],

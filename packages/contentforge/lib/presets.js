@@ -26,14 +26,3 @@ export const BORDER_STYLES = [
   "letterbox",
   "dark-gray",
 ];
-
-export const DEVICE_PREFIXES = [
-  "IMG_",
-  "VID_",
-  "PXL_",
-  "RPReplay_",
-  "MOV_",
-  "TRIM_",
-  "InShot_",
-  "SnapSave_",
-];

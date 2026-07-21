@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveVisualPacingSignal, scoreAudioFit, buildAudioFitScore } from "../lib/audio-fit.js";
+import { deriveVisualPacingSignal, scoreAudioFit } from "../lib/audio-fit.js";
 
 test("audio fit scores a strong rule-based match without publishing authority", function () {
   var result = scoreAudioFit({
@@ -35,7 +35,7 @@ test("audio fit scores a strong rule-based match without publishing authority", 
 });
 
 test("audio fit warns for stale and saturated trend snapshots", function () {
-  var result = buildAudioFitScore({
+  var result = scoreAudioFit({
     captionTags: ["luxury", "before after"],
     hookTags: ["premium"],
     audioTags: ["luxury", "cinematic"],

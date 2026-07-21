@@ -6,10 +6,10 @@ requires-python = ">=3.11"
 dependencies = ["fastapi>=0.115"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=9.0.3,<10"]
 
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=83"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

@@ -1,7 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rm } from "fs/promises";
-import path from "path";
 import {
   exactRenderedEvidenceMap,
   normalizeVariantPackRequest,
@@ -10,40 +8,8 @@ import {
   scoreVariantRecommendation,
   validateKlingEditorialRequest,
 } from "../lib/variant-pack.js";
-import { OUTPUT_DIR } from "../lib/paths.js";
-import {
-  __setVariantPackJobRunnerForTests,
-  buildVariantPackJobId,
-  loadVariantPackJob,
-  startVariantPackJob,
-  variantPackJobDiagnostics,
-} from "../lib/variant-pack-jobs.js";
 import { buildPhase2Args } from "../lib/ffmpeg.js";
 import { evaluateQualityGate } from "../lib/variant-engine.js";
-
-async function cleanupVariantPackJob(input) {
-  var runId = buildVariantPackJobId(input);
-  await rm(path.join(OUTPUT_DIR, "variant-pack-jobs", runId + ".json"), { force: true });
-  return runId;
-}
-
-function deferred() {
-  var resolve;
-  var reject;
-  var promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-async function waitFor(predicate, attempts = 20) {
-  for (var index = 0; index < attempts; index++) {
-    if (predicate()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  return false;
-}
 
 test("normalizes variant pack request defaults", function () {
   var request = normalizeVariantPackRequest({
@@ -420,139 +386,4 @@ test("caption-safe-v2 blocks unsafe transform signals", function () {
   assert.equal(decision.recommended, false);
   assert.equal(decision.operatorState, "fix");
   assert.equal(decision.blockingReasons.includes("unsafe_transform"), true);
-});
-
-test("variant pack job start returns run id before long work and supports idempotent polling", async function () {
-  var input = {
-    source: "uploads/job-start-sample.mp4",
-    variantCount: 2,
-    variationPreset: "caption_safe_v2",
-    captionMode: "none",
-    preserveBurnedCaptions: true,
-    idempotencyKey: "unit-job-start-idempotent",
-  };
-  await cleanupVariantPackJob(input);
-  var gate = deferred();
-  var calls = 0;
-  __setVariantPackJobRunnerForTests(async () => {
-    calls += 1;
-    await gate.promise;
-    return {
-      schema: "contentforge.variant_pack.v2",
-      runId: "inner_run_1",
-      outputDir: "/tmp/contentforge-job-test",
-      results: [],
-    };
-  });
-  try {
-    var started = await startVariantPackJob(input);
-    var duplicate = await startVariantPackJob(input);
-
-    assert.equal(started.runId, duplicate.runId);
-    assert.equal(["queued", "running"].includes(started.status), true);
-    assert.equal(["queued", "running"].includes(duplicate.status), true);
-    assert.equal(started.pollUrl, "/api/variant-pack/jobs/" + started.runId);
-    assert.equal(await waitFor(() => calls === 1), true);
-    assert.equal(calls, 1);
-
-    gate.resolve();
-    var terminal = null;
-    for (var index = 0; index < 20; index++) {
-      terminal = await loadVariantPackJob(started.runId);
-      if (terminal.status === "succeeded") break;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.equal(terminal.status, "succeeded");
-    assert.equal(terminal.report.runId, "inner_run_1");
-    assert.deepEqual(terminal.artifacts, []);
-  } finally {
-    __setVariantPackJobRunnerForTests(null);
-    await cleanupVariantPackJob(input);
-  }
-});
-
-test("variant pack job records failed terminal state without rerunning duplicate request", async function () {
-  var input = {
-    source: "uploads/job-failure-sample.mp4",
-    variantCount: 1,
-    variationPreset: "caption_safe_v2",
-    idempotencyKey: "unit-job-failed-terminal",
-    jobMaxRetries: 0,
-  };
-  await cleanupVariantPackJob(input);
-  var calls = 0;
-  __setVariantPackJobRunnerForTests(async () => {
-    calls += 1;
-    throw new Error("simulated variant job failure");
-  });
-  try {
-    var started = await startVariantPackJob(input);
-    var terminal = null;
-    for (var index = 0; index < 20; index++) {
-      terminal = await loadVariantPackJob(started.runId);
-      if (terminal.status === "failed") break;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    var duplicate = await startVariantPackJob(input);
-
-    assert.equal(terminal.status, "failed");
-    assert.equal(terminal.error, "simulated variant job failure");
-    assert.equal(duplicate.runId, started.runId);
-    assert.equal(duplicate.status, "failed");
-    assert.equal(calls, 1);
-  } finally {
-    __setVariantPackJobRunnerForTests(null);
-    await cleanupVariantPackJob(input);
-  }
-});
-
-test("variant pack job retries are bounded and reported", async function () {
-  var input = {
-    source: "uploads/job-retry-sample.mp4",
-    variantCount: 1,
-    variationPreset: "caption_safe_v2",
-    idempotencyKey: "unit-job-retry-terminal",
-    jobMaxRetries: 1,
-  };
-  await cleanupVariantPackJob(input);
-  var calls = 0;
-  __setVariantPackJobRunnerForTests(async () => {
-    calls += 1;
-    if (calls === 1) throw new Error("first attempt failed");
-    return {
-      schema: "contentforge.variant_pack.v2",
-      runId: "inner_retry",
-      outputDir: "/tmp/contentforge-job-retry",
-      results: [{ filename: "variant.mp4", filePath: "/tmp/contentforge-job-retry/variant.mp4", recommended: true, uploadReady: true }],
-    };
-  });
-  try {
-    var started = await startVariantPackJob(input);
-    var terminal = null;
-    for (var index = 0; index < 40; index++) {
-      terminal = await loadVariantPackJob(started.runId);
-      if (terminal.status === "succeeded") break;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-
-    assert.equal(terminal.status, "succeeded");
-    assert.equal(calls, 2);
-    assert.equal(terminal.attempts, 2);
-    assert.equal(terminal.retries, 1);
-    assert.equal(terminal.maxRetries, 1);
-    assert.equal(terminal.artifacts.length, 1);
-  } finally {
-    __setVariantPackJobRunnerForTests(null);
-    await cleanupVariantPackJob(input);
-  }
-});
-
-test("variant pack job diagnostics expose queue state", function () {
-  var diagnostics = variantPackJobDiagnostics();
-
-  assert.equal(diagnostics.schema, "contentforge.variant_pack_job_diagnostics.v1");
-  assert.equal(typeof diagnostics.activeJobs, "number");
-  assert.equal(typeof diagnostics.pendingJobs, "number");
-  assert.equal(typeof diagnostics.runningJobs, "number");
-  assert.equal(diagnostics.concurrency >= 1, true);
 });

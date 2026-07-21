@@ -504,7 +504,7 @@ async def amain(args):
                     if args.enqueue_only:
                         from .render_queue import get_queue
 
-                        queue = get_queue(root, args.queue_backend)
+                        queue = get_queue(root)
                         cmd = build_single_job_enqueue_cmd(
                             root=root,
                             video_stem=video.stem,
@@ -1051,12 +1051,6 @@ def main():
         "--enqueue-only",
         action="store_true",
         help="enqueue render commands into render_queue.sqlite instead of running locally",
-    )
-    ap.add_argument(
-        "--queue-backend",
-        choices=["sqlite", "redis", "rq"],
-        default="sqlite",
-        help="queue backend for --enqueue-only (rq uses the Redis-compatible backend)",
     )
     ap.add_argument(
         "--ai-qc",

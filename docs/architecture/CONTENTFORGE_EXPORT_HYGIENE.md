@@ -78,7 +78,7 @@ used exclusively by that symbol had zero callers in all checked surfaces.
 | `scoreQuality` | `lib/variant-engine.js` | Active internal | Used by `variantScoreBundle`. Made private. |
 | `scoreDifference` | `lib/variant-engine.js` | Active internal | Used by `variantScoreBundle`. Made private. |
 | `recommendedAction` | `lib/variant-engine.js` | Active internal | Used by `variantScoreBundle`. Made private. |
-| `runVariantPackJob` | `lib/variant-pack-jobs.js` | Active internal | Used by the resumable queue scheduler. Made private; public start/load/diagnostic APIs remain. |
+| `runVariantPackJob` and job APIs | `lib/variant-pack-jobs.js` | Deleted | No CLI, server, script, or downstream caller exposed the in-memory queue or polling URLs. Direct bounded `variant-pack` execution remains supported. |
 | `loadVariantPack` | `lib/variant-pack.js` | Deleted | No CLI, job, script, test, or downstream caller. Manifest creation remains active. |
 | `buildVariantPackReport` | `lib/variant-pack.js` | Active internal | Called by `runVariantPack`. Made private. |
 
@@ -100,9 +100,8 @@ therefore does not require retaining dead executable surfaces.
 
 ## Explicitly retained findings
 
-- `scoreAudioFit` and `buildAudioFitScore` intentionally remain a compatibility
-  alias pair. Campaign Factory dynamically imports `scoreAudioFit`; existing
-  ContentForge callers/tests also exercise `buildAudioFitScore`.
+- `scoreAudioFit` remains the single audio-fit export dynamically imported by
+  Campaign Factory. The zero-caller `buildAudioFitScore` alias was removed.
 - Knip's 14 `unlisted binaries` are deliberate host-tool invocations (`ffmpeg`,
   `ffprobe`, `fpcalc`, `strings`, `tesseract`, `swift`, and `python3`), not npm
   package dependencies or unused exports. Their fail-closed/advisory behavior is
