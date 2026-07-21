@@ -199,7 +199,7 @@ test("quality-first image args avoid aggressive default filters", function () {
 test("editorial variants preserve provenance and never spoof capture metadata", function () {
   for (var args of [
     buildPhase2Args("in.mp4", "out.mp4", "clean", true, true, "organic", "quality", {}),
-    buildPhase2Args("in.mp4", "out.mp4", "heavy", true, true, "organic", "strong", {}),
+    buildPhase2Args("in.mp4", "out.mp4", "medium", true, true, "organic", "medium", {}),
     buildImageArgs("in.png", "out.jpg", 0, { variantPreset: "quality", variantOptions: {} }),
   ]) {
     var joined = args.join(" ");
@@ -207,7 +207,22 @@ test("editorial variants preserve provenance and never spoof capture metadata", 
     assert.doesNotMatch(joined, /creation_time=/);
     assert.doesNotMatch(joined, /handler_name=/);
     assert.equal(args.includes("-x264-params"), false);
+    assert.doesNotMatch(joined, /asetrate=/);
+    assert.doesNotMatch(joined, /aecho=/);
+    assert.doesNotMatch(joined, /noise=/);
+    assert.doesNotMatch(joined, /sin\(PTS/);
   }
+});
+
+test("strong and heavy variant modes fail closed", function () {
+  assert.throws(
+    () => buildPhase2Args("in.mp4", "out.mp4", "heavy", true, true, "organic", "quality", {}),
+    /contentforge_unsafe_variant_preset_removed/
+  );
+  assert.throws(
+    () => getVariantPreset("strong"),
+    /contentforge_unsafe_variant_preset_removed/
+  );
 });
 
 test("variant presets and score bundles normalize quality-first defaults", function () {

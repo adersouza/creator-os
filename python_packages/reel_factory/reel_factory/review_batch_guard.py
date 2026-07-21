@@ -47,8 +47,10 @@ def _contentforge_passed(payload: dict[str, Any]) -> bool:
     if payload.get("blockingCodes"):
         return False
     groups = _contentforge_count(payload)
-    http_ok = int(payload.get("httpOk") or 0)
-    if groups <= 0 or http_ok < groups:
+    audited_file_count = int(
+        payload.get("auditedFileCount") or payload.get("httpOk") or 0
+    )
+    if groups <= 0 or audited_file_count < groups:
         return False
     return int(verdicts.get("pass") or 0) > 0 or groups > 0
 
@@ -251,7 +253,9 @@ def validate_review_batch(manifest_path: str | Path) -> dict[str, Any]:
             blocking.append("contentforge_audit_not_campaign_profile")
         elif _contentforge_count(contentforge) != len(rows):
             blocking.append("contentforge_audit_count_mismatch")
-        elif int(contentforge.get("httpOk") or 0) != len(rows):
+        elif int(
+            contentforge.get("auditedFileCount") or contentforge.get("httpOk") or 0
+        ) != len(rows):
             blocking.append("contentforge_audit_count_mismatch")
         elif int((contentforge.get("verdictCounts") or {}).get("pass") or 0) != len(
             rows

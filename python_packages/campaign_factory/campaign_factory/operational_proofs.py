@@ -189,6 +189,8 @@ class OperationalProofRepository:
             "largestBottleneck": tiers["200"]["largestBottleneck"],
             "firstBreakingPoint": first_breaking_point or "1000_accounts",
             "requiredAutomationBeforeNextScaleTier": "exception_queue_slo_and_inventory_buffer_discipline",
+            "evidenceStatus": "planning_estimate_only",
+            "operationallyProven": False,
             "wouldWrite": False,
         }
 

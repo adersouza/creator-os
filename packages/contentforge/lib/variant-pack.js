@@ -164,12 +164,6 @@ var PACK_PRESETS = {
     minVariation: 15,
     recipes: ["crop/zoom", "timing shift", "color shift", "caption swaps"],
   },
-  strong: {
-    variantPreset: "strong",
-    label: "Strong",
-    minVariation: 28,
-    recipes: ["strong crop/zoom", "timing changes", "alternate covers", "caption structure changes"],
-  },
 };
 
 var VIDEO_EXTS = new Set([".mp4", ".mov", ".webm"]);
@@ -177,6 +171,9 @@ var VIDEO_EXTS = new Set([".mp4", ".mov", ".webm"]);
 export function normalizeVariantPackRequest(input = {}) {
   var source = input.source || input.inputFile;
   var safeSource = clientUploadPath(source);
+  if (input.variationPreset === "strong" || input.variationPreset === "heavy") {
+    throw new Error("contentforge_unsafe_variant_preset_removed");
+  }
   var preset = PACK_PRESETS[input.variationPreset] ? input.variationPreset : "balanced";
   var presetDefinition = PACK_PRESETS[preset];
   var defaultCount = presetDefinition.defaultCount || 8;

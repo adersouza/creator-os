@@ -1098,7 +1098,7 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
                 "hooksPath": args.hooks,
                 "recipes": args.recipes or [],
                 "accounts": args.account or [],
-                "contentforgeBaseUrl": args.contentforge_base_url,
+                "contentForgeMode": "cli_local",
                 "runReel": args.run_reel,
                 "workers": args.workers,
                 "minScore": args.min_score,

@@ -28,7 +28,6 @@ CONTENTFORGE_VARIANT_PRESETS = {
     "strong_safe",
     "subtle",
     "balanced",
-    "strong",
 }
 CONTENTFORGE_VARIANT_PACK_SCHEMAS = {
     "contentforge.variant_pack.v1",

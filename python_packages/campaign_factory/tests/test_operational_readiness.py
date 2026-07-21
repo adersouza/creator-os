@@ -1021,7 +1021,11 @@ def test_surface_maturity_operator_ownership_complexity_and_final_readiness_are_
         assert final["evidenceStatus"] == "unverified_planning_model"
         assert final["failureRecoveryReadiness"]["failureInjectionPassed"] is False
         assert final["idempotencyReadiness"]["idempotent"] is False
-        assert final["scores"]["1000Accounts"] < final["scores"]["500Accounts"]
+        assert final["scores"]["200Accounts"] is None
+        assert final["scores"]["500Accounts"] is None
+        assert final["scores"]["1000Accounts"] is None
+        assert final["acceptanceSuite"]["acceptancePassed"] is None
+        assert final["acceptanceSuite"]["operationallyProven"] is False
         assert len(final["top10RemainingRisks"]) == 10
         assert final["exactPathTo9_5"]
         assert final["wouldWrite"] is False

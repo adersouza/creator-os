@@ -22,6 +22,14 @@ DEFAULT_LAYERS = [
     "ssim",
 ]
 DEFAULT_AUDIT_PROFILE = "campaign_factory_v1"
+CONTENTFORGE_EXECUTION_MODE = "cli_local"
+
+
+def _require_cli_local(contentforge_base_url: str | None) -> None:
+    if contentforge_base_url not in {None, "", "cli://local"}:
+        raise ValueError(
+            "ContentForge runs as cli_local; HTTP/base-URL execution is unsupported"
+        )
 
 
 def _normalized_ids(values: list[str], name: str) -> list[str]:
@@ -42,6 +50,7 @@ def audit_campaign(
     layers: list[str] | None = None,
     rendered_asset_ids: list[str] | None = None,
 ) -> dict[str, Any]:
+    _require_cli_local(contentforge_base_url)
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     pipeline_job = factory.domains.events.create_pipeline_job(
         "contentforge_audit",
@@ -49,8 +58,7 @@ def audit_campaign(
         {
             "campaign": campaign_slug,
             "minScore": min_score,
-            "contentforgeBaseUrl": contentforge_base_url
-            or factory.settings.contentforge_base_url,
+            "contentForgeMode": CONTENTFORGE_EXECUTION_MODE,
             "layers": layers or DEFAULT_LAYERS,
             "renderedAssetIds": rendered_asset_ids or [],
         },
@@ -90,8 +98,7 @@ def audit_campaign(
                 message=f"Started ContentForge audit: {asset['filename']}",
                 metadata={
                     "filename": asset["filename"],
-                    "contentforgeBaseUrl": contentforge_base_url
-                    or factory.settings.contentforge_base_url,
+                    "contentForgeMode": CONTENTFORGE_EXECUTION_MODE,
                 },
                 commit=False,
             )
@@ -101,8 +108,6 @@ def audit_campaign(
                 dirs=dirs,
                 asset=asset,
                 min_score=min_score,
-                contentforge_base_url=contentforge_base_url
-                or factory.settings.contentforge_base_url,
                 layers=audit_layers,
                 reference_pattern=reference_pattern,
                 reference_paths=reference_paths,
@@ -185,6 +190,7 @@ def audit_variation_batch(
     contentforge_base_url: str,
     report_path: Path,
 ) -> dict[str, Any]:
+    _require_cli_local(contentforge_base_url)
     if len(variant_paths) < 1:
         raise ValueError("variation batch requires at least one variant")
     with _stage_contentforge_variation_batch(
@@ -206,6 +212,7 @@ def audit_variation_batch(
     report = {
         **response,
         "schema": "campaign_factory.variation_perceptual_audit.v1",
+        "contentForgeMode": CONTENTFORGE_EXECUTION_MODE,
         "sourceFile": str(source_path),
         "variantFiles": [str(path) for path in variant_paths],
         "reportPath": str(report_path),
@@ -230,6 +237,7 @@ def audit_review_batch_manifest(
     update_manifest: bool = True,
     per_file: bool = True,
 ) -> dict[str, Any]:
+    _require_cli_local(contentforge_base_url)
     manifest_path = Path(manifest_path).expanduser().resolve()
     source_path = Path(source_path).expanduser().resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -314,7 +322,8 @@ def audit_review_batch_manifest(
         "schema": "campaign_factory.review_batch_contentforge_audit.v1",
         "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
         "variants": len(variant_paths),
-        "httpOk": len(variant_paths),
+        "contentForgeMode": CONTENTFORGE_EXECUTION_MODE,
+        "auditedFileCount": len(variant_paths),
         "verdictCounts": {
             "pass": len(variant_paths) if passed else 0,
             "fail": 0 if passed else len(variant_paths),
@@ -461,7 +470,6 @@ def _audit_asset(
     dirs: dict[str, Path],
     asset: dict[str, Any],
     min_score: int,
-    contentforge_base_url: str,
     layers: list[str],
     reference_pattern: dict[str, Any] | None = None,
     reference_paths: list[Path] | None = None,
@@ -540,8 +548,7 @@ def _audit_asset(
     )
     report = {
         "schema": "campaign_factory.contentforge_audit.v1",
-        "contentForgeMode": "cli_similarity",
-        "contentForgeBaseUrl": contentforge_base_url,
+        "contentForgeMode": CONTENTFORGE_EXECUTION_MODE,
         "contentForgeRunId": run_id,
         "auditProfile": response.get("auditProfile") or DEFAULT_AUDIT_PROFILE,
         "animationMode": response.get("animationMode")

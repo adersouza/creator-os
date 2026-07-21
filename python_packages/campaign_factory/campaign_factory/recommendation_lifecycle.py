@@ -833,7 +833,7 @@ class RecommendationLifecycleMixin:
                 "force": force,
                 "dryRunRender": dry_run_render,
                 "runAudit": run_audit,
-                "contentforgeBaseUrl": contentforge_base_url,
+                "contentForgeMode": "cli_local",
             },
         )
         self.start_pipeline_job(pipeline_job["id"])

@@ -123,7 +123,7 @@ class MakeBatchRepository:
                 "format": selected_format,
                 "variantCount": variant_count,
                 "referencePattern": reference_pattern,
-                "contentforgeBaseUrl": contentforge_base_url,
+                "contentForgeMode": "cli_local",
                 "hasUserId": bool(user_id),
                 "dryRunExport": dry_run_export,
                 "workers": workers,

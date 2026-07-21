@@ -2893,10 +2893,17 @@ def test_creator_os_100_volume_surface_and_10_readiness_are_read_only(tmp_path: 
         assert proof["accounts"] == 100
         assert proof["postsPerDay"] == 300
         assert proof["inventoryBuffer"] == 900
+        assert proof["acceptancePassed"] is None
+        assert proof["scenarioPassed"] is True
+        assert proof["operationallyProven"] is False
+        assert proof["evidenceStatus"] == "synthetic_acceptance_scenario_only"
         assert proof["wouldWrite"] is False
         assert volume["schema"] == "creator_os.volume_acceptance_suite.v1"
         assert volume["tiers"]["100"]["accounts"] == 100
         assert volume["tiers"]["200"]["accounts"] == 200
+        assert volume["tiers"]["100"]["acceptancePassed"] is None
+        assert volume["tiers"]["100"]["operationallyProven"] is False
+        assert volume["evidenceStatus"] == "synthetic_acceptance_scenarios_only"
         assert volume["wouldWrite"] is False
         assert scorecard["schema"] == "creator_os.surface_readiness_scorecard.v1"
         assert set(scorecard["surfaces"]) >= {
@@ -2907,14 +2914,19 @@ def test_creator_os_100_volume_surface_and_10_readiness_are_read_only(tmp_path: 
         }
         assert all("rating" in row for row in scorecard["surfaces"].values())
         assert readiness["schema"] == "creator_os.10_0_readiness_report.v1"
-        assert readiness["scores"]["overall"] >= 9.0
-        assert readiness["successCriteria"]["exceptionQueueReady"] is True
-        assert readiness["successCriteria"]["inventoryAutopilotReady"] is True
+        assert readiness["releaseReady"] is False
+        assert readiness["evidenceStatus"] == "unverified_planning_model"
+        assert readiness["scores"]["overall"] is None
+        assert readiness["successCriteria"]["canRun100Accounts"] is None
+        assert readiness["successCriteria"]["canRun200Accounts"] is None
+        assert readiness["successCriteria"]["exceptionQueueReady"] is None
+        assert readiness["successCriteria"]["inventoryAutopilotReady"] is None
+        assert readiness["successCriteria"]["operationallyProven"] is False
+        assert readiness["successCriteria"]["inventoryRepairPlanAvailable"] is True
         assert readiness["successCriteria"]["requiredParentsPerDayKnown"] is True
-        assert (
-            readiness["finalOutput"]["projectedRatingAfterSprint"]
-            >= readiness["finalOutput"]["currentRating"]
-        )
+        assert readiness["finalOutput"]["projectedRatingAfterSprint"] is None
+        assert readiness["finalOutput"]["currentRating"] is None
+        assert readiness["finalOutput"]["releaseReady"] is False
         assert readiness["wouldWrite"] is False
     finally:
         cf.close()
