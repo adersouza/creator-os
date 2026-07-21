@@ -125,9 +125,14 @@ async def process_one(
                     pack=recipe.text_variation_pack,
                 )
             }
-            for timing_key in ("start", "end"):
+            for timing_key, alias in (
+                ("start", "start_seconds"),
+                ("end", "end_seconds"),
+            ):
                 if timing_key in raw_segment:
                     segment[timing_key] = raw_segment[timing_key]
+                elif alias in raw_segment:
+                    segment[timing_key] = raw_segment[alias]
             if isinstance(raw_segment.get("band"), str):
                 segment["band"] = raw_segment["band"]
             authored_segments.append(segment)

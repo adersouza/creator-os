@@ -24,7 +24,7 @@ def test_workflow_builds_and_passes_one_canonical_plan(
         return {"schema": "campaign_factory.front_generation_stage_run.v1"}
 
     monkeypatch.setattr(
-        "campaign_factory.generation_workflow.run_front_generation_stage", fake_front
+        "campaign_factory.front_generation_stage.run_front_generation_stage", fake_front
     )
 
     result = run_generation_workflow(
@@ -63,10 +63,10 @@ def test_motion_mode_creates_static_fallback_before_motion_and_preserves_it(
         raise RuntimeError("simulated local motion failure")
 
     monkeypatch.setattr(
-        "campaign_factory.generation_workflow.run_static_mp4_stage", fake_static
+        "campaign_factory.static_mp4_stage.run_static_mp4_stage", fake_static
     )
     monkeypatch.setattr(
-        "campaign_factory.generation_workflow.run_motion_edit_stage", fail_motion
+        "campaign_factory.motion_edit_stage.run_motion_edit_stage", fail_motion
     )
 
     with pytest.raises(RuntimeError, match="simulated local motion failure"):
@@ -174,7 +174,7 @@ def test_motion_handler_rejects_cross_mode_plan_before_render(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "campaign_factory.generation_workflow.run_static_mp4_stage",
+        "campaign_factory.static_mp4_stage.run_static_mp4_stage",
         lambda *_args, **_kwargs: pytest.fail("render must not be reached"),
     )
 
