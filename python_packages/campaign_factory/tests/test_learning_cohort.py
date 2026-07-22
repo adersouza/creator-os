@@ -21,6 +21,7 @@ from campaign_factory.learning_cohort import (
     sync_learning_cohort_publish_state,
 )
 from campaign_factory.lineage_v2 import build_lineage_v2_core, finalize_lineage_v2
+
 from pipeline_contracts.validator import validate_contract
 
 

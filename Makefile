@@ -23,12 +23,12 @@ dev:
 
 test:
 	pnpm run test
-	uv run pytest packages/pipeline_contracts/tests/
-	uv run pytest packages/creator_os_core/tests/
-	uv run pytest python_packages/campaign_factory/tests/
-	uv run pytest python_packages/reference_factory/tests/
-	uv run pytest python_packages/reel_factory/tests/
-	uv run pytest tests/integration/
+	uv run python -m pytest packages/pipeline_contracts/tests/
+	uv run python -m pytest packages/creator_os_core/tests/
+	uv run python -m pytest python_packages/campaign_factory/tests/
+	uv run python -m pytest python_packages/reference_factory/tests/
+	uv run python -m pytest python_packages/reel_factory/tests/
+	uv run python -m pytest tests/integration/
 
 # One command to verify everything locally, mirroring CI: static gates then tests.
 verify:

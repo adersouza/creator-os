@@ -32,8 +32,8 @@ this repo without an explicit deployment instruction.
 
 `packages/pipeline_contracts/pipeline_contracts/schemas` is the ONLY hand-edited
 source for shared schemas. The generated TypeScript bundle lives at
-`packages/pipeline_contracts/typescript/generated-schemas.ts`. The root
-`pipeline_contracts/__init__.py` is an import shim, not a schema mirror.
+`packages/pipeline_contracts/typescript/generated-schemas.ts`. Python imports
+resolve directly to the uv workspace package; there is no root-level shim.
 
 Workflow for ANY schema/contract change:
 1. Edit only `packages/pipeline_contracts/pipeline_contracts/schemas/<name>.schema.json`.

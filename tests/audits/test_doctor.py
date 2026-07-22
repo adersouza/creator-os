@@ -109,6 +109,37 @@ def test_canonical_roots_reject_campaign_artifacts_inside_checkout(
     assert "campaignArtifacts=" in result.affected[0]
 
 
+def test_venv_entrypoints_fail_when_bound_to_removed_worktree(tmp_path: Path) -> None:
+    root = tmp_path / "creator-os"
+    bin_root = root / ".venv" / "bin"
+    bin_root.mkdir(parents=True)
+    (bin_root / "pytest").write_text(
+        "#!/tmp/deleted-worktree/.venv/bin/python\n",
+        encoding="utf-8",
+    )
+
+    result = doctor._venv_entrypoint_status(root)
+
+    assert result.status == "FAIL"
+    assert result.affected == ["pytest: /tmp/deleted-worktree/.venv/bin/python"]
+    assert "--reinstall" in result.next_action
+
+
+def test_venv_entrypoints_pass_when_bound_to_current_checkout(tmp_path: Path) -> None:
+    root = tmp_path / "creator-os"
+    bin_root = root / ".venv" / "bin"
+    bin_root.mkdir(parents=True)
+    (bin_root / "pytest").write_text(
+        f"#!{bin_root / 'python'}\n",
+        encoding="utf-8",
+    )
+
+    result = doctor._venv_entrypoint_status(root)
+
+    assert result.status == "PASS"
+    assert result.affected == []
+
+
 def test_live_status_records_shared_trace_and_zero_write_probe_results(
     tmp_path: Path, monkeypatch
 ) -> None:

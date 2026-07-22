@@ -124,7 +124,7 @@ whole pipeline.
 ## Test
 
 ```bash
-uv run pytest python_packages/reel_factory/tests
+uv run python -m pytest python_packages/reel_factory/tests
 ```
 
 The suite protects provider spend/reservation behavior, identity/QC, lineage,

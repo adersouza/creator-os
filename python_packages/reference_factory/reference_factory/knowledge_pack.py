@@ -8,6 +8,7 @@ from sqlite3 import Connection, Row
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+
 from pipeline_contracts.validator import validate_reference_factory_knowledge_pack
 
 from .db import json_load

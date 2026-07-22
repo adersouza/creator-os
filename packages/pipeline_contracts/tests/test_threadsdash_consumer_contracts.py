@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 
 import pytest
-from pipeline_contracts.validator import SCHEMA_DIR
 
 from pipeline_contracts import validate_contract
+from pipeline_contracts.validator import SCHEMA_DIR
 
 # Schemas ThreadsDashboard is required to mirror. If a schema is added to
 # the canonical set that the dashboard must consume, add it here — the

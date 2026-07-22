@@ -147,8 +147,8 @@ Generated TypeScript lives at:
 packages/pipeline_contracts/typescript/generated-schemas.ts
 ```
 
-The root `pipeline_contracts/__init__.py` is an active Python import shim, not a
-schema mirror. Never hand-edit generated TypeScript.
+Python imports resolve directly to the uv workspace package. Never add a
+root-level import shim and never hand-edit generated TypeScript.
 
 ```bash
 pnpm sync:contracts
@@ -199,9 +199,9 @@ pnpm security:secrets  # local secret scan
 Package checks remain available for development, for example:
 
 ```bash
-uv run pytest python_packages/campaign_factory/tests
-uv run pytest python_packages/reel_factory/tests
-uv run pytest python_packages/reference_factory/tests
+uv run python -m pytest python_packages/campaign_factory/tests
+uv run python -m pytest python_packages/reel_factory/tests
+uv run python -m pytest python_packages/reference_factory/tests
 pnpm --filter contentforge test
 ```
 

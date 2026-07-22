@@ -492,13 +492,13 @@ code no longer defaults generated exports back into a Git checkout.
 
 - narrow XAI vision helpers used by anatomy/postability QC;
 - FFmpeg-dependent probe/render/QC paths; active infrastructure.
-- root `pipeline_contracts/__init__.py`: import shim for current callers.
 
 ### Removed
 
 - flat Reel package facades and delegation-only tests;
 - Reel `operator_tools`, metrics HTTP routes, and unserved static browser assets;
 - Campaign static dashboard assets;
+- root `pipeline_contracts` import shim; uv resolves the canonical workspace package;
 - inert package-local GitHub workflows superseded by the root monorepo CI and
   security workflows;
 - unused ContentForge golden-capture script;
