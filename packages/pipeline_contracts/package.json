@@ -1,21 +1,33 @@
 {
-  "name": "pipeline-contracts-ts",
-  "version": "1.1.0",
+  "name": "@creator-os/pipeline-contracts",
+  "version": "1.0.0",
   "description": "Versioned Creator OS pipeline schemas and TypeScript validators",
+  "type": "module",
   "files": [
+    "dist",
     "contract-manifest.json",
-    "pipeline_contracts/schemas",
-    "typescript"
+    "pipeline_contracts/schemas"
   ],
   "scripts": {
-    "test": "vitest run"
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "prepack": "pnpm run build"
   },
-  "main": "typescript/index.ts",
-  "types": "typescript/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contract-manifest.json": "./contract-manifest.json",
+    "./schemas/*": "./pipeline_contracts/schemas/*"
+  },
   "dependencies": {
     "ajv": "^8.18.0"
   },
   "devDependencies": {
+    "typescript": "6.0.3",
     "vitest": "4.1.10"
   }
 }

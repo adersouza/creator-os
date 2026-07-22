@@ -113,7 +113,7 @@ dependencies separately from this lifecycle view.
 | ContentForge | PDQ/SSCD collision checks, sibling distinctness, OCR/safe-zone/readability/watchability, media evidence and blocking verdict | `packages/contentforge` | Node, FFmpeg/FFprobe and optional local OCR/fingerprint tools | request-scoped ignored local output |
 | Pipeline Contracts | canonical schemas and validators | `packages/pipeline_contracts/pipeline_contracts` | standard validation libraries only | schemas and generated TypeScript |
 | Creator OS Core | only shared auth, atomic file operations, SQLite, vectors, media probes, runtime paths, and global runtime guard | `packages/creator_os_core/creator_os_core` | foundational only; never imports factories | no owned business state |
-| ThreadsDashboard | product UI, accounts, Supabase, approvals, scheduling, publishing, inbox, analytics, posting infrastructure | external `/Users/aderdesouza/Developer/ThreadsDashboard` | its own services and consumer contract snapshot | Supabase and deployed services |
+| ThreadsDashboard | product UI, accounts, Supabase, approvals, scheduling, publishing, inbox, analytics, posting infrastructure | external `/Users/aderdesouza/Developer/ThreadsDashboard` | its own services plus pinned `@creator-os/pipeline-contracts` release | Supabase and deployed services |
 
 ## Repository Map
 
@@ -296,7 +296,7 @@ finalize that evidence as `reel_factory.generated_asset_lineage.v2` with the
 rendered asset, reference, prompt, caption, audio, variant, and fingerprint
 identities required at the ThreadsDashboard boundary. A provider-free active
 `soul_static` integration test drives that full chain through the current
-ThreadsDashboard consumer snapshot.
+released `@creator-os/pipeline-contracts` consumer package.
 
 ## Trial Reel Eligibility
 
@@ -521,7 +521,7 @@ code no longer defaults generated exports back into a Git checkout.
 | machine config and logs | `~/.creator-os` | never committed |
 | canonical schemas | `packages/pipeline_contracts/pipeline_contracts/schemas` | committed hand-edited source |
 | generated TypeScript | `packages/pipeline_contracts/typescript/generated-schemas.ts` | committed generated output; regenerate only |
-| ThreadsDashboard consumer snapshot | external repository | read-only parity check from this repo |
+| compiled contract consumer | immutable tagged GitHub Release | imported by ThreadsDashboard through its lockfile; never copied into the repo |
 
 ## Safety Coverage
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +9,8 @@ from campaign_factory.adapters.threadsdash_draft_payload import build_draft_payl
 from campaign_factory.config import Settings
 from campaign_factory.core import CampaignFactory
 from campaign_factory.generation_workflow import run_generation_workflow
-from jsonschema import Draft202012Validator
 from reel_factory.asset_prompt_contract import AssetPromptSet
 from reel_factory.generate_assets import AssetGenerationPlan, build_source_lineage
-from referencing import Registry, Resource
-from referencing.jsonschema import DRAFT202012
 
 from pipeline_contracts import (
     validate_generated_asset_lineage_v2,
@@ -194,51 +190,10 @@ def _add_passing_qc_fixture(
     factory.conn.commit()
 
 
-def _validate_against_threadsdash_snapshot(payload: dict[str, Any]) -> None:
-    dashboard_root = Path(
-        os.environ.get(
-            "THREADSDASH_ROOT", "/Users/aderdesouza/Developer/ThreadsDashboard"
-        )
-    )
-    schema_dir = dashboard_root / "pipeline_contracts" / "schemas"
-    ingest = (
-        dashboard_root
-        / "api"
-        / "_lib"
-        / "handlers"
-        / "campaign-factory"
-        / "draftIngest.ts"
-    )
-    if not schema_dir.is_dir() or not ingest.is_file():
-        pytest.skip(f"ThreadsDashboard consumer snapshot unavailable: {dashboard_root}")
+def _validate_against_released_contract(payload: dict[str, Any]) -> None:
+    """Validate the seam without reaching into a sibling repository checkout."""
 
-    resources: list[tuple[str, Resource[Any]]] = []
-    for path in sorted(schema_dir.glob("*.schema.json")):
-        schema = json.loads(path.read_text(encoding="utf-8"))
-        resource = Resource.from_contents(schema, default_specification=DRAFT202012)
-        resources.append((path.name, resource))
-        schema_id = schema.get("$id")
-        if isinstance(schema_id, str) and schema_id:
-            resources.append((schema_id, resource))
-    registry = Registry().with_resources(resources)
-    schema_version = str(payload.get("schema") or "").rsplit(".v", 1)[-1]
-    if schema_version not in {"2", "3"}:
-        raise AssertionError(
-            f"unsupported dashboard draft schema: {payload.get('schema')}"
-        )
-    draft_schema_path = (
-        schema_dir / f"campaign_draft_payload.v{schema_version}.schema.json"
-    )
-    draft_schema = json.loads(draft_schema_path.read_text(encoding="utf-8"))
-    errors = sorted(
-        Draft202012Validator(draft_schema, registry=registry).iter_errors(payload),
-        key=lambda error: [str(part) for part in error.path],
-    )
-    assert not errors, "; ".join(error.message for error in errors)
-
-    ingest_source = ingest.read_text(encoding="utf-8")
-    assert 'from "../../../../pipeline_contracts/typescript.js"' in ingest_source
-    assert "validateCampaignFactoryDraftPayload(value)" in ingest_source
+    validate_threadsdash_draft_payload_strict(payload)
 
 
 def _build_provider_free_draft(
@@ -318,4 +273,4 @@ def test_current_threadsdash_consumer_accepts_provider_free_draft(
 ) -> None:
     payload, _, _ = _build_provider_free_draft(tmp_path, monkeypatch)
 
-    _validate_against_threadsdash_snapshot(payload)
+    _validate_against_released_contract(payload)

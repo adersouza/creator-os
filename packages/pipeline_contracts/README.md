@@ -15,9 +15,10 @@ packages/pipeline_contracts/typescript/generated-schemas.ts
 ```
 
 Python imports resolve directly to this uv workspace package. The generated
-`contract-manifest.json` gives every distributed schema and TypeScript file a
-versioned SHA-256 receipt. ThreadsDashboard keeps a pinned consumer snapshot;
-the cross-repo contract test compares that snapshot with Creator OS `main`.
+`contract-manifest.json` gives every canonical schema and TypeScript source file
+a versioned SHA-256 receipt. A tagged release builds the compiled
+`@creator-os/pipeline-contracts` tarball. ThreadsDashboard consumes that
+immutable artifact through its package lock; it does not copy this tree.
 
 ```bash
 pnpm check:contracts
@@ -36,7 +37,7 @@ Named validators raise `ContractValidationError` on invalid payloads and return 
 ## TypeScript
 
 ```ts
-import { validateCampaignFactoryDraftPayload } from "./pipeline_contracts/typescript";
+import { validateCampaignFactoryDraftPayload } from "@creator-os/pipeline-contracts";
 
 const errors = validateCampaignFactoryDraftPayload(payload);
 ```
@@ -48,8 +49,9 @@ TypeScript validators return an array of error strings. An empty array means the
 ```bash
 cd /Users/aderdesouza/Developer/creator-os
 uv run python -m pytest packages/pipeline_contracts/tests
-THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard uv run python -m pytest packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py
 pnpm check:contracts
+pnpm --filter @creator-os/pipeline-contracts build
+pnpm pack:contracts
 ```
 
 ## Versioning Policy
@@ -57,8 +59,10 @@ pnpm check:contracts
 - Patch versions may tighten examples, docs, and helper functions without changing schema IDs.
 - Minor versions may add optional schema fields.
 - Major versions require new schema IDs or explicit migration notes.
-- CI packs the versioned npm artifact and retains it against the exact commit SHA.
-- Consumers pin the manifest version and source revision instead of trusting an unversioned sibling checkout.
+- CI builds and tests the installable package on every change.
+- `pipeline-contracts-vX.Y.Z` tags publish immutable tarballs and SHA-256 files.
+- Consumers pin the release URL plus package-lock integrity instead of trusting
+  an unversioned sibling checkout or copying source files.
 
 ### Campaign draft v3 rollout
 

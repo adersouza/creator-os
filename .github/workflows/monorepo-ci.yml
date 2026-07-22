@@ -115,7 +115,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ContentForge Python dependencies
         run: uv sync --all-extras --all-packages
-      - run: pnpm --filter pipeline-contracts-ts test
+      - run: pnpm --filter @creator-os/pipeline-contracts build
+      - run: pnpm --filter @creator-os/pipeline-contracts test
       - run: pnpm --filter contentforge lint
       - run: pnpm --filter contentforge test
       - run: pnpm --filter contentforge build

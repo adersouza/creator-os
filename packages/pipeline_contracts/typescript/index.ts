@@ -1,4 +1,4 @@
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import {
 	generatedPipelineContractSchemaManifest,
 	generatedPipelineContractSchemas,
@@ -203,7 +203,7 @@ const ajvCache = new WeakMap<object, ValidateFunction>();
 function schemaErrors(schema: object, value: unknown, label: string): string[] {
 	let validate = ajvCache.get(schema);
 	if (!validate) {
-		validate = ajv.compile(schema);
+		validate = ajv.compile(schema) as ValidateFunction;
 		ajvCache.set(schema, validate);
 	}
 	if (validate(value)) return [];
@@ -369,15 +369,17 @@ function visualQcStatusFor(
 	campaignFactory: Record<string, unknown>,
 	manifest: Record<string, unknown> | null,
 ): string | undefined {
+	const manifestVisualQc = manifest?.visualQc;
+	const manifestVisualQcSnake = manifest?.visual_qc;
 	const quality = qualityFor(campaignFactory);
-	const visualQc = isRecord(campaignFactory.visualQc)
+	const visualQc: Record<string, unknown> = isRecord(campaignFactory.visualQc)
 		? campaignFactory.visualQc
 		: isRecord(campaignFactory.visual_qc)
 			? campaignFactory.visual_qc
-			: isRecord(manifest?.visualQc)
-				? manifest?.visualQc
-				: isRecord(manifest?.visual_qc)
-					? manifest?.visual_qc
+			: isRecord(manifestVisualQc)
+				? manifestVisualQc
+				: isRecord(manifestVisualQcSnake)
+					? manifestVisualQcSnake
 					: {};
 	return statusValue(
 		campaignFactory.visualQcStatus,
@@ -396,14 +398,16 @@ function identityVerificationStatusFor(
 	campaignFactory: Record<string, unknown>,
 	manifest: Record<string, unknown> | null,
 ): string | undefined {
-	const identity = isRecord(campaignFactory.identityVerification)
+	const manifestIdentity = manifest?.identityVerification;
+	const manifestIdentitySnake = manifest?.identity_verification;
+	const identity: Record<string, unknown> = isRecord(campaignFactory.identityVerification)
 		? campaignFactory.identityVerification
 		: isRecord(campaignFactory.identity_verification)
 			? campaignFactory.identity_verification
-			: isRecord(manifest?.identityVerification)
-				? manifest?.identityVerification
-				: isRecord(manifest?.identity_verification)
-					? manifest?.identity_verification
+			: isRecord(manifestIdentity)
+				? manifestIdentity
+				: isRecord(manifestIdentitySnake)
+					? manifestIdentitySnake
 					: {};
 	return statusValue(
 		campaignFactory.identityVerificationStatus,
@@ -979,7 +983,8 @@ export function validateVariantAssignment(value: unknown): string[] {
 			continue;
 		}
 		for (const field of ["account_id", "variant_asset_id", "variant_path", "parent_master_asset_id", "preset_name"] as const) {
-			if (typeof assignment[field] !== "string" || assignment[field].trim() === "") {
+			const fieldValue = assignment[field];
+			if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
 				errors.push(`assignments[${index}].${field} must be string`);
 			}
 		}
@@ -1064,7 +1069,8 @@ export function validateRecommendationAccuracyReport(value: unknown): string[] {
 		errors.push("recommendation accuracy report schema mismatch");
 	}
 	for (const field of ["campaignGraphId", "reportId", "reportGraphId"] as const) {
-		if (typeof value[field] !== "string" || value[field].trim() === "") {
+		const fieldValue = value[field];
+		if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
 			errors.push(`recommendation accuracy report ${field} must be string`);
 		}
 	}
@@ -1086,7 +1092,8 @@ export function validatePerformanceSync(value: unknown): string[] {
 		errors.push("performance sync summary must be an object");
 	}
 	for (const field of ["pipelineJobId", "pipelineTraceId"] as const) {
-		if (typeof value[field] !== "string" || value[field].trim() === "") {
+		const fieldValue = value[field];
+		if (typeof fieldValue !== "string" || fieldValue.trim() === "") {
 			errors.push(`performance sync ${field} must be string`);
 		}
 	}

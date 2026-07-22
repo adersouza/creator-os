@@ -33,7 +33,9 @@ this repo without an explicit deployment instruction.
 `packages/pipeline_contracts/pipeline_contracts/schemas` is the ONLY hand-edited
 source for shared schemas. The generated TypeScript bundle lives at
 `packages/pipeline_contracts/typescript/generated-schemas.ts`. Python imports
-resolve directly to the uv workspace package; there is no root-level shim.
+resolve directly to the uv workspace package; there is no root-level shim. The
+compiled `@creator-os/pipeline-contracts` tarball is the only supported
+ThreadsDashboard consumer artifact.
 
 Workflow for ANY schema/contract change:
 1. Edit only `packages/pipeline_contracts/pipeline_contracts/schemas/<name>.schema.json`.
@@ -41,9 +43,9 @@ Workflow for ANY schema/contract change:
 3. Run `pnpm check:contracts` to verify (this is what CI's `contracts` job enforces).
 
 NEVER hand-edit generated TypeScript — `pnpm sync:contracts` overwrites it and
-`pnpm check:contracts` (CI) fails on drift. ThreadsDashboard consumes a snapshot
-from its own external checkout; the cross-repo contract test verifies that
-snapshot against Creator OS `main`.
+`pnpm check:contracts` (CI) fails on drift. Release a reviewed package tag after
+merging a contract change, then update ThreadsDashboard's pinned tarball URL and
+lockfile integrity. Never copy schemas or TypeScript into ThreadsDashboard.
 
 ## Tooling And PR Safety
 

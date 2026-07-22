@@ -155,8 +155,11 @@ pnpm sync:contracts
 pnpm check:contracts
 ```
 
-ThreadsDashboard keeps its own external consumer snapshot. Cross-repository
-parity checks are read-only from Creator OS.
+ThreadsDashboard imports the compiled `@creator-os/pipeline-contracts` package
+from an immutable, versioned GitHub Release. It does not keep a schema or
+TypeScript snapshot. The package URL and npm lockfile integrity pin the exact
+consumer artifact; the HMAC handshake negotiates payload schema versions at
+runtime.
 
 ## Runtime Truth
 
