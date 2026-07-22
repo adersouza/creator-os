@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
-from campaign_factory.motion_generation_stage import run_motion_generation_stage
+from campaign_factory.motion_generation_stage import (
+    _register_review_asset,
+    run_motion_generation_stage,
+)
 from campaign_test_support import add_source_asset, make_factory
 
 PROMPT = "Natural breathing, a gentle head turn, and a slow cinematic camera push"
@@ -150,5 +154,53 @@ def test_best_motion_rejects_local_or_unknown_model_before_any_worker_call(
                 dry_run=True,
                 apply=False,
             )
+    finally:
+        cf.close()
+
+
+def test_ltx_embedded_audio_is_not_misclassified_as_native_platform_audio(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source = add_source_asset(cf, tmp_path)
+        still = tmp_path / "accepted.jpg"
+        still.write_bytes(b"accepted-still")
+        output = tmp_path / "ltx.mp4"
+        output.write_bytes(b"ltx-video-with-audio")
+        campaign = cf.domains.campaign_by_slug("may")
+        asset = _register_review_asset(
+            cf,
+            campaign=campaign,
+            source_asset_id=source["id"],
+            model_slug="stacey",
+            model_id="local_ltx23_distilled_mlx",
+            source_path=still,
+            source_hash=hashlib.sha256(still.read_bytes()).hexdigest(),
+            output_path=output,
+            worker_result={
+                "result": {
+                    "audio": {
+                        "mode": "generated",
+                        "nativePlatformAudio": False,
+                        "sidecarSha256": "a" * 64,
+                    },
+                    "aiDisclosureRequired": True,
+                }
+            },
+            paid=False,
+        )
+        metadata = json.loads(asset["metadata_json"])
+        assert metadata["audioBurned"] is True
+        assert metadata["embeddedAudioMode"] == "generated"
+        assert metadata["nativeAudioResolved"] is False
+        assert (
+            "local_audio_policy_review_required"
+            in metadata["publishability"]["blockingIssues"]
+        )
+        assert (
+            "ai_generated_media_disclosure_required"
+            in metadata["publishability"]["blockingIssues"]
+        )
     finally:
         cf.close()

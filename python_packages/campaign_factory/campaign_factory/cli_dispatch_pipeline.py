@@ -234,6 +234,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     motion_model_id=args.motion_model,
                     motion_prompt=args.motion_prompt,
                     audio_path=args.audio,
+                    generate_audio=args.generate_audio,
                     last_image_path=args.last_image,
                     motion_reference_image_paths=args.motion_reference_image,
                     motion_reference_video_paths=args.motion_reference_video,
@@ -242,7 +243,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     steps=args.steps,
                     enable_prompt_expansion=args.enable_prompt_expansion,
                     shot_type=args.shot_type,
-                    local_wan_model_dir=args.local_wan_model_dir,
+                    local_model_dir=args.local_model_dir,
                     dry_run=args.dry_run,
                     apply=args.apply,
                 )

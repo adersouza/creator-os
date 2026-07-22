@@ -1,8 +1,8 @@
 # Reel Factory
 
 Reel Factory owns Creator OS media creation: direct Soul stills, local static
-MP4s, local Wan and WaveSpeed motion, safe caption placement/rendering, audio intent, and
-asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
+MP4s, local Wan/LTX and WaveSpeed motion, safe caption placement/rendering,
+audio intent, and asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
 owns publishing.
 
 Reel Factory does not initialize or maintain a posting ledger. Its pipeline ends
@@ -17,7 +17,7 @@ single-person reference image
   -> optional text-only body-emphasis candidate
   -> QC and human acceptance
   -> local zero-provider-cost static MP4
-  -> optional local Wan 2.2 or explicitly authorized WaveSpeed motion
+  -> optional pinned local Wan/LTX MLX or explicitly authorized WaveSpeed motion
   -> placement.py -> caption_render.py when a safe lane exists
   -> audio_intent.v1 and generated_asset_lineage
   -> Campaign Factory
@@ -41,7 +41,13 @@ scripts/creator-os generate --mode soul_static --apply --confirm-paid \
 
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
+  --motion-model local_wan22_ti2v_5b_mlx \
   --motion-prompt "Natural breathing and a gentle camera push"
+
+scripts/creator-os generate --mode local_wan --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png \
+  --motion-model local_ltx23_distilled_mlx --generate-audio \
+  --motion-prompt "Natural movement with synchronized room sound"
 
 scripts/creator-os generate --mode best_motion --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
@@ -74,7 +80,7 @@ new internal callers import the owning module directly.
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
 
-`motion_generate` is the narrow motion worker boundary. Local Wan can execute
+`motion_generate` is the narrow motion worker boundary. Local Wan/LTX can execute
 without provider authority; every WaveSpeed apply requires a Campaign-issued,
 short-lived v2 spend authorization bound to exact input hashes and parameters.
 The worker submits a paid prediction once, never automatically retries an
@@ -90,9 +96,24 @@ Overlay text must come from `caption_banks/` and pass through `placement.py` and
 `caption_render.py`. The canonical font is Instagram Sans Condensed. A missing
 safe lane means no burned overlay; the hook can remain the post caption.
 
-Native platform audio is never burned into the MP4. Reel Factory emits
-`audio_intent.v1`; ThreadsDashboard resolves and verifies publishable native
-audio.
+LTX can mux source or generated audio into a review derivative and preserves a
+hashed WAV sidecar. That track is never represented as Instagram native audio.
+Reel Factory still emits `audio_intent.v1`; ThreadsDashboard separately resolves
+and verifies publishable native audio.
+
+Local model setup is explicit and never occurs during generation:
+
+```bash
+scripts/creator-os local-models plan
+scripts/creator-os local-models install --apply \
+  --accept-license ltx-2-community-license-agreement \
+  --accept-license gemma
+scripts/creator-os local-models status --deep
+```
+
+See [`../../docs/providers/wan_wavespeed.md`](../../docs/providers/wan_wavespeed.md)
+for the pinned model matrix, disk budget, licensing, and offline execution
+contract.
 
 ## Legacy Boundary
 

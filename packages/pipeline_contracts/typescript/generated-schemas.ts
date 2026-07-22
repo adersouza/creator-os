@@ -3322,7 +3322,7 @@ export const generatedPipelineContractSchemas = {
 	      "enum": [
 	        "library_existing_media",
 	        "static_mp4_only",
-	        "local_wan_ti2v",
+	        "local_mlx_video",
 	        "best_paid_motion",
 	        "local_motion_edit",
 	        "kling_best_only",
@@ -3497,7 +3497,7 @@ export const generatedPipelineContractSchemas = {
 	            "const": "accepted_still"
 	          },
 	          "motionStrategy": {
-	            "const": "local_wan_ti2v"
+	            "const": "local_mlx_video"
 	          },
 	          "costClassification": {
 	            "const": "free"

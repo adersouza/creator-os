@@ -1231,7 +1231,7 @@ def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
         "Which Creator OS mode do you want for this run?",
         "1. Library reuse — free",
         "2. Soul still + static MP4 — paid still generation, free MP4",
-        "3. Local Wan 2.2 motion — free",
+        "3. Local Wan / LTX motion — free",
         "4. Best paid motion — paid video",
         "5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video",
     ]

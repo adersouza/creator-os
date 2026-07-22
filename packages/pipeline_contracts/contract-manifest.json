@@ -1,7 +1,7 @@
 {
   "schema": "creator_os.pipeline_contracts_manifest.v1",
   "package": "@creator-os/pipeline-contracts",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "files": {
     "pipeline_contracts/schemas/account_eligibility_decision.v1.example.json": "ceb3d1543f201951de0d6d3ea0cc6ba11355edbe5604b05e92398a040556c250",
     "pipeline_contracts/schemas/account_eligibility_decision.v1.schema.json": "4ca3aaaae4aeba5828931ef31eb9703c4cd076ee488ed1ea2757593d992f7654",
@@ -30,7 +30,7 @@
     "pipeline_contracts/schemas/generated_asset_lineage.v2.example.json": "3ba73aba19af95ff8baf0f88c04bdcc944b518c842c37a23cd7b6a577a1eacc0",
     "pipeline_contracts/schemas/generated_asset_lineage.v2.schema.json": "9d86ce0eba997bfaf07a2d3e353597626f08f4279872d8c83946a1b0fbded7ea",
     "pipeline_contracts/schemas/generation_execution_plan.v1.example.json": "0a1a8898cf7df0ba7b59cb8643f0174dbdf17850af2db3b7fddcc9a7eb7254c2",
-    "pipeline_contracts/schemas/generation_execution_plan.v1.schema.json": "7bb9073a5202490b7e680a5b06486738620412175ab82bf7fb67d95ed1977793",
+    "pipeline_contracts/schemas/generation_execution_plan.v1.schema.json": "744ca9996806c95f99f944011b0ed271cc6d75a61ac2d684fddaa8d031db3874",
     "pipeline_contracts/schemas/generation_worker_lineage.v1.example.json": "4e84a47313022eee818e22e8b8a5d09c714a33faab6c061d297231cc4d80c8bb",
     "pipeline_contracts/schemas/generation_worker_lineage.v1.schema.json": "73f81c6be40323d4b9fd323a28eff4663a87abf750383fb49cc9d416cd999198",
     "pipeline_contracts/schemas/higgsfield_soul_image_prompt.v1.example.json": "1b8ec2a2635c0f2deb29285f92a55431fe45541e20fc0c846af90c311377c17c",
@@ -71,7 +71,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "408fe0ea680accf7b00c3b31f07c34e23c3d1fdb9ba45fec010bc9f9fdd52fac",
+    "typescript/generated-schemas.ts": "7f42b8bf274cd6038640305886f69e391b91f1c7055a6338badb5fe9830af1e2",
     "typescript/index.ts": "98543b8b6b9b786ab7d7d6be8ac792cfcd44a0da26588b71d7619c1ff4255eb5"
   }
 }

@@ -1,4 +1,4 @@
-"""CLI boundary for local Wan and authorized WaveSpeed motion generation."""
+"""CLI boundary for local MLX and authorized WaveSpeed motion generation."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from typing import Any
 
 import requests
 
-from .local_wan import LocalWanRequest, run_local_wan
-from .video_provider_models import video_model, video_model_ids
+from .local_video import LocalVideoRequest, run_local_video
+from .video_provider_models import validate_model_request, video_model, video_model_ids
 from .wavespeed import (
     WaveSpeedRequest,
     build_wavespeed_spend_scope,
@@ -29,6 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--image", type=Path)
     parser.add_argument("--last-image", type=Path)
     parser.add_argument("--audio", type=Path)
+    parser.add_argument("--generate-audio", action="store_true")
     parser.add_argument("--reference-image", action="append", type=Path, default=[])
     parser.add_argument("--reference-video", action="append", type=Path, default=[])
     parser.add_argument("--out", type=Path, required=True)
@@ -37,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--resolution")
     parser.add_argument("--duration", type=int)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--steps", type=int, default=40)
+    parser.add_argument("--steps", type=int)
     parser.add_argument("--shot-type", choices=["single", "multi"], default="single")
     parser.add_argument("--enable-prompt-expansion", action="store_true")
     parser.add_argument("--model-dir", type=Path)
@@ -49,42 +50,57 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_request(args: argparse.Namespace) -> LocalWanRequest | WaveSpeedRequest:
+def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequest:
     model = video_model(args.model)
     resolution = args.resolution or model.default_resolution
     duration = args.duration if args.duration is not None else model.default_duration
     if model.backend == "local_mlx":
         if args.image is None:
-            raise ValueError("local Wan requires --image")
-        if (
-            args.last_image
-            or args.audio
-            or args.reference_image
-            or args.reference_video
-        ):
-            raise ValueError("local Wan accepts one image only")
-        if resolution != "720p":
-            raise ValueError("local Wan supports only --resolution 720p")
+            raise ValueError("local MLX motion requires --image")
+        if args.reference_image or args.reference_video:
+            raise ValueError("local MLX motion does not accept reference media lists")
         if args.enable_prompt_expansion:
-            raise ValueError("local Wan does not support --enable-prompt-expansion")
+            raise ValueError(
+                "local MLX prompt expansion is disabled until expanded text is captured"
+            )
         if args.shot_type != "single":
-            raise ValueError("local Wan does not support --shot-type")
-        model_dir = args.model_dir or (
-            Path.home() / ".creator-os/models/Wan2.2-TI2V-5B-MLX"
+            raise ValueError("local MLX motion does not support --shot-type")
+        if args.audio and args.generate_audio:
+            raise ValueError("--audio and --generate-audio are mutually exclusive")
+        validate_model_request(
+            model,
+            resolution=resolution,
+            duration=duration,
+            has_audio=args.audio is not None,
+            has_last_image=args.last_image is not None,
+            generate_audio=args.generate_audio,
         )
-        return LocalWanRequest(
+        return LocalVideoRequest(
+            model_id=model.id,
             image_path=args.image,
             prompt=args.prompt,
             output_path=args.out,
-            model_dir=model_dir,
+            model_dir=args.model_dir,
             duration_seconds=duration,
+            resolution=resolution,
             seed=args.seed,
             steps=args.steps,
+            audio_mode=(
+                "source"
+                if args.audio
+                else "generated"
+                if args.generate_audio
+                else "none"
+            ),
+            audio_path=args.audio,
+            last_image_path=args.last_image,
         )
     if args.model_dir is not None:
-        raise ValueError("--model-dir applies only to local Wan")
-    if args.steps != 40:
-        raise ValueError("--steps applies only to local Wan")
+        raise ValueError("--model-dir applies only to local MLX models")
+    if args.generate_audio:
+        raise ValueError("--generate-audio applies only to local LTX models")
+    if args.steps is not None:
+        raise ValueError("--steps applies only to local MLX models")
     return WaveSpeedRequest(
         model_id=model.id,
         prompt=args.prompt,
@@ -104,8 +120,8 @@ def build_request(args: argparse.Namespace) -> LocalWanRequest | WaveSpeedReques
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     request = build_request(args)
-    if isinstance(request, LocalWanRequest):
-        result = run_local_wan(request, dry_run=args.dry_run)
+    if isinstance(request, LocalVideoRequest):
+        result = run_local_video(request, dry_run=args.dry_run)
         return {
             "schema": "reel_factory.motion_generation_result.v1",
             "modelId": args.model,
