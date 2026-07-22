@@ -339,21 +339,20 @@ def test_ltx_runtime_install_is_exact_frozen_and_separate(
 
     def runner(command, **_kwargs):
         commands.append(command)
-        if command[:4] == ["git", "-C", str(partial), "rev-parse"]:
+        if command[:2] == ["git", "-C"] and command[3:] == ["rev-parse", "HEAD"]:
             return subprocess.CompletedProcess(command, 0, LTX_MLX_REVISION + "\n", "")
         if command[:2] == ["uv", "sync"]:
-            python = partial / ".venv/bin/python"
-            python.parent.mkdir(parents=True)
+            target = Path(command[-1])
+            python = target / ".venv/bin/python"
+            python.parent.mkdir(parents=True, exist_ok=True)
             python.write_text("runtime")
         if command[:3] == ["uv", "pip", "freeze"]:
             return subprocess.CompletedProcess(
                 command,
                 0,
                 (
-                    f"ltx-2-mlx @ {partial.as_uri()}\n"
-                    f"ltx-core-mlx @ {(partial / 'packages/ltx-core-mlx').as_uri()}\n"
-                    f"ltx-pipelines-mlx @ "
-                    f"{(partial / 'packages/ltx-pipelines-mlx').as_uri()}\n"
+                    f"-e {(runtime / 'packages/ltx-core-mlx').as_uri()}\n"
+                    f"-e {(runtime / 'packages/ltx-pipelines-mlx').as_uri()}\n"
                 ),
                 "",
             )
@@ -373,11 +372,129 @@ def test_ltx_runtime_install_is_exact_frozen_and_separate(
         "--directory",
         str(partial),
     ] in commands
+    assert [
+        "uv",
+        "sync",
+        "--frozen",
+        "--no-dev",
+        "--directory",
+        str(runtime),
+    ] in commands
     receipt = json.loads((runtime / ".creator-os-runtime.json").read_text())
     assert receipt["runtimeId"] == "ltx_2_mlx"
     assert receipt["repository"] == LTX_MLX_REPOSITORY
     assert receipt["revision"] == LTX_MLX_REVISION
     assert all(".partial" not in value for value in receipt["resolvedEnvironment"])
+    assert receipt["resolvedEnvironment"] == [
+        f"ltx-core-mlx @ creator-os-pinned-source:{LTX_MLX_REVISION}",
+        f"ltx-pipelines-mlx @ creator-os-pinned-source:{LTX_MLX_REVISION}",
+    ]
+
+
+def test_ltx_runtime_install_repairs_promoted_editable_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "ltx-2-mlx"
+    python = runtime / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("runtime")
+    (runtime / ".creator-os-runtime.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.local_mlx_runtime_installation.v1",
+                "runtimeId": "ltx_2_mlx",
+                "repository": LTX_MLX_REPOSITORY,
+                "revision": LTX_MLX_REVISION,
+                "python": str(python),
+                "resolvedEnvironment": [
+                    "-e file:///tmp/ltx-2-mlx.partial/packages/ltx-core-mlx"
+                ],
+            }
+        )
+    )
+    statuses = iter(
+        [
+            {"ready": False, "issues": ["ltx_mlx_runtime_environment_drift"]},
+            {"ready": True, "issues": []},
+        ]
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._ltx_runtime_status",
+        lambda **_kwargs: next(statuses),
+    )
+    commands: list[list[str]] = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if command[:2] == ["git", "-C"]:
+            return subprocess.CompletedProcess(command, 0, LTX_MLX_REVISION + "\n", "")
+        if command[:3] == ["uv", "pip", "freeze"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                f"-e {(runtime / 'packages/ltx-core-mlx').as_uri()}\n",
+                "",
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    status = install_runtime(runtime_root=runtime, family="ltx_2", runner=runner)
+
+    assert status["ready"] is True
+    assert [
+        "uv",
+        "sync",
+        "--frozen",
+        "--no-dev",
+        "--directory",
+        str(runtime),
+    ] in commands
+    receipt = json.loads((runtime / ".creator-os-runtime.json").read_text())
+    assert receipt["resolvedEnvironment"] == [
+        f"ltx-core-mlx @ creator-os-pinned-source:{LTX_MLX_REVISION}"
+    ]
+
+
+def test_ltx_runtime_status_rejects_temporary_path_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "ltx-2-mlx"
+    python = runtime / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("runtime")
+    (runtime / ".creator-os-runtime.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.local_mlx_runtime_installation.v1",
+                "runtimeId": "ltx_2_mlx",
+                "repository": LTX_MLX_REPOSITORY,
+                "revision": LTX_MLX_REVISION,
+                "python": str(python),
+                "resolvedEnvironment": [
+                    f"-e {runtime.with_name('ltx-2-mlx.partial').as_uri()}"
+                    "/packages/ltx-core-mlx"
+                ],
+            }
+        )
+    )
+
+    def fake_run(command, **_kwargs):
+        if command[:3] == ["git", "-C", str(runtime)]:
+            return subprocess.CompletedProcess(command, 0, LTX_MLX_REVISION, "")
+        if command[:3] == ["uv", "pip", "freeze"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                f"-e {(runtime / 'packages/ltx-core-mlx').as_uri()}\n",
+                "",
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("reel_factory.local_model_manager.subprocess.run", fake_run)
+
+    status = runtime_status(runtime_root=runtime, family="ltx_2")
+
+    assert status["ready"] is False
+    assert "ltx_mlx_runtime_receipt_temporary_path" in status["issues"]
 
 
 def test_mlx_runtime_status_rejects_resolved_environment_drift(
