@@ -27,7 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from .fileops import atomic_write_json, file_lock
 
@@ -65,6 +65,22 @@ def fingerprint(value: Mapping[str, Any]) -> str:
     """Return a stable SHA-256 for a JSON-compatible mapping."""
 
     return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+class SerializableEvidenceRecord(Protocol):
+    def to_dict(self) -> dict[str, Any]: ...
+
+
+EvidenceRecord = Mapping[str, Any] | SerializableEvidenceRecord
+
+
+def evidence_record_payload(record: EvidenceRecord) -> dict[str, Any]:
+    """Return one canonical record mapping without importing its owner package."""
+
+    payload = dict(record) if isinstance(record, Mapping) else record.to_dict()
+    if not isinstance(payload, dict):
+        raise ValueError("benchmark_evidence_record_must_serialize_to_mapping")
+    return payload
 
 
 def sha256_file(path: Path) -> str:
@@ -314,6 +330,41 @@ class LocalGenerationJob:
     requested_memory_bytes: int
     params_fingerprint: str
     owned_artifact_paths: tuple[str, ...] = ()
+    benchmark_recipe_id: str | None = None
+    benchmark_recipe_fingerprint: str | None = None
+    analyzer_registry_id: str | None = None
+    analyzer_registry_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        linkage = (
+            self.benchmark_recipe_id,
+            self.benchmark_recipe_fingerprint,
+            self.analyzer_registry_id,
+            self.analyzer_registry_fingerprint,
+        )
+        if any(value is not None for value in linkage) and not all(
+            value is not None for value in linkage
+        ):
+            raise ValueError("benchmark_evidence_linkage_must_be_complete")
+        if self.benchmark_recipe_id is not None:
+            if (
+                not self.benchmark_recipe_id.strip()
+                or self.analyzer_registry_id is None
+                or not self.analyzer_registry_id.strip()
+            ):
+                raise ValueError("benchmark_evidence_linkage_ids_must_be_non_empty")
+            for value in (
+                self.benchmark_recipe_fingerprint,
+                self.analyzer_registry_fingerprint,
+            ):
+                if (
+                    value is None
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError(
+                        "benchmark_evidence_linkage_fingerprints_must_be_sha256"
+                    )
 
     @classmethod
     def create(
@@ -329,6 +380,8 @@ class LocalGenerationJob:
         params: Mapping[str, Any],
         cohort: Mapping[str, Any] | None = None,
         owned_artifact_paths: Sequence[Path] = (),
+        benchmark_recipe: EvidenceRecord | None = None,
+        analyzer_registry: EvidenceRecord | None = None,
     ) -> LocalGenerationJob:
         for name, value in {
             "job_id": job_id,
@@ -356,6 +409,53 @@ class LocalGenerationJob:
             }
         )
         params_fp = fingerprint(params)
+        recipe_payload: dict[str, Any] = {}
+        registry_payload: dict[str, Any] = {}
+        if (benchmark_recipe is None) != (analyzer_registry is None):
+            raise ValueError("benchmark_evidence_records_must_be_paired")
+        if benchmark_recipe is not None and analyzer_registry is not None:
+            recipe_payload = evidence_record_payload(benchmark_recipe)
+            registry_payload = evidence_record_payload(analyzer_registry)
+            if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
+                raise ValueError("benchmark_recipe_schema_mismatch")
+            if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+                raise ValueError("analyzer_registry_schema_mismatch")
+            if recipe_payload.get("expectedProviderCalls") != 0:
+                raise ValueError("benchmark_recipe_provider_calls_must_be_zero")
+            if recipe_payload.get("productionWritesAllowed") is not False:
+                raise ValueError("benchmark_recipe_production_writes_must_be_false")
+            if recipe_payload.get("taskKind") != task_kind:
+                raise ValueError("benchmark_recipe_task_kind_mismatch")
+            if not str(recipe_payload.get("recipeId") or "").strip():
+                raise ValueError("benchmark_recipe_id_missing")
+            if not str(registry_payload.get("registryId") or "").strip():
+                raise ValueError("analyzer_registry_id_missing")
+            raw_registrations = registry_payload.get("analyzers")
+            raw_requirements = recipe_payload.get("requiredAnalyzers")
+            if not isinstance(raw_registrations, list) or not raw_registrations:
+                raise ValueError("analyzer_registry_registrations_missing")
+            if not isinstance(raw_requirements, list) or not raw_requirements:
+                raise ValueError("benchmark_recipe_required_analyzers_missing")
+            registered = {
+                (str(registration["analyzerId"]), str(registration["analyzerVersion"]))
+                for registration in raw_registrations
+                if isinstance(registration, dict)
+                and registration.get("analyzerId")
+                and registration.get("analyzerVersion")
+            }
+            required = {
+                (str(requirement["analyzerId"]), str(requirement["analyzerVersion"]))
+                for requirement in raw_requirements
+                if isinstance(requirement, dict)
+                and requirement.get("analyzerId")
+                and requirement.get("analyzerVersion")
+            }
+            if len(registered) != len(raw_registrations):
+                raise ValueError("analyzer_registry_registration_invalid")
+            if len(required) != len(raw_requirements):
+                raise ValueError("benchmark_recipe_analyzer_requirement_invalid")
+            if not required.issubset(registered):
+                raise ValueError("benchmark_recipe_required_analyzer_unregistered")
         cohort_payload = (
             dict(cohort)
             if cohort is not None
@@ -377,10 +477,26 @@ class LocalGenerationJob:
             requested_memory_bytes=requested_memory_bytes,
             params_fingerprint=params_fp,
             owned_artifact_paths=resolved_artifacts,
+            benchmark_recipe_id=(
+                str(recipe_payload["recipeId"])
+                if benchmark_recipe is not None
+                else None
+            ),
+            benchmark_recipe_fingerprint=(
+                fingerprint(recipe_payload) if benchmark_recipe is not None else None
+            ),
+            analyzer_registry_id=(
+                str(registry_payload["registryId"])
+                if analyzer_registry is not None
+                else None
+            ),
+            analyzer_registry_fingerprint=(
+                fingerprint(registry_payload) if analyzer_registry is not None else None
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "jobId": self.job_id,
             "modelId": self.model_id,
             "modelFingerprint": self.model_fingerprint,
@@ -391,6 +507,16 @@ class LocalGenerationJob:
             "paramsFingerprint": self.params_fingerprint,
             "ownedArtifactPaths": list(self.owned_artifact_paths),
         }
+        if self.benchmark_recipe_id is not None:
+            payload.update(
+                {
+                    "benchmarkRecipeId": self.benchmark_recipe_id,
+                    "benchmarkRecipeFingerprint": self.benchmark_recipe_fingerprint,
+                    "analyzerRegistryId": self.analyzer_registry_id,
+                    "analyzerRegistryFingerprint": self.analyzer_registry_fingerprint,
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -438,6 +564,26 @@ def _job_from_payload(payload: Mapping[str, Any]) -> LocalGenerationJob:
         params_fingerprint=str(payload["paramsFingerprint"]),
         owned_artifact_paths=tuple(
             str(value) for value in payload.get("ownedArtifactPaths", [])
+        ),
+        benchmark_recipe_id=(
+            str(payload["benchmarkRecipeId"])
+            if payload.get("benchmarkRecipeId") is not None
+            else None
+        ),
+        benchmark_recipe_fingerprint=(
+            str(payload["benchmarkRecipeFingerprint"])
+            if payload.get("benchmarkRecipeFingerprint") is not None
+            else None
+        ),
+        analyzer_registry_id=(
+            str(payload["analyzerRegistryId"])
+            if payload.get("analyzerRegistryId") is not None
+            else None
+        ),
+        analyzer_registry_fingerprint=(
+            str(payload["analyzerRegistryFingerprint"])
+            if payload.get("analyzerRegistryFingerprint") is not None
+            else None
         ),
     )
 

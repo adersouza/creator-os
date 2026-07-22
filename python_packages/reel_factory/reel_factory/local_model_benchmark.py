@@ -19,11 +19,13 @@ from typing import Any, Final
 from .fileops import atomic_write_text, file_lock
 from .local_generation_queue import (
     AppendOnlyJournal,
+    EvidenceRecord,
     JournalCorruptionError,
     LocalGenerationJob,
     LocalGenerationQueue,
     LocalQueueError,
     default_local_generation_queue,
+    evidence_record_payload,
     fingerprint,
     sha256_file,
 )
@@ -34,13 +36,22 @@ PROMOTION_SCHEMA: Final = "reel_factory.local_model_promotion.v1"
 SUPPORTED_QC_POLICIES: Final = {
     "contentforge.motion_specific_qc": frozenset({"1.0.0"}),
 }
+DEFAULT_IMPLEMENTATION_ROOT: Final = Path(__file__).resolve().parents[3]
 
 
 def _valid_sha256(value: str) -> bool:
     return len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
 
-def _qc_receipt_verdict(payload: dict[str, Any], *, check_id: str) -> bool:
+def _canonical_record_text(value: Mapping[str, Any]) -> str:
+    return json.dumps(
+        dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+
+
+def _qc_receipt_verdict(
+    payload: dict[str, Any], *, check_id: str, expected_version: str | None = None
+) -> bool:
     policy = payload.get("policy")
     if isinstance(policy, dict):
         policy_id = str(policy.get("id") or "")
@@ -49,6 +60,8 @@ def _qc_receipt_verdict(payload: dict[str, Any], *, check_id: str) -> bool:
             policy_id, frozenset()
         ):
             raise LocalQueueError(f"benchmark_qc_receipt_policy_mismatch:{check_id}")
+        if expected_version is not None and policy_version != expected_version:
+            raise LocalQueueError(f"benchmark_qc_receipt_policy_drift:{check_id}")
     else:
         raise LocalQueueError(f"benchmark_qc_receipt_policy_missing:{check_id}")
     raw_passed = payload.get("passed")
@@ -173,6 +186,10 @@ class BenchmarkReceipt:
     peak_memory_bytes: int
     memory_measurement_method: str
     qc_references: tuple[QCReference, ...]
+    benchmark_recipe_id: str | None = None
+    benchmark_recipe_fingerprint: str | None = None
+    analyzer_registry_id: str | None = None
+    analyzer_registry_fingerprint: str | None = None
     source: str = BENCHMARK_SOURCE
 
     def __post_init__(self) -> None:
@@ -198,13 +215,40 @@ class BenchmarkReceipt:
             raise ValueError("memory_measurement_method must be non-empty")
         if not self.qc_references:
             raise ValueError("at least one output QC reference is required")
+        linkage = (
+            self.benchmark_recipe_id,
+            self.benchmark_recipe_fingerprint,
+            self.analyzer_registry_id,
+            self.analyzer_registry_fingerprint,
+        )
+        if any(value is not None for value in linkage) and not all(
+            value is not None for value in linkage
+        ):
+            raise ValueError("benchmark_evidence_linkage_must_be_complete")
+        if self.benchmark_recipe_id is not None:
+            if (
+                not self.benchmark_recipe_id.strip()
+                or self.analyzer_registry_id is None
+                or not self.analyzer_registry_id.strip()
+            ):
+                raise ValueError("benchmark_evidence_linkage_ids_must_be_non_empty")
+            for linkage_fingerprint in (
+                self.benchmark_recipe_fingerprint,
+                self.analyzer_registry_fingerprint,
+            ):
+                if linkage_fingerprint is None or not _valid_sha256(
+                    linkage_fingerprint
+                ):
+                    raise ValueError(
+                        "benchmark_evidence_linkage_fingerprints_must_be_sha256"
+                    )
 
     @property
     def all_qc_passed(self) -> bool:
         return all(reference.passed for reference in self.qc_references)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema": BENCHMARK_SCHEMA,
             "benchmarkId": self.benchmark_id,
             "jobId": self.job_id,
@@ -219,6 +263,16 @@ class BenchmarkReceipt:
             "qcReferences": [reference.as_dict() for reference in self.qc_references],
             "source": self.source,
         }
+        if self.benchmark_recipe_id is not None:
+            payload.update(
+                {
+                    "benchmarkRecipeId": self.benchmark_recipe_id,
+                    "benchmarkRecipeFingerprint": self.benchmark_recipe_fingerprint,
+                    "analyzerRegistryId": self.analyzer_registry_id,
+                    "analyzerRegistryFingerprint": self.analyzer_registry_fingerprint,
+                }
+            )
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BenchmarkReceipt:
@@ -244,6 +298,26 @@ class BenchmarkReceipt:
             peak_memory_bytes=int(payload["peakMemoryBytes"]),
             memory_measurement_method=str(payload["memoryMeasurementMethod"]),
             qc_references=references,
+            benchmark_recipe_id=(
+                str(payload["benchmarkRecipeId"])
+                if payload.get("benchmarkRecipeId") is not None
+                else None
+            ),
+            benchmark_recipe_fingerprint=(
+                str(payload["benchmarkRecipeFingerprint"])
+                if payload.get("benchmarkRecipeFingerprint") is not None
+                else None
+            ),
+            analyzer_registry_id=(
+                str(payload["analyzerRegistryId"])
+                if payload.get("analyzerRegistryId") is not None
+                else None
+            ),
+            analyzer_registry_fingerprint=(
+                str(payload["analyzerRegistryFingerprint"])
+                if payload.get("analyzerRegistryFingerprint") is not None
+                else None
+            ),
             source=str(payload["source"]),
         )
 
@@ -281,8 +355,11 @@ class PromotionEvaluation:
 class LocalModelBenchmarkStore:
     """Store real benchmark observations and manual, evidence-bound promotions."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, implementation_root: Path | None = None) -> None:
         self.root = root.resolve()
+        self.implementation_root = (
+            implementation_root or DEFAULT_IMPLEMENTATION_ROOT
+        ).resolve()
         self.benchmarks = AppendOnlyJournal(self.root / "benchmarks.jsonl")
         self.promotions = AppendOnlyJournal(self.root / "promotions.jsonl")
         self._mutation_path = self.root / "benchmark_mutation"
@@ -298,6 +375,228 @@ class LocalModelBenchmarkStore:
             receipts[receipt.benchmark_id] = receipt
         return receipts
 
+    def _verify_benchmark_evidence_linkage(
+        self,
+        job: LocalGenerationJob,
+        *,
+        benchmark_recipe: EvidenceRecord | None,
+        analyzer_registry: EvidenceRecord | None,
+    ) -> dict[str, str]:
+        if benchmark_recipe is None:
+            raise LocalQueueError("benchmark_recipe_evidence_required")
+        if analyzer_registry is None:
+            raise LocalQueueError("benchmark_analyzer_registry_evidence_required")
+        recipe_payload = evidence_record_payload(benchmark_recipe)
+        registry_payload = evidence_record_payload(analyzer_registry)
+        if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
+            raise LocalQueueError("benchmark_recipe_schema_mismatch")
+        if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+            raise LocalQueueError("benchmark_analyzer_registry_schema_mismatch")
+        recipe_fingerprint = fingerprint(recipe_payload)
+        registry_fingerprint = fingerprint(registry_payload)
+        if job.benchmark_recipe_id is None:
+            raise LocalQueueError("benchmark_job_recipe_linkage_missing")
+        if (
+            job.benchmark_recipe_id != recipe_payload.get("recipeId")
+            or job.benchmark_recipe_fingerprint != recipe_fingerprint
+        ):
+            raise LocalQueueError("benchmark_job_recipe_linkage_mismatch")
+        if (
+            job.analyzer_registry_id != registry_payload.get("registryId")
+            or job.analyzer_registry_fingerprint != registry_fingerprint
+        ):
+            raise LocalQueueError("benchmark_job_analyzer_registry_drift")
+        if recipe_payload.get("taskKind") != job.task_kind:
+            raise LocalQueueError("benchmark_recipe_task_kind_mismatch")
+        if recipe_payload.get("expectedProviderCalls") != 0:
+            raise LocalQueueError("benchmark_recipe_provider_calls_must_be_zero")
+        if recipe_payload.get("productionWritesAllowed") is not False:
+            raise LocalQueueError("benchmark_recipe_production_writes_must_be_false")
+        required = self._required_analyzers(
+            benchmark_recipe=recipe_payload,
+            analyzer_registry=registry_payload,
+        )
+        self._verify_analyzer_implementations(registry_payload)
+        return required
+
+    @staticmethod
+    def _required_analyzers(
+        *,
+        benchmark_recipe: Mapping[str, Any],
+        analyzer_registry: Mapping[str, Any],
+    ) -> dict[str, str]:
+        raw_requirements = benchmark_recipe.get("requiredAnalyzers")
+        raw_registrations = analyzer_registry.get("analyzers")
+        if not isinstance(raw_requirements, list) or not raw_requirements:
+            raise LocalQueueError("benchmark_recipe_required_analyzers_missing")
+        if not isinstance(raw_registrations, list) or not raw_registrations:
+            raise LocalQueueError("benchmark_analyzer_registry_empty")
+        required = {
+            str(requirement["analyzerId"]): str(requirement["analyzerVersion"])
+            for requirement in raw_requirements
+            if isinstance(requirement, dict)
+            and requirement.get("analyzerId")
+            and requirement.get("analyzerVersion")
+        }
+        if len(required) != len(raw_requirements):
+            raise LocalQueueError("benchmark_recipe_duplicate_analyzer_identity")
+        registered = {
+            str(registration["analyzerId"]): registration
+            for registration in raw_registrations
+            if isinstance(registration, dict)
+            and registration.get("analyzerId")
+            and registration.get("analyzerVersion")
+        }
+        if len(registered) != len(raw_registrations):
+            raise LocalQueueError("benchmark_analyzer_registration_invalid")
+        for analyzer_id, analyzer_version in required.items():
+            registration = registered.get(analyzer_id)
+            if registration is None:
+                raise LocalQueueError(
+                    f"benchmark_required_analyzer_unregistered:{analyzer_id}"
+                )
+            if registration.get("analyzerVersion") != analyzer_version:
+                raise LocalQueueError(
+                    f"benchmark_required_analyzer_version_drift:{analyzer_id}"
+                )
+            evidence_kinds = registration.get("evidenceKinds")
+            if (
+                not isinstance(evidence_kinds, list)
+                or not evidence_kinds
+                or any(
+                    not isinstance(kind, str) or not kind.strip()
+                    for kind in evidence_kinds
+                )
+            ):
+                raise LocalQueueError(
+                    f"benchmark_analyzer_evidence_kinds_invalid:{analyzer_id}"
+                )
+        return required
+
+    def _verify_analyzer_implementations(
+        self, analyzer_registry: Mapping[str, Any]
+    ) -> None:
+        registrations = analyzer_registry.get("analyzers")
+        if not isinstance(registrations, list) or not registrations:
+            raise LocalQueueError("benchmark_analyzer_registry_empty")
+        for registration in registrations:
+            if not isinstance(registration, dict):
+                raise LocalQueueError("benchmark_analyzer_registration_invalid")
+            analyzer_id = str(registration.get("analyzerId") or "")
+            relative = Path(str(registration.get("implementationRef") or ""))
+            if relative.is_absolute():
+                raise LocalQueueError(
+                    f"benchmark_analyzer_implementation_ref_not_relative:{analyzer_id}"
+                )
+            unresolved = self.implementation_root / relative
+            resolved = unresolved.resolve()
+            if not resolved.is_relative_to(self.implementation_root):
+                raise LocalQueueError(
+                    f"benchmark_analyzer_implementation_ref_escapes_root:{analyzer_id}"
+                )
+            if (
+                not resolved.is_file()
+                or unresolved.is_symlink()
+                or sha256_file(resolved)
+                != registration.get("implementationFingerprint")
+            ):
+                raise LocalQueueError(
+                    f"benchmark_analyzer_implementation_drift:{analyzer_id}"
+                )
+
+    def _persist_benchmark_evidence(
+        self,
+        *,
+        benchmark_recipe: Mapping[str, Any],
+        analyzer_registry: Mapping[str, Any],
+    ) -> None:
+        records = (
+            (
+                "recipes",
+                fingerprint(benchmark_recipe),
+                dict(benchmark_recipe),
+            ),
+            (
+                "analyzer_registries",
+                fingerprint(analyzer_registry),
+                dict(analyzer_registry),
+            ),
+        )
+        for directory, expected_fingerprint, payload in records:
+            path = self.root / directory / f"{expected_fingerprint}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            encoded = _canonical_record_text(payload)
+            if path.exists():
+                if (
+                    not path.is_file()
+                    or path.is_symlink()
+                    or sha256_file(path) != expected_fingerprint
+                ):
+                    raise LocalQueueError(
+                        f"benchmark_evidence_collision:{expected_fingerprint}"
+                    )
+                continue
+            atomic_write_text(path, encoded)
+            if sha256_file(path) != expected_fingerprint:
+                raise LocalQueueError(
+                    f"benchmark_evidence_persistence_failed:{expected_fingerprint}"
+                )
+
+    def _load_receipt_evidence(
+        self, receipt: BenchmarkReceipt
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if (
+            receipt.benchmark_recipe_id is None
+            or receipt.benchmark_recipe_fingerprint is None
+            or receipt.analyzer_registry_id is None
+            or receipt.analyzer_registry_fingerprint is None
+        ):
+            raise LocalQueueError("benchmark_receipt_evidence_linkage_missing")
+        recipe_payload = self._load_evidence_payload(
+            "recipes", receipt.benchmark_recipe_fingerprint
+        )
+        registry_payload = self._load_evidence_payload(
+            "analyzer_registries", receipt.analyzer_registry_fingerprint
+        )
+        if recipe_payload.get("schema") != "creator_os.benchmark_recipe.v1":
+            raise LocalQueueError("benchmark_persisted_recipe_schema_mismatch")
+        if registry_payload.get("schema") != "creator_os.analyzer_registry.v1":
+            raise LocalQueueError("benchmark_persisted_registry_schema_mismatch")
+        if recipe_payload.get("recipeId") != receipt.benchmark_recipe_id:
+            raise LocalQueueError("benchmark_receipt_recipe_id_mismatch")
+        if registry_payload.get("registryId") != receipt.analyzer_registry_id:
+            raise LocalQueueError("benchmark_receipt_analyzer_registry_id_mismatch")
+        self._required_analyzers(
+            benchmark_recipe=recipe_payload,
+            analyzer_registry=registry_payload,
+        )
+        self._verify_analyzer_implementations(registry_payload)
+        return recipe_payload, registry_payload
+
+    def _load_evidence_payload(
+        self, directory: str, expected_fingerprint: str
+    ) -> dict[str, Any]:
+        path = self.root / directory / f"{expected_fingerprint}.json"
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or sha256_file(path) != expected_fingerprint
+        ):
+            raise LocalQueueError(
+                f"benchmark_persisted_evidence_missing_or_substituted:"
+                f"{expected_fingerprint}"
+            )
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise LocalQueueError("benchmark_persisted_evidence_invalid") from exc
+        if (
+            not isinstance(payload, dict)
+            or fingerprint(payload) != expected_fingerprint
+        ):
+            raise LocalQueueError("benchmark_persisted_evidence_fingerprint_mismatch")
+        return payload
+
     def record_completed_job(
         self,
         queue: LocalGenerationQueue,
@@ -305,11 +604,18 @@ class LocalModelBenchmarkStore:
         job_id: str,
         qc_references: tuple[QCReference, ...],
         benchmark_id: str | None = None,
+        benchmark_recipe: EvidenceRecord | None = None,
+        analyzer_registry: EvidenceRecord | None = None,
     ) -> BenchmarkReceipt:
         state = queue.states().get(job_id)
         if state is None or state.status != "succeeded":
             status = "missing" if state is None else state.status
             raise LocalQueueError(f"benchmark_requires_succeeded_job:{job_id}:{status}")
+        required_analyzers = self._verify_benchmark_evidence_linkage(
+            state.job,
+            benchmark_recipe=benchmark_recipe,
+            analyzer_registry=analyzer_registry,
+        )
         terminal_payload = state.last_event.get("payload", {})
         output_sha256 = str(terminal_payload.get("outputSha256", ""))
         output_path = Path(str(terminal_payload.get("outputPath") or "")).resolve()
@@ -329,8 +635,24 @@ class LocalModelBenchmarkStore:
         hardware_fp = str(hardware.get("fingerprint", ""))
         if not hardware_fp:
             raise LocalQueueError("benchmark_missing_hardware_fingerprint")
+        check_ids = [reference.check_id for reference in qc_references]
+        if len(check_ids) != len(set(check_ids)):
+            raise LocalQueueError("benchmark_duplicate_qc_check_id")
+        missing_qc = sorted(set(required_analyzers).difference(check_ids))
+        if missing_qc:
+            raise LocalQueueError(
+                "benchmark_required_qc_missing:" + ",".join(missing_qc)
+            )
         for reference in qc_references:
-            self._verify_qc_reference(reference, expected_subject_sha256=output_sha256)
+            self._verify_qc_reference(
+                reference,
+                expected_subject_sha256=output_sha256,
+                expected_version=required_analyzers.get(reference.check_id),
+            )
+        assert benchmark_recipe is not None
+        assert analyzer_registry is not None
+        recipe_payload = evidence_record_payload(benchmark_recipe)
+        registry_payload = evidence_record_payload(analyzer_registry)
         receipt = BenchmarkReceipt(
             benchmark_id=benchmark_id or str(uuid.uuid4()),
             job_id=job_id,
@@ -343,15 +665,25 @@ class LocalModelBenchmarkStore:
             peak_memory_bytes=measurement.peak_memory_bytes,
             memory_measurement_method=measurement.memory_measurement_method,
             qc_references=qc_references,
+            benchmark_recipe_id=str(recipe_payload["recipeId"]),
+            benchmark_recipe_fingerprint=fingerprint(recipe_payload),
+            analyzer_registry_id=str(registry_payload["registryId"]),
+            analyzer_registry_fingerprint=fingerprint(registry_payload),
         )
         with file_lock(self._mutation_path):
-            existing = self.all_receipts().get(receipt.benchmark_id)
-            if existing is not None:
-                if existing != receipt:
-                    raise LocalQueueError(
-                        f"benchmark_id_fingerprint_conflict:{receipt.benchmark_id}"
-                    )
-                return existing
+            existing_receipts = self.all_receipts()
+            if receipt.benchmark_id in existing_receipts:
+                raise LocalQueueError(f"duplicate_benchmark_id:{receipt.benchmark_id}")
+            if any(
+                existing.job_id == receipt.job_id
+                for existing in existing_receipts.values()
+            ):
+                raise LocalQueueError(f"duplicate_benchmark_job_id:{receipt.job_id}")
+            self._persist_benchmark_evidence(
+                benchmark_recipe=recipe_payload,
+                analyzer_registry=registry_payload,
+            )
+            self._verify_analyzer_implementations(registry_payload)
             self.benchmarks.append("benchmark_recorded", receipt.as_dict())
             return receipt
 
@@ -438,11 +770,28 @@ class LocalModelBenchmarkStore:
                     blockers.append(f"{label}_hardware_fingerprint_mismatch")
                 if not receipt.all_qc_passed:
                     blockers.append(f"{label}_qc_failed")
+                expected_versions: dict[str, str] = {}
+                try:
+                    recipe, registry = self._load_receipt_evidence(receipt)
+                    expected_versions = self._required_analyzers(
+                        benchmark_recipe=recipe,
+                        analyzer_registry=registry,
+                    )
+                    if recipe.get("taskKind") != receipt.task_kind:
+                        blockers.append(f"{label}_recipe_task_kind_mismatch")
+                    missing_qc = set(expected_versions).difference(
+                        reference.check_id for reference in receipt.qc_references
+                    )
+                    if missing_qc:
+                        blockers.append(f"{label}_required_qc_missing")
+                except LocalQueueError as exc:
+                    blockers.append(f"{label}_benchmark_evidence_invalid:{exc}")
                 for reference in receipt.qc_references:
                     try:
                         self._verify_qc_reference(
                             reference,
                             expected_subject_sha256=receipt.output_sha256,
+                            expected_version=expected_versions.get(reference.check_id),
                         )
                     except LocalQueueError:
                         blockers.append(
@@ -452,6 +801,14 @@ class LocalModelBenchmarkStore:
             receipt.task_fingerprint for receipt in baseline
         ):
             blockers.append("task_fingerprint_cohort_mismatch")
+        if sorted(self._recipe_link(receipt) for receipt in candidate) != sorted(
+            self._recipe_link(receipt) for receipt in baseline
+        ):
+            blockers.append("benchmark_recipe_cohort_mismatch")
+        if sorted(self._registry_link(receipt) for receipt in candidate) != sorted(
+            self._registry_link(receipt) for receipt in baseline
+        ):
+            blockers.append("analyzer_registry_cohort_mismatch")
         wall_ratio = self._median_ratio(candidate, baseline, "wall_time_seconds")
         memory_ratio = self._median_ratio(candidate, baseline, "peak_memory_bytes")
         if wall_ratio is None:
@@ -469,6 +826,14 @@ class LocalModelBenchmarkStore:
             "baselineModelFingerprint": baseline_model_fingerprint,
             "taskKind": task_kind,
             "hardwareFingerprint": hardware_fingerprint,
+            "benchmarkEvidenceLinks": {
+                "candidate": [
+                    self._receipt_evidence_link(receipt) for receipt in candidate
+                ],
+                "baseline": [
+                    self._receipt_evidence_link(receipt) for receipt in baseline
+                ],
+            },
             "policy": {
                 "minimumCandidateSamples": policy.minimum_candidate_samples,
                 "minimumBaselineSamples": policy.minimum_baseline_samples,
@@ -629,6 +994,30 @@ class LocalModelBenchmarkStore:
         return found
 
     @staticmethod
+    def _recipe_link(receipt: BenchmarkReceipt) -> tuple[str, str]:
+        return (
+            receipt.benchmark_recipe_id or "",
+            receipt.benchmark_recipe_fingerprint or "",
+        )
+
+    @staticmethod
+    def _registry_link(receipt: BenchmarkReceipt) -> tuple[str, str]:
+        return (
+            receipt.analyzer_registry_id or "",
+            receipt.analyzer_registry_fingerprint or "",
+        )
+
+    @classmethod
+    def _receipt_evidence_link(cls, receipt: BenchmarkReceipt) -> dict[str, Any]:
+        return {
+            "benchmarkId": receipt.benchmark_id,
+            "benchmarkRecipeId": receipt.benchmark_recipe_id,
+            "benchmarkRecipeFingerprint": receipt.benchmark_recipe_fingerprint,
+            "analyzerRegistryId": receipt.analyzer_registry_id,
+            "analyzerRegistryFingerprint": receipt.analyzer_registry_fingerprint,
+        }
+
+    @staticmethod
     def _median_ratio(
         candidate: list[BenchmarkReceipt],
         baseline: list[BenchmarkReceipt],
@@ -745,29 +1134,56 @@ class LocalModelBenchmarkStore:
             "baselineModelFingerprint": payload.get("baselineModelFingerprint"),
             "taskKind": payload.get("taskKind"),
             "hardwareFingerprint": payload.get("hardwareFingerprint"),
+            "benchmarkEvidenceLinks": payload.get("benchmarkEvidenceLinks"),
             "policy": payload.get("policy"),
         }
         if fingerprint(evidence) != payload.get("evidenceFingerprint"):
             raise LocalQueueError("promotion_evidence_fingerprint_mismatch")
         receipts = self.all_receipts()
+        persisted_links = payload.get("benchmarkEvidenceLinks")
+        if not isinstance(persisted_links, dict):
+            raise LocalQueueError("promotion_benchmark_evidence_links_missing")
         for label in ("candidate", "baseline"):
             key = f"{label}BenchmarkIds"
             identifiers = payload.get(key)
             if not isinstance(identifiers, list) or not identifiers:
                 raise LocalQueueError(f"promotion_{label}_evidence_missing")
+            actual_links: list[dict[str, Any]] = []
             for identifier in identifiers:
                 receipt = receipts.get(str(identifier))
                 if receipt is None:
                     raise LocalQueueError(
                         f"promotion_{label}_benchmark_missing:{identifier}"
                     )
+                recipe, registry = self._load_receipt_evidence(receipt)
+                expected_versions = self._required_analyzers(
+                    benchmark_recipe=recipe,
+                    analyzer_registry=registry,
+                )
+                actual_links.append(self._receipt_evidence_link(receipt))
+                if set(expected_versions).difference(
+                    reference.check_id for reference in receipt.qc_references
+                ):
+                    raise LocalQueueError(
+                        f"promotion_{label}_required_qc_missing:{identifier}"
+                    )
                 for reference in receipt.qc_references:
                     self._verify_qc_reference(
-                        reference, expected_subject_sha256=receipt.output_sha256
+                        reference,
+                        expected_subject_sha256=receipt.output_sha256,
+                        expected_version=expected_versions.get(reference.check_id),
                     )
+            if actual_links != persisted_links.get(label):
+                raise LocalQueueError(
+                    f"promotion_{label}_benchmark_evidence_links_changed"
+                )
 
     def _verify_qc_reference(
-        self, reference: QCReference, *, expected_subject_sha256: str
+        self,
+        reference: QCReference,
+        *,
+        expected_subject_sha256: str,
+        expected_version: str | None = None,
     ) -> None:
         if reference.subject_sha256 != expected_subject_sha256:
             raise LocalQueueError(f"benchmark_qc_subject_mismatch:{reference.check_id}")
@@ -809,7 +1225,11 @@ class LocalModelBenchmarkStore:
             raise LocalQueueError(
                 f"benchmark_qc_receipt_subject_mismatch:{reference.check_id}"
             )
-        receipt_passed = _qc_receipt_verdict(payload, check_id=reference.check_id)
+        receipt_passed = _qc_receipt_verdict(
+            payload,
+            check_id=reference.check_id,
+            expected_version=expected_version,
+        )
         if receipt_passed != reference.passed:
             raise LocalQueueError(
                 f"benchmark_qc_receipt_passed_mismatch:{reference.check_id}"
@@ -843,6 +1263,7 @@ def _benchmark_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--root", type=Path)
     parser.add_argument("--queue-root", type=Path)
+    parser.add_argument("--implementation-root", type=Path)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status")
 
@@ -851,6 +1272,8 @@ def _benchmark_parser() -> argparse.ArgumentParser:
     record.add_argument("--lineage", required=True, type=Path)
     record.add_argument("--qc", required=True, action="append", type=_qc_argument)
     record.add_argument("--benchmark-id")
+    record.add_argument("--benchmark-recipe", required=True, type=Path)
+    record.add_argument("--analyzer-registry", required=True, type=Path)
 
     evaluate = sub.add_parser("evaluate")
     evaluate.add_argument("--candidate-benchmark-id", required=True, action="append")
@@ -903,6 +1326,19 @@ def _verify_completed_lineage(
     return lineage
 
 
+def _read_evidence_record(path: Path, *, kind: str) -> dict[str, Any]:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file() or resolved.is_symlink():
+        raise LocalQueueError(f"benchmark_{kind}_missing_or_unsafe")
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise LocalQueueError(f"benchmark_{kind}_invalid") from exc
+    if not isinstance(payload, dict):
+        raise LocalQueueError(f"benchmark_{kind}_invalid")
+    return payload
+
+
 def _evaluation_payload(evaluation: PromotionEvaluation) -> dict[str, Any]:
     return {
         "schema": PROMOTION_SCHEMA,
@@ -924,7 +1360,15 @@ def _evaluation_payload(evaluation: PromotionEvaluation) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _benchmark_parser().parse_args(argv)
-    store = default_local_model_benchmark_store(args.root)
+    root = args.root or os.environ.get("CREATOR_OS_LOCAL_MODEL_BENCHMARK_ROOT")
+    store = LocalModelBenchmarkStore(
+        (
+            Path(root).expanduser().resolve()
+            if root
+            else Path.home() / ".creator-os/state/reel_factory/local_benchmarks"
+        ),
+        implementation_root=args.implementation_root,
+    )
     try:
         if args.command == "status":
             payload: dict[str, Any] = {
@@ -954,6 +1398,12 @@ def main(argv: list[str] | None = None) -> int:
             if len(set(check_ids)) != len(check_ids):
                 raise LocalQueueError("benchmark_duplicate_qc_check_id")
             output_sha256 = str(terminal_payload["outputSha256"])
+            benchmark_recipe = _read_evidence_record(
+                args.benchmark_recipe, kind="recipe_evidence"
+            )
+            analyzer_registry = _read_evidence_record(
+                args.analyzer_registry, kind="analyzer_registry_evidence"
+            )
             references = tuple(
                 store.ingest_qc_reference(
                     check_id=check_id,
@@ -967,6 +1417,8 @@ def main(argv: list[str] | None = None) -> int:
                 job_id=args.job_id,
                 qc_references=references,
                 benchmark_id=args.benchmark_id,
+                benchmark_recipe=benchmark_recipe,
+                analyzer_registry=analyzer_registry,
             ).as_dict()
         elif args.command == "evaluate":
             receipts = store.all_receipts()

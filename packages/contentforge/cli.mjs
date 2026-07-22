@@ -4,9 +4,6 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { POST as similarityPost } from "./lib/similarity.js";
-import { evaluateMotionSpecificQc } from "./lib/motion-specific-qc.js";
-import { runVariantPack } from "./lib/variant-pack.js";
 import { PROJECT_ROOT, resolveUploadPath } from "./lib/paths.js";
 
 async function readPayload() {
@@ -38,6 +35,7 @@ async function main() {
   var payload = await readPayload();
   var result;
   if (command === "similarity") {
+    var { POST: similarityPost } = await import("./lib/similarity.js");
     var response = await similarityPost(
       new Request("http://contentforge.local/api/similarity", {
         method: "POST",
@@ -48,10 +46,12 @@ async function main() {
     result = await response.json();
     if (!response.ok) throw new Error(result.error || `similarity failed (${response.status})`);
   } else if (command === "variant-pack") {
+    var { runVariantPack } = await import("./lib/variant-pack.js");
     var source = payload.source || payload.inputFile;
     if (!resolveUploadPath(source)) throw new Error("invalid source upload");
     result = await runVariantPack(payload);
   } else if (command === "motion-qc") {
+    var { evaluateMotionSpecificQc } = await import("./lib/motion-specific-qc.js");
     if (typeof payload.mediaPath !== "string" || !payload.mediaPath.trim()) {
       throw new Error("motion-qc requires mediaPath");
     }
@@ -66,8 +66,17 @@ async function main() {
       ...payload.options,
       mediaSha256,
     });
+  } else if (command === "analyzer-registry") {
+    var { snapshotMotionSpecificQcAnalyzerRegistry } = await import(
+      "./lib/analyzer-registry.js"
+    );
+    result = await snapshotMotionSpecificQcAnalyzerRegistry({
+      producedAt: payload.producedAt,
+    });
   } else {
-    throw new Error("usage: contentforge <similarity|variant-pack|motion-qc> [request.json]");
+    throw new Error(
+      "usage: contentforge <similarity|variant-pack|motion-qc|analyzer-registry> [request.json]",
+    );
   }
   process.stdout.write(JSON.stringify(result) + "\n");
 }

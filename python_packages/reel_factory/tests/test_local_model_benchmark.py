@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from reel_factory.local_generation_queue import LocalGenerationJob, LocalGenerationQueue
+from reel_factory.local_generation_queue import fingerprint as queue_fingerprint
 from reel_factory.local_model_benchmark import (
     PROMOTION_MEMORY_MEASUREMENT_METHOD,
     BenchmarkReceipt,
@@ -19,23 +22,112 @@ from reel_factory.local_model_benchmark import (
     main as benchmark_main,
 )
 
+from pipeline_contracts import (
+    AnalyzerRegistrationV1,
+    AnalyzerRegistryV1,
+    AnalyzerRequirementV1,
+    BenchmarkRecipeV1,
+    ProvenanceV1,
+    SourceReferenceV1,
+)
+
 GIB = 1024**3
+ROOT = Path(__file__).resolve().parents[3]
+MOTION_QC_IMPLEMENTATION = ROOT / "packages/contentforge/lib/motion-specific-qc.js"
 
 
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _records(
+    *, input_fingerprint: str, parameter_fingerprint: str, task_kind: str
+) -> tuple[BenchmarkRecipeV1, AnalyzerRegistryV1]:
+    implementation_fingerprint = hashlib.sha256(
+        MOTION_QC_IMPLEMENTATION.read_bytes()
+    ).hexdigest()
+    provenance = ProvenanceV1(
+        producer="reel_factory.test",
+        produced_at="2026-07-22T12:00:00Z",
+        source_references=(
+            SourceReferenceV1(
+                record_id=f"benchmark-input:{input_fingerprint[:16]}",
+                fingerprint=input_fingerprint,
+            ),
+        ),
+    )
+    recipe = BenchmarkRecipeV1(
+        recipe_id=f"benchmark-recipe-{input_fingerprint[:16]}",
+        content_intent_id=f"intent-{input_fingerprint[:16]}",
+        execution_policy_schema="campaign_factory.generation_execution_plan.v1",
+        execution_policy_fingerprint=_sha("local-provider-free-policy"),
+        task_kind=task_kind,
+        input_fingerprints=(input_fingerprint,),
+        parameter_fingerprint=parameter_fingerprint,
+        required_analyzers=(
+            AnalyzerRequirementV1(
+                analyzer_id="contentforge.motion_specific_qc",
+                analyzer_version="1.0.0",
+            ),
+        ),
+        expected_provider_calls=0,
+        production_writes_allowed=False,
+        provenance=provenance,
+    )
+    registry = AnalyzerRegistryV1(
+        registry_id=f"contentforge-motion-qc-{implementation_fingerprint[:16]}",
+        analyzers=(
+            AnalyzerRegistrationV1(
+                analyzer_id="contentforge.motion_specific_qc",
+                analyzer_version="1.0.0",
+                evidence_kinds=("motion_specific_qc_receipt",),
+                implementation_ref="packages/contentforge/lib/motion-specific-qc.js",
+                implementation_fingerprint=implementation_fingerprint,
+            ),
+        ),
+        provenance=ProvenanceV1(
+            producer="contentforge.analyzer_registry_adapter",
+            produced_at="2026-07-22T12:00:00Z",
+            source_references=(
+                SourceReferenceV1(
+                    record_id="contentforge.motion_specific_qc@1.0.0",
+                    fingerprint=implementation_fingerprint,
+                ),
+            ),
+        ),
+    )
+    return recipe, registry
+
+
+def _records_for_job(
+    job: LocalGenerationJob,
+) -> tuple[BenchmarkRecipeV1, AnalyzerRegistryV1]:
+    return _records(
+        input_fingerprint=job.input_fingerprint,
+        parameter_fingerprint=job.params_fingerprint,
+        task_kind=job.task_kind,
+    )
+
+
 def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
+    input_fingerprint = _sha(task_input)
+    params = {"frames": 81, "seed": 9}
+    recipe, registry = _records(
+        input_fingerprint=input_fingerprint,
+        parameter_fingerprint=queue_fingerprint(params),
+        task_kind="image_to_video",
+    )
     return LocalGenerationJob.create(
         job_id=job_id,
         model_id=model,
         model_revision="revision-1",
         model_manifest_sha256=_sha(model),
         task_kind="image_to_video",
-        input_sha256=_sha(task_input),
+        input_sha256=input_fingerprint,
         requested_memory_bytes=GIB,
-        params={"frames": 81, "seed": 9},
+        params=params,
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
     )
 
 
@@ -97,6 +189,7 @@ def _complete_and_benchmark(
     benchmark_id: str,
     qc_passed: bool = True,
 ) -> BenchmarkReceipt:
+    benchmark_recipe, analyzer_registry = _records_for_job(job)
     measurement = LocalExecutionMeasurement(
         wall_time_seconds=0.01,
         peak_memory_bytes=GIB,
@@ -149,6 +242,8 @@ def _complete_and_benchmark(
             passed=qc_passed,
         ),
         benchmark_id=benchmark_id,
+        benchmark_recipe=benchmark_recipe,
+        analyzer_registry=analyzer_registry,
     )
 
 
@@ -205,6 +300,10 @@ def test_benchmark_is_bound_to_succeeded_job_and_measured_hardware(
     assert receipt.task_fingerprint == job.task_fingerprint
     assert receipt.output_sha256 == _sha("output-job")
     assert receipt.qc_references[0].subject_sha256 == receipt.output_sha256
+    assert receipt.benchmark_recipe_id == job.benchmark_recipe_id
+    assert receipt.benchmark_recipe_fingerprint == job.benchmark_recipe_fingerprint
+    assert receipt.analyzer_registry_id == job.analyzer_registry_id
+    assert receipt.analyzer_registry_fingerprint == job.analyzer_registry_fingerprint
 
 
 def test_benchmark_rejects_nonterminal_job(tmp_path: Path) -> None:
@@ -237,10 +336,13 @@ def test_benchmark_rejects_success_without_measured_terminal_event(
             output_path=output,
         )
     with pytest.raises(RuntimeError, match="missing_execution_measurement"):
+        recipe, registry = _records_for_job(job)
         store.record_completed_job(
             queue,
             job_id=job.job_id,
             qc_references=_qc(subject_sha256=_sha("output-job")),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
         )
 
 
@@ -284,11 +386,14 @@ def test_missing_or_substituted_qc_receipt_is_rejected(tmp_path: Path) -> None:
     store = LocalModelBenchmarkStore(tmp_path / "evidence")
     job = _job("job", "wan", "shot-a")
     _complete_queue_job(queue, job)
+    recipe, registry = _records_for_job(job)
     with pytest.raises(RuntimeError, match="qc_receipt_missing"):
         store.record_completed_job(
             queue,
             job_id="job",
             qc_references=_qc(subject_sha256=_sha("output-job")),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
         )
     receipt = store.root / "evidence" / "contentforge.motion_specific_qc.json"
     receipt.parent.mkdir(parents=True)
@@ -298,6 +403,8 @@ def test_missing_or_substituted_qc_receipt_is_rejected(tmp_path: Path) -> None:
             queue,
             job_id="job",
             qc_references=_qc(subject_sha256=_sha("output-job")),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
         )
 
 
@@ -329,8 +436,15 @@ def test_qc_caller_verdict_must_match_bound_receipt(tmp_path: Path) -> None:
         subject_sha256=_sha("output-job"),
         passed=True,
     )
+    recipe, registry = _records_for_job(job)
     with pytest.raises(RuntimeError, match="passed_mismatch"):
-        store.record_completed_job(queue, job_id="job", qc_references=(forged,))
+        store.record_completed_job(
+            queue,
+            job_id="job",
+            qc_references=(forged,),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
 
 
 def test_operator_qc_ingest_rejects_unsupported_policy(tmp_path: Path) -> None:
@@ -572,6 +686,11 @@ def test_operator_cli_records_output_bound_qc_receipt(
         ),
         encoding="utf-8",
     )
+    recipe, registry = _records_for_job(job)
+    recipe_path = tmp_path / "benchmark-recipe.json"
+    registry_path = tmp_path / "analyzer-registry.json"
+    recipe_path.write_text(json.dumps(recipe.to_dict()), encoding="utf-8")
+    registry_path.write_text(json.dumps(registry.to_dict()), encoding="utf-8")
     assert (
         benchmark_main(
             [
@@ -588,6 +707,10 @@ def test_operator_cli_records_output_bound_qc_receipt(
                 f"contentforge.motion_specific_qc={qc}",
                 "--benchmark-id",
                 "operator-benchmark",
+                "--benchmark-recipe",
+                str(recipe_path),
+                "--analyzer-registry",
+                str(registry_path),
             ]
         )
         == 0
@@ -650,3 +773,350 @@ def test_benchmark_module_contains_no_provider_or_publish_integration() -> None:
     assert "qstash" not in source.lower()
     assert "threadsdashboard" not in source.lower()
     assert "supabase" not in source.lower()
+
+
+def test_historical_receipt_reads_without_invented_evidence_linkage() -> None:
+    payload = {
+        "schema": "reel_factory.local_model_benchmark.v1",
+        "benchmarkId": "historical",
+        "jobId": "historical-job",
+        "modelFingerprint": "historical-model",
+        "taskFingerprint": "historical-task",
+        "taskKind": "image_to_video",
+        "hardwareFingerprint": "historical-hardware",
+        "outputSha256": _sha("historical-output"),
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1,
+        "memoryMeasurementMethod": PROMOTION_MEMORY_MEASUREMENT_METHOD,
+        "qcReferences": [
+            {
+                "checkId": "contentforge.motion_specific_qc",
+                "receiptUri": "qc/historical.json",
+                "receiptSha256": _sha("historical-qc"),
+                "subjectSha256": _sha("historical-output"),
+                "passed": True,
+            }
+        ],
+        "source": "measured_local_execution",
+    }
+
+    receipt = BenchmarkReceipt.from_dict(payload)
+
+    assert receipt.benchmark_recipe_id is None
+    assert receipt.analyzer_registry_id is None
+    assert receipt.as_dict() == payload
+
+
+def test_record_rejects_recipe_that_did_not_create_queue_job(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _complete_queue_job(queue, _job("job", "wan", "shot-a"))
+    recipe, registry = _records_for_job(job)
+    wrong_recipe = replace(recipe, recipe_id="wrong-recipe")
+
+    with pytest.raises(RuntimeError, match="job_recipe_linkage_mismatch"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=_write_qc(
+                store,
+                job_id=job.job_id,
+                subject_sha256=_sha("output-job"),
+                passed=True,
+            ),
+            benchmark_recipe=wrong_recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_new_measurement_requires_evidence_linked_queue_job(tmp_path: Path) -> None:
+    input_fingerprint = _sha("shot-a")
+    params = {"frames": 81, "seed": 9}
+    recipe, registry = _records(
+        input_fingerprint=input_fingerprint,
+        parameter_fingerprint=queue_fingerprint(params),
+        task_kind="image_to_video",
+    )
+    job = LocalGenerationJob.create(
+        job_id="unlinked",
+        model_id="wan",
+        model_revision="revision-1",
+        model_manifest_sha256=_sha("wan"),
+        task_kind="image_to_video",
+        input_sha256=input_fingerprint,
+        requested_memory_bytes=GIB,
+        params=params,
+    )
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    job = _complete_queue_job(queue, job)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+
+    with pytest.raises(RuntimeError, match="job_recipe_linkage_missing"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=_write_qc(
+                store,
+                job_id=job.job_id,
+                subject_sha256=_sha("output-unlinked"),
+                passed=True,
+            ),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_queue_preserves_multi_input_recipe_identity_without_collapsing_it() -> None:
+    params = {"frames": 81, "seed": 9}
+    recipe, registry = _records(
+        input_fingerprint=_sha("source-a"),
+        parameter_fingerprint=_sha("semantic-parameters"),
+        task_kind="image_to_video",
+    )
+    recipe = replace(
+        recipe,
+        input_fingerprints=(_sha("source-a"), _sha("source-b")),
+    )
+
+    job = LocalGenerationJob.create(
+        job_id="multi-input",
+        model_id="wan",
+        model_revision="revision-1",
+        model_manifest_sha256=_sha("wan"),
+        task_kind="image_to_video",
+        input_sha256=_sha("aggregate-input-manifest"),
+        requested_memory_bytes=GIB,
+        params=params,
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+    )
+
+    assert job.benchmark_recipe_id == recipe.recipe_id
+    assert job.benchmark_recipe_fingerprint == queue_fingerprint(recipe.to_dict())
+    assert job.input_fingerprint == _sha("aggregate-input-manifest")
+
+
+def test_record_rejects_analyzer_registry_drift_from_queue_job(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _complete_queue_job(queue, _job("job", "wan", "shot-a"))
+    recipe, registry = _records_for_job(job)
+    drifted_registry = replace(registry, registry_id="drifted-registry")
+
+    with pytest.raises(RuntimeError, match="job_analyzer_registry_drift"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=_write_qc(
+                store,
+                job_id=job.job_id,
+                subject_sha256=_sha("output-job"),
+                passed=True,
+            ),
+            benchmark_recipe=recipe,
+            analyzer_registry=drifted_registry,
+        )
+
+
+def test_record_rejects_changed_analyzer_implementation(tmp_path: Path) -> None:
+    implementation_root = tmp_path / "implementation-root"
+    implementation = (
+        implementation_root / "packages/contentforge/lib/motion-specific-qc.js"
+    )
+    implementation.parent.mkdir(parents=True)
+    implementation.write_bytes(MOTION_QC_IMPLEMENTATION.read_bytes())
+    input_fingerprint = _sha("shot-a")
+    params = {"frames": 81, "seed": 9}
+    recipe, registry = _records(
+        input_fingerprint=input_fingerprint,
+        parameter_fingerprint=queue_fingerprint(params),
+        task_kind="image_to_video",
+    )
+    implementation_fingerprint = hashlib.sha256(implementation.read_bytes()).hexdigest()
+    registration = replace(
+        registry.analyzers[0],
+        implementation_fingerprint=implementation_fingerprint,
+    )
+    registry = replace(
+        registry,
+        registry_id=f"test-registry-{implementation_fingerprint[:16]}",
+        analyzers=(registration,),
+        provenance=replace(
+            registry.provenance,
+            source_references=(
+                SourceReferenceV1(
+                    record_id="contentforge.motion_specific_qc@1.0.0",
+                    fingerprint=implementation_fingerprint,
+                ),
+            ),
+        ),
+    )
+    job = LocalGenerationJob.create(
+        job_id="job",
+        model_id="wan",
+        model_revision="revision-1",
+        model_manifest_sha256=_sha("wan"),
+        task_kind="image_to_video",
+        input_sha256=input_fingerprint,
+        requested_memory_bytes=GIB,
+        params=params,
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+    )
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    job = _complete_queue_job(queue, job)
+    store = LocalModelBenchmarkStore(
+        tmp_path / "evidence", implementation_root=implementation_root
+    )
+    implementation.write_text("changed implementation", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="analyzer_implementation_drift"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=_write_qc(
+                store,
+                job_id=job.job_id,
+                subject_sha256=_sha("output-job"),
+                passed=True,
+            ),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_record_requires_exact_qc_for_every_recipe_analyzer(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _complete_queue_job(queue, _job("job", "wan", "shot-a"))
+    recipe, registry = _records_for_job(job)
+
+    with pytest.raises(RuntimeError, match="required_qc_missing"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=(),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_duplicate_benchmark_identity_fails_closed(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _job("job", "wan", "shot-a")
+    receipt = _complete_and_benchmark(
+        queue, store, job, benchmark_id="duplicate-benchmark"
+    )
+    recipe, registry = _records_for_job(job)
+
+    with pytest.raises(RuntimeError, match="duplicate_benchmark_id"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=receipt.qc_references,
+            benchmark_id=receipt.benchmark_id,
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_same_queue_job_cannot_be_counted_as_a_second_receipt(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _job("job", "wan", "shot-a")
+    receipt = _complete_and_benchmark(queue, store, job, benchmark_id="first")
+    recipe, registry = _records_for_job(job)
+
+    with pytest.raises(RuntimeError, match="duplicate_benchmark_job_id"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=receipt.qc_references,
+            benchmark_id="second",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+def test_interrupted_job_cannot_create_benchmark_receipt(tmp_path: Path) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    job = _job("interrupted", "wan", "shot-a")
+    queue.submit(job)
+    with queue.worker_session() as lease:
+        queue.start_next(lease)
+        queue.interrupt(lease, job.job_id, reason="operator_interrupt")
+    recipe, registry = _records_for_job(job)
+
+    with pytest.raises(RuntimeError, match="requires_succeeded_job:.*interrupted"):
+        store.record_completed_job(
+            queue,
+            job_id=job.job_id,
+            qc_references=(),
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+    assert store.all_receipts() == {}
+
+
+def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> None:
+    registry_request = tmp_path / "registry-request.json"
+    registry_path = tmp_path / "analyzer-registry.json"
+    registry_request.write_text(
+        json.dumps({"producedAt": "2026-07-22T12:00:00Z"}), encoding="utf-8"
+    )
+    adapter = subprocess.run(
+        [
+            "node",
+            str(ROOT / "packages/contentforge/cli.mjs"),
+            "analyzer-registry",
+            str(registry_request),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert adapter.returncode == 0, adapter.stderr
+    adapter_registry = AnalyzerRegistryV1.from_dict(json.loads(adapter.stdout))
+    registry_path.write_text(json.dumps(adapter_registry.to_dict()), encoding="utf-8")
+    canary_root = tmp_path / "canary"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "reel_factory.benchmark_evidence_canary",
+            "--root",
+            str(canary_root),
+            "--analyzer-registry",
+            str(registry_path),
+            "--repository-root",
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+
+    assert result["providerCalls"] == 0
+    assert result["productionWrites"] == 0
+    assert result["promotionEvaluation"]["eligible"] is True
+    assert len(result["benchmarkReceipts"]) == 2
+    assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 2
+    for receipt in result["benchmarkReceipts"]:
+        assert receipt["benchmarkRecipeId"] == result["benchmarkRecipeId"]
+        assert (
+            receipt["benchmarkRecipeFingerprint"]
+            == result["benchmarkRecipeFingerprint"]
+        )
+        assert receipt["analyzerRegistryId"] == result["analyzerRegistryId"]
+        assert receipt["qcReferences"][0]["subjectSha256"] == receipt["outputSha256"]
+        assert receipt["wallTimeSeconds"] > 0
+        assert receipt["peakMemoryBytes"] > 0
+        assert receipt["memoryMeasurementMethod"] == PROMOTION_MEMORY_MEASUREMENT_METHOD
