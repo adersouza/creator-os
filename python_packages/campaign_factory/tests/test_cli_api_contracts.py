@@ -120,7 +120,8 @@ def test_export_threadsdash_api_allows_explicit_v2_rollback(monkeypatch):
     assert captured["draft_payload_schema"] == "v2"
 
 
-def test_cli_json_output_redacts_nested_secrets(capsys):
+def test_cli_json_output_redacts_nested_secrets(capsys, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "embedded-service-secret")
     print_json(
         {
             "status": "ok",
@@ -128,6 +129,7 @@ def test_cli_json_output_redacts_nested_secrets(capsys):
             "nested": {
                 "access_token": "access-secret",
                 "captionKey": "non-secret-identifier",
+                "error": "provider echoed embedded-service-secret in its response",
             },
         }
     )
@@ -137,6 +139,7 @@ def test_cli_json_output_redacts_nested_secrets(capsys):
     assert payload["supabaseServiceRoleKey"] == "[REDACTED]"
     assert payload["nested"]["access_token"] == "[REDACTED]"
     assert payload["nested"]["captionKey"] == "non-secret-identifier"
+    assert payload["nested"]["error"] == "provider echoed [REDACTED] in its response"
 
 
 @pytest.mark.parametrize(

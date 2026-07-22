@@ -31,26 +31,37 @@ def _is_sensitive_key(key: object) -> bool:
     return any(token in normalized for token in _SENSITIVE_KEY_TOKENS)
 
 
-def _redact_sensitive(value: Any) -> Any:
+def _known_secret_values() -> tuple[str, ...]:
+    values = {
+        value for key, value in os.environ.items() if value and _is_sensitive_key(key)
+    }
+    return tuple(sorted(values, key=len, reverse=True))
+
+
+def _redact_sensitive(
+    value: Any, *, secret_values: tuple[str, ...] | None = None
+) -> Any:
+    secrets = _known_secret_values() if secret_values is None else secret_values
     if isinstance(value, Mapping):
         return {
-            key: "[REDACTED]" if _is_sensitive_key(key) else _redact_sensitive(item)
+            key: "[REDACTED]"
+            if _is_sensitive_key(key)
+            else _redact_sensitive(item, secret_values=secrets)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return [_redact_sensitive(item) for item in value]
+        return [_redact_sensitive(item, secret_values=secrets) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for secret in secrets:
+            redacted = redacted.replace(secret, "[REDACTED]")
+        return redacted
     return value
 
 
 def print_json(value: Any) -> None:
     safe_value = _redact_sensitive(value)
-    # The output is recursively redacted immediately above. Keep the suppression
-    # local to this reviewed sink so future direct print calls remain detectable.
-    print(
-        json.dumps(  # lgtm[py/clear-text-logging-sensitive-data]
-            safe_value, indent=2, ensure_ascii=False
-        )
-    )
+    print(json.dumps(safe_value, indent=2, ensure_ascii=False))
 
 
 def load_json_object(path: str | None) -> dict | None:
