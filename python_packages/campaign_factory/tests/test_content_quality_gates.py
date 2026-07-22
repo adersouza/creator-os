@@ -1050,7 +1050,9 @@ def test_archive_candidate_quality_report_blocks_when_ranked_inventory_is_short(
         cf.close()
 
 
-def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
+def test_publishability_allows_styled_burned_caption_when_placement_passes(
+    tmp_path: Path,
+):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -1094,10 +1096,10 @@ def test_publishability_blocks_shouty_live_burned_caption(tmp_path: Path):
 
         publishability = cf.domains.publishability.explain_publishability("asset_1")
 
-        assert publishability["burnedCaptionQualityPassed"] is False
+        assert publishability["burnedCaptionQualityPassed"] is True
         assert (
             "burned_caption_quality_failed"
-            in publishability["publishability_failure_reasons"]
+            not in publishability["publishability_failure_reasons"]
         )
         assert (
             "caption_placement_qc_failed"
@@ -1876,7 +1878,7 @@ def test_publishability_blocks_unavailable_visual_qc_or_identity_verification(
         cf.close()
 
 
-def test_publishability_blocks_reel_captions_with_text_me_language(tmp_path: Path):
+def test_publishability_allows_conversational_text_me_language(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         add_rendered_asset(cf, tmp_path)
@@ -1902,15 +1904,12 @@ def test_publishability_blocks_reel_captions_with_text_me_language(tmp_path: Pat
 
         explanation = cf.domains.publishability.explain_publishability("asset_1")
 
-        assert explanation["publishableCandidate"] is False
         assert (
             "unsafe_reel_caption_link_or_dm_reference"
-            in explanation["publishability_failure_reasons"]
+            not in explanation["publishability_failure_reasons"]
         )
-        assert explanation["checks"]["reel_caption_account_safety_passed"] is False
-        assert {
-            item["reason"] for item in explanation["reelCaptionAccountSafetyViolations"]
-        } == {"dm_reference"}
+        assert explanation["checks"]["reel_caption_account_safety_passed"] is True
+        assert explanation["reelCaptionAccountSafetyViolations"] == []
     finally:
         cf.close()
 

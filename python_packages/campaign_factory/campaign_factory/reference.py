@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -675,11 +674,9 @@ class ReferenceRepository:
             if text and normalized not in seen:
                 seen.add(normalized)
                 candidates.append((text, formula_index, "caption_formula"))
-        safe_candidates = [
+        candidates = [
             item for item in candidates if self.reference_hook_is_schedule_safe(item[0])
         ]
-        if safe_candidates:
-            candidates = safe_candidates
         if not candidates:
             for fallback in self._reference_hook_fallbacks:
                 candidates.append((fallback, 0, "simple_native_fallback"))
@@ -709,33 +706,9 @@ class ReferenceRepository:
             return False
         if "{" in normalized or "}" in normalized:
             return False
-        if len(normalized) > 42:
-            return False
-        plain = (
-            normalized.replace("’", "'")
-            .replace("‘", "'")
-            .replace("“", '"')
-            .replace("”", '"')
-            .replace("–", "-")
-            .replace("—", "-")
-        )
-        if any(ord(char) > 127 for char in plain):
-            return False
-        if len(plain.split()) > 7:
-            return False
-        if normalized.count("!") > 1:
-            return False
-        letters = [char for char in normalized if char.isalpha()]
-        if letters:
-            upper_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
-            if upper_ratio >= 0.75:
-                return False
-        if re.search(
-            r"\b(go\s+)?live\b|\bsubscribe\b|\bvip\b|\btonight\b|\bcan't resist\b|\bcant resist\b|\bgood boy\b|\btake it off\b",
-            normalized,
-            re.IGNORECASE,
-        ):
-            return False
+        # Rendering and ContentForge own readability, glyph support, fit, and
+        # placement. This gate blocks only unfinished copy and explicit
+        # discoverability/off-platform risks.
         if (
             self._discoverability_safe_content_contract(normalized).get(
                 "discoverabilitySafe"

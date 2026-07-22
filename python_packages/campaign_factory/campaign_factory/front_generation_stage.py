@@ -25,7 +25,6 @@ from .core import (
     slugify,
 )
 from .generation_execution_plan import GenerationExecutionPlan
-from .kling_selection_stage import validate_kling_selection_receipt
 from .persistence import utc_now
 from .provider_spend import (
     consume_provider_spend_authorization,
@@ -33,7 +32,6 @@ from .provider_spend import (
     record_provider_execution,
 )
 from .static_mp4_stage import run_static_mp4_stage
-from .variation_stage import run_variation_stage
 
 SCHEMA = "campaign_factory.front_generation_plan.v1"
 ACCEPTED_STILL_PLACEHOLDER = "<accepted_still_path_after_review>"
@@ -54,7 +52,6 @@ def run_front_generation_stage(
     enable_paid_generation: bool = False,
     budget_cap_credits: float | None = None,
     accepted_still_path: Path | None = None,
-    kling_selection_receipt_path: Path | None = None,
     wait: bool = False,
     download: bool = False,
     enable_variation: bool = False,
@@ -62,22 +59,13 @@ def run_front_generation_stage(
 ) -> dict[str, Any]:
     """Plan or submit the paid front-generation path behind fail-closed guards."""
     execution_plan_payload = execution_plan.to_contract()
-    if execution_plan.creative_mode not in {"soul_static", "best_only_kling"}:
+    if execution_plan.creative_mode != "soul_static":
         raise ValueError(
             f"{execution_plan.creative_mode} does not use the front-generation worker"
         )
     animation_mode = execution_plan.front_animation_mode
-    if (
-        execution_plan.creative_mode == "best_only_kling"
-        and accepted_still_path is None
-    ):
-        raise ValueError("best_only_kling requires an accepted still")
-    if animation_mode != "kling" and kling_selection_receipt_path is not None:
-        raise ValueError("Kling selection receipt requires best_only_kling mode")
     if not creator and not soul_id and not soul_name:
         raise ValueError("creator, soul_id, or soul_name is required")
-    if kling_selection_receipt_path is not None and accepted_still_path is None:
-        raise ValueError("Kling selection receipt requires an accepted still")
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
@@ -100,7 +88,6 @@ def run_front_generation_stage(
     paid_generation_required = _paid_generation_required(
         execution_plan=execution_plan,
         accepted_still_path=accepted_still_path,
-        kling_selection_receipt_path=kling_selection_receipt_path,
     )
     if apply and not dry_run and paid_generation_required:
         require_global_write_allowed("paid front generation")
@@ -120,9 +107,6 @@ def run_front_generation_stage(
             "budgetCapScope": "per_provider_call",
             "acceptedStillPath": str(accepted_still_path)
             if accepted_still_path
-            else None,
-            "klingSelectionReceiptPath": str(kling_selection_receipt_path)
-            if kling_selection_receipt_path
             else None,
             "wait": wait,
             "download": download,
@@ -152,7 +136,6 @@ def run_front_generation_stage(
             execution_plan_path=execution_plan_path,
             prompt_path=prompt_path,
             accepted_still_path=accepted_still_path,
-            kling_selection_receipt_path=kling_selection_receipt_path,
             dry_run=dry_run or not apply,
             budget_cap_credits=budget_cap_credits,
             wait=wait,
@@ -197,42 +180,6 @@ def run_front_generation_stage(
         registered_static_asset = (
             registered_static_assets[0] if registered_static_assets else None
         )
-        registered_asset = None
-        variation = None
-        if (
-            apply
-            and not dry_run
-            and accepted_still_path
-            and execution_plan.motion_strategy == "kling_best_only"
-        ):
-            video_result = _stage_result(stages, "kling_video")
-            video_path = _local_video_path(video_result)
-            if video_path is not None:
-                registered_asset = _register_kling_rendered_asset(
-                    factory,
-                    campaign=campaign,
-                    source_asset=_source_asset_for_campaign(factory, campaign["id"]),
-                    video_path=video_path,
-                    video_result=video_result,
-                    plan=plan,
-                    accepted_still_path=Path(accepted_still_path)
-                    .expanduser()
-                    .resolve(),
-                    estimated_video_cost_credits=_provider_quote_amount(video_result),
-                    kling_selection_receipt=video_result.get("klingSelectionReceipt"),
-                )
-                if enable_variation:
-                    variation = run_variation_stage(
-                        factory,
-                        campaign_slug=campaign_slug,
-                        preset_name=variation_preset,
-                        rendered_asset_ids=[registered_asset["id"]],
-                        dry_run=True,
-                    )
-            elif enable_variation:
-                raise ValueError(
-                    "front generation variation requires a downloaded local Kling video; pass --wait --download"
-                )
         result = {
             "schema": "campaign_factory.front_generation_stage_run.v1",
             "campaign": campaign_slug,
@@ -242,8 +189,8 @@ def run_front_generation_stage(
             "plan": plan,
             "registeredStaticAsset": registered_static_asset,
             "registeredStaticAssets": registered_static_assets,
-            "registeredAsset": registered_asset,
-            "variation": variation,
+            "registeredAsset": None,
+            "variation": None,
             "promptPath": str(prompt_path),
             "pipelineJobId": pipeline_job["id"],
         }
@@ -260,12 +207,8 @@ def _paid_generation_required(
     *,
     execution_plan: GenerationExecutionPlan,
     accepted_still_path: Path | None,
-    kling_selection_receipt_path: Path | None,
 ) -> bool:
-    return (execution_plan.paid_image_generation and accepted_still_path is None) or (
-        execution_plan.paid_video_generation
-        and kling_selection_receipt_path is not None
-    )
+    return execution_plan.paid_image_generation and accepted_still_path is None
 
 
 def _budget_status(
@@ -325,14 +268,12 @@ def _build_stages(
     execution_plan_path: Path,
     prompt_path: Path,
     accepted_still_path: Path | None,
-    kling_selection_receipt_path: Path | None,
     dry_run: bool,
     budget_cap_credits: float | None,
     wait: bool,
     download: bool,
 ) -> list[dict[str, Any]]:
     stages: list[dict[str, Any]] = []
-    animation_mode = execution_plan.front_animation_mode
     if accepted_still_path is None:
         static_batches: list[dict[str, Any]] = []
         image_result = _invoke_generate_assets(
@@ -475,7 +416,7 @@ def _build_stages(
                     "commands": [],
                     "reason": (
                         "QC-passing stills already have zero-cost static fallbacks; "
-                        "human review now selects handoff and optional Kling candidates."
+                        "human review now selects the approved handoff candidates."
                     ),
                 }
             )
@@ -531,61 +472,6 @@ def _build_stages(
             "estimatedCostCredits": 0,
             "commands": [static_result["render"].get("ffmpegCommand") or []],
             "result": static_result,
-        }
-    )
-    if animation_mode == "static":
-        return stages
-    if kling_selection_receipt_path is None:
-        stages.append(
-            {
-                "name": "kling_video",
-                "status": "blocked",
-                "paid": True,
-                "estimatedCostCredits": None,
-                "commands": [],
-                "reason": (
-                    "Kling is blocked until this static candidate wins an "
-                    "approved multi-candidate ranking batch."
-                ),
-            }
-        )
-        return stages
-    selection = validate_kling_selection_receipt(
-        factory,
-        receipt_path=kling_selection_receipt_path,
-        accepted_still_path=accepted_still,
-        selected_static_asset=static_result.get("registeredAsset"),
-    )
-    video_result = _invoke_generate_assets(
-        factory,
-        [
-            "video-dry-run" if dry_run else "video",
-            "--prompt-json",
-            str(prompt_path),
-            "--stem",
-            stem,
-            "--start-image",
-            str(accepted_still),
-            "--campaign",
-            campaign_slug,
-            *_credit_args(campaign_slug, budget_cap_credits),
-            *_soul_args(creator=creator, soul_id=soul_id, soul_name=soul_name),
-            *_runtime_generation_args(wait=wait, download=download, dry_run=dry_run),
-            "--execution-plan-file",
-            str(execution_plan_path),
-        ],
-    )
-    if not dry_run:
-        _require_generation_ok(video_result, "Kling video")
-    video_result["klingSelectionReceipt"] = selection
-    stages.append(
-        {
-            "name": "kling_video",
-            "status": "planned" if dry_run else "submitted",
-            "paid": True,
-            "estimatedCostCredits": _provider_quote_amount(video_result),
-            "commands": video_result.get("commands") or [],
-            "result": video_result,
         }
     )
     return stages
@@ -1162,117 +1048,6 @@ def _stage_result(stages: list[dict[str, Any]], name: str) -> dict[str, Any]:
     return {}
 
 
-def _local_video_path(video_result: dict[str, Any]) -> Path | None:
-    if not video_result.get("ok", False):
-        return None
-    lineage = video_result.get("lineage")
-    if not isinstance(lineage, dict):
-        return None
-    assets = lineage.get("assets")
-    if not isinstance(assets, dict):
-        return None
-    local_paths = assets.get("localPaths")
-    if not isinstance(local_paths, dict):
-        return None
-    for key in ("video", "output", "mp4"):
-        value = local_paths.get(key)
-        if not value:
-            continue
-        path = Path(str(value)).expanduser().resolve()
-        if path.exists() and path.is_file():
-            return path
-    return None
-
-
-def _register_kling_rendered_asset(
-    factory: Any,
-    *,
-    campaign: dict[str, Any],
-    source_asset: dict[str, Any],
-    video_path: Path,
-    video_result: dict[str, Any],
-    plan: dict[str, Any],
-    accepted_still_path: Path,
-    estimated_video_cost_credits: float | None,
-    kling_selection_receipt: dict[str, Any] | None,
-) -> dict[str, Any]:
-    if video_path.stat().st_size <= 0:
-        raise FileNotFoundError(f"Kling video output is empty: {video_path}")
-    rendered_id = new_id("asset")
-    digest = sha256_file(video_path)
-    now = utc_now()
-    lineage_path = video_result.get("path") or video_result.get("lineage_path")
-    caption_generation = {
-        "schema": "campaign_factory.caption_generation.v1",
-        "workflow": "front_generation_soul_to_kling",
-        "animationMode": "kling",
-        "paidGeneration": True,
-        "estimatedCostCredits": estimated_video_cost_credits,
-        "frontGenerationPlan": plan,
-        "generatedAssetLineagePath": lineage_path,
-        "acceptedStillPath": str(accepted_still_path),
-        "klingSelectionReceipt": kling_selection_receipt,
-        "humanReviewRequired": True,
-    }
-    metadata = {
-        "frontGeneration": {
-            "animationMode": "kling",
-            "paidGeneration": True,
-            "estimatedCostCredits": estimated_video_cost_credits,
-            "acceptedStillPath": str(accepted_still_path),
-            "generatedAssetLineagePath": lineage_path,
-            "klingSelectionReceipt": kling_selection_receipt,
-        },
-        "humanReviewRequired": True,
-    }
-    factory.conn.execute(
-        """
-        INSERT INTO rendered_assets
-        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path, filename,
-         media_type, content_surface, caption_generation_json, recipe, target_ratio, metadata_json,
-         audit_status, review_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'video', 'reel', ?, 'kling_front_generation', '9:16', ?, 'pending', 'review_ready', ?, ?)
-        """,
-        (
-            rendered_id,
-            campaign["id"],
-            source_asset["id"],
-            digest,
-            str(video_path),
-            str(video_path),
-            video_path.name,
-            json.dumps(
-                sanitize_for_storage(caption_generation),
-                ensure_ascii=False,
-                sort_keys=True,
-            ),
-            json.dumps(
-                sanitize_for_storage(metadata), ensure_ascii=False, sort_keys=True
-            ),
-            now,
-            now,
-        ),
-    )
-    factory.conn.commit()
-    return dict(
-        factory.conn.execute(
-            "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)
-        ).fetchone()
-    )
-
-
-def _source_asset_for_campaign(factory: Any, campaign_id: str) -> dict[str, Any]:
-    row = factory.conn.execute(
-        "SELECT * FROM source_assets WHERE campaign_id = ? ORDER BY created_at, id LIMIT 1",
-        (campaign_id,),
-    ).fetchone()
-    if not row:
-        raise ValueError(
-            "campaign must have at least one source asset before front-generation registration"
-        )
-    return dict(row)
-
-
 def _write_prompt_pack(
     path: Path, *, scene_type: str, reference_pattern: dict[str, Any] | None = None
 ) -> Path:
@@ -1292,7 +1067,7 @@ def _write_prompt_pack(
             "natural breathing, small posture movement, and restrained fabric motion."
             f"{guidance_text}"
         ),
-        "notes": "Generated by Campaign Factory front-generation stage for accepted-still Kling planning.",
+        "notes": "Generated by Campaign Factory for Soul still generation and a reusable motion handoff prompt.",
     }
     if guidance:
         payload["learnedPromptGuidance"] = guidance

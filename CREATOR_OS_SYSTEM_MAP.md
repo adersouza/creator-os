@@ -498,19 +498,26 @@ code no longer defaults generated exports back into a Git checkout.
 ### Active
 
 - `generate_assets.py`: narrow command orchestration for direct reference-image
-  Soul generation and optional Kling; provider, QC, lineage, and asset models
-  live in focused `generation_*` modules.
+  Soul generation; provider, QC, lineage, and asset models live in focused
+  `generation_*` modules. Paid and local motion execute through the guarded
+  motion-generation worker, not the retired best-only front-generation branch.
 - `reel_pipeline.py`: root Reel worker orchestration; rendering, selection, and
   support concerns live in focused `reel_pipeline_*` modules.
 - `generate_variants.py`: captured-prompt original/sexy candidate contract.
-- `static_mp4.py` and motion-edit modules: local fallback/upgrade.
-- `reel_motion_prompt.py`: deterministic accepted-still Kling prompt.
+- `static_mp4.py`: deterministic zero-provider fallback.
+- `reel_motion_prompt.py`: reusable deterministic accepted-still motion prompt.
 - `placement.py`, `caption_render.py`, and caption-bank modules: safe overlays.
 - `xai_vision.py`: narrow XAI transport retained only for anatomy/postability QC.
 - ContentForge and Campaign readiness/export adapters.
 
 ### Compatibility-required or legacy-but-called
 
+- `motion_edit_stage.py`: import-compatible fail-closed tombstone; historical
+  records remain readable, but both dry-run and apply execution are rejected
+  before state or file access;
+- `best_only_kling` plans and Kling selection receipts: historical evidence
+  only; the front-generation worker rejects the retired plan before factory
+  access;
 - narrow XAI vision helpers used by anatomy/postability QC;
 - FFmpeg-dependent probe/render/QC paths; active infrastructure.
 

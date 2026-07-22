@@ -14,10 +14,6 @@ DISCOVERABILITY_SAFE_CONTENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] =
         ),
     ),
     (
-        "dm_reference",
-        re.compile(r"\b(text|txt)\s+me\b|\btexting\s+me\b", re.IGNORECASE),
-    ),
-    (
         "link_reference",
         re.compile(
             r"\b(link\s*in\s*bio|bio\s*link|tap\s+link|click\s+link|link)\b",
@@ -26,7 +22,7 @@ DISCOVERABILITY_SAFE_CONTENT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] =
     ),
     (
         "subscription_cta",
-        re.compile(r"\b(join\s+my\s+page|subscribe\s+here)\b", re.IGNORECASE),
+        re.compile(r"\b(join\s+my\s+page|subscribe)\b", re.IGNORECASE),
     ),
     ("of_reference", re.compile(r"\b(onlyfans|fansly)\b", re.IGNORECASE)),
     ("of_reference", re.compile(r"(^|[^A-Za-z0-9_])#?OF(?![A-Za-z0-9_])")),

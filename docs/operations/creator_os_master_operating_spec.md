@@ -29,10 +29,12 @@ Creator OS must become a usable headless production system that:
     and reference learning.
 
 Creator OS is multi-mode rather than tied to one creative recipe. Its supported
-operator modes are library reuse, Soul-to-static MP4, deterministic motion edit,
-best-only Kling, and structural reference-video remix. Every generation run
+operator modes are library reuse, Soul-to-static MP4, local Wan/LTX motion,
+best paid motion, and structural reference-video remix. Every generation run
 selects one of these modes explicitly; neither a new reference nor a previous
-run supplies an implicit default.
+run supplies an implicit default. The former deterministic motion-edit and
+best-only Kling identifiers remain readable only for historical evidence and
+are rejected before runtime state access.
 
 ## Locked Operator Decisions
 
@@ -209,11 +211,12 @@ run supplies an implicit default.
    the same live front-generation invocation that downloads each QC-passing
    original or sexy Soul still. It no longer waits for a second
    `--accepted-still` command, and an original fallback remains durable if the
-   later sexy candidate or optional Kling generation fails.
-6. Best-only Kling receipt validation now proves that the selected candidate is
+   later sexy candidate fails.
+6. Historical best-only Kling receipt validation proves that the selected candidate is
    the unique evidence-backed rank-one result, that every eligible candidate is
    present exactly once, and that ranking itself cannot authorize spending or
-   publishing.
+   publishing. The retired receipt can be reconciled, but cannot launch new
+   generation; current paid motion uses the guarded `best_motion` workflow.
 
 ## Current Live Evidence Snapshot — 2026-07-12
 
@@ -227,7 +230,7 @@ means the system must not claim the master goal is complete yet.
 | Free static fallback for an accepted Soul still | PROVEN | Apply-mode front-generation job `job_443a93c3f0a0` reused `asset_a1d5edab7bee` as the same 1080x1920 H.264 file (5.533s, 209,703 bytes) with its audio-intent sidecar and complete lineage; rendered/static/cost/reservation/receipt deltas were all zero | None for the accepted-still transition |
 | Persisted static fallback inventory | PROVEN | Two current Stacey static assets (`asset_a1d5edab7bee`, `asset_8e6348fd5fb0`) exist with distinct real Higgsfield provider job IDs, prompt/reference lineage, `paidGeneration=false`, `estimatedCostUsd=0`, and locked/no-audio renders. The published red candidate is now `approved`; the unposted black candidate remains `review_ready` | Continue enforcing the same invariant for every future accepted still |
 | Automatic original plus sexy pair materialization | PARTIAL | The active front-generation code and regression suite create a static fallback for every QC-passing downloaded original/sexy candidate before review and preserve an earlier fallback if a later candidate fails | One explicitly approved live paid Soul pair must prove both candidates and both static fallbacks were created by the same invocation; do not spend merely to satisfy this row |
-| Best-only Kling boundary | PROVEN | The live apply proof projected 0 credits, kept `publishingAllowed=false`, left `registeredAsset=null`, created no selection receipt, and blocked Kling because no approved multi-candidate rank-one receipt existed | None for fail-closed behavior |
+| Best-only Kling boundary | RETIRED | Historical evidence remains readable. The supported workflow and the front-generation worker now reject this mode before factory, file, job, or provider access | Use `best_motion` with its current spend and QC evidence for any new paid motion |
 | Kling candidate approval | PARTIAL | Both real static candidates have current safe `approved_candidate` audits. Publication of lineage-matching Trial Reel `3a69a80f-dda1-4a04-95d6-f60271d4e2aa` supplies explicit operator evidence for red candidate `asset_8e6348fd5fb0`; durable decision `approval_67e9b3d03946` records that approval for free ranking only. The black candidate remains `review_ready`, and a dry-run pair ranking fails closed on its missing approval without adding a cost, reservation, or receipt | Operator must explicitly approve or reject black candidate `asset_a1d5edab7bee`; only then may the free pair ranking receipt be created. Paid Kling still requires a separate fresh go |
 | Spend and kill-switch guard | PROVEN | Runtime policy is 100 credits/day, 1,000/month, 10/run, 150/cohort, minimum balance 25, and at most 10 Kling generations/day; a read-only balance check returned 465.97 credits. A live subprocess proof with `CREATOR_OS_KILL_SWITCH=1` blocked paid front generation before a provider call while leaving the zero-cost static reuse available; cost/reservation/receipt/asset deltas were zero and publishing remained false | Recheck balance and obtain a fresh native quote immediately before any explicitly approved paid request |
 | Paid Kling generation | PENDING | No new paid Kling request was made; current receipt count remains zero | Requires a fresh explicit operator go, a bounded live quote/reservation, one downloaded winner, QC, cost evidence, and retained static fallback |
@@ -248,7 +251,7 @@ Kling smoke remain independent gates.
 | Reference-conditioned Soul still | Real provider result, captured prompt, local artifact, cost record, and lineage |
 | Original/sexy behavior | Exactly two provider charges total, distinct original and text-only sexy lineage, identity/anatomy QC, and selection explanation |
 | Automatic static MP4 | One live front-generation invocation creates a registered 1080x1920 H.264 MP4 plus audio intent for every QC-passing downloaded original/sexy still, with no second command; a later candidate failure leaves earlier fallbacks durable |
-| Best-only Kling | Ranking/approval evidence precedes a bounded paid request; rejected candidates cannot spend |
+| Historical best-only Kling | Receipt and ranking evidence remain readable, but no retired-mode execution is allowed |
 | Kling generation | Real downloaded video, provider receipt, cost record, identity/visual QC, and static fallback retained |
 | Draft handoff | Signed HMAC request, durable draft record, and proof that no schedule or publish row was created |
 | Publishing boundary | ThreadsDashboard approval/native-audio proof and guarded manual publish receipt |

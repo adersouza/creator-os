@@ -95,7 +95,6 @@ def register_core_commands(sub) -> None:
     generation_execution.add_argument("--apply", action="store_true")
     generation_run.add_argument("--reference-image", type=Path)
     generation_run.add_argument("--accepted-still", type=Path)
-    generation_run.add_argument("--kling-selection-receipt", type=Path)
     generation_run.add_argument("--reference-video", type=Path)
     generation_run.add_argument("--target", dest="creator")
     generation_run.add_argument("--soul-id")
