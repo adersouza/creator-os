@@ -46,8 +46,10 @@ def print_json(value: Any) -> None:
     safe_value = _redact_sensitive(value)
     # The output is recursively redacted immediately above. Keep the suppression
     # local to this reviewed sink so future direct print calls remain detectable.
-    print(  # lgtm[py/clear-text-logging-sensitive-data]
-        json.dumps(safe_value, indent=2, ensure_ascii=False)
+    print(
+        json.dumps(  # lgtm[py/clear-text-logging-sensitive-data]
+            safe_value, indent=2, ensure_ascii=False
+        )
     )
 
 
