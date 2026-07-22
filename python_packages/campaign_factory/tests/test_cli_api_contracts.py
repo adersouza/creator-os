@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import campaign_factory.app as app_module
 import campaign_factory.variant_lineage as variant_lineage_module
@@ -19,6 +20,7 @@ from campaign_factory.audio_smoke import (
     assert_contentforge_contract_response,
 )
 from campaign_factory.cli_parser import build_cli_parser
+from campaign_factory.cli_support import print_json
 from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_schema_examples,
@@ -116,6 +118,91 @@ def test_export_threadsdash_api_allows_explicit_v2_rollback(monkeypatch):
         }
     ) == {"ok": True}
     assert captured["draft_payload_schema"] == "v2"
+
+
+def test_cli_json_output_redacts_nested_secrets(capsys, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "embedded-service-secret")
+    print_json(
+        {
+            "status": "ok",
+            "supabaseServiceRoleKey": "service-secret",
+            "nested": {
+                "access_token": "access-secret",
+                "captionKey": "non-secret-identifier",
+                "error": "provider echoed embedded-service-secret in its response",
+            },
+        }
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["supabaseServiceRoleKey"] == "[REDACTED]"
+    assert payload["nested"]["access_token"] == "[REDACTED]"
+    assert payload["nested"]["captionKey"] == "non-secret-identifier"
+    assert payload["nested"]["error"] == "provider echoed [REDACTED] in its response"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"exportPath": "/tmp/untrusted.json"},
+        {"exportResult": "/tmp/disguised-as-result.json"},
+    ],
+)
+def test_verify_export_api_rejects_caller_supplied_manifest_paths(monkeypatch, body):
+    called = False
+
+    class FakeEvents:
+        def create_pipeline_job(self, *_args, **_kwargs):
+            return {"id": "job_1"}
+
+        def start_pipeline_job(self, *_args, **_kwargs):
+            return None
+
+        def record_event(self, *_args, **_kwargs):
+            return None
+
+        def fail_pipeline_job(self, *_args, **_kwargs):
+            return None
+
+    class FakeFactory:
+        domains = SimpleNamespace(events=FakeEvents())
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def unexpected_verify(**_kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(app_module, "verify_threadsdash_export", unexpected_verify)
+
+    with pytest.raises(app_module.HTTPException) as exc_info:
+        app_module.verify_td_export(body)
+
+    assert exc_info.value.detail["code"] == "threadsdash_export_verification_failed"
+    assert called is False
+
+
+def test_sensitive_api_failure_does_not_echo_provider_error(monkeypatch):
+    class FakeFactory:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY=must-not-leak")
+
+    monkeypatch.setattr(app_module, "evaluate_export_readiness", fail_export)
+
+    with pytest.raises(app_module.HTTPException) as exc_info:
+        app_module.export_readiness({"campaign": "may", "userId": "user_1"})
+
+    assert exc_info.value.detail["code"] == "export_readiness_failed"
+    assert "must-not-leak" not in json.dumps(exc_info.value.detail)
 
 
 def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):

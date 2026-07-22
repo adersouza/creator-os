@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -33,6 +34,12 @@ def _assert_action_major_allowed(
     )
 
 
+def _assert_action_pinned(uses: str, action: str) -> None:
+    assert re.fullmatch(rf"{re.escape(action)}@[0-9a-f]{{40}}", uses), (
+        f"{action} must use an immutable 40-character commit SHA"
+    )
+
+
 def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
@@ -40,17 +47,24 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     assert "dependency-review" not in jobs
 
     assert "trivy" in jobs
+    assert "if" not in jobs["trivy"]
+    assert "if" not in jobs["codeql"]
+    assert workflow["permissions"] == {"contents": "read"}
     trivy_steps = jobs["trivy"]["steps"]
     trivy_step = next(step for step in trivy_steps if step.get("name") == "Trivy scan")
-    assert trivy_step["uses"] == "docker://aquasec/trivy:0.65.0"
-    assert "--format sarif" in trivy_step["with"]["args"]
-    assert "--output trivy-results.sarif" in trivy_step["with"]["args"]
-    assert "--exit-code 1" in trivy_step["with"]["args"]
-    assert "--skip-dirs apps/dashboard" not in trivy_step["with"]["args"]
-    assert any(
-        step.get("uses") == "github/codeql-action/upload-sarif@v4"
+    _assert_action_pinned(trivy_step["uses"], "aquasecurity/trivy-action")
+    assert trivy_step["with"]["scan-type"] == "fs"
+    assert trivy_step["with"]["format"] == "sarif"
+    assert trivy_step["with"]["output"] == "trivy-results.sarif"
+    assert trivy_step["with"]["exit-code"] == 1
+    assert trivy_step["with"]["severity"] == "CRITICAL,HIGH"
+    assert "apps/dashboard" not in trivy_step["with"]["skip-dirs"]
+    upload_step = next(
+        step
         for step in trivy_steps
+        if step.get("uses", "").startswith("github/codeql-action/upload-sarif@")
     )
+    _assert_action_pinned(upload_step["uses"], "github/codeql-action/upload-sarif")
     assert any(
         step.get("name") == "Gate Trivy HIGH/CRITICAL findings"
         and "exit 1" in step.get("run", "")
@@ -63,7 +77,7 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
         for step in secret_steps
         if step.get("name") == "TruffleHog full-history secret scan"
     )
-    assert trufflehog_step["uses"] == "trufflesecurity/trufflehog@main"
+    _assert_action_pinned(trufflehog_step["uses"], "trufflesecurity/trufflehog")
     assert trufflehog_step["with"]["extra_args"] == "--only-verified"
     assert "continue-on-error" not in trufflehog_step
 

@@ -6,18 +6,20 @@ publishing, QStash, metrics sync, account health, or production inventory.
 
 ## Current Tooling Gates
 
-- `pnpm check:contracts` keeps pipeline contract compatibility copies
-  synchronized.
+- `pnpm check:contracts` keeps canonical schemas and generated TypeScript in the
+  versioned Pipeline Contracts package synchronized.
 - `pnpm security:secrets` runs a local current-tree secret scan when `gitleaks`
   or `trufflehog` is installed.
-- GitHub Actions runs CodeQL for JavaScript/TypeScript and Python.
+- GitHub Actions runs CodeQL for JavaScript/TypeScript and Python on pull
+  requests and `main`.
 - GitHub Actions runs current-tree secret hygiene as a blocking check.
 - GitHub Actions runs TruffleHog with verified-secret gating. The action
   supplies its own fail flag; workflow arguments keep only policy filters.
 - GitHub Dependency Review is not an active gate because this private
   repository does not have the required Dependency Graph/GHAS support enabled.
-- GitHub Actions runs Trivy filesystem scans, uploads SARIF findings, and gates
-  HIGH/CRITICAL findings with explicit ignores required for accepted risk.
+- GitHub Actions runs Trivy filesystem scans on pull requests and `main`,
+  uploads SARIF findings, and blocks HIGH/CRITICAL findings. Accepted false
+  positives require a narrowly documented ignore.
 - GitHub Actions generates SBOM artifacts for npm/pnpm and Python dependency
   snapshots.
 - GitHub Actions creates artifact attestations for SBOM artifacts. Dashboard
@@ -25,8 +27,9 @@ publishing, QStash, metrics sync, account health, or production inventory.
 - GitHub Actions configuration lives only in the repository-root
   `.github/workflows/`. Package-local workflow copies are intentionally absent:
   GitHub would not execute them in this monorepo, and they drifted from the
-  canonical CI/security gates. `monorepo-ci.yml`, `security.yml`, and
-  `scorecard.yml` are the complete supported workflow set.
+  canonical CI/security gates. `monorepo-ci.yml`, `security.yml`,
+  `scorecard.yml`, and the tag-only `pipeline-contract-release.yml` are the
+  complete supported workflow set.
 - OpenSSF Scorecard runs in report mode. Pull requests upload the SARIF as a
   normal artifact; push/scheduled runs upload SARIF to code scanning after the
   first baseline exists. It is intentionally non-blocking until the baseline is
@@ -110,11 +113,13 @@ Use `docs/architecture/sentry_verification.md` as the promotion checklist.
 
 ## Supply-Chain Policy
 
-Security workflows use audit/report mode before hard blocking new checks:
+Security workflows distinguish blocking vulnerability gates from observational
+supply-chain reports:
 
 - StepSecurity Harden-Runner runs in `egress-policy: audit` on security and
   architecture jobs.
-- Trivy uploads SARIF but does not currently fail PRs.
+- Trivy uploads SARIF and blocks pull requests on unignored HIGH/CRITICAL
+  findings.
 - Dependency Review is report-only until GitHub Dependency Graph is enabled;
   then it should block direct high/critical vulnerable dependency changes and
   denied licenses.
@@ -126,8 +131,8 @@ Security workflows use audit/report mode before hard blocking new checks:
   action versions, workflow token permissions, branch protections, and dangerous
   workflow patterns before making Scorecard required.
 
-Move Harden-Runner or Trivy into blocking mode only after the baseline findings
-and outbound hosts are reviewed.
+Keep Harden-Runner in audit mode until its outbound-host baseline is reviewed.
+Do not weaken the blocking Trivy gate to accommodate vulnerable lockfiles.
 
 ## Architecture Drift Policy
 

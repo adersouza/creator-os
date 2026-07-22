@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -38,6 +39,15 @@ __all__ = [
     "import_reference_analysis",
     "queue_reference_analysis",
 ]
+
+_SAFE_FILENAME_TOKEN = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
+
+
+def _safe_filename_token(value: object, *, field: str) -> str:
+    token = _norm(value)
+    if not _SAFE_FILENAME_TOKEN.fullmatch(token):
+        raise ValueError(f"{field} must contain only letters, numbers, and underscores")
+    return token
 
 
 def queue_reference_analysis(
@@ -163,6 +173,7 @@ def export_analysis_queue(
     provider_target: str = "gemini",
     limit: int = 50,
 ) -> dict[str, object]:
+    provider_key = _safe_filename_token(provider_target, field="provider_target")
     output_dir = data_root / "reference_intake"
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = conn.execute(
@@ -175,21 +186,21 @@ def export_analysis_queue(
         ORDER BY raj.updated_at DESC
         LIMIT ?
         """,
-        (_norm(provider_target), limit),
+        (provider_key, limit),
     ).fetchall()
     jobs = [_job_row_to_export(dict(row)) for row in rows]
     manifest = {
         "schema": "reference_factory.reference_analysis_queue.v1",
-        "providerTarget": _norm(provider_target),
+        "providerTarget": provider_key,
         "count": len(jobs),
         "jobs": jobs,
     }
-    json_path = output_dir / f"{_norm(provider_target)}_analysis_queue.json"
-    jsonl_path = output_dir / f"{_norm(provider_target)}_analysis_queue.jsonl"
-    md_path = output_dir / f"{_norm(provider_target)}_analysis_queue.md"
-    schema_path = output_dir / f"{_norm(provider_target)}_prompt_output_schema.json"
-    rubric_path = output_dir / f"{_norm(provider_target)}_prompt_scoring_rubric.json"
-    rubric_md_path = output_dir / f"{_norm(provider_target)}_prompt_scoring_rubric.md"
+    json_path = output_dir / f"{provider_key}_analysis_queue.json"
+    jsonl_path = output_dir / f"{provider_key}_analysis_queue.jsonl"
+    md_path = output_dir / f"{provider_key}_analysis_queue.md"
+    schema_path = output_dir / f"{provider_key}_prompt_output_schema.json"
+    rubric_path = output_dir / f"{provider_key}_prompt_scoring_rubric.json"
+    rubric_md_path = output_dir / f"{provider_key}_prompt_scoring_rubric.md"
     _atomic_write_text(
         json_path,
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
@@ -397,10 +408,11 @@ def analyze_reference_local(
 def export_video_analyses(
     conn: Connection, *, data_root: Path, provider: str | None = None, limit: int = 100
 ) -> dict[str, object]:
+    provider_key = _safe_filename_token(provider, field="provider") if provider else ""
     output_dir = data_root / "reference_intake"
     output_dir.mkdir(parents=True, exist_ok=True)
     where = "WHERE rva.provider = ?" if provider else ""
-    params: tuple[Any, ...] = ((_norm(provider),) if provider else ()) + (limit,)
+    params: tuple[Any, ...] = ((provider_key,) if provider else ()) + (limit,)
     rows = conn.execute(
         f"""
         SELECT rva.*, sf.path, sf.file_name, sf.account
@@ -425,7 +437,7 @@ def export_video_analyses(
         "count": len(analyses),
         "items": analyses,
     }
-    suffix = f"_{_norm(provider)}" if provider else ""
+    suffix = f"_{provider_key}" if provider else ""
     path = output_dir / f"video_analyses{suffix}.json"
     _atomic_write_text(
         path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

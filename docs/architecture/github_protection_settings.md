@@ -36,8 +36,9 @@ Require these checks before merge:
   reviewed. Scorecard starts in report mode so baseline findings do not block
   unrelated migration work.
 
-Trivy and SBOM provenance jobs should be required after their first baseline has
-been reviewed for runtime and CI cost. Dashboard visual regression and build
+The Trivy baseline is blocking in the repository workflow and should be a
+required branch check. SBOM provenance jobs can become required after their
+runtime and CI cost are reviewed. Dashboard visual regression and build
 provenance belong to the external ThreadsDashboard repository, not Creator OS.
 
 ## Merge Queue

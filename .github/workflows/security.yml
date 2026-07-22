@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,10 +16,13 @@ concurrency:
 
 jobs:
   codeql:
-    if: github.event_name != 'pull_request'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -28,14 +30,14 @@ jobs:
           - language: javascript-typescript
           - language: python
     steps:
-      - uses: actions/checkout@v7
-      - uses: step-security/harden-runner@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
           egress-policy: audit
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           category: "/language:${{ matrix.language }}"
 
@@ -46,23 +48,22 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: step-security/harden-runner@v2
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
           egress-policy: audit
       - name: Current tree secret hygiene
         run: bash scripts/security/secret-scan.sh
       - name: TruffleHog full-history secret scan
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@27b0417c16317ca9a472a9a8092acce143b49c55 # v3.95.9
         with:
           # The action injects --fail itself; keep extra args to policy filters only.
           extra_args: --only-verified
 
   trivy:
-    if: github.event_name != 'pull_request'
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -70,30 +71,30 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: step-security/harden-runner@v2
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
         with:
           egress-policy: audit
       - name: Trivy scan
         id: trivy-sarif
         continue-on-error: true
-        uses: docker://aquasec/trivy:0.65.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          args: >-
-            fs .
-            --scanners vuln,secret,misconfig,license
-            --format sarif
-            --output trivy-results.sarif
-            --severity CRITICAL,HIGH
-            --ignore-unfixed
-            --exit-code 1
-            --skip-dirs node_modules
-            --skip-dirs graphify-out
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig,license
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+          skip-dirs: node_modules,graphify-out
+          version: v0.72.0
       - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         with:
           sarif_file: trivy-results.sarif
       - name: Gate Trivy HIGH/CRITICAL findings

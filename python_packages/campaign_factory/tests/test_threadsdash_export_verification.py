@@ -74,6 +74,21 @@ def test_global_kill_switch_blocks_outbound_threadsdash_draft_export(
         )
 
 
+def test_export_verification_rejects_manifest_outside_allowed_root(tmp_path: Path):
+    allowed_root = tmp_path / "campaigns"
+    allowed_root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="allowed export root"):
+        verify_threadsdash_export(
+            export_result_or_path=outside,
+            allowed_export_root=allowed_root,
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+
 def test_unknown_draft_contract_fails_before_pipeline_state_or_external_writes(
     tmp_path: Path,
 ) -> None:

@@ -27,21 +27,25 @@ __all__ = ["atomic_write_json", "atomic_write_text", "file_lock"]
 
 
 def atomic_write_text(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:
-    """Atomically replace ``path`` with ``text`` (temp file + ``os.replace``)."""
+    """Atomically replace a caller-authorized path (temp file + ``os.replace``).
+
+    This foundational primitive deliberately accepts arbitrary paths. Boundary
+    modules must validate untrusted input against their owned roots before use.
+    """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)  # lgtm[py/path-injection]
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
-    )
+    )  # lgtm[py/path-injection]
     try:
         with os.fdopen(fd, "w", encoding=encoding) as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_name, target)
+        os.replace(tmp_name, target)  # lgtm[py/path-injection]
     except BaseException:
         try:
-            os.unlink(tmp_name)
+            os.unlink(tmp_name)  # lgtm[py/path-injection]
         except OSError:
             pass
         raise

@@ -36,6 +36,16 @@ def factory() -> CampaignFactory:
     return CampaignFactory(settings)
 
 
+def _operation_failed(error_code: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": error_code,
+            "message": "Operation failed; inspect the local pipeline evidence for details.",
+        },
+    )
+
+
 @app.get("/")
 def index():
     return {
@@ -127,7 +137,7 @@ def account_plan(campaign: str, userId: str):
             campaign, user_id=userId, usage=usage
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("account_plan_failed") from exc
     finally:
         cf.close()
 
@@ -1032,7 +1042,7 @@ def audit(body: dict[str, Any] = Body(...)):
             rendered_asset_ids=body.get("renderedAssetIds") or None,
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("campaign_audit_failed") from exc
     finally:
         cf.close()
 
@@ -1087,7 +1097,7 @@ def export_readiness(body: dict[str, Any] = Body(...)):
             review_only=bool(body.get("reviewOnly")),
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("export_readiness_failed") from exc
     finally:
         cf.close()
 
@@ -1125,7 +1135,7 @@ def export_td(body: dict[str, Any] = Body(...)):
             draft_payload_schema=body.get("draftPayloadSchema") or "v3",
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("threadsdash_export_failed") from exc
     finally:
         cf.close()
 
@@ -1144,7 +1154,7 @@ def threadsdash_usage(body: dict[str, Any] = Body(...)):
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("threadsdash_usage_failed") from exc
     finally:
         cf.close()
 
@@ -1163,7 +1173,7 @@ def sync_threadsdash_assignments(body: dict[str, Any] = Body(...)):
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("threadsdash_assignment_sync_failed") from exc
     finally:
         cf.close()
 
@@ -1229,11 +1239,13 @@ def supabase_preflight(body: dict[str, Any] = Body(...)):
             "supabase_preflight_checked",
             pipeline_job_id=pipeline_job["id"],
             status="failure",
-            message=f"Supabase preflight failed: {exc}",
-            metadata={"error": str(exc)},
+            message="Supabase preflight failed",
+            metadata={"errorCode": "supabase_preflight_failed"},
         )
-        cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
-        raise HTTPException(400, str(exc)) from exc
+        cf.domains.events.fail_pipeline_job(
+            pipeline_job["id"], "Supabase preflight failed"
+        )
+        raise _operation_failed("supabase_preflight_failed") from exc
     finally:
         cf.close()
 
@@ -1246,14 +1258,13 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
         None,
         {
             "hasExportResult": bool(body.get("exportResult")),
-            "exportPath": body.get("exportPath"),
         },
     )
     cf.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
-        export_value = body.get("exportResult") or body.get("exportPath")
-        if not export_value:
-            raise ValueError("exportResult or exportPath is required")
+        export_value = body.get("exportResult")
+        if not isinstance(export_value, dict) or not export_value:
+            raise ValueError("exportResult must be a non-empty object")
         result = verify_threadsdash_export(
             export_result_or_path=export_value,
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
@@ -1298,11 +1309,13 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
             "threadsdash_export_verified",
             pipeline_job_id=pipeline_job["id"],
             status="failure",
-            message=f"ThreadsDash export verification failed: {exc}",
-            metadata={"error": str(exc)},
+            message="ThreadsDash export verification failed",
+            metadata={"errorCode": "threadsdash_export_verification_failed"},
         )
-        cf.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
-        raise HTTPException(400, str(exc)) from exc
+        cf.domains.events.fail_pipeline_job(
+            pipeline_job["id"], "ThreadsDash export verification failed"
+        )
+        raise _operation_failed("threadsdash_export_verification_failed") from exc
     finally:
         cf.close()
 
@@ -1321,7 +1334,7 @@ def sync_performance(body: dict[str, Any] = Body(...)):
             limit=int(body.get("limit") or 1000),
         )
     except Exception as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise _operation_failed("performance_sync_failed") from exc
     finally:
         cf.close()
 
