@@ -137,7 +137,9 @@ Inspect:
 - `CREATOR_OS_KILL_SWITCH` and the paid-generation enable flag.
 - The live Higgsfield balance and native-credit quote.
 - Daily, monthly, per-run, cohort, minimum-balance, and daily-Kling limits.
-- The active best-only Kling receipt, candidate audits, and approval decisions.
+- The current `best_motion` model selection, spend authorization, candidate QC,
+  and approval evidence. Inspect best-only Kling receipts only when reconciling
+  historical records; they cannot authorize a new run.
 
 Do not touch:
 

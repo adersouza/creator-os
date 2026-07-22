@@ -204,7 +204,6 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     campaign_slug=args.campaign,
                     reference_image_path=args.reference_image,
                     accepted_still_path=args.accepted_still,
-                    kling_selection_receipt_path=args.kling_selection_receipt,
                     reference_video_path=args.reference_video,
                     creator=args.creator,
                     soul_id=args.soul_id,

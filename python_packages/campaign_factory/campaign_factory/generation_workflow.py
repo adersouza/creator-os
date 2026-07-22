@@ -35,7 +35,6 @@ def run_generation_workflow(
     apply: bool,
     reference_image_path: Path | None = None,
     accepted_still_path: Path | None = None,
-    kling_selection_receipt_path: Path | None = None,
     reference_video_path: Path | None = None,
     creator: str | None = None,
     soul_id: str | None = None,
@@ -87,6 +86,8 @@ def run_generation_workflow(
     execution_plan = build_generation_execution_plan(mode)
     mode_id = execution_plan.creative_mode
     selected = creative_workflow_mode(mode_id)
+    if selected.get("operatorSelectable") is False:
+        raise ValueError(f"retired creative workflow mode: {mode_id}")
     live = bool(apply and not dry_run)
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
@@ -212,51 +213,6 @@ def run_generation_workflow(
             motion_task=motion_task,
             motion_lora_path=motion_lora_path,
             motion_lora_strength=motion_lora_strength,
-        )
-    elif mode_id == "motion_edit":
-        result = _run_motion_edit_mode(
-            factory,
-            execution_plan=execution_plan,
-            campaign_slug=campaign_slug,
-            accepted_still_path=accepted_still_path,
-            caption=caption,
-            duration_seconds=duration_seconds,
-            dry_run=dry_run,
-            apply=apply,
-            allow_upscale=allow_upscale,
-        )
-    elif mode_id == "best_only_kling":
-        from .front_generation_stage import run_front_generation_stage
-
-        require_generation_execution_mode(execution_plan, "best_only_kling")
-        _require(reference_image_path, "reference_image_path")
-        _require(accepted_still_path, "accepted_still_path")
-        _require(kling_selection_receipt_path, "kling_selection_receipt_path")
-        _require(creator or soul_id, "creator or soul_id")
-        if live:
-            _require(creator, "target creator")
-            _require(soul_id, "Campaign-selected soul_id")
-        _paid_inputs_if_live(
-            live=live,
-            paid_confirmation=paid_confirmation,
-            workspace=workspace,
-            max_credits=max_credits,
-        )
-        result = run_front_generation_stage(
-            factory,
-            campaign_slug=campaign_slug,
-            reference_image_path=reference_image_path,
-            creator=creator,
-            soul_id=soul_id,
-            execution_plan=execution_plan,
-            accepted_still_path=accepted_still_path,
-            kling_selection_receipt_path=kling_selection_receipt_path,
-            budget_cap_credits=max_credits,
-            enable_paid_generation=paid_confirmation,
-            wait=wait,
-            download=download,
-            dry_run=dry_run,
-            apply=apply,
         )
     else:
         # Reference-video remix carries optional OpenCV/PySceneDetect dependencies.
@@ -427,48 +383,6 @@ def _run_library_reuse_mode(
         variant_count=variant_count,
         workers=workers,
     )
-
-
-def _run_motion_edit_mode(
-    factory: Any,
-    *,
-    execution_plan: GenerationExecutionPlan,
-    campaign_slug: str,
-    accepted_still_path: Path | None,
-    caption: str | None,
-    duration_seconds: float | None,
-    dry_run: bool,
-    apply: bool,
-    allow_upscale: bool,
-) -> dict[str, Any]:
-    from .motion_edit_stage import run_motion_edit_stage
-    from .static_mp4_stage import run_static_mp4_stage
-
-    require_generation_execution_mode(execution_plan, "motion_edit")
-    _require(accepted_still_path, "accepted_still_path")
-    caption = str(caption or "").strip()
-    if not caption:
-        raise ValueError("caption is required for local motion edit")
-    static_fallback = run_static_mp4_stage(
-        factory,
-        campaign_slug=campaign_slug,
-        still_path=accepted_still_path,
-        duration_seconds=duration_seconds,
-        dry_run=dry_run,
-        apply=apply,
-        allow_upscale=allow_upscale,
-    )
-    motion = run_motion_edit_stage(
-        factory,
-        campaign_slug=campaign_slug,
-        still_path=accepted_still_path,
-        caption=caption,
-        duration_seconds=duration_seconds or 5.0,
-        dry_run=dry_run,
-        apply=apply,
-        allow_upscale=allow_upscale,
-    )
-    return {"staticFallback": static_fallback, "motionEdit": motion}
 
 
 def _require(value: Any, label: str) -> None:

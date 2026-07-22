@@ -17,7 +17,6 @@ from campaign_factory.adapters import contentforge as contentforge_adapter
 from campaign_factory.adapters.contentforge import audit_campaign
 from campaign_factory.contracts import (
     validate_front_generation_plan,
-    validate_motion_edit_render,
     validate_variant_assignment,
 )
 from campaign_factory.core import CampaignFactory
@@ -66,65 +65,6 @@ CLI_PYTHONPATH = os.pathsep.join(
 )
 
 
-def fake_motion_edit_render(
-    still_path: Path, output_path: Path, *, caption: str, dry_run: bool = False
-) -> dict:
-    audio_intent_path = output_path.with_suffix(".audio_intent.json")
-    lineage_path = output_path.with_suffix(".generated_asset_lineage.json")
-    return {
-        "schema": "reel_factory.motion_edit_render.v1",
-        "animationMode": "motion_edit",
-        "paidGeneration": False,
-        "estimatedCostUsd": 0,
-        "stillPath": str(still_path),
-        "outputPath": str(output_path),
-        "durationSeconds": 5.0,
-        "caption": caption,
-        "audioIntentPath": str(audio_intent_path),
-        "lineagePath": str(lineage_path),
-        "quality": {
-            "status": "planned" if dry_run else "passed",
-            "width": 1080,
-            "height": 1920,
-            "fps": 30,
-            "durationSeconds": 5.0,
-        },
-        "ffmpegCommand": ["ffmpeg", "-i", str(still_path), str(output_path)],
-        "dryRun": dry_run,
-    }
-
-
-def write_fake_motion_edit_outputs(output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_bytes(b"motion-edit-mp4")
-    output_path.with_suffix(".audio_intent.json").write_text(
-        json.dumps(
-            {
-                "schema": "pipeline.audio_intent.v1",
-                "mode": "platform_auto_music",
-                "required": False,
-                "status": "external_selection_required",
-            }
-        ),
-        encoding="utf-8",
-    )
-    output_path.with_suffix(".generated_asset_lineage.json").write_text(
-        json.dumps(
-            {
-                "schema": "reel_factory.generated_asset_lineage.v1",
-                "pipelineTraceId": "trace_motion_edit_test_001",
-                "source": {"parentStillPath": "/tmp/still.png"},
-                "generation": {
-                    "tool": "reel_factory.still_to_reel",
-                    "workflow": "motion_edit_still_to_reel",
-                },
-                "review": {"humanReviewRequired": True, "status": "draft"},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
 def patch_front_static_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_invoke(
         _factory,
@@ -145,38 +85,6 @@ def patch_front_static_renderer(monkeypatch: pytest.MonkeyPatch) -> None:
         "campaign_factory.static_mp4_stage._invoke_reel_factory_static_mp4",
         fake_invoke,
     )
-
-
-def patch_front_kling_selection(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> Path:
-    receipt_path = tmp_path / "kling-selection-receipt.json"
-    receipt_path.write_text("{}", encoding="utf-8")
-
-    def fake_validate(
-        _factory,
-        *,
-        receipt_path: Path,
-        accepted_still_path: Path,
-        selected_static_asset: dict | None = None,
-    ) -> dict:
-        assert receipt_path.name == "kling-selection-receipt.json"
-        assert accepted_still_path.is_file()
-        return {
-            "schema": "campaign_factory.kling_selection_receipt.v1",
-            "selectionId": "kling_selection_test",
-            "selectedRenderedAssetId": (
-                selected_static_asset or {"id": "asset_static_dry_run"}
-            )["id"],
-            "paidGenerationAuthorized": False,
-            "publishingAllowed": False,
-        }
-
-    monkeypatch.setattr(
-        "campaign_factory.front_generation_stage.validate_kling_selection_receipt",
-        fake_validate,
-    )
-    return receipt_path
 
 
 def patch_front_variant_spec(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,33 +114,6 @@ def patch_front_variant_spec(monkeypatch: pytest.MonkeyPatch) -> None:
             "provider_generation_count": 1,
         },
     )
-
-
-def fake_kling_video_result(video_path: Path, *, dry_run: bool = False) -> dict:
-    return {
-        "ok": True,
-        "dry_run": dry_run,
-        "workflow": "kling3_0_video_from_accepted_still",
-        "commands": [["higgsfield", "generate", "create", "kling3_0"]],
-        "path": str(video_path.with_suffix(".generated_asset_lineage.json")),
-        "lineage": {
-            "schema": "reel_factory.generated_asset_lineage.v2",
-            "generation": {
-                "workflow": "kling3_0_video_from_selected_panel",
-                "models": {"video": "kling3_0"},
-                "costPreflight": {
-                    "allowed": True,
-                    "providerQuote": {
-                        "amount": 10,
-                        "unit": "higgsfield_credits",
-                        "model": "kling3_0",
-                    },
-                },
-            },
-            "assets": {"localPaths": {"video": str(video_path)}},
-            "review": {"humanReviewRequired": True},
-        },
-    }
 
 
 def create_approved_static_candidates(
@@ -1283,227 +1164,18 @@ def test_front_generation_preserves_original_static_when_sexy_candidate_fails_qc
         cf.close()
 
 
-def test_front_generation_accepted_still_dry_run_plans_static_and_blocks_kling(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        reference = tmp_path / "reference.png"
-        reference.write_bytes(b"png")
-        accepted = tmp_path / "accepted.png"
-        accepted.write_bytes(b"still")
-        calls: list[list[str]] = []
-
-        def fake_invoke(_factory, args):
-            calls.append(args)
-            return fake_front_generation_result(args)
-
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage._invoke_generate_assets",
-            fake_invoke,
-        )
-        patch_front_static_renderer(monkeypatch)
-        monkeypatch.setenv("CREATOR_OS_KILL_SWITCH", "1")
-
-        result = run_front_generation_stage(
-            cf,
+def test_front_generation_rejects_retired_kling_mode_before_factory_access() -> None:
+    with pytest.raises(
+        ValueError, match="best_only_kling does not use the front-generation worker"
+    ):
+        run_front_generation_stage(
+            object(),
             campaign_slug="may",
-            reference_image_path=reference,
-            accepted_still_path=accepted,
+            reference_image_path=Path("/definitely/missing.png"),
             creator="Stacey",
             execution_plan=build_generation_execution_plan("best_only_kling"),
             dry_run=True,
         )
-
-        plan = result["plan"]
-        validate_front_generation_plan(plan)
-        assert plan["projectedCostCredits"] == 0
-        assert calls == []
-        assert plan["stages"][0]["status"] == "skipped"
-        assert plan["stages"][2]["name"] == "static_mp4"
-        assert plan["stages"][2]["paid"] is False
-        assert plan["stages"][3]["name"] == "kling_video"
-        assert plan["stages"][3]["status"] == "blocked"
-        assert result["registeredStaticAsset"] is None
-    finally:
-        cf.close()
-
-
-def test_front_generation_accepted_still_apply_registers_downloaded_kling_video(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        reference = tmp_path / "reference.png"
-        reference.write_bytes(b"png")
-        accepted = tmp_path / "accepted.png"
-        accepted.write_bytes(b"still")
-        video = tmp_path / "kling.mp4"
-        video.write_bytes(b"kling-video")
-        calls: list[list[str]] = []
-
-        def fake_invoke(_factory, args):
-            calls.append(args)
-            return fake_kling_video_result(video)
-
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage._invoke_generate_assets",
-            fake_invoke,
-        )
-        patch_front_static_renderer(monkeypatch)
-        selection_receipt = patch_front_kling_selection(monkeypatch, tmp_path)
-
-        result = run_front_generation_stage(
-            cf,
-            campaign_slug="may",
-            reference_image_path=reference,
-            accepted_still_path=accepted,
-            kling_selection_receipt_path=selection_receipt,
-            creator="Stacey",
-            execution_plan=build_generation_execution_plan("best_only_kling"),
-            dry_run=False,
-            apply=True,
-            enable_paid_generation=True,
-            budget_cap_credits=10,
-            wait=True,
-            download=True,
-        )
-
-        validate_front_generation_plan(result["plan"])
-        assert calls[0][0] == "video"
-        assert calls[0][calls[0].index("--cohort-id") + 1] == "may"
-        assert calls[0][calls[0].index("--max-credits") + 1] == "10"
-        assert "--wait" in calls[0]
-        assert "--download" in calls[0]
-        assert "--execution-plan-file" in calls[0]
-        registered = result["registeredAsset"]
-        static_registered = result["registeredStaticAsset"]
-        assert static_registered["recipe"] == "static_mp4"
-        assert static_registered["review_state"] == "review_ready"
-        assert registered["recipe"] == "kling_front_generation"
-        assert registered["media_type"] == "video"
-        assert registered["content_surface"] == "reel"
-        assert registered["review_state"] == "review_ready"
-        assert registered["audit_status"] == "pending"
-        caption_generation = json.loads(registered["caption_generation_json"])
-        metadata = json.loads(registered["metadata_json"])
-        assert caption_generation["animationMode"] == "kling"
-        assert caption_generation["paidGeneration"] is True
-        assert caption_generation["estimatedCostCredits"] == 10
-        assert caption_generation["humanReviewRequired"] is True
-        assert metadata["humanReviewRequired"] is True
-        assert (
-            metadata["frontGeneration"]["klingSelectionReceipt"]["selectionId"]
-            == "kling_selection_test"
-        )
-        assert result["variation"] is None
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_front_generation_apply_enable_variation_targets_registered_kling_asset(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        reference = tmp_path / "reference.png"
-        reference.write_bytes(b"png")
-        accepted = tmp_path / "accepted.png"
-        accepted.write_bytes(b"still")
-        video = tmp_path / "kling.mp4"
-        video.write_bytes(b"kling-video")
-        captured: dict[str, Any] = {}
-
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda *_args, **_kwargs: fake_kling_video_result(video),
-        )
-        patch_front_static_renderer(monkeypatch)
-        selection_receipt = patch_front_kling_selection(monkeypatch, tmp_path)
-
-        def fake_variation(factory, **kwargs):
-            captured.update(kwargs)
-            return {
-                "schema": "campaign_factory.variation_stage_run.v1",
-                "dryRun": kwargs["dry_run"],
-            }
-
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage.run_variation_stage",
-            fake_variation,
-        )
-
-        result = run_front_generation_stage(
-            cf,
-            campaign_slug="may",
-            reference_image_path=reference,
-            accepted_still_path=accepted,
-            kling_selection_receipt_path=selection_receipt,
-            creator="Stacey",
-            execution_plan=build_generation_execution_plan("best_only_kling"),
-            dry_run=False,
-            apply=True,
-            enable_paid_generation=True,
-            budget_cap_credits=10,
-            wait=True,
-            download=True,
-            enable_variation=True,
-            variation_preset="ig_bold",
-        )
-
-        assert captured["campaign_slug"] == "may"
-        assert captured["preset_name"] == "ig_bold"
-        assert captured["rendered_asset_ids"] == [result["registeredAsset"]["id"]]
-        assert captured["dry_run"] is True
-        assert result["variation"]["dryRun"] is True
-    finally:
-        cf.close()
-
-
-def test_front_generation_enable_variation_requires_downloaded_video(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        reference = tmp_path / "reference.png"
-        reference.write_bytes(b"png")
-        accepted = tmp_path / "accepted.png"
-        accepted.write_bytes(b"still")
-
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda _factory, args: fake_front_generation_result(args),
-        )
-        patch_front_static_renderer(monkeypatch)
-        selection_receipt = patch_front_kling_selection(monkeypatch, tmp_path)
-
-        with pytest.raises(ValueError, match="downloaded local Kling video"):
-            run_front_generation_stage(
-                cf,
-                campaign_slug="may",
-                reference_image_path=reference,
-                accepted_still_path=accepted,
-                kling_selection_receipt_path=selection_receipt,
-                creator="Stacey",
-                execution_plan=build_generation_execution_plan("best_only_kling"),
-                dry_run=False,
-                apply=True,
-                enable_paid_generation=True,
-                budget_cap_credits=10,
-                enable_variation=True,
-                wait=True,
-                download=True,
-            )
-    finally:
-        cf.close()
 
 
 def test_front_generation_static_only_apply_needs_no_paid_authorization(
@@ -1547,60 +1219,6 @@ def test_front_generation_static_only_apply_needs_no_paid_authorization(
         ]
         assert result["registeredStaticAsset"]["recipe"] == "static_mp4"
         assert result["registeredAsset"] is None
-    finally:
-        cf.close()
-
-
-def test_front_generation_kling_failure_preserves_static_fallback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        reference = tmp_path / "reference.png"
-        reference.write_bytes(b"png")
-        accepted = tmp_path / "accepted.png"
-        accepted.write_bytes(b"still")
-        patch_front_static_renderer(monkeypatch)
-        selection_receipt = patch_front_kling_selection(monkeypatch, tmp_path)
-        monkeypatch.setattr(
-            "campaign_factory.front_generation_stage._invoke_generate_assets",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                RuntimeError("simulated Kling provider failure")
-            ),
-        )
-
-        with pytest.raises(RuntimeError, match="simulated Kling provider failure"):
-            run_front_generation_stage(
-                cf,
-                campaign_slug="may",
-                reference_image_path=reference,
-                accepted_still_path=accepted,
-                kling_selection_receipt_path=selection_receipt,
-                creator="Stacey",
-                execution_plan=build_generation_execution_plan("best_only_kling"),
-                dry_run=False,
-                apply=True,
-                enable_paid_generation=True,
-                budget_cap_credits=10,
-                wait=True,
-                download=True,
-            )
-
-        rows = cf.conn.execute(
-            "SELECT recipe, review_state FROM rendered_assets ORDER BY created_at"
-        ).fetchall()
-        assert [(row["recipe"], row["review_state"]) for row in rows] == [
-            ("static_mp4", "review_ready")
-        ]
-        jobs = cf.conn.execute(
-            "SELECT job_type, status FROM pipeline_jobs "
-            "WHERE job_type IN ('front_generation', 'static_mp4') ORDER BY created_at"
-        ).fetchall()
-        assert {(row["job_type"], row["status"]) for row in jobs} == {
-            ("front_generation", "failed"),
-            ("static_mp4", "succeeded"),
-        }
     finally:
         cf.close()
 
@@ -2115,158 +1733,43 @@ def test_kling_selection_stage_rejects_selected_candidate_that_is_not_unique_bes
         cf.close()
 
 
-def test_motion_edit_stage_dry_run_validates_without_rendered_asset_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+@pytest.mark.parametrize(
+    ("dry_run", "apply"),
+    [(True, False), (False, True)],
+)
+def test_retired_motion_edit_stage_fails_before_any_mutation(
+    tmp_path: Path, dry_run: bool, apply: bool
+) -> None:
     cf = make_factory(tmp_path)
     try:
         add_source_asset(cf, tmp_path)
         still_path = tmp_path / "still.png"
         still_path.write_bytes(b"png")
-        before = cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0]
+        before_assets = cf.conn.execute(
+            "SELECT COUNT(*) FROM rendered_assets"
+        ).fetchone()[0]
+        before_jobs = cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[
+            0
+        ]
 
-        def fake_invoke(*_args, **kwargs):
-            return fake_motion_edit_render(
-                kwargs["still_path"],
-                kwargs["output_path"],
-                caption=kwargs["caption"],
-                dry_run=True,
+        with pytest.raises(PermissionError, match="motion_edit_mode_retired"):
+            run_motion_edit_stage(
+                cf,
+                campaign_slug="may",
+                still_path=still_path,
+                caption="Retired mode caption",
+                dry_run=dry_run,
+                apply=apply,
             )
 
-        monkeypatch.setattr(
-            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
-            fake_invoke,
-        )
-
-        result = run_motion_edit_stage(
-            cf,
-            campaign_slug="may",
-            still_path=still_path,
-            caption="Dry run caption",
-            dry_run=True,
-            apply=False,
-        )
-
-        validate_motion_edit_render(result["render"])
-        assert result["dryRun"] is True
-        assert result["registeredAsset"] is None
         assert (
             cf.conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0]
-            == before
+            == before_assets
         )
         assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
+            cf.conn.execute("SELECT COUNT(*) FROM pipeline_jobs").fetchone()[0]
+            == before_jobs
         )
-    finally:
-        cf.close()
-
-
-def test_motion_edit_stage_apply_registers_review_ready_asset(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        still_path = tmp_path / "still.png"
-        still_path.write_bytes(b"png")
-
-        def fake_invoke(*_args, **kwargs):
-            write_fake_motion_edit_outputs(kwargs["output_path"])
-            return fake_motion_edit_render(
-                kwargs["still_path"],
-                kwargs["output_path"],
-                caption=kwargs["caption"],
-            )
-
-        monkeypatch.setattr(
-            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
-            fake_invoke,
-        )
-
-        result = run_motion_edit_stage(
-            cf,
-            campaign_slug="may",
-            still_path=still_path,
-            caption="Apply caption",
-            dry_run=False,
-            apply=True,
-        )
-
-        validate_motion_edit_render(result["render"])
-        registered = result["registeredAsset"]
-        assert registered["recipe"] == "motion_edit"
-        assert registered["media_type"] == "video"
-        assert registered["content_surface"] == "reel"
-        assert registered["review_state"] == "review_ready"
-        assert registered["audit_status"] == "pending"
-        caption_generation = json.loads(registered["caption_generation_json"])
-        metadata = json.loads(registered["metadata_json"])
-        assert caption_generation["motionEditRender"]["animationMode"] == "motion_edit"
-        assert caption_generation["paidGeneration"] is False
-        assert caption_generation["estimatedCostUsd"] == 0
-        assert (
-            caption_generation["generatedAssetLineage"]["source"]["promptId"]
-            == "prompt_motion_edit_001"
-        )
-        assert metadata["humanReviewRequired"] is True
-        assert (
-            cf.conn.execute("SELECT COUNT(*) FROM threadsdash_exports").fetchone()[0]
-            == 0
-        )
-    finally:
-        cf.close()
-
-
-def test_motion_edit_apply_enable_variation_targets_new_asset_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    cf = make_factory(tmp_path)
-    try:
-        add_source_asset(cf, tmp_path)
-        still_path = tmp_path / "still.png"
-        still_path.write_bytes(b"png")
-        captured: dict[str, Any] = {}
-
-        def fake_invoke(*_args, **kwargs):
-            write_fake_motion_edit_outputs(kwargs["output_path"])
-            return fake_motion_edit_render(
-                kwargs["still_path"],
-                kwargs["output_path"],
-                caption=kwargs["caption"],
-            )
-
-        def fake_variation(factory, **kwargs):
-            captured.update(kwargs)
-            return {
-                "schema": "campaign_factory.variation_stage_run.v1",
-                "dryRun": kwargs["dry_run"],
-            }
-
-        monkeypatch.setattr(
-            "campaign_factory.motion_edit_stage._invoke_reel_factory_motion_edit",
-            fake_invoke,
-        )
-        monkeypatch.setattr(
-            "campaign_factory.motion_edit_stage.run_variation_stage", fake_variation
-        )
-
-        result = run_motion_edit_stage(
-            cf,
-            campaign_slug="may",
-            still_path=still_path,
-            caption="Variation caption",
-            dry_run=False,
-            apply=True,
-            enable_variation=True,
-            variation_preset="ig_bold",
-        )
-
-        assert captured["campaign_slug"] == "may"
-        assert captured["preset_name"] == "ig_bold"
-        assert captured["rendered_asset_ids"] == [result["registeredAsset"]["id"]]
-        assert captured["dry_run"] is True
-        assert result["variation"]["dryRun"] is True
     finally:
         cf.close()
 

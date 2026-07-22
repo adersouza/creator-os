@@ -380,7 +380,7 @@ def test_reference_bank_import_can_replace_campaign_links(tmp_path: Path):
         cf.close()
 
 
-def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path):
+def test_reference_hooks_filter_only_objective_safety_failures(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
         pattern = {
@@ -399,7 +399,49 @@ def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path
                         "he can’t resist me 😈",
                         "Who’s my good boy then",
                         "Du entscheidest🇦🇹🇩🇪",
+                        "this could be us but you're too scared to text me",
+                        "link in bio",
                         "mirror check",
+                    ],
+                }
+            ],
+            "audioRecommendations": {},
+        }
+
+        hooks = cf.domains.reference.reference_hooks(pattern, count=7)
+
+        assert [hook["text"] for hook in hooks] == [
+            "this caption is intentionally way too long for schedule safe burned reel placement",
+            "GOING LIVE TONIGHT!!!",
+            "he can’t resist me 😈",
+            "Who’s my good boy then",
+            "Du entscheidest🇦🇹🇩🇪",
+            "this could be us but you're too scared to text me",
+            "mirror check",
+        ]
+        assert all(hook["candidateKind"] == "example_caption" for hook in hooks)
+    finally:
+        cf.close()
+
+
+def test_reference_hooks_use_safe_fallbacks_when_every_candidate_is_blocked(
+    tmp_path: Path,
+):
+    cf = make_factory(tmp_path)
+    try:
+        pattern = {
+            "clusterKey": "caption_led_visual::hard_blocked",
+            "label": "hard blocked",
+            "hookType": "curiosity_gap",
+            "captionArchetype": "short_meme_caption",
+            "captionFormulas": [
+                {
+                    "formula": "{unresolved hook}",
+                    "exampleCaptions": [
+                        "DM me",
+                        "link in bio",
+                        "subscribe",
+                        "onlyfans",
                     ],
                 }
             ],
@@ -409,11 +451,11 @@ def test_reference_hooks_filter_unsafe_placeholder_and_long_hooks(tmp_path: Path
         hooks = cf.domains.reference.reference_hooks(pattern, count=3)
 
         assert [hook["text"] for hook in hooks] == [
-            "mirror check",
-            "mirror check",
-            "mirror check",
+            "new fit today",
+            "which one wins?",
+            "felt cute",
         ]
-        assert all(hook["candidateKind"] == "example_caption" for hook in hooks)
+        assert all(hook["candidateKind"] == "simple_native_fallback" for hook in hooks)
     finally:
         cf.close()
 
