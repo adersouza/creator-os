@@ -9,6 +9,7 @@ dependencies = [
   "pilmoji>=2.0,<3",
   "imagehash>=4.3,<5",
   "rapidfuzz>=3.9,<4",
+  "requests>=2.32,<3",
   "watchdog>=4,<7",
   "yt-dlp>=2024.8.6,<2027.0",
 ]

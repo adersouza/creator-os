@@ -3302,6 +3302,8 @@ export const generatedPipelineContractSchemas = {
 	      "enum": [
 	        "library_reuse",
 	        "soul_static",
+	        "local_wan",
+	        "best_motion",
 	        "motion_edit",
 	        "best_only_kling",
 	        "reference_video_remix"
@@ -3320,6 +3322,8 @@ export const generatedPipelineContractSchemas = {
 	      "enum": [
 	        "library_existing_media",
 	        "static_mp4_only",
+	        "local_wan_ti2v",
+	        "best_paid_motion",
 	        "local_motion_edit",
 	        "kling_best_only",
 	        "seedance_or_kling_remix"
@@ -3475,6 +3479,74 @@ export const generatedPipelineContractSchemas = {
 	          },
 	          "paidVideoGeneration": {
 	            "const": false
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "creativeMode": {
+	            "const": "local_wan"
+	          }
+	        }
+	      },
+	      "then": {
+	        "properties": {
+	          "stillStrategy": {
+	            "const": "accepted_still"
+	          },
+	          "motionStrategy": {
+	            "const": "local_wan_ti2v"
+	          },
+	          "costClassification": {
+	            "const": "free"
+	          },
+	          "providerAuthorization": {
+	            "const": "forbidden"
+	          },
+	          "staticFallbackBehavior": {
+	            "const": "required_before_motion"
+	          },
+	          "paidImageGeneration": {
+	            "const": false
+	          },
+	          "paidVideoGeneration": {
+	            "const": false
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "creativeMode": {
+	            "const": "best_motion"
+	          }
+	        }
+	      },
+	      "then": {
+	        "properties": {
+	          "stillStrategy": {
+	            "const": "accepted_still"
+	          },
+	          "motionStrategy": {
+	            "const": "best_paid_motion"
+	          },
+	          "costClassification": {
+	            "const": "paid_video"
+	          },
+	          "providerAuthorization": {
+	            "const": "required_per_paid_call"
+	          },
+	          "staticFallbackBehavior": {
+	            "const": "required_before_paid_motion"
+	          },
+	          "paidImageGeneration": {
+	            "const": false
+	          },
+	          "paidVideoGeneration": {
+	            "const": true
 	          }
 	        }
 	      }
@@ -4677,6 +4749,175 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "unit": {
 	          "const": "higgsfield_credits"
+	        }
+	      }
+	    },
+	    "signature": {
+	      "type": "string",
+	      "pattern": "^[0-9a-f]{64}$"
+	    }
+	  }
+	} as const,
+	providerSpendAuthorizationV2: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/provider_spend_authorization.v2.schema.json",
+	  "title": "Campaign Factory Provider Spend Authorization v2",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "authorizationId",
+	    "reservationId",
+	    "issuer",
+	    "status",
+	    "issuedAt",
+	    "expiresAt",
+	    "scope",
+	    "providerQuote",
+	    "signature"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.provider_spend_authorization.v2"
+	    },
+	    "authorizationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "reservationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "issuer": {
+	      "const": "campaign_factory"
+	    },
+	    "status": {
+	      "const": "authorized"
+	    },
+	    "issuedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "expiresAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "scope": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "provider",
+	        "providerModel",
+	        "operation",
+	        "campaign",
+	        "cohortId",
+	        "providerCallCount",
+	        "promptSha256",
+	        "mediaSha256",
+	        "parameters",
+	        "requestFingerprint"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "enum": [
+	            "wavespeed"
+	          ]
+	        },
+	        "providerModel": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operation": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "campaign": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "cohortId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "providerCallCount": {
+	          "const": 1
+	        },
+	        "promptSha256": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "mediaSha256": {
+	          "type": "object",
+	          "minProperties": 1,
+	          "additionalProperties": {
+	            "type": "string",
+	            "pattern": "^[0-9a-f]{64}$"
+	          }
+	        },
+	        "parameters": {
+	          "type": "object"
+	        },
+	        "requestFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        }
+	      }
+	    },
+	    "providerQuote": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "provider",
+	        "model",
+	        "amount",
+	        "unit",
+	        "pricingVersion",
+	        "pricingFingerprint",
+	        "catalogBasePrice",
+	        "catalogModelId",
+	        "liveQuotedAmount",
+	        "livePriceSource"
+	      ],
+	      "properties": {
+	        "provider": {
+	          "const": "wavespeed"
+	        },
+	        "model": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "amount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "unit": {
+	          "const": "USD"
+	        },
+	        "pricingVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pricingFingerprint": {
+	          "type": "string",
+	          "pattern": "^[0-9a-f]{64}$"
+	        },
+	        "catalogBasePrice": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "catalogModelId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "liveQuotedAmount": {
+	          "type": "number",
+	          "exclusiveMinimum": 0
+	        },
+	        "livePriceSource": {
+	          "enum": [
+	            "wavespeed_model_pricing_api",
+	            "pinned_audio_duration_rate"
+	          ]
 	        }
 	      }
 	    },
@@ -7050,6 +7291,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "performanceSync", filename: "performance_sync.v1.schema.json", id: "campaign_factory.performance_sync.v1" },
 	{ key: "postMetricHistoryRead", filename: "post_metric_history.read.v1.schema.json", id: "threadsdashboard.post_metric_history.read.v1" },
 	{ key: "providerSpendAuthorization", filename: "provider_spend_authorization.v1.schema.json", id: "https://creator-os.local/schemas/provider_spend_authorization.v1.schema.json" },
+	{ key: "providerSpendAuthorizationV2", filename: "provider_spend_authorization.v2.schema.json", id: "https://creator-os.local/schemas/provider_spend_authorization.v2.schema.json" },
 	{ key: "recommendationAccuracyReport", filename: "recommendation_accuracy_report.v1.schema.json", id: "campaign_factory.recommendation_accuracy_report.v1" },
 	{ key: "recommendationNextBatch", filename: "recommendation_next_batch.v1.schema.json", id: "campaign_factory.recommendations.next_batch.v1" },
 	{ key: "referenceFactoryKnowledgePack", filename: "reference_factory_knowledge_pack.v1.schema.json", id: "reference_factory.knowledge_pack.v1" },

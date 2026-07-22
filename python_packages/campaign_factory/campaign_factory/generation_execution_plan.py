@@ -10,6 +10,8 @@ SCHEMA = "campaign_factory.generation_execution_plan.v1"
 CreativeMode = Literal[
     "library_reuse",
     "soul_static",
+    "local_wan",
+    "best_motion",
     "motion_edit",
     "best_only_kling",
     "reference_video_remix",
@@ -122,6 +124,50 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         allowed_output_surface="campaign_review",
         paid_image_generation=True,
         paid_video_generation=False,
+    ),
+    "local_wan": GenerationExecutionPlan(
+        creative_mode="local_wan",
+        still_strategy="accepted_still",
+        motion_strategy="local_wan_ti2v",
+        cost_classification="free",
+        providers=("local",),
+        models=("local_wan22_ti2v_5b_mlx", "static_mp4"),
+        required_approvals=("human_still_approval",),
+        provider_authorization="forbidden",
+        required_lineage=(
+            "reel_factory.local_wan_generation.v1",
+            "campaign_factory.motion_generation_asset.v1",
+        ),
+        qc_requirements=("contentforge_quality", "human_final_review"),
+        static_fallback_behavior="required_before_motion",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=False,
+        paid_video_generation=False,
+    ),
+    "best_motion": GenerationExecutionPlan(
+        creative_mode="best_motion",
+        still_strategy="accepted_still",
+        motion_strategy="best_paid_motion",
+        cost_classification="paid_video",
+        providers=("wavespeed",),
+        models=(
+            "wavespeed_wan27_i2v_pro",
+            "wavespeed_wan27_i2v",
+            "wavespeed_wan27_reference",
+            "wavespeed_wan22_s2v",
+            "static_mp4",
+        ),
+        required_approvals=("human_still_approval", "paid_generation"),
+        provider_authorization="required_per_paid_call",
+        required_lineage=(
+            "reel_factory.wavespeed_submission.v1",
+            "campaign_factory.motion_generation_asset.v1",
+        ),
+        qc_requirements=("contentforge_quality", "human_final_review"),
+        static_fallback_behavior="required_before_paid_motion",
+        allowed_output_surface="campaign_review",
+        paid_image_generation=False,
+        paid_video_generation=True,
     ),
     "motion_edit": GenerationExecutionPlan(
         creative_mode="motion_edit",
@@ -281,4 +327,10 @@ def authorize_paid_generation(
 
 
 def generation_execution_mode_ids() -> tuple[str, ...]:
-    return tuple(_PLANS)
+    return (
+        "library_reuse",
+        "soul_static",
+        "local_wan",
+        "best_motion",
+        "reference_video_remix",
+    )

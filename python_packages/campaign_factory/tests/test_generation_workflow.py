@@ -45,43 +45,33 @@ def test_workflow_builds_and_passes_one_canonical_plan(
     )
 
 
-def test_motion_mode_creates_static_fallback_before_motion_and_preserves_it(
+def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     still = tmp_path / "accepted.png"
     still.write_bytes(b"still")
-    fallback = tmp_path / "static.mp4"
-    calls: list[str] = []
+    captured = {}
 
-    def fake_static(*_args, **_kwargs):
-        calls.append("static")
-        fallback.write_bytes(b"static-fallback")
-        return {"paidGeneration": False, "render": {"outputPath": str(fallback)}}
-
-    def fail_motion(*_args, **_kwargs):
-        calls.append("motion")
-        raise RuntimeError("simulated local motion failure")
+    def fake_motion(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"schema": "campaign_factory.motion_generation_stage_run.v1"}
 
     monkeypatch.setattr(
-        "campaign_factory.static_mp4_stage.run_static_mp4_stage", fake_static
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        fake_motion,
     )
-    monkeypatch.setattr(
-        "campaign_factory.motion_edit_stage.run_motion_edit_stage", fail_motion
+    result = run_generation_workflow(
+        object(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        motion_prompt="Natural breathing and a slow camera push toward the subject",
+        dry_run=True,
+        apply=False,
     )
-
-    with pytest.raises(RuntimeError, match="simulated local motion failure"):
-        run_generation_workflow(
-            object(),
-            mode="motion_edit",
-            campaign_slug="campaign",
-            accepted_still_path=still,
-            caption="A caption",
-            dry_run=False,
-            apply=True,
-        )
-
-    assert calls == ["static", "motion"]
-    assert fallback.read_bytes() == b"static-fallback"
+    assert result["mode"] == "local_wan"
+    assert captured["model_id"] == "local_wan22_ti2v_5b_mlx"
+    assert captured["dry_run"] is True
 
 
 def test_generation_workflow_rejects_unknown_or_missing_mode() -> None:

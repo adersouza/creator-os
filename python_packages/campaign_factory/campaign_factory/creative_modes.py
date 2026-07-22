@@ -25,20 +25,20 @@ _MODES: tuple[dict[str, Any], ...] = (
         "entrypoint": "generation run --mode soul_static",
     },
     {
-        "id": "motion_edit",
-        "label": "Local motion edit",
+        "id": "local_wan",
+        "label": "Local Wan 2.2 motion",
         "costLabel": "free",
         "input": "approved still",
-        "output": "local motion-edited MP4 with static fallback",
-        "entrypoint": "generation run --mode motion_edit",
+        "output": "local MLX Wan 2.2 TI2V MP4 with static fallback",
+        "entrypoint": "generation run --mode local_wan",
     },
     {
-        "id": "best_only_kling",
-        "label": "Best-only Kling",
+        "id": "best_motion",
+        "label": "Best paid motion",
         "costLabel": "paid video",
-        "input": "approved rank-one static candidate and selection receipt",
-        "output": "paid Kling video with retained static fallback",
-        "entrypoint": "generation run --mode best_only_kling",
+        "input": "approved still plus explicit WaveSpeed model and motion prompt",
+        "output": "Wan 2.7 Pro, reference, or speaking video with static fallback",
+        "entrypoint": "generation run --mode best_motion",
     },
     {
         "id": "reference_video_remix",
@@ -49,6 +49,31 @@ _MODES: tuple[dict[str, Any], ...] = (
         "entrypoint": "generation run --mode reference_video_remix",
     },
 )
+
+# These definitions remain readable for historical run replay and contract
+# validation, but they are intentionally absent from the operator catalog and
+# CLI choices.  New work cannot select the retired FFmpeg motion mode or the
+# Kling-only policy surface.
+_RETIRED_MODES: dict[str, dict[str, Any]] = {
+    "motion_edit": {
+        "id": "motion_edit",
+        "label": "Retired local motion edit",
+        "costLabel": "retired",
+        "input": "historical evidence only",
+        "output": "historical evidence only",
+        "entrypoint": None,
+        "operatorSelectable": False,
+    },
+    "best_only_kling": {
+        "id": "best_only_kling",
+        "label": "Retired Kling-only mode",
+        "costLabel": "retired",
+        "input": "historical evidence only",
+        "output": "historical evidence only",
+        "entrypoint": None,
+        "operatorSelectable": False,
+    },
+}
 
 
 def creative_workflow_modes() -> dict[str, Any]:
@@ -86,6 +111,19 @@ def creative_workflow_mode(mode_id: str) -> dict[str, Any]:
     for mode in catalog["modes"]:
         if mode["id"] == normalized:
             return mode
+    retired = _RETIRED_MODES.get(normalized)
+    if retired is not None:
+        execution_plan = build_generation_execution_plan(normalized)
+        return {
+            **retired,
+            "requiredApprovals": list(execution_plan.required_approvals),
+            "paidImageGeneration": execution_plan.paid_image_generation,
+            "paidVideoGeneration": execution_plan.paid_video_generation,
+            "staticFallbackRequired": execution_plan.static_fallback_required,
+            "humanReviewRequired": True,
+            "schedulingAllowed": False,
+            "publishingAllowed": False,
+        }
     raise ValueError(f"unknown creative workflow mode: {mode_id}")
 
 

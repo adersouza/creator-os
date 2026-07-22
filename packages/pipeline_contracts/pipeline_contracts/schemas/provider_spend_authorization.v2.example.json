@@ -1,0 +1,40 @@
+{
+  "schema": "campaign_factory.provider_spend_authorization.v2",
+  "authorizationId": "spauth_example_v2",
+  "reservationId": "spres_example_v2",
+  "issuer": "campaign_factory",
+  "status": "authorized",
+  "issuedAt": "2026-07-21T12:00:00Z",
+  "expiresAt": "2026-07-21T12:05:00Z",
+  "scope": {
+    "provider": "wavespeed",
+    "providerModel": "alibaba/wan-2.7/image-to-video",
+    "operation": "image_to_video",
+    "campaign": "campaign_example",
+    "cohortId": "cohort_example",
+    "providerCallCount": 1,
+    "promptSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mediaSha256": {"image": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+    "parameters": {
+      "resolution": "1080p",
+      "durationSeconds": 5,
+      "seed": 42,
+      "enablePromptExpansion": false,
+      "shotType": null
+    },
+    "requestFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "providerQuote": {
+    "provider": "wavespeed",
+    "model": "alibaba/wan-2.7/image-to-video",
+    "amount": 0.75,
+    "unit": "USD",
+    "pricingVersion": "wavespeed_public_2026-07-21",
+    "pricingFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "catalogBasePrice": 0.75,
+    "catalogModelId": "alibaba/wan-2.7/image-to-video",
+    "liveQuotedAmount": 0.75,
+    "livePriceSource": "wavespeed_model_pricing_api"
+  },
+  "signature": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

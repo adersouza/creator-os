@@ -16,8 +16,8 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
     assert generation_execution_mode_ids() == (
         "library_reuse",
         "soul_static",
-        "motion_edit",
-        "best_only_kling",
+        "local_wan",
+        "best_motion",
         "reference_video_remix",
     )
 
@@ -30,9 +30,9 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
         assert plan.allowed_output_surface == "campaign_review"
 
     assert plans["library_reuse"].provider_authorization == "forbidden"
-    assert plans["motion_edit"].provider_authorization == "forbidden"
+    assert plans["local_wan"].provider_authorization == "forbidden"
     assert plans["soul_static"].motion_strategy == "static_mp4_only"
-    assert plans["best_only_kling"].motion_strategy == "kling_best_only"
+    assert plans["best_motion"].motion_strategy == "best_paid_motion"
     assert plans["reference_video_remix"].motion_strategy == "seedance_or_kling_remix"
     assert all(
         plan.static_fallback_required
@@ -64,7 +64,7 @@ def test_only_front_worker_modes_expose_front_animation_mode() -> None:
 
 
 def test_generation_execution_plan_contract_rejects_cross_mode_policy_drift() -> None:
-    payload = build_generation_execution_plan("best_only_kling").to_contract()
+    payload = build_generation_execution_plan("best_motion").to_contract()
     payload["motionStrategy"] = "local_motion_edit"
 
     with pytest.raises(ValueError, match="motionStrategy"):

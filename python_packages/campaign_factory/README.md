@@ -33,6 +33,8 @@ or publish.
 Every new generation run uses `generate --mode <mode>`. The Campaign Factory
 mode catalog is the only source for mode identifiers, costs, inputs, outputs,
 and approval gates; no package or root command silently chooses a mode.
+The five current modes are `library_reuse`, `soul_static`, `local_wan`,
+`best_motion`, and `reference_video_remix`.
 
 ## Package CLI
 
@@ -56,12 +58,19 @@ UI.
 
 Campaign Factory delegates media work to canonical Reel Factory modules. The
 active path is direct Higgsfield Soul still generation, a local static MP4 for
-accepted stills, and optional explicitly approved motion. Paid execution
+accepted stills, and optional local Wan or explicitly approved WaveSpeed motion. Paid execution
 requires opt-in, an explicit Soul ID, a finite credit cap, and a machine-local
 `CREATOR_OS_SPEND_AUTH_SECRET`. Campaign Factory owns provider quotes, balance
 and budget policy, reservations, and the authoritative cost ledger. Reel
 Factory receives a short-lived one-time signed authorization and records only
 worker execution evidence; invoking its paid modes directly fails closed.
+
+WaveSpeed spend is denominated in USD under the v2 provider authorization.
+Every request binds the exact provider model, task, prompt hash, media hashes,
+duration, resolution, seed, and other model parameters. A static fallback is
+created before an apply. Generated motion is registered as review-only with
+ContentForge, final-human-review, and native-audio blockers still unresolved.
+No motion command schedules or publishes.
 
 ContentForge runs as a local stdin/stdout JSON CLI. Campaign Factory stages the
 source and candidate, requests the `campaign_factory_v1` audit profile, and

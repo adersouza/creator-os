@@ -108,6 +108,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "pipeline-contracts" },
     { name = "reel-factory" },
+    { name = "requests" },
     { name = "scenedetect-headless" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -124,6 +125,7 @@ requires-dist = [
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3,<10" },
     { name = "reel-factory", editable = "python_packages/reel_factory" },
+    { name = "requests", specifier = ">=2.32,<3" },
     { name = "scenedetect-headless", specifier = ">=0.7,<0.8" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]
@@ -2975,6 +2977,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pilmoji" },
     { name = "rapidfuzz" },
+    { name = "requests" },
     { name = "watchdog" },
     { name = "yt-dlp" },
 ]
@@ -3024,6 +3027,7 @@ requires-dist = [
     { name = "pygobject", marker = "extra == 'pango'", specifier = ">=3.46,<4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3,<10" },
     { name = "rapidfuzz", specifier = ">=3.9,<4" },
+    { name = "requests", specifier = ">=2.32,<3" },
     { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=3,<6" },
     { name = "timm", marker = "extra == 'ai'", specifier = ">=1,<2" },
     { name = "torch", marker = "extra == 'ai'", specifier = ">=2.13,<3" },
