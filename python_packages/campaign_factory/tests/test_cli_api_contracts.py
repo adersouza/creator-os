@@ -139,20 +139,48 @@ def test_cli_json_output_redacts_nested_secrets(capsys):
     assert payload["nested"]["captionKey"] == "non-secret-identifier"
 
 
-def test_campaign_export_manifest_path_is_bounded(monkeypatch, tmp_path: Path):
-    campaigns_root = tmp_path / "campaigns"
-    campaigns_root.mkdir()
-    allowed = campaigns_root / "export.json"
-    allowed.write_text('{"campaign": "safe"}', encoding="utf-8")
-    outside = tmp_path / "outside.json"
-    outside.write_text('{"campaign": "outside"}', encoding="utf-8")
-    monkeypatch.setattr(
-        app_module, "settings", SimpleNamespace(campaigns_dir=campaigns_root)
-    )
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"exportPath": "/tmp/untrusted.json"},
+        {"exportResult": "/tmp/disguised-as-result.json"},
+    ],
+)
+def test_verify_export_api_rejects_caller_supplied_manifest_paths(monkeypatch, body):
+    called = False
 
-    assert app_module._load_campaign_export_manifest(allowed) == {"campaign": "safe"}
-    with pytest.raises(ValueError, match="campaigns root"):
-        app_module._load_campaign_export_manifest(outside)
+    class FakeEvents:
+        def create_pipeline_job(self, *_args, **_kwargs):
+            return {"id": "job_1"}
+
+        def start_pipeline_job(self, *_args, **_kwargs):
+            return None
+
+        def record_event(self, *_args, **_kwargs):
+            return None
+
+        def fail_pipeline_job(self, *_args, **_kwargs):
+            return None
+
+    class FakeFactory:
+        domains = SimpleNamespace(events=FakeEvents())
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def unexpected_verify(**_kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(app_module, "verify_threadsdash_export", unexpected_verify)
+
+    with pytest.raises(app_module.HTTPException) as exc_info:
+        app_module.verify_td_export(body)
+
+    assert exc_info.value.detail["code"] == "threadsdash_export_verification_failed"
+    assert called is False
 
 
 def test_sensitive_api_failure_does_not_echo_provider_error(monkeypatch):

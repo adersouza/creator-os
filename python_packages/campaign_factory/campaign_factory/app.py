@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -45,21 +44,6 @@ def _operation_failed(error_code: str) -> HTTPException:
             "message": "Operation failed; inspect the local pipeline evidence for details.",
         },
     )
-
-
-def _load_campaign_export_manifest(path_value: str | Path) -> dict[str, Any]:
-    allowed_root = settings.campaigns_dir.expanduser().resolve()
-    candidate = Path(path_value).expanduser().resolve(strict=True)
-    if not candidate.is_relative_to(allowed_root):
-        raise ValueError(
-            "exportPath must be inside the Campaign Factory campaigns root"
-        )
-    if candidate.suffix.lower() != ".json":
-        raise ValueError("exportPath must reference a JSON manifest")
-    payload = json.loads(candidate.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("exportPath must contain a JSON object")
-    return payload
 
 
 @app.get("/")
@@ -1274,16 +1258,13 @@ def verify_td_export(body: dict[str, Any] = Body(...)):
         None,
         {
             "hasExportResult": bool(body.get("exportResult")),
-            "exportPath": body.get("exportPath"),
         },
     )
     cf.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         export_value = body.get("exportResult")
-        if export_value is None and body.get("exportPath"):
-            export_value = _load_campaign_export_manifest(body["exportPath"])
-        if not export_value:
-            raise ValueError("exportResult or exportPath is required")
+        if not isinstance(export_value, dict) or not export_value:
+            raise ValueError("exportResult must be a non-empty object")
         result = verify_threadsdash_export(
             export_result_or_path=export_value,
             supabase_url=body.get("supabaseUrl") or os.environ.get("SUPABASE_URL"),
