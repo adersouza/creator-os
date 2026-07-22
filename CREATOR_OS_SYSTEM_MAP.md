@@ -211,6 +211,7 @@ reference intake
   -> mandatory local static MP4 for accepted stills
   -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
   -> machine-wide local generation lease + unified-memory admission
+  -> exact BenchmarkRecipeV1 + AnalyzerRegistryV1 fingerprints on benchmark jobs
   -> motion-specific temporal/identity/anatomy/audio/lip-sync evidence gate
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
@@ -246,7 +247,12 @@ at validated draft handoff.
   separate pinned setup action; generation is offline and cannot download
   weights. Local jobs use one machine-wide resource lease and append-only
   recovery journal. Model promotion requires matched measured benchmarks and
-  manual approval.
+  manual approval. New measured benchmark receipts copy the exact canonical
+  recipe and ContentForge analyzer-registry snapshots into content-addressed
+  local evidence, bind both fingerprints to the originating queue job and
+  output, and re-verify analyzer implementation hashes plus output-bound QC at
+  evaluation and approval time. Historical unlinked receipts remain readable
+  but are never assigned inferred evidence or promoted.
 - `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
   quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
   handles multi-reference motion, and Wan 2.2 S2V handles speaking video.

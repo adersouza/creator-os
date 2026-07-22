@@ -25,13 +25,18 @@ value objects, and generated TypeScript validators in Pipeline Contracts
 `2.1.0`. This is the existing cross-component type boundary; no new package,
 service, registry framework, or database was introduced.
 
+Reel Factory remains independently installable: its queue/benchmark bridge
+accepts the records through their canonical `to_dict()`/JSON serialization
+shape and does not add Pipeline Contracts as a runtime dependency. Pipeline
+Contracts remains the sole type and schema owner.
+
 | Record | Producer | Consumer | Persistence |
 | --- | --- | --- | --- |
 | `CreatorIdentityProfileV1` | Campaign Factory `snapshot_creator_identity_profile()`, from `ModelRepository.model_account_profile()` plus explicit existing identity-reference IDs | Campaign compatibility compiler; downstream workers receive the serialized snapshot but still consume their existing explicit creator/Soul inputs | Exact snapshot in the existing generation-workflow evidence payload and, for applied Library Reuse, the existing `library_reuse_runs/<pipeline-job-id>.json` manifest |
 | `ContentIntentV1` | Campaign Factory `snapshot_content_intent()`, from the current Creative Plan plus selected source fingerprints | Campaign compatibility compiler and later benchmark analysis | Same run evidence payload/Library Reuse manifest; mutable `creative_plans` remains source state |
 | `campaign_factory.generation_execution_plan.v1` | Existing `build_generation_execution_plan()` | Existing Campaign stages and Reel Factory loader | Existing generation-plan sidecars/run payloads; unchanged |
-| `BenchmarkRecipeV1` | Reel Factory benchmark planner when a comparable cohort is declared | Existing local benchmark path can link it to `LocalGenerationJob.task_fingerprint` and `BenchmarkReceipt` in the migration phase | Same run evidence payload initially; future receipt linkage is additive to the existing append-only benchmark journal |
-| `AnalyzerRegistryV1` | ContentForge when it snapshots the analyzer implementations configured for a run | Campaign compatibility compiler and benchmark/QC readers | Same run evidence payload initially; it is a per-run snapshot, not a mutable global plugin registry |
+| `BenchmarkRecipeV1` | Reel Factory benchmark planner when a comparable cohort is declared | Existing `LocalGenerationJob`, measured `BenchmarkReceipt`, and promotion evaluator | Exact recipe ID/fingerprint on linked queue jobs and new receipts; canonical recipe JSON beside the existing append-only benchmark journal |
+| `AnalyzerRegistryV1` | ContentForge's deterministic `analyzer-registry.js` adapter | Campaign compatibility compiler and benchmark/QC readers | Exact registry ID/fingerprint on linked queue jobs and new receipts; canonical registry JSON beside the benchmark journal, not a mutable global plugin registry |
 
 `run_generation_workflow()` accepts all four missing records as one optional,
 all-or-none set. It combines them with the already-existing execution plan,
@@ -60,6 +65,18 @@ required.
 - Every required analyzer ID/version must exist in the registry snapshot.
 - Every analyzer registration includes both its implementation reference and
   immutable implementation SHA-256.
+- Benchmark queue jobs accept recipe and registry records only as a pair. The
+  recipe task and required analyzer versions must match before the job is
+  journaled. The job retains its own exact aggregate input and parameter
+  fingerprints while the recipe retains its ordered source fingerprints; the
+  bridge does not reinterpret or collapse either identity.
+- New measured receipts require the same IDs and canonical fingerprints carried
+  by the succeeded queue job. The benchmark store copies both canonical records
+  into content-addressed local evidence paths before appending the receipt.
+- Recording, promotion evaluation, and explicit promotion approval re-hash the
+  registered implementation file under the trusted repository root and re-open
+  every output-bound QC receipt. Changed code, changed registry content,
+  substituted output, missing QC, or drifted analyzer policy fails closed.
 - Library Reuse requires zero expected provider calls and the existing
   provider-free, non-paid execution plan.
 - The records never authorize scheduling or publishing. ThreadsDashboard's
@@ -68,16 +85,34 @@ required.
 ## Migration path
 
 1. Emit snapshots only on new runs; do not rewrite historical evidence or infer
-   missing provenance.
+   missing provenance. Historical benchmark receipts deserialize with absent
+   linkage fields and remain inspectable, but cannot become promotion-eligible.
 2. Keep current Creative Plan, model/account profile, generation plan, queue,
    benchmark receipt, and ContentForge verdict stores authoritative.
-3. Link new benchmark receipts to `BenchmarkRecipeV1.recipeId` only in a future
-   additive receipt version after real benchmark consumers need it.
-4. Add a ContentForge producer adapter when analyzer implementations are
-   configured dynamically; do not turn the registry snapshot into a plugin
-   loader.
+3. New benchmark measurements are now additively linked to the exact recipe and
+   analyzer-registry IDs and fingerprints carried by their queue job. No legacy
+   receipt is backfilled.
+4. ContentForge now snapshots its actual motion-QC policy ID/version, evidence
+   kind, implementation path, and file SHA-256 through one deterministic
+   producer adapter. It does not load plugins, dispatch analyzers, or run a
+   daemon.
 5. Release/pin Pipeline Contracts only when an external consumer needs these
    internal records. ThreadsDashboard does not consume them today.
+
+## Provider-free benchmark evidence canary
+
+`reel_factory.benchmark_evidence_canary` is a local-only acceptance path. It
+requires a registry JSON emitted by ContentForge's `analyzer-registry` command
+and an empty caller-selected root. It performs two measured local copy jobs
+under the existing machine queue, runs the real evidence-only motion-QC policy
+against each exact output SHA-256, records two linked benchmark receipts, and
+performs the existing matched promotion evaluation. It does not approve a
+promotion, call a provider, download a model, use a production database, or
+touch scheduling/publishing state.
+
+The regression suite asserts zero provider calls and zero production writes and
+also covers recipe mismatch, changed implementation hashes, substituted output,
+missing QC, duplicate receipt identity, and interrupted jobs.
 
 ## Rejected alternatives
 

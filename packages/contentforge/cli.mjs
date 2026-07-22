@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { snapshotMotionSpecificQcAnalyzerRegistry } from "./lib/analyzer-registry.js";
 import { POST as similarityPost } from "./lib/similarity.js";
 import { evaluateMotionSpecificQc } from "./lib/motion-specific-qc.js";
 import { runVariantPack } from "./lib/variant-pack.js";
@@ -66,8 +67,14 @@ async function main() {
       ...payload.options,
       mediaSha256,
     });
+  } else if (command === "analyzer-registry") {
+    result = await snapshotMotionSpecificQcAnalyzerRegistry({
+      producedAt: payload.producedAt,
+    });
   } else {
-    throw new Error("usage: contentforge <similarity|variant-pack|motion-qc> [request.json]");
+    throw new Error(
+      "usage: contentforge <similarity|variant-pack|motion-qc|analyzer-registry> [request.json]",
+    );
   }
   process.stdout.write(JSON.stringify(result) + "\n");
 }
