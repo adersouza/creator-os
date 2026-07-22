@@ -108,7 +108,12 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--motion-model")
     generation_run.add_argument(
         "--motion-task",
-        choices=["text_to_video", "image_to_video", "audio_image_to_video"],
+        choices=[
+            "text_to_video",
+            "image_to_video",
+            "audio_image_to_video",
+            "keyframe_interpolation",
+        ],
         default="image_to_video",
     )
     generation_run.add_argument("--motion-prompt")

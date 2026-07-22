@@ -95,7 +95,7 @@ def test_local_mode_authorizes_ltx_audio_without_paid_generation(
         campaign_slug="campaign",
         accepted_still_path=still,
         motion_model_id="local_ltx23_distilled_mlx",
-        motion_task="audio_image_to_video",
+        motion_task="image_to_video",
         motion_prompt="Natural motion synchronized with softly generated ambient audio",
         generate_audio=True,
         dry_run=True,
@@ -103,7 +103,7 @@ def test_local_mode_authorizes_ltx_audio_without_paid_generation(
     )
     assert captured["model_id"] == "local_ltx23_distilled_mlx"
     assert captured["generate_audio"] is True
-    assert captured["motion_task"] == "audio_image_to_video"
+    assert captured["motion_task"] == "image_to_video"
     assert captured["paid_confirmation"] is False
 
 

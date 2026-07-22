@@ -236,9 +236,11 @@ at validated draft handoff.
 - `soul_static`: direct Soul still plus local static MP4.
 - `local_wan`: the stable compatibility id for local Apple-silicon MLX motion.
   Model choice is explicit: Wan 2.2 TI2V-5B q8 for volume, Wan 2.2 I2V-A14B q4
-  for quality, LTX-2.3 distilled for fast synchronized audio/video, or LTX-2.3
-  dev two-stage HQ as an installed research tier that is not practically
-  runnable under the current conservative 64 GiB memory policy. Experimental LongCat Avatar
+  for quality, quantized LTX-2.3 Q4 for fast generated-audio motion, or
+  quantized LTX-2.3 Q8 for HQ source/generated audio, first/last frames,
+  keyframes, retake, and extension. LTX runs in its own pinned native MLX
+  runtime with low-RAM streaming; every source image, audio track, end frame,
+  and edited source video remains fingerprinted. Experimental LongCat Avatar
   1.5 q4 adds local image-plus-speech talking video behind lip-sync and memory
   canary gates. The static fallback is always retained. Installation is a
   separate pinned setup action; generation is offline and cannot download

@@ -15,6 +15,9 @@ Task = Literal[
     "text_to_video",
     "image_to_video",
     "audio_image_to_video",
+    "keyframe_interpolation",
+    "video_retake",
+    "video_extend",
     "reference_to_video",
     "speech_to_video",
 ]
@@ -48,6 +51,9 @@ class VideoModel:
     lora_supported: bool = False
     spatial_upscaler: bool = False
     multi_keyframe: bool = False
+    video_retake: bool = False
+    video_extend: bool = False
+    low_ram_streaming: bool = False
     capability_status: Literal["production", "experimental"] = "production"
 
     def to_dict(self) -> dict[str, object]:
@@ -109,22 +115,24 @@ LOCAL_LTX23_DISTILLED = VideoModel(
     provider="local",
     provider_model="Lightricks/LTX-2.3",
     task="image_to_video",
-    supported_tasks=("text_to_video", "image_to_video", "audio_image_to_video"),
+    supported_tasks=("text_to_video", "image_to_video"),
     resolutions=("576x1024",),
     durations=(5, 6, 7, 8),
     default_resolution="576x1024",
     default_duration=6,
-    audio_supported=True,
+    audio_supported=False,
     generated_audio_supported=True,
-    first_last_frame=True,
+    first_last_frame=False,
     paid=False,
     quality_tier="local_audio_fast",
     local_runtime_family="ltx_2",
     local_profile="ltx23_distilled",
-    local_model_dir_name="LTX-2.3-distilled-MLX",
-    model_revision="65b104b9387fb173d8e4b92fc5effc47625baf2a",
+    local_model_dir_name="LTX-2.3-MLX-Q4",
+    model_revision="53a6f5f39d9c074bc73e6a18ba391f40ddffaa68",
     license_id="ltx-2-community-license-agreement",
     lora_supported=True,
+    spatial_upscaler=True,
+    low_ram_streaming=True,
 )
 
 LOCAL_LTX23_DEV_HQ = VideoModel(
@@ -133,7 +141,14 @@ LOCAL_LTX23_DEV_HQ = VideoModel(
     provider="local",
     provider_model="Lightricks/LTX-2.3",
     task="image_to_video",
-    supported_tasks=("text_to_video", "image_to_video", "audio_image_to_video"),
+    supported_tasks=(
+        "text_to_video",
+        "image_to_video",
+        "audio_image_to_video",
+        "keyframe_interpolation",
+        "video_retake",
+        "video_extend",
+    ),
     resolutions=("576x1024",),
     durations=(5, 6, 7, 8),
     default_resolution="576x1024",
@@ -145,11 +160,14 @@ LOCAL_LTX23_DEV_HQ = VideoModel(
     quality_tier="local_audio_hq",
     local_runtime_family="ltx_2",
     local_profile="ltx23_dev_two_stage_hq",
-    local_model_dir_name="LTX-2.3-dev-MLX",
-    model_revision="5da7eb70a6a8a2691f6810454a31f2790e65d8ee",
+    local_model_dir_name="LTX-2.3-MLX-Q8",
+    model_revision="03da129baa459c9a70fc5858dee52fa417b3a93d",
     license_id="ltx-2-community-license-agreement",
     lora_supported=True,
     spatial_upscaler=True,
+    video_retake=True,
+    video_extend=True,
+    low_ram_streaming=True,
 )
 
 # LongCat Avatar 1.5 is the strongest credible local talking-avatar route on
@@ -320,19 +338,31 @@ def validate_model_request(
         )
     if selected_task in {"image_to_video", "audio_image_to_video"} and not has_image:
         raise ValueError(f"{model.id} task {selected_task} requires an image")
+    if selected_task == "keyframe_interpolation" and not (has_image and has_last_image):
+        raise ValueError(
+            f"{model.id} keyframe_interpolation requires start and end images"
+        )
+    if selected_task == "video_retake" and not model.video_retake:
+        raise ValueError(f"{model.id} does not support video retake")
+    if selected_task == "video_extend" and not model.video_extend:
+        raise ValueError(f"{model.id} does not support video extension")
     if selected_task == "text_to_video" and has_image:
         raise ValueError("text_to_video must not silently consume an image")
     if selected_task == "audio_image_to_video" and not (has_audio or generate_audio):
         raise ValueError(
             f"{model.id} audio_image_to_video requires source or generated audio"
         )
-    if selected_task != "audio_image_to_video" and (has_audio or generate_audio):
-        raise ValueError("audio inputs require the explicit audio_image_to_video task")
+    if selected_task != "audio_image_to_video" and has_audio:
+        raise ValueError("source audio requires the explicit audio_image_to_video task")
     if resolution not in model.resolutions:
         raise ValueError(
             f"{model.id} resolution must be one of {', '.join(model.resolutions)}"
         )
-    if model.durations and duration not in model.durations:
+    if (
+        model.durations
+        and selected_task not in {"video_retake", "video_extend"}
+        and duration not in model.durations
+    ):
         raise ValueError(
             f"{model.id} duration must be one of "
             + ", ".join(str(value) for value in model.durations)

@@ -10,14 +10,17 @@ No model is a silent fallback for another model. A local failure preserves the
 static MP4 and honest failure lineage. It never calls WaveSpeed. A paid failure
 never falls back to a different billable endpoint.
 
+The Mac-specific adoption and deferral record lives in
+[`docs/architecture/MAC_LOCAL_VIDEO_STACK_2026.md`](../architecture/MAC_LOCAL_VIDEO_STACK_2026.md).
+
 ## Model Policy
 
 | Creator OS model | Backend | Use it for | Output | Audio | Installed size estimate |
 |---|---|---|---|---|---:|
 | `local_wan22_ti2v_5b_mlx` | local MLX | volume still animation | 704x1280, 24 fps, 5-8 s | none | 19.6 GB |
 | `local_wan22_i2v_a14b_q4_mlx` | local MLX | stronger image fidelity and motion | 704x1280, 16 fps, 5-8 s | none | 28.6 GB |
-| `local_ltx23_distilled_mlx` | local MLX | fast image/audio-to-video and synchronized generated audio | 576x1024, 24 fps, 5-8 s | source or generated | 38.0 GB plus shared components |
-| `local_ltx23_dev_hq_mlx` | local MLX | highest-quality local two-stage finish | 576x1024, 24 fps, 5-8 s | source or generated | 45.6 GB plus shared components |
+| `local_ltx23_distilled_mlx` | local MLX | fast image motion with jointly generated audio | 576x1024, 24 fps, 5-8 s | generated | 20 GB plus 8.1 GB shared Gemma |
+| `local_ltx23_dev_hq_mlx` | local MLX | HQ motion, source audio, keyframes, retake, and extension | 576x1024, 24 fps, 5-8 s | source, generated, or explicitly preserved retake audio | 37 GB plus 8.1 GB shared Gemma |
 | `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
 | `wavespeed_wan27_i2v_pro` | WaveSpeed | best-quality paid still animation | 1080p, 5 s | none | remote |
 | `wavespeed_wan27_i2v` | WaveSpeed | lower-cost remote control | 1080p, 5 s | none | remote |
@@ -30,11 +33,12 @@ The local catalog is intentionally small:
 - Wan A14B q4 is the quality tier that fits a 64 GB Apple-silicon machine more
   honestly than the q8 A14B build, whose publisher warns about heavy swapping
   at that memory size.
-- LTX distilled is the fast synchronized audio/video tier.
-- LTX dev two-stage HQ is an installed research tier. Its conservative 57.31
-  GiB request plus the 6 GiB macOS reserve is not practically runnable on this
-  64 GiB machine; it stays blocked until a measured lower memory profile or a
-  compatible quantized checkpoint is proven.
+- LTX distilled is a Q4 generated-audio tier. It cannot accept source audio,
+  final-frame conditioning, or editing tasks.
+- LTX dev/HQ is a Q8 tier with low-RAM block streaming and spatial tiling. It
+  owns source-audio animation, first/last frames, keyframe interpolation, beta
+  retake, and beta extension. Those beta edits remain review-only until their
+  motion and audio receipts pass.
 - LongCat Avatar 1.5 q4 is the only Mac-native talking-avatar tier. It is
   isolated in its own runtime and remains experimental until a 64 GB M4 Max
   canary passes identity, lip-sync, anatomy, audio alignment, and memory review.
@@ -53,6 +57,7 @@ or repair anything.
 The installer pins:
 
 - MLX-Video runtime commit `87db56a51758fefb748a359b90a5283bb8ba4837`;
+- native LTX MLX runtime commit `d2ad8e9948157c14a063aca54e510d3d80c2c463`;
 - exact Hugging Face revisions for every conversion and dependency;
 - original official Wan/LTX source revisions in the installation receipt;
 - file size and SHA-256 evidence for every installed model file.
@@ -72,10 +77,10 @@ scripts/creator-os local-models install --apply \
   --accept-license gemma
 ```
 
-The full stack currently plans approximately 190.4 GB of downloads and keeps a
-30 GiB free-space safety margin. LTX shared VAE, audio VAE, vocoder, projection,
-and upscaler files are downloaded once and symlinked into the two LTX model
-directories instead of being duplicated.
+The installer computes the exact current download plan and keeps a 30 GiB
+free-space safety margin. The LTX tiers use separate Q4 and Q8 repositories plus
+one shared 4-bit Gemma text encoder. Legacy BF16 directories are never deleted
+by installation or status checks.
 
 The LTX community license requires intelligible disclosure of machine-generated
 output and a separate commercial license for entities with at least USD 10
@@ -95,13 +100,25 @@ The default locations are:
 
 ```text
 ~/.creator-os/runtimes/mlx-video
+~/.creator-os/runtimes/ltx-2-mlx
 ~/.creator-os/runtimes/longcat-avatar-mlx
 ~/.creator-os/models
 ```
 
 Override them only as an explicit setup decision with
-`CREATOR_OS_LOCAL_MLX_RUNTIME` and `CREATOR_OS_LOCAL_MODELS_ROOT`. Model weights,
-receipts, and generated media live outside Git.
+`CREATOR_OS_LOCAL_MLX_RUNTIME`, `CREATOR_OS_LOCAL_LTX_RUNTIME`, and
+`CREATOR_OS_LOCAL_MODELS_ROOT`. Model weights, receipts, and generated media
+live outside Git. Wan and LTX intentionally use separate pinned Python runtimes.
+
+Inspect legacy BF16 storage without deleting it:
+
+```bash
+scripts/creator-os local-models storage-report
+```
+
+The command has no deletion mode. Removal remains blocked until the quantized
+replacement passes deep verification, a real visual canary, and a reference
+audit against queued/recoverable evidence.
 
 ## Local Generation
 
@@ -140,7 +157,7 @@ LTX synchronized generated-audio dry-run:
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
   --motion-model local_ltx23_distilled_mlx \
-  --motion-task audio_image_to_video --generate-audio \
+  --motion-task image_to_video --generate-audio \
   --motion-prompt "She smiles and speaks naturally in a quiet room" \
   --duration 6 --seed 42 --steps 8
 ```
@@ -151,10 +168,37 @@ Reel Factory worker:
 ```bash
 uv run --package reel-factory python -m reel_factory.motion_generate \
   --model local_ltx23_dev_hq_mlx --dry-run --campaign CAMPAIGN \
+  --task audio_image_to_video \
   --image /absolute/first.jpg --last-image /absolute/last.jpg \
   --audio /absolute/dialogue.wav \
   --prompt "Natural conversational delivery with stable facial identity" \
   --duration 6 --steps 15 --out /absolute/review-only.mp4
+```
+
+Q8 keyframe interpolation, retake, and extension are explicit tasks rather than
+hidden post-processing fallbacks:
+
+```bash
+uv run --package reel-factory python -m reel_factory.motion_generate \
+  --model local_ltx23_dev_hq_mlx --dry-run --campaign CAMPAIGN \
+  --task keyframe_interpolation --image /absolute/start.jpg \
+  --last-image /absolute/end.jpg --generate-audio \
+  --prompt "A coherent natural transition with stable identity" \
+  --duration 6 --out /absolute/keyframe-review.mp4
+
+uv run --package reel-factory python -m reel_factory.motion_generate \
+  --model local_ltx23_dev_hq_mlx --dry-run --campaign CAMPAIGN \
+  --task video_retake --source-video /absolute/source.mp4 \
+  --retake-start-frame 2 --retake-end-frame 5 --preserve-audio \
+  --prompt "Repair the selected segment while preserving the scene" \
+  --out /absolute/retake-review.mp4
+
+uv run --package reel-factory python -m reel_factory.motion_generate \
+  --model local_ltx23_dev_hq_mlx --dry-run --campaign CAMPAIGN \
+  --task video_extend --source-video /absolute/source.mp4 \
+  --extend-frames 3 --extend-direction after --generate-audio \
+  --prompt "Continue the same camera motion and performance" \
+  --out /absolute/extended-review.mp4
 ```
 
 LongCat talking-avatar dry-run:
@@ -199,14 +243,10 @@ availability while retaining a 6 GiB default reserve for macOS and other local
 workloads. A missing current-memory measurement fails closed. This is resource
 admission, not proof that a profile is fast or visually good.
 
-The large LTX tiers are installed but are not claimed runnable merely because
-their files are present. Distilled requests 47.76 GiB and may admit after a
-clean reboot when at least 53.76 GiB is live-available. Dev/HQ requests 57.31
-GiB; with the mandatory 6 GiB reserve it is not practically runnable on this 64
-GiB machine under the current conservative policy. A blocked admission is
-expected and must not be bypassed. Both still require measured canaries, and
-dev/HQ additionally requires a proven lower memory profile or compatible
-quantized checkpoint before it can be promoted as runnable.
+The Q4/Q8 catalog estimates remain conservative for queue admission even though
+the LTX runtime can stream transformer blocks and tile spatially. A successful
+installation is not a quality claim. Both tiers require measured Mac canaries,
+and the Q8 editing tasks additionally require output-bound motion/audio QC.
 
 Jobs are fully fingerprinted before execution; state is an append-only,
 hash-chained, fsynced JSONL journal. A busy or resource-blocked invocation does
@@ -290,10 +330,11 @@ Factory registers every generated motion asset with
 |---|---|
 | Wan still animation | installed: TI2V-5B q8 volume and I2V-A14B q4 quality |
 | Local text-to-video | exposed explicitly through Wan TI2V and LTX |
-| LTX source/generated synchronized audio | installed; review-only, never native Instagram audio |
-| LTX first/last-frame conditioning | exposed through the pinned MLX runtime |
-| LTX generation-time spatial 2x | installed as part of the two-stage/HQ pipeline; not misrepresented as an arbitrary-video upscaler |
-| Multiple quality tiers | installed: Wan volume/quality; LTX distilled is canary-pending and dev/HQ is a non-runnable 64 GiB research tier |
+| LTX source/generated synchronized audio | Q4 generated and Q8 source/generated paths are explicit; review-only, never native Instagram audio |
+| LTX first/last-frame and keyframe conditioning | Q8 only; exact start/end SHA-256 values are retained |
+| LTX Retake and Extend | Q8 beta tasks exposed with source-video fingerprinting, bounded ranges, collision checks, and output validation |
+| LTX generation-time spatial 2x | part of the distilled/HQ generation pipeline; not misrepresented as an arbitrary-video upscaler |
+| Multiple quality tiers | Wan volume/quality plus LTX Q4 fast and Q8 HQ; all require measured canaries before promotion |
 | Generic Wan/LTX LoRA inputs | implemented with provenance registration and family/revision checks |
 | Local talking from image and audio | installed as experimental LongCat Avatar 1.5 q4; visual canary still required |
 | Machine-wide lease, Mac memory admission, and recovery journal | implemented and operator-integrated; intentionally not a daemon |
@@ -302,7 +343,9 @@ Factory registers every generated motion asset with
 | LTX camera-control LoRAs | deferred: official artifacts do not match the pinned LTX-2.3 22B MLX path |
 | Wan Lightning LoRAs | deferred: unsafe q4 merge-memory behavior has not passed a 64 GB canary |
 | Wan FLF2V/VACE/Animate/S2V, pose speaking, Wan-Dancer | deferred: no proven supported Mac MLX runtime |
-| LTX arbitrary multi-keyframes, Retake, LipDub | deferred: current official implementations are CUDA/PyTorch-oriented and absent from the pinned MLX runtime |
+| LTX arbitrary multi-keyframe graphs and LipDub | deferred: two-endpoint keyframes are supported; arbitrary graphs and experimental LipDub lack a production Mac contract |
+| LivePortrait face motion | deferred: the default detector weights carry a non-commercial restriction and cannot enter this commercial pipeline |
+| Phosphene HTTP queue | not adopted: Creator OS keeps one durable queue, resource lock, and provenance owner instead of splitting recovery state |
 
 Deferred means Creator OS refuses to claim or route the capability. It is not a
 hidden fallback to WaveSpeed or another paid provider.

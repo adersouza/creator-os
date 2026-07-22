@@ -12,12 +12,15 @@ from reel_factory.local_model_manager import (
     install_models,
     install_plan,
     install_runtime,
+    legacy_storage_report,
     model_status,
     runtime_status,
 )
 from reel_factory.local_video_models import (
     LONGCAT_MLX_REPOSITORY,
     LONGCAT_MLX_REVISION,
+    LTX_MLX_REPOSITORY,
+    LTX_MLX_REVISION,
     MLX_VIDEO_REPOSITORY,
     MLX_VIDEO_REVISION,
     MODEL_MANIFEST,
@@ -26,14 +29,13 @@ from reel_factory.local_video_models import (
 )
 
 
-def test_all_model_plan_deduplicates_ltx_shared_dependencies(tmp_path: Path) -> None:
+def test_all_model_plan_deduplicates_quantized_ltx_dependencies(tmp_path: Path) -> None:
     plan = install_plan([], models_root=tmp_path)
     assert len(plan["models"]) == 5
     dependency_ids = [value["id"] for value in plan["dependencies"]]
-    assert dependency_ids.count("ltx23_shared_mlx") == 1
     assert dependency_ids.count("ltx23_gemma_text_encoder") == 1
     assert dependency_ids.count("wan_umt5_tokenizer") == 1
-    assert plan["estimatedDownloadBytes"] > 175_000_000_000
+    assert plan["estimatedDownloadBytes"] > 100_000_000_000
     assert plan["generationDownloadsAllowed"] is False
 
 
@@ -44,6 +46,18 @@ def test_longcat_plan_is_pinned_mit_and_experimental(tmp_path: Path) -> None:
     assert model["license_id"] == "mit"
     assert model["family"] == "longcat_avatar"
     assert model["estimated_bytes"] > 25_000_000_000
+
+
+def test_legacy_ltx_storage_report_is_non_destructive(tmp_path: Path) -> None:
+    legacy = tmp_path / "LTX-2.3-dev-MLX"
+    legacy.mkdir()
+    (legacy / "weights.safetensors").write_bytes(b"legacy")
+    report = legacy_storage_report(models_root=tmp_path)
+    assert report["candidateBytes"] == len(b"legacy")
+    assert report["deletionPerformed"] is False
+    assert report["destructiveActionAvailable"] is False
+    assert report["candidates"][0]["deletionAllowed"] is False
+    assert (legacy / "weights.safetensors").read_bytes() == b"legacy"
 
 
 def test_install_plan_does_not_charge_installed_artifacts_again(
@@ -313,6 +327,57 @@ def test_runtime_install_rejects_substituted_partial_before_sync(
         install_runtime(runtime_root=runtime, runner=runner)
 
     assert not any(command[:2] == ["uv", "sync"] for command in commands)
+
+
+def test_ltx_runtime_install_is_exact_frozen_and_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "ltx-2-mlx"
+    partial = runtime.with_name("ltx-2-mlx.partial")
+    partial.mkdir(parents=True)
+    commands: list[list[str]] = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if command[:4] == ["git", "-C", str(partial), "rev-parse"]:
+            return subprocess.CompletedProcess(command, 0, LTX_MLX_REVISION + "\n", "")
+        if command[:2] == ["uv", "sync"]:
+            python = partial / ".venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text("runtime")
+        if command[:3] == ["uv", "pip", "freeze"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                (
+                    f"ltx-2-mlx @ {partial.as_uri()}\n"
+                    f"ltx-core-mlx @ {(partial / 'packages/ltx-core-mlx').as_uri()}\n"
+                    f"ltx-pipelines-mlx @ "
+                    f"{(partial / 'packages/ltx-pipelines-mlx').as_uri()}\n"
+                ),
+                "",
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._ltx_runtime_status",
+        lambda **_kwargs: {"ready": True, "issues": []},
+    )
+    status = install_runtime(runtime_root=runtime, family="ltx_2", runner=runner)
+    assert status["ready"] is True
+    assert [
+        "uv",
+        "sync",
+        "--frozen",
+        "--no-dev",
+        "--directory",
+        str(partial),
+    ] in commands
+    receipt = json.loads((runtime / ".creator-os-runtime.json").read_text())
+    assert receipt["runtimeId"] == "ltx_2_mlx"
+    assert receipt["repository"] == LTX_MLX_REPOSITORY
+    assert receipt["revision"] == LTX_MLX_REVISION
+    assert all(".partial" not in value for value in receipt["resolvedEnvironment"])
 
 
 def test_mlx_runtime_status_rejects_resolved_environment_drift(

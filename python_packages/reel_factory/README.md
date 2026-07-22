@@ -49,7 +49,7 @@ scripts/creator-os generate --mode local_wan --dry-run \
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_ltx23_distilled_mlx \
-  --motion-task audio_image_to_video --generate-audio \
+  --motion-task image_to_video --generate-audio \
   --motion-prompt "Natural movement with synchronized room sound"
 
 scripts/creator-os generate --mode local_wan --dry-run \
