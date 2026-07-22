@@ -13,12 +13,25 @@ from reel_factory.local_generation_queue import (
     LocalGenerationQueue,
     LocalQueueError,
     WorkerLeaseUnavailable,
+    default_local_generation_queue,
 )
 from reel_factory.local_generation_queue import (
     fingerprint as queue_fingerprint,
 )
 
 GIB = 1024**3
+
+
+def test_default_queue_never_claims_more_than_small_host_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "reel_factory.local_generation_queue._physical_memory_bytes",
+        lambda: 4 * GIB,
+    )
+    queue = default_local_generation_queue(tmp_path / "queue")
+    assert queue.resource_limit_bytes == 4 * GIB
+    assert queue.memory_reserve_bytes == 6 * GIB
 
 
 def _sha(value: str) -> str:

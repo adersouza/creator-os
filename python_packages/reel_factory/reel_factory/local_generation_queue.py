@@ -1539,15 +1539,24 @@ def default_local_generation_queue(root: Path | None = None) -> LocalGenerationQ
         else (Path.home() / ".creator-os/state/reel_factory/local_generation").resolve()
     )
     physical = _physical_memory_bytes() or 64 * 1024**3
+    memory_reserve_bytes = int(
+        os.environ.get(
+            "CREATOR_OS_LOCAL_GENERATION_MEMORY_RESERVE_BYTES",
+            str(6 * 1024**3),
+        )
+    )
+    # Keep the 8 GiB lower target on ordinary Macs, but never claim a queue
+    # ceiling larger than the machine itself. Small CI/dev hosts must still be
+    # able to inspect and reconcile the journal even though no video model will
+    # pass their live-memory admission gate.
+    resource_limit_bytes = min(
+        physical,
+        max(8 * 1024**3, physical - memory_reserve_bytes),
+    )
     return LocalGenerationQueue(
         queue_root,
-        resource_limit_bytes=max(8 * 1024**3, physical - 6 * 1024**3),
-        memory_reserve_bytes=int(
-            os.environ.get(
-                "CREATOR_OS_LOCAL_GENERATION_MEMORY_RESERVE_BYTES",
-                str(6 * 1024**3),
-            )
-        ),
+        resource_limit_bytes=resource_limit_bytes,
+        memory_reserve_bytes=memory_reserve_bytes,
     )
 
 

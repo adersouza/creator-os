@@ -21,6 +21,10 @@ from reel_factory.local_video import (
 @pytest.fixture(autouse=True)
 def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        "reel_factory.local_generation_queue._physical_memory_bytes",
+        lambda: 64 * 1024**3,
+    )
+    monkeypatch.setattr(
         "reel_factory.local_generation_queue._macos_available_memory_bytes",
         lambda: 128 * 1024**3,
     )
