@@ -19,6 +19,8 @@ def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None
         "localImageMotionQuality": "local_wan22_i2v_a14b_q4_mlx",
         "localAudioMotionFast": "local_ltx23_distilled_mlx",
         "localAudioMotionQuality": "local_ltx23_dev_hq_mlx",
+        "localTextToVideo": "local_ltx23_distilled_mlx",
+        "localSpeakingVideo": "local_longcat_avatar15_q4_mlx",
         "paidImageMotion": "wavespeed_wan27_i2v_pro",
         "paidImageMotionEconomy": "wavespeed_wan27_i2v",
         "paidReferenceMotion": "wavespeed_wan27_reference",
@@ -123,15 +125,18 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
             "--campaign",
             "campaign",
             "--generate-audio",
+            "--task",
+            "audio_image_to_video",
             "--dry-run",
         ]
     )
     request = build_request(args)
     assert request.audio_mode == "generated"
+    assert request.task == "audio_image_to_video"
     assert request.audio_path is None
 
     wan = video_model("local_wan22_ti2v_5b_mlx")
-    with pytest.raises(ValueError, match="does not support generated audio"):
+    with pytest.raises(ValueError, match="explicit audio_image_to_video task"):
         validate_model_request(
             wan,
             resolution="720p",
@@ -140,3 +145,33 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
             has_last_image=False,
             generate_audio=True,
         )
+
+
+def test_audio_task_and_inputs_cannot_silently_disagree() -> None:
+    ltx = video_model("local_ltx23_distilled_mlx")
+    with pytest.raises(ValueError, match="requires source or generated audio"):
+        validate_model_request(
+            ltx,
+            resolution="576x1024",
+            duration=6,
+            has_audio=False,
+            has_last_image=False,
+            task="audio_image_to_video",
+        )
+    with pytest.raises(ValueError, match="explicit audio_image_to_video task"):
+        validate_model_request(
+            ltx,
+            resolution="576x1024",
+            duration=6,
+            has_audio=True,
+            has_last_image=False,
+            task="image_to_video",
+        )
+
+
+def test_model_discovery_includes_every_explicitly_supported_task() -> None:
+    from reel_factory.video_provider_models import video_model_ids
+
+    assert "local_wan22_ti2v_5b_mlx" in video_model_ids(task="text_to_video")
+    assert "local_ltx23_distilled_mlx" in video_model_ids(task="text_to_video")
+    assert "local_ltx23_distilled_mlx" in video_model_ids(task="audio_image_to_video")

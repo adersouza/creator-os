@@ -136,6 +136,7 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
             "local_wan22_i2v_a14b_q4_mlx",
             "local_ltx23_distilled_mlx",
             "local_ltx23_dev_hq_mlx",
+            "local_longcat_avatar15_q4_mlx",
             "static_mp4",
         ),
         required_approvals=("human_still_approval",),

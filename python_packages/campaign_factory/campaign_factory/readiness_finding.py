@@ -206,6 +206,27 @@ _FINDING_SPECS: dict[str, _FindingSpec] = {
         "repair_or_replace_creative",
         "A draft is missing required identity verification proof.",
     ),
+    "motion_specific_qc_required": _FindingSpec(
+        "creative_safety",
+        "run_motion_qc_analyzers",
+        "Generated motion is missing an exact media-bound motion QC receipt.",
+    ),
+    "audio_video_alignment_qc_required": _FindingSpec(
+        "audio",
+        "run_audio_alignment_qc",
+        "Generated media with embedded audio is missing alignment evidence.",
+    ),
+    "lip_sync_qc_required": _FindingSpec(
+        "audio",
+        "run_lip_sync_qc",
+        "Talking media is missing required lip-sync evidence.",
+    ),
+    "text_to_video_identity_assignment_forbidden": _FindingSpec(
+        "creative_safety",
+        "keep_as_broll_or_add_creator_identity_proof",
+        "Text-only video has no creator identity conditioning and cannot be assigned to a creator.",
+        retryable=False,
+    ),
     "schedule_plan_not_ready": _FindingSpec(
         "schedule_plan",
         "rerun_campaign_schedule_plan",

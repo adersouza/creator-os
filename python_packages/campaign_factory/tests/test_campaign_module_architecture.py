@@ -20,6 +20,7 @@ FOCUSED_MODULES = (
     "db.py",
     "db_migrations.py",
     "db_schema.py",
+    "motion_qc_publishability.py",
     "recommendation_constants.py",
     "recommendation_lifecycle.py",
     "recommendation_planning.py",

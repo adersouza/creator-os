@@ -20,11 +20,15 @@ from pathlib import Path
 from typing import Any
 
 from .fileops import atomic_write_text
+from .local_lora_registry import register_local_lora
 from .local_video_models import (
+    LONGCAT_MLX_REPOSITORY,
+    LONGCAT_MLX_REVISION,
     LTX23_SHARED,
     MLX_VIDEO_REPOSITORY,
     MLX_VIDEO_REVISION,
     MODEL_MANIFEST,
+    LocalFamily,
     LocalInstallDependency,
     LocalVideoModelSpec,
     local_install_dependencies,
@@ -32,12 +36,77 @@ from .local_video_models import (
     local_model_catalog,
     local_video_model_spec,
     local_video_model_specs,
+    runtime_identity,
 )
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 _RECEIPT_SCHEMA = "reel_factory.local_model_installation.v1"
 _RUNTIME_SCHEMA = "reel_factory.local_mlx_runtime_installation.v1"
 _SAFETY_MARGIN_BYTES = 30 * 1024**3
+_LONGCAT_RUNTIME_REQUIREMENTS = (
+    "mlx==0.32.0",
+    "mlx-arsenal==0.10.1",
+    "safetensors==0.8.0",
+    "huggingface-hub==0.36.0",
+    "numpy==2.3.5",
+    "transformers==4.57.3",
+    "librosa==0.11.0",
+    "Pillow==12.3.0",
+    "imageio==2.37.4",
+    "imageio-ffmpeg==0.6.0",
+)
+
+
+def _normalize_longcat_environment(
+    values: Sequence[str], *, runtime: Path
+) -> list[str]:
+    """Return stable, exact environment evidence for the pinned local runtime."""
+
+    normalized: list[str] = []
+    direct_source_prefix = "longcat-video-avatar-mlx @ "
+    pinned_source = (
+        f"{direct_source_prefix}creator-os-pinned-source:{LONGCAT_MLX_REVISION}"
+    )
+    allowed_sources = {
+        runtime.as_uri(),
+        runtime.with_name(runtime.name + ".partial").as_uri(),
+    }
+    for value in values:
+        stripped = value.strip()
+        if not stripped:
+            continue
+        if (
+            stripped.lower().startswith(direct_source_prefix)
+            and stripped[len(direct_source_prefix) :] in allowed_sources
+        ):
+            stripped = pinned_source
+        normalized.append(stripped)
+    return sorted(normalized)
+
+
+def _normalize_mlx_video_environment(
+    values: Sequence[str], *, runtime: Path
+) -> list[str]:
+    normalized: list[str] = []
+    direct_source_prefix = "mlx-video @ "
+    pinned_source = (
+        f"{direct_source_prefix}creator-os-pinned-source:{MLX_VIDEO_REVISION}"
+    )
+    allowed_sources = {
+        runtime.as_uri(),
+        runtime.with_name(runtime.name + ".partial").as_uri(),
+    }
+    for value in values:
+        stripped = value.strip()
+        if not stripped:
+            continue
+        if (
+            stripped.lower().startswith(direct_source_prefix)
+            and stripped[len(direct_source_prefix) :] in allowed_sources
+        ):
+            stripped = pinned_source
+        normalized.append(stripped)
+    return sorted(normalized)
 
 
 def install_plan(
@@ -45,22 +114,50 @@ def install_plan(
 ) -> dict[str, Any]:
     specs = _selected_specs(model_ids)
     dependencies = _unique_dependencies(specs)
-    model_bytes = sum(spec.estimated_bytes for spec in specs)
-    dependency_bytes = sum(value.estimated_bytes for value in dependencies)
     root = _models_root(models_root)
+    model_entries = []
+    missing_model_bytes = 0
+    for spec in specs:
+        status = model_status(spec.model_id, models_root=root, deep=False)
+        material_issues = [
+            issue
+            for issue in status["issues"]
+            if not str(issue).startswith("local_model_dependency_missing:")
+            and not str(issue).startswith("local_model_shared_component_missing:")
+        ]
+        installed = not material_issues
+        if not installed:
+            missing_model_bytes += spec.estimated_bytes
+        model_entries.append(
+            {
+                **spec.to_dict(),
+                "installed": installed,
+                "ready": status["ready"],
+                "issues": status["issues"],
+            }
+        )
+    dependency_entries = []
+    missing_dependency_bytes = 0
+    for dependency in dependencies:
+        installed = _dependency_ready(dependency, root)
+        if not installed:
+            missing_dependency_bytes += dependency.estimated_bytes
+        dependency_entries.append(
+            {**_dependency_payload(dependency, root), "installed": installed}
+        )
+    selected_artifact_bytes = sum(spec.estimated_bytes for spec in specs) + sum(
+        value.estimated_bytes for value in dependencies
+    )
+    download_bytes = missing_model_bytes + missing_dependency_bytes
     free = shutil.disk_usage(root.parent if not root.exists() else root).free
-    required = model_bytes + dependency_bytes + _SAFETY_MARGIN_BYTES
+    required = download_bytes + (_SAFETY_MARGIN_BYTES if download_bytes else 0)
     return {
         "schema": "reel_factory.local_model_install_plan.v1",
-        "models": [spec.to_dict() for spec in specs],
-        "dependencies": [
-            {
-                **_dependency_payload(value, root),
-                "installed": _dependency_ready(value, root),
-            }
-            for value in dependencies
-        ],
-        "estimatedDownloadBytes": model_bytes + dependency_bytes,
+        "models": model_entries,
+        "dependencies": dependency_entries,
+        "selectedArtifactBytes": selected_artifact_bytes,
+        "installedArtifactEstimateBytes": selected_artifact_bytes - download_bytes,
+        "estimatedDownloadBytes": download_bytes,
         "safetyMarginBytes": _SAFETY_MARGIN_BYTES,
         "requiredFreeBytes": required,
         "availableFreeBytes": free,
@@ -74,6 +171,7 @@ def install_models(
     *,
     models_root: Path | None = None,
     runtime_root: Path | None = None,
+    longcat_runtime_root: Path | None = None,
     accepted_licenses: Sequence[str] = (),
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
@@ -97,7 +195,18 @@ def install_models(
         )
     if not plan["spaceReady"]:
         raise OSError("local_model_install_insufficient_disk_space")
-    runtime = install_runtime(runtime_root=runtime_root, runner=runner)
+    runtime_families = {spec.family for spec in specs}
+    runtimes: dict[str, Any] = {}
+    if runtime_families.intersection({"wan_2", "ltx_2"}):
+        runtimes["mlx_video"] = install_runtime(
+            runtime_root=runtime_root, runner=runner
+        )
+    if "longcat_avatar" in runtime_families:
+        runtimes["longcat_avatar"] = install_runtime(
+            runtime_root=longcat_runtime_root,
+            family="longcat_avatar",
+            runner=runner,
+        )
     root = _models_root(models_root)
     root.mkdir(parents=True, exist_ok=True)
     installed_dependencies = [
@@ -109,7 +218,8 @@ def install_models(
     ]
     return {
         "schema": "reel_factory.local_model_install_run.v1",
-        "runtime": runtime,
+        "runtime": runtimes.get("mlx_video") or runtimes.get("longcat_avatar"),
+        "runtimes": runtimes,
         "models": installed_models,
         "dependencies": installed_dependencies,
         "providerCalls": 0,
@@ -120,14 +230,25 @@ def install_models(
 
 
 def install_runtime(
-    *, runtime_root: Path | None = None, runner: Runner = subprocess.run
+    *,
+    runtime_root: Path | None = None,
+    family: LocalFamily = "wan_2",
+    runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
+    if family == "longcat_avatar":
+        return _install_longcat_runtime(runtime_root=runtime_root, runner=runner)
     runtime = _runtime_root(runtime_root)
     receipt = runtime / ".creator-os-runtime.json"
     if runtime.exists():
         status = runtime_status(runtime_root=runtime)
         if status["ready"]:
             return status
+        repairable = {
+            "mlx_video_runtime_receipt_environment_missing",
+            "mlx_video_runtime_environment_drift",
+        }
+        if set(status["issues"]).issubset(repairable):
+            return _repair_mlx_runtime_environment(runtime, runner=runner)
         raise RuntimeError(
             "local_mlx_runtime_exists_but_is_not_pinned: " + ", ".join(status["issues"])
         )
@@ -179,12 +300,11 @@ def install_runtime(
             str(partial),
         ],
     )
-    payload = {
-        "schema": _RUNTIME_SCHEMA,
-        "repository": MLX_VIDEO_REPOSITORY,
-        "revision": MLX_VIDEO_REVISION,
-        "python": str(runtime / ".venv/bin/python"),
-    }
+    frozen = _run_checked(
+        runner,
+        ["uv", "pip", "freeze", "--python", str(partial / ".venv/bin/python")],
+    ).stdout.splitlines()
+    payload = _mlx_runtime_receipt(runtime, frozen)
     atomic_write_text(
         partial / receipt.name,
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -196,11 +316,17 @@ def install_runtime(
     return runtime_status(runtime_root=runtime)
 
 
-def runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
+def runtime_status(
+    *, runtime_root: Path | None = None, family: LocalFamily = "wan_2"
+) -> dict[str, Any]:
+    if family == "longcat_avatar":
+        return _longcat_runtime_status(runtime_root=runtime_root)
     runtime = _runtime_root(runtime_root)
     python = runtime / ".venv/bin/python"
     issues: list[str] = []
     revision = None
+    payload: dict[str, Any] | None = None
+    current_environment: list[str] | None = None
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         issues.append("apple_silicon_required_for_mlx_backend")
     if not runtime.is_dir():
@@ -219,6 +345,21 @@ def runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
             issues.append("mlx_video_runtime_revision_unreadable")
         if revision != MLX_VIDEO_REVISION:
             issues.append("mlx_video_runtime_revision_mismatch")
+    try:
+        decoded = json.loads((runtime / ".creator-os-runtime.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        issues.append("mlx_video_runtime_receipt_missing_or_invalid")
+    else:
+        if isinstance(decoded, dict):
+            payload = decoded
+        if (
+            payload is None
+            or payload.get("schema") != _RUNTIME_SCHEMA
+            or payload.get("repository") != MLX_VIDEO_REPOSITORY
+            or payload.get("revision") != MLX_VIDEO_REVISION
+            or payload.get("python") != str(python)
+        ):
+            issues.append("mlx_video_runtime_receipt_mismatch")
     if not python.is_file():
         issues.append("mlx_video_python_missing")
     else:
@@ -231,6 +372,32 @@ def runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
         )
         if proc.returncode != 0:
             issues.append("mlx_video_runtime_import_failed")
+        try:
+            freeze_proc = subprocess.run(
+                ["uv", "pip", "freeze", "--python", str(python)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            issues.append("mlx_video_runtime_environment_unreadable")
+        else:
+            if freeze_proc.returncode != 0:
+                issues.append("mlx_video_runtime_environment_unreadable")
+            else:
+                current_environment = _normalize_mlx_video_environment(
+                    freeze_proc.stdout.splitlines(), runtime=runtime
+                )
+                recorded = payload.get("resolvedEnvironment") if payload else None
+                if not isinstance(recorded, list) or not all(
+                    isinstance(value, str) for value in recorded
+                ):
+                    issues.append("mlx_video_runtime_receipt_environment_missing")
+                elif current_environment != _normalize_mlx_video_environment(
+                    recorded, runtime=runtime
+                ):
+                    issues.append("mlx_video_runtime_environment_drift")
     if not shutil.which("ffprobe"):
         issues.append("ffprobe_missing")
     return {
@@ -240,6 +407,243 @@ def runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
         "repository": MLX_VIDEO_REPOSITORY,
         "expectedRevision": MLX_VIDEO_REVISION,
         "observedRevision": revision,
+        "receipt": payload,
+        "resolvedEnvironment": current_environment,
+        "ready": not issues,
+        "issues": issues,
+    }
+
+
+def _mlx_runtime_receipt(runtime: Path, frozen: Sequence[str]) -> dict[str, Any]:
+    return {
+        "schema": _RUNTIME_SCHEMA,
+        "repository": MLX_VIDEO_REPOSITORY,
+        "revision": MLX_VIDEO_REVISION,
+        "python": str(runtime / ".venv/bin/python"),
+        "resolvedEnvironment": _normalize_mlx_video_environment(
+            frozen, runtime=runtime
+        ),
+    }
+
+
+def _repair_mlx_runtime_environment(
+    runtime: Path, *, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    python = runtime / ".venv/bin/python"
+    _run_checked(
+        runner,
+        [
+            "uv",
+            "sync",
+            "--frozen",
+            "--no-dev",
+            "--no-install-project",
+            "--directory",
+            str(runtime),
+        ],
+    )
+    _run_checked(
+        runner,
+        ["uv", "pip", "install", "--python", str(python), "--no-deps", str(runtime)],
+    )
+    frozen = _run_checked(
+        runner, ["uv", "pip", "freeze", "--python", str(python)]
+    ).stdout.splitlines()
+    atomic_write_text(
+        runtime / ".creator-os-runtime.json",
+        json.dumps(_mlx_runtime_receipt(runtime, frozen), indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    status = runtime_status(runtime_root=runtime)
+    if not status["ready"]:
+        raise RuntimeError(
+            "local_mlx_runtime_repair_verification_failed: "
+            + ", ".join(status["issues"])
+        )
+    return status
+
+
+def _install_longcat_runtime(
+    *, runtime_root: Path | None = None, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    runtime = _longcat_runtime_root(runtime_root)
+    receipt = runtime / ".creator-os-runtime.json"
+    if runtime.exists():
+        status = _longcat_runtime_status(runtime_root=runtime)
+        if status["ready"]:
+            return status
+        raise RuntimeError(
+            "local_longcat_runtime_exists_but_is_not_pinned: "
+            + ", ".join(status["issues"])
+        )
+    partial = runtime.with_name(runtime.name + ".partial")
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    if partial.exists():
+        observed_revision = _git_revision(partial, runner=runner)
+        if observed_revision != LONGCAT_MLX_REVISION:
+            raise FileExistsError(
+                "local_longcat_runtime_partial_revision_mismatch: "
+                f"expected {LONGCAT_MLX_REVISION}, got "
+                f"{observed_revision or 'unreadable'}"
+            )
+    else:
+        _run_checked(
+            runner,
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                LONGCAT_MLX_REPOSITORY,
+                str(partial),
+            ],
+        )
+        _run_checked(
+            runner,
+            ["git", "-C", str(partial), "checkout", "--detach", LONGCAT_MLX_REVISION],
+        )
+    python = partial / ".venv/bin/python"
+    if not python.is_file():
+        _run_checked(runner, ["uv", "venv", "--python", "3.12", str(partial / ".venv")])
+    _run_checked(
+        runner,
+        ["uv", "pip", "install", "--python", str(python), "--no-deps", str(partial)],
+    )
+    _run_checked(
+        runner,
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            *_LONGCAT_RUNTIME_REQUIREMENTS,
+        ],
+    )
+    frozen = _run_checked(
+        runner,
+        ["uv", "pip", "freeze", "--python", str(python)],
+    ).stdout.splitlines()
+    payload = {
+        "schema": _RUNTIME_SCHEMA,
+        "runtimeId": "longcat_avatar",
+        "repository": LONGCAT_MLX_REPOSITORY,
+        "revision": LONGCAT_MLX_REVISION,
+        "python": str(runtime / ".venv/bin/python"),
+        "requirements": list(_LONGCAT_RUNTIME_REQUIREMENTS),
+        "resolvedEnvironment": _normalize_longcat_environment(frozen, runtime=runtime),
+        "capabilityStatus": "experimental",
+    }
+    atomic_write_text(
+        partial / receipt.name,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(partial, runtime)
+    return _longcat_runtime_status(runtime_root=runtime)
+
+
+def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
+    runtime = _longcat_runtime_root(runtime_root)
+    python = runtime / ".venv/bin/python"
+    receipt = runtime / ".creator-os-runtime.json"
+    issues: list[str] = []
+    revision = None
+    payload: dict[str, Any] | None = None
+    current_environment: list[str] | None = None
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        issues.append("apple_silicon_required_for_mlx_backend")
+    if not runtime.is_dir():
+        issues.append("longcat_mlx_runtime_missing")
+    else:
+        proc = subprocess.run(
+            ["git", "-C", str(runtime), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            revision = proc.stdout.strip()
+        else:
+            issues.append("longcat_mlx_runtime_revision_unreadable")
+        if revision != LONGCAT_MLX_REVISION:
+            issues.append("longcat_mlx_runtime_revision_mismatch")
+    try:
+        decoded = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        issues.append("longcat_mlx_runtime_receipt_missing_or_invalid")
+    else:
+        if isinstance(decoded, dict):
+            payload = decoded
+        if (
+            payload is None
+            or payload.get("schema") != _RUNTIME_SCHEMA
+            or payload.get("runtimeId") != "longcat_avatar"
+            or payload.get("repository") != LONGCAT_MLX_REPOSITORY
+            or payload.get("revision") != LONGCAT_MLX_REVISION
+            or payload.get("python") != str(python)
+            or payload.get("requirements") != list(_LONGCAT_RUNTIME_REQUIREMENTS)
+        ):
+            issues.append("longcat_mlx_runtime_receipt_mismatch")
+    if not python.is_file():
+        issues.append("longcat_mlx_python_missing")
+    else:
+        proc = subprocess.run(
+            [
+                str(python),
+                "-c",
+                (
+                    "import imageio, librosa, mlx, mlx_arsenal, safetensors, "
+                    "transformers, longcat_video_avatar"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        if proc.returncode != 0:
+            issues.append("longcat_mlx_runtime_import_failed")
+        try:
+            freeze_proc = subprocess.run(
+                ["uv", "pip", "freeze", "--python", str(python)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            issues.append("longcat_mlx_runtime_environment_unreadable")
+        else:
+            if freeze_proc.returncode != 0:
+                issues.append("longcat_mlx_runtime_environment_unreadable")
+            else:
+                current_environment = _normalize_longcat_environment(
+                    freeze_proc.stdout.splitlines(), runtime=runtime
+                )
+                recorded = payload.get("resolvedEnvironment") if payload else None
+                if not isinstance(recorded, list) or not all(
+                    isinstance(value, str) for value in recorded
+                ):
+                    issues.append("longcat_mlx_runtime_receipt_environment_missing")
+                elif current_environment != _normalize_longcat_environment(
+                    recorded, runtime=runtime
+                ):
+                    issues.append("longcat_mlx_runtime_environment_drift")
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        issues.append("ffmpeg_or_ffprobe_missing")
+    return {
+        "schema": "reel_factory.local_mlx_runtime_capability.v1",
+        "runtimeId": "longcat_avatar",
+        "runtimeDir": str(runtime),
+        "python": str(python),
+        "repository": LONGCAT_MLX_REPOSITORY,
+        "expectedRevision": LONGCAT_MLX_REVISION,
+        "observedRevision": revision,
+        "receipt": payload,
+        "resolvedEnvironment": current_environment,
+        "capabilityStatus": "experimental",
         "ready": not issues,
         "issues": issues,
     }
@@ -270,12 +674,15 @@ def model_status(
             else:
                 issues.append("local_model_manifest_invalid")
     if manifest is not None:
+        _runtime_id, _runtime_repository, runtime_revision = runtime_identity(
+            spec.family
+        )
         expected = {
             "schema": _RECEIPT_SCHEMA,
             "modelId": spec.model_id,
             "repository": spec.repository,
             "revision": spec.revision,
-            "runtimeRevision": MLX_VIDEO_REVISION,
+            "runtimeRevision": runtime_revision,
         }
         for key, value in expected.items():
             if manifest.get(key) != value:
@@ -331,16 +738,44 @@ def all_model_status(
     *,
     models_root: Path | None = None,
     runtime_root: Path | None = None,
+    longcat_runtime_root: Path | None = None,
     deep: bool = False,
 ) -> dict[str, Any]:
-    models = [
+    specs = local_video_model_specs()
+    file_statuses = [
         model_status(spec.model_id, models_root=models_root, deep=deep)
-        for spec in local_video_model_specs()
+        for spec in specs
     ]
+    runtimes = {
+        "mlx_video": runtime_status(runtime_root=runtime_root),
+        "longcat_avatar": runtime_status(
+            runtime_root=longcat_runtime_root, family="longcat_avatar"
+        ),
+    }
+    models = []
+    for spec, status in zip(specs, file_statuses, strict=True):
+        runtime_key = (
+            "longcat_avatar" if spec.family == "longcat_avatar" else "mlx_video"
+        )
+        runtime_ready = bool(runtimes[runtime_key]["ready"])
+        files_ready = bool(status["ready"])
+        models.append(
+            {
+                **status,
+                "family": spec.family,
+                "filesReady": files_ready,
+                "runtimeReady": runtime_ready,
+                "ready": files_ready and runtime_ready,
+            }
+        )
     return {
         "schema": "reel_factory.local_model_status.v1",
-        "runtime": runtime_status(runtime_root=runtime_root),
+        "runtime": runtimes["mlx_video"],
+        "runtimes": runtimes,
         "models": models,
+        "installedModelIds": [
+            value["modelId"] for value in models if value["filesReady"]
+        ],
         "readyModelIds": [value["modelId"] for value in models if value["ready"]],
         "generationDownloadsAllowed": False,
     }
@@ -433,6 +868,7 @@ def _install_model(
     if spec.family == "ltx_2":
         _link_ltx_shared_components(directory, root=root)
     records = _file_records(directory)
+    runtime_id, runtime_repository, runtime_revision = runtime_identity(spec.family)
     payload = {
         "schema": _RECEIPT_SCHEMA,
         "modelId": spec.model_id,
@@ -441,8 +877,9 @@ def _install_model(
         "revision": spec.revision,
         "sourceRepository": spec.source_repository,
         "sourceRevision": spec.source_revision,
-        "runtimeRepository": MLX_VIDEO_REPOSITORY,
-        "runtimeRevision": MLX_VIDEO_REVISION,
+        "runtimeId": runtime_id,
+        "runtimeRepository": runtime_repository,
+        "runtimeRevision": runtime_revision,
         "quantization": spec.quantization,
         "pipeline": spec.pipeline,
         "licenseId": spec.license_id,
@@ -618,6 +1055,12 @@ def _runtime_root(value: Path | None) -> Path:
     return Path(selected).expanduser().resolve()
 
 
+def _longcat_runtime_root(value: Path | None) -> Path:
+    selected = value or os.environ.get("CREATOR_OS_LOCAL_LONGCAT_RUNTIME")
+    selected = selected or Path.home() / ".creator-os/runtimes/longcat-avatar-mlx"
+    return Path(selected).expanduser().resolve()
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -664,10 +1107,21 @@ def _parser() -> argparse.ArgumentParser:
     apply_mode.add_argument("--apply", action="store_true")
     status = sub.add_parser("status")
     status.add_argument("--deep", action="store_true")
+    lora = sub.add_parser("register-lora")
+    lora.add_argument("--path", type=Path, required=True)
+    lora.add_argument("--id", required=True)
+    lora.add_argument("--model", action="append", required=True)
+    lora.add_argument("--license", required=True)
+    lora.add_argument("--source-repository", required=True)
+    lora.add_argument("--source-revision", required=True)
+    lora_mode = lora.add_mutually_exclusive_group(required=True)
+    lora_mode.add_argument("--dry-run", action="store_true")
+    lora_mode.add_argument("--apply", action="store_true")
     for value in (plan, install, status):
         value.add_argument("--models-root", type=Path)
     for value in (install, status):
         value.add_argument("--runtime-root", type=Path)
+        value.add_argument("--longcat-runtime-root", type=Path)
     return parser
 
 
@@ -682,7 +1136,18 @@ def main(argv: list[str] | None = None) -> int:
             payload = all_model_status(
                 models_root=args.models_root,
                 runtime_root=args.runtime_root,
+                longcat_runtime_root=args.longcat_runtime_root,
                 deep=args.deep,
+            )
+        elif args.command == "register-lora":
+            payload = register_local_lora(
+                args.path,
+                lora_id=args.id,
+                compatible_model_ids=args.model,
+                license_id=args.license,
+                source_repository=args.source_repository,
+                source_revision=args.source_revision,
+                apply=args.apply,
             )
         elif args.dry_run:
             payload = install_plan(args.model, models_root=args.models_root)
@@ -691,6 +1156,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.model,
                 models_root=args.models_root,
                 runtime_root=args.runtime_root,
+                longcat_runtime_root=args.longcat_runtime_root,
                 accepted_licenses=args.accept_license,
             )
     except (OSError, PermissionError, RuntimeError, ValueError) as exc:

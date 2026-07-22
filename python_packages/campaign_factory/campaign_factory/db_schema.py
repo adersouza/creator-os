@@ -398,6 +398,40 @@ CREATE TABLE IF NOT EXISTS audit_reports (
   FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
 );
 
+CREATE TABLE IF NOT EXISTS motion_qc_receipts (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  rendered_asset_id TEXT NOT NULL,
+  subject_sha256 TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  receipt_path TEXT NOT NULL,
+  receipt_sha256 TEXT NOT NULL,
+  receipt_json TEXT NOT NULL,
+  requirements_json TEXT NOT NULL,
+  media_size_bytes INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  UNIQUE(rendered_asset_id, receipt_sha256),
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
+  FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_motion_qc_receipts_asset_created
+  ON motion_qc_receipts(rendered_asset_id, created_at);
+
+CREATE TRIGGER IF NOT EXISTS motion_qc_receipts_immutable_update
+BEFORE UPDATE ON motion_qc_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'motion QC receipts are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS motion_qc_receipts_immutable_delete
+BEFORE DELETE ON motion_qc_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'motion QC receipts are immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS approval_decisions (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,

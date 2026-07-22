@@ -1,4 +1,4 @@
-# Local Wan/LTX And WaveSpeed Motion Providers
+# Local Wan/LTX/LongCat And WaveSpeed Motion Providers
 
 Creator OS exposes one explicit motion surface with two independently gated
 backends:
@@ -18,6 +18,7 @@ never falls back to a different billable endpoint.
 | `local_wan22_i2v_a14b_q4_mlx` | local MLX | stronger image fidelity and motion | 704x1280, 16 fps, 5-8 s | none | 28.6 GB |
 | `local_ltx23_distilled_mlx` | local MLX | fast image/audio-to-video and synchronized generated audio | 576x1024, 24 fps, 5-8 s | source or generated | 38.0 GB plus shared components |
 | `local_ltx23_dev_hq_mlx` | local MLX | highest-quality local two-stage finish | 576x1024, 24 fps, 5-8 s | source or generated | 45.6 GB plus shared components |
+| `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
 | `wavespeed_wan27_i2v_pro` | WaveSpeed | best-quality paid still animation | 1080p, 5 s | none | remote |
 | `wavespeed_wan27_i2v` | WaveSpeed | lower-cost remote control | 1080p, 5 s | none | remote |
 | `wavespeed_wan27_reference` | WaveSpeed | 1-5 identity/style references | 1080p, 5 s | none | remote |
@@ -30,7 +31,13 @@ The local catalog is intentionally small:
   honestly than the q8 A14B build, whose publisher warns about heavy swapping
   at that memory size.
 - LTX distilled is the fast synchronized audio/video tier.
-- LTX dev two-stage HQ is the slowest, highest-quality local tier.
+- LTX dev two-stage HQ is an installed research tier. Its conservative 57.31
+  GiB request plus the 6 GiB macOS reserve is not practically runnable on this
+  64 GiB machine; it stays blocked until a measured lower memory profile or a
+  compatible quantized checkpoint is proven.
+- LongCat Avatar 1.5 q4 is the only Mac-native talking-avatar tier. It is
+  isolated in its own runtime and remains experimental until a 64 GB M4 Max
+  canary passes identity, lip-sync, anatomy, audio alignment, and memory review.
 
 Wan-Dancer is not in this catalog. Its supported inference path requires eight
 CUDA GPUs and its weights are roughly 80 GiB, so presenting it as a runnable
@@ -57,7 +64,7 @@ scripts/creator-os local-models catalog
 scripts/creator-os local-models plan
 ```
 
-Install all four tiers:
+Install all five tiers:
 
 ```bash
 scripts/creator-os local-models install --apply \
@@ -65,7 +72,7 @@ scripts/creator-os local-models install --apply \
   --accept-license gemma
 ```
 
-The full stack currently plans approximately 165.4 GB of downloads and keeps a
+The full stack currently plans approximately 190.4 GB of downloads and keeps a
 30 GiB free-space safety margin. LTX shared VAE, audio VAE, vocoder, projection,
 and upscaler files are downloaded once and symlinked into the two LTX model
 directories instead of being duplicated.
@@ -88,6 +95,7 @@ The default locations are:
 
 ```text
 ~/.creator-os/runtimes/mlx-video
+~/.creator-os/runtimes/longcat-avatar-mlx
 ~/.creator-os/models
 ```
 
@@ -98,8 +106,12 @@ receipts, and generated media live outside Git.
 ## Local Generation
 
 The stable Creator OS mode id remains `local_wan` for historical contract
-compatibility, while the operator label is **Local Wan / LTX motion**. The model
-selection is explicit on every run.
+compatibility, while the operator label remains **Local Wan / LTX motion**.
+The model and task are explicit on every run.
+
+Text-to-video is available only for non-identity B-roll. It has no creator-image
+conditioning, so Campaign Factory blocks a raw T2V output from being assigned or
+published as Stacey, Larissa, Lola, or another creator identity.
 
 Wan volume dry-run:
 
@@ -107,6 +119,7 @@ Wan volume dry-run:
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
   --motion-model local_wan22_ti2v_5b_mlx \
+  --motion-task image_to_video \
   --motion-prompt "Subtle natural breathing and a gentle camera push" \
   --duration 6 --seed 42 --steps 40
 ```
@@ -126,7 +139,8 @@ LTX synchronized generated-audio dry-run:
 ```bash
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model local_ltx23_distilled_mlx --generate-audio \
+  --motion-model local_ltx23_distilled_mlx \
+  --motion-task audio_image_to_video --generate-audio \
   --motion-prompt "She smiles and speaks naturally in a quiet room" \
   --duration 6 --seed 42 --steps 8
 ```
@@ -143,6 +157,25 @@ uv run --package reel-factory python -m reel_factory.motion_generate \
   --duration 6 --steps 15 --out /absolute/review-only.mp4
 ```
 
+LongCat talking-avatar dry-run:
+
+```bash
+scripts/creator-os generate --mode local_wan --dry-run \
+  --campaign CAMPAIGN --accepted-still /absolute/portrait.jpg \
+  --motion-model local_longcat_avatar15_q4_mlx \
+  --motion-task audio_image_to_video --audio /absolute/dialogue.wav \
+  --motion-prompt "Natural direct-to-camera delivery with stable identity" \
+  --duration 4 --seed 42 --steps 8
+```
+
+The adapter accepts the exact portrait, source audio, and prompt; computes the
+Whisper features offline; derives synchronized PCM/AAC audio for the MP4 while
+preserving the exact source-audio hash; retains a hashed WAV sidecar; and fails
+if either artifact is absent. It does not call the
+upstream demo CLI, use its hard-coded sample media, or accept a silent MP4 as a
+success. A dry-run proves routing only. It does not prove this experimental
+model can produce acceptable output on the current Mac.
+
 Source audio and generated audio are mutually exclusive. Wan does not accept
 audio. LTX audio is muxed into the derivative MP4 and retained as a hashed WAV
 sidecar for review, but it is **not** Instagram native audio. Campaign Factory
@@ -155,6 +188,124 @@ prompt, dimensions, frame rate, duration, output SHA-256, and FFprobe evidence.
 It renders to named partial files and atomically promotes only a valid MP4.
 Interrupted work remains recoverable evidence rather than a finished-looking
 asset.
+
+## Local Lease Journal, LoRAs, Benchmarks, And Motion QC
+
+All local models share one machine-wide nonblocking worker lease and admission
+journal; this is not a background executable queue or daemon. Before an exact
+synchronous run starts on macOS, admission checks the model's conservative
+memory profile against the static machine ceiling and current `vm_stat`
+availability while retaining a 6 GiB default reserve for macOS and other local
+workloads. A missing current-memory measurement fails closed. This is resource
+admission, not proof that a profile is fast or visually good.
+
+The large LTX tiers are installed but are not claimed runnable merely because
+their files are present. Distilled requests 47.76 GiB and may admit after a
+clean reboot when at least 53.76 GiB is live-available. Dev/HQ requests 57.31
+GiB; with the mandatory 6 GiB reserve it is not practically runnable on this 64
+GiB machine under the current conservative policy. A blocked admission is
+expected and must not be bypassed. Both still require measured canaries, and
+dev/HQ additionally requires a proven lower memory profile or compatible
+quantized checkpoint before it can be promoted as runnable.
+
+Jobs are fully fingerprinted before execution; state is an append-only,
+hash-chained, fsynced JSONL journal. A busy or resource-blocked invocation does
+not occupy its requested output/lineage namespace and can be retried exactly.
+An abandoned running job becomes `interrupted` on the next lease. Recovery
+cryptographically binds the lineage to the queued model/input/task/parameters,
+moves existing final/partial/sidecar/lineage artifacts into an immutable queue
+recovery folder, records their hashes, and only then returns the same request to
+`queued`. Creator OS never deletes this evidence, rotates workers, starts an
+unowned backlog request, or silently retries a model failure.
+
+```bash
+scripts/creator-os local-queue status
+scripts/creator-os local-queue cancel-queued \
+  --job-id LOCAL_JOB_ID \
+  --reason "operator retired the resource-blocked request"
+scripts/creator-os local-queue recover-interrupted \
+  --job-id local_video_0123456789abcdef01234567 \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified exact source and request"
+scripts/creator-os local-queue recover-empty-interruption \
+  --job-id local_video_0123456789abcdef01234567 \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified crash occurred before any artifact write"
+scripts/creator-os local-queue recover-completed-interruption \
+  --job-id local_video_0123456789abcdef01234567 \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified completed output and lineage after power loss"
+```
+
+Wan and LTX LoRAs are accepted only after explicit registration records the
+file SHA-256, base-model revision, source revision, family, and license. A LoRA
+from another family or revision is rejected. Creator OS deliberately does not
+install Wan Lightning by default: applying its high/low pair to the q4 A14B
+runtime may dequantize enough layers to exceed a 64 GB machine's safe memory
+budget. LTX camera-control and IC-LoRAs are also not installed because the
+published artifacts target a different LTX architecture or pipeline than the
+pinned 2.3 MLX runtime.
+
+Measured model promotions require matched task fingerprints on identical
+hardware, real wall-time and peak-memory observations, output SHA-256 values,
+verifiable QC receipt hashes, and an explicit human approval. Missing QC is not
+converted into a pass.
+
+The local runner writes wall time and peak RSS into the hash-chained successful
+job event; the benchmark command cannot accept operator-supplied measurements.
+`record` verifies the completed lineage and output, imports exact QC receipts
+bound to that output SHA-256, and stores immutable copies. `evaluate` only
+compares recorded matched evidence. `approve` reloads the persisted eligible
+evaluation and re-verifies its QC evidence; it performs no inference.
+
+```bash
+scripts/creator-os local-benchmarks record \
+  --job-id local_video_0123456789abcdef01234567 \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --qc contentforge.motion_specific_qc=/absolute/path/motion-qc.json
+
+scripts/creator-os local-benchmarks evaluate \
+  --candidate-benchmark-id CANDIDATE_A \
+  --candidate-benchmark-id CANDIDATE_B \
+  --baseline-benchmark-id BASELINE_A \
+  --baseline-benchmark-id BASELINE_B
+
+scripts/creator-os local-benchmarks approve \
+  --evaluation-id EVALUATION_ID \
+  --approved-by operator@example.com \
+  --reason "reviewed matched output-bound QC and measured resource evidence"
+```
+
+ContentForge's `motion-qc` command evaluates supplied real evidence for motion
+amount, temporal discontinuities, freezes, loops, anatomy, identity, lip-sync,
+and audio alignment. Missing or invalid evidence blocks the asset. Campaign
+Factory registers every generated motion asset with
+`motion_specific_qc_required`; audio motion also requires
+`audio_video_alignment_qc_required`, and LongCat additionally requires
+`lip_sync_qc_required`.
+
+## Accurate 2026 Capability Boundary
+
+| Capability | Current Creator OS status |
+|---|---|
+| Wan still animation | installed: TI2V-5B q8 volume and I2V-A14B q4 quality |
+| Local text-to-video | exposed explicitly through Wan TI2V and LTX |
+| LTX source/generated synchronized audio | installed; review-only, never native Instagram audio |
+| LTX first/last-frame conditioning | exposed through the pinned MLX runtime |
+| LTX generation-time spatial 2x | installed as part of the two-stage/HQ pipeline; not misrepresented as an arbitrary-video upscaler |
+| Multiple quality tiers | installed: Wan volume/quality; LTX distilled is canary-pending and dev/HQ is a non-runnable 64 GiB research tier |
+| Generic Wan/LTX LoRA inputs | implemented with provenance registration and family/revision checks |
+| Local talking from image and audio | installed as experimental LongCat Avatar 1.5 q4; visual canary still required |
+| Machine-wide lease, Mac memory admission, and recovery journal | implemented and operator-integrated; intentionally not a daemon |
+| Measured benchmark/promotions | implemented; promotion is evidence-bound and manual |
+| Motion-specific QC contract | implemented as a fail-closed evidence evaluator |
+| LTX camera-control LoRAs | deferred: official artifacts do not match the pinned LTX-2.3 22B MLX path |
+| Wan Lightning LoRAs | deferred: unsafe q4 merge-memory behavior has not passed a 64 GB canary |
+| Wan FLF2V/VACE/Animate/S2V, pose speaking, Wan-Dancer | deferred: no proven supported Mac MLX runtime |
+| LTX arbitrary multi-keyframes, Retake, LipDub | deferred: current official implementations are CUDA/PyTorch-oriented and absent from the pinned MLX runtime |
+
+Deferred means Creator OS refuses to claim or route the capability. It is not a
+hidden fallback to WaveSpeed or another paid provider.
 
 ## WaveSpeed Setup And Spend Gates
 
@@ -192,9 +343,28 @@ result GETs, and downloads temporary output immediately.
 
 Every local or WaveSpeed apply retains the static MP4 fallback. A new motion
 output enters Campaign Factory as review-only with explicit blockers for
-ContentForge, final human review, audio policy where applicable, and AI
-disclosure where applicable. This integration cannot schedule, publish,
-dispatch QStash, alter account state, or touch production.
+motion-specific ContentForge evidence, final human review, audio/lip-sync policy
+where applicable, and AI disclosure where applicable. This integration cannot
+schedule, publish, dispatch QStash, alter account state, or touch production.
+
+ContentForge's current `motion-qc` command is an evidence evaluator, not the
+analyzer suite itself. It verifies supplied temporal, freeze, anatomy, identity,
+audio-alignment, and lip-sync analyzer evidence against the exact media SHA-256;
+it does not invent measurements or call a model/provider. Until those analyzers
+have produced a complete passing receipt, generated motion remains blocked.
+Register a finished receipt through the supported local boundary:
+
+```bash
+scripts/creator-os motion-qc-register \
+  --rendered-asset-id ASSET_ID \
+  --receipt /absolute/path/to/motion-qc.json \
+  --operator OPERATOR_ID
+```
+
+Campaign Factory re-hashes both the media and receipt, stores an append-only
+immutable record, and rechecks the media hash on every publishability decision.
+A generic ContentForge audit or human approval cannot clear the motion,
+audio-alignment, lip-sync, or text-only identity-assignment gates.
 
 ## Primary References
 
@@ -202,6 +372,8 @@ dispatch QStash, alter account state, or touch production.
 - [Official Wan 2.2 I2V-A14B weights](https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B)
 - [Official LTX-2 repository](https://github.com/Lightricks/LTX-2)
 - [MLX-Video Apple-silicon runtime](https://github.com/Blaizzy/mlx-video)
+- [LongCat Avatar 1.5](https://github.com/meituan-longcat/LongCat-Video)
+- [LongCat Avatar MLX runtime](https://github.com/xocialize/longcat-avatar-mlx)
 - [WaveSpeed REST API](https://wavespeed.ai/docs/rest-api)
 - [Wan 2.7 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/alibaba/alibaba-wan-2.7-image-to-video-pro)
 - [Wan 2.2 Speech-to-Video API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-speech-to-video)

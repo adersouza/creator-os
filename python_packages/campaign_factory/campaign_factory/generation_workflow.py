@@ -64,6 +64,9 @@ def run_generation_workflow(
     enable_prompt_expansion: bool = False,
     shot_type: str = "single",
     local_model_dir: Path | None = None,
+    motion_task: str = "image_to_video",
+    motion_lora_path: Path | None = None,
+    motion_lora_strength: float = 1.0,
 ) -> dict[str, Any]:
     """Route one explicitly selected mode through Campaign Factory."""
     execution_plan = build_generation_execution_plan(mode)
@@ -167,6 +170,9 @@ def run_generation_workflow(
             enable_prompt_expansion=enable_prompt_expansion,
             shot_type=shot_type,
             local_model_dir=local_model_dir,
+            motion_task=motion_task,
+            motion_lora_path=motion_lora_path,
+            motion_lora_strength=motion_lora_strength,
         )
     elif mode_id == "motion_edit":
         result = _run_motion_edit_mode(

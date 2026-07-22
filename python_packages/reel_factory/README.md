@@ -1,7 +1,7 @@
 # Reel Factory
 
 Reel Factory owns Creator OS media creation: direct Soul stills, local static
-MP4s, local Wan/LTX and WaveSpeed motion, safe caption placement/rendering,
+MP4s, local Wan/LTX/LongCat and WaveSpeed motion, safe caption placement/rendering,
 audio intent, and asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
 owns publishing.
 
@@ -17,7 +17,9 @@ single-person reference image
   -> optional text-only body-emphasis candidate
   -> QC and human acceptance
   -> local zero-provider-cost static MP4
-  -> optional pinned local Wan/LTX MLX or explicitly authorized WaveSpeed motion
+  -> optional pinned local Wan/LTX/LongCat MLX or authorized WaveSpeed motion
+  -> machine-wide local worker lease + measured Mac memory admission
+  -> motion/identity/anatomy/audio/lip-sync evidence gate
   -> placement.py -> caption_render.py when a safe lane exists
   -> audio_intent.v1 and generated_asset_lineage
   -> Campaign Factory
@@ -46,8 +48,15 @@ scripts/creator-os generate --mode local_wan --dry-run \
 
 scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
-  --motion-model local_ltx23_distilled_mlx --generate-audio \
+  --motion-model local_ltx23_distilled_mlx \
+  --motion-task audio_image_to_video --generate-audio \
   --motion-prompt "Natural movement with synchronized room sound"
+
+scripts/creator-os generate --mode local_wan --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/portrait.png \
+  --motion-model local_longcat_avatar15_q4_mlx \
+  --motion-task audio_image_to_video --audio /path/to/dialogue.wav \
+  --motion-prompt "Natural direct-to-camera delivery with stable identity"
 
 scripts/creator-os generate --mode best_motion --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
@@ -80,9 +89,11 @@ new internal callers import the owning module directly.
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
 
-`motion_generate` is the narrow motion worker boundary. Local Wan/LTX can execute
-without provider authority; every WaveSpeed apply requires a Campaign-issued,
-short-lived v2 spend authorization bound to exact input hashes and parameters.
+`motion_generate` is the narrow motion worker boundary. Local Wan/LTX/LongCat
+can execute without provider authority; every WaveSpeed apply requires a
+Campaign-issued, short-lived v2 spend authorization bound to exact input hashes
+and parameters. Local tasks, LoRAs, inputs, and source audio are explicit; the
+worker never silently changes the model or task.
 The worker submits a paid prediction once, never automatically retries an
 ambiguous POST, and downloads the temporary result immediately.
 
@@ -97,7 +108,9 @@ Overlay text must come from `caption_banks/` and pass through `placement.py` and
 safe lane means no burned overlay; the hook can remain the post caption.
 
 LTX can mux source or generated audio into a review derivative and preserves a
-hashed WAV sidecar. That track is never represented as Instagram native audio.
+hashed WAV sidecar. Experimental LongCat accepts a portrait plus source speech,
+preserves the source-audio hash, derives a bounded PCM sidecar, and muxes an AAC
+track from that sidecar. Those tracks are never represented as Instagram native audio.
 Reel Factory still emits `audio_intent.v1`; ThreadsDashboard separately resolves
 and verifies publishable native audio.
 
@@ -109,7 +122,52 @@ scripts/creator-os local-models install --apply \
   --accept-license ltx-2-community-license-agreement \
   --accept-license gemma
 scripts/creator-os local-models status --deep
+
+scripts/creator-os local-queue status
+scripts/creator-os local-queue cancel-queued \
+  --job-id LOCAL_JOB_ID \
+  --reason "operator retired the resource-blocked request"
+scripts/creator-os local-queue recover-interrupted \
+  --job-id LOCAL_JOB_ID \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified exact source and request"
+scripts/creator-os local-queue recover-empty-interruption \
+  --job-id LOCAL_JOB_ID \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified crash occurred before any artifact write"
+scripts/creator-os local-queue recover-completed-interruption \
+  --job-id LOCAL_JOB_ID \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --reason "operator verified completed output and lineage after power loss"
+
+scripts/creator-os local-benchmarks record \
+  --job-id LOCAL_JOB_ID \
+  --lineage /absolute/path/reel.mp4.local_video.json \
+  --qc contentforge.motion_specific_qc=/absolute/path/motion-qc.json
+scripts/creator-os local-benchmarks evaluate \
+  --candidate-benchmark-id CANDIDATE_A \
+  --candidate-benchmark-id CANDIDATE_B \
+  --baseline-benchmark-id BASELINE_A \
+  --baseline-benchmark-id BASELINE_B
+scripts/creator-os local-benchmarks approve \
+  --evaluation-id EVALUATION_ID \
+  --approved-by operator@example.com \
+  --reason "reviewed exact matched evidence"
 ```
+
+Installed does not mean resource-admitted. On this 64 GiB Mac, LTX distilled
+remains canary-pending and only runs when the live memory gate passes; the
+current dev/HQ profile is an installed research tier that is not practically
+runnable until a measured lower-memory or compatible quantized path exists.
+
+`local-queue` is an admission lease and recovery journal, not a daemon that can
+execute serialized requests later. Busy and current-memory-blocked attempts do
+not claim the output namespace. Interrupted recovery preserves every exact
+artifact under the queue evidence root before the request becomes retryable.
+Benchmark timing and RSS come only from the successful job event; QC receipts
+must identify their schema/policy, match the requested check id, and bind to the
+exact output SHA-256. Promotion is always a separate explicit approval and does
+not run inference.
 
 See [`../../docs/providers/wan_wavespeed.md`](../../docs/providers/wan_wavespeed.md)
 for the pinned model matrix, disk budget, licensing, and offline execution

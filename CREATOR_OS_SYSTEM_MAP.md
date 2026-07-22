@@ -209,7 +209,9 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
-  -> optional pinned local Wan/LTX MLX or explicitly approved WaveSpeed motion
+  -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
+  -> machine-wide local generation lease + unified-memory admission
+  -> motion-specific temporal/identity/anatomy/audio/lip-sync evidence gate
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
   -> Campaign Factory readiness and pipeline-contract validation
@@ -235,9 +237,14 @@ at validated draft handoff.
 - `local_wan`: the stable compatibility id for local Apple-silicon MLX motion.
   Model choice is explicit: Wan 2.2 TI2V-5B q8 for volume, Wan 2.2 I2V-A14B q4
   for quality, LTX-2.3 distilled for fast synchronized audio/video, or LTX-2.3
-  dev two-stage HQ for the strongest local finish. The static fallback is
-  always retained. Installation is a separate pinned setup action; generation
-  is offline and cannot download weights.
+  dev two-stage HQ as an installed research tier that is not practically
+  runnable under the current conservative 64 GiB memory policy. Experimental LongCat Avatar
+  1.5 q4 adds local image-plus-speech talking video behind lip-sync and memory
+  canary gates. The static fallback is always retained. Installation is a
+  separate pinned setup action; generation is offline and cannot download
+  weights. Local jobs use one machine-wide resource lease and append-only
+  recovery journal. Model promotion requires matched measured benchmarks and
+  manual approval.
 - `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
   quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
   handles multi-reference motion, and Wan 2.2 S2V handles speaking video.

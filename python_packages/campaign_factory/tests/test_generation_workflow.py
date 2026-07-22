@@ -95,6 +95,7 @@ def test_local_mode_authorizes_ltx_audio_without_paid_generation(
         campaign_slug="campaign",
         accepted_still_path=still,
         motion_model_id="local_ltx23_distilled_mlx",
+        motion_task="audio_image_to_video",
         motion_prompt="Natural motion synchronized with softly generated ambient audio",
         generate_audio=True,
         dry_run=True,
@@ -102,6 +103,42 @@ def test_local_mode_authorizes_ltx_audio_without_paid_generation(
     )
     assert captured["model_id"] == "local_ltx23_distilled_mlx"
     assert captured["generate_audio"] is True
+    assert captured["motion_task"] == "audio_image_to_video"
+    assert captured["paid_confirmation"] is False
+
+
+def test_local_mode_routes_talking_task_and_source_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    audio = tmp_path / "speech.wav"
+    audio.write_bytes(b"speech")
+    captured = {}
+
+    def fake_motion(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"schema": "campaign_factory.motion_generation_stage_run.v1"}
+
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        fake_motion,
+    )
+    run_generation_workflow(
+        object(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        motion_model_id="local_longcat_avatar15_q4_mlx",
+        motion_prompt="She speaks naturally to camera with subtle head movement",
+        motion_task="audio_image_to_video",
+        audio_path=audio,
+        dry_run=True,
+        apply=False,
+    )
+    assert captured["model_id"] == "local_longcat_avatar15_q4_mlx"
+    assert captured["motion_task"] == "audio_image_to_video"
+    assert captured["audio_path"] == audio
     assert captured["paid_confirmation"] is False
 
 

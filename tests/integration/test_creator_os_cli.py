@@ -137,6 +137,98 @@ def test_generate_list_modes_uses_read_only_campaign_catalog(
     ]
 
 
+@pytest.mark.parametrize(
+    ("operator_command", "module", "forwarded"),
+    [
+        (
+            "local-queue",
+            "reel_factory.local_generation_queue",
+            ["status"],
+        ),
+        (
+            "local-benchmarks",
+            "reel_factory.local_model_benchmark",
+            ["status"],
+        ),
+    ],
+)
+def test_local_operator_surfaces_route_only_to_reel_factory_modules(
+    monkeypatch: pytest.MonkeyPatch,
+    operator_command: str,
+    module: str,
+    forwarded: list[str],
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"]([operator_command, *forwarded]) == 0
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "reel-factory",
+            "python",
+            "-m",
+            module,
+            *forwarded,
+        ]
+    ]
+
+
+def test_motion_qc_register_routes_exact_asset_and_receipt_to_campaign_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+    receipt = tmp_path / "motion-qc.json"
+
+    assert (
+        namespace["main"](
+            [
+                "motion-qc-register",
+                "--rendered-asset-id",
+                "asset_motion_1",
+                "--receipt",
+                str(receipt),
+                "--operator",
+                "operator_1",
+            ]
+        )
+        == 0
+    )
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "campaign-factory",
+            "campaign-factory",
+            "register-motion-qc-receipt",
+            "--rendered-asset-id",
+            "asset_motion_1",
+            "--receipt",
+            str(receipt.resolve()),
+            "--operator",
+            "operator_1",
+        ]
+    ]
+
+
 def test_generate_requires_explicit_mode() -> None:
     result = _run("generate", "--dry-run", "--campaign", "campaign")
 

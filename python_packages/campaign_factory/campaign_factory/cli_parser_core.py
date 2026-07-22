@@ -106,6 +106,11 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--caption")
     generation_run.add_argument("--duration", type=float)
     generation_run.add_argument("--motion-model")
+    generation_run.add_argument(
+        "--motion-task",
+        choices=["text_to_video", "image_to_video", "audio_image_to_video"],
+        default="image_to_video",
+    )
     generation_run.add_argument("--motion-prompt")
     generation_run.add_argument("--audio", type=Path)
     generation_run.add_argument("--generate-audio", action="store_true")
@@ -126,6 +131,8 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument(
         "--local-model-dir", "--local-wan-model-dir", dest="local_model_dir", type=Path
     )
+    generation_run.add_argument("--motion-lora", type=Path)
+    generation_run.add_argument("--motion-lora-strength", type=float, default=1.0)
     generation_run.add_argument("--count", type=int, default=3)
     generation_run.add_argument("--account")
     generation_run.add_argument("--folder", type=Path)
@@ -648,6 +655,13 @@ def register_core_commands(sub) -> None:
     publishability = sub.add_parser("explain-publishability")
     publishability.add_argument("--rendered-asset-id", required=True)
     publishability.add_argument("--distribution-plan-id")
+    register_motion_qc = sub.add_parser(
+        "register-motion-qc-receipt",
+        help="register immutable, media-bound ContentForge motion-QC evidence",
+    )
+    register_motion_qc.add_argument("--rendered-asset-id", required=True)
+    register_motion_qc.add_argument("--receipt", type=Path, required=True)
+    register_motion_qc.add_argument("--operator")
     parent_register = sub.add_parser("register-parent-reel")
     parent_register.add_argument("--rendered-asset-id", required=True)
     parent_register.add_argument("--operator")
