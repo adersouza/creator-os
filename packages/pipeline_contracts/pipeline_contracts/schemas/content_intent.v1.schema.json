@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.content_intent.v1",
+  "title": "Creator OS Content Intent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "intentId",
+    "creatorIdentityProfileId",
+    "goal",
+    "contentSurface",
+    "mediaKind",
+    "styleLanes",
+    "conceptTags",
+    "sourceAssetFingerprints",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {"const": "creator_os.content_intent.v1"},
+    "intentId": {"type": "string", "minLength": 1},
+    "creatorIdentityProfileId": {"type": "string", "minLength": 1},
+    "goal": {"type": "string", "minLength": 1},
+    "contentSurface": {"enum": ["reel", "story", "feed_post", "thread"]},
+    "mediaKind": {"enum": ["image", "video", "carousel"]},
+    "styleLanes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "conceptTags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sourceAssetFingerprints": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    },
+    "provenance": {"$ref": "evidence_provenance.v1.schema.json"}
+  }
+}

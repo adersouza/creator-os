@@ -1,16 +1,18 @@
 {
   "schema": "creator_os.pipeline_contracts_manifest.v1",
   "package": "@creator-os/pipeline-contracts",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "files": {
     "pipeline_contracts/schemas/account_eligibility_decision.v1.example.json": "ceb3d1543f201951de0d6d3ea0cc6ba11355edbe5604b05e92398a040556c250",
     "pipeline_contracts/schemas/account_eligibility_decision.v1.schema.json": "4ca3aaaae4aeba5828931ef31eb9703c4cd076ee488ed1ea2757593d992f7654",
+    "pipeline_contracts/schemas/analyzer_registry.v1.schema.json": "2b3a1bc1fcb038546b746475e89307ca1fbf0a07ace29e0bda4e846da288da14",
     "pipeline_contracts/schemas/assignment_eligibility.v1.example.json": "f99dfe682beeacf3f4b769b76beba61cebb0b0399026d5a8d9135da5149d675a",
     "pipeline_contracts/schemas/assignment_eligibility.v1.schema.json": "d703344e020fa5200a15e26be2ccf63557f1abf3b32389d7d25c3cc1ad97bf3d",
     "pipeline_contracts/schemas/audio_catalog_export.v1.example.json": "61fc9e674341d8e94380298c405214d7cdc01bf96bd7e0d221e92207e81d99da",
     "pipeline_contracts/schemas/audio_catalog_export.v1.schema.json": "44cdd005f482e8840fd3d168a471dc766684bb3e1ed0b67c0a3cbbfda2b7e00d",
     "pipeline_contracts/schemas/audio_intent.v1.example.json": "a1a367e3c6490ce2ea5a83563d56715a73cea81bc1e85cbf311676c532284adc",
     "pipeline_contracts/schemas/audio_intent.v1.schema.json": "c00a30c2203eadeded5a46c3681a55b8af7329ae97ac75b55140792671ec2b27",
+    "pipeline_contracts/schemas/benchmark_recipe.v1.schema.json": "c22bf88a096370e124d4397f3ddd9da20853499330389f4fad6604fde1926b62",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.example.json": "47dbcbac1a314f772bbe850d6ea19720a9e1db38b6d6f4f3cf53a386566b5add",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json": "c3ab72d9dde40f45509b17086a7029c0fdc59d04dff83441f9ded717ea1e64f4",
     "pipeline_contracts/schemas/campaign_draft_payload.v2.example.json": "acf311f47cb2ab8ef30dab56331dfe93a35df6dc8b484d0a06b781923f1d5c64",
@@ -19,10 +21,13 @@
     "pipeline_contracts/schemas/campaign_draft_payload.v3.schema.json": "ef5fa2a7387d3aaa51c7d2a4f73e1d57c21234af09b6b88ad620d584ca81c3f4",
     "pipeline_contracts/schemas/caption_outcome_context.v1.example.json": "9776d530eee99587695fee2d07953713ddc9beff7297927a78940ec14389896d",
     "pipeline_contracts/schemas/caption_outcome_context.v1.schema.json": "4c43b387f1aef0cfe49e403448351c9d36f4d88cee6f0614a9787bd4bc1ae45e",
+    "pipeline_contracts/schemas/content_intent.v1.schema.json": "c2d2b898641807e50b2011d1702e2b900e0e6f954feab746a4ddd2e4dad22f39",
     "pipeline_contracts/schemas/contentforge_campaign_audit_response.v1.example.json": "e941a252ef0ee8fcb97b88661d12ba7979e356ea896ddaf2eb7e248ee4cc77b5",
     "pipeline_contracts/schemas/contentforge_campaign_audit_response.v1.schema.json": "9c5f8d7f3d6dbdeee415e4815e01a8588b580b3f352b7811733127adbc21a238",
     "pipeline_contracts/schemas/creative_plan.v1.example.json": "3a17c6b508f8c883fc20b2f90fddcea00102db73614b35d91252304c60a51d3a",
     "pipeline_contracts/schemas/creative_plan.v1.schema.json": "df7d2b9a637bc4652b29af47437ff8107528a96c7a0d1d4b28194339f10009fc",
+    "pipeline_contracts/schemas/creator_identity_profile.v1.schema.json": "9a01b9e61b698f0a848400bb33a77bb57e0926dd899e799cb5315b5bc1818a86",
+    "pipeline_contracts/schemas/evidence_provenance.v1.schema.json": "061254419ebb77575b17b4f9ef72aa4044be98aa011d436f48386eaaafd4ab6a",
     "pipeline_contracts/schemas/front_generation_plan.v1.example.json": "58dde3d4c8c4c879a5e6c5aaa90c072532cc3ed6d49559c89c2ccf1bb850f4a8",
     "pipeline_contracts/schemas/front_generation_plan.v1.schema.json": "dd865145c64490d9c736b95bd7421d06c8cfe4e46cd23294620bc73ede02da31",
     "pipeline_contracts/schemas/generated_asset_lineage.v1.example.json": "dab3311bcf5121935220e9340e8ef3dbbcc436c22acaa3a11403caef26e42bcc",
@@ -71,7 +76,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "7f42b8bf274cd6038640305886f69e391b91f1c7055a6338badb5fe9830af1e2",
-    "typescript/index.ts": "98543b8b6b9b786ab7d7d6be8ac792cfcd44a0da26588b71d7619c1ff4255eb5"
+    "typescript/generated-schemas.ts": "dfb4868257835051234fe189fa03d688f9b05c199d90b386b73d13721f5aa14c",
+    "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }

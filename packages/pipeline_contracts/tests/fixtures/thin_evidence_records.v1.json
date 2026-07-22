@@ -1,0 +1,102 @@
+{
+  "creator_identity_profile": {
+    "schema": "creator_os.creator_identity_profile.v1",
+    "profileId": "identity_stacey_v1",
+    "creatorKey": "stacey",
+    "displayName": "Stacey",
+    "modelProfile": "stacey",
+    "identityReferences": [
+      {
+        "namespace": "higgsfield_soul",
+        "externalId": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
+        "fingerprint": null
+      }
+    ],
+    "provenance": {
+      "producer": "campaign_factory.model_account_profile_snapshot",
+      "producedAt": "2026-07-22T12:00:00Z",
+      "sourceReferences": [
+        {
+          "recordId": "model:stacey",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    }
+  },
+  "content_intent": {
+    "schema": "creator_os.content_intent.v1",
+    "intentId": "intent_library_reuse_stacey_001",
+    "creatorIdentityProfileId": "identity_stacey_v1",
+    "goal": "views_reach",
+    "contentSurface": "reel",
+    "mediaKind": "video",
+    "styleLanes": ["amateur_native"],
+    "conceptTags": ["library_reuse"],
+    "sourceAssetFingerprints": [
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "provenance": {
+      "producer": "campaign_factory.creative_plan_snapshot",
+      "producedAt": "2026-07-22T12:00:00Z",
+      "sourceReferences": [
+        {
+          "recordId": "creative_plan:library_reuse_stacey",
+          "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    }
+  },
+  "benchmark_recipe": {
+    "schema": "creator_os.benchmark_recipe.v1",
+    "recipeId": "benchmark_library_reuse_preflight_v1",
+    "contentIntentId": "intent_library_reuse_stacey_001",
+    "executionPolicySchema": "campaign_factory.generation_execution_plan.v1",
+    "executionPolicyFingerprint": "754f32ddf9245c686e04659179f55d39caf6ae0fef2925ae67d3f8e58829aba7",
+    "taskKind": "library_reuse_preflight",
+    "inputFingerprints": [
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    "parameterFingerprint": "289fe887055da5aac5763c159bf6cf1fbb4421a0b15f9ec3a94632951c1b21b5",
+    "requiredAnalyzers": [
+      {
+        "analyzerId": "contentforge.campaign_factory_audit",
+        "analyzerVersion": "1.10.0"
+      }
+    ],
+    "expectedProviderCalls": 0,
+    "productionWritesAllowed": false,
+    "provenance": {
+      "producer": "reel_factory.local_benchmark_planner",
+      "producedAt": "2026-07-22T12:00:00Z",
+      "sourceReferences": [
+        {
+          "recordId": "intent_library_reuse_stacey_001",
+          "fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      ]
+    }
+  },
+  "analyzer_registry": {
+    "schema": "creator_os.analyzer_registry.v1",
+    "registryId": "contentforge_analyzers_2026_07_22",
+    "analyzers": [
+      {
+        "analyzerId": "contentforge.campaign_factory_audit",
+        "analyzerVersion": "1.10.0",
+        "evidenceKinds": ["campaign_audit"],
+        "implementationRef": "packages/contentforge/lib/pipeline.js",
+        "implementationFingerprint": "bece1a766d4f14bf4b7b585875ebf8f26042912f9b40282d43197cc86072f340"
+      }
+    ],
+    "provenance": {
+      "producer": "contentforge.analyzer_registry_snapshot",
+      "producedAt": "2026-07-22T12:00:00Z",
+      "sourceReferences": [
+        {
+          "recordId": "contentforge:campaign_factory_audit.v1.10",
+          "fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    }
+  }
+}

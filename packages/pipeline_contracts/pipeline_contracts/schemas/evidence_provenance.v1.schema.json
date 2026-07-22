@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.evidence_provenance.v1",
+  "title": "Creator OS Thin Evidence Provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "producer",
+    "producedAt",
+    "sourceReferences"
+  ],
+  "properties": {
+    "producer": {"type": "string", "minLength": 1},
+    "producedAt": {"type": "string", "format": "date-time"},
+    "sourceReferences": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["recordId", "fingerprint"],
+        "properties": {
+          "recordId": {"type": "string", "minLength": 1},
+          "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    }
+  }
+}

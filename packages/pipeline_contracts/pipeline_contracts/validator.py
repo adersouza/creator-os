@@ -14,6 +14,10 @@ from referencing.jsonschema import DRAFT202012
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
+ANALYZER_REGISTRY_SCHEMA = "analyzer_registry.v1.schema.json"
+BENCHMARK_RECIPE_SCHEMA = "benchmark_recipe.v1.schema.json"
+CONTENT_INTENT_SCHEMA = "content_intent.v1.schema.json"
+CREATOR_IDENTITY_PROFILE_SCHEMA = "creator_identity_profile.v1.schema.json"
 ACCOUNT_ELIGIBILITY_DECISION_SCHEMA = "account_eligibility_decision.v1.schema.json"
 ASSIGNMENT_ELIGIBILITY_SCHEMA = "assignment_eligibility.v1.schema.json"
 CAMPAIGN_DRAFT_PAYLOAD_V1_SCHEMA = "campaign_draft_payload.v1.schema.json"
@@ -57,7 +61,11 @@ CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA = (
 )
 
 SCHEMA_NAMES = {
+    "analyzer_registry": ANALYZER_REGISTRY_SCHEMA,
     "audio_intent": AUDIO_INTENT_SCHEMA,
+    "benchmark_recipe": BENCHMARK_RECIPE_SCHEMA,
+    "content_intent": CONTENT_INTENT_SCHEMA,
+    "creator_identity_profile": CREATOR_IDENTITY_PROFILE_SCHEMA,
     "account_eligibility_decision": ACCOUNT_ELIGIBILITY_DECISION_SCHEMA,
     "campaign_factory_account_eligibility_decision": ACCOUNT_ELIGIBILITY_DECISION_SCHEMA,
     "assignment_eligibility": ASSIGNMENT_ELIGIBILITY_SCHEMA,
@@ -113,6 +121,22 @@ SCHEMA_NAMES = {
 
 class ContractValidationError(ValueError):
     pass
+
+
+def validate_analyzer_registry(value: Any) -> None:
+    validate_contract(value, ANALYZER_REGISTRY_SCHEMA)
+
+
+def validate_benchmark_recipe(value: Any) -> None:
+    validate_contract(value, BENCHMARK_RECIPE_SCHEMA)
+
+
+def validate_content_intent(value: Any) -> None:
+    validate_contract(value, CONTENT_INTENT_SCHEMA)
+
+
+def validate_creator_identity_profile(value: Any) -> None:
+    validate_contract(value, CREATOR_IDENTITY_PROFILE_SCHEMA)
 
 
 def schema_path(name: str) -> Path:

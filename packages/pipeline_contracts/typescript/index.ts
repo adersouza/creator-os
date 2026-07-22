@@ -60,6 +60,14 @@ export const FRONT_GENERATION_PLAN_SCHEMA_ID =
 	generatedPipelineContractSchemas.frontGenerationPlan.$id;
 export const GENERATION_EXECUTION_PLAN_SCHEMA_ID =
 	generatedPipelineContractSchemas.generationExecutionPlan.$id;
+export const CREATOR_IDENTITY_PROFILE_SCHEMA_ID =
+	generatedPipelineContractSchemas.creatorIdentityProfile.$id;
+export const CONTENT_INTENT_SCHEMA_ID =
+	generatedPipelineContractSchemas.contentIntent.$id;
+export const BENCHMARK_RECIPE_SCHEMA_ID =
+	generatedPipelineContractSchemas.benchmarkRecipe.$id;
+export const ANALYZER_REGISTRY_SCHEMA_ID =
+	generatedPipelineContractSchemas.analyzerRegistry.$id;
 
 export const EXPORTABLE_ASSET_STATES = [
 	"publishable_candidate",
@@ -148,6 +156,14 @@ export const motionEditRenderSchema =
 
 export const frontGenerationPlanSchema =
 	generatedPipelineContractSchemas.frontGenerationPlan;
+
+export const creatorIdentityProfileSchema =
+	generatedPipelineContractSchemas.creatorIdentityProfile;
+export const contentIntentSchema = generatedPipelineContractSchemas.contentIntent;
+export const benchmarkRecipeSchema =
+	generatedPipelineContractSchemas.benchmarkRecipe;
+export const analyzerRegistrySchema =
+	generatedPipelineContractSchemas.analyzerRegistry;
 
 export const audioCatalogExportSchema =
 	generatedPipelineContractSchemas.audioCatalogExport;
@@ -1039,6 +1055,38 @@ export function validateGenerationExecutionPlan(value: unknown): string[] {
 		generatedPipelineContractSchemas.generationExecutionPlan,
 		value,
 		"generation execution plan",
+	);
+}
+
+export function validateCreatorIdentityProfile(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.creatorIdentityProfile,
+		value,
+		"creator identity profile",
+	);
+}
+
+export function validateContentIntent(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.contentIntent,
+		value,
+		"content intent",
+	);
+}
+
+export function validateBenchmarkRecipe(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.benchmarkRecipe,
+		value,
+		"benchmark recipe",
+	);
+}
+
+export function validateAnalyzerRegistry(value: unknown): string[] {
+	return schemaErrors(
+		generatedPipelineContractSchemas.analyzerRegistry,
+		value,
+		"analyzer registry",
 	);
 }
 
