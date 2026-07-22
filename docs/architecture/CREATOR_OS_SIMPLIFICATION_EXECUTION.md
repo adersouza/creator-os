@@ -127,9 +127,11 @@ split and therefore understate the production-code deletion.
 
 ### Stable Operator Surface
 
-The supported root commands remain unchanged: `status`, `doctor`,
+The supported operational root commands remain `status`, `doctor`,
 `reference-refresh`, `generate`, `readiness`, `draft-export`, and
-`performance-sync`. `generate` still requires one explicit mode from
+`performance-sync`. A setup-only `local-models` command now plans, installs, and
+verifies pinned offline MLX weights without adding scheduling or publishing
+authority. `generate` still requires one explicit mode from
 `library_reuse`, `soul_static`, `local_wan`, `best_motion`, or
 `reference_video_remix`. Creator OS still has no scheduling or publishing
 command.

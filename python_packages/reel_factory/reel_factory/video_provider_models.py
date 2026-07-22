@@ -26,11 +26,18 @@ class VideoModel:
     default_resolution: str
     default_duration: int
     audio_required: bool = False
+    audio_supported: bool = False
+    generated_audio_supported: bool = False
     first_last_frame: bool = False
     prompt_expansion_supported: bool = False
     paid: bool = False
     quality_tier: str = "production"
     shot_type_supported: bool = False
+    local_runtime_family: str | None = None
+    local_profile: str | None = None
+    local_model_dir_name: str | None = None
+    model_revision: str | None = None
+    license_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -55,6 +62,74 @@ LOCAL_WAN22_TI2V_5B = VideoModel(
     first_last_frame=False,
     paid=False,
     quality_tier="local_best",
+    local_runtime_family="wan_2",
+    local_profile="wan22_ti2v_5b_q8",
+    local_model_dir_name="Wan2.2-TI2V-5B-MLX-Q8",
+    model_revision="9624723c94ddf509832555c45e223a035baa7d1c",
+    license_id="apache-2.0",
+)
+
+LOCAL_WAN22_I2V_A14B_Q4 = VideoModel(
+    id="local_wan22_i2v_a14b_q4_mlx",
+    backend="local_mlx",
+    provider="local",
+    provider_model="Wan-AI/Wan2.2-I2V-A14B",
+    task="image_to_video",
+    resolutions=("720p",),
+    durations=(5, 6, 7, 8),
+    default_resolution="720p",
+    default_duration=6,
+    paid=False,
+    quality_tier="local_quality",
+    local_runtime_family="wan_2",
+    local_profile="wan22_i2v_a14b_q4",
+    local_model_dir_name="Wan2.2-I2V-A14B-MLX-Q4",
+    model_revision="c6c786170031eccc3a1fac0f98f1ad4ff988271e",
+    license_id="apache-2.0",
+)
+
+LOCAL_LTX23_DISTILLED = VideoModel(
+    id="local_ltx23_distilled_mlx",
+    backend="local_mlx",
+    provider="local",
+    provider_model="Lightricks/LTX-2.3",
+    task="image_to_video",
+    resolutions=("576x1024",),
+    durations=(5, 6, 7, 8),
+    default_resolution="576x1024",
+    default_duration=6,
+    audio_supported=True,
+    generated_audio_supported=True,
+    first_last_frame=True,
+    paid=False,
+    quality_tier="local_audio_fast",
+    local_runtime_family="ltx_2",
+    local_profile="ltx23_distilled",
+    local_model_dir_name="LTX-2.3-distilled-MLX",
+    model_revision="65b104b9387fb173d8e4b92fc5effc47625baf2a",
+    license_id="ltx-2-community-license-agreement",
+)
+
+LOCAL_LTX23_DEV_HQ = VideoModel(
+    id="local_ltx23_dev_hq_mlx",
+    backend="local_mlx",
+    provider="local",
+    provider_model="Lightricks/LTX-2.3",
+    task="image_to_video",
+    resolutions=("576x1024",),
+    durations=(5, 6, 7, 8),
+    default_resolution="576x1024",
+    default_duration=6,
+    audio_supported=True,
+    generated_audio_supported=True,
+    first_last_frame=True,
+    paid=False,
+    quality_tier="local_audio_hq",
+    local_runtime_family="ltx_2",
+    local_profile="ltx23_dev_two_stage_hq",
+    local_model_dir_name="LTX-2.3-dev-MLX",
+    model_revision="5da7eb70a6a8a2691f6810454a31f2790e65d8ee",
+    license_id="ltx-2-community-license-agreement",
 )
 
 # The standard Wan 2.7 endpoint remains available as the lower-cost control. It
@@ -129,6 +204,9 @@ _MODELS = {
     model.id: model
     for model in (
         LOCAL_WAN22_TI2V_5B,
+        LOCAL_WAN22_I2V_A14B_Q4,
+        LOCAL_LTX23_DISTILLED,
+        LOCAL_LTX23_DEV_HQ,
         WAVESPEED_WAN27_I2V,
         WAVESPEED_WAN27_I2V_PRO,
         WAVESPEED_WAN27_REFERENCE,
@@ -157,6 +235,9 @@ def video_model_catalog() -> dict[str, object]:
         "models": [model.to_dict() for model in _MODELS.values()],
         "routing": {
             "localImageMotion": LOCAL_WAN22_TI2V_5B.id,
+            "localImageMotionQuality": LOCAL_WAN22_I2V_A14B_Q4.id,
+            "localAudioMotionFast": LOCAL_LTX23_DISTILLED.id,
+            "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "paidImageMotion": WAVESPEED_WAN27_I2V_PRO.id,
             "paidImageMotionEconomy": WAVESPEED_WAN27_I2V.id,
             "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
@@ -173,6 +254,7 @@ def validate_model_request(
     duration: int | None,
     has_audio: bool,
     has_last_image: bool,
+    generate_audio: bool = False,
 ) -> None:
     if resolution not in model.resolutions:
         raise ValueError(
@@ -187,9 +269,13 @@ def validate_model_request(
         raise ValueError(f"{model.id} duration is determined by its audio input")
     if model.audio_required and not has_audio:
         raise ValueError(f"{model.id} requires an audio input")
-    if model.task != "speech_to_video" and has_audio:
+    if has_audio and not (model.audio_required or model.audio_supported):
         raise ValueError(
             f"{model.id} does not accept audio in Creator OS; use wavespeed_wan22_s2v"
         )
+    if generate_audio and not model.generated_audio_supported:
+        raise ValueError(f"{model.id} does not support generated audio")
+    if generate_audio and has_audio:
+        raise ValueError("source audio and generated audio are mutually exclusive")
     if has_last_image and not model.first_last_frame:
         raise ValueError(f"{model.id} does not support a last image")

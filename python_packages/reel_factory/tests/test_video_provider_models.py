@@ -16,6 +16,9 @@ def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None
     catalog = video_model_catalog()
     assert catalog["routing"] == {
         "localImageMotion": "local_wan22_ti2v_5b_mlx",
+        "localImageMotionQuality": "local_wan22_i2v_a14b_q4_mlx",
+        "localAudioMotionFast": "local_ltx23_distilled_mlx",
+        "localAudioMotionQuality": "local_ltx23_dev_hq_mlx",
         "paidImageMotion": "wavespeed_wan27_i2v_pro",
         "paidImageMotionEconomy": "wavespeed_wan27_i2v",
         "paidReferenceMotion": "wavespeed_wan27_reference",
@@ -80,7 +83,7 @@ def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them
             "--dry-run",
         ]
     )
-    with pytest.raises(ValueError, match="only --resolution 720p"):
+    with pytest.raises(ValueError, match="resolution must be one of 720p"):
         build_request(local_args)
 
     remote_args = _parser().parse_args(
@@ -102,3 +105,38 @@ def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them
     )
     with pytest.raises(ValueError, match="steps applies only"):
         build_request(remote_args)
+
+
+def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) -> None:
+    image = tmp_path / "still.jpg"
+    image.write_bytes(b"still")
+    args = _parser().parse_args(
+        [
+            "--model",
+            "local_ltx23_distilled_mlx",
+            "--prompt",
+            "Natural portrait motion while matching a short source audio clip",
+            "--image",
+            str(image),
+            "--out",
+            str(tmp_path / "local.mp4"),
+            "--campaign",
+            "campaign",
+            "--generate-audio",
+            "--dry-run",
+        ]
+    )
+    request = build_request(args)
+    assert request.audio_mode == "generated"
+    assert request.audio_path is None
+
+    wan = video_model("local_wan22_ti2v_5b_mlx")
+    with pytest.raises(ValueError, match="does not support generated audio"):
+        validate_model_request(
+            wan,
+            resolution="720p",
+            duration=6,
+            has_audio=False,
+            has_last_image=False,
+            generate_audio=True,
+        )

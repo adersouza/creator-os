@@ -54,15 +54,16 @@ def run_generation_workflow(
     motion_model_id: str | None = None,
     motion_prompt: str | None = None,
     audio_path: Path | None = None,
+    generate_audio: bool = False,
     last_image_path: Path | None = None,
     motion_reference_image_paths: tuple[Path, ...] | list[Path] = (),
     motion_reference_video_paths: tuple[Path, ...] | list[Path] = (),
     resolution: str | None = None,
     seed: int = 42,
-    steps: int = 40,
+    steps: int | None = None,
     enable_prompt_expansion: bool = False,
     shot_type: str = "single",
-    local_wan_model_dir: Path | None = None,
+    local_model_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Route one explicitly selected mode through Campaign Factory."""
     execution_plan = build_generation_execution_plan(mode)
@@ -159,12 +160,13 @@ def run_generation_workflow(
             paid_confirmation=paid_confirmation,
             max_usd=max_usd,
             audio_path=audio_path,
+            generate_audio=generate_audio,
             last_image_path=last_image_path,
             reference_image_paths=tuple(motion_reference_image_paths),
             reference_video_paths=tuple(motion_reference_video_paths),
             enable_prompt_expansion=enable_prompt_expansion,
             shot_type=shot_type,
-            local_wan_model_dir=local_wan_model_dir,
+            local_model_dir=local_model_dir,
         )
     elif mode_id == "motion_edit":
         result = _run_motion_edit_mode(

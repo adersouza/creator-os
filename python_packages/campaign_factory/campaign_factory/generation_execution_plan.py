@@ -128,14 +128,20 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
     "local_wan": GenerationExecutionPlan(
         creative_mode="local_wan",
         still_strategy="accepted_still",
-        motion_strategy="local_wan_ti2v",
+        motion_strategy="local_mlx_video",
         cost_classification="free",
         providers=("local",),
-        models=("local_wan22_ti2v_5b_mlx", "static_mp4"),
+        models=(
+            "local_wan22_ti2v_5b_mlx",
+            "local_wan22_i2v_a14b_q4_mlx",
+            "local_ltx23_distilled_mlx",
+            "local_ltx23_dev_hq_mlx",
+            "static_mp4",
+        ),
         required_approvals=("human_still_approval",),
         provider_authorization="forbidden",
         required_lineage=(
-            "reel_factory.local_wan_generation.v1",
+            "reel_factory.local_video_generation.v1",
             "campaign_factory.motion_generation_asset.v1",
         ),
         qc_requirements=("contentforge_quality", "human_final_review"),

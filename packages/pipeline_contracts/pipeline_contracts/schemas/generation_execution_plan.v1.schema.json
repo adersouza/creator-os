@@ -50,7 +50,7 @@
       "enum": [
         "library_existing_media",
         "static_mp4_only",
-        "local_wan_ti2v",
+        "local_mlx_video",
         "best_paid_motion",
         "local_motion_edit",
         "kling_best_only",
@@ -141,7 +141,7 @@
       "if": {"properties": {"creativeMode": {"const": "local_wan"}}},
       "then": {"properties": {
         "stillStrategy": {"const": "accepted_still"},
-        "motionStrategy": {"const": "local_wan_ti2v"},
+        "motionStrategy": {"const": "local_mlx_video"},
         "costClassification": {"const": "free"},
         "providerAuthorization": {"const": "forbidden"},
         "staticFallbackBehavior": {"const": "required_before_motion"},

@@ -1,4 +1,4 @@
-"""Campaign-owned orchestration for local Wan and WaveSpeed motion workers."""
+"""Campaign-owned orchestration for local MLX and WaveSpeed motion workers."""
 
 from __future__ import annotations
 
@@ -42,19 +42,20 @@ def run_motion_generation_stage(
     duration_seconds: int | None,
     resolution: str | None,
     seed: int,
-    steps: int,
+    steps: int | None,
     dry_run: bool,
     apply: bool,
     workspace: Path | None = None,
     paid_confirmation: bool = False,
     max_usd: float | None = None,
     audio_path: Path | None = None,
+    generate_audio: bool = False,
     last_image_path: Path | None = None,
     reference_image_paths: tuple[Path, ...] = (),
     reference_video_paths: tuple[Path, ...] = (),
     enable_prompt_expansion: bool = False,
     shot_type: str = "single",
-    local_wan_model_dir: Path | None = None,
+    local_model_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Generate one review-only motion asset with a preserved static fallback."""
     expected_mode = execution_plan.creative_mode
@@ -106,12 +107,13 @@ def run_motion_generation_stage(
         seed=seed,
         steps=steps,
         audio_path=audio_path,
+        generate_audio=generate_audio,
         last_image_path=last_image_path,
         reference_image_paths=reference_image_paths,
         reference_video_paths=reference_video_paths,
         enable_prompt_expansion=enable_prompt_expansion,
         shot_type=shot_type,
-        local_wan_model_dir=local_wan_model_dir,
+        local_model_dir=local_model_dir,
         dry_run=True,
     )
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -155,12 +157,13 @@ def run_motion_generation_stage(
                 seed=seed,
                 steps=steps,
                 audio_path=audio_path,
+                generate_audio=generate_audio,
                 last_image_path=last_image_path,
                 reference_image_paths=reference_image_paths,
                 reference_video_paths=reference_video_paths,
                 enable_prompt_expansion=enable_prompt_expansion,
                 shot_type=shot_type,
-                local_wan_model_dir=local_wan_model_dir,
+                local_model_dir=local_model_dir,
                 dry_run=False,
             )
             if paid:
@@ -277,14 +280,15 @@ def _worker_command(
     duration_seconds: int | None,
     resolution: str | None,
     seed: int,
-    steps: int,
+    steps: int | None,
     audio_path: Path | None,
+    generate_audio: bool,
     last_image_path: Path | None,
     reference_image_paths: tuple[Path, ...],
     reference_video_paths: tuple[Path, ...],
     enable_prompt_expansion: bool,
     shot_type: str,
-    local_wan_model_dir: Path | None,
+    local_model_dir: Path | None,
     dry_run: bool,
 ) -> list[str]:
     command = [
@@ -303,8 +307,6 @@ def _worker_command(
         "creator_os_motion",
         "--seed",
         str(seed),
-        "--steps",
-        str(steps),
         "--shot-type",
         shot_type,
         "--dry-run" if dry_run else "--apply",
@@ -314,11 +316,12 @@ def _worker_command(
     else:
         command.extend(["--image", str(still)])
     for flag, value in (
+        ("--steps", steps),
         ("--duration", duration_seconds),
         ("--resolution", resolution),
         ("--audio", audio_path),
         ("--last-image", last_image_path),
-        ("--model-dir", local_wan_model_dir),
+        ("--model-dir", local_model_dir),
     ):
         if value is not None:
             command.extend([flag, str(value)])
@@ -328,6 +331,8 @@ def _worker_command(
         command.extend(["--reference-video", str(path)])
     if enable_prompt_expansion:
         command.append("--enable-prompt-expansion")
+    if generate_audio:
+        command.append("--generate-audio")
     return command
 
 
@@ -388,13 +393,32 @@ def _register_review_asset(
     rendered_id = new_id("asset")
     now = utc_now()
     caption_hash = factory.domains.publishability.text_hash("")
+    generation = worker_result.get("result")
+    generation = generation if isinstance(generation, dict) else {}
+    audio = generation.get("audio")
+    audio = audio if isinstance(audio, dict) else {"mode": "none"}
+    audio_mode = str(audio.get("mode") or "none")
+    embedded_audio = audio_mode in {"source", "generated"}
+    blocking_issues = [
+        "contentforge_audit_required",
+        "human_final_review_required",
+    ]
+    blocking_issues.append(
+        "local_audio_policy_review_required"
+        if embedded_audio
+        else "native_audio_unresolved"
+    )
+    if generation.get("aiDisclosureRequired") is True:
+        blocking_issues.append("ai_generated_media_disclosure_required")
     metadata = {
         "schema": "campaign_factory.motion_generation_asset.v1",
         "asset_state": "approved_but_not_publishable",
         "humanReviewRequired": True,
         "contentforgeAuditRequired": True,
         "captionBurned": False,
-        "audioBurned": False,
+        "audioBurned": embedded_audio,
+        "embeddedAudioMode": audio_mode,
+        "embeddedAudio": audio,
         "nativeAudioResolved": False,
         "source": {"path": str(source_path), "sha256": source_hash},
         "output": {"path": str(output_path), "sha256": digest},
@@ -404,11 +428,7 @@ def _register_review_asset(
         "publishability": {
             "status": "blocked",
             "asset_state": "approved_but_not_publishable",
-            "blockingIssues": [
-                "contentforge_audit_required",
-                "human_final_review_required",
-                "native_audio_unresolved",
-            ],
+            "blockingIssues": blocking_issues,
         },
     }
     outcome_context = {

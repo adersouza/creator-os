@@ -33,6 +33,19 @@ def _reference_command(*args: str) -> list[str]:
     ]
 
 
+def _reel_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_model_manager",
+        *args,
+    ]
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="creator-os",
@@ -103,6 +116,7 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--motion-model")
     generate.add_argument("--motion-prompt")
     generate.add_argument("--audio", type=Path)
+    generate.add_argument("--generate-audio", action="store_true")
     generate.add_argument("--last-image", type=Path)
     generate.add_argument(
         "--motion-reference-image", type=Path, action="append", default=[]
@@ -112,10 +126,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     generate.add_argument("--resolution")
     generate.add_argument("--seed", type=int, default=42)
-    generate.add_argument("--steps", type=int, default=40)
+    generate.add_argument("--steps", type=int)
     generate.add_argument("--enable-prompt-expansion", action="store_true")
     generate.add_argument("--shot-type", choices=["single", "multi"], default="single")
-    generate.add_argument("--local-wan-model-dir", type=Path)
+    generate.add_argument(
+        "--local-model-dir", "--local-wan-model-dir", dest="local_model_dir", type=Path
+    )
     generate.add_argument("--count", type=int, default=3)
     generate.add_argument("--account")
     generate.add_argument("--folder", type=Path)
@@ -173,6 +189,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Export one explicit distribution surface (default: regular_reel)",
     )
     draft.add_argument("--review-only", action="store_true")
+
+    local_models = sub.add_parser(
+        "local-models", help="plan, install, or verify pinned local MLX video models"
+    )
+    local_models.add_argument("args", nargs=argparse.REMAINDER)
 
     return parser
 
@@ -263,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             ("--folder", args.folder),
             ("--audio", args.audio),
             ("--last-image", args.last_image),
-            ("--local-wan-model-dir", args.local_wan_model_dir),
+            ("--local-model-dir", args.local_model_dir),
         )
         for flag, value in optional_paths:
             if value is not None:
@@ -313,10 +334,14 @@ def main(argv: list[str] | None = None) -> int:
             (args.wait, "--wait"),
             (args.download, "--download"),
             (args.enable_prompt_expansion, "--enable-prompt-expansion"),
+            (args.generate_audio, "--generate-audio"),
         ):
             if enabled:
                 command.append(flag)
         return _run(command)
+    if args.command == "local-models":
+        local_model_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_reel_command(*local_model_args))
     if args.command == "readiness":
         command = _campaign_command("campaign-readiness", "--campaign", args.campaign)
         if args.user_id:

@@ -209,7 +209,7 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
-  -> optional local Wan 2.2 or explicitly approved WaveSpeed motion
+  -> optional pinned local Wan/LTX MLX or explicitly approved WaveSpeed motion
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
   -> Campaign Factory readiness and pipeline-contract validation
@@ -232,8 +232,12 @@ at validated draft handoff.
   recommendation alias. ContentForge failures remain review-only but are
   reported honestly as `validated_with_failures`, never `validated`.
 - `soul_static`: direct Soul still plus local static MP4.
-- `local_wan`: local Apple-silicon MLX execution of the official Wan 2.2
-  TI2V-5B weights while retaining the static fallback.
+- `local_wan`: the stable compatibility id for local Apple-silicon MLX motion.
+  Model choice is explicit: Wan 2.2 TI2V-5B q8 for volume, Wan 2.2 I2V-A14B q4
+  for quality, LTX-2.3 distilled for fast synchronized audio/video, or LTX-2.3
+  dev two-stage HQ for the strongest local finish. The static fallback is
+  always retained. Installation is a separate pinned setup action; generation
+  is offline and cannot download weights.
 - `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
   quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
   handles multi-reference motion, and Wan 2.2 S2V handles speaking video.
@@ -242,7 +246,9 @@ at validated draft handoff.
 
 All modes are review-gated and require explicit selection; there is no active
 generation default. Soul ID owns identity. Prompt and asset lineage are
-retained. Native audio remains an intent, not a burned track.
+retained. LTX may mux source or generated audio into its derivative, but that
+track is never misclassified as native platform audio and requires human audio
+review. Native platform audio remains a separately resolved intent.
 
 The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu

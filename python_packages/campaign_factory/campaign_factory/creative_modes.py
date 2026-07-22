@@ -26,10 +26,10 @@ _MODES: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "local_wan",
-        "label": "Local Wan 2.2 motion",
+        "label": "Local Wan / LTX motion",
         "costLabel": "free",
-        "input": "approved still",
-        "output": "local MLX Wan 2.2 TI2V MP4 with static fallback",
+        "input": "approved still plus optional source audio",
+        "output": "local MLX Wan or LTX MP4 with static fallback and audio lineage",
         "entrypoint": "generation run --mode local_wan",
     },
     {

@@ -74,6 +74,37 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert captured["dry_run"] is True
 
 
+def test_local_mode_authorizes_ltx_audio_without_paid_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    captured = {}
+
+    def fake_motion(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"schema": "campaign_factory.motion_generation_stage_run.v1"}
+
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        fake_motion,
+    )
+    run_generation_workflow(
+        object(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        motion_model_id="local_ltx23_distilled_mlx",
+        motion_prompt="Natural motion synchronized with softly generated ambient audio",
+        generate_audio=True,
+        dry_run=True,
+        apply=False,
+    )
+    assert captured["model_id"] == "local_ltx23_distilled_mlx"
+    assert captured["generate_audio"] is True
+    assert captured["paid_confirmation"] is False
+
+
 def test_generation_workflow_rejects_unknown_or_missing_mode() -> None:
     with pytest.raises(ValueError, match="unknown creative workflow mode"):
         run_generation_workflow(
