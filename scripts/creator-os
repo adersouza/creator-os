@@ -46,6 +46,32 @@ def _reel_command(*args: str) -> list[str]:
     ]
 
 
+def _local_queue_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_generation_queue",
+        *args,
+    ]
+
+
+def _local_benchmark_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_model_benchmark",
+        *args,
+    ]
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="creator-os",
@@ -114,6 +140,11 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--caption")
     generate.add_argument("--duration", type=float)
     generate.add_argument("--motion-model")
+    generate.add_argument(
+        "--motion-task",
+        choices=["text_to_video", "image_to_video", "audio_image_to_video"],
+        default="image_to_video",
+    )
     generate.add_argument("--motion-prompt")
     generate.add_argument("--audio", type=Path)
     generate.add_argument("--generate-audio", action="store_true")
@@ -132,6 +163,8 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument(
         "--local-model-dir", "--local-wan-model-dir", dest="local_model_dir", type=Path
     )
+    generate.add_argument("--motion-lora", type=Path)
+    generate.add_argument("--motion-lora-strength", type=float, default=1.0)
     generate.add_argument("--count", type=int, default=3)
     generate.add_argument("--account")
     generate.add_argument("--folder", type=Path)
@@ -194,6 +227,26 @@ def _parser() -> argparse.ArgumentParser:
         "local-models", help="plan, install, or verify pinned local MLX video models"
     )
     local_models.add_argument("args", nargs=argparse.REMAINDER)
+
+    local_queue = sub.add_parser(
+        "local-queue",
+        help="inspect the local generation lease journal or recover an interruption",
+    )
+    local_queue.add_argument("args", nargs=argparse.REMAINDER)
+
+    local_benchmarks = sub.add_parser(
+        "local-benchmarks",
+        help="record measured QC-bound local results and explicitly promote models",
+    )
+    local_benchmarks.add_argument("args", nargs=argparse.REMAINDER)
+
+    motion_qc_register = sub.add_parser(
+        "motion-qc-register",
+        help="register an immutable local motion-QC receipt; never publishes",
+    )
+    motion_qc_register.add_argument("--rendered-asset-id", required=True)
+    motion_qc_register.add_argument("--receipt", type=Path, required=True)
+    motion_qc_register.add_argument("--operator")
 
     return parser
 
@@ -300,11 +353,13 @@ def main(argv: list[str] | None = None) -> int:
             ("--first-frame-approval-id", args.first_frame_approval_id),
             ("--last-frame-approval-id", args.last_frame_approval_id),
             ("--motion-model", args.motion_model),
+            ("--motion-task", args.motion_task),
             ("--motion-prompt", args.motion_prompt),
             ("--resolution", args.resolution),
             ("--seed", args.seed),
             ("--steps", args.steps),
             ("--shot-type", args.shot_type),
+            ("--motion-lora-strength", args.motion_lora_strength),
         )
         for flag, value in optional_values:
             if value is not None:
@@ -326,6 +381,10 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(
                 ["--motion-reference-video", str(path.expanduser().resolve())]
             )
+        if args.motion_lora is not None:
+            command.extend(
+                ["--motion-lora", str(args.motion_lora.expanduser().resolve())]
+            )
         for enabled, flag in (
             (args.confirm_paid, "--confirm-paid"),
             (args.operator_selected, "--operator-selected"),
@@ -342,6 +401,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "local-models":
         local_model_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_reel_command(*local_model_args))
+    if args.command == "local-queue":
+        local_queue_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_local_queue_command(*local_queue_args))
+    if args.command == "local-benchmarks":
+        benchmark_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_local_benchmark_command(*benchmark_args))
+    if args.command == "motion-qc-register":
+        command = _campaign_command(
+            "register-motion-qc-receipt",
+            "--rendered-asset-id",
+            args.rendered_asset_id,
+            "--receipt",
+            str(args.receipt.expanduser().resolve()),
+        )
+        if args.operator:
+            command.extend(["--operator", args.operator])
+        return _run(command)
     if args.command == "readiness":
         command = _campaign_command("campaign-readiness", "--campaign", args.campaign)
         if args.user_id:

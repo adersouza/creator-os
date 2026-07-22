@@ -16,9 +16,11 @@ from .video_provider_models import video_model
 
 MLX_VIDEO_REVISION = "87db56a51758fefb748a359b90a5283bb8ba4837"
 MLX_VIDEO_REPOSITORY = "https://github.com/Blaizzy/mlx-video.git"
+LONGCAT_MLX_REVISION = "e2e1e8701424cef0e601281b62e228e5289ed032"
+LONGCAT_MLX_REPOSITORY = "https://github.com/xocialize/longcat-avatar-mlx.git"
 MODEL_MANIFEST = ".creator-os-model.json"
 
-LocalFamily = Literal["wan_2", "ltx_2"]
+LocalFamily = Literal["wan_2", "ltx_2", "longcat_avatar"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +248,39 @@ LTX23_DEV_HQ = LocalVideoModelSpec(
     commercial_revenue_limit_usd=10_000_000,
 )
 
+LONGCAT_AVATAR15_Q4 = LocalVideoModelSpec(
+    model_id="local_longcat_avatar15_q4_mlx",
+    family="longcat_avatar",
+    repository="mlx-community/LongCat-Video-Avatar-1.5-q4-dmd-merged",
+    revision="5d5b5d61ce6c206930a94c760f6941aff03f9389",
+    directory_name="LongCat-Video-Avatar-1.5-q4-dmd-merged",
+    includes=("*",),
+    required_paths=(
+        "pipeline_config.json",
+        "audio_encoder/config.json",
+        "audio_encoder/model.safetensors",
+        "dit/config.json",
+        "dit/diffusion_pytorch_model.safetensors.index.json",
+        "text_encoder/config.json",
+        "text_encoder/model.safetensors.index.json",
+        "tokenizer/tokenizer.json",
+        "vae/config.json",
+        "vae/diffusion_pytorch_model.safetensors",
+    ),
+    estimated_bytes=25_013_365_609,
+    quantization="q4_group64_dmd_merged",
+    pipeline="longcat_avatar15_q4_dmd",
+    width=480,
+    height=832,
+    fps=25,
+    guide_scale="4.0",
+    default_steps=8,
+    license_id="mit",
+    source_repository="meituan-longcat/LongCat-Video-Avatar-1.5",
+    source_revision="92016c71d5d318d0f5d84e4db30015a571484ab6",
+    ai_disclosure_required=True,
+)
+
 _SPECS = {
     spec.model_id: spec
     for spec in (
@@ -253,6 +288,7 @@ _SPECS = {
         WAN22_I2V_A14B_Q4,
         LTX23_DISTILLED,
         LTX23_DEV_HQ,
+        LONGCAT_AVATAR15_Q4,
     )
 }
 
@@ -301,9 +337,22 @@ def ltx_shared_dir(root: Path | None = None) -> Path:
 def local_model_catalog() -> dict[str, object]:
     return {
         "schema": "reel_factory.local_model_catalog.v1",
+        # Keep the original singleton key for read-only consumers while the
+        # explicit map becomes the source of truth for family-aware routing.
         "runtime": {
             "repository": MLX_VIDEO_REPOSITORY,
             "revision": MLX_VIDEO_REVISION,
+        },
+        "runtimes": {
+            "mlx_video": {
+                "repository": MLX_VIDEO_REPOSITORY,
+                "revision": MLX_VIDEO_REVISION,
+            },
+            "longcat_avatar": {
+                "repository": LONGCAT_MLX_REPOSITORY,
+                "revision": LONGCAT_MLX_REVISION,
+                "status": "experimental",
+            },
         },
         "modelsRoot": str(_models_root()),
         "models": [spec.to_dict() for spec in local_video_model_specs()],
@@ -312,6 +361,12 @@ def local_model_catalog() -> dict[str, object]:
         "providerCalls": 0,
         "paidGeneration": False,
     }
+
+
+def runtime_identity(family: LocalFamily) -> tuple[str, str, str]:
+    if family == "longcat_avatar":
+        return ("longcat_avatar", LONGCAT_MLX_REPOSITORY, LONGCAT_MLX_REVISION)
+    return ("mlx_video", MLX_VIDEO_REPOSITORY, MLX_VIDEO_REVISION)
 
 
 def _models_root(value: Path | None = None) -> Path:

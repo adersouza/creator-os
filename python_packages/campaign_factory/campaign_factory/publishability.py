@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .caption_outcome import load_context_json
+from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
 from .readiness_finding import (
     readiness_finding_codes,
@@ -68,7 +69,7 @@ def normalize_distribution_surface(value: str | None) -> str:
     )
 
 
-class PublishabilityRepository:
+class PublishabilityRepository(MotionQcPublishabilityMixin):
     def __init__(
         self,
         conn: sqlite3.Connection,
@@ -1085,6 +1086,7 @@ class PublishabilityRepository:
             if is_reel_surface
             else True
         )
+        motion_gate = self.motion_qc_gate(asset)
         checks = {
             "creative_approved": approved,
             "captioned_render_present": captioned_render_present,
@@ -1121,6 +1123,7 @@ class PublishabilityRepository:
             == "passed",
             "readiness_checks_pass": bool(latest_audit) and not readiness_blockers,
             "quarantine_clear": not bool(quarantine),
+            **motion_gate["checks"],
         }
         failures: list[str] = []
         warnings: list[str] = []
@@ -1160,6 +1163,7 @@ class PublishabilityRepository:
             failures.append("burned_caption_quality_failed")
         if is_reel_surface and not checks["operator_visual_review_passed"]:
             failures.append("operator_visual_review_required")
+        failures.extend(motion_gate["failures"])
         failures.extend(trust_blockers)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
@@ -1397,6 +1401,8 @@ class PublishabilityRepository:
             "audio_id": audio_id,
             "audio_segment": audio_segment,
             "cover_frame": cover_frame,
+            "motionSpecificQcRequirements": motion_gate["requirements"],
+            "motionSpecificQcReceipt": motion_gate["receipt"],
             "checks": checks,
             "failureReasons": failures,
             "publishability_failure_reasons": failures,

@@ -11,7 +11,13 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 Backend = Literal["local_mlx", "wavespeed"]
-Task = Literal["image_to_video", "reference_to_video", "speech_to_video"]
+Task = Literal[
+    "text_to_video",
+    "image_to_video",
+    "audio_image_to_video",
+    "reference_to_video",
+    "speech_to_video",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +31,7 @@ class VideoModel:
     durations: tuple[int, ...]
     default_resolution: str
     default_duration: int
+    supported_tasks: tuple[Task, ...] = ()
     audio_required: bool = False
     audio_supported: bool = False
     generated_audio_supported: bool = False
@@ -38,11 +45,16 @@ class VideoModel:
     local_model_dir_name: str | None = None
     model_revision: str | None = None
     license_id: str | None = None
+    lora_supported: bool = False
+    spatial_upscaler: bool = False
+    multi_keyframe: bool = False
+    capability_status: Literal["production", "experimental"] = "production"
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
         value["resolutions"] = list(self.resolutions)
         value["durations"] = list(self.durations)
+        value["supported_tasks"] = list(self.supported_tasks or (self.task,))
         return value
 
 
@@ -55,6 +67,7 @@ LOCAL_WAN22_TI2V_5B = VideoModel(
     provider="local",
     provider_model="Wan-AI/Wan2.2-TI2V-5B",
     task="image_to_video",
+    supported_tasks=("text_to_video", "image_to_video"),
     resolutions=("720p",),
     durations=(5, 6, 7, 8),
     default_resolution="720p",
@@ -67,6 +80,7 @@ LOCAL_WAN22_TI2V_5B = VideoModel(
     local_model_dir_name="Wan2.2-TI2V-5B-MLX-Q8",
     model_revision="9624723c94ddf509832555c45e223a035baa7d1c",
     license_id="apache-2.0",
+    lora_supported=True,
 )
 
 LOCAL_WAN22_I2V_A14B_Q4 = VideoModel(
@@ -86,6 +100,7 @@ LOCAL_WAN22_I2V_A14B_Q4 = VideoModel(
     local_model_dir_name="Wan2.2-I2V-A14B-MLX-Q4",
     model_revision="c6c786170031eccc3a1fac0f98f1ad4ff988271e",
     license_id="apache-2.0",
+    lora_supported=True,
 )
 
 LOCAL_LTX23_DISTILLED = VideoModel(
@@ -94,6 +109,7 @@ LOCAL_LTX23_DISTILLED = VideoModel(
     provider="local",
     provider_model="Lightricks/LTX-2.3",
     task="image_to_video",
+    supported_tasks=("text_to_video", "image_to_video", "audio_image_to_video"),
     resolutions=("576x1024",),
     durations=(5, 6, 7, 8),
     default_resolution="576x1024",
@@ -108,6 +124,7 @@ LOCAL_LTX23_DISTILLED = VideoModel(
     local_model_dir_name="LTX-2.3-distilled-MLX",
     model_revision="65b104b9387fb173d8e4b92fc5effc47625baf2a",
     license_id="ltx-2-community-license-agreement",
+    lora_supported=True,
 )
 
 LOCAL_LTX23_DEV_HQ = VideoModel(
@@ -116,6 +133,7 @@ LOCAL_LTX23_DEV_HQ = VideoModel(
     provider="local",
     provider_model="Lightricks/LTX-2.3",
     task="image_to_video",
+    supported_tasks=("text_to_video", "image_to_video", "audio_image_to_video"),
     resolutions=("576x1024",),
     durations=(5, 6, 7, 8),
     default_resolution="576x1024",
@@ -130,6 +148,35 @@ LOCAL_LTX23_DEV_HQ = VideoModel(
     local_model_dir_name="LTX-2.3-dev-MLX",
     model_revision="5da7eb70a6a8a2691f6810454a31f2790e65d8ee",
     license_id="ltx-2-community-license-agreement",
+    lora_supported=True,
+    spatial_upscaler=True,
+)
+
+# LongCat Avatar 1.5 is the strongest credible local talking-avatar route on
+# Apple silicon as of 2026.  The MLX port is intentionally marked experimental:
+# it is young, single-person, and bounded to short 480p review assets.  Creator
+# OS still requires motion/lip-sync QC and human approval before export.
+LOCAL_LONGCAT_AVATAR15_Q4 = VideoModel(
+    id="local_longcat_avatar15_q4_mlx",
+    backend="local_mlx",
+    provider="local",
+    provider_model="meituan-longcat/LongCat-Video-Avatar-1.5",
+    task="audio_image_to_video",
+    supported_tasks=("audio_image_to_video",),
+    resolutions=("480x832",),
+    durations=(3, 4, 5, 6),
+    default_resolution="480x832",
+    default_duration=4,
+    audio_required=True,
+    audio_supported=True,
+    paid=False,
+    quality_tier="local_talking_experimental",
+    local_runtime_family="longcat_avatar",
+    local_profile="longcat_avatar15_q4_dmd",
+    local_model_dir_name="LongCat-Video-Avatar-1.5-q4-dmd-merged",
+    model_revision="5d5b5d61ce6c206930a94c760f6941aff03f9389",
+    license_id="mit",
+    capability_status="experimental",
 )
 
 # The standard Wan 2.7 endpoint remains available as the lower-cost control. It
@@ -207,6 +254,7 @@ _MODELS = {
         LOCAL_WAN22_I2V_A14B_Q4,
         LOCAL_LTX23_DISTILLED,
         LOCAL_LTX23_DEV_HQ,
+        LOCAL_LONGCAT_AVATAR15_Q4,
         WAVESPEED_WAN27_I2V,
         WAVESPEED_WAN27_I2V_PRO,
         WAVESPEED_WAN27_REFERENCE,
@@ -225,7 +273,9 @@ def video_model(model_id: str) -> VideoModel:
 
 def video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
     return tuple(
-        model.id for model in _MODELS.values() if task is None or model.task == task
+        model.id
+        for model in _MODELS.values()
+        if task is None or task in (model.supported_tasks or (model.task,))
     )
 
 
@@ -238,6 +288,8 @@ def video_model_catalog() -> dict[str, object]:
             "localImageMotionQuality": LOCAL_WAN22_I2V_A14B_Q4.id,
             "localAudioMotionFast": LOCAL_LTX23_DISTILLED.id,
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
+            "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
+            "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
             "paidImageMotion": WAVESPEED_WAN27_I2V_PRO.id,
             "paidImageMotionEconomy": WAVESPEED_WAN27_I2V.id,
             "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
@@ -255,7 +307,27 @@ def validate_model_request(
     has_audio: bool,
     has_last_image: bool,
     generate_audio: bool = False,
+    task: Task | None = None,
+    has_image: bool = True,
+    has_lora: bool = False,
 ) -> None:
+    selected_task = task or model.task
+    supported_tasks = model.supported_tasks or (model.task,)
+    if selected_task not in supported_tasks:
+        raise ValueError(
+            f"{model.id} does not support task {selected_task}; choose one of "
+            + ", ".join(supported_tasks)
+        )
+    if selected_task in {"image_to_video", "audio_image_to_video"} and not has_image:
+        raise ValueError(f"{model.id} task {selected_task} requires an image")
+    if selected_task == "text_to_video" and has_image:
+        raise ValueError("text_to_video must not silently consume an image")
+    if selected_task == "audio_image_to_video" and not (has_audio or generate_audio):
+        raise ValueError(
+            f"{model.id} audio_image_to_video requires source or generated audio"
+        )
+    if selected_task != "audio_image_to_video" and (has_audio or generate_audio):
+        raise ValueError("audio inputs require the explicit audio_image_to_video task")
     if resolution not in model.resolutions:
         raise ValueError(
             f"{model.id} resolution must be one of {', '.join(model.resolutions)}"
@@ -279,3 +351,5 @@ def validate_model_request(
         raise ValueError("source audio and generated audio are mutually exclusive")
     if has_last_image and not model.first_last_frame:
         raise ValueError(f"{model.id} does not support a last image")
+    if has_lora and not model.lora_supported:
+        raise ValueError(f"{model.id} does not support a Creator OS LoRA")

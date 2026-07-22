@@ -7,11 +7,11 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 
-from .local_video import LocalVideoRequest, run_local_video
+from .local_video import LocalVideoRequest, LocalVideoTask, run_local_video
 from .video_provider_models import validate_model_request, video_model, video_model_ids
 from .wavespeed import (
     WaveSpeedRequest,
@@ -25,6 +25,11 @@ def _parser() -> argparse.ArgumentParser:
         description="Generate one review-only motion asset; never schedules or publishes."
     )
     parser.add_argument("--model", choices=video_model_ids(), required=True)
+    parser.add_argument(
+        "--task",
+        choices=["text_to_video", "image_to_video", "audio_image_to_video"],
+        default=None,
+    )
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--image", type=Path)
     parser.add_argument("--last-image", type=Path)
@@ -42,6 +47,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--shot-type", choices=["single", "multi"], default="single")
     parser.add_argument("--enable-prompt-expansion", action="store_true")
     parser.add_argument("--model-dir", type=Path)
+    parser.add_argument("--lora", type=Path)
+    parser.add_argument("--lora-strength", type=float, default=1.0)
     parser.add_argument("--authorization-json", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -55,8 +62,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
     resolution = args.resolution or model.default_resolution
     duration = args.duration if args.duration is not None else model.default_duration
     if model.backend == "local_mlx":
-        if args.image is None:
-            raise ValueError("local MLX motion requires --image")
+        selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
         if args.enable_prompt_expansion:
@@ -74,6 +80,9 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             has_audio=args.audio is not None,
             has_last_image=args.last_image is not None,
             generate_audio=args.generate_audio,
+            task=selected_task,
+            has_image=args.image is not None,
+            has_lora=args.lora is not None,
         )
         return LocalVideoRequest(
             model_id=model.id,
@@ -94,9 +103,16 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             ),
             audio_path=args.audio,
             last_image_path=args.last_image,
+            task=selected_task,
+            lora_path=args.lora,
+            lora_strength=args.lora_strength,
         )
     if args.model_dir is not None:
         raise ValueError("--model-dir applies only to local MLX models")
+    if args.lora is not None or args.lora_strength != 1.0:
+        raise ValueError("--lora applies only to local MLX models")
+    if args.task is not None:
+        raise ValueError("--task override applies only to local MLX models")
     if args.generate_audio:
         raise ValueError("--generate-audio applies only to local LTX models")
     if args.steps is not None:

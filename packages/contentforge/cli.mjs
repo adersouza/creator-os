@@ -1,7 +1,11 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import { POST as similarityPost } from "./lib/similarity.js";
+import { evaluateMotionSpecificQc } from "./lib/motion-specific-qc.js";
 import { runVariantPack } from "./lib/variant-pack.js";
 import { PROJECT_ROOT, resolveUploadPath } from "./lib/paths.js";
 
@@ -20,6 +24,12 @@ async function readPayload() {
     throw new Error("request must be a JSON object");
   }
   return value;
+}
+
+async function sha256File(filePath) {
+  var digest = createHash("sha256");
+  for await (var chunk of createReadStream(filePath)) digest.update(chunk);
+  return digest.digest("hex");
 }
 
 async function main() {
@@ -41,8 +51,23 @@ async function main() {
     var source = payload.source || payload.inputFile;
     if (!resolveUploadPath(source)) throw new Error("invalid source upload");
     result = await runVariantPack(payload);
+  } else if (command === "motion-qc") {
+    if (typeof payload.mediaPath !== "string" || !payload.mediaPath.trim()) {
+      throw new Error("motion-qc requires mediaPath");
+    }
+    var mediaPath = path.resolve(payload.mediaPath);
+    var mediaStat = await stat(mediaPath);
+    if (!mediaStat.isFile()) throw new Error("motion-qc mediaPath must be a file");
+    var mediaSha256 = await sha256File(mediaPath);
+    if (payload.mediaSha256 && payload.mediaSha256 !== mediaSha256) {
+      throw new Error("motion-qc media SHA-256 mismatch");
+    }
+    result = evaluateMotionSpecificQc(payload.evidence, {
+      ...payload.options,
+      mediaSha256,
+    });
   } else {
-    throw new Error("usage: contentforge <similarity|variant-pack> [request.json]");
+    throw new Error("usage: contentforge <similarity|variant-pack|motion-qc> [request.json]");
   }
   process.stdout.write(JSON.stringify(result) + "\n");
 }

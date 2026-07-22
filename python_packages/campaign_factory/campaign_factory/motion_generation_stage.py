@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -56,6 +57,9 @@ def run_motion_generation_stage(
     enable_prompt_expansion: bool = False,
     shot_type: str = "single",
     local_model_dir: Path | None = None,
+    motion_task: str = "image_to_video",
+    motion_lora_path: Path | None = None,
+    motion_lora_strength: float = 1.0,
 ) -> dict[str, Any]:
     """Generate one review-only motion asset with a preserved static fallback."""
     expected_mode = execution_plan.creative_mode
@@ -91,8 +95,29 @@ def run_motion_generation_stage(
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     source_hash = sha256_file(still)
+    request_fingerprint = _motion_request_fingerprint(
+        model_id=model_id,
+        prompt=prompt,
+        still=still,
+        duration_seconds=duration_seconds,
+        resolution=resolution,
+        seed=seed,
+        steps=steps,
+        audio_path=audio_path,
+        generate_audio=generate_audio,
+        last_image_path=last_image_path,
+        reference_image_paths=reference_image_paths,
+        reference_video_paths=reference_video_paths,
+        enable_prompt_expansion=enable_prompt_expansion,
+        shot_type=shot_type,
+        local_model_dir=local_model_dir,
+        motion_task=motion_task,
+        motion_lora_path=motion_lora_path,
+        motion_lora_strength=motion_lora_strength,
+    )
     output_path = dirs["rendered"] / (
-        f"{slugify(still.stem)}_{source_hash[:12]}_{slugify(model_id)}_{seed}.mp4"
+        f"{slugify(still.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
+        f"{request_fingerprint[:16]}.mp4"
     )
     evidence_dir = dirs["audits"] / "motion_generation"
     worker_command = _worker_command(
@@ -114,6 +139,9 @@ def run_motion_generation_stage(
         enable_prompt_expansion=enable_prompt_expansion,
         shot_type=shot_type,
         local_model_dir=local_model_dir,
+        motion_task=motion_task,
+        motion_lora_path=motion_lora_path,
+        motion_lora_strength=motion_lora_strength,
         dry_run=True,
     )
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -124,6 +152,7 @@ def run_motion_generation_stage(
             "modelId": model_id,
             "sourcePath": str(still),
             "sourceSha256": source_hash,
+            "requestFingerprint": request_fingerprint,
             "outputPath": str(output_path),
             "dryRun": dry_run,
             "apply": apply,
@@ -164,6 +193,9 @@ def run_motion_generation_stage(
                 enable_prompt_expansion=enable_prompt_expansion,
                 shot_type=shot_type,
                 local_model_dir=local_model_dir,
+                motion_task=motion_task,
+                motion_lora_path=motion_lora_path,
+                motion_lora_strength=motion_lora_strength,
                 dry_run=False,
             )
             if paid:
@@ -243,6 +275,8 @@ def run_motion_generation_stage(
                 output_path=output_path,
                 worker_result=worker_result,
                 paid=paid,
+                motion_task=motion_task,
+                request_fingerprint=request_fingerprint,
             )
         result = {
             "schema": "campaign_factory.motion_generation_stage_run.v1",
@@ -289,6 +323,9 @@ def _worker_command(
     enable_prompt_expansion: bool,
     shot_type: str,
     local_model_dir: Path | None,
+    motion_task: str,
+    motion_lora_path: Path | None,
+    motion_lora_strength: float,
     dry_run: bool,
 ) -> list[str]:
     command = [
@@ -311,9 +348,11 @@ def _worker_command(
         shot_type,
         "--dry-run" if dry_run else "--apply",
     ]
+    if model_id.startswith("local_"):
+        command.extend(["--task", motion_task])
     if model_id == "wavespeed_wan27_reference":
         command.extend(["--reference-image", str(still)])
-    else:
+    elif motion_task != "text_to_video":
         command.extend(["--image", str(still)])
     for flag, value in (
         ("--steps", steps),
@@ -322,9 +361,12 @@ def _worker_command(
         ("--audio", audio_path),
         ("--last-image", last_image_path),
         ("--model-dir", local_model_dir),
+        ("--lora", motion_lora_path),
     ):
         if value is not None:
             command.extend([flag, str(value)])
+    if motion_lora_strength != 1.0:
+        command.extend(["--lora-strength", str(motion_lora_strength)])
     for path in reference_image_paths:
         command.extend(["--reference-image", str(path)])
     for path in reference_video_paths:
@@ -360,6 +402,63 @@ def _invoke_worker(command: list[str], *, factory: Any) -> dict[str, Any]:
     return payload
 
 
+def _motion_request_fingerprint(
+    *,
+    model_id: str,
+    prompt: str,
+    still: Path,
+    duration_seconds: int | None,
+    resolution: str | None,
+    seed: int,
+    steps: int | None,
+    audio_path: Path | None,
+    generate_audio: bool,
+    last_image_path: Path | None,
+    reference_image_paths: tuple[Path, ...],
+    reference_video_paths: tuple[Path, ...],
+    enable_prompt_expansion: bool,
+    shot_type: str,
+    local_model_dir: Path | None,
+    motion_task: str,
+    motion_lora_path: Path | None,
+    motion_lora_strength: float,
+) -> str:
+    def media(path: Path | None) -> dict[str, str] | None:
+        if path is None:
+            return None
+        resolved = Path(path).expanduser().resolve()
+        return {"path": str(resolved), "sha256": sha256_file(resolved)}
+
+    payload = {
+        "modelId": model_id,
+        "prompt": prompt,
+        "still": media(still),
+        "durationSeconds": duration_seconds,
+        "resolution": resolution,
+        "seed": seed,
+        "steps": steps,
+        "audio": media(audio_path),
+        "generateAudio": generate_audio,
+        "lastImage": media(last_image_path),
+        "referenceImages": [media(path) for path in reference_image_paths],
+        "referenceVideos": [media(path) for path in reference_video_paths],
+        "enablePromptExpansion": enable_prompt_expansion,
+        "shotType": shot_type,
+        "localModelDir": (
+            str(Path(local_model_dir).expanduser().resolve())
+            if local_model_dir is not None
+            else None
+        ),
+        "motionTask": motion_task,
+        "lora": media(motion_lora_path),
+        "loraStrength": motion_lora_strength,
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _static_source_asset_id(static_fallback: dict[str, Any]) -> str:
     registered = static_fallback.get("registeredAsset")
     if not isinstance(registered, dict) or not registered.get("source_asset_id"):
@@ -379,6 +478,8 @@ def _register_review_asset(
     output_path: Path,
     worker_result: dict[str, Any],
     paid: bool,
+    motion_task: str = "image_to_video",
+    request_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     if not output_path.is_file() or output_path.stat().st_size <= 0:
         raise FileNotFoundError(f"motion output missing: {output_path}")
@@ -401,8 +502,15 @@ def _register_review_asset(
     embedded_audio = audio_mode in {"source", "generated"}
     blocking_issues = [
         "contentforge_audit_required",
+        "motion_specific_qc_required",
         "human_final_review_required",
     ]
+    if motion_task == "text_to_video":
+        blocking_issues.append("text_to_video_identity_assignment_forbidden")
+    if embedded_audio:
+        blocking_issues.append("audio_video_alignment_qc_required")
+    if model_id == "local_longcat_avatar15_q4_mlx":
+        blocking_issues.append("lip_sync_qc_required")
     blocking_issues.append(
         "local_audio_policy_review_required"
         if embedded_audio
@@ -410,6 +518,8 @@ def _register_review_asset(
     )
     if generation.get("aiDisclosureRequired") is True:
         blocking_issues.append("ai_generated_media_disclosure_required")
+    fallback_source = {"path": str(source_path), "sha256": source_hash}
+    generation_source = None if motion_task == "text_to_video" else fallback_source
     metadata = {
         "schema": "campaign_factory.motion_generation_asset.v1",
         "asset_state": "approved_but_not_publishable",
@@ -420,9 +530,22 @@ def _register_review_asset(
         "embeddedAudioMode": audio_mode,
         "embeddedAudio": audio,
         "nativeAudioResolved": False,
-        "source": {"path": str(source_path), "sha256": source_hash},
+        "source": generation_source,
+        "generationInput": generation_source,
+        "staticFallbackSource": fallback_source,
+        "sourceAssetRole": (
+            "static_fallback_only"
+            if motion_task == "text_to_video"
+            else "generation_input_and_static_fallback"
+        ),
+        "identityRole": (
+            "non_creator_broll"
+            if motion_task == "text_to_video"
+            else "creator_conditioned"
+        ),
         "output": {"path": str(output_path), "sha256": digest},
         "modelId": model_id,
+        "requestFingerprint": request_fingerprint,
         "paidGeneration": paid,
         "worker": worker_result,
         "publishability": {
@@ -444,7 +567,9 @@ def _register_review_asset(
         "caption_fit_version": "none",
         "suitability_decision": "review_required",
         "suitability_reason": "generated motion requires ContentForge and human review",
-        "source_clip": source_path.name,
+        "source_clip": (
+            "text_prompt_only" if motion_task == "text_to_video" else source_path.name
+        ),
     }
     factory.conn.execute(
         """

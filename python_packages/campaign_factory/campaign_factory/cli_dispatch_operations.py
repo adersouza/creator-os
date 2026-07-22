@@ -66,6 +66,15 @@ def dispatch_operations_commands(args, cf, settings) -> int | None:
             )
         )
         return 0
+    if args.cmd == "register-motion-qc-receipt":
+        print_json(
+            cf.domains.publishability.register_motion_qc_receipt(
+                args.rendered_asset_id,
+                receipt_path=args.receipt,
+                created_by=args.operator,
+            )
+        )
+        return 0
     if args.cmd == "register-parent-reel":
         metadata = json.loads(args.metadata_json) if args.metadata_json else None
         print_json(

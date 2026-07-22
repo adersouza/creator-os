@@ -244,6 +244,9 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     enable_prompt_expansion=args.enable_prompt_expansion,
                     shot_type=args.shot_type,
                     local_model_dir=args.local_model_dir,
+                    motion_task=args.motion_task,
+                    motion_lora_path=args.motion_lora,
+                    motion_lora_strength=args.motion_lora_strength,
                     dry_run=args.dry_run,
                     apply=args.apply,
                 )
