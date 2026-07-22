@@ -12,6 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.provider_models import model_identifiers
+
 from .asset_prompt_contract import AssetPromptSet
 from .generation_asset_models import (
     CAPABILITY_SCHEMA,
@@ -352,15 +354,10 @@ def probe_higgsfield_capabilities(
 def _model_types(rows: Any) -> set[str]:
     if not isinstance(rows, list):
         return set()
-    keys = {"job_set_type", "id", "model_id"}
     found: set[str] = set()
     for row in rows:
-        if not isinstance(row, dict):
-            continue
-        for key in keys:
-            value = row.get(key)
-            if value:
-                found.add(str(value))
+        if isinstance(row, dict):
+            found.update(model_identifiers(row))
     return found
 
 
@@ -373,12 +370,7 @@ def _model_row(
     for row in rows:
         if not isinstance(row, dict):
             continue
-        ids = {
-            str(row.get(key))
-            for key in ("job_set_type", "id", "model_id")
-            if row.get(key)
-        }
-        if model in ids:
+        if model.strip().lower() in model_identifiers(row):
             return row
     return {}
 

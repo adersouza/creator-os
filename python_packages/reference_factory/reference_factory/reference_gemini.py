@@ -138,7 +138,7 @@ def analyze_reference_with_gemini_api(
             if not path.exists():
                 raise FileNotFoundError(f"source file missing: {path}")
             uploaded = client.files.upload(file=str(path))
-            _wait_for_gemini_file(client, uploaded)
+            uploaded = _wait_for_gemini_file(client, uploaded)
             response = client.models.generate_content(
                 model=model,
                 contents=[uploaded, str(job.get("promptText") or "")],

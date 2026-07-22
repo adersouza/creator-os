@@ -285,14 +285,21 @@ class AdvancedRoadmapTests(unittest.TestCase):
 
     def test_capability_probe_validates_required_models(self):
         payload = {
-            "imageModels": [{"job_set_type": "text2image_soul_v2"}],
-            "videoModels": [{"job_set_type": "kling3_0"}],
+            "imageModels": [{"job_type": "text2image_soul_v2"}],
+            "videoModels": [{"job_type": "kling3_0"}],
         }
         self.assertTrue(validate_required_capabilities(payload)["ok"])
         payload["videoModels"] = []
         self.assertEqual(
             validate_required_capabilities(payload)["missing"], ["kling3_0"]
         )
+
+    def test_capability_probe_accepts_legacy_model_identifier(self):
+        payload = {
+            "imageModels": [{"job_set_type": "text2image_soul_v2"}],
+            "videoModels": [{"job_set_type": "kling3_0"}],
+        }
+        self.assertTrue(validate_required_capabilities(payload)["ok"])
 
     def test_capability_resolver_prefers_current_soul_model_and_identity_flag(self):
         payload = {
@@ -326,8 +333,8 @@ class AdvancedRoadmapTests(unittest.TestCase):
         self.assertEqual(resolved["imageIdentityFlag"], "--custom_reference_id")
 
     def test_capability_probe_writes_cache(self):
-        image_rows = [{"job_set_type": "text2image_soul_v2", "type": "image"}]
-        video_rows = [{"job_set_type": "kling3_0", "type": "video"}]
+        image_rows = [{"job_type": "text2image_soul_v2", "type": "image"}]
+        video_rows = [{"job_type": "kling3_0", "type": "video"}]
 
         def fake_run_json(cmd):
             if "--image" in cmd:

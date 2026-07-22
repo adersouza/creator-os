@@ -4,7 +4,7 @@ import json
 from sqlite3 import Connection
 from typing import Any
 
-from pipeline_contracts import (
+from pipeline_contracts.validator import (
     validate_pattern_card,
     validate_video_analysis,
 )
