@@ -97,8 +97,25 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--workspace", type=Path)
     generate.add_argument("--confirm-paid", action="store_true")
     generate.add_argument("--max-credits", type=float)
+    generate.add_argument("--max-usd", type=float)
     generate.add_argument("--caption")
     generate.add_argument("--duration", type=float)
+    generate.add_argument("--motion-model")
+    generate.add_argument("--motion-prompt")
+    generate.add_argument("--audio", type=Path)
+    generate.add_argument("--last-image", type=Path)
+    generate.add_argument(
+        "--motion-reference-image", type=Path, action="append", default=[]
+    )
+    generate.add_argument(
+        "--motion-reference-video", type=Path, action="append", default=[]
+    )
+    generate.add_argument("--resolution")
+    generate.add_argument("--seed", type=int, default=42)
+    generate.add_argument("--steps", type=int, default=40)
+    generate.add_argument("--enable-prompt-expansion", action="store_true")
+    generate.add_argument("--shot-type", choices=["single", "multi"], default="single")
+    generate.add_argument("--local-wan-model-dir", type=Path)
     generate.add_argument("--count", type=int, default=3)
     generate.add_argument("--account")
     generate.add_argument("--folder", type=Path)
@@ -212,6 +229,11 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print("--max-credits must be finite and greater than zero", file=sys.stderr)
             return 2
+        if args.max_usd is not None and (
+            not math.isfinite(args.max_usd) or args.max_usd <= 0
+        ):
+            print("--max-usd must be finite and greater than zero", file=sys.stderr)
+            return 2
         if args.duration is not None and (
             not math.isfinite(args.duration) or args.duration <= 0
         ):
@@ -239,6 +261,9 @@ def main(argv: list[str] | None = None) -> int:
             ("--reference-video", args.reference_video),
             ("--workspace", args.workspace),
             ("--folder", args.folder),
+            ("--audio", args.audio),
+            ("--last-image", args.last_image),
+            ("--local-wan-model-dir", args.local_wan_model_dir),
         )
         for flag, value in optional_paths:
             if value is not None:
@@ -247,11 +272,18 @@ def main(argv: list[str] | None = None) -> int:
             ("--target", args.target),
             ("--soul-id", args.soul_id),
             ("--max-credits", args.max_credits),
+            ("--max-usd", args.max_usd),
             ("--caption", args.caption),
             ("--duration", args.duration),
             ("--account", args.account),
             ("--first-frame-approval-id", args.first_frame_approval_id),
             ("--last-frame-approval-id", args.last_frame_approval_id),
+            ("--motion-model", args.motion_model),
+            ("--motion-prompt", args.motion_prompt),
+            ("--resolution", args.resolution),
+            ("--seed", args.seed),
+            ("--steps", args.steps),
+            ("--shot-type", args.shot_type),
         )
         for flag, value in optional_values:
             if value is not None:
@@ -265,6 +297,14 @@ def main(argv: list[str] | None = None) -> int:
         command.extend(["--preferred-provider", args.preferred_provider])
         for provider in args.available_provider:
             command.extend(["--available-provider", provider])
+        for path in args.motion_reference_image:
+            command.extend(
+                ["--motion-reference-image", str(path.expanduser().resolve())]
+            )
+        for path in args.motion_reference_video:
+            command.extend(
+                ["--motion-reference-video", str(path.expanduser().resolve())]
+            )
         for enabled, flag in (
             (args.confirm_paid, "--confirm-paid"),
             (args.operator_selected, "--operator-selected"),
@@ -272,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             (args.allow_upscale, "--allow-upscale"),
             (args.wait, "--wait"),
             (args.download, "--download"),
+            (args.enable_prompt_expansion, "--enable-prompt-expansion"),
         ):
             if enabled:
                 command.append(flag)

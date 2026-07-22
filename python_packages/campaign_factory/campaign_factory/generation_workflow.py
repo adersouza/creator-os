@@ -31,6 +31,7 @@ def run_generation_workflow(
     workspace: Path | None = None,
     paid_confirmation: bool = False,
     max_credits: float | None = None,
+    max_usd: float | None = None,
     caption: str | None = None,
     duration_seconds: float | None = None,
     count: int = 3,
@@ -50,6 +51,18 @@ def run_generation_workflow(
     wait: bool = False,
     download: bool = False,
     structural_seams: ReferenceVideoRemixSeams | None = None,
+    motion_model_id: str | None = None,
+    motion_prompt: str | None = None,
+    audio_path: Path | None = None,
+    last_image_path: Path | None = None,
+    motion_reference_image_paths: tuple[Path, ...] | list[Path] = (),
+    motion_reference_video_paths: tuple[Path, ...] | list[Path] = (),
+    resolution: str | None = None,
+    seed: int = 42,
+    steps: int = 40,
+    enable_prompt_expansion: bool = False,
+    shot_type: str = "single",
+    local_wan_model_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Route one explicitly selected mode through Campaign Factory."""
     execution_plan = build_generation_execution_plan(mode)
@@ -113,6 +126,46 @@ def run_generation_workflow(
                 wait=wait,
                 download=download,
             )
+    elif mode_id in {"local_wan", "best_motion"}:
+        from .motion_generation_stage import run_motion_generation_stage
+
+        _require(accepted_still_path, "accepted_still_path")
+        _require(motion_prompt, "motion_prompt")
+        assert accepted_still_path is not None
+        selected_model = motion_model_id or (
+            "local_wan22_ti2v_5b_mlx"
+            if mode_id == "local_wan"
+            else "wavespeed_wan27_i2v_pro"
+        )
+        selected_duration = None
+        if duration_seconds is not None:
+            if not float(duration_seconds).is_integer():
+                raise ValueError("motion duration must be a whole number of seconds")
+            selected_duration = int(duration_seconds)
+        result = run_motion_generation_stage(
+            factory,
+            execution_plan=execution_plan,
+            campaign_slug=campaign_slug,
+            still_path=accepted_still_path,
+            prompt=str(motion_prompt),
+            model_id=selected_model,
+            duration_seconds=selected_duration,
+            resolution=resolution,
+            seed=seed,
+            steps=steps,
+            dry_run=dry_run,
+            apply=apply,
+            workspace=workspace,
+            paid_confirmation=paid_confirmation,
+            max_usd=max_usd,
+            audio_path=audio_path,
+            last_image_path=last_image_path,
+            reference_image_paths=tuple(motion_reference_image_paths),
+            reference_video_paths=tuple(motion_reference_video_paths),
+            enable_prompt_expansion=enable_prompt_expansion,
+            shot_type=shot_type,
+            local_wan_model_dir=local_wan_model_dir,
+        )
     elif mode_id == "motion_edit":
         result = _run_motion_edit_mode(
             factory,

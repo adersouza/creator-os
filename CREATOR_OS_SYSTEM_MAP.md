@@ -209,7 +209,7 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
-  -> optional motion edit or explicitly approved best-only Kling
+  -> optional local Wan 2.2 or explicitly approved WaveSpeed motion
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
   -> Campaign Factory readiness and pipeline-contract validation
@@ -232,14 +232,23 @@ at validated draft handoff.
   recommendation alias. ContentForge failures remain review-only but are
   reported honestly as `validated_with_failures`, never `validated`.
 - `soul_static`: direct Soul still plus local static MP4.
-- `motion_edit`: deterministic local motion while retaining the static fallback.
-- `best_only_kling`: paid animation of one separately approved rank-one still.
+- `local_wan`: local Apple-silicon MLX execution of the official Wan 2.2
+  TI2V-5B weights while retaining the static fallback.
+- `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
+  quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
+  handles multi-reference motion, and Wan 2.2 S2V handles speaking video.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
 All modes are review-gated and require explicit selection; there is no active
 generation default. Soul ID owns identity. Prompt and asset lineage are
 retained. Native audio remains an intent, not a burned track.
+
+The retired `motion_edit` and `best_only_kling` identifiers remain valid only
+for historical evidence/schema replay. They are absent from the operator menu
+and cannot be selected through the supported CLI. Motion providers never
+silently fall back to another model. See
+[`docs/providers/wan_wavespeed.md`](docs/providers/wan_wavespeed.md).
 
 ## QC, Readiness, And Draft Handoff
 

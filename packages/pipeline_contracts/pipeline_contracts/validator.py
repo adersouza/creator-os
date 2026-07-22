@@ -51,6 +51,7 @@ REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA = (
     "reference_factory_knowledge_pack.v1.schema.json"
 )
 PROVIDER_SPEND_AUTHORIZATION_SCHEMA = "provider_spend_authorization.v1.schema.json"
+PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA = "provider_spend_authorization.v2.schema.json"
 CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA = (
     "contentforge_campaign_audit_response.v1.schema.json"
 )
@@ -104,6 +105,8 @@ SCHEMA_NAMES = {
     "reference_factory_knowledge_pack_v1": REFERENCE_FACTORY_KNOWLEDGE_PACK_SCHEMA,
     "provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
     "campaign_factory_provider_spend_authorization": PROVIDER_SPEND_AUTHORIZATION_SCHEMA,
+    "provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
+    "campaign_factory_provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
     "contentforge_campaign_audit_response": CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA,
 }
 
@@ -149,6 +152,10 @@ def validate_contract(value: Any, schema_name: str) -> None:
 
 def validate_provider_spend_authorization(value: Any) -> None:
     validate_contract(value, PROVIDER_SPEND_AUTHORIZATION_SCHEMA)
+
+
+def validate_provider_spend_authorization_v2(value: Any) -> None:
+    validate_contract(value, PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA)
 
 
 def validate_contentforge_campaign_audit_response(value: Any) -> None:
@@ -406,6 +413,7 @@ def validate_schema_examples() -> list[dict[str, Any]]:
         "front_generation_plan.v1.example.json": validate_front_generation_plan,
         "reference_factory_knowledge_pack.v1.example.json": validate_reference_factory_knowledge_pack,
         "provider_spend_authorization.v1.example.json": validate_provider_spend_authorization,
+        "provider_spend_authorization.v2.example.json": validate_provider_spend_authorization_v2,
         "contentforge_campaign_audit_response.v1.example.json": validate_contentforge_campaign_audit_response,
         "threadsdash_handshake.v1.example.json": validate_threadsdash_handshake,
         "threadsdash_handshake.v2.example.json": validate_threadsdash_handshake,

@@ -90,8 +90,8 @@ Show the current five-mode menu from Campaign Factory's canonical
 
 1. Library reuse — free
 2. Soul still + static MP4 — paid still generation, free MP4
-3. Local motion edit — free
-4. Best-only Kling — paid video
+3. Local Wan 2.2 motion — free
+4. Best paid motion — paid video
 5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video
 
 Never remember or infer the mode from an earlier run. If the operator already

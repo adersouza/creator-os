@@ -1213,12 +1213,12 @@ def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
     assert set(modes) == {
         "library_reuse",
         "soul_static",
-        "motion_edit",
-        "best_only_kling",
+        "local_wan",
+        "best_motion",
         "reference_video_remix",
     }
     assert modes["soul_static"]["paidVideoGeneration"] is False
-    assert modes["best_only_kling"]["staticFallbackRequired"] is True
+    assert modes["best_motion"]["staticFallbackRequired"] is True
     assert modes["reference_video_remix"]["entrypoint"] == (
         "generation run --mode reference_video_remix"
     )
@@ -1231,8 +1231,8 @@ def test_creative_workflow_mode_catalog_is_additive_and_fail_closed():
         "Which Creator OS mode do you want for this run?",
         "1. Library reuse — free",
         "2. Soul still + static MP4 — paid still generation, free MP4",
-        "3. Local motion edit — free",
-        "4. Best-only Kling — paid video",
+        "3. Local Wan 2.2 motion — free",
+        "4. Best paid motion — paid video",
         "5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video",
     ]
 

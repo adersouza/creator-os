@@ -30,6 +30,8 @@
       "enum": [
         "library_reuse",
         "soul_static",
+        "local_wan",
+        "best_motion",
         "motion_edit",
         "best_only_kling",
         "reference_video_remix"
@@ -48,6 +50,8 @@
       "enum": [
         "library_existing_media",
         "static_mp4_only",
+        "local_wan_ti2v",
+        "best_paid_motion",
         "local_motion_edit",
         "kling_best_only",
         "seedance_or_kling_remix"
@@ -131,6 +135,30 @@
         "staticFallbackBehavior": {"const": "required_for_every_accepted_still"},
         "paidImageGeneration": {"const": true},
         "paidVideoGeneration": {"const": false}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "local_wan"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "accepted_still"},
+        "motionStrategy": {"const": "local_wan_ti2v"},
+        "costClassification": {"const": "free"},
+        "providerAuthorization": {"const": "forbidden"},
+        "staticFallbackBehavior": {"const": "required_before_motion"},
+        "paidImageGeneration": {"const": false},
+        "paidVideoGeneration": {"const": false}
+      }}
+    },
+    {
+      "if": {"properties": {"creativeMode": {"const": "best_motion"}}},
+      "then": {"properties": {
+        "stillStrategy": {"const": "accepted_still"},
+        "motionStrategy": {"const": "best_paid_motion"},
+        "costClassification": {"const": "paid_video"},
+        "providerAuthorization": {"const": "required_per_paid_call"},
+        "staticFallbackBehavior": {"const": "required_before_paid_motion"},
+        "paidImageGeneration": {"const": false},
+        "paidVideoGeneration": {"const": true}
       }}
     },
     {

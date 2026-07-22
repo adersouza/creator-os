@@ -1,7 +1,7 @@
 # Reel Factory
 
 Reel Factory owns Creator OS media creation: direct Soul stills, local static
-MP4s, optional motion/Kling, safe caption placement/rendering, audio intent, and
+MP4s, local Wan and WaveSpeed motion, safe caption placement/rendering, audio intent, and
 asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
 owns publishing.
 
@@ -17,15 +17,15 @@ single-person reference image
   -> optional text-only body-emphasis candidate
   -> QC and human acceptance
   -> local zero-provider-cost static MP4
-  -> optional deterministic motion edit or approved best-only Kling
+  -> optional local Wan 2.2 or explicitly authorized WaveSpeed motion
   -> placement.py -> caption_render.py when a safe lane exists
   -> audio_intent.v1 and generated_asset_lineage
   -> Campaign Factory
 ```
 
 Soul identity, prompt evidence, provider receipts, accepted-still hashes, QC,
-and downstream asset IDs remain in lineage. Kling is never the only output; the
-static fallback survives a motion failure.
+and downstream asset IDs remain in lineage. Motion is never the only output;
+the static fallback survives a local or remote generation failure.
 
 ## Operator Commands
 
@@ -38,6 +38,15 @@ scripts/creator-os generate --mode soul_static --dry-run \
 scripts/creator-os generate --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
   --reference-image /path/to/reference.png --max-credits 2 --wait --download
+
+scripts/creator-os generate --mode local_wan --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png \
+  --motion-prompt "Natural breathing and a gentle camera push"
+
+scripts/creator-os generate --mode best_motion --dry-run \
+  --campaign campaign_slug --accepted-still /path/to/accepted.png \
+  --motion-model wavespeed_wan27_i2v_pro --resolution 1080p --duration 5 \
+  --motion-prompt "Natural breathing and a gentle camera push"
 ```
 
 The second command requires confirmation, target identity, exact checkout, and
@@ -65,6 +74,12 @@ new internal callers import the owning module directly.
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
 
+`motion_generate` is the narrow motion worker boundary. Local Wan can execute
+without provider authority; every WaveSpeed apply requires a Campaign-issued,
+short-lived v2 spend authorization bound to exact input hashes and parameters.
+The worker submits a paid prediction once, never automatically retries an
+ambiguous POST, and downloads the temporary result immediately.
+
 There are no flat top-level Python facade modules and no Reel browser/API
 operator surface.
 
@@ -87,6 +102,9 @@ manual grid-crop execution paths were removed after repository and runtime
 caller proof. The narrow XAI vision transport remains only for fail-closed
 anatomy/postability QC. FFmpeg/FFprobe paths remain active rendering and
 evidence infrastructure.
+
+The old FFmpeg pan/zoom motion mode and Kling-only operator mode are retired;
+their identifiers remain schema-valid only for historical evidence.
 
 ## State And Source
 

@@ -21,7 +21,6 @@ from campaign_factory.audio_smoke import (
 from campaign_factory.cli_parser import build_cli_parser
 from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
-    validate_motion_edit_render,
     validate_schema_examples,
     validate_variant_assignment,
 )
@@ -199,6 +198,7 @@ def test_contract_schema_examples_validate():
         "post_metric_history.read.v1.example.json",
         "pattern_card.v1.example.json",
         "provider_spend_authorization.v1.example.json",
+        "provider_spend_authorization.v2.example.json",
         "repurposing_plan.v1.example.json",
         "recommendation_accuracy_report.v1.example.json",
         "recommendation_next_batch.v1.example.json",
@@ -340,13 +340,13 @@ def test_generation_modes_cli_lists_all_operator_paths(tmp_path: Path):
     assert [mode["id"] for mode in payload["modes"]] == [
         "library_reuse",
         "soul_static",
-        "motion_edit",
-        "best_only_kling",
+        "local_wan",
+        "best_motion",
         "reference_video_remix",
     ]
 
 
-def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
+def test_local_wan_cli_dry_run_plans_zero_cost_motion_without_db_mutation(
     tmp_path: Path,
 ):
     cf = make_factory(tmp_path)
@@ -367,15 +367,15 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
             "generation",
             "run",
             "--mode",
-            "motion_edit",
+            "local_wan",
             "--campaign",
             "may",
             "--accepted-still",
             str(still_path),
-            "--caption",
-            "CLI dry run caption",
+            "--motion-prompt",
+            "Natural breathing and a slow camera push toward the subject",
             "--duration",
-            "5",
+            "6",
             "--dry-run",
         ],
         capture_output=True,
@@ -394,11 +394,12 @@ def test_motion_edit_cli_dry_run_returns_valid_render_without_db_mutation(
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["mode"] == "motion_edit"
+    assert payload["mode"] == "local_wan"
     assert payload["publishingAllowed"] is False
-    motion = payload["result"]["motionEdit"]
-    static = payload["result"]["staticFallback"]
-    validate_motion_edit_render(motion["render"])
+    motion = payload["result"]
+    static = motion["staticFallback"]
+    assert motion["providerCalls"] == 0
+    assert motion["worker"]["result"]["providerCalls"] == 0
     assert motion["registeredAsset"] is None
     assert static["paidGeneration"] is False
     assert static["render"]["audioBurned"] is False

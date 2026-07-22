@@ -362,8 +362,9 @@ def record_provider_execution(
 def _reserved_total(conn: sqlite3.Connection, clause: str, value: str) -> float:
     row = conn.execute(
         f"SELECT COALESCE(SUM(amount), 0) FROM {AUTHORIZATION_TABLE} "
-        f"WHERE status IN ('authorized', 'consumed') AND {clause}",
-        (value,),
+        f"WHERE provider = 'higgsfield' AND unit = ? "
+        f"AND status IN ('authorized', 'consumed') AND {clause}",
+        (HIGGSFIELD_CREDIT_UNIT, value),
     ).fetchone()
     return float(row[0] or 0.0)
 
@@ -371,8 +372,9 @@ def _reserved_total(conn: sqlite3.Connection, clause: str, value: str) -> float:
 def _kling_count(conn: sqlite3.Connection, day: str) -> int:
     rows = conn.execute(
         f"SELECT scope_json FROM {AUTHORIZATION_TABLE} "
-        "WHERE status IN ('authorized', 'consumed') AND substr(issued_at, 1, 10) = ?",
-        (day,),
+        "WHERE provider = 'higgsfield' AND unit = ? "
+        "AND status IN ('authorized', 'consumed') AND substr(issued_at, 1, 10) = ?",
+        (HIGGSFIELD_CREDIT_UNIT, day),
     ).fetchall()
     return sum(
         1

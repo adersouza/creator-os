@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 AUTHORIZATION_SCHEMA = "campaign_factory.provider_spend_authorization.v1"
+AUTHORIZATION_SCHEMA_V2 = "campaign_factory.provider_spend_authorization.v2"
 HIGGSFIELD_CREDIT_UNIT = "higgsfield_credits"
+USD_UNIT = "USD"
 PAID_GENERATION_MODES = {"image", "reference-image", "video"}
 
 
@@ -133,6 +135,51 @@ def spend_scope_fingerprint(scope: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json(unsigned)).hexdigest()
 
 
+def build_video_provider_spend_scope(
+    *,
+    provider: str,
+    provider_model: str,
+    operation: str,
+    campaign: str,
+    cohort_id: str,
+    prompt: str,
+    media_paths: Mapping[str, str | Path | None],
+    parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build an immutable, provider-neutral scope for one paid video call."""
+    provider = str(provider or "").strip().lower()
+    if provider not in {"wavespeed"}:
+        raise ValueError(f"unsupported v2 spend provider: {provider}")
+    provider_model = str(provider_model or "").strip()
+    operation = str(operation or "").strip()
+    campaign = str(campaign or "").strip()
+    cohort_id = str(cohort_id or "").strip()
+    normalized_prompt = " ".join(str(prompt or "").split())
+    if not all((provider_model, operation, campaign, cohort_id, normalized_prompt)):
+        raise ValueError(
+            "v2 spend scope requires model, operation, campaign, cohort, and prompt"
+        )
+    media_sha256 = {
+        str(role): file_sha256(path)
+        for role, path in sorted(media_paths.items())
+        if path is not None
+    }
+    if not media_sha256 or any(value is None for value in media_sha256.values()):
+        raise ValueError("v2 spend scope requires at least one readable media input")
+    scope = {
+        "provider": provider,
+        "providerModel": provider_model,
+        "operation": operation,
+        "campaign": campaign,
+        "cohortId": cohort_id,
+        "providerCallCount": 1,
+        "promptSha256": hashlib.sha256(normalized_prompt.encode("utf-8")).hexdigest(),
+        "mediaSha256": media_sha256,
+        "parameters": dict(parameters),
+    }
+    return {**scope, "requestFingerprint": spend_scope_fingerprint(scope)}
+
+
 def sign_authorization(payload: Mapping[str, Any], *, secret: str) -> dict[str, Any]:
     _validate_secret(secret)
     unsigned = {key: value for key, value in payload.items() if key != "signature"}
@@ -196,6 +243,97 @@ def verify_authorization(
         or quote.get("unit") != HIGGSFIELD_CREDIT_UNIT
     ):
         raise SpendAuthorizationError("provider quote is invalid")
+    current = now or datetime.now(UTC)
+    issued_at = _parse_time(payload.get("issuedAt"), "issuedAt")
+    expires_at = _parse_time(payload.get("expiresAt"), "expiresAt")
+    if expires_at <= issued_at or current < issued_at or current >= expires_at:
+        raise SpendAuthorizationError(
+            "provider spend authorization is expired or not active"
+        )
+    return dict(payload)
+
+
+def verify_authorization_v2(
+    payload: Mapping[str, Any],
+    *,
+    expected_scope: Mapping[str, Any],
+    secret: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Verify a provider-neutral authorization before any external write."""
+    _validate_secret(secret)
+    if payload.get("schema") != AUTHORIZATION_SCHEMA_V2:
+        raise SpendAuthorizationError("invalid v2 provider spend authorization schema")
+    signature = payload.get("signature")
+    if not isinstance(signature, str) or len(signature) != 64:
+        raise SpendAuthorizationError(
+            "provider spend authorization signature is missing"
+        )
+    unsigned = {key: value for key, value in payload.items() if key != "signature"}
+    expected_signature = hmac.new(
+        secret.encode("utf-8"), canonical_json(unsigned), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        raise SpendAuthorizationError(
+            "provider spend authorization signature is invalid"
+        )
+    if (
+        payload.get("issuer") != "campaign_factory"
+        or payload.get("status") != "authorized"
+    ):
+        raise SpendAuthorizationError("provider spend authorization is not executable")
+    scope = payload.get("scope")
+    if not isinstance(scope, dict) or canonical_json(scope) != canonical_json(
+        dict(expected_scope)
+    ):
+        raise SpendAuthorizationError(
+            "provider spend authorization scope does not match"
+        )
+    if scope.get("requestFingerprint") != spend_scope_fingerprint(scope):
+        raise SpendAuthorizationError("provider spend request fingerprint is invalid")
+    quote = payload.get("providerQuote")
+    if not isinstance(quote, dict):
+        raise SpendAuthorizationError("provider quote is missing")
+    amount = quote.get("amount")
+    pricing_fingerprint = quote.get("pricingFingerprint")
+    pricing_version = quote.get("pricingVersion")
+    catalog_base_price = quote.get("catalogBasePrice")
+    live_quoted_amount = quote.get("liveQuotedAmount")
+    live_price_source = quote.get("livePriceSource")
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, (int, float))
+        or not math.isfinite(float(amount))
+        or float(amount) <= 0
+        or quote.get("unit") != USD_UNIT
+        or quote.get("provider") != scope.get("provider")
+        or quote.get("model") != scope.get("providerModel")
+        or not isinstance(pricing_fingerprint, str)
+        or len(pricing_fingerprint) != 64
+        or any(char not in "0123456789abcdef" for char in pricing_fingerprint)
+        or not isinstance(pricing_version, str)
+        or not pricing_version.strip()
+        or isinstance(catalog_base_price, bool)
+        or not isinstance(catalog_base_price, (int, float))
+        or not math.isfinite(float(catalog_base_price))
+        or float(catalog_base_price) <= 0
+        or quote.get("catalogModelId") != scope.get("providerModel")
+        or isinstance(live_quoted_amount, bool)
+        or not isinstance(live_quoted_amount, (int, float))
+        or not math.isfinite(float(live_quoted_amount))
+        or not math.isclose(
+            float(live_quoted_amount), float(amount), rel_tol=0, abs_tol=0.0001
+        )
+        or live_price_source
+        not in {"wavespeed_model_pricing_api", "pinned_audio_duration_rate"}
+    ):
+        raise SpendAuthorizationError("provider quote is invalid")
+    authorization_id = payload.get("authorizationId")
+    reservation_id = payload.get("reservationId")
+    if not isinstance(authorization_id, str) or not authorization_id:
+        raise SpendAuthorizationError("provider spend authorization id is missing")
+    if not isinstance(reservation_id, str) or not reservation_id:
+        raise SpendAuthorizationError("provider spend reservation id is missing")
     current = now or datetime.now(UTC)
     issued_at = _parse_time(payload.get("issuedAt"), "issuedAt")
     expires_at = _parse_time(payload.get("expiresAt"), "expiresAt")

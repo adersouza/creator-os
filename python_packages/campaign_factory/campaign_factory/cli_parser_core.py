@@ -102,8 +102,27 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--workspace", type=Path)
     generation_run.add_argument("--confirm-paid", action="store_true")
     generation_run.add_argument("--max-credits", type=float)
+    generation_run.add_argument("--max-usd", type=float)
     generation_run.add_argument("--caption")
     generation_run.add_argument("--duration", type=float)
+    generation_run.add_argument("--motion-model")
+    generation_run.add_argument("--motion-prompt")
+    generation_run.add_argument("--audio", type=Path)
+    generation_run.add_argument("--last-image", type=Path)
+    generation_run.add_argument(
+        "--motion-reference-image", type=Path, action="append", default=[]
+    )
+    generation_run.add_argument(
+        "--motion-reference-video", type=Path, action="append", default=[]
+    )
+    generation_run.add_argument("--resolution")
+    generation_run.add_argument("--seed", type=int, default=42)
+    generation_run.add_argument("--steps", type=int, default=40)
+    generation_run.add_argument("--enable-prompt-expansion", action="store_true")
+    generation_run.add_argument(
+        "--shot-type", choices=["single", "multi"], default="single"
+    )
+    generation_run.add_argument("--local-wan-model-dir", type=Path)
     generation_run.add_argument("--count", type=int, default=3)
     generation_run.add_argument("--account")
     generation_run.add_argument("--folder", type=Path)

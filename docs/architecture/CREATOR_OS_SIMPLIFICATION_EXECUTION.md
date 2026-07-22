@@ -130,7 +130,7 @@ split and therefore understate the production-code deletion.
 The supported root commands remain unchanged: `status`, `doctor`,
 `reference-refresh`, `generate`, `readiness`, `draft-export`, and
 `performance-sync`. `generate` still requires one explicit mode from
-`library_reuse`, `soul_static`, `motion_edit`, `best_only_kling`, or
+`library_reuse`, `soul_static`, `local_wan`, `best_motion`, or
 `reference_video_remix`. Creator OS still has no scheduling or publishing
 command.
 
