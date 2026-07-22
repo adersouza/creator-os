@@ -84,7 +84,7 @@ not fabricate counts. Ambiguous or conflicting lineage remains ineligible.
 ## Test
 
 ```bash
-uv run pytest python_packages/reference_factory/tests
+uv run python -m pytest python_packages/reference_factory/tests
 ```
 
 Coverage protects ingestion, labels, ranking, outcome imports, provider

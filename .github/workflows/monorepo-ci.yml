@@ -61,6 +61,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check:contracts
+      - name: Build versioned pipeline-contracts package
+        run: pnpm pack:contracts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-contracts-${{ github.sha }}
+          path: artifacts/pipeline-contracts/*.tgz
+          if-no-files-found: error
+          retention-days: 30
 
   architecture:
     runs-on: ubuntu-latest
@@ -123,12 +131,12 @@ jobs:
       - name: Install media tooling
         run: brew install ffmpeg tesseract
       - run: uv sync --all-extras --all-packages
-      - run: uv run pytest packages/pipeline_contracts/tests
-      - run: uv run pytest packages/creator_os_core/tests
-      - run: uv run pytest python_packages/campaign_factory/tests
-      - run: uv run pytest python_packages/reel_factory/tests
-      - run: uv run pytest python_packages/reference_factory/tests
-      - run: uv run pytest tests/integration
+      - run: uv run python -m pytest packages/pipeline_contracts/tests
+      - run: uv run python -m pytest packages/creator_os_core/tests
+      - run: uv run python -m pytest python_packages/campaign_factory/tests
+      - run: uv run python -m pytest python_packages/reel_factory/tests
+      - run: uv run python -m pytest python_packages/reference_factory/tests
+      - run: uv run python -m pytest tests/integration
       - run: uv run python -m compileall packages/pipeline_contracts python_packages/campaign_factory python_packages/reel_factory python_packages/reference_factory
 
   hygiene:

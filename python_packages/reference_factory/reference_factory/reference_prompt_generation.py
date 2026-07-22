@@ -6,6 +6,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
+
 from pipeline_contracts.validator import (
     validate_higgsfield_soul_image_prompt,
     validate_kling_3_video_prompt,

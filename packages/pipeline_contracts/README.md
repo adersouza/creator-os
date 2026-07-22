@@ -14,9 +14,10 @@ The generated TypeScript bundle lives at:
 packages/pipeline_contracts/typescript/generated-schemas.ts
 ```
 
-The root `pipeline_contracts/__init__.py` is an import shim, not a schema mirror.
-ThreadsDashboard keeps its own consumer snapshot; the cross-repo contract test
-compares that snapshot with Creator OS `main`.
+Python imports resolve directly to this uv workspace package. The generated
+`contract-manifest.json` gives every distributed schema and TypeScript file a
+versioned SHA-256 receipt. ThreadsDashboard keeps a pinned consumer snapshot;
+the cross-repo contract test compares that snapshot with Creator OS `main`.
 
 ```bash
 pnpm check:contracts
@@ -46,8 +47,8 @@ TypeScript validators return an array of error strings. An empty array means the
 
 ```bash
 cd /Users/aderdesouza/Developer/creator-os
-uv run pytest packages/pipeline_contracts/tests
-THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard uv run pytest packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py
+uv run python -m pytest packages/pipeline_contracts/tests
+THREADSDASH_ROOT=/Users/aderdesouza/Developer/ThreadsDashboard uv run python -m pytest packages/pipeline_contracts/tests/test_threadsdash_consumer_contracts.py
 pnpm check:contracts
 ```
 
@@ -56,7 +57,8 @@ pnpm check:contracts
 - Patch versions may tighten examples, docs, and helper functions without changing schema IDs.
 - Minor versions may add optional schema fields.
 - Major versions require new schema IDs or explicit migration notes.
-- Publishing this package to a package registry is the next hygiene step once all repo consumers are wired.
+- CI packs the versioned npm artifact and retains it against the exact commit SHA.
+- Consumers pin the manifest version and source revision instead of trusting an unversioned sibling checkout.
 
 ### Campaign draft v3 rollout
 

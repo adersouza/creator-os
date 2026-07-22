@@ -112,8 +112,8 @@ command success alone is not sufficient.
 ## Test
 
 ```bash
-uv run pytest python_packages/campaign_factory/tests
-uv run pytest tests/integration
+uv run python -m pytest python_packages/campaign_factory/tests
+uv run python -m pytest tests/integration
 ```
 
 Safety coverage includes paid credit lifecycle, provider failures, global kill

@@ -63,7 +63,7 @@ exclude = "(^|/)(\\.venv|\\.uv-cache|node_modules|graphify-out|tests)/"
 # CI strictly gates the type-clean Pipeline Contracts package. The remaining
 # backlog is also count-gated by `scripts/check_mypy_backlog.py` so it cannot
 # grow or be hidden by checking fewer files. Current ceilings are Campaign
-# Factory 889, Reference Factory 168, and Reel Factory 95. Lower a ceiling when
+# Factory 855, Reference Factory 168, and Reel Factory 85. Lower a ceiling when
 # a package improves; graduate the package to the strict gate at zero.
 
 [tool.ruff]
@@ -80,6 +80,9 @@ extend-exclude = [
 # Conservative start: real-bug rules (pyflakes) + import sorting + pyupgrade.
 # Broaden later; this keeps the first adoption green and meaningful.
 select = ["F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pipeline_contracts"]
 
 [tool.importlinter]
 root_packages = [

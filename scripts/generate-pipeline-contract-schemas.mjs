@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -11,9 +12,10 @@ const canonicalSchemasDir = join(
 	"pipeline_contracts",
 	"schemas",
 );
-const outputPaths = [
-	join(repoRoot, "packages", "pipeline_contracts", "typescript", "generated-schemas.ts"),
-];
+const packageRoot = join(repoRoot, "packages", "pipeline_contracts");
+const generatedSchemasPath = join(packageRoot, "typescript", "generated-schemas.ts");
+const contractManifestPath = join(packageRoot, "contract-manifest.json");
+const packageMetadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
 const checkMode = process.argv.includes("--check");
 
 function camelCaseSchemaKey(filename) {
@@ -41,6 +43,10 @@ function readJson(path) {
 
 function stableJson(value) {
 	return JSON.stringify(value, null, 2);
+}
+
+function sha256(value) {
+	return createHash("sha256").update(value).digest("hex");
 }
 
 function generatedContents() {
@@ -75,22 +81,47 @@ function generatedContents() {
 }
 
 const contents = generatedContents();
+const manifestFiles = Object.fromEntries([
+	...readdirSync(canonicalSchemasDir)
+		.filter((name) => name.endsWith(".json"))
+		.sort()
+		.map((name) => {
+			const relativePath = `pipeline_contracts/schemas/${name}`;
+			return [relativePath, sha256(readFileSync(join(canonicalSchemasDir, name)))];
+		}),
+	["typescript/generated-schemas.ts", sha256(contents)],
+	[
+		"typescript/index.ts",
+		sha256(readFileSync(join(packageRoot, "typescript", "index.ts"))),
+	],
+]);
+const manifestContents = `${stableJson({
+	schema: "creator_os.pipeline_contracts_manifest.v1",
+	package: packageMetadata.name,
+	version: packageMetadata.version,
+	files: manifestFiles,
+})}\n`;
+const outputs = [
+	{ path: generatedSchemasPath, contents },
+	{ path: contractManifestPath, contents: manifestContents },
+];
 const failures = [];
 
-for (const outputPath of outputPaths) {
+for (const output of outputs) {
+	const outputPath = output.path;
 	if (checkMode) {
 		if (!existsSync(outputPath)) {
 			failures.push(`missing generated schema file: ${outputPath}`);
 			continue;
 		}
 		const current = readFileSync(outputPath, "utf8");
-		if (current !== contents) {
+		if (current !== output.contents) {
 			failures.push(`generated schema file is stale: ${outputPath}`);
 		}
 		continue;
 	}
 	mkdirSync(dirname(outputPath), { recursive: true });
-	writeFileSync(outputPath, contents, "utf8");
+	writeFileSync(outputPath, output.contents, "utf8");
 	console.log(`wrote ${basename(outputPath)}`);
 }
 
