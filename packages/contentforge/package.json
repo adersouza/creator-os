@@ -7,7 +7,7 @@
     "contentforge": "./cli.mjs"
   },
   "scripts": {
-    "build": "node --check cli.mjs && node --check lib/similarity.js && node --check lib/motion-specific-qc.js && node --check lib/analyzer-registry.js",
+    "build": "node --check cli.mjs && node --check lib/similarity.js && node --check lib/trusted-media-analysis.js && node --check lib/motion-specific-qc.js && node --check lib/analyzer-registry.js",
     "judge": "node cli.mjs similarity",
     "test": "node --test --test-concurrency=1",
     "fixtures:campaign-factory": "node scripts/generate-campaign-fixtures.mjs",

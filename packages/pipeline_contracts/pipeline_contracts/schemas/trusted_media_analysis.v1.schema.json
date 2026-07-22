@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://creator-os.local/schemas/trusted_media_analysis.v1.schema.json",
+  "title": "Trusted Media Analysis V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "analysisId",
+    "subject",
+    "producedAt",
+    "producer",
+    "analyzerRegistry",
+    "rawObservations",
+    "analyzerVerdicts",
+    "unavailableMeasurements",
+    "analysisFingerprint"
+  ],
+  "properties": {
+    "schema": { "const": "contentforge.trusted_media_analysis.v1" },
+    "analysisId": { "type": "string", "minLength": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaPath", "mediaSha256", "sourcePath", "sourceSha256"],
+      "properties": {
+        "mediaPath": { "type": "string", "minLength": 1 },
+        "mediaSha256": { "$ref": "#/$defs/sha256" },
+        "sourcePath": { "type": ["string", "null"] },
+        "sourceSha256": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "producedAt": { "type": "string", "format": "date-time" },
+    "producer": { "const": "contentforge.trusted_media_analysis" },
+    "analyzerRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registryId", "registryFingerprint"],
+      "properties": {
+        "registryId": { "type": "string", "minLength": 1 },
+        "registryFingerprint": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "rawObservations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/analyzerObservation" }
+    },
+    "analyzerVerdicts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/analyzerVerdict" }
+    },
+    "unavailableMeasurements": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "analysisFingerprint": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "toolRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "version": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "analyzerObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyzerId",
+        "analyzerVersion",
+        "evidenceKinds",
+        "implementationRef",
+        "implementationFingerprint",
+        "analyzerRegistryId",
+        "analyzerRegistryFingerprint",
+        "toolRevisions",
+        "status",
+        "observations"
+      ],
+      "properties": {
+        "analyzerId": { "type": "string", "minLength": 1 },
+        "analyzerVersion": { "type": "string", "minLength": 1 },
+        "evidenceKinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "implementationRef": { "type": "string", "minLength": 1 },
+        "implementationFingerprint": { "$ref": "#/$defs/sha256" },
+        "analyzerRegistryId": { "type": "string", "minLength": 1 },
+        "analyzerRegistryFingerprint": { "$ref": "#/$defs/sha256" },
+        "toolRevisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["node", "platform", "ffmpeg", "ffprobe"],
+          "properties": {
+            "node": { "type": "string", "minLength": 1 },
+            "platform": { "type": "string", "minLength": 1 },
+            "ffmpeg": { "$ref": "#/$defs/toolRevision" },
+            "ffprobe": { "$ref": "#/$defs/toolRevision" }
+          }
+        },
+        "status": { "enum": ["measured", "unavailable", "not_applicable"] },
+        "observations": { "type": "object" }
+      }
+    },
+    "analyzerVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "policy",
+        "subjectSha256",
+        "analysisId",
+        "observationFingerprint",
+        "implementationRef",
+        "implementationFingerprint",
+        "analyzerRegistryId",
+        "analyzerRegistryFingerprint",
+        "verdict",
+        "passed",
+        "evidenceOnly",
+        "providerCalls",
+        "reasons"
+      ],
+      "properties": {
+        "schema": { "const": "contentforge.trusted_analyzer_receipt.v1" },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 }
+          }
+        },
+        "subjectSha256": { "$ref": "#/$defs/sha256" },
+        "analysisId": { "type": "string", "minLength": 1 },
+        "observationFingerprint": { "$ref": "#/$defs/sha256" },
+        "implementationRef": { "type": "string", "minLength": 1 },
+        "implementationFingerprint": { "$ref": "#/$defs/sha256" },
+        "analyzerRegistryId": { "type": "string", "minLength": 1 },
+        "analyzerRegistryFingerprint": { "$ref": "#/$defs/sha256" },
+        "verdict": { "enum": ["pass", "blocked"] },
+        "passed": { "type": "boolean" },
+        "evidenceOnly": { "const": true },
+        "providerCalls": { "const": 0 },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "severity"],
+            "properties": {
+              "code": { "type": "string", "minLength": 1 },
+              "severity": { "const": "block" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

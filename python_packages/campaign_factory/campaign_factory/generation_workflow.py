@@ -213,6 +213,16 @@ def run_generation_workflow(
             motion_task=motion_task,
             motion_lora_path=motion_lora_path,
             motion_lora_strength=motion_lora_strength,
+            benchmark_recipe=(
+                benchmark_recipe.to_dict()
+                if mode_id == "local_wan" and benchmark_recipe is not None
+                else None
+            ),
+            analyzer_registry=(
+                analyzer_registry.to_dict()
+                if mode_id == "local_wan" and analyzer_registry is not None
+                else None
+            ),
         )
     else:
         # Reference-video remix carries optional OpenCV/PySceneDetect dependencies.

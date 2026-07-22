@@ -61,6 +61,63 @@ def test_motion_request_fingerprint_changes_for_every_material_input(
         assert _motion_request_fingerprint(**changed) != first
 
 
+def test_motion_worker_binds_exact_benchmark_evidence(tmp_path: Path) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        still = tmp_path / "accepted.jpg"
+        still.write_bytes(b"still")
+        recipe = {
+            "schema": "creator_os.benchmark_recipe.v1",
+            "recipeId": "recipe-1",
+        }
+        registry = {
+            "schema": "creator_os.analyzer_registry.v1",
+            "registryId": "registry-1",
+        }
+        base = dict(
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            prompt=PROMPT,
+            still=still,
+            duration_seconds=6,
+            resolution="704x1280",
+            seed=42,
+            steps=20,
+            audio_path=None,
+            generate_audio=False,
+            last_image_path=None,
+            reference_image_paths=(),
+            reference_video_paths=(),
+            enable_prompt_expansion=False,
+            shot_type="single",
+            local_model_dir=None,
+            motion_task="image_to_video",
+            motion_lora_path=None,
+            motion_lora_strength=1.0,
+        )
+        unlinked = _motion_request_fingerprint(**base)
+        linked = _motion_request_fingerprint(
+            **base,
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+        assert linked != unlinked
+        command = _worker_command(
+            cf,
+            output_path=tmp_path / "out.mp4",
+            campaign_slug="may",
+            dry_run=True,
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+            **base,
+        )
+        recipe_index = command.index("--benchmark-recipe-json")
+        registry_index = command.index("--analyzer-registry-json")
+        assert json.loads(command[recipe_index + 1]) == recipe
+        assert json.loads(command[registry_index + 1]) == registry
+    finally:
+        cf.close()
+
+
 def _register_motion_fixture(
     cf,
     tmp_path: Path,

@@ -13,6 +13,7 @@ from reel_factory.local_lora_registry import register_local_lora
 from reel_factory.local_video import (
     LocalVideoRequest,
     build_local_video_command,
+    plan_local_video_job,
     probe_local_video,
     run_local_video,
 )
@@ -376,6 +377,7 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
         video.write_bytes(b"generated-video")
         return Completed()
 
+    planned_job = plan_local_video_job(request)
     result = run_local_video(request, dry_run=False, runner=runner)
     assert request.output_path.read_bytes() == b"generated-video"
     assert result["status"] == "completed"
@@ -386,6 +388,8 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
         request.output_path.with_suffix(".mp4.local_video.json").read_text()
     )
     assert lineage["status"] == "completed"
+    queue = default_local_generation_queue(tmp_path / "queue")
+    assert queue.states()[planned_job.job_id].job == planned_job
 
 
 def test_apply_rejects_short_source_audio_before_queue_or_runner(

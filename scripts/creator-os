@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run(command: list[str], *, cwd: Path = ROOT) -> int:
-    return subprocess.run(command, cwd=cwd, check=False).returncode
+def _run(command: list[str], *, cwd: Path = ROOT, input_text: str | None = None) -> int:
+    return subprocess.run(
+        command, cwd=cwd, check=False, input=input_text, text=input_text is not None
+    ).returncode
 
 
 def _campaign_command(*args: str) -> list[str]:
@@ -72,6 +76,58 @@ def _local_benchmark_command(*args: str) -> list[str]:
     ]
 
 
+def _local_arena_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_model_arena",
+        *args,
+    ]
+
+
+def _local_router_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_model_router",
+        *args,
+    ]
+
+
+def _creative_approval_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.creative_approval",
+        *args,
+    ]
+
+
+def _runtime_promotion_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "creator-os-core",
+        "python",
+        "-m",
+        "creator_os_core.runtime_promotion",
+        *args,
+    ]
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="creator-os",
@@ -118,6 +174,7 @@ def _parser() -> argparse.ArgumentParser:
 
     generate = sub.add_parser(
         "generate",
+        aliases=["create"],
         help="choose one explicit generation mode; use --list-modes for cost and gates",
     )
     generation_choice = generate.add_mutually_exclusive_group(required=True)
@@ -202,8 +259,21 @@ def _parser() -> argparse.ArgumentParser:
     readiness.add_argument("--campaign", required=True)
     readiness.add_argument("--user-id")
 
+    review = sub.add_parser(
+        "review", help="ordinary read-only Campaign creative/QC review"
+    )
+    review.add_argument("--campaign", required=True)
+    review.add_argument("--user-id")
+
+    approve = sub.add_parser(
+        "approve", help="record one immutable fingerprint-bound creative approval"
+    )
+    approve.add_argument("--approval", type=Path, required=True)
+    approve.add_argument("--root", type=Path, required=True)
+
     draft = sub.add_parser(
         "draft-export",
+        aliases=["export"],
         help="preview or explicitly write validated drafts; never schedules or publishes",
     )
     draft_mode = draft.add_mutually_exclusive_group(required=True)
@@ -244,6 +314,37 @@ def _parser() -> argparse.ArgumentParser:
         help="record measured QC-bound local results and explicitly promote models",
     )
     local_benchmarks.add_argument("args", nargs=argparse.REMAINDER)
+
+    advanced = sub.add_parser(
+        "advanced",
+        help="developer diagnostics for local models, queue, benchmarks, and analyzers",
+    )
+    advanced.add_argument(
+        "surface",
+        choices=["models", "queue", "benchmarks", "arena", "router", "analyzers"],
+    )
+    advanced.add_argument("args", nargs=argparse.REMAINDER)
+
+    promote = sub.add_parser(
+        "promote",
+        help="guardedly promote one reviewed commit into creator-os-runtime",
+    )
+    promote.add_argument("--source-root", type=Path, default=ROOT)
+    promote.add_argument(
+        "--runtime-root",
+        type=Path,
+        required=True,
+        help="exact clean runtime checkout; never inferred from a worktree",
+    )
+    promote.add_argument("--approved-commit", required=True)
+    promote.add_argument("--approval", type=Path, required=True)
+    promote.add_argument(
+        "--state-root",
+        type=Path,
+        default=Path.home() / ".creator-os/state/runtime_promotions",
+    )
+    promote.add_argument("--operator", required=True)
+    promote.add_argument("--dry-run", action="store_true")
 
     motion_qc_register = sub.add_parser(
         "motion-qc-register",
@@ -292,7 +393,12 @@ def main(argv: list[str] | None = None) -> int:
             if code := _run(command):
                 return code
         return 0
-    if args.command == "generate":
+    if args.command in {"generate", "create"}:
+        if args.command == "generate":
+            print(
+                "deprecated: use `creator-os create`; `generate` remains a compatibility alias",
+                file=sys.stderr,
+            )
         if args.list_modes:
             return _run(_campaign_command("generation", "modes"))
         if not args.campaign:
@@ -404,12 +510,24 @@ def main(argv: list[str] | None = None) -> int:
                 command.append(flag)
         return _run(command)
     if args.command == "local-models":
+        print(
+            "deprecated: use `creator-os advanced models`; compatibility retained",
+            file=sys.stderr,
+        )
         local_model_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_reel_command(*local_model_args))
     if args.command == "local-queue":
+        print(
+            "deprecated: use `creator-os advanced queue`; compatibility retained",
+            file=sys.stderr,
+        )
         local_queue_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_local_queue_command(*local_queue_args))
     if args.command == "local-benchmarks":
+        print(
+            "deprecated: use `creator-os advanced benchmarks`; compatibility retained",
+            file=sys.stderr,
+        )
         benchmark_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_local_benchmark_command(*benchmark_args))
     if args.command == "motion-qc-register":
@@ -423,12 +541,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.operator:
             command.extend(["--operator", args.operator])
         return _run(command)
-    if args.command == "readiness":
+    if args.command in {"readiness", "review"}:
+        if args.command == "readiness":
+            print(
+                "deprecated: use `creator-os review`; compatibility retained",
+                file=sys.stderr,
+            )
         command = _campaign_command("campaign-readiness", "--campaign", args.campaign)
         if args.user_id:
             command.extend(["--user-id", args.user_id])
         return _run(command)
-    if args.command == "draft-export":
+    if args.command == "approve":
+        return _run(
+            _creative_approval_command(
+                "--approval",
+                str(args.approval.expanduser().resolve()),
+                "--root",
+                str(args.root.expanduser().resolve()),
+            )
+        )
+    if args.command in {"draft-export", "export"}:
+        if args.command == "draft-export":
+            print(
+                "deprecated: use `creator-os export`; compatibility retained",
+                file=sys.stderr,
+            )
         if args.max_drafts <= 0:
             print("--max-drafts must be greater than zero", file=sys.stderr)
             return 2
@@ -450,6 +587,46 @@ def main(argv: list[str] | None = None) -> int:
         command.extend(["--surface", args.surface])
         for asset_id in args.rendered_asset_id:
             command.extend(["--rendered-asset-id", asset_id])
+        return _run(command)
+    if args.command == "advanced":
+        advanced_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        if args.surface == "models":
+            return _run(_reel_command(*advanced_args))
+        if args.surface == "queue":
+            return _run(_local_queue_command(*advanced_args))
+        if args.surface == "benchmarks":
+            return _run(_local_benchmark_command(*advanced_args))
+        if args.surface == "arena":
+            return _run(_local_arena_command(*advanced_args))
+        if args.surface == "router":
+            return _run(_local_router_command(*advanced_args))
+        request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
+        return _run(
+            [
+                "node",
+                str(ROOT / "packages/contentforge/cli.mjs"),
+                "analyzer-registry",
+            ],
+            cwd=ROOT,
+            input_text=request,
+        )
+    if args.command == "promote":
+        command = _runtime_promotion_command(
+            "--source-root",
+            str(args.source_root.expanduser().resolve()),
+            "--runtime-root",
+            str(args.runtime_root.expanduser().resolve()),
+            "--approved-commit",
+            args.approved_commit,
+            "--approval",
+            str(args.approval.expanduser().resolve()),
+            "--state-root",
+            str(args.state_root.expanduser().resolve()),
+            "--operator",
+            args.operator,
+        )
+        if args.dry_run:
+            command.append("--dry-run")
         return _run(command)
     raise AssertionError(f"unhandled command: {args.command}")
 

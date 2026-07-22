@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.runtime_promotion_receipt.v1",
+  "title": "Creator OS Runtime Promotion Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "promotionId", "createdAt", "operator", "status", "sourceCommit", "destinationCommitBefore", "destinationCommitAfter", "approvalPath", "approvalFingerprint", "planFingerprint", "backupManifestPath", "backupManifestFingerprint", "verification", "rolledBack", "failure", "rollbackInstructions", "productionStateWrites", "providerCalls", "receiptFingerprint"],
+  "properties": {
+    "schema": {"const": "creator_os.runtime_promotion_receipt.v1"},
+    "promotionId": {"type": "string", "minLength": 1},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "operator": {"type": "string", "minLength": 1},
+    "status": {"enum": ["promoted", "already_current", "rolled_back"]},
+    "sourceCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "destinationCommitBefore": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "destinationCommitAfter": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "approvalPath": {"type": "string", "minLength": 1},
+    "approvalFingerprint": {"$ref": "#/$defs/sha256"},
+    "planFingerprint": {"$ref": "#/$defs/sha256"},
+    "backupManifestPath": {"type": "string", "minLength": 1},
+    "backupManifestFingerprint": {"$ref": "#/$defs/sha256"},
+    "verification": {"type": "array", "items": {"type": "object"}},
+    "rolledBack": {"type": "boolean"},
+    "failure": {"type": ["string", "null"]},
+    "rollbackInstructions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "productionStateWrites": {"const": 0},
+    "providerCalls": {"const": 0},
+    "receiptFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

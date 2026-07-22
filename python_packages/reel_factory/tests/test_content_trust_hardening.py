@@ -19,6 +19,7 @@ from reel_factory.identity_verification import (
     delete_reference_set,
     identity_health,
     identity_model_root,
+    identity_qc_receipt,
     verify_identity,
 )
 from reel_factory.media_metadata import normalize_media_metadata
@@ -184,7 +185,18 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
     assert failed["failureReason"] == "identity_similarity_below_threshold"
     assert unavailable["status"] == "unavailable"
     assert unavailable["failureReason"] == "fake_unavailable"
+    assert unavailable["score"] is None
     assert passed["frameCount"] == 1
+    assert passed["subjectSha256"]
+    assert passed["referenceSetFingerprint"]
+    assert passed["analyzer"]["analyzerId"] == "reel_factory.identity_preservation"
+    assert passed["analyzer"]["analyzerVersion"] == "2.0.0"
+    assert passed["observations"]["frames"][0]["frameSha256"]
+    receipt = identity_qc_receipt(passed)
+    assert receipt["passed"] is True
+    assert receipt["subjectSha256"] == passed["subjectSha256"]
+    blocked = identity_qc_receipt(failed)
+    assert blocked["passed"] is False
 
 
 def test_video_identity_uses_worst_sampled_frame(tmp_path: Path) -> None:
@@ -233,6 +245,60 @@ def test_video_identity_passes_when_all_sampled_frames_match(tmp_path: Path) -> 
     assert result["status"] == "passed"
     assert result["score"] == 0.9
     assert result["frameCount"] == 2
+    assert result["faceStabilityScore"] == 0.9
+
+
+def test_video_identity_rejects_multiple_faces(tmp_path: Path) -> None:
+    class MultipleFaceProvider(FakeIdentityProvider):
+        def face_embeddings(self, _image_path: Path) -> list[list[float]]:
+            return [[1.0, 0.0], [0.9, 0.1]]
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    frame = tmp_path / "frame.png"
+    _write_image(frame)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=MultipleFaceProvider(),
+        frame_extractor=lambda _path: [frame],
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "multiple_faces_detected"
+    assert result["score"] is None
+    assert result["observations"]["frames"][0]["facesDetected"] == 2
+
+
+def test_video_identity_cleans_owned_temporary_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reel_factory.identity_verification as identity_module
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    generated_root = tmp_path / "identity_verify_owned"
+    generated_root.mkdir()
+    frame = generated_root / "frame_0.jpg"
+    _write_image(frame)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+    monkeypatch.setattr(
+        identity_module, "_media_frames_for_embedding", lambda _path: [frame]
+    )
+    monkeypatch.setattr(identity_module, "_probe_duration", lambda _path: 6.0)
+
+    result = verify_identity(
+        video,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider([1.0, 0.0]),
+    )
+
+    assert result["status"] == "passed"
+    assert not generated_root.exists()
 
 
 def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -> None:

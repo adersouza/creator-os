@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -89,6 +89,8 @@ class LocalVideoRequest:
     low_ram: bool = True
     tile_frames: int = 1
     tile_spatial: int = 2
+    benchmark_recipe: Mapping[str, Any] | None = None
+    analyzer_registry: Mapping[str, Any] | None = None
 
 
 def probe_local_video(
@@ -305,12 +307,12 @@ def run_local_video(
     if partial.exists() or partial_audio.exists():
         raise FileExistsError(f"local_video_partial_collision: {partial}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    apply_request = replace(request, output_path=partial)
-    command = build_local_video_command(
-        apply_request, python_executable=python_executable
+    command = _build_execution_command(
+        request,
+        spec=spec,
+        output=output,
+        python_executable=python_executable,
     )
-    if spec.family == "longcat_avatar" and request.audio_mode != "none":
-        command.extend(["--output-audio", str(partial_audio)])
     lineage["command"] = command
     lineage["status"] = "running"
     lineage["lineagePath"] = str(lineage_path)
@@ -350,14 +352,25 @@ def run_local_video(
                 # retryable while their queue journal evidence is preserved.
                 _persist(lineage_path, lineage)
                 benchmark_timer = LocalBenchmarkTimer.start()
-                completed = runner(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=60 * 60 * 12,
-                    env=offline_env,
-                )
+                try:
+                    completed = runner(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=60 * 60 * 12,
+                        env=offline_env,
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    failed_measurement = benchmark_timer.finish()
+                    lineage["executionMeasurement"] = {
+                        "wallTimeSeconds": failed_measurement.wall_time_seconds,
+                        "peakMemoryBytes": failed_measurement.peak_memory_bytes,
+                        "memoryMeasurementMethod": (
+                            failed_measurement.memory_measurement_method
+                        ),
+                    }
+                    raise
                 measurement = benchmark_timer.finish()
                 lineage["executionMeasurement"] = {
                     "wallTimeSeconds": measurement.wall_time_seconds,
@@ -433,7 +446,12 @@ def run_local_video(
                 raise
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 if not queue_terminal and not artifacts_completed:
-                    queue.fail(lease, job.job_id, error=exc)
+                    queue.fail(
+                        lease,
+                        job.job_id,
+                        error=exc,
+                        execution_measurement=lineage.get("executionMeasurement"),
+                    )
                 raise
     except KeyboardInterrupt as exc:
         if not artifacts_completed:
@@ -449,6 +467,63 @@ def run_local_video(
             _persist_failure(lineage_path, lineage, exc, status="failed")
         raise
     return lineage
+
+
+def plan_local_video_job(
+    request: LocalVideoRequest,
+    *,
+    python_executable: str | None = None,
+) -> LocalGenerationJob:
+    """Return the exact queue job that ``run_local_video`` will submit.
+
+    Arena planning needs to freeze the queue identity before inference starts.
+    This helper deliberately performs only local, read-only capability and
+    command construction; it does not acquire the worker lock, enqueue work,
+    download a model, or invoke a provider.
+    """
+
+    spec = local_video_model_spec(request.model_id)
+    output = Path(request.output_path).expanduser().resolve()
+    capability = probe_local_video(
+        request.model_id,
+        model_dir=request.model_dir,
+        python_executable=python_executable,
+    )
+    command = _build_execution_command(
+        request,
+        spec=spec,
+        output=output,
+        python_executable=python_executable,
+    )
+    return _generation_job(
+        request,
+        spec=spec,
+        capability=capability,
+        command=command,
+        output=output,
+    )
+
+
+def _build_execution_command(
+    request: LocalVideoRequest,
+    *,
+    spec: LocalVideoModelSpec,
+    output: Path,
+    python_executable: str | None,
+) -> list[str]:
+    """Build the exact partial-artifact command owned by the queue job."""
+
+    partial = output.with_suffix(".partial" + output.suffix)
+    partial_audio = output.with_suffix(output.suffix + ".audio.wav").with_suffix(
+        ".partial.wav"
+    )
+    apply_request = replace(request, output_path=partial)
+    command = build_local_video_command(
+        apply_request, python_executable=python_executable
+    )
+    if spec.family == "longcat_avatar" and request.audio_mode != "none":
+        command.extend(["--output-audio", str(partial_audio)])
+    return command
 
 
 def _build_wan_command(
@@ -1227,6 +1302,8 @@ def _generation_job(
                 ".partial.wav"
             ),
         ),
+        benchmark_recipe=request.benchmark_recipe,
+        analyzer_registry=request.analyzer_registry,
     )
 
 

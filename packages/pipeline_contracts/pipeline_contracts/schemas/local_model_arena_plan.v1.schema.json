@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.local_model_arena_plan.v1",
+  "title": "Local Model Arena Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "planId", "purpose", "createdAt", "creators", "expectedSampleCount", "samples", "providerCalls", "productionWritesAllowed", "planFingerprint"],
+  "properties": {
+    "schema": {"const": "reel_factory.local_model_arena_plan.v1"},
+    "planId": {"type": "string", "minLength": 1},
+    "purpose": {"enum": ["exploratory", "promotion_eligible"]},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "creators": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stacey", "larissa", "lola"]}},
+    "expectedSampleCount": {"type": "integer", "minimum": 1},
+    "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sample"}},
+    "providerCalls": {"const": 0},
+    "productionWritesAllowed": {"const": false},
+    "planFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fingerprint"],
+      "properties": {"id": {"type": "string", "minLength": 1}, "fingerprint": {"$ref": "#/$defs/sha256"}}
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sampleId", "creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "sourcePath", "sourceSha256", "audioPath", "audioSha256", "modelId", "modelRevision", "modelManifestSha256", "modelFingerprint", "capabilityCohort", "taskKind", "prompt", "seed", "durationSeconds", "resolution", "audioMode", "overlaysExist", "outputPath", "blindedCandidateId", "queueJob", "queueJobFingerprint", "benchmarkRecipe", "benchmarkRecipeFingerprint", "analyzerRegistry", "analyzerRegistryFingerprint", "promotionEligible"],
+      "properties": {
+        "sampleId": {"type": "string", "minLength": 1},
+        "creatorId": {"enum": ["stacey", "larissa", "lola"]},
+        "identityProfileId": {"type": "string", "minLength": 1},
+        "identityProfileFingerprint": {"$ref": "#/$defs/sha256"},
+        "contentIntentId": {"type": "string", "minLength": 1},
+        "contentIntentFingerprint": {"$ref": "#/$defs/sha256"},
+        "sourcePath": {"type": "string", "minLength": 1},
+        "sourceSha256": {"$ref": "#/$defs/sha256"},
+        "audioPath": {"type": ["string", "null"]},
+        "audioSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "modelId": {"type": "string", "minLength": 1},
+        "modelRevision": {"type": "string", "minLength": 1},
+        "modelManifestSha256": {"$ref": "#/$defs/sha256"},
+        "modelFingerprint": {"$ref": "#/$defs/sha256"},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "taskKind": {"type": "string", "minLength": 1},
+        "prompt": {"type": "string", "minLength": 1},
+        "seed": {"type": "integer"},
+        "durationSeconds": {"type": "integer", "minimum": 1},
+        "resolution": {"type": "string", "minLength": 1},
+        "audioMode": {"enum": ["none", "source", "generated"]},
+        "overlaysExist": {"type": "boolean"},
+        "outputPath": {"type": "string", "minLength": 1},
+        "blindedCandidateId": {"type": "string", "minLength": 1},
+        "queueJob": {"type": "object"},
+        "queueJobFingerprint": {"$ref": "#/$defs/sha256"},
+        "benchmarkRecipe": {"$ref": "benchmark_recipe.v1.schema.json"},
+        "benchmarkRecipeFingerprint": {"$ref": "#/$defs/sha256"},
+        "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
+        "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionEligible": {"type": "boolean"}
+      }
+    }
+  }
+}

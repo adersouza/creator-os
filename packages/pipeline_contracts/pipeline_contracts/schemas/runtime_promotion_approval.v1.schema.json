@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.runtime_promotion_approval.v1",
+  "title": "Creator OS Runtime Promotion Approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "approvedCommit", "reviewedBy", "reviewedAt", "checks", "approvalFingerprint"],
+  "properties": {
+    "schema": {"const": "creator_os.runtime_promotion_approval.v1"},
+    "approvedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "reviewedBy": {"type": "string", "minLength": 1},
+    "reviewedAt": {"type": "string", "format": "date-time"},
+    "checks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "evidenceFingerprint"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "evidenceFingerprint": {"$ref": "#/$defs/sha256"}}}},
+    "approvalFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

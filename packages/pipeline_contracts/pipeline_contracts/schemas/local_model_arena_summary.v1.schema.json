@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.local_model_arena_summary.v1",
+  "title": "Local Model Arena Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summaryId", "planId", "planFingerprint", "purpose", "expectedSampleCount", "sampleCounts", "promotionEligibleYield", "samples", "candidateAggregates", "providerCalls", "productionWrites", "summaryFingerprint"],
+  "properties": {
+    "schema": {"const": "reel_factory.local_model_arena_summary.v1"},
+    "summaryId": {"type": "string", "minLength": 1},
+    "planId": {"type": "string", "minLength": 1},
+    "planFingerprint": {"$ref": "#/$defs/sha256"},
+    "purpose": {"enum": ["exploratory", "promotion_eligible"]},
+    "expectedSampleCount": {"type": "integer", "minimum": 1},
+    "sampleCounts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "promotionEligibleYield": {"type": "number", "minimum": 0, "maximum": 1},
+    "samples": {"type": "array", "items": {"type": "object"}},
+    "candidateAggregates": {"type": "array", "items": {"type": "object"}},
+    "providerCalls": {"const": 0},
+    "productionWrites": {"const": 0},
+    "summaryFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

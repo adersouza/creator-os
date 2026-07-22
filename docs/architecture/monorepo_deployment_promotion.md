@@ -96,8 +96,12 @@ missing required check.
 
 ### 4. Promote only the pinned runtime
 
-- Move `/Users/aderdesouza/Developer/creator-os-runtime` to the exact approved
-  Creator OS commit using the supported runtime-promotion procedure.
+- Use `scripts/creator-os promote --approved-commit <sha> --approval <json>
+  --operator <name>` so the exact clean runtime is backed up, updated,
+  verified, health-checked, and receipted as one guarded operation. Start with
+  `--dry-run`.
+- See [`runtime_promotion_runbook.md`](./runtime_promotion_runbook.md) for the
+  required approval evidence and rollback proof.
 - Do not modify the developer source checkout as a promotion shortcut.
 - Do not copy databases or generated artifacts into the Git checkout.
 - Do not change credentials, schedules, posts, QStash, accounts, provider

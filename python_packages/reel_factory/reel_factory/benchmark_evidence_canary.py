@@ -39,27 +39,6 @@ def _read_registry(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _passing_motion_evidence(subject_sha256: str) -> dict[str, Any]:
-    common = {
-        "available": True,
-        "analyzer": "creator_os.canary.measured_fixture",
-        "analyzerVersion": "1.0.0",
-        "subjectSha256": subject_sha256,
-    }
-    return {
-        "motion": {**common, "score": 0.27, "evidenceId": "motion-canary"},
-        "temporal": {**common, "discontinuityScore": 0.08},
-        "freeze": {**common, "frozenFrameRatio": 0.04},
-        "anatomy": {
-            **common,
-            "face": {"anomalyScore": 0.05},
-            "hands": {"anomalyScore": 0.08},
-            "body": {"anomalyScore": 0.04},
-        },
-        "identity": {**common, "similarityScore": 0.93, "matched": True},
-    }
-
-
 def _run_measured_copy(
     *, source: Path, destination: Path, minimum_allocation_bytes: int
 ) -> tuple[dict[str, Any], subprocess.CompletedProcess[str]]:
@@ -116,12 +95,35 @@ def run_canary(
         for registration in raw_registrations
         if isinstance(registration, dict)
     }
-    motion_registration = registrations.get("contentforge.motion_specific_qc")
-    if motion_registration is None:
-        raise RuntimeError("canary_motion_qc_registration_missing")
+    required_registrations = [
+        registrations.get("contentforge.media_integrity"),
+        registrations.get("contentforge.temporal_motion"),
+    ]
+    if any(item is None for item in required_registrations):
+        raise RuntimeError("canary_trusted_media_registration_missing")
 
-    source = canary_root / "input.bin"
-    source.write_bytes(b"creator-os-provider-free-benchmark-canary")
+    source = canary_root / "input.mp4"
+    generated = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x576:rate=24:duration=1",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if generated.returncode != 0 or not source.is_file():
+        raise RuntimeError("canary_ffmpeg_source_generation_failed")
     input_fingerprint = sha256_file(source)
     params = {"operation": "provider_free_measured_copy", "version": 1}
     recipe = {
@@ -137,9 +139,11 @@ def run_canary(
         "parameterFingerprint": fingerprint(params),
         "requiredAnalyzers": [
             {
-                "analyzerId": motion_registration.get("analyzerId"),
-                "analyzerVersion": motion_registration.get("analyzerVersion"),
+                "analyzerId": registration.get("analyzerId"),
+                "analyzerVersion": registration.get("analyzerVersion"),
             }
+            for registration in required_registrations
+            if registration is not None
         ],
         "expectedProviderCalls": 0,
         "productionWritesAllowed": False,
@@ -218,20 +222,23 @@ def run_canary(
     contentforge_cli = repository_root / "packages/contentforge/cli.mjs"
     for job, output in completed_jobs:
         output_sha256 = sha256_file(output)
-        request_path = canary_root / f"{job.job_id}.motion-qc-request.json"
-        receipt_path = canary_root / f"{job.job_id}.motion-qc.json"
+        request_path = canary_root / f"{job.job_id}.trusted-analysis-request.json"
         request_path.write_text(
             json.dumps(
                 {
                     "mediaPath": str(output),
                     "mediaSha256": output_sha256,
-                    "evidence": _passing_motion_evidence(output_sha256),
+                    "sourcePath": str(source),
+                    "sourceSha256": input_fingerprint,
+                    "producedAt": "2026-07-22T12:00:00Z",
+                    "overlaysExist": False,
+                    "analyzerRegistry": registry,
                 }
             ),
             encoding="utf-8",
         )
         completed = subprocess.run(
-            ["node", str(contentforge_cli), "motion-qc", str(request_path)],
+            ["node", str(contentforge_cli), "analyze-media", str(request_path)],
             cwd=repository_root,
             capture_output=True,
             text=True,
@@ -239,25 +246,38 @@ def run_canary(
             timeout=60,
         )
         if completed.returncode != 0:
-            raise RuntimeError("canary_contentforge_motion_qc_failed")
-        receipt_path.write_text(completed.stdout.strip(), encoding="utf-8")
-        qc_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-        if (
-            qc_payload.get("passed") is not True
-            or qc_payload.get("providerCalls") != 0
-            or qc_payload.get("modelCalls") != 0
-        ):
-            raise RuntimeError("canary_contentforge_motion_qc_not_provider_free")
-        reference = store.ingest_qc_reference(
-            check_id="contentforge.motion_specific_qc",
-            receipt_path=receipt_path,
-            expected_subject_sha256=output_sha256,
-        )
+            raise RuntimeError(
+                "canary_contentforge_trusted_analysis_failed:"
+                + (completed.stderr[-2000:] or completed.stdout[-2000:])
+            )
+        analysis = json.loads(completed.stdout)
+        if analysis.get("subject", {}).get("mediaSha256") != output_sha256:
+            raise RuntimeError("canary_contentforge_subject_mismatch")
+        verdicts = {
+            str(item.get("policy", {}).get("id")): item
+            for item in analysis.get("analyzerVerdicts", [])
+            if isinstance(item, dict)
+        }
+        references = []
+        for registration in required_registrations:
+            assert registration is not None
+            check_id = str(registration["analyzerId"])
+            receipt_path = canary_root / f"{job.job_id}.{check_id}.json"
+            receipt_path.write_text(
+                json.dumps(verdicts[check_id], sort_keys=True), encoding="utf-8"
+            )
+            references.append(
+                store.ingest_qc_reference(
+                    check_id=check_id,
+                    receipt_path=receipt_path,
+                    expected_subject_sha256=output_sha256,
+                )
+            )
         receipts.append(
             store.record_completed_job(
                 queue,
                 job_id=job.job_id,
-                qc_references=(reference,),
+                qc_references=tuple(references),
                 benchmark_id=f"benchmark-{job.job_id}",
                 benchmark_recipe=recipe,
                 analyzer_registry=registry,

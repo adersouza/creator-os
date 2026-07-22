@@ -154,6 +154,89 @@ mirrors. Reel Factory has one local SQLite render queue. ContentForge runs a
 bounded command directly; it has no HTTP server, daemon, background job API, or
 polling queue.
 
+## Local Motion Evidence, Arena, And Routing
+
+Local Wan/LTX/LongCat execution remains a Reel Factory worker concern. The
+evidence path deliberately reuses the existing machine-wide generation queue
+and benchmark journals:
+
+```text
+Campaign content intent + execution policy
+  -> BenchmarkRecipeV1 + exact AnalyzerRegistryV1 snapshot
+  -> LocalModelArena immutable plan
+  -> exact LocalGenerationQueue job (same ID and fingerprint as normal motion)
+  -> local output + measured duration/memory + exact output SHA-256
+  -> ContentForge trusted-media observations and per-analyzer receipts
+  -> Reel Factory identity receipt + structured blinded human review
+  -> ContentForge final motion-QC receipt
+  -> measured BenchmarkReceipt
+  -> matched promotion evaluation + explicit scoped approval
+  -> Router v1 decision, or fail closed
+```
+
+`LocalModelArenaStore` adds only content-addressed plans and an append-only
+outcome journal beside the existing benchmark evidence. It is not a queue,
+workflow engine, or database. Failed, interrupted, resource-blocked,
+unsupported, and missing samples stay in the frozen denominator. A successful
+generation whose QC fails remains measured but contributes zero
+promotion-eligible yield.
+
+The generation journal also projects exact execution attempt count, retry count,
+admission-block count, stable failure class, measured duration/peak memory when
+available, and local-compute cost availability. Creator OS has no machine cost
+meter, so local cost is recorded as unavailable with reason
+`local_compute_cost_not_metered`, never as a fabricated zero-dollar result.
+
+ContentForge's registry adapter snapshots each real analyzer ID, version,
+evidence kinds, repository-relative implementation reference, and
+implementation SHA-256. The current trusted automated producers cover media
+integrity, temporal motion/freeze/continuity, audio integrity/A-V container
+timing, and overlay delivery when applicable. Reel Factory adds the exact
+identity and structured-human-review producers. Anatomy and conversion quality
+are human evidence; dedicated lip-sync remains unavailable and therefore
+speaking-video promotion fails closed rather than receiving a synthetic score.
+
+Router v1 considers only ready local models with current manifests, exact
+linked benchmark receipts, a non-expired/non-revoked explicit promotion,
+applicable capability, sufficient measured quality/yield, fresh evidence, and
+enough memory. It never silently selects a paid provider or the retired legacy
+local-motion path. An operator override may select only an otherwise valid
+candidate and is explicitly excluded from benchmark learning.
+
+## Ordinary Operator Surface And Runtime Promotion
+
+The ordinary command surface is intentionally small:
+
+```text
+creator-os status
+creator-os create --mode ...
+creator-os review ...
+creator-os approve ...
+creator-os export ...
+creator-os promote ...
+```
+
+Model installation, queue recovery, benchmark inspection, Arena diagnostics,
+Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
+The former top-level diagnostic commands remain compatibility aliases with
+deprecation notices.
+
+One `campaign_factory.creative_approval.v1` record binds the exact creator,
+source, output, intent, recipe, model, QC receipt set, and export-payload
+fingerprint. It also keeps burned overlay text, Instagram post caption,
+generated audio, source audio, and native Instagram audio as separate fields.
+
+`creator-os promote` is local source/runtime management, not production
+publishing. It requires an exact clean reviewed commit and passed verification
+manifest, creates and verifies a Git bundle plus backup manifest, updates only
+the intended clean runtime checkout, runs full verification and live-read-only
+health, and writes a fingerprinted receipt with rollback instructions. The
+health command must return a non-empty JSON report whose unique checks are all
+`PASS`; exit code zero with `WARN`, `NOT_RUN`, malformed, or duplicate checks
+still fails and rolls back. A failed post-promotion check restores the exact
+prior runtime commit. It never mutates
+operational databases, ThreadsDashboard, providers, schedules, or posts.
+
 ## Failure And Authority Map
 
 | Failure | Owner that detects it | Required outcome |

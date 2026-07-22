@@ -104,9 +104,11 @@ required.
 `reel_factory.benchmark_evidence_canary` is a local-only acceptance path. It
 requires a registry JSON emitted by ContentForge's `analyzer-registry` command
 and an empty caller-selected root. It performs two measured local copy jobs
-under the existing machine queue, runs the real evidence-only motion-QC policy
-against each exact output SHA-256, records two linked benchmark receipts, and
-performs the existing matched promotion evaluation. It does not approve a
+over a real locally generated FFmpeg MP4 under the existing machine queue,
+runs the trusted ContentForge media-integrity and temporal analyzers against
+each exact output SHA-256, records output-bound per-analyzer receipts and two
+linked benchmark receipts, and performs the existing matched promotion
+evaluation. It does not approve a
 promotion, call a provider, download a model, use a production database, or
 touch scheduling/publishing state.
 

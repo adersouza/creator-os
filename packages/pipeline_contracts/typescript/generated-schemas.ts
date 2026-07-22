@@ -2927,6 +2927,179 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	creativeApproval: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "campaign_factory.creative_approval.v1",
+	  "title": "Campaign Creative Approval",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "approvalId",
+	    "approvedBy",
+	    "approvedAt",
+	    "creatorIdentity",
+	    "contentIntent",
+	    "benchmarkRecipe",
+	    "model",
+	    "input",
+	    "output",
+	    "qcEvidence",
+	    "exportPayload",
+	    "contentSemantics",
+	    "approvalFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "campaign_factory.creative_approval.v1"
+	    },
+	    "approvalId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "approvedBy": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "approvedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "creatorIdentity": {
+	      "$ref": "#/$defs/binding"
+	    },
+	    "contentIntent": {
+	      "$ref": "#/$defs/binding"
+	    },
+	    "benchmarkRecipe": {
+	      "$ref": "#/$defs/binding"
+	    },
+	    "model": {
+	      "$ref": "#/$defs/binding"
+	    },
+	    "input": {
+	      "$ref": "#/$defs/file"
+	    },
+	    "output": {
+	      "$ref": "#/$defs/file"
+	    },
+	    "qcEvidence": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "$ref": "#/$defs/qc"
+	      }
+	    },
+	    "exportPayload": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "fingerprint"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "contentSemantics": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "burnedOverlayText",
+	        "instagramPostCaption",
+	        "generatedAudio",
+	        "sourceAudio",
+	        "nativeInstagramAudio"
+	      ],
+	      "properties": {
+	        "burnedOverlayText": {},
+	        "instagramPostCaption": {},
+	        "generatedAudio": {},
+	        "sourceAudio": {},
+	        "nativeInstagramAudio": {}
+	      }
+	    },
+	    "approvalFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "binding": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "fingerprint"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "file": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "qc": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "checkId",
+	        "receiptPath",
+	        "receiptSha256",
+	        "subjectSha256",
+	        "passed"
+	      ],
+	      "properties": {
+	        "checkId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "receiptPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "receiptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "subjectSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "passed": {
+	          "const": true
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	creativePlan: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.creative_plan.v1",
@@ -4237,6 +4410,214 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	humanMediaReview: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/human_media_review.v1.schema.json",
+	  "title": "Human Media Review V1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "reviewId",
+	    "arenaPlanId",
+	    "sampleId",
+	    "blindedCandidateId",
+	    "subjectSha256",
+	    "sourceSha256",
+	    "reviewer",
+	    "reviewedAt",
+	    "rubricVersion",
+	    "ratings",
+	    "decisions",
+	    "provenance",
+	    "reviewFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.human_media_review.v1"
+	    },
+	    "reviewId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "arenaPlanId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "sampleId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "blindedCandidateId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "subjectSha256": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "sourceSha256": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "reviewer": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "reviewedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "rubricVersion": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "ratings": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "realism",
+	        "attractiveness",
+	        "creatorIdentitySimilarity",
+	        "faceStability",
+	        "motionNaturalness",
+	        "faceArtifactScore",
+	        "handsVisible",
+	        "handArtifactScore",
+	        "bodyArtifactScore",
+	        "conversionUsefulness",
+	        "intentAdherence",
+	        "loopAcceptable"
+	      ],
+	      "properties": {
+	        "realism": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "attractiveness": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "creatorIdentitySimilarity": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "faceStability": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "motionNaturalness": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "faceArtifactScore": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "handsVisible": {
+	          "type": "boolean"
+	        },
+	        "handArtifactScore": {
+	          "oneOf": [
+	            {
+	              "$ref": "#/$defs/score"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "bodyArtifactScore": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "conversionUsefulness": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "intentAdherence": {
+	          "$ref": "#/$defs/score"
+	        },
+	        "loopAcceptable": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
+	    "decisions": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "creatorIdentityPreserved",
+	        "anatomyAcceptable",
+	        "operatorUseful",
+	        "approvedForBenchmark"
+	      ],
+	      "properties": {
+	        "creatorIdentityPreserved": {
+	          "type": "boolean"
+	        },
+	        "anatomyAcceptable": {
+	          "type": "boolean"
+	        },
+	        "operatorUseful": {
+	          "type": "boolean"
+	        },
+	        "approvedForBenchmark": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
+	    "provenance": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "reviewMode",
+	        "unblindingReason",
+	        "sourceReferences"
+	      ],
+	      "properties": {
+	        "reviewMode": {
+	          "enum": [
+	            "blinded",
+	            "unblinded"
+	          ]
+	        },
+	        "unblindingReason": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "sourceReferences": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": false,
+	            "required": [
+	              "recordId",
+	              "fingerprint"
+	            ],
+	            "properties": {
+	              "recordId": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "fingerprint": {
+	                "$ref": "#/$defs/sha256"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "reviewFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "score": {
+	      "type": "number",
+	      "minimum": 0,
+	      "maximum": 1
+	    }
+	  }
+	} as const,
 	kling3VideoPrompt: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reference_factory.kling_3_video_prompt.v1",
@@ -4432,6 +4813,436 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "account_handle": {
 	      "const": "bennett_s33"
+	    }
+	  }
+	} as const,
+	localModelArenaPlan: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.local_model_arena_plan.v1",
+	  "title": "Local Model Arena Plan",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "planId",
+	    "purpose",
+	    "createdAt",
+	    "creators",
+	    "expectedSampleCount",
+	    "samples",
+	    "providerCalls",
+	    "productionWritesAllowed",
+	    "planFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.local_model_arena_plan.v1"
+	    },
+	    "planId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "purpose": {
+	      "enum": [
+	        "exploratory",
+	        "promotion_eligible"
+	      ]
+	    },
+	    "createdAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "creators": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "enum": [
+	          "stacey",
+	          "larissa",
+	          "lola"
+	        ]
+	      }
+	    },
+	    "expectedSampleCount": {
+	      "type": "integer",
+	      "minimum": 1
+	    },
+	    "samples": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "$ref": "#/$defs/sample"
+	      }
+	    },
+	    "providerCalls": {
+	      "const": 0
+	    },
+	    "productionWritesAllowed": {
+	      "const": false
+	    },
+	    "planFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "binding": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "id",
+	        "fingerprint"
+	      ],
+	      "properties": {
+	        "id": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "fingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "sample": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "sampleId",
+	        "creatorId",
+	        "identityProfileId",
+	        "identityProfileFingerprint",
+	        "contentIntentId",
+	        "contentIntentFingerprint",
+	        "sourcePath",
+	        "sourceSha256",
+	        "audioPath",
+	        "audioSha256",
+	        "modelId",
+	        "modelRevision",
+	        "modelManifestSha256",
+	        "modelFingerprint",
+	        "capabilityCohort",
+	        "taskKind",
+	        "prompt",
+	        "seed",
+	        "durationSeconds",
+	        "resolution",
+	        "audioMode",
+	        "overlaysExist",
+	        "outputPath",
+	        "blindedCandidateId",
+	        "queueJob",
+	        "queueJobFingerprint",
+	        "benchmarkRecipe",
+	        "benchmarkRecipeFingerprint",
+	        "analyzerRegistry",
+	        "analyzerRegistryFingerprint",
+	        "promotionEligible"
+	      ],
+	      "properties": {
+	        "sampleId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creatorId": {
+	          "enum": [
+	            "stacey",
+	            "larissa",
+	            "lola"
+	          ]
+	        },
+	        "identityProfileId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "identityProfileFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "contentIntentId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "contentIntentFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "sourcePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sourceSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "audioPath": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "audioSha256": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "modelId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "modelRevision": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "modelManifestSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "modelFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "capabilityCohort": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "taskKind": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "prompt": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "seed": {
+	          "type": "integer"
+	        },
+	        "durationSeconds": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "resolution": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "audioMode": {
+	          "enum": [
+	            "none",
+	            "source",
+	            "generated"
+	          ]
+	        },
+	        "overlaysExist": {
+	          "type": "boolean"
+	        },
+	        "outputPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "blindedCandidateId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "queueJob": {
+	          "type": "object"
+	        },
+	        "queueJobFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "benchmarkRecipe": {
+	          "$ref": "benchmark_recipe.v1.schema.json"
+	        },
+	        "benchmarkRecipeFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "analyzerRegistry": {
+	          "$ref": "analyzer_registry.v1.schema.json"
+	        },
+	        "analyzerRegistryFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "promotionEligible": {
+	          "type": "boolean"
+	        }
+	      }
+	    }
+	  }
+	} as const,
+	localModelArenaSummary: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.local_model_arena_summary.v1",
+	  "title": "Local Model Arena Summary",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "summaryId",
+	    "planId",
+	    "planFingerprint",
+	    "purpose",
+	    "expectedSampleCount",
+	    "sampleCounts",
+	    "promotionEligibleYield",
+	    "samples",
+	    "candidateAggregates",
+	    "providerCalls",
+	    "productionWrites",
+	    "summaryFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.local_model_arena_summary.v1"
+	    },
+	    "summaryId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "planId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "planFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "purpose": {
+	      "enum": [
+	        "exploratory",
+	        "promotion_eligible"
+	      ]
+	    },
+	    "expectedSampleCount": {
+	      "type": "integer",
+	      "minimum": 1
+	    },
+	    "sampleCounts": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "type": "integer",
+	        "minimum": 0
+	      }
+	    },
+	    "promotionEligibleYield": {
+	      "type": "number",
+	      "minimum": 0,
+	      "maximum": 1
+	    },
+	    "samples": {
+	      "type": "array",
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "candidateAggregates": {
+	      "type": "array",
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "providerCalls": {
+	      "const": 0
+	    },
+	    "productionWrites": {
+	      "const": 0
+	    },
+	    "summaryFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    }
+	  }
+	} as const,
+	localModelRouterDecision: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.local_model_router_decision.v1",
+	  "title": "Local Model Router Decision",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "decisionId",
+	    "policy",
+	    "request",
+	    "consideredCandidates",
+	    "selectedModelId",
+	    "selectedModelFingerprint",
+	    "winningEvidence",
+	    "operatorOverride",
+	    "paidProviderFallbackAllowed",
+	    "legacyLocalMotionFallbackAllowed",
+	    "decisionFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.local_model_router_decision.v1"
+	    },
+	    "decisionId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "policy": {
+	      "type": "object",
+	      "required": [
+	        "id",
+	        "version"
+	      ],
+	      "properties": {
+	        "id": {
+	          "const": "reel_factory.local_model_router"
+	        },
+	        "version": {
+	          "const": "1.0.0"
+	        }
+	      },
+	      "additionalProperties": false
+	    },
+	    "request": {
+	      "type": "object"
+	    },
+	    "consideredCandidates": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "selectedModelId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "selectedModelFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "winningEvidence": {
+	      "type": "object"
+	    },
+	    "operatorOverride": {
+	      "type": [
+	        "object",
+	        "null"
+	      ]
+	    },
+	    "paidProviderFallbackAllowed": {
+	      "const": false
+	    },
+	    "legacyLocalMotionFallbackAllowed": {
+	      "const": false
+	    },
+	    "decisionFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
 	    }
 	  }
 	} as const,
@@ -7299,6 +8110,193 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	runtimePromotionApproval: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.runtime_promotion_approval.v1",
+	  "title": "Creator OS Runtime Promotion Approval",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "approvedCommit",
+	    "reviewedBy",
+	    "reviewedAt",
+	    "checks",
+	    "approvalFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.runtime_promotion_approval.v1"
+	    },
+	    "approvedCommit": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{40}$"
+	    },
+	    "reviewedBy": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "reviewedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "checks": {
+	      "type": "array",
+	      "minItems": 9,
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "required": [
+	          "name",
+	          "status",
+	          "evidenceFingerprint"
+	        ],
+	        "properties": {
+	          "name": {
+	            "type": "string",
+	            "minLength": 1
+	          },
+	          "status": {
+	            "const": "passed"
+	          },
+	          "evidenceFingerprint": {
+	            "$ref": "#/$defs/sha256"
+	          }
+	        }
+	      }
+	    },
+	    "approvalFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    }
+	  }
+	} as const,
+	runtimePromotionReceipt: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.runtime_promotion_receipt.v1",
+	  "title": "Creator OS Runtime Promotion Receipt",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "promotionId",
+	    "createdAt",
+	    "operator",
+	    "status",
+	    "sourceCommit",
+	    "destinationCommitBefore",
+	    "destinationCommitAfter",
+	    "approvalPath",
+	    "approvalFingerprint",
+	    "planFingerprint",
+	    "backupManifestPath",
+	    "backupManifestFingerprint",
+	    "verification",
+	    "rolledBack",
+	    "failure",
+	    "rollbackInstructions",
+	    "productionStateWrites",
+	    "providerCalls",
+	    "receiptFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.runtime_promotion_receipt.v1"
+	    },
+	    "promotionId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "createdAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "operator": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "status": {
+	      "enum": [
+	        "promoted",
+	        "already_current",
+	        "rolled_back"
+	      ]
+	    },
+	    "sourceCommit": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{40}$"
+	    },
+	    "destinationCommitBefore": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{40}$"
+	    },
+	    "destinationCommitAfter": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{40}$"
+	    },
+	    "approvalPath": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "approvalFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "planFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "backupManifestPath": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "backupManifestFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "verification": {
+	      "type": "array",
+	      "items": {
+	        "type": "object"
+	      }
+	    },
+	    "rolledBack": {
+	      "type": "boolean"
+	    },
+	    "failure": {
+	      "type": [
+	        "string",
+	        "null"
+	      ]
+	    },
+	    "rollbackInstructions": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
+	      }
+	    },
+	    "productionStateWrites": {
+	      "const": 0
+	    },
+	    "providerCalls": {
+	      "const": 0
+	    },
+	    "receiptFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    }
+	  }
+	} as const,
 	threadsdashHandshake: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json",
@@ -7459,6 +8457,332 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "publishingAllowed": {
 	          "const": false
+	        }
+	      }
+	    }
+	  }
+	} as const,
+	trustedMediaAnalysis: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "https://creator-os.local/schemas/trusted_media_analysis.v1.schema.json",
+	  "title": "Trusted Media Analysis V1",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "analysisId",
+	    "subject",
+	    "producedAt",
+	    "producer",
+	    "analyzerRegistry",
+	    "rawObservations",
+	    "analyzerVerdicts",
+	    "unavailableMeasurements",
+	    "analysisFingerprint"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "contentforge.trusted_media_analysis.v1"
+	    },
+	    "analysisId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "subject": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "mediaPath",
+	        "mediaSha256",
+	        "sourcePath",
+	        "sourceSha256"
+	      ],
+	      "properties": {
+	        "mediaPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "mediaSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "sourcePath": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "sourceSha256": {
+	          "oneOf": [
+	            {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        }
+	      }
+	    },
+	    "producedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "producer": {
+	      "const": "contentforge.trusted_media_analysis"
+	    },
+	    "analyzerRegistry": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "registryId",
+	        "registryFingerprint"
+	      ],
+	      "properties": {
+	        "registryId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "registryFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "rawObservations": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "$ref": "#/$defs/analyzerObservation"
+	      }
+	    },
+	    "analyzerVerdicts": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "$ref": "#/$defs/analyzerVerdict"
+	      }
+	    },
+	    "unavailableMeasurements": {
+	      "type": "object",
+	      "additionalProperties": {
+	        "type": "string",
+	        "minLength": 1
+	      }
+	    },
+	    "analysisFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    }
+	  },
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "toolRevision": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "available"
+	      ],
+	      "properties": {
+	        "available": {
+	          "type": "boolean"
+	        },
+	        "version": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "reason": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "analyzerObservation": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "analyzerId",
+	        "analyzerVersion",
+	        "evidenceKinds",
+	        "implementationRef",
+	        "implementationFingerprint",
+	        "analyzerRegistryId",
+	        "analyzerRegistryFingerprint",
+	        "toolRevisions",
+	        "status",
+	        "observations"
+	      ],
+	      "properties": {
+	        "analyzerId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "evidenceKinds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "implementationRef": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "implementationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "analyzerRegistryId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerRegistryFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "toolRevisions": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "node",
+	            "platform",
+	            "ffmpeg",
+	            "ffprobe"
+	          ],
+	          "properties": {
+	            "node": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "platform": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "ffmpeg": {
+	              "$ref": "#/$defs/toolRevision"
+	            },
+	            "ffprobe": {
+	              "$ref": "#/$defs/toolRevision"
+	            }
+	          }
+	        },
+	        "status": {
+	          "enum": [
+	            "measured",
+	            "unavailable",
+	            "not_applicable"
+	          ]
+	        },
+	        "observations": {
+	          "type": "object"
+	        }
+	      }
+	    },
+	    "analyzerVerdict": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "policy",
+	        "subjectSha256",
+	        "analysisId",
+	        "observationFingerprint",
+	        "implementationRef",
+	        "implementationFingerprint",
+	        "analyzerRegistryId",
+	        "analyzerRegistryFingerprint",
+	        "verdict",
+	        "passed",
+	        "evidenceOnly",
+	        "providerCalls",
+	        "reasons"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "contentforge.trusted_analyzer_receipt.v1"
+	        },
+	        "policy": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "id",
+	            "version"
+	          ],
+	          "properties": {
+	            "id": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "version": {
+	              "type": "string",
+	              "minLength": 1
+	            }
+	          }
+	        },
+	        "subjectSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "analysisId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "observationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "implementationRef": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "implementationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "analyzerRegistryId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerRegistryFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "verdict": {
+	          "enum": [
+	            "pass",
+	            "blocked"
+	          ]
+	        },
+	        "passed": {
+	          "type": "boolean"
+	        },
+	        "evidenceOnly": {
+	          "const": true
+	        },
+	        "providerCalls": {
+	          "const": 0
+	        },
+	        "reasons": {
+	          "type": "array",
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": false,
+	            "required": [
+	              "code",
+	              "severity"
+	            ],
+	            "properties": {
+	              "code": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "severity": {
+	                "const": "block"
+	              }
+	            }
+	          }
 	        }
 	      }
 	    }
@@ -7647,6 +8971,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
 	{ key: "contentIntent", filename: "content_intent.v1.schema.json", id: "creator_os.content_intent.v1" },
 	{ key: "contentforgeCampaignAuditResponse", filename: "contentforge_campaign_audit_response.v1.schema.json", id: "contentforge.campaign_factory_audit_response.v1" },
+	{ key: "creativeApproval", filename: "creative_approval.v1.schema.json", id: "campaign_factory.creative_approval.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
 	{ key: "creatorIdentityProfile", filename: "creator_identity_profile.v1.schema.json", id: "creator_os.creator_identity_profile.v1" },
 	{ key: "evidenceProvenance", filename: "evidence_provenance.v1.schema.json", id: "creator_os.evidence_provenance.v1" },
@@ -7656,8 +8981,12 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "generationExecutionPlan", filename: "generation_execution_plan.v1.schema.json", id: "campaign_factory.generation_execution_plan.v1" },
 	{ key: "generationWorkerLineage", filename: "generation_worker_lineage.v1.schema.json", id: "reel_factory.generation_worker_lineage.v1" },
 	{ key: "higgsfieldSoulImagePrompt", filename: "higgsfield_soul_image_prompt.v1.schema.json", id: "reference_factory.higgsfield_soul_image_prompt.v1" },
+	{ key: "humanMediaReview", filename: "human_media_review.v1.schema.json", id: "https://creator-os.local/schemas/human_media_review.v1.schema.json" },
 	{ key: "kling3VideoPrompt", filename: "kling_3_video_prompt.v1.schema.json", id: "reference_factory.kling_3_video_prompt.v1" },
 	{ key: "learningCohort", filename: "learning_cohort.v1.schema.json", id: "campaign_factory.learning_cohort.v1" },
+	{ key: "localModelArenaPlan", filename: "local_model_arena_plan.v1.schema.json", id: "reel_factory.local_model_arena_plan.v1" },
+	{ key: "localModelArenaSummary", filename: "local_model_arena_summary.v1.schema.json", id: "reel_factory.local_model_arena_summary.v1" },
+	{ key: "localModelRouterDecision", filename: "local_model_router_decision.v1.schema.json", id: "reel_factory.local_model_router_decision.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },
 	{ key: "ownedLibraryLineage", filename: "owned_library_lineage.v1.schema.json", id: "campaign_factory.owned_library_lineage.v1" },
 	{ key: "patternCard", filename: "pattern_card.v1.schema.json", id: "reference_factory.pattern_card.v1" },
@@ -7671,8 +9000,11 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "referenceVideoMotionAnalysis", filename: "reference_video_motion_analysis.v1.schema.json", id: "reel_factory.reference_video_motion_analysis.v1" },
 	{ key: "referenceVideoRemixPlan", filename: "reference_video_remix_plan.v1.schema.json", id: "reel_factory.reference_video_remix_plan.v1" },
 	{ key: "repurposingPlan", filename: "repurposing_plan.v1.schema.json", id: "campaign_factory.repurposing_plan.v1" },
+	{ key: "runtimePromotionApproval", filename: "runtime_promotion_approval.v1.schema.json", id: "creator_os.runtime_promotion_approval.v1" },
+	{ key: "runtimePromotionReceipt", filename: "runtime_promotion_receipt.v1.schema.json", id: "creator_os.runtime_promotion_receipt.v1" },
 	{ key: "threadsdashHandshake", filename: "threadsdash_handshake.v1.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v1.schema.json" },
 	{ key: "threadsdashHandshakeV2", filename: "threadsdash_handshake.v2.schema.json", id: "https://creator-os.local/contracts/threadsdash_handshake.v2.schema.json" },
+	{ key: "trustedMediaAnalysis", filename: "trusted_media_analysis.v1.schema.json", id: "https://creator-os.local/schemas/trusted_media_analysis.v1.schema.json" },
 	{ key: "variantAssignment", filename: "variant_assignment.v1.schema.json", id: "campaign_factory.variant_assignment.v1" },
 	{ key: "videoAnalysis", filename: "video_analysis.v1.schema.json", id: "reference_factory.video_analysis.v1" },
 ] as const;

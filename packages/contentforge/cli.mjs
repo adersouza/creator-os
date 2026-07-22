@@ -6,6 +6,8 @@ import path from "node:path";
 import process from "node:process";
 import { PROJECT_ROOT, resolveUploadPath } from "./lib/paths.js";
 
+const REPOSITORY_ROOT = path.resolve(PROJECT_ROOT, "../..");
+
 async function readPayload() {
   var raw = process.argv[3]
     ? await readFile(process.argv[3], "utf8")
@@ -52,6 +54,15 @@ async function main() {
     result = await runVariantPack(payload);
   } else if (command === "motion-qc") {
     var { evaluateMotionSpecificQc } = await import("./lib/motion-specific-qc.js");
+    var evidence = payload.evidence;
+    if (payload.analysis) {
+      var { motionEvidenceFromTrustedAnalysis } = await import(
+        "./lib/trusted-media-analysis.js"
+      );
+      evidence = motionEvidenceFromTrustedAnalysis(payload.analysis, {
+        humanReview: payload.humanReview || null,
+      });
+    }
     if (typeof payload.mediaPath !== "string" || !payload.mediaPath.trim()) {
       throw new Error("motion-qc requires mediaPath");
     }
@@ -62,20 +73,39 @@ async function main() {
     if (payload.mediaSha256 && payload.mediaSha256 !== mediaSha256) {
       throw new Error("motion-qc media SHA-256 mismatch");
     }
-    result = evaluateMotionSpecificQc(payload.evidence, {
+    result = evaluateMotionSpecificQc(evidence, {
       ...payload.options,
       mediaSha256,
     });
-  } else if (command === "analyzer-registry") {
-    var { snapshotMotionSpecificQcAnalyzerRegistry } = await import(
+  } else if (command === "analyze-media") {
+    var { snapshotTrustedMediaAnalyzerRegistry } = await import(
       "./lib/analyzer-registry.js"
     );
-    result = await snapshotMotionSpecificQcAnalyzerRegistry({
+    var { analyzeTrustedMedia } = await import("./lib/trusted-media-analysis.js");
+    var registry = payload.analyzerRegistry || await snapshotTrustedMediaAnalyzerRegistry({
+      producedAt: payload.producedAt,
+    });
+    result = await analyzeTrustedMedia({
+      mediaPath: payload.mediaPath,
+      sourcePath: payload.sourcePath || null,
+      expectedMediaSha256: payload.mediaSha256 || null,
+      expectedSourceSha256: payload.sourceSha256 || null,
+      producedAt: payload.producedAt,
+      overlaysExist: payload.overlaysExist === true,
+      overlayEvidence: payload.overlayEvidence || null,
+      analyzerRegistry: registry,
+      repositoryRoot: REPOSITORY_ROOT,
+    });
+  } else if (command === "analyzer-registry") {
+    var { snapshotTrustedMediaAnalyzerRegistry } = await import(
+      "./lib/analyzer-registry.js"
+    );
+    result = await snapshotTrustedMediaAnalyzerRegistry({
       producedAt: payload.producedAt,
     });
   } else {
     throw new Error(
-      "usage: contentforge <similarity|variant-pack|motion-qc|analyzer-registry> [request.json]",
+      "usage: contentforge <similarity|variant-pack|analyze-media|motion-qc|analyzer-registry> [request.json]",
     );
   }
   process.stdout.write(JSON.stringify(result) + "\n");

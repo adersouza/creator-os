@@ -304,6 +304,10 @@ def test_benchmark_is_bound_to_succeeded_job_and_measured_hardware(
     assert receipt.benchmark_recipe_fingerprint == job.benchmark_recipe_fingerprint
     assert receipt.analyzer_registry_id == job.analyzer_registry_id
     assert receipt.analyzer_registry_fingerprint == job.analyzer_registry_fingerprint
+    assert receipt.execution_attempt_count == 1
+    assert receipt.execution_retry_count == 0
+    assert receipt.local_cost_usd is None
+    assert receipt.local_cost_measurement_method == "unavailable:not_metered"
 
 
 def test_benchmark_rejects_nonterminal_job(tmp_path: Path) -> None:
@@ -541,6 +545,41 @@ def test_promotion_requires_explicit_operator_approval(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="already_approved"):
         store.approve_promotion(
             evaluation, approved_by="operator@example.test", reason="duplicate"
+        )
+
+
+def test_active_promotion_honors_scope_expiry_and_revocation(tmp_path: Path) -> None:
+    store, candidate, baseline = _matched_evidence(tmp_path)
+    evaluation = _evaluate(store, candidate, baseline)
+    store.approve_promotion(
+        evaluation,
+        approved_by="operator@example.test",
+        reason="reviewed local evidence",
+        scope=("image_to_video",),
+        expires_at="2026-08-22T12:00:00Z",
+    )
+    active = store.active_promotion(
+        candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
+        task_kind="image_to_video",
+        observed_at="2026-07-22T12:00:00Z",
+    )
+    assert active["scope"] == ["image_to_video"]
+    with pytest.raises(RuntimeError, match="not_found_exactly_once"):
+        store.active_promotion(
+            candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
+            task_kind="image_to_video",
+            observed_at="2026-09-22T12:00:00Z",
+        )
+    store.revoke_promotion(
+        evaluation.evaluation_id,
+        revoked_by="operator@example.test",
+        reason="model drift",
+    )
+    with pytest.raises(RuntimeError, match="not_found_exactly_once"):
+        store.active_promotion(
+            candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
+            task_kind="image_to_video",
+            observed_at="2026-07-22T12:00:00Z",
         )
 
 

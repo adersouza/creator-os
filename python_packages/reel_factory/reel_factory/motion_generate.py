@@ -67,6 +67,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--lora-strength", type=float, default=1.0)
     parser.add_argument("--authorization-json", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--benchmark-recipe", type=Path)
+    parser.add_argument("--analyzer-registry", type=Path)
+    parser.add_argument("--benchmark-recipe-json")
+    parser.add_argument("--analyzer-registry-json")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -78,6 +82,38 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
     resolution = args.resolution or model.default_resolution
     duration = args.duration if args.duration is not None else model.default_duration
     if model.backend == "local_mlx":
+        recipe_path = getattr(args, "benchmark_recipe", None)
+        registry_path = getattr(args, "analyzer_registry", None)
+        recipe_json = getattr(args, "benchmark_recipe_json", None)
+        registry_json = getattr(args, "analyzer_registry_json", None)
+        if recipe_path is not None and recipe_json is not None:
+            raise ValueError("benchmark recipe must use one transport")
+        if registry_path is not None and registry_json is not None:
+            raise ValueError("analyzer registry must use one transport")
+        if (recipe_path is None and recipe_json is None) != (
+            registry_path is None and registry_json is None
+        ):
+            raise ValueError(
+                "--benchmark-recipe and --analyzer-registry must be provided together"
+            )
+        benchmark_recipe = (
+            json.loads(recipe_path.expanduser().resolve().read_text(encoding="utf-8"))
+            if recipe_path is not None
+            else json.loads(recipe_json)
+            if recipe_json is not None
+            else None
+        )
+        analyzer_registry = (
+            json.loads(registry_path.expanduser().resolve().read_text(encoding="utf-8"))
+            if registry_path is not None
+            else json.loads(registry_json)
+            if registry_json is not None
+            else None
+        )
+        if benchmark_recipe is not None and not isinstance(benchmark_recipe, dict):
+            raise ValueError("benchmark recipe must be a JSON object")
+        if analyzer_registry is not None and not isinstance(analyzer_registry, dict):
+            raise ValueError("analyzer registry must be a JSON object")
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
@@ -140,6 +176,8 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             low_ram=not args.no_low_ram,
             tile_frames=args.tile_frames if args.tile_frames is not None else 1,
             tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
+            benchmark_recipe=benchmark_recipe,
+            analyzer_registry=analyzer_registry,
         )
     if args.model_dir is not None:
         raise ValueError("--model-dir applies only to local MLX models")
@@ -170,6 +208,16 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         raise ValueError("local MLX editing and memory controls require a local model")
     if args.steps is not None:
         raise ValueError("--steps applies only to local MLX models")
+    if any(
+        getattr(args, name, None) is not None
+        for name in (
+            "benchmark_recipe",
+            "analyzer_registry",
+            "benchmark_recipe_json",
+            "analyzer_registry_json",
+        )
+    ):
+        raise ValueError("benchmark evidence applies only to local MLX models")
     return WaveSpeedRequest(
         model_id=model.id,
         prompt=args.prompt,

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -28,6 +29,9 @@ except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
 SCHEMA = "reel_factory.identity_verification.v1"
+IDENTITY_ANALYZER_ID = "reel_factory.identity_preservation"
+IDENTITY_ANALYZER_VERSION = "2.0.0"
+FACE_STABILITY_THRESHOLD = 0.80
 REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v1"
 HEALTH_SCHEMA = "reel_factory.identity_health.v1"
 DEFAULT_THRESHOLD = 0.42
@@ -77,22 +81,27 @@ class InsightFaceIdentityProvider:
     def available(self) -> tuple[bool, str]:
         return True, "ok"
 
-    def embedding(self, image_path: Path) -> list[float] | None:
+    def face_embeddings(self, image_path: Path) -> list[list[float]]:
         import cv2  # type: ignore
 
         image = cv2.imread(str(image_path))
         if image is None:
-            return None
+            return []
         faces = self._app.get(image)
-        if not faces:
-            return None
-        face = max(
-            faces,
-            key=lambda item: float(
-                (item.bbox[2] - item.bbox[0]) * (item.bbox[3] - item.bbox[1])
-            ),
-        )
-        return [float(value) for value in face.normed_embedding]
+        return [
+            [float(value) for value in face.normed_embedding]
+            for face in sorted(
+                faces,
+                key=lambda item: float(
+                    (item.bbox[2] - item.bbox[0]) * (item.bbox[3] - item.bbox[1])
+                ),
+                reverse=True,
+            )
+        ]
+
+    def embedding(self, image_path: Path) -> list[float] | None:
+        embeddings = self.face_embeddings(image_path)
+        return embeddings[0] if embeddings else None
 
 
 def identity_model_root() -> Path:
@@ -163,6 +172,107 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _identity_analyzer_evidence(provider: IdentityProvider) -> dict[str, Any]:
+    try:
+        provider_revision = importlib.metadata.version("insightface")
+    except importlib.metadata.PackageNotFoundError:
+        provider_revision = None
+    implementation_path = Path(__file__).resolve()
+    return {
+        "analyzerId": IDENTITY_ANALYZER_ID,
+        "analyzerVersion": IDENTITY_ANALYZER_VERSION,
+        "implementationRef": "python_packages/reel_factory/reel_factory/identity_verification.py",
+        "implementationFingerprint": _sha256_file(implementation_path),
+        "provider": provider.name,
+        "providerRevision": provider_revision,
+        "modelRevision": "buffalo_l"
+        if provider.name == "insightface_arcface"
+        else None,
+    }
+
+
+def identity_qc_receipt(result: dict[str, Any]) -> dict[str, Any]:
+    """Return an exact output-bound QC receipt without inventing availability."""
+
+    subject = result.get("subjectSha256")
+    analyzer = result.get("analyzer")
+    observations = result.get("observations")
+    if not isinstance(subject, str) or len(subject) != 64:
+        raise ValueError("identity_qc_subject_missing")
+    if not isinstance(analyzer, dict) or not isinstance(observations, dict):
+        raise ValueError("identity_qc_evidence_missing")
+    if (
+        analyzer.get("analyzerId") != IDENTITY_ANALYZER_ID
+        or analyzer.get("analyzerVersion") != IDENTITY_ANALYZER_VERSION
+    ):
+        raise ValueError("identity_qc_analyzer_mismatch")
+    stability = observations.get("faceStabilityScore")
+    available = result.get("status") in {"passed", "failed"} and isinstance(
+        result.get("score"), (int, float)
+    )
+    passed = bool(
+        available
+        and result.get("status") == "passed"
+        and isinstance(stability, (int, float))
+        and float(stability) >= FACE_STABILITY_THRESHOLD
+    )
+    reasons: list[dict[str, str]] = []
+    if not available:
+        reasons.append(
+            {
+                "code": str(result.get("failureReason") or "identity_unavailable"),
+                "severity": "block",
+            }
+        )
+    elif result.get("status") != "passed":
+        reasons.append(
+            {
+                "code": str(
+                    result.get("failureReason") or "identity_similarity_below_threshold"
+                ),
+                "severity": "block",
+            }
+        )
+    elif not isinstance(stability, (int, float)):
+        reasons.append({"code": "face_stability_unavailable", "severity": "block"})
+    elif float(stability) < FACE_STABILITY_THRESHOLD:
+        reasons.append({"code": "face_stability_below_threshold", "severity": "block"})
+    return {
+        "schema": "reel_factory.identity_qc_receipt.v1",
+        "policy": {
+            "id": IDENTITY_ANALYZER_ID,
+            "version": IDENTITY_ANALYZER_VERSION,
+        },
+        "subjectSha256": subject,
+        "verdict": "pass" if passed else "blocked",
+        "passed": passed,
+        "evidenceOnly": True,
+        "providerCalls": 0,
+        "modelCalls": 0,
+        "identityResultFingerprint": hashlib.sha256(
+            json.dumps(
+                result, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest(),
+        "implementationRef": analyzer.get("implementationRef"),
+        "implementationFingerprint": analyzer.get("implementationFingerprint"),
+        "score": result.get("score"),
+        "faceStabilityScore": stability,
+        "reasons": reasons,
+    }
+
+
+def _provider_face_embeddings(
+    provider: IdentityProvider, image_path: Path
+) -> list[list[float]]:
+    method = getattr(provider, "face_embeddings", None)
+    if callable(method):
+        values = method(image_path)
+        return [list(map(float, item)) for item in values if item]
+    embedding = provider.embedding(image_path)
+    return [list(map(float, embedding))] if embedding else []
 
 
 def _media_frames_for_embedding(media_path: Path, *, samples: int = 5) -> list[Path]:
@@ -278,7 +388,7 @@ def build_reference_set(
         if output
         else _reference_set_path(root_path, creator)
     )
-    base = {
+    base: dict[str, Any] = {
         "schema": REFERENCE_SET_SCHEMA,
         "creator": creator,
         "provider": provider.name,
@@ -408,19 +518,31 @@ def verify_identity(
     frame_extractor=None,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
-    path = Path(media_path)
+    path = Path(media_path).expanduser().resolve()
     provider = provider or get_identity_provider()
+    reference_path = _reference_set_path(root_path, creator)
     reference_set_id, references, reference_error = _load_reference_embeddings(
-        _reference_set_path(root_path, creator)
+        reference_path
     )
-    base = {
+    analyzer = _identity_analyzer_evidence(provider)
+    base: dict[str, Any] = {
         "schema": SCHEMA,
         "creator": creator,
         "status": "unavailable",
-        "score": 0.0,
+        "score": None,
         "threshold": threshold,
         "provider": provider.name,
         "referenceSetId": reference_set_id,
+        "referenceSetFingerprint": (
+            _sha256_file(reference_path) if reference_path.is_file() else None
+        ),
+        "subjectSha256": _sha256_file(path) if path.is_file() else None,
+        "analyzer": analyzer,
+        "observations": {
+            "frameCount": None,
+            "frames": [],
+            "faceStabilityScore": None,
+        },
         "failureReason": "",
     }
     if not path.exists():
@@ -435,21 +557,73 @@ def verify_identity(
                 reference_error, creator
             ),
         }
+    generated_frames = frame_extractor is None and path.suffix.lower() in VIDEO_EXTS
     frames = (
-        [Path(frame) for frame in frame_extractor(path)]
+        [Path(frame).expanduser().resolve() for frame in frame_extractor(path)]
         if frame_extractor
         else _media_frames_for_embedding(path)
     )
-    if not frames or any(not frame.exists() for frame in frames):
-        return {**base, "failureReason": "frame_extract_failed"}
-    frame_scores = []
-    for frame in frames:
-        embedding = provider.embedding(frame)
-        if not embedding:
-            return {**base, "failureReason": "face_embedding_missing"}
-        frame_scores.append(
-            max((cosine_similarity(embedding, ref) for ref in references), default=0.0)
-        )
+    cleanup_root = frames[0].parent if generated_frames and frames else None
+    try:
+        if not frames or any(not frame.exists() for frame in frames):
+            return {**base, "failureReason": "frame_extract_failed"}
+        frame_scores: list[float] = []
+        frame_embeddings: list[list[float]] = []
+        frame_observations: list[dict[str, Any]] = []
+        duration = _probe_duration(path) if path.suffix.lower() in VIDEO_EXTS else None
+        sample_points = [0.15, 0.35, 0.55, 0.75, 0.90]
+        for index, frame in enumerate(frames):
+            embeddings = _provider_face_embeddings(provider, frame)
+            observation: dict[str, Any] = {
+                "index": index,
+                "frameSha256": _sha256_file(frame),
+                "timestampSeconds": (
+                    round(duration * sample_points[index], 6)
+                    if duration is not None and index < len(sample_points)
+                    else None
+                ),
+                "facesDetected": len(embeddings),
+            }
+            frame_observations.append(observation)
+            if not embeddings:
+                return {
+                    **base,
+                    "observations": {
+                        "frameCount": len(frames),
+                        "frames": frame_observations,
+                        "faceStabilityScore": None,
+                    },
+                    "failureReason": "face_embedding_missing",
+                }
+            if len(embeddings) != 1:
+                return {
+                    **base,
+                    "status": "failed",
+                    "observations": {
+                        "frameCount": len(frames),
+                        "frames": frame_observations,
+                        "faceStabilityScore": None,
+                    },
+                    "failureReason": "multiple_faces_detected",
+                }
+            embedding = embeddings[0]
+            frame_embeddings.append(embedding)
+            frame_scores.append(
+                max(
+                    (cosine_similarity(embedding, ref) for ref in references),
+                    default=0.0,
+                )
+            )
+        adjacent = [
+            cosine_similarity(first, second)
+            for first, second in zip(
+                frame_embeddings, frame_embeddings[1:], strict=False
+            )
+        ]
+        face_stability = min(adjacent) if adjacent else 1.0
+    finally:
+        if cleanup_root is not None:
+            shutil.rmtree(cleanup_root, ignore_errors=True)
     score = min(frame_scores) if frame_scores else 0.0
     status = "passed" if score >= threshold else "failed"
     return {
@@ -458,6 +632,12 @@ def verify_identity(
         "score": round(score, 6),
         "frameCount": len(frame_scores),
         "frameScores": [round(value, 6) for value in frame_scores],
+        "faceStabilityScore": round(face_stability, 6),
+        "observations": {
+            "frameCount": len(frame_scores),
+            "frames": frame_observations,
+            "faceStabilityScore": round(face_stability, 6),
+        },
         "failureReason": ""
         if status == "passed"
         else "identity_similarity_below_threshold",

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,8 @@ def run_motion_generation_stage(
     motion_task: str = "image_to_video",
     motion_lora_path: Path | None = None,
     motion_lora_strength: float = 1.0,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate one review-only motion asset with a preserved static fallback."""
     expected_mode = execution_plan.creative_mode
@@ -90,6 +93,10 @@ def run_motion_generation_stage(
         )
     elif expected_mode != "local_wan":
         raise PermissionError("best_motion requires an explicit paid provider model")
+    if (benchmark_recipe is None) != (analyzer_registry is None):
+        raise ValueError("benchmark evidence records must be provided together")
+    if paid and benchmark_recipe is not None:
+        raise ValueError("benchmark evidence applies only to local models")
 
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
@@ -114,6 +121,8 @@ def run_motion_generation_stage(
         motion_task=motion_task,
         motion_lora_path=motion_lora_path,
         motion_lora_strength=motion_lora_strength,
+        benchmark_recipe=benchmark_recipe,
+        analyzer_registry=analyzer_registry,
     )
     output_path = dirs["rendered"] / (
         f"{slugify(still.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
@@ -142,6 +151,8 @@ def run_motion_generation_stage(
         motion_task=motion_task,
         motion_lora_path=motion_lora_path,
         motion_lora_strength=motion_lora_strength,
+        benchmark_recipe=benchmark_recipe,
+        analyzer_registry=analyzer_registry,
         dry_run=True,
     )
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -157,6 +168,11 @@ def run_motion_generation_stage(
             "dryRun": dry_run,
             "apply": apply,
             "paidGeneration": paid,
+            "benchmarkRecipeId": (
+                benchmark_recipe.get("recipeId")
+                if benchmark_recipe is not None
+                else None
+            ),
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
@@ -196,6 +212,8 @@ def run_motion_generation_stage(
                 motion_task=motion_task,
                 motion_lora_path=motion_lora_path,
                 motion_lora_strength=motion_lora_strength,
+                benchmark_recipe=benchmark_recipe,
+                analyzer_registry=analyzer_registry,
                 dry_run=False,
             )
             if paid:
@@ -326,6 +344,8 @@ def _worker_command(
     motion_task: str,
     motion_lora_path: Path | None,
     motion_lora_strength: float,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
     dry_run: bool,
 ) -> list[str]:
     command = [
@@ -375,6 +395,25 @@ def _worker_command(
         command.append("--enable-prompt-expansion")
     if generate_audio:
         command.append("--generate-audio")
+    if benchmark_recipe is not None and analyzer_registry is not None:
+        command.extend(
+            [
+                "--benchmark-recipe-json",
+                json.dumps(
+                    dict(benchmark_recipe),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                "--analyzer-registry-json",
+                json.dumps(
+                    dict(analyzer_registry),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            ]
+        )
     return command
 
 
@@ -422,6 +461,8 @@ def _motion_request_fingerprint(
     motion_task: str,
     motion_lora_path: Path | None,
     motion_lora_strength: float,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
 ) -> str:
     def media(path: Path | None) -> dict[str, str] | None:
         if path is None:
@@ -452,6 +493,30 @@ def _motion_request_fingerprint(
         "motionTask": motion_task,
         "lora": media(motion_lora_path),
         "loraStrength": motion_lora_strength,
+        "benchmarkRecipeFingerprint": (
+            hashlib.sha256(
+                json.dumps(
+                    dict(benchmark_recipe),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if benchmark_recipe is not None
+            else None
+        ),
+        "analyzerRegistryFingerprint": (
+            hashlib.sha256(
+                json.dumps(
+                    dict(analyzer_registry),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if analyzer_registry is not None
+            else None
+        ),
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True

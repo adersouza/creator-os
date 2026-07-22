@@ -13,6 +13,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -35,6 +36,12 @@ BENCHMARK_SCHEMA: Final = "reel_factory.local_model_benchmark.v1"
 PROMOTION_SCHEMA: Final = "reel_factory.local_model_promotion.v1"
 SUPPORTED_QC_POLICIES: Final = {
     "contentforge.motion_specific_qc": frozenset({"1.0.0"}),
+    "contentforge.media_integrity": frozenset({"1.0.0"}),
+    "contentforge.temporal_motion": frozenset({"1.0.0"}),
+    "contentforge.audio_integrity": frozenset({"1.0.0"}),
+    "contentforge.overlay_delivery": frozenset({"1.0.0"}),
+    "reel_factory.identity_preservation": frozenset({"2.0.0"}),
+    "reel_factory.structured_human_media_review": frozenset({"1.0.0"}),
 }
 DEFAULT_IMPLEMENTATION_ROOT: Final = Path(__file__).resolve().parents[3]
 
@@ -186,6 +193,10 @@ class BenchmarkReceipt:
     peak_memory_bytes: int
     memory_measurement_method: str
     qc_references: tuple[QCReference, ...]
+    execution_attempt_count: int | None = None
+    execution_retry_count: int | None = None
+    local_cost_usd: float | None = None
+    local_cost_measurement_method: str | None = None
     benchmark_recipe_id: str | None = None
     benchmark_recipe_fingerprint: str | None = None
     analyzer_registry_id: str | None = None
@@ -215,6 +226,30 @@ class BenchmarkReceipt:
             raise ValueError("memory_measurement_method must be non-empty")
         if not self.qc_references:
             raise ValueError("at least one output QC reference is required")
+        execution_linkage = (
+            self.execution_attempt_count,
+            self.execution_retry_count,
+            self.local_cost_measurement_method,
+        )
+        if any(value is not None for value in execution_linkage) and not all(
+            value is not None for value in execution_linkage
+        ):
+            raise ValueError("benchmark_execution_evidence_must_be_complete")
+        if self.execution_attempt_count is not None:
+            if (
+                self.execution_attempt_count <= 0
+                or self.execution_retry_count is None
+                or self.execution_retry_count != self.execution_attempt_count - 1
+            ):
+                raise ValueError("benchmark_execution_attempt_evidence_invalid")
+            if self.local_cost_measurement_method == "measured":
+                if self.local_cost_usd is None or self.local_cost_usd < 0:
+                    raise ValueError("benchmark_local_cost_measurement_invalid")
+            elif self.local_cost_measurement_method == "unavailable:not_metered":
+                if self.local_cost_usd is not None:
+                    raise ValueError("benchmark_unavailable_local_cost_must_be_null")
+            else:
+                raise ValueError("benchmark_local_cost_method_invalid")
         linkage = (
             self.benchmark_recipe_id,
             self.benchmark_recipe_fingerprint,
@@ -272,6 +307,15 @@ class BenchmarkReceipt:
                     "analyzerRegistryFingerprint": self.analyzer_registry_fingerprint,
                 }
             )
+        if self.execution_attempt_count is not None:
+            payload.update(
+                {
+                    "executionAttemptCount": self.execution_attempt_count,
+                    "executionRetryCount": self.execution_retry_count,
+                    "localCostUsd": self.local_cost_usd,
+                    "localCostMeasurementMethod": self.local_cost_measurement_method,
+                }
+            )
         return payload
 
     @classmethod
@@ -298,6 +342,26 @@ class BenchmarkReceipt:
             peak_memory_bytes=int(payload["peakMemoryBytes"]),
             memory_measurement_method=str(payload["memoryMeasurementMethod"]),
             qc_references=references,
+            execution_attempt_count=(
+                int(payload["executionAttemptCount"])
+                if payload.get("executionAttemptCount") is not None
+                else None
+            ),
+            execution_retry_count=(
+                int(payload["executionRetryCount"])
+                if payload.get("executionRetryCount") is not None
+                else None
+            ),
+            local_cost_usd=(
+                float(payload["localCostUsd"])
+                if payload.get("localCostUsd") is not None
+                else None
+            ),
+            local_cost_measurement_method=(
+                str(payload["localCostMeasurementMethod"])
+                if payload.get("localCostMeasurementMethod") is not None
+                else None
+            ),
             benchmark_recipe_id=(
                 str(payload["benchmarkRecipeId"])
                 if payload.get("benchmarkRecipeId") is not None
@@ -622,6 +686,35 @@ class LocalModelBenchmarkStore:
         if not output_path.is_file() or sha256_file(output_path) != output_sha256:
             raise LocalQueueError("benchmark_output_missing_or_substituted")
         measurement = self._measurement_from_terminal_payload(terminal_payload)
+        execution = queue.execution_evidence(job_id)
+        if execution.get("status") != "succeeded":
+            raise LocalQueueError("benchmark_execution_status_mismatch")
+        attempt_count = int(execution.get("attemptCount") or 0)
+        retry_count = int(execution.get("retryCount") or 0)
+        if attempt_count <= 0 or retry_count != attempt_count - 1:
+            raise LocalQueueError("benchmark_execution_attempt_evidence_invalid")
+        if execution.get("failureClass") is not None:
+            raise LocalQueueError("benchmark_success_claims_failure_class")
+        local_cost = execution.get("localCost")
+        if not isinstance(local_cost, dict):
+            raise LocalQueueError("benchmark_local_cost_evidence_missing")
+        if local_cost.get("available") is False:
+            if local_cost.get("reason") != "local_compute_cost_not_metered":
+                raise LocalQueueError("benchmark_local_cost_unavailable_reason_invalid")
+            local_cost_usd = None
+            local_cost_method = "unavailable:not_metered"
+        elif local_cost.get("available") is True:
+            try:
+                local_cost_usd = float(local_cost["value"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise LocalQueueError(
+                    "benchmark_local_cost_measurement_invalid"
+                ) from exc
+            if local_cost.get("currency") != "USD" or local_cost_usd < 0:
+                raise LocalQueueError("benchmark_local_cost_measurement_invalid")
+            local_cost_method = "measured"
+        else:
+            raise LocalQueueError("benchmark_local_cost_evidence_invalid")
         self._verify_artifact_event(
             queue,
             state.job,
@@ -665,6 +758,10 @@ class LocalModelBenchmarkStore:
             peak_memory_bytes=measurement.peak_memory_bytes,
             memory_measurement_method=measurement.memory_measurement_method,
             qc_references=qc_references,
+            execution_attempt_count=attempt_count,
+            execution_retry_count=retry_count,
+            local_cost_usd=local_cost_usd,
+            local_cost_measurement_method=local_cost_method,
             benchmark_recipe_id=str(recipe_payload["recipeId"]),
             benchmark_recipe_fingerprint=fingerprint(recipe_payload),
             analyzer_registry_id=str(registry_payload["registryId"]),
@@ -768,6 +865,12 @@ class LocalModelBenchmarkStore:
                     blockers.append(f"{label}_task_kind_mismatch")
                 if receipt.hardware_fingerprint != hardware_fingerprint:
                     blockers.append(f"{label}_hardware_fingerprint_mismatch")
+                if (
+                    receipt.execution_attempt_count is None
+                    or receipt.execution_retry_count is None
+                    or receipt.local_cost_measurement_method is None
+                ):
+                    blockers.append(f"{label}_execution_evidence_missing")
                 if not receipt.all_qc_passed:
                     blockers.append(f"{label}_qc_failed")
                 expected_versions: dict[str, str] = {}
@@ -871,7 +974,13 @@ class LocalModelBenchmarkStore:
         return evaluation
 
     def approve_promotion(
-        self, evaluation: PromotionEvaluation, *, approved_by: str, reason: str
+        self,
+        evaluation: PromotionEvaluation,
+        *,
+        approved_by: str,
+        reason: str,
+        scope: tuple[str, ...] = (),
+        expires_at: str | None = None,
     ) -> dict[str, Any]:
         persisted = self.evaluation(evaluation.evaluation_id)
         if persisted != evaluation:
@@ -883,9 +992,19 @@ class LocalModelBenchmarkStore:
             )
         if not approved_by.strip() or not reason.strip():
             raise ValueError("approved_by and reason must be non-empty")
+        if len(scope) != len(set(scope)) or any(not item.strip() for item in scope):
+            raise ValueError("promotion_scope_must_be_distinct_non_empty_values")
+        if expires_at is not None:
+            parsed_expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if parsed_expiry.tzinfo is None:
+                raise ValueError("promotion_expiry_timezone_required")
         with file_lock(self._mutation_path):
             return self._approve_promotion_locked(
-                persisted, approved_by=approved_by, reason=reason
+                persisted,
+                approved_by=approved_by,
+                reason=reason,
+                scope=scope,
+                expires_at=expires_at,
             )
 
     def evaluation(self, evaluation_id: str) -> PromotionEvaluation:
@@ -928,17 +1047,33 @@ class LocalModelBenchmarkStore:
         )
 
     def approve_persisted_promotion(
-        self, evaluation_id: str, *, approved_by: str, reason: str
+        self,
+        evaluation_id: str,
+        *,
+        approved_by: str,
+        reason: str,
+        scope: tuple[str, ...] = (),
+        expires_at: str | None = None,
     ) -> dict[str, Any]:
         """Explicitly approve one persisted, still-verifiable evaluation."""
 
         evaluation = self.evaluation(evaluation_id)
         return self.approve_promotion(
-            evaluation, approved_by=approved_by, reason=reason
+            evaluation,
+            approved_by=approved_by,
+            reason=reason,
+            scope=scope,
+            expires_at=expires_at,
         )
 
     def _approve_promotion_locked(
-        self, evaluation: PromotionEvaluation, *, approved_by: str, reason: str
+        self,
+        evaluation: PromotionEvaluation,
+        *,
+        approved_by: str,
+        reason: str,
+        scope: tuple[str, ...],
+        expires_at: str | None,
     ) -> dict[str, Any]:
         evaluation_events = [
             event
@@ -970,10 +1105,121 @@ class LocalModelBenchmarkStore:
                 "evidenceFingerprint": evaluation.evidence_fingerprint,
                 "approvedBy": approved_by,
                 "reason": reason,
+                "scope": list(scope),
+                "expiresAt": expires_at,
                 "automatic": False,
             },
         )
         return event
+
+    def revoke_promotion(
+        self, evaluation_id: str, *, revoked_by: str, reason: str
+    ) -> dict[str, Any]:
+        """Append an explicit revocation; approvals are never edited in place."""
+
+        if not revoked_by.strip() or not reason.strip():
+            raise ValueError("revoked_by and reason must be non-empty")
+        with file_lock(self._mutation_path):
+            approvals = [
+                event
+                for event in self.promotions.read().events
+                if event.get("eventType") == "promotion_approved"
+                and event.get("payload", {}).get("evaluationId") == evaluation_id
+            ]
+            if len(approvals) != 1:
+                raise LocalQueueError("promotion_approval_not_found_exactly_once")
+            prior = [
+                event
+                for event in self.promotions.read().events
+                if event.get("eventType") == "promotion_revoked"
+                and event.get("payload", {}).get("evaluationId") == evaluation_id
+            ]
+            if prior:
+                raise LocalQueueError("promotion_already_revoked")
+            return self.promotions.append(
+                "promotion_revoked",
+                {
+                    "schema": PROMOTION_SCHEMA,
+                    "evaluationId": evaluation_id,
+                    "approvalEventHash": approvals[0]["eventHash"],
+                    "revokedBy": revoked_by,
+                    "reason": reason,
+                    "automatic": False,
+                },
+            )
+
+    def active_promotion(
+        self,
+        *,
+        candidate_model_fingerprint: str,
+        task_kind: str,
+        observed_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Return exactly one active, still-verifiable approval for routing."""
+
+        now = (
+            datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+            if observed_at is not None
+            else datetime.now(UTC)
+        )
+        if now.tzinfo is None:
+            raise ValueError("promotion_observed_at_timezone_required")
+        events = self.promotions.read().events
+        revoked = {
+            str(event.get("payload", {}).get("evaluationId"))
+            for event in events
+            if event.get("eventType") == "promotion_revoked"
+        }
+        candidates: list[dict[str, Any]] = []
+        for event in events:
+            if event.get("eventType") != "promotion_approved":
+                continue
+            payload = event.get("payload", {})
+            evaluation_id = str(payload.get("evaluationId") or "")
+            if evaluation_id in revoked:
+                continue
+            if payload.get("candidateModelFingerprint") != candidate_model_fingerprint:
+                continue
+            scope = payload.get("scope", [])
+            if scope and task_kind not in scope:
+                continue
+            expires_at = payload.get("expiresAt")
+            if expires_at is not None:
+                expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                if expiry.tzinfo is None or expiry <= now:
+                    continue
+            evaluation = self.evaluation(evaluation_id)
+            if evaluation.task_kind != task_kind or not evaluation.eligible:
+                continue
+            self._verify_evaluation_evidence(
+                next(
+                    persisted["payload"]
+                    for persisted in events
+                    if persisted.get("eventType") == "promotion_evaluated"
+                    and persisted.get("payload", {}).get("evaluationId")
+                    == evaluation_id
+                )
+            )
+            candidates.append(
+                {
+                    "evaluationId": evaluation_id,
+                    "approvalEventId": event["eventId"],
+                    "approvalEventHash": event["eventHash"],
+                    "approvedAt": event["occurredAt"],
+                    "approvedBy": payload.get("approvedBy"),
+                    "scope": list(scope),
+                    "expiresAt": expires_at,
+                    "candidateModelFingerprint": candidate_model_fingerprint,
+                    "taskKind": task_kind,
+                    "evidenceFingerprint": evaluation.evidence_fingerprint,
+                }
+            )
+        if len(candidates) != 1:
+            raise LocalQueueError(
+                "active_promotion_not_found_exactly_once:"
+                f"{candidate_model_fingerprint}:{task_kind}:{len(candidates)}"
+            )
+        return candidates[0]
 
     @staticmethod
     def _resolve_receipts(
