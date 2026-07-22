@@ -112,24 +112,28 @@ def _normalize_mlx_video_environment(
 
 def _normalize_ltx_environment(values: Sequence[str], *, runtime: Path) -> list[str]:
     normalized: list[str] = []
-    source_prefixes = ("ltx-2-mlx @ ", "ltx-core-mlx @ ", "ltx-pipelines-mlx @ ")
-    allowed_sources = {
+    runtime_uris = (
         runtime.as_uri(),
         runtime.with_name(runtime.name + ".partial").as_uri(),
+    )
+    source_suffixes = {
+        "ltx-2-mlx": "",
+        "ltx-core-mlx": "/packages/ltx-core-mlx",
+        "ltx-pipelines-mlx": "/packages/ltx-pipelines-mlx",
     }
     for value in values:
         stripped = value.strip()
         if not stripped:
             continue
-        for prefix in source_prefixes:
-            source = (
-                stripped[len(prefix) :] if stripped.lower().startswith(prefix) else ""
+        editable_source = stripped[3:] if stripped.startswith("-e ") else None
+        for package, suffix in source_suffixes.items():
+            prefix = f"{package} @ "
+            direct_source = (
+                stripped[len(prefix) :] if stripped.lower().startswith(prefix) else None
             )
-            if source and any(
-                source == allowed or source.startswith(allowed + "/")
-                for allowed in allowed_sources
-            ):
-                stripped = f"{prefix}creator-os-pinned-source:{LTX_MLX_REVISION}"
+            allowed_sources = {base + suffix for base in runtime_uris}
+            if direct_source in allowed_sources or editable_source in allowed_sources:
+                stripped = f"{package} @ creator-os-pinned-source:{LTX_MLX_REVISION}"
                 break
         normalized.append(stripped)
     return sorted(normalized)
@@ -506,11 +510,21 @@ def _install_ltx_runtime(
     *, runtime_root: Path | None = None, runner: Runner = subprocess.run
 ) -> dict[str, Any]:
     runtime = _ltx_runtime_root(runtime_root)
-    receipt = runtime / ".creator-os-runtime.json"
     if runtime.exists():
         status = _ltx_runtime_status(runtime_root=runtime)
         if status["ready"]:
             return status
+        repairable = {
+            "ltx_mlx_runtime_receipt_missing_or_invalid",
+            "ltx_mlx_python_missing",
+            "ltx_mlx_runtime_import_failed",
+            "ltx_mlx_runtime_environment_unreadable",
+            "ltx_mlx_runtime_receipt_environment_missing",
+            "ltx_mlx_runtime_receipt_temporary_path",
+            "ltx_mlx_runtime_environment_drift",
+        }
+        if set(status["issues"]).issubset(repairable):
+            return _repair_ltx_runtime_environment(runtime, runner=runner)
         raise RuntimeError(
             "local_ltx_runtime_exists_but_is_not_pinned: " + ", ".join(status["issues"])
         )
@@ -537,11 +551,15 @@ def _install_ltx_runtime(
         runner,
         ["uv", "sync", "--frozen", "--no-dev", "--directory", str(partial)],
     )
-    python = partial / ".venv/bin/python"
-    frozen = _run_checked(
-        runner, ["uv", "pip", "freeze", "--python", str(python)]
-    ).stdout.splitlines()
-    payload = {
+    # uv installs workspace packages in editable mode, so its .pth files bind
+    # to the absolute checkout path. Promote the verified source first, then
+    # sync once more from the final path before recording environment evidence.
+    os.replace(partial, runtime)
+    return _repair_ltx_runtime_environment(runtime, runner=runner)
+
+
+def _ltx_runtime_receipt(runtime: Path, frozen: Sequence[str]) -> dict[str, Any]:
+    return {
         "schema": _RUNTIME_SCHEMA,
         "runtimeId": "ltx_2_mlx",
         "repository": LTX_MLX_REPOSITORY,
@@ -549,13 +567,38 @@ def _install_ltx_runtime(
         "python": str(runtime / ".venv/bin/python"),
         "resolvedEnvironment": _normalize_ltx_environment(frozen, runtime=runtime),
     }
+
+
+def _repair_ltx_runtime_environment(
+    runtime: Path, *, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    observed_revision = _git_revision(runtime, runner=runner)
+    if observed_revision != LTX_MLX_REVISION:
+        raise RuntimeError(
+            "local_ltx_runtime_repair_revision_mismatch: "
+            f"expected {LTX_MLX_REVISION}, got {observed_revision or 'unreadable'}"
+        )
+    _run_checked(
+        runner,
+        ["uv", "sync", "--frozen", "--no-dev", "--directory", str(runtime)],
+    )
+    python = runtime / ".venv/bin/python"
+    frozen = _run_checked(
+        runner, ["uv", "pip", "freeze", "--python", str(python)]
+    ).stdout.splitlines()
     atomic_write_text(
-        partial / receipt.name,
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        runtime / ".creator-os-runtime.json",
+        json.dumps(_ltx_runtime_receipt(runtime, frozen), indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
-    os.replace(partial, runtime)
-    return _ltx_runtime_status(runtime_root=runtime)
+    status = _ltx_runtime_status(runtime_root=runtime)
+    if not status["ready"]:
+        raise RuntimeError(
+            "local_ltx_runtime_repair_verification_failed: "
+            + ", ".join(status["issues"])
+        )
+    return status
 
 
 def _ltx_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
@@ -634,10 +677,13 @@ def _ltx_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
                     isinstance(value, str) for value in recorded
                 ):
                     issues.append("ltx_mlx_runtime_receipt_environment_missing")
-                elif current_environment != _normalize_ltx_environment(
-                    recorded, runtime=runtime
-                ):
-                    issues.append("ltx_mlx_runtime_environment_drift")
+                else:
+                    if any(".partial" in value for value in recorded):
+                        issues.append("ltx_mlx_runtime_receipt_temporary_path")
+                    if current_environment != _normalize_ltx_environment(
+                        recorded, runtime=runtime
+                    ):
+                        issues.append("ltx_mlx_runtime_environment_drift")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         issues.append("ffmpeg_or_ffprobe_missing")
     return {
