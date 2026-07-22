@@ -297,6 +297,78 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	analyzerRegistry: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.analyzer_registry.v1",
+	  "title": "Creator OS Analyzer Registry Snapshot",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "registryId",
+	    "analyzers",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.analyzer_registry.v1"
+	    },
+	    "registryId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "analyzers": {
+	      "type": "array",
+	      "minItems": 1,
+	      "items": {
+	        "$ref": "#/$defs/analyzerRegistration"
+	      }
+	    },
+	    "provenance": {
+	      "$ref": "evidence_provenance.v1.schema.json"
+	    }
+	  },
+	  "$defs": {
+	    "analyzerRegistration": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "analyzerId",
+	        "analyzerVersion",
+	        "evidenceKinds",
+	        "implementationRef",
+	        "implementationFingerprint"
+	      ],
+	      "properties": {
+	        "analyzerId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "evidenceKinds": {
+	          "type": "array",
+	          "minItems": 1,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "implementationRef": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "implementationFingerprint": {
+	          "type": "string",
+	          "pattern": "^[a-f0-9]{64}$"
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	assignmentEligibility: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "campaign_factory.assignment_eligibility.v1",
@@ -1074,6 +1146,102 @@ export const generatedPipelineContractSchemas = {
 	        "null"
 	      ],
 	      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+	    }
+	  }
+	} as const,
+	benchmarkRecipe: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.benchmark_recipe.v1",
+	  "title": "Creator OS Benchmark Recipe",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "recipeId",
+	    "contentIntentId",
+	    "executionPolicySchema",
+	    "executionPolicyFingerprint",
+	    "taskKind",
+	    "inputFingerprints",
+	    "parameterFingerprint",
+	    "requiredAnalyzers",
+	    "expectedProviderCalls",
+	    "productionWritesAllowed",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.benchmark_recipe.v1"
+	    },
+	    "recipeId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "contentIntentId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "executionPolicySchema": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "executionPolicyFingerprint": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "taskKind": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "inputFingerprints": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "string",
+	        "pattern": "^[a-f0-9]{64}$"
+	      }
+	    },
+	    "parameterFingerprint": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "requiredAnalyzers": {
+	      "type": "array",
+	      "uniqueItems": true,
+	      "items": {
+	        "$ref": "#/$defs/analyzerRequirement"
+	      }
+	    },
+	    "expectedProviderCalls": {
+	      "type": "integer",
+	      "minimum": 0
+	    },
+	    "productionWritesAllowed": {
+	      "const": false
+	    },
+	    "provenance": {
+	      "$ref": "evidence_provenance.v1.schema.json"
+	    }
+	  },
+	  "$defs": {
+	    "analyzerRequirement": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "analyzerId",
+	        "analyzerVersion"
+	      ],
+	      "properties": {
+	        "analyzerId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "analyzerVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
 	    }
 	  }
 	} as const,
@@ -2294,6 +2462,86 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	contentIntent: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.content_intent.v1",
+	  "title": "Creator OS Content Intent",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "intentId",
+	    "creatorIdentityProfileId",
+	    "goal",
+	    "contentSurface",
+	    "mediaKind",
+	    "styleLanes",
+	    "conceptTags",
+	    "sourceAssetFingerprints",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.content_intent.v1"
+	    },
+	    "intentId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "creatorIdentityProfileId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "goal": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "contentSurface": {
+	      "enum": [
+	        "reel",
+	        "story",
+	        "feed_post",
+	        "thread"
+	      ]
+	    },
+	    "mediaKind": {
+	      "enum": [
+	        "image",
+	        "video",
+	        "carousel"
+	      ]
+	    },
+	    "styleLanes": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
+	      }
+	    },
+	    "conceptTags": {
+	      "type": "array",
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "string",
+	        "minLength": 1
+	      }
+	    },
+	    "sourceAssetFingerprints": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "string",
+	        "pattern": "^[a-f0-9]{64}$"
+	      }
+	    },
+	    "provenance": {
+	      "$ref": "evidence_provenance.v1.schema.json"
+	    }
+	  }
+	} as const,
 	contentforgeCampaignAuditResponse: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "contentforge.campaign_factory_audit_response.v1",
@@ -2833,6 +3081,126 @@ export const generatedPipelineContractSchemas = {
 	        "null"
 	      ],
 	      "description": "Shared trace ID propagated through the pipeline for end-to-end observability"
+	    }
+	  }
+	} as const,
+	creatorIdentityProfile: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.creator_identity_profile.v1",
+	  "title": "Creator OS Creator Identity Profile",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "profileId",
+	    "creatorKey",
+	    "displayName",
+	    "modelProfile",
+	    "identityReferences",
+	    "provenance"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "creator_os.creator_identity_profile.v1"
+	    },
+	    "profileId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "creatorKey": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "displayName": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "modelProfile": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "identityReferences": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "$ref": "#/$defs/identityReference"
+	      }
+	    },
+	    "provenance": {
+	      "$ref": "evidence_provenance.v1.schema.json"
+	    }
+	  },
+	  "$defs": {
+	    "identityReference": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "namespace",
+	        "externalId"
+	      ],
+	      "properties": {
+	        "namespace": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "externalId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "fingerprint": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        }
+	      }
+	    }
+	  }
+	} as const,
+	evidenceProvenance: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "creator_os.evidence_provenance.v1",
+	  "title": "Creator OS Thin Evidence Provenance",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "producer",
+	    "producedAt",
+	    "sourceReferences"
+	  ],
+	  "properties": {
+	    "producer": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "producedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "sourceReferences": {
+	      "type": "array",
+	      "minItems": 1,
+	      "uniqueItems": true,
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "required": [
+	          "recordId",
+	          "fingerprint"
+	        ],
+	        "properties": {
+	          "recordId": {
+	            "type": "string",
+	            "minLength": 1
+	          },
+	          "fingerprint": {
+	            "type": "string",
+	            "pattern": "^[a-f0-9]{64}$"
+	          }
+	        }
+	      }
 	    }
 	  }
 	} as const,
@@ -7268,15 +7636,20 @@ export const generatedPipelineContractSchemas = {
 
 export const generatedPipelineContractSchemaManifest = [
 	{ key: "accountEligibilityDecision", filename: "account_eligibility_decision.v1.schema.json", id: "campaign_factory.account_eligibility_decision.v1" },
+	{ key: "analyzerRegistry", filename: "analyzer_registry.v1.schema.json", id: "creator_os.analyzer_registry.v1" },
 	{ key: "assignmentEligibility", filename: "assignment_eligibility.v1.schema.json", id: "campaign_factory.assignment_eligibility.v1" },
 	{ key: "audioCatalogExport", filename: "audio_catalog_export.v1.schema.json", id: "reference_factory.audio_catalog_export.v1" },
 	{ key: "audioIntent", filename: "audio_intent.v1.schema.json", id: "pipeline.audio_intent.v1" },
+	{ key: "benchmarkRecipe", filename: "benchmark_recipe.v1.schema.json", id: "creator_os.benchmark_recipe.v1" },
 	{ key: "campaignDraftPayload", filename: "campaign_draft_payload.v1.schema.json", id: "campaign_factory.threadsdash_drafts.v1" },
 	{ key: "campaignDraftPayloadV2", filename: "campaign_draft_payload.v2.schema.json", id: "campaign_factory.threadsdash_drafts.v2" },
 	{ key: "campaignDraftPayloadV3", filename: "campaign_draft_payload.v3.schema.json", id: "campaign_factory.threadsdash_drafts.v3" },
 	{ key: "captionOutcomeContext", filename: "caption_outcome_context.v1.schema.json", id: "campaign_factory.caption_outcome_context.v1" },
+	{ key: "contentIntent", filename: "content_intent.v1.schema.json", id: "creator_os.content_intent.v1" },
 	{ key: "contentforgeCampaignAuditResponse", filename: "contentforge_campaign_audit_response.v1.schema.json", id: "contentforge.campaign_factory_audit_response.v1" },
 	{ key: "creativePlan", filename: "creative_plan.v1.schema.json", id: "campaign_factory.creative_plan.v1" },
+	{ key: "creatorIdentityProfile", filename: "creator_identity_profile.v1.schema.json", id: "creator_os.creator_identity_profile.v1" },
+	{ key: "evidenceProvenance", filename: "evidence_provenance.v1.schema.json", id: "creator_os.evidence_provenance.v1" },
 	{ key: "frontGenerationPlan", filename: "front_generation_plan.v1.schema.json", id: "campaign_factory.front_generation_plan.v1" },
 	{ key: "generatedAssetLineage", filename: "generated_asset_lineage.v1.schema.json", id: "reel_factory.generated_asset_lineage.v1" },
 	{ key: "generatedAssetLineageV2", filename: "generated_asset_lineage.v2.schema.json", id: "reel_factory.generated_asset_lineage.v2" },

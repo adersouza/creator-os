@@ -12,6 +12,8 @@ from typing import Any
 
 from creator_os_core.fileops import atomic_write_text
 
+from .evidence_foundation import validate_library_reuse_evidence_binding
+
 
 class LibraryReuseError(ValueError):
     """Fail-closed Library Reuse error with a stable operator-facing code."""
@@ -150,8 +152,23 @@ class LibraryReuseRepository:
         folder: Path,
         campaign_slug: str,
         model_slug: str,
+        evidence_records: dict[str, Any] | None = None,
+        output_format: str = "reel",
+        variant_count: int = 1,
+        workers: int = 1,
     ) -> dict[str, Any]:
         selections = self.plan(folder)
+        if evidence_records is not None:
+            evidence_records = validate_library_reuse_evidence_binding(
+                evidence_records,
+                model_slug=model_slug,
+                selected_source_fingerprints=tuple(
+                    item.source_sha256 for item in selections
+                ),
+                output_format=output_format,
+                variant_count=variant_count,
+                workers=workers,
+            )
         model = self._upsert_model(model_slug)
         campaign = self._upsert_campaign(
             campaign_slug, model["slug"], platform="instagram"
@@ -191,6 +208,7 @@ class LibraryReuseRepository:
             "mappings": [],
             "createdAt": self._utc_now(),
             "updatedAt": self._utc_now(),
+            **({"evidenceRecords": evidence_records} if evidence_records else {}),
         }
         try:
             self._write_manifest(manifest_path, manifest)

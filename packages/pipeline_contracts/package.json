@@ -1,6 +1,6 @@
 {
   "name": "@creator-os/pipeline-contracts",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Versioned Creator OS pipeline schemas and TypeScript validators",
   "type": "module",
   "files": [

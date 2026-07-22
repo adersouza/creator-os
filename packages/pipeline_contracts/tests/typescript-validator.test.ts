@@ -10,7 +10,11 @@ import {
 	campaignDraftPayloadV3Schema,
 	pipelineContractSchemas,
 	validateAudioIntentContract,
+	validateAnalyzerRegistry,
+	validateBenchmarkRecipe,
 	validateCampaignFactoryDraftPayload,
+	validateContentIntent,
+	validateCreatorIdentityProfile,
 	validateFrontGenerationPlan,
 	validateGenerationExecutionPlan,
 	validateGeneratedAssetLineage,
@@ -25,6 +29,9 @@ import {
 } from "../typescript/index";
 
 const schemaRoot = resolve(__dirname, "../pipeline_contracts/schemas");
+const thinEvidenceFixtures = JSON.parse(
+	readFileSync(resolve(__dirname, "fixtures/thin_evidence_records.v1.json"), "utf-8"),
+);
 
 function example(name: string) {
 	return JSON.parse(
@@ -36,6 +43,10 @@ function versionedExample(name: string, version: number) {
 	return JSON.parse(
 		readFileSync(resolve(schemaRoot, `${name}.v${version}.example.json`), "utf-8"),
 	);
+}
+
+function thinEvidenceExample(name: string) {
+	return structuredClone(thinEvidenceFixtures[name]);
 }
 
 describe("TypeScript pipeline contract validators", () => {
@@ -97,6 +108,27 @@ describe("TypeScript pipeline contract validators", () => {
 	it("validates structural reference-video analysis and remix plans", () => {
 		expect(validateReferenceVideoMotionAnalysis(example("reference_video_motion_analysis"))).toEqual([]);
 		expect(validateReferenceVideoRemixPlan(example("reference_video_remix_plan"))).toEqual([]);
+	});
+
+	it("validates every thin evidence record through the public TypeScript API", () => {
+		expect(validateCreatorIdentityProfile(thinEvidenceExample("creator_identity_profile"))).toEqual([]);
+		expect(validateContentIntent(thinEvidenceExample("content_intent"))).toEqual([]);
+		expect(validateBenchmarkRecipe(thinEvidenceExample("benchmark_recipe"))).toEqual([]);
+		expect(validateAnalyzerRegistry(thinEvidenceExample("analyzer_registry"))).toEqual([]);
+	});
+
+	it("rejects incomplete thin evidence provenance and analyzer identity", () => {
+		const identity = thinEvidenceExample("creator_identity_profile");
+		delete identity.provenance.sourceReferences;
+		const registry = thinEvidenceExample("analyzer_registry");
+		delete registry.analyzers[0].implementationFingerprint;
+
+		expect(validateCreatorIdentityProfile(identity)).toEqual(
+			expect.arrayContaining([expect.stringContaining("sourceReferences")]),
+		);
+		expect(validateAnalyzerRegistry(registry)).toEqual(
+			expect.arrayContaining([expect.stringContaining("implementationFingerprint")]),
+		);
 	});
 
 	it("keeps paid generation and publishing blocked in remix plans", () => {

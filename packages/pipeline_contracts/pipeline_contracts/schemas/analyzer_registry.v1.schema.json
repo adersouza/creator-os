@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "creator_os.analyzer_registry.v1",
+  "title": "Creator OS Analyzer Registry Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "registryId", "analyzers", "provenance"],
+  "properties": {
+    "schema": {"const": "creator_os.analyzer_registry.v1"},
+    "registryId": {"type": "string", "minLength": 1},
+    "analyzers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/analyzerRegistration"}
+    },
+    "provenance": {"$ref": "evidence_provenance.v1.schema.json"}
+  },
+  "$defs": {
+    "analyzerRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyzerId",
+        "analyzerVersion",
+        "evidenceKinds",
+        "implementationRef",
+        "implementationFingerprint"
+      ],
+      "properties": {
+        "analyzerId": {"type": "string", "minLength": 1},
+        "analyzerVersion": {"type": "string", "minLength": 1},
+        "evidenceKinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "implementationRef": {"type": "string", "minLength": 1},
+        "implementationFingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -4,7 +4,18 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pipeline_contracts import (
+    AnalyzerRegistryV1,
+    BenchmarkRecipeV1,
+    ContentIntentV1,
+    CreatorIdentityProfileV1,
+)
+
 from .creative_modes import creative_workflow_mode
+from .evidence_foundation import (
+    compile_thin_evidence_records,
+    validate_library_reuse_evidence_binding,
+)
 from .generation_execution_plan import (
     GenerationExecutionPlan,
     build_generation_execution_plan,
@@ -67,6 +78,10 @@ def run_generation_workflow(
     motion_task: str = "image_to_video",
     motion_lora_path: Path | None = None,
     motion_lora_strength: float = 1.0,
+    creator_identity_profile: CreatorIdentityProfileV1 | None = None,
+    content_intent: ContentIntentV1 | None = None,
+    benchmark_recipe: BenchmarkRecipeV1 | None = None,
+    analyzer_registry: AnalyzerRegistryV1 | None = None,
 ) -> dict[str, Any]:
     """Route one explicitly selected mode through Campaign Factory."""
     execution_plan = build_generation_execution_plan(mode)
@@ -75,6 +90,29 @@ def run_generation_workflow(
     live = bool(apply and not dry_run)
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
+    evidence_inputs = (
+        creator_identity_profile,
+        content_intent,
+        benchmark_recipe,
+        analyzer_registry,
+    )
+    if any(record is not None for record in evidence_inputs) and not all(
+        record is not None for record in evidence_inputs
+    ):
+        raise ValueError("thin_evidence_records_must_be_complete")
+    evidence_records = None
+    if all(record is not None for record in evidence_inputs):
+        assert creator_identity_profile is not None
+        assert content_intent is not None
+        assert benchmark_recipe is not None
+        assert analyzer_registry is not None
+        evidence_records = compile_thin_evidence_records(
+            creator_identity_profile=creator_identity_profile,
+            content_intent=content_intent,
+            execution_policy=execution_plan.to_contract(),
+            benchmark_recipe=benchmark_recipe,
+            analyzer_registry=analyzer_registry,
+        )
 
     if mode_id == "library_reuse":
         result = _run_library_reuse_mode(
@@ -87,6 +125,7 @@ def run_generation_workflow(
             variant_count=variant_count,
             workers=workers,
             dry_run=dry_run,
+            evidence_records=evidence_records,
         )
     elif mode_id == "soul_static":
         require_generation_execution_mode(execution_plan, "soul_static")
@@ -282,6 +321,7 @@ def run_generation_workflow(
         "humanReviewRequired": True,
         "schedulingAllowed": False,
         "publishingAllowed": False,
+        **({"evidenceRecords": evidence_records} if evidence_records else {}),
     }
 
 
@@ -318,6 +358,7 @@ def _run_library_reuse_mode(
     variant_count: int,
     workers: int,
     dry_run: bool,
+    evidence_records: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     require_generation_execution_mode(execution_plan, "library_reuse")
     _require(library_folder, "library_folder")
@@ -334,6 +375,17 @@ def _run_library_reuse_mode(
         )
     if dry_run:
         selections = factory.domains.library_reuse.plan(folder)
+        if evidence_records is not None:
+            evidence_records = validate_library_reuse_evidence_binding(
+                evidence_records,
+                model_slug=str(model_slug),
+                selected_source_fingerprints=tuple(
+                    item.source_sha256 for item in selections
+                ),
+                output_format=output_format,
+                variant_count=variant_count,
+                workers=workers,
+            )
         return {
             "schema": "campaign_factory.library_reuse_preflight.v1",
             "status": "planned",
@@ -364,11 +416,16 @@ def _run_library_reuse_mode(
                 "shareToFeed": True,
                 "collaborators": [],
             },
+            **({"evidenceRecords": evidence_records} if evidence_records else {}),
         }
     return factory.domains.library_reuse.run(
         folder=folder,
         campaign_slug=campaign_slug,
         model_slug=model_slug,
+        evidence_records=evidence_records,
+        output_format=output_format,
+        variant_count=variant_count,
+        workers=workers,
     )
 
 
