@@ -20,7 +20,7 @@ object.
 | product post approval | ThreadsDashboard | Supabase post approval state | schedule/publish gate |
 | actual schedule and post | ThreadsDashboard | Supabase `posts` and publishing services | performance history |
 | performance observation | ThreadsDashboard | post metric history | Campaign performance snapshots and learning fan-out |
-| shared payload shape | Pipeline Contracts | canonical JSON schemas | generated TypeScript and external consumer snapshots |
+| shared payload shape | Pipeline Contracts | canonical JSON schemas | generated TypeScript and immutable consumer package releases |
 
 Rules:
 

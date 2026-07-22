@@ -51,7 +51,8 @@ explicit, separately verified operation.
   Missing publication identity or metrics are never converted to zero.
 - Canonical schemas exist only under
   `packages/pipeline_contracts/pipeline_contracts/schemas`; generated
-  TypeScript and external consumer snapshots are derived copies.
+  TypeScript is packaged as the immutable `@creator-os/pipeline-contracts`
+  consumer artifact. External repositories do not copy the schema tree.
 
 ## Repository Hygiene
 

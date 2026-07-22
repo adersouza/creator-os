@@ -142,8 +142,9 @@ publishing. Each later operation keeps its own approvals and evidence:
 
 - Dashboard production deployment must stay on the external ThreadsDashboard
   repository unless the owner explicitly changes that architecture.
-- Validate shared contract snapshots across repositories before dependent
-  changes merge or deploy.
+- Release the reviewed contract package, update the consumer's pinned tarball
+  and lockfile, and validate the installed package before dependent changes
+  merge or deploy.
 - Never point a Dashboard Vercel project at Creator OS; Creator OS has no
   product dashboard application.
 
