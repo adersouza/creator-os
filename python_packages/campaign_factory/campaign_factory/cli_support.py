@@ -2,13 +2,53 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from .config import get_settings
 
+_SENSITIVE_KEY_TOKENS = (
+    "password",
+    "passwd",
+    "authorization",
+    "cookie",
+    "sessionid",
+    "apikey",
+    "accesskey",
+    "privatekey",
+    "servicerolekey",
+    "secret",
+    "accesstoken",
+    "refreshtoken",
+    "idtoken",
+)
 
-def print_json(value) -> None:
-    print(json.dumps(value, indent=2, ensure_ascii=False))
+
+def _is_sensitive_key(key: object) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+    return any(token in normalized for token in _SENSITIVE_KEY_TOKENS)
+
+
+def _redact_sensitive(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: "[REDACTED]" if _is_sensitive_key(key) else _redact_sensitive(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_sensitive(item) for item in value]
+    return value
+
+
+def print_json(value: Any) -> None:
+    safe_value = _redact_sensitive(value)
+    # The output is recursively redacted immediately above. Keep the suppression
+    # local to this reviewed sink so future direct print calls remain detectable.
+    print(
+        json.dumps(safe_value, indent=2, ensure_ascii=False)
+    )  # lgtm[py/clear-text-logging-sensitive-data]
 
 
 def load_json_object(path: str | None) -> dict | None:

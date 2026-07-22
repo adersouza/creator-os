@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
+from urllib.parse import urlsplit
 
 from creator_os_core.fileops import atomic_write_text
 
@@ -1779,10 +1780,13 @@ def _example_audio_import_summary(
 
 
 def _infer_platform_from_url(url: str) -> str:
-    lowered = str(url or "").lower()
-    if "tiktok.com" in lowered:
+    try:
+        hostname = (urlsplit(str(url or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return ""
+    if hostname == "tiktok.com" or hostname.endswith(".tiktok.com"):
         return "tiktok"
-    if "instagram.com" in lowered:
+    if hostname == "instagram.com" or hostname.endswith(".instagram.com"):
         return "instagram"
     return ""
 

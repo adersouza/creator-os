@@ -508,6 +508,7 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 export_result_or_path=Path(args.export_manifest),
                 supabase_url=args.supabase_url,
                 supabase_service_role_key=args.supabase_service_role_key,
+                allowed_export_root=cf.settings.campaigns_dir,
             )
             result["pipelineJobId"] = pipeline_job["id"]
             cf.domains.events.record_event(

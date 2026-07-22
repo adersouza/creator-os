@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from reference_factory.audio import (
+    _infer_platform_from_url,
     analyze_audio_patterns,
     audio_catalog_health,
     audio_resolution_shortlist,
@@ -88,6 +89,7 @@ from reference_factory.reference_grok import (
 )
 from reference_factory.reference_intake import (
     analyze_reference_local,
+    export_analysis_queue,
     export_video_analyses,
     import_reference_analysis,
     queue_reference_analysis,
@@ -139,6 +141,33 @@ GOOD_IMAGE_PROMPT_JSON = {
     },
     "negative_prompt": "watermark, platform UI, bad anatomy",
 }
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://www.tiktok.com/@creator/video/1", "tiktok"),
+        ("https://m.instagram.com/reel/ABC/", "instagram"),
+        ("https://instagram.com.evil.example/reel/ABC/", ""),
+        ("https://evil.example/?next=https://tiktok.com/video/1", ""),
+        ("not a url containing instagram.com", ""),
+    ],
+)
+def test_audio_platform_inference_uses_hostname(url: str, expected: str):
+    assert _infer_platform_from_url(url) == expected
+
+
+def test_reference_analysis_export_rejects_provider_path_traversal(tmp_path: Path):
+    conn = make_conn(tmp_path)
+
+    with pytest.raises(ValueError, match="provider_target"):
+        export_analysis_queue(
+            conn,
+            data_root=tmp_path / "data",
+            provider_target="../../outside",
+        )
+
+    assert not (tmp_path / "outside_analysis_queue.json").exists()
 
 
 def make_conn(tmp_path: Path) -> sqlite3.Connection:

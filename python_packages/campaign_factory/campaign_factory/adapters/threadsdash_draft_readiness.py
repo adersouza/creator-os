@@ -134,12 +134,16 @@ def verify_threadsdash_export(
     export_result_or_path: dict[str, Any] | str | Path,
     supabase_url: str | None,
     supabase_service_role_key: str | None,
+    allowed_export_root: Path | None = None,
 ) -> dict[str, Any]:
     if not supabase_url or not supabase_service_role_key:
         raise ValueError(
             "supabase_url and supabase_service_role_key are required for export verification"
         )
-    payload = _load_export_result(export_result_or_path)
+    payload = _load_export_result(
+        export_result_or_path,
+        allowed_export_root=allowed_export_root,
+    )
     client = _threadsdash_client.SupabaseRestClient(
         supabase_url.rstrip("/"), supabase_service_role_key
     )
@@ -607,11 +611,25 @@ def _preflight_check(name: str, fn) -> dict[str, Any]:
         return {"name": name, "ok": False, "error": str(exc)}
 
 
-def _load_export_result(value: dict[str, Any] | str | Path) -> dict[str, Any]:
+def _load_export_result(
+    value: dict[str, Any] | str | Path,
+    *,
+    allowed_export_root: Path | None,
+) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
-    path = Path(value)
-    return json.loads(path.read_text(encoding="utf-8"))
+    if allowed_export_root is None:
+        raise ValueError("allowed_export_root is required when loading an export path")
+    root = Path(allowed_export_root).expanduser().resolve()
+    path = Path(value).expanduser().resolve(strict=True)
+    if not path.is_relative_to(root):
+        raise ValueError("export manifest must be inside the allowed export root")
+    if path.suffix.lower() != ".json":
+        raise ValueError("export manifest must be a JSON file")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("export manifest must contain a JSON object")
+    return payload
 
 
 def _verify_media_row(

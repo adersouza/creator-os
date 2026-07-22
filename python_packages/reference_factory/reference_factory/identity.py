@@ -5,14 +5,19 @@ from pathlib import Path
 
 
 def stable_reference_id(path: Path, size_bytes: int) -> str:
-    digest = hashlib.sha1(f"{path.resolve()}|{size_bytes}".encode()).hexdigest()
+    # SHA-1 is retained only for backward-compatible, non-security record IDs.
+    # Content integrity uses content_hash() and SHA-256 below.
+    digest = hashlib.sha1(
+        f"{path.resolve()}|{size_bytes}".encode()
+    ).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
     return "ref_" + digest[:16]
 
 
 def stable_id(prefix: str, *parts: object) -> str:
+    # SHA-1 is retained only for backward-compatible, non-security record IDs.
     digest = hashlib.sha1(
         "|".join(str(part) for part in parts).encode("utf-8")
-    ).hexdigest()
+    ).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
     return f"{prefix}_{digest[:16]}"
 
 

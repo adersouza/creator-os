@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import campaign_factory.app as app_module
 import campaign_factory.variant_lineage as variant_lineage_module
@@ -19,6 +20,7 @@ from campaign_factory.audio_smoke import (
     assert_contentforge_contract_response,
 )
 from campaign_factory.cli_parser import build_cli_parser
+from campaign_factory.cli_support import print_json
 from campaign_factory.config import CREATOR_OS_ROOT, Settings
 from campaign_factory.contracts import (
     validate_schema_examples,
@@ -116,6 +118,60 @@ def test_export_threadsdash_api_allows_explicit_v2_rollback(monkeypatch):
         }
     ) == {"ok": True}
     assert captured["draft_payload_schema"] == "v2"
+
+
+def test_cli_json_output_redacts_nested_secrets(capsys):
+    print_json(
+        {
+            "status": "ok",
+            "supabaseServiceRoleKey": "service-secret",
+            "nested": {
+                "access_token": "access-secret",
+                "captionKey": "non-secret-identifier",
+            },
+        }
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+    assert payload["supabaseServiceRoleKey"] == "[REDACTED]"
+    assert payload["nested"]["access_token"] == "[REDACTED]"
+    assert payload["nested"]["captionKey"] == "non-secret-identifier"
+
+
+def test_campaign_export_manifest_path_is_bounded(monkeypatch, tmp_path: Path):
+    campaigns_root = tmp_path / "campaigns"
+    campaigns_root.mkdir()
+    allowed = campaigns_root / "export.json"
+    allowed.write_text('{"campaign": "safe"}', encoding="utf-8")
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"campaign": "outside"}', encoding="utf-8")
+    monkeypatch.setattr(
+        app_module, "settings", SimpleNamespace(campaigns_dir=campaigns_root)
+    )
+
+    assert app_module._load_campaign_export_manifest(allowed) == {"campaign": "safe"}
+    with pytest.raises(ValueError, match="campaigns root"):
+        app_module._load_campaign_export_manifest(outside)
+
+
+def test_sensitive_api_failure_does_not_echo_provider_error(monkeypatch):
+    class FakeFactory:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "factory", FakeFactory)
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY=must-not-leak")
+
+    monkeypatch.setattr(app_module, "evaluate_export_readiness", fail_export)
+
+    with pytest.raises(app_module.HTTPException) as exc_info:
+        app_module.export_readiness({"campaign": "may", "userId": "user_1"})
+
+    assert exc_info.value.detail["code"] == "export_readiness_failed"
+    assert "must-not-leak" not in json.dumps(exc_info.value.detail)
 
 
 def test_operator_control_check_reports_required_entrypoints(tmp_path: Path):
