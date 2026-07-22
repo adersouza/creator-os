@@ -154,7 +154,7 @@ def test_custom_model_directory_must_use_canonical_verified_layout(
     )
 
 
-def test_ltx_distilled_supports_source_audio_and_first_last_frame(
+def test_ltx_q8_supports_source_audio_and_first_last_frame(
     tmp_path: Path,
 ) -> None:
     audio = tmp_path / "voice.wav"
@@ -162,22 +162,21 @@ def test_ltx_distilled_supports_source_audio_and_first_last_frame(
     last = _image(tmp_path, "last.jpg")
     request = _request(
         tmp_path,
-        model_id="local_ltx23_distilled_mlx",
+        model_id="local_ltx23_dev_hq_mlx",
         audio_mode="source",
         audio_path=audio,
         last_image_path=last,
         task="audio_image_to_video",
     )
     command = build_local_video_command(request, python_executable="python3")
-    assert command[:3] == ["python3", "-m", "mlx_video.models.ltx_2.generate"]
-    assert command[command.index("--pipeline") + 1] == "distilled"
+    assert command[:4] == ["python3", "-m", "ltx_pipelines_mlx.cli", "a2v"]
     assert command[command.index("--width") + 1] == "576"
     assert command[command.index("--height") + 1] == "1024"
-    assert command[command.index("--steps") + 1] == "8"
-    assert command[command.index("--audio-file") + 1] == str(audio.resolve())
-    assert "--audio" not in command
-    assert command[command.index("--end-image") + 1] == str(last.resolve())
-    frames = int(command[command.index("--num-frames") + 1])
+    assert command[command.index("--stage1-steps") + 1] == "30"
+    assert command[command.index("--audio") + 1] == str(audio.resolve())
+    assert str(last.resolve()) in command
+    assert "--low-ram" in command
+    frames = int(command[command.index("--frames") + 1])
     assert frames == 145
     assert (frames - 1) % 8 == 0
 
@@ -187,14 +186,104 @@ def test_ltx_hq_generated_audio_is_explicit(tmp_path: Path) -> None:
         tmp_path,
         model_id="local_ltx23_dev_hq_mlx",
         audio_mode="generated",
-        task="audio_image_to_video",
+        task="image_to_video",
     )
     command = build_local_video_command(request, python_executable="python3")
-    assert command[command.index("--pipeline") + 1] == "dev-two-stage-hq"
-    assert command[command.index("--steps") + 1] == "15"
-    assert "--audio" in command
-    assert "--audio-file" not in command
-    assert "--apg" in command
+    assert command[:4] == ["python3", "-m", "ltx_pipelines_mlx.cli", "generate"]
+    assert "--two-stages-hq" in command
+    assert command[command.index("--stage1-steps") + 1] == "15"
+    assert "--audio" not in command
+    assert "--low-ram" in command
+
+
+def test_ltx_q4_is_quantized_distilled_and_rejects_source_audio(
+    tmp_path: Path,
+) -> None:
+    request = _request(
+        tmp_path,
+        model_id="local_ltx23_distilled_mlx",
+        audio_mode="generated",
+        task="image_to_video",
+    )
+    command = build_local_video_command(request, python_executable="python3")
+    assert command[:4] == ["python3", "-m", "ltx_pipelines_mlx.cli", "generate"]
+    assert "--distilled" in command
+    assert "--low-ram" in command
+    assert command[command.index("--tile-spatial") + 1] == "2"
+    assert command[command.index("--model") + 1].endswith("LTX-2.3-MLX-Q4")
+
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"audio")
+    with pytest.raises(ValueError, match="does not support task"):
+        build_local_video_command(
+            replace(
+                request,
+                audio_mode="source",
+                audio_path=audio,
+                task="audio_image_to_video",
+            ),
+            python_executable="python3",
+        )
+
+
+def test_ltx_keyframe_retake_and_extend_are_explicit_q8_tasks(
+    tmp_path: Path,
+) -> None:
+    start = _image(tmp_path, "start.jpg")
+    end = _image(tmp_path, "end.jpg")
+    keyframe = _request(
+        tmp_path,
+        model_id="local_ltx23_dev_hq_mlx",
+        image_path=start,
+        last_image_path=end,
+        audio_mode="generated",
+        task="keyframe_interpolation",
+    )
+    keyframe_command = build_local_video_command(keyframe, python_executable="python3")
+    assert keyframe_command[3] == "keyframe"
+    assert keyframe_command[keyframe_command.index("--start") + 1] == str(
+        start.resolve()
+    )
+    assert keyframe_command[keyframe_command.index("--end") + 1] == str(end.resolve())
+
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    retake = replace(
+        keyframe,
+        image_path=None,
+        last_image_path=None,
+        source_video_path=source,
+        task="video_retake",
+        audio_mode="preserved",
+        retake_start_frame=2,
+        retake_end_frame=5,
+    )
+    retake_command = build_local_video_command(retake, python_executable="python3")
+    assert retake_command[3] == "retake"
+    assert "--no-regen-audio" in retake_command
+    assert retake_command[retake_command.index("--video") + 1] == str(source.resolve())
+
+    extend = replace(
+        retake,
+        task="video_extend",
+        audio_mode="generated",
+        retake_start_frame=None,
+        retake_end_frame=None,
+        extend_frames=3,
+        extend_direction="after",
+    )
+    extend_command = build_local_video_command(extend, python_executable="python3")
+    assert extend_command[3] == "extend"
+    assert extend_command[extend_command.index("--extend-frames") + 1] == "3"
+    assert extend_command[extend_command.index("--direction") + 1] == "after"
+
+    lineage = run_local_video(retake, dry_run=True)
+    assert lineage["sourceVideo"]["sha256"]
+    assert lineage["request"]["task"] == "video_retake"
+    assert lineage["request"]["retakeStartFrame"] == 2
+    assert lineage["audio"]["mode"] == "preserved"
+    assert lineage["providerCalls"] == 0
+    assert lineage["paidGeneration"] is False
 
 
 def test_wan_fails_closed_when_audio_is_requested(tmp_path: Path) -> None:
@@ -216,7 +305,12 @@ def test_wan_fails_closed_when_audio_is_requested(tmp_path: Path) -> None:
 def test_dry_run_records_exact_inputs_without_runner_or_provider_call(
     tmp_path: Path,
 ) -> None:
-    request = _request(tmp_path, model_id="local_ltx23_distilled_mlx")
+    request = _request(
+        tmp_path,
+        model_id="local_ltx23_distilled_mlx",
+        audio_mode="generated",
+        task="image_to_video",
+    )
 
     def fail_runner(*_args, **_kwargs):
         raise AssertionError("dry-run must not execute")
@@ -241,7 +335,7 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     audio.write_bytes(b"source-audio")
     request = _request(
         tmp_path,
-        model_id="local_ltx23_distilled_mlx",
+        model_id="local_ltx23_dev_hq_mlx",
         audio_mode="source",
         audio_path=audio,
         task="audio_image_to_video",
@@ -263,6 +357,10 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
             "streams": [{"codec_type": "video"}, {"codec_type": "audio"}]
         },
     )
+    monkeypatch.setattr(
+        "reel_factory.local_video._extract_audio_sidecar",
+        lambda _video, wav: wav.write_bytes(b"preserved-audio"),
+    )
 
     class Completed:
         returncode = 0
@@ -272,13 +370,10 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     def runner(command, **kwargs):
         assert kwargs["env"]["HF_HUB_OFFLINE"] == "1"
         assert kwargs["env"]["TRANSFORMERS_OFFLINE"] == "1"
-        assert command[command.index("--audio-file") + 1] == str(audio.resolve())
-        assert "--audio" not in command
-        video = Path(command[command.index("--output-path") + 1])
-        wav = Path(command[command.index("--output-audio") + 1])
+        assert command[command.index("--audio") + 1] == str(audio.resolve())
+        video = Path(command[command.index("--output") + 1])
         assert video.name.endswith(".partial.mp4")
         video.write_bytes(b"generated-video")
-        wav.write_bytes(b"preserved-audio")
         return Completed()
 
     result = run_local_video(request, dry_run=False, runner=runner)
@@ -300,7 +395,7 @@ def test_apply_rejects_short_source_audio_before_queue_or_runner(
     audio.write_bytes(b"short-source-audio")
     request = _request(
         tmp_path,
-        model_id="local_ltx23_distilled_mlx",
+        model_id="local_ltx23_dev_hq_mlx",
         audio_mode="source",
         audio_path=audio,
         task="audio_image_to_video",

@@ -9,7 +9,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from .fileops import atomic_write_text
 from .local_generation_queue import (
@@ -34,8 +34,15 @@ from .local_video_models import (
 )
 from .video_provider_models import validate_model_request, video_model
 
-AudioMode = Literal["none", "source", "generated"]
-LocalVideoTask = Literal["text_to_video", "image_to_video", "audio_image_to_video"]
+AudioMode = Literal["none", "source", "generated", "preserved"]
+LocalVideoTask = Literal[
+    "text_to_video",
+    "image_to_video",
+    "audio_image_to_video",
+    "keyframe_interpolation",
+    "video_retake",
+    "video_extend",
+]
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 DEFAULT_NEGATIVE_PROMPT = (
@@ -46,6 +53,14 @@ DEFAULT_NEGATIVE_PROMPT = (
 
 class LocalVideoUnavailable(RuntimeError):
     """Raised when local runtime, weights, or dependency proof is incomplete."""
+
+
+class _OutputExpectations(TypedDict):
+    width: int
+    height: int
+    fps: int
+    duration: float | None
+    minimumDuration: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +81,14 @@ class LocalVideoRequest:
     task: LocalVideoTask = "image_to_video"
     lora_path: Path | None = None
     lora_strength: float = 1.0
+    source_video_path: Path | None = None
+    retake_start_frame: int | None = None
+    retake_end_frame: int | None = None
+    extend_frames: int | None = None
+    extend_direction: Literal["before", "after"] = "after"
+    low_ram: bool = True
+    tile_frames: int = 1
+    tile_spatial: int = 2
 
 
 def probe_local_video(
@@ -86,11 +109,7 @@ def probe_local_video(
         else model_status(model_id)
     )
     runtime = runtime_status(family=spec.family)
-    python_env = (
-        "CREATOR_OS_LOCAL_LONGCAT_PYTHON"
-        if spec.family == "longcat_avatar"
-        else "CREATOR_OS_LOCAL_MLX_PYTHON"
-    )
+    python_env = _python_environment_name(spec.family)
     configured_python = python_executable or os.environ.get(python_env)
     configured_python = configured_python or str(runtime.get("python") or "")
     issues = list(model_capability["issues"])
@@ -136,11 +155,7 @@ def build_local_video_command(
         if request.model_dir is not None
         else default_local_model_dir(request.model_id)
     )
-    python_env = (
-        "CREATOR_OS_LOCAL_LONGCAT_PYTHON"
-        if spec.family == "longcat_avatar"
-        else "CREATOR_OS_LOCAL_MLX_PYTHON"
-    )
+    python_env = _python_environment_name(spec.family)
     python = python_executable or os.environ.get(python_env)
     runtime = runtime_status(family=spec.family)
     python = python or str(runtime.get("python") or "python3")
@@ -207,9 +222,11 @@ def run_local_video(
     manifest = capability.get("model", {}).get("manifest")
     lineage: dict[str, Any] = {
         "schema": "reel_factory.local_video_generation.v1",
-        "backend": (
-            "longcat_avatar_mlx" if spec.family == "longcat_avatar" else "mlx_video"
-        ),
+        "backend": {
+            "wan_2": "mlx_video",
+            "ltx_2": "ltx_2_mlx",
+            "longcat_avatar": "longcat_avatar_mlx",
+        }[spec.family],
         "modelId": request.model_id,
         "modelFamily": spec.family,
         "modelRepository": spec.repository,
@@ -222,6 +239,7 @@ def run_local_video(
             else None
         ),
         "lastImage": _optional_input(request.last_image_path),
+        "sourceVideo": _optional_input(request.source_video_path),
         "sourceAudio": _optional_input(request.audio_path),
         "lora": _optional_lora(
             request.lora_path, request.lora_strength, model_id=request.model_id
@@ -236,16 +254,23 @@ def run_local_video(
         "request": {
             "prompt": " ".join(request.prompt.split()),
             "negativePrompt": (
-                None if spec.family == "longcat_avatar" else request.negative_prompt
+                request.negative_prompt if spec.family == "wan_2" else None
             ),
-            "negativePromptApplied": spec.family != "longcat_avatar",
+            "negativePromptApplied": spec.family == "wan_2",
             "durationSeconds": request.duration_seconds,
             "resolution": f"{spec.width}x{spec.height}",
             "fps": spec.fps,
-            "steps": request.steps or spec.default_steps,
+            "steps": _effective_steps(request, spec),
             "seed": request.seed,
             "pipeline": spec.pipeline,
             "task": request.task,
+            "retakeStartFrame": request.retake_start_frame,
+            "retakeEndFrame": request.retake_end_frame,
+            "extendFrames": request.extend_frames,
+            "extendDirection": request.extend_direction,
+            "lowRam": request.low_ram,
+            "tileFrames": request.tile_frames,
+            "tileSpatial": request.tile_spatial,
         },
         "capability": capability,
         "command": command,
@@ -284,7 +309,7 @@ def run_local_video(
     command = build_local_video_command(
         apply_request, python_executable=python_executable
     )
-    if spec.family in {"ltx_2", "longcat_avatar"} and request.audio_mode != "none":
+    if spec.family == "longcat_avatar" and request.audio_mode != "none":
         command.extend(["--output-audio", str(partial_audio)])
     lineage["command"] = command
     lineage["status"] = "running"
@@ -346,12 +371,18 @@ def run_local_video(
                     )
                 if not partial.is_file() or partial.stat().st_size <= 0:
                     raise RuntimeError("local_video_output_missing")
+                if spec.family == "ltx_2" and request.audio_mode != "none":
+                    _extract_audio_sidecar(partial, partial_audio)
+                expectations = _output_expectations(
+                    request, spec=spec, preflight=lineage["inputPreflight"]
+                )
                 probe = _validate_video(
                     partial,
-                    expected_width=spec.width,
-                    expected_height=spec.height,
-                    expected_duration_seconds=request.duration_seconds,
-                    expected_fps=spec.fps,
+                    expected_width=expectations["width"],
+                    expected_height=expectations["height"],
+                    expected_duration_seconds=expectations["duration"],
+                    minimum_duration_seconds=expectations["minimumDuration"],
+                    expected_fps=expectations["fps"],
                     expect_audio=request.audio_mode != "none",
                 )
                 verified = queue.verify_generated_artifacts(
@@ -486,64 +517,175 @@ def _build_ltx_command(
     prompt: str,
 ) -> list[str]:
     frames = 8 * round(request.duration_seconds * spec.fps / 8) + 1
-    command = [
+    base = [
         python,
         "-m",
-        "mlx_video.models.ltx_2.generate",
-        "--model-repo",
-        str(model_dir),
-        "--text-encoder-repo",
-        str(ltx_text_encoder_dir()),
-        "--pipeline",
-        spec.pipeline,
+        "ltx_pipelines_mlx.cli",
+    ]
+    common = [
         "--prompt",
         prompt,
-        "--negative-prompt",
-        request.negative_prompt,
+        "--output",
+        str(output),
+        "--model",
+        str(model_dir),
+        "--gemma",
+        str(ltx_text_encoder_dir(model_dir.parent)),
+        "--seed",
+        str(request.seed),
+        "--quiet",
+    ]
+    if request.task == "video_retake":
+        assert request.source_video_path is not None
+        assert request.retake_start_frame is not None
+        assert request.retake_end_frame is not None
+        command = [
+            *base,
+            "retake",
+            *common,
+            "--video",
+            str(Path(request.source_video_path).expanduser().resolve()),
+            "--start",
+            str(request.retake_start_frame),
+            "--end",
+            str(request.retake_end_frame),
+            "--steps",
+            str(_effective_steps(request, spec)),
+        ]
+        if request.audio_mode == "preserved":
+            command.append("--no-regen-audio")
+        return command
+    if request.task == "video_extend":
+        assert request.source_video_path is not None
+        assert request.extend_frames is not None
+        return [
+            *base,
+            "extend",
+            *common,
+            "--video",
+            str(Path(request.source_video_path).expanduser().resolve()),
+            "--extend-frames",
+            str(request.extend_frames),
+            "--direction",
+            request.extend_direction,
+            "--steps",
+            str(_effective_steps(request, spec)),
+        ]
+    if request.task == "keyframe_interpolation":
+        assert image is not None
+        assert request.last_image_path is not None
+        command = [
+            *base,
+            "keyframe",
+            *common,
+            "--start",
+            str(image),
+            "--end",
+            str(Path(request.last_image_path).expanduser().resolve()),
+            "--width",
+            str(spec.width),
+            "--height",
+            str(spec.height),
+            "--frames",
+            str(frames),
+            "--frame-rate",
+            str(spec.fps),
+            "--stage1-steps",
+            str(_effective_steps(request, spec)),
+            "--dev-transformer",
+            "transformer-dev.safetensors",
+            "--distilled-lora",
+            "ltx-2.3-22b-distilled-lora-384.safetensors",
+        ]
+        return _append_ltx_memory_flags(command, request, include_tiling=False)
+
+    subcommand = "a2v" if request.audio_mode == "source" else "generate"
+    command = [
+        *base,
+        subcommand,
+        *common,
         "--width",
         str(spec.width),
         "--height",
         str(spec.height),
-        "--num-frames",
+        "--frames",
         str(frames),
-        "--fps",
+        "--frame-rate",
         str(spec.fps),
-        "--steps",
-        str(request.steps or spec.default_steps),
-        "--seed",
-        str(request.seed),
-        "--tiling",
-        "aggressive",
-        "--spatial-upscaler",
-        "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
-        "--output-path",
-        str(output),
     ]
     if image is not None:
         command.extend(["--image", str(image)])
+    if subcommand == "a2v":
+        assert request.audio_path is not None
+        command.extend(
+            ["--audio", str(Path(request.audio_path).expanduser().resolve())]
+        )
+        command.extend(["--stage1-steps", str(_effective_steps(request, spec))])
+    elif spec.pipeline == "distilled":
+        command.extend(["--distilled"])
+        if request.steps is not None:
+            command.extend(["--stage1-steps", str(request.steps)])
+    else:
+        command.extend(
+            [
+                "--two-stages-hq",
+                "--stage1-steps",
+                str(request.steps or spec.default_steps),
+                "--stage2-steps",
+                "3",
+            ]
+        )
     if request.lora_path is not None:
         command.extend(
             [
-                "--lora-path",
+                "--lora",
                 str(Path(request.lora_path).expanduser().resolve()),
-                "--lora-strength",
                 str(request.lora_strength),
             ]
         )
-    if spec.pipeline != "distilled":
-        command.extend(["--cfg-scale", spec.guide_scale, "--apg"])
     if request.last_image_path is not None:
         command.extend(
-            ["--end-image", str(Path(request.last_image_path).expanduser().resolve())]
+            [
+                "--image",
+                str(Path(request.last_image_path).expanduser().resolve()),
+                str(frames - 1),
+                "1.0",
+            ]
         )
-    if request.audio_mode == "source":
-        assert request.audio_path is not None
-        command.extend(
-            ["--audio-file", str(Path(request.audio_path).expanduser().resolve())]
-        )
-    elif request.audio_mode == "generated":
-        command.append("--audio")
+    return _append_ltx_memory_flags(
+        command, request, include_tiling=subcommand == "generate"
+    )
+
+
+def _append_ltx_memory_flags(
+    command: list[str],
+    request: LocalVideoRequest,
+    *,
+    include_tiling: bool,
+) -> list[str]:
+    if request.low_ram:
+        command.append("--low-ram")
+    if include_tiling and request.tile_frames > 1:
+        command.extend(["--tile-frames", str(request.tile_frames)])
+    if include_tiling and request.tile_spatial > 1:
+        command.extend(["--tile-spatial", str(request.tile_spatial)])
     return command
+
+
+def _effective_steps(request: LocalVideoRequest, spec: LocalVideoModelSpec) -> int:
+    if request.steps is not None:
+        return request.steps
+    if spec.family == "ltx_2" and (
+        request.audio_mode == "source"
+        or request.task
+        in {
+            "keyframe_interpolation",
+            "video_retake",
+            "video_extend",
+        }
+    ):
+        return 30
+    return spec.default_steps
 
 
 def _build_longcat_command(
@@ -592,9 +734,13 @@ def _validate_request_inputs(
 ) -> None:
     if request.seed < 0:
         raise ValueError("local video requires an explicit non-negative seed")
-    steps = request.steps or spec.default_steps
+    steps = _effective_steps(request, spec)
     if steps < 4 or steps > 60:
         raise ValueError("local video steps must be between 4 and 60")
+    if not 1 <= request.tile_frames <= 8:
+        raise ValueError("local video temporal tiles must be between 1 and 8")
+    if not 1 <= request.tile_spatial <= 4:
+        raise ValueError("local video spatial tiles must be between 1 and 4")
     prompt = " ".join(str(request.prompt or "").split())
     if len(prompt) < 20:
         raise ValueError(
@@ -604,6 +750,12 @@ def _validate_request_inputs(
         image = Path(request.image_path).expanduser().resolve()
         if not image.is_file():
             raise FileNotFoundError(f"local video input image not found: {image}")
+    if request.source_video_path is not None:
+        source_video = Path(request.source_video_path).expanduser().resolve()
+        if not source_video.is_file():
+            raise FileNotFoundError(
+                f"local video source video not found: {source_video}"
+            )
     if request.audio_mode == "source":
         if request.audio_path is None:
             raise ValueError("source audio mode requires --audio")
@@ -627,6 +779,42 @@ def _validate_request_inputs(
         verify_local_lora(lora, model_id=request.model_id)
     if spec.family == "wan_2" and request.audio_mode != "none":
         raise ValueError("local Wan does not support audio; select a local LTX model")
+    if spec.family == "ltx_2":
+        if request.audio_mode == "none":
+            raise ValueError(
+                "local LTX 2.3 produces joint audio/video; choose generated, source, "
+                "or preserved audio explicitly"
+            )
+        if request.audio_mode == "preserved" and request.task != "video_retake":
+            raise ValueError("preserved audio is supported only for video_retake")
+        if request.task == "video_retake":
+            if request.source_video_path is None:
+                raise ValueError("video_retake requires --source-video")
+            if request.retake_start_frame is None or request.retake_end_frame is None:
+                raise ValueError("video_retake requires start and end latent frames")
+            if not (0 <= request.retake_start_frame < request.retake_end_frame):
+                raise ValueError("video_retake frame range is invalid")
+            if request.audio_mode not in {"generated", "preserved"}:
+                raise ValueError(
+                    "video_retake audio must be regenerated or explicitly preserved"
+                )
+        elif request.task == "video_extend":
+            if request.source_video_path is None:
+                raise ValueError("video_extend requires --source-video")
+            if request.extend_frames is None or not 1 <= request.extend_frames <= 24:
+                raise ValueError("video_extend requires 1-24 latent --extend-frames")
+            if request.audio_mode != "generated":
+                raise ValueError("video_extend requires generated continuation audio")
+        elif request.source_video_path is not None:
+            raise ValueError("--source-video requires video_retake or video_extend")
+        if request.task in {"video_retake", "video_extend", "keyframe_interpolation"}:
+            if request.lora_path is not None:
+                raise ValueError(f"{request.task} does not accept a Creator OS LoRA")
+        if (
+            request.task == "keyframe_interpolation"
+            and request.audio_mode != "generated"
+        ):
+            raise ValueError("keyframe_interpolation requires generated joint audio")
     if spec.family == "longcat_avatar":
         if request.task != "audio_image_to_video":
             raise ValueError("LongCat Avatar requires audio_image_to_video task")
@@ -641,7 +829,11 @@ def _validate_request_inputs(
 
 
 def _preflight_local_inputs(request: LocalVideoRequest) -> dict[str, Any]:
-    evidence: dict[str, Any] = {"images": [], "sourceAudio": None}
+    evidence: dict[str, Any] = {
+        "images": [],
+        "sourceAudio": None,
+        "sourceVideo": None,
+    }
     for role, raw_path in (
         ("image", request.image_path),
         ("lastImage", request.last_image_path),
@@ -733,6 +925,75 @@ def _preflight_local_inputs(request: LocalVideoRequest) -> dict[str, Any]:
             "minimumRequiredSeconds": request.duration_seconds,
             "policy": "trim_only_no_padding",
         }
+    if request.source_video_path is not None:
+        path = Path(request.source_video_path).expanduser().resolve()
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        try:
+            payload = json.loads(proc.stdout) if proc.returncode == 0 else {}
+            streams = payload.get("streams") or []
+            video = next(
+                value for value in streams if value.get("codec_type") == "video"
+            )
+            audio_streams = [
+                value for value in streams if value.get("codec_type") == "audio"
+            ]
+            numerator, denominator = str(video.get("avg_frame_rate") or "").split(
+                "/", 1
+            )
+            fps = float(numerator) / float(denominator)
+            duration = float(str((payload.get("format") or {}).get("duration")))
+            width = int(video.get("width") or 0)
+            height = int(video.get("height") or 0)
+        except (
+            StopIteration,
+            TypeError,
+            ValueError,
+            ZeroDivisionError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise ValueError("local_video_source_video_unreadable") from exc
+        if width <= 0 or height <= 0 or duration <= 0 or fps <= 0:
+            raise ValueError("local_video_source_video_unreadable")
+        if len(audio_streams) != 1:
+            raise ValueError(
+                "local_video_source_video_requires_exactly_one_audio_stream"
+            )
+        latent_frame_count = max(1, int((duration * fps + 7) // 8))
+        if (
+            request.task == "video_retake"
+            and request.retake_end_frame is not None
+            and request.retake_end_frame > latent_frame_count
+        ):
+            raise ValueError(
+                "local_video_retake_range_exceeds_source:"
+                f"end={request.retake_end_frame}:latentFrames={latent_frame_count}"
+            )
+        evidence["sourceVideo"] = {
+            "path": str(path),
+            "sha256": _sha256_file(path),
+            "codec": video.get("codec_name"),
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "durationSeconds": duration,
+            "latentFrameCount": latent_frame_count,
+            "audioCodec": audio_streams[0].get("codec_name"),
+        }
     return evidence
 
 
@@ -759,7 +1020,8 @@ def _validate_video(
     *,
     expected_width: int,
     expected_height: int,
-    expected_duration_seconds: int,
+    expected_duration_seconds: float | None,
+    minimum_duration_seconds: float | None,
     expected_fps: int,
     expect_audio: bool,
 ) -> dict[str, Any]:
@@ -808,9 +1070,64 @@ def _validate_video(
         raise RuntimeError("local_video_output_timing_invalid") from exc
     if abs(fps - float(expected_fps)) > 0.05:
         raise RuntimeError("local_video_output_fps_mismatch")
-    if abs(duration - float(expected_duration_seconds)) > 0.35:
+    if (
+        expected_duration_seconds is not None
+        and abs(duration - expected_duration_seconds) > 0.35
+    ):
         raise RuntimeError("local_video_output_duration_mismatch")
+    if minimum_duration_seconds is not None and duration <= minimum_duration_seconds:
+        raise RuntimeError("local_video_output_extension_missing")
     return payload
+
+
+def _output_expectations(
+    request: LocalVideoRequest,
+    *,
+    spec: LocalVideoModelSpec,
+    preflight: dict[str, Any],
+) -> _OutputExpectations:
+    source = preflight.get("sourceVideo")
+    if isinstance(source, dict):
+        duration = float(source["durationSeconds"])
+        return {
+            "width": int(source["width"]),
+            "height": int(source["height"]),
+            "fps": int(round(float(source["fps"]))),
+            "duration": duration if request.task == "video_retake" else None,
+            "minimumDuration": duration if request.task == "video_extend" else None,
+        }
+    return {
+        "width": spec.width,
+        "height": spec.height,
+        "fps": spec.fps,
+        "duration": request.duration_seconds,
+        "minimumDuration": None,
+    }
+
+
+def _extract_audio_sidecar(video: Path, output: Path) -> None:
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            str(video),
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10 * 60,
+    )
+    if completed.returncode != 0 or not output.is_file() or output.stat().st_size <= 0:
+        raise RuntimeError(
+            "local_video_audio_sidecar_extract_failed: "
+            + (completed.stderr[-2000:] or completed.stdout[-2000:])
+        )
 
 
 def _optional_input(path: Path | None) -> dict[str, str] | None:
@@ -835,6 +1152,14 @@ def _optional_lora(
     }
 
 
+def _python_environment_name(family: str) -> str:
+    return {
+        "wan_2": "CREATOR_OS_LOCAL_MLX_PYTHON",
+        "ltx_2": "CREATOR_OS_LOCAL_LTX_PYTHON",
+        "longcat_avatar": "CREATOR_OS_LOCAL_LONGCAT_PYTHON",
+    }[family]
+
+
 def _generation_job(
     request: LocalVideoRequest,
     *,
@@ -848,6 +1173,7 @@ def _generation_job(
         "image": _optional_input(request.image_path),
         "audio": _optional_input(request.audio_path),
         "lastImage": _optional_input(request.last_image_path),
+        "sourceVideo": _optional_input(request.source_video_path),
         "lora": _optional_lora(
             request.lora_path, request.lora_strength, model_id=request.model_id
         ),
@@ -858,6 +1184,7 @@ def _generation_job(
             "image": inputs["image"],
             "audio": inputs["audio"],
             "lastImage": inputs["lastImage"],
+            "sourceVideo": inputs["sourceVideo"],
         }
     )
     params = {

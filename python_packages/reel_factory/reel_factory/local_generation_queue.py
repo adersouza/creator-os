@@ -1088,6 +1088,8 @@ class LocalGenerationQueue:
             "lastImage": lineage.get("lastImage"),
             "lora": lineage.get("lora"),
         }
+        if "sourceVideo" in lineage:
+            inputs["sourceVideo"] = lineage.get("sourceVideo")
         request = lineage.get("request")
         command = lineage.get("command")
         if not isinstance(request, dict) or not isinstance(command, list):
@@ -1099,13 +1101,14 @@ class LocalGenerationQueue:
             "durationSeconds": request.get("durationSeconds"),
             "seed": request.get("seed"),
         }
-        cohort_input_sha = fingerprint(
-            {
-                "image": inputs["image"],
-                "audio": inputs["audio"],
-                "lastImage": inputs["lastImage"],
-            }
-        )
+        cohort_inputs = {
+            "image": inputs["image"],
+            "audio": inputs["audio"],
+            "lastImage": inputs["lastImage"],
+        }
+        if "sourceVideo" in inputs:
+            cohort_inputs["sourceVideo"] = inputs["sourceVideo"]
+        cohort_input_sha = fingerprint(cohort_inputs)
         cohort = {
             "sourceInputSha256": cohort_input_sha,
             "task": request.get("task"),

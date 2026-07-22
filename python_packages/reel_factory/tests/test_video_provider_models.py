@@ -108,6 +108,26 @@ def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them
     with pytest.raises(ValueError, match="steps applies only"):
         build_request(remote_args)
 
+    remote_memory_args = _parser().parse_args(
+        [
+            "--model",
+            "wavespeed_wan27_i2v_pro",
+            "--prompt",
+            "Natural breathing and a slow camera push toward the subject",
+            "--image",
+            str(image),
+            "--out",
+            str(tmp_path / "remote-memory.mp4"),
+            "--campaign",
+            "campaign",
+            "--tile-spatial",
+            "3",
+            "--dry-run",
+        ]
+    )
+    with pytest.raises(ValueError, match="memory controls require a local model"):
+        build_request(remote_memory_args)
+
 
 def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) -> None:
     image = tmp_path / "still.jpg"
@@ -126,17 +146,17 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
             "campaign",
             "--generate-audio",
             "--task",
-            "audio_image_to_video",
+            "image_to_video",
             "--dry-run",
         ]
     )
     request = build_request(args)
     assert request.audio_mode == "generated"
-    assert request.task == "audio_image_to_video"
+    assert request.task == "image_to_video"
     assert request.audio_path is None
 
     wan = video_model("local_wan22_ti2v_5b_mlx")
-    with pytest.raises(ValueError, match="explicit audio_image_to_video task"):
+    with pytest.raises(ValueError, match="does not support generated audio"):
         validate_model_request(
             wan,
             resolution="720p",
@@ -148,7 +168,7 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
 
 
 def test_audio_task_and_inputs_cannot_silently_disagree() -> None:
-    ltx = video_model("local_ltx23_distilled_mlx")
+    ltx = video_model("local_ltx23_dev_hq_mlx")
     with pytest.raises(ValueError, match="requires source or generated audio"):
         validate_model_request(
             ltx,
@@ -174,4 +194,7 @@ def test_model_discovery_includes_every_explicitly_supported_task() -> None:
 
     assert "local_wan22_ti2v_5b_mlx" in video_model_ids(task="text_to_video")
     assert "local_ltx23_distilled_mlx" in video_model_ids(task="text_to_video")
-    assert "local_ltx23_distilled_mlx" in video_model_ids(task="audio_image_to_video")
+    assert "local_ltx23_dev_hq_mlx" in video_model_ids(task="audio_image_to_video")
+    assert "local_ltx23_dev_hq_mlx" in video_model_ids(task="keyframe_interpolation")
+    assert "local_ltx23_dev_hq_mlx" in video_model_ids(task="video_retake")
+    assert "local_ltx23_dev_hq_mlx" in video_model_ids(task="video_extend")

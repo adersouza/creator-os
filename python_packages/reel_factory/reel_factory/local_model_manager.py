@@ -24,7 +24,8 @@ from .local_lora_registry import register_local_lora
 from .local_video_models import (
     LONGCAT_MLX_REPOSITORY,
     LONGCAT_MLX_REVISION,
-    LTX23_SHARED,
+    LTX_MLX_REPOSITORY,
+    LTX_MLX_REVISION,
     MLX_VIDEO_REPOSITORY,
     MLX_VIDEO_REVISION,
     MODEL_MANIFEST,
@@ -109,6 +110,31 @@ def _normalize_mlx_video_environment(
     return sorted(normalized)
 
 
+def _normalize_ltx_environment(values: Sequence[str], *, runtime: Path) -> list[str]:
+    normalized: list[str] = []
+    source_prefixes = ("ltx-2-mlx @ ", "ltx-core-mlx @ ", "ltx-pipelines-mlx @ ")
+    allowed_sources = {
+        runtime.as_uri(),
+        runtime.with_name(runtime.name + ".partial").as_uri(),
+    }
+    for value in values:
+        stripped = value.strip()
+        if not stripped:
+            continue
+        for prefix in source_prefixes:
+            source = (
+                stripped[len(prefix) :] if stripped.lower().startswith(prefix) else ""
+            )
+            if source and any(
+                source == allowed or source.startswith(allowed + "/")
+                for allowed in allowed_sources
+            ):
+                stripped = f"{prefix}creator-os-pinned-source:{LTX_MLX_REVISION}"
+                break
+        normalized.append(stripped)
+    return sorted(normalized)
+
+
 def install_plan(
     model_ids: Sequence[str], *, models_root: Path | None = None
 ) -> dict[str, Any]:
@@ -123,7 +149,6 @@ def install_plan(
             issue
             for issue in status["issues"]
             if not str(issue).startswith("local_model_dependency_missing:")
-            and not str(issue).startswith("local_model_shared_component_missing:")
         ]
         installed = not material_issues
         if not installed:
@@ -171,6 +196,7 @@ def install_models(
     *,
     models_root: Path | None = None,
     runtime_root: Path | None = None,
+    ltx_runtime_root: Path | None = None,
     longcat_runtime_root: Path | None = None,
     accepted_licenses: Sequence[str] = (),
     runner: Runner = subprocess.run,
@@ -197,9 +223,13 @@ def install_models(
         raise OSError("local_model_install_insufficient_disk_space")
     runtime_families = {spec.family for spec in specs}
     runtimes: dict[str, Any] = {}
-    if runtime_families.intersection({"wan_2", "ltx_2"}):
+    if "wan_2" in runtime_families:
         runtimes["mlx_video"] = install_runtime(
             runtime_root=runtime_root, runner=runner
+        )
+    if "ltx_2" in runtime_families:
+        runtimes["ltx_2_mlx"] = install_runtime(
+            runtime_root=ltx_runtime_root, family="ltx_2", runner=runner
         )
     if "longcat_avatar" in runtime_families:
         runtimes["longcat_avatar"] = install_runtime(
@@ -218,7 +248,11 @@ def install_models(
     ]
     return {
         "schema": "reel_factory.local_model_install_run.v1",
-        "runtime": runtimes.get("mlx_video") or runtimes.get("longcat_avatar"),
+        "runtime": (
+            runtimes.get("mlx_video")
+            or runtimes.get("ltx_2_mlx")
+            or runtimes.get("longcat_avatar")
+        ),
         "runtimes": runtimes,
         "models": installed_models,
         "dependencies": installed_dependencies,
@@ -237,6 +271,8 @@ def install_runtime(
 ) -> dict[str, Any]:
     if family == "longcat_avatar":
         return _install_longcat_runtime(runtime_root=runtime_root, runner=runner)
+    if family == "ltx_2":
+        return _install_ltx_runtime(runtime_root=runtime_root, runner=runner)
     runtime = _runtime_root(runtime_root)
     receipt = runtime / ".creator-os-runtime.json"
     if runtime.exists():
@@ -321,6 +357,8 @@ def runtime_status(
 ) -> dict[str, Any]:
     if family == "longcat_avatar":
         return _longcat_runtime_status(runtime_root=runtime_root)
+    if family == "ltx_2":
+        return _ltx_runtime_status(runtime_root=runtime_root)
     runtime = _runtime_root(runtime_root)
     python = runtime / ".venv/bin/python"
     issues: list[str] = []
@@ -462,6 +500,159 @@ def _repair_mlx_runtime_environment(
             + ", ".join(status["issues"])
         )
     return status
+
+
+def _install_ltx_runtime(
+    *, runtime_root: Path | None = None, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    runtime = _ltx_runtime_root(runtime_root)
+    receipt = runtime / ".creator-os-runtime.json"
+    if runtime.exists():
+        status = _ltx_runtime_status(runtime_root=runtime)
+        if status["ready"]:
+            return status
+        raise RuntimeError(
+            "local_ltx_runtime_exists_but_is_not_pinned: " + ", ".join(status["issues"])
+        )
+    partial = runtime.with_name(runtime.name + ".partial")
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    if partial.exists():
+        observed_revision = _git_revision(partial, runner=runner)
+        if observed_revision != LTX_MLX_REVISION:
+            raise FileExistsError(
+                "local_ltx_runtime_partial_revision_mismatch: "
+                f"expected {LTX_MLX_REVISION}, got "
+                f"{observed_revision or 'unreadable'}"
+            )
+    else:
+        _run_checked(
+            runner,
+            ["git", "clone", "--filter=blob:none", LTX_MLX_REPOSITORY, str(partial)],
+        )
+        _run_checked(
+            runner,
+            ["git", "-C", str(partial), "checkout", "--detach", LTX_MLX_REVISION],
+        )
+    _run_checked(
+        runner,
+        ["uv", "sync", "--frozen", "--no-dev", "--directory", str(partial)],
+    )
+    python = partial / ".venv/bin/python"
+    frozen = _run_checked(
+        runner, ["uv", "pip", "freeze", "--python", str(python)]
+    ).stdout.splitlines()
+    payload = {
+        "schema": _RUNTIME_SCHEMA,
+        "runtimeId": "ltx_2_mlx",
+        "repository": LTX_MLX_REPOSITORY,
+        "revision": LTX_MLX_REVISION,
+        "python": str(runtime / ".venv/bin/python"),
+        "resolvedEnvironment": _normalize_ltx_environment(frozen, runtime=runtime),
+    }
+    atomic_write_text(
+        partial / receipt.name,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(partial, runtime)
+    return _ltx_runtime_status(runtime_root=runtime)
+
+
+def _ltx_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
+    runtime = _ltx_runtime_root(runtime_root)
+    python = runtime / ".venv/bin/python"
+    receipt = runtime / ".creator-os-runtime.json"
+    issues: list[str] = []
+    revision = None
+    payload: dict[str, Any] | None = None
+    current_environment: list[str] | None = None
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        issues.append("apple_silicon_required_for_mlx_backend")
+    if not runtime.is_dir():
+        issues.append("ltx_mlx_runtime_missing")
+    else:
+        proc = subprocess.run(
+            ["git", "-C", str(runtime), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            revision = proc.stdout.strip()
+        else:
+            issues.append("ltx_mlx_runtime_revision_unreadable")
+        if revision != LTX_MLX_REVISION:
+            issues.append("ltx_mlx_runtime_revision_mismatch")
+    try:
+        decoded = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        issues.append("ltx_mlx_runtime_receipt_missing_or_invalid")
+    else:
+        if isinstance(decoded, dict):
+            payload = decoded
+        if (
+            payload is None
+            or payload.get("schema") != _RUNTIME_SCHEMA
+            or payload.get("runtimeId") != "ltx_2_mlx"
+            or payload.get("repository") != LTX_MLX_REPOSITORY
+            or payload.get("revision") != LTX_MLX_REVISION
+            or payload.get("python") != str(python)
+        ):
+            issues.append("ltx_mlx_runtime_receipt_mismatch")
+    if not python.is_file():
+        issues.append("ltx_mlx_python_missing")
+    else:
+        proc = subprocess.run(
+            [str(python), "-c", "import mlx, ltx_core_mlx, ltx_pipelines_mlx"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        if proc.returncode != 0:
+            issues.append("ltx_mlx_runtime_import_failed")
+        try:
+            freeze_proc = subprocess.run(
+                ["uv", "pip", "freeze", "--python", str(python)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            issues.append("ltx_mlx_runtime_environment_unreadable")
+        else:
+            if freeze_proc.returncode != 0:
+                issues.append("ltx_mlx_runtime_environment_unreadable")
+            else:
+                current_environment = _normalize_ltx_environment(
+                    freeze_proc.stdout.splitlines(), runtime=runtime
+                )
+                recorded = payload.get("resolvedEnvironment") if payload else None
+                if not isinstance(recorded, list) or not all(
+                    isinstance(value, str) for value in recorded
+                ):
+                    issues.append("ltx_mlx_runtime_receipt_environment_missing")
+                elif current_environment != _normalize_ltx_environment(
+                    recorded, runtime=runtime
+                ):
+                    issues.append("ltx_mlx_runtime_environment_drift")
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        issues.append("ffmpeg_or_ffprobe_missing")
+    return {
+        "schema": "reel_factory.local_mlx_runtime_capability.v1",
+        "runtimeId": "ltx_2_mlx",
+        "runtimeDir": str(runtime),
+        "python": str(python),
+        "repository": LTX_MLX_REPOSITORY,
+        "expectedRevision": LTX_MLX_REVISION,
+        "observedRevision": revision,
+        "receipt": payload,
+        "resolvedEnvironment": current_environment,
+        "ready": not issues,
+        "issues": issues,
+    }
 
 
 def _install_longcat_runtime(
@@ -712,10 +903,6 @@ def model_status(
         dependency = local_install_dependency(dependency_id)
         if not _dependency_ready(dependency, root, deep=deep):
             issues.append(f"local_model_dependency_missing:{dependency_id}")
-    if spec.family == "ltx_2":
-        for relative in _ltx_shared_links():
-            if not (directory / relative).exists():
-                issues.append(f"local_model_shared_component_missing:{relative}")
     return {
         "schema": "reel_factory.local_model_capability.v1",
         "modelId": spec.model_id,
@@ -738,6 +925,7 @@ def all_model_status(
     *,
     models_root: Path | None = None,
     runtime_root: Path | None = None,
+    ltx_runtime_root: Path | None = None,
     longcat_runtime_root: Path | None = None,
     deep: bool = False,
 ) -> dict[str, Any]:
@@ -748,15 +936,18 @@ def all_model_status(
     ]
     runtimes = {
         "mlx_video": runtime_status(runtime_root=runtime_root),
+        "ltx_2_mlx": runtime_status(runtime_root=ltx_runtime_root, family="ltx_2"),
         "longcat_avatar": runtime_status(
             runtime_root=longcat_runtime_root, family="longcat_avatar"
         ),
     }
     models = []
     for spec, status in zip(specs, file_statuses, strict=True):
-        runtime_key = (
-            "longcat_avatar" if spec.family == "longcat_avatar" else "mlx_video"
-        )
+        runtime_key = {
+            "wan_2": "mlx_video",
+            "ltx_2": "ltx_2_mlx",
+            "longcat_avatar": "longcat_avatar",
+        }[spec.family]
         runtime_ready = bool(runtimes[runtime_key]["ready"])
         files_ready = bool(status["ready"])
         models.append(
@@ -789,6 +980,43 @@ def runtime_model_dir(spec: LocalVideoModelSpec, directory: Path) -> Path:
 
 def hf_home(models_root: Path | None = None) -> Path:
     return _models_root(models_root) / ".hf-home"
+
+
+def legacy_storage_report(*, models_root: Path | None = None) -> dict[str, Any]:
+    """Report superseded local-model directories without deleting anything."""
+
+    root = _models_root(models_root)
+    names = (
+        "LTX-2.3-distilled-MLX",
+        "LTX-2.3-dev-MLX",
+        "LTX-2.3-shared-MLX",
+        "LTX-Gemma3-12B",
+    )
+    candidates = []
+    for name in names:
+        path = root / name
+        if not path.exists():
+            continue
+        candidates.append(
+            {
+                "path": str(path.resolve()),
+                "estimatedBytes": _directory_size(path),
+                "classification": "superseded_ltx_runtime_artifact",
+                "deletionAllowed": False,
+                "reason": (
+                    "preserve until quantized replacements pass deep verification, "
+                    "a visual canary, and an operator reference audit"
+                ),
+            }
+        )
+    return {
+        "schema": "reel_factory.local_model_legacy_storage_report.v1",
+        "modelsRoot": str(root),
+        "candidates": candidates,
+        "candidateBytes": sum(value["estimatedBytes"] for value in candidates),
+        "deletionPerformed": False,
+        "destructiveActionAvailable": False,
+    }
 
 
 def _install_dependency(
@@ -865,8 +1093,6 @@ def _install_model(
         directory,
         runner=runner,
     )
-    if spec.family == "ltx_2":
-        _link_ltx_shared_components(directory, root=root)
     records = _file_records(directory)
     runtime_id, runtime_repository, runtime_revision = runtime_identity(spec.family)
     payload = {
@@ -921,31 +1147,6 @@ def _hf_download(
     for pattern in includes:
         command.extend(["--include", pattern])
     _run_checked(runner, command)
-
-
-def _link_ltx_shared_components(directory: Path, *, root: Path) -> None:
-    shared = LTX23_SHARED.directory(root)
-    for relative in _ltx_shared_links():
-        target = shared / relative
-        link = directory / relative
-        if not target.exists():
-            raise FileNotFoundError(f"ltx_shared_component_missing:{target}")
-        if link.is_symlink() and link.resolve() == target.resolve():
-            continue
-        if link.exists() or link.is_symlink():
-            raise FileExistsError(f"ltx_shared_component_collision:{link}")
-        link.parent.mkdir(parents=True, exist_ok=True)
-        link.symlink_to(target, target_is_directory=target.is_dir())
-
-
-def _ltx_shared_links() -> tuple[str, ...]:
-    return (
-        "audio_vae",
-        "text_projections",
-        "vae",
-        "vocoder",
-        "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
-    )
 
 
 def _dependency_ready(
@@ -1027,6 +1228,14 @@ def _file_records(directory: Path) -> list[dict[str, object]]:
     return records
 
 
+def _directory_size(directory: Path) -> int:
+    total = 0
+    for path in directory.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            total += path.stat().st_size
+    return total
+
+
 def _selected_specs(model_ids: Sequence[str]) -> tuple[LocalVideoModelSpec, ...]:
     if not model_ids or model_ids == ("all",) or list(model_ids) == ["all"]:
         return local_video_model_specs()
@@ -1052,6 +1261,12 @@ def _models_root(value: Path | None) -> Path:
 def _runtime_root(value: Path | None) -> Path:
     selected = value or os.environ.get("CREATOR_OS_LOCAL_MLX_RUNTIME")
     selected = selected or Path.home() / ".creator-os/runtimes/mlx-video"
+    return Path(selected).expanduser().resolve()
+
+
+def _ltx_runtime_root(value: Path | None) -> Path:
+    selected = value or os.environ.get("CREATOR_OS_LOCAL_LTX_RUNTIME")
+    selected = selected or Path.home() / ".creator-os/runtimes/ltx-2-mlx"
     return Path(selected).expanduser().resolve()
 
 
@@ -1097,6 +1312,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("catalog")
+    storage = sub.add_parser("storage-report")
     plan = sub.add_parser("plan")
     plan.add_argument("--model", action="append", default=[])
     install = sub.add_parser("install")
@@ -1117,10 +1333,11 @@ def _parser() -> argparse.ArgumentParser:
     lora_mode = lora.add_mutually_exclusive_group(required=True)
     lora_mode.add_argument("--dry-run", action="store_true")
     lora_mode.add_argument("--apply", action="store_true")
-    for value in (plan, install, status):
+    for value in (plan, install, status, storage):
         value.add_argument("--models-root", type=Path)
     for value in (install, status):
         value.add_argument("--runtime-root", type=Path)
+        value.add_argument("--ltx-runtime-root", type=Path)
         value.add_argument("--longcat-runtime-root", type=Path)
     return parser
 
@@ -1130,12 +1347,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "catalog":
             payload = local_model_catalog()
+        elif args.command == "storage-report":
+            payload = legacy_storage_report(models_root=args.models_root)
         elif args.command == "plan":
             payload = install_plan(args.model, models_root=args.models_root)
         elif args.command == "status":
             payload = all_model_status(
                 models_root=args.models_root,
                 runtime_root=args.runtime_root,
+                ltx_runtime_root=args.ltx_runtime_root,
                 longcat_runtime_root=args.longcat_runtime_root,
                 deep=args.deep,
             )
@@ -1156,6 +1376,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.model,
                 models_root=args.models_root,
                 runtime_root=args.runtime_root,
+                ltx_runtime_root=args.ltx_runtime_root,
                 longcat_runtime_root=args.longcat_runtime_root,
                 accepted_licenses=args.accept_license,
             )

@@ -16,6 +16,8 @@ from .video_provider_models import video_model
 
 MLX_VIDEO_REVISION = "87db56a51758fefb748a359b90a5283bb8ba4837"
 MLX_VIDEO_REPOSITORY = "https://github.com/Blaizzy/mlx-video.git"
+LTX_MLX_REVISION = "d2ad8e9948157c14a063aca54e510d3d80c2c463"
+LTX_MLX_REPOSITORY = "https://github.com/dgrauet/ltx-2-mlx.git"
 LONGCAT_MLX_REVISION = "e2e1e8701424cef0e601281b62e228e5289ed032"
 LONGCAT_MLX_REPOSITORY = "https://github.com/xocialize/longcat-avatar-mlx.git"
 MODEL_MANIFEST = ".creator-os-model.json"
@@ -74,29 +76,13 @@ class LocalVideoModelSpec:
         return payload
 
 
-LTX23_SHARED = LocalInstallDependency(
-    id="ltx23_shared_mlx",
-    repository="prince-canuma/LTX-2.3-dev",
-    revision="5da7eb70a6a8a2691f6810454a31f2790e65d8ee",
-    directory_name="LTX-2.3-shared-MLX",
-    includes=(
-        "audio_vae/**",
-        "text_projections/**",
-        "vae/**",
-        "vocoder/**",
-        "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
-    ),
-    estimated_bytes=9_157_400_000,
-    license_id="ltx-2-community-license-agreement",
-)
-
 LTX23_TEXT_ENCODER = LocalInstallDependency(
     id="ltx23_gemma_text_encoder",
-    repository="Lightricks/gemma-3-12b-it-qat-q4_0-unquantized",
-    revision="d62fe4f1995ade703b49a0f3c0d0f161237ef437",
-    directory_name="LTX-Gemma3-12B",
+    repository="mlx-community/gemma-3-12b-it-4bit",
+    revision="86cc6a8dedbc456dd0e4af01a9d09f396f77e558",
+    directory_name="LTX-Gemma3-12B-MLX-Q4",
     includes=("*",),
-    estimated_bytes=24_413_000_000,
+    estimated_bytes=8_100_000_000,
     license_id="gemma",
 )
 
@@ -118,8 +104,7 @@ WAN_UMT5_TOKENIZER = LocalInstallDependency(
 )
 
 _DEPENDENCIES = {
-    dependency.id: dependency
-    for dependency in (LTX23_SHARED, LTX23_TEXT_ENCODER, WAN_UMT5_TOKENIZER)
+    dependency.id: dependency for dependency in (LTX23_TEXT_ENCODER, WAN_UMT5_TOKENIZER)
 }
 
 WAN22_TI2V_5B_Q8 = LocalVideoModelSpec(
@@ -185,25 +170,35 @@ WAN22_I2V_A14B_Q4 = LocalVideoModelSpec(
     dependency_ids=(WAN_UMT5_TOKENIZER.id,),
 )
 
-_LTX_REQUIRED = (
-    "transformer/config.json",
-    "transformer/model.safetensors.index.json",
+_LTX_COMMON = (
+    "config.json",
+    "connector.safetensors",
+    "vae_decoder.safetensors",
+    "vae_encoder.safetensors",
+    "audio_vae.safetensors",
+    "vocoder.safetensors",
 )
 
 LTX23_DISTILLED = LocalVideoModelSpec(
     model_id="local_ltx23_distilled_mlx",
     family="ltx_2",
-    repository="prince-canuma/LTX-2.3-distilled",
-    revision="65b104b9387fb173d8e4b92fc5effc47625baf2a",
-    directory_name="LTX-2.3-distilled-MLX",
+    repository="dgrauet/ltx-2.3-mlx-q4",
+    revision="53a6f5f39d9c074bc73e6a18ba391f40ddffaa68",
+    directory_name="LTX-2.3-MLX-Q4",
     includes=(
-        "transformer/config.json",
-        "transformer/model.safetensors.index.json",
-        "transformer/model-*-of-00018.safetensors",
+        *_LTX_COMMON,
+        "transformer-distilled.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "spatial_upscaler_x2_v1_1_config.json",
     ),
-    required_paths=_LTX_REQUIRED,
-    estimated_bytes=37_989_000_000,
-    quantization="bf16",
+    required_paths=(
+        *_LTX_COMMON,
+        "transformer-distilled.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "spatial_upscaler_x2_v1_1_config.json",
+    ),
+    estimated_bytes=20_000_000_000,
+    quantization="q4_group64",
     pipeline="distilled",
     width=576,
     height=1024,
@@ -211,7 +206,7 @@ LTX23_DISTILLED = LocalVideoModelSpec(
     guide_scale="1.0",
     default_steps=8,
     license_id="ltx-2-community-license-agreement",
-    dependency_ids=(LTX23_SHARED.id, LTX23_TEXT_ENCODER.id),
+    dependency_ids=(LTX23_TEXT_ENCODER.id,),
     source_repository="Lightricks/LTX-2.3",
     source_revision="4229404625088d21c4f112eb640fb04a0900ee25",
     ai_disclosure_required=True,
@@ -221,19 +216,25 @@ LTX23_DISTILLED = LocalVideoModelSpec(
 LTX23_DEV_HQ = LocalVideoModelSpec(
     model_id="local_ltx23_dev_hq_mlx",
     family="ltx_2",
-    repository="prince-canuma/LTX-2.3-dev",
-    revision="5da7eb70a6a8a2691f6810454a31f2790e65d8ee",
-    directory_name="LTX-2.3-dev-MLX",
+    repository="dgrauet/ltx-2.3-mlx-q8",
+    revision="03da129baa459c9a70fc5858dee52fa417b3a93d",
+    directory_name="LTX-2.3-MLX-Q8",
     includes=(
-        "transformer/**",
+        *_LTX_COMMON,
+        "transformer-dev.safetensors",
         "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "spatial_upscaler_x2_v1_1_config.json",
     ),
     required_paths=(
-        *_LTX_REQUIRED,
+        *_LTX_COMMON,
+        "transformer-dev.safetensors",
         "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "spatial_upscaler_x2_v1_1.safetensors",
+        "spatial_upscaler_x2_v1_1_config.json",
     ),
-    estimated_bytes=45_585_000_000,
-    quantization="bf16",
+    estimated_bytes=37_000_000_000,
+    quantization="q8_group64",
     pipeline="dev-two-stage-hq",
     width=576,
     height=1024,
@@ -241,7 +242,7 @@ LTX23_DEV_HQ = LocalVideoModelSpec(
     guide_scale="3.0",
     default_steps=15,
     license_id="ltx-2-community-license-agreement",
-    dependency_ids=(LTX23_SHARED.id, LTX23_TEXT_ENCODER.id),
+    dependency_ids=(LTX23_TEXT_ENCODER.id,),
     source_repository="Lightricks/LTX-2.3",
     source_revision="4229404625088d21c4f112eb640fb04a0900ee25",
     ai_disclosure_required=True,
@@ -330,10 +331,6 @@ def ltx_text_encoder_dir(root: Path | None = None) -> Path:
     return LTX23_TEXT_ENCODER.directory(root)
 
 
-def ltx_shared_dir(root: Path | None = None) -> Path:
-    return LTX23_SHARED.directory(root)
-
-
 def local_model_catalog() -> dict[str, object]:
     return {
         "schema": "reel_factory.local_model_catalog.v1",
@@ -347,6 +344,10 @@ def local_model_catalog() -> dict[str, object]:
             "mlx_video": {
                 "repository": MLX_VIDEO_REPOSITORY,
                 "revision": MLX_VIDEO_REVISION,
+            },
+            "ltx_2_mlx": {
+                "repository": LTX_MLX_REPOSITORY,
+                "revision": LTX_MLX_REVISION,
             },
             "longcat_avatar": {
                 "repository": LONGCAT_MLX_REPOSITORY,
@@ -366,6 +367,8 @@ def local_model_catalog() -> dict[str, object]:
 def runtime_identity(family: LocalFamily) -> tuple[str, str, str]:
     if family == "longcat_avatar":
         return ("longcat_avatar", LONGCAT_MLX_REPOSITORY, LONGCAT_MLX_REVISION)
+    if family == "ltx_2":
+        return ("ltx_2_mlx", LTX_MLX_REPOSITORY, LTX_MLX_REVISION)
     return ("mlx_video", MLX_VIDEO_REPOSITORY, MLX_VIDEO_REVISION)
 
 

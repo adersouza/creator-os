@@ -142,7 +142,12 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--motion-model")
     generate.add_argument(
         "--motion-task",
-        choices=["text_to_video", "image_to_video", "audio_image_to_video"],
+        choices=[
+            "text_to_video",
+            "image_to_video",
+            "audio_image_to_video",
+            "keyframe_interpolation",
+        ],
         default="image_to_video",
     )
     generate.add_argument("--motion-prompt")
