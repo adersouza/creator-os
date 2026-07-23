@@ -35,3 +35,31 @@ def test_mypy_backlog_parser_rejects_missing_terminal_evidence():
 
     with pytest.raises(ValueError, match="recognized terminal summary"):
         gate.parse_summary("mypy crashed before checking source", 2)
+
+
+def test_mypy_backlog_ceiling_allows_improvement_and_rejects_regression():
+    gate = _load_gate()
+    target = gate.BacklogTarget(
+        path="example",
+        maximum_errors=85,
+        minimum_source_files=79,
+    )
+
+    assert gate.measurement_failures(
+        "reel_factory",
+        target,
+        errors=83,
+        checked=94,
+    ) == []
+    assert gate.measurement_failures(
+        "reel_factory",
+        target,
+        errors=86,
+        checked=94,
+    ) == ["reel_factory: mypy backlog grew from 85 to 86"]
+    assert gate.measurement_failures(
+        "reel_factory",
+        target,
+        errors=85,
+        checked=78,
+    ) == ["reel_factory: checked only 78 source files; expected at least 79"]

@@ -64,8 +64,12 @@ Without `--dry-run`, the command:
    transaction journal;
 5. writes an authenticated transaction journal before changing the checkout;
 6. detaches only the configured runtime checkout at the approved commit;
-7. runs `make verify` and `creator-os status --live-read-only --json` there under
-   an allowlisted environment that excludes signing secrets and credentials;
+7. removes the source worktree virtualenv from the subprocess environment,
+   reconstructs the destination runtime's Node and workspace-package Python
+   environments from the exact frozen locks (without optional model/vision
+   extras), then runs `make verify` and
+   `creator-os status --live-read-only --json` there under an allowlisted
+   environment that excludes signing secrets and credentials;
 8. validates, atomically writes, re-reads, and authenticates the canonical
    receipt before marking the transaction committed;
 9. restores the previous commit if a post-check, receipt validation, receipt

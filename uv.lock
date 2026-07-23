@@ -106,6 +106,7 @@ source = { editable = "python_packages/campaign_factory" }
 dependencies = [
     { name = "creator-os-core" },
     { name = "fastapi" },
+    { name = "opencv-python" },
     { name = "pipeline-contracts" },
     { name = "reel-factory" },
     { name = "requests" },
@@ -122,6 +123,7 @@ dev = [
 requires-dist = [
     { name = "creator-os-core", editable = "packages/creator_os_core" },
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "opencv-python", specifier = ">=4.9,<5" },
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3,<10" },
     { name = "reel-factory", editable = "python_packages/reel_factory" },
