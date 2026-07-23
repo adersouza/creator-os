@@ -13,14 +13,27 @@ temporarily available so existing scripts fail loudly rather than disappearing.
 ## Approval evidence
 
 The approval JSON uses `creator_os.runtime_promotion_approval.v1` and binds the
-exact reviewed PR head, merged `origin/main` commit, GitHub repository and pull
-request, approving review from a write-capable non-author, and concrete
-successful check-run IDs, URLs, completion times, head SHAs, GitHub Actions app
-identity, workflow-run IDs, workflow names, and canonical workflow paths.
-Promotion re-reads the pull request, reviewer permission, review, Actions runs,
-and checks through the GitHub API; self-asserted hashes, a stale or non-counting
-review, a lookalike check run, an unmerged head, or a commit other than exact
-remote `main` cannot authorize a runtime change.
+exact PR head, merged `origin/main` commit, GitHub repository and pull request,
+and concrete successful check-run IDs, URLs, completion times, head SHAs,
+GitHub Actions app identity, workflow-run IDs, workflow names, and canonical
+workflow paths.
+
+Two authority modes are accepted:
+
+- Historical approvals without `approvalMode` retain the
+  `independent_review` behavior: an approving review from a write-capable
+  non-author must exist and is verified live.
+- `single_owner_ci` is the normal mode for this single-owner repository. It
+  binds an explicit operator attestation to the authenticated GitHub actor and
+  requires that actor to have write authority. It also snapshots and rechecks
+  live `main` protection: strict status checks, all nine required code/security
+  checks, conversation resolution, admin enforcement, and zero mandatory human
+  approvals.
+
+Promotion re-reads the pull request, actor permission, branch protection,
+Actions runs, and checks through the GitHub API. Self-asserted hashes, a
+lookalike check run, weakened protection, an unmerged head, or a commit other
+than exact remote `main` cannot authorize a runtime change.
 
 ## Dry-run
 
@@ -96,21 +109,22 @@ Operational databases, model files, media libraries, ThreadsDashboard,
 providers, schedules, QStash, and social publishing are outside this command's
 authority.
 
-## Repository-external approval prerequisite
+## Repository-external governance prerequisite
 
-Runtime promotion verifies an independent, write-capable approving review even
-if GitHub branch protection does not yet require one. Repository governance
-must also enforce that review before this workflow is considered complete. This
-setting is external state and must not be inferred from the checked-in runbook.
-Verify it live:
+The `single_owner_ci` path does not pretend that a second human reviewer
+exists. It instead requires the exact protected-branch policy used by this
+repository and records the authenticated operator. This setting is external
+state and must not be inferred from the checked-in runbook. Verify it live:
 
 ```bash
 gh api repos/adersouza/creator-os/branches/main/protection \
-  --jq '{reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled}'
+  --jq '{strict: .required_status_checks.strict, checks: [.required_status_checks.checks[].context], reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled, admins: .enforce_admins.enabled}'
 ```
 
-The required result is at least one approving review, stale approvals dismissed,
-last-push approval required, and conversation resolution enabled. A repository
-administrator must change those settings in GitHub. Do not weaken or replace
-the nine existing required checks while doing so, and re-read the complete
-protection payload afterward to prove the check inventory is unchanged.
+The required single-owner result is zero approving reviews, conversation
+resolution enabled, strict status checks enabled, admin enforcement enabled,
+and the complete nine-check inventory preserved. `dismiss_stale_reviews` may
+remain enabled but has no authority when zero reviews are required.
+`require_last_push_approval` must be false because it would recreate the
+unavailable second-person gate. Re-read the complete protection payload before
+every promotion; the promotion command also verifies it live.

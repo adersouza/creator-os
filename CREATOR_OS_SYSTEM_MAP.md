@@ -407,17 +407,21 @@ local-motion metadata. Focused approval, readiness, and export tests cover this
 combined boundary.
 
 `creator-os promote` is local source/runtime management, not production
-publishing. It requires an exact clean reviewed commit, a write-capable
-non-author approval, and live GitHub verification of trusted workflow/app
-identities. A deterministic runtime-scoped lock prevents alternate state roots
-from racing one checkout. Promotion accepts only an initially detached runtime,
-revalidates mutable authority under the lock, creates and verifies a Git bundle
-plus backup manifest, and runs verification under a credential-scrubbed
-environment. Health policy `creator_os.runtime_live_read_only_health.v1`
-requires its exact nine-check inventory, all `PASS`. Authenticated journals and
-receipts are fail-closed; recovery verifies the bundle and can re-import the
-prior commit before rollback. It never mutates operational databases,
-ThreadsDashboard, providers, schedules, or posts.
+publishing. It requires an exact clean merged commit and live GitHub verification
+of trusted workflow/app identities. Historical independent-review approvals
+remain readable; the active single-owner mode binds the authenticated
+write-capable operator to strict branch protection, all nine required checks,
+conversation resolution, admin enforcement, and a zero-review policy instead
+of inventing a second reviewer. A deterministic runtime-scoped lock prevents
+alternate state roots from racing one checkout. Promotion accepts only an
+initially detached runtime, revalidates mutable authority under the lock,
+creates and verifies a Git bundle plus backup manifest, and runs verification
+under a credential-scrubbed environment. Health policy
+`creator_os.runtime_live_read_only_health.v1` requires its exact nine-check
+inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
+recovery verifies the bundle and can re-import the prior commit before
+rollback. It never mutates operational databases, ThreadsDashboard, providers,
+schedules, or posts.
 
 ## Failure And Authority Map
 

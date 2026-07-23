@@ -4,9 +4,10 @@
   "title": "Creator OS Runtime Promotion Approval",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "reviewedBy", "reviewedAt", "review", "checks", "approvalFingerprint"],
+  "required": ["schema", "repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "checks", "approvalFingerprint"],
   "properties": {
     "schema": {"const": "creator_os.runtime_promotion_approval.v1"},
+    "approvalMode": {"enum": ["independent_review", "single_owner_ci"]},
     "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
     "pullRequestNumber": {"type": "integer", "minimum": 1},
     "approvedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
@@ -25,8 +26,35 @@
         "commitId": {"type": "string", "pattern": "^[a-f0-9]{40}$"}
       }
     },
+    "operator": {"type": "string", "minLength": 1},
+    "attestedAt": {"type": "string", "format": "date-time"},
+    "attestationReason": {"type": "string", "minLength": 12},
+    "branchProtection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strictStatusChecks", "requiredStatusChecks", "requiredApprovingReviewCount", "requiredConversationResolution", "enforceAdmins"],
+      "properties": {
+        "strictStatusChecks": {"const": true},
+        "requiredStatusChecks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "requiredApprovingReviewCount": {"const": 0},
+        "requiredConversationResolution": {"const": true},
+        "enforceAdmins": {"const": true}
+      }
+    },
     "checks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "checkRunId", "detailsUrl", "completedAt", "headSha", "appId", "appSlug", "workflowRunId", "workflowName", "workflowPath"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "checkRunId": {"type": "integer", "minimum": 1}, "detailsUrl": {"type": "string", "pattern": "^https://"}, "completedAt": {"type": "string", "format": "date-time"}, "headSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"}, "appId": {"const": 15368}, "appSlug": {"const": "github-actions"}, "workflowRunId": {"type": "integer", "minimum": 1}, "workflowName": {"enum": ["Creator OS Monorepo CI", "Security"]}, "workflowPath": {"enum": [".github/workflows/monorepo-ci.yml", ".github/workflows/security.yml"]}}}},
     "approvalFingerprint": {"$ref": "#/$defs/sha256"}
   },
+  "oneOf": [
+    {
+      "required": ["reviewedBy", "reviewedAt", "review"],
+      "properties": {"approvalMode": {"const": "independent_review"}},
+      "not": {"anyOf": [{"required": ["operator"]}, {"required": ["attestedAt"]}, {"required": ["attestationReason"]}, {"required": ["branchProtection"]}]}
+    },
+    {
+      "required": ["approvalMode", "operator", "attestedAt", "attestationReason", "branchProtection"],
+      "properties": {"approvalMode": {"const": "single_owner_ci"}},
+      "not": {"anyOf": [{"required": ["reviewedBy"]}, {"required": ["reviewedAt"]}, {"required": ["review"]}]}
+    }
+  ],
   "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
 }
