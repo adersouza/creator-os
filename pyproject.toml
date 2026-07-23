@@ -67,6 +67,10 @@ exclude = "(^|/)(\\.venv|\\.uv-cache|node_modules|graphify-out|tests)/"
 # down when an improvement is stable across supported dependency environments;
 # graduate the package to the strict gate at zero.
 
+[[tool.mypy.overrides]]
+module = ["tifffile", "tifffile.*"]
+follow_imports = "skip"
+
 [tool.ruff]
 target-version = "py311"
 extend-exclude = [
