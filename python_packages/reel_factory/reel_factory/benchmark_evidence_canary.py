@@ -154,6 +154,7 @@ def run_canary(
         "taskKind": "provider_free_copy",
         "inputFingerprints": [input_fingerprint],
         "parameterFingerprint": fingerprint(params),
+        "promotionEvidenceAllowed": True,
         "requiredAnalyzers": [
             {
                 "analyzerId": registration.get("analyzerId"),

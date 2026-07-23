@@ -25,6 +25,7 @@ from creator_os_core.evidence_attestation import (
 )
 
 from pipeline_contracts import (
+    BenchmarkRecipeV1,
     validate_human_media_review,
     validate_motion_specific_qc_receipt_v2,
     validate_trusted_media_analysis,
@@ -1200,6 +1201,97 @@ class LocalModelBenchmarkStore:
         self._verify_analyzer_implementations(registry_payload)
         return recipe_payload, registry_payload
 
+    def reverify_completed_job_evidence(
+        self,
+        queue: LocalGenerationQueue,
+        *,
+        benchmark_id: str,
+    ) -> BenchmarkReceipt:
+        """Revalidate mutable artifacts and current trust roots for one receipt."""
+
+        receipt = self.all_receipts().get(benchmark_id)
+        if receipt is None:
+            raise LocalQueueError(f"benchmark_receipt_missing:{benchmark_id}")
+        state = queue.states().get(receipt.job_id)
+        if state is None:
+            raise LocalQueueError("benchmark_queue_job_missing")
+        if state.status != "succeeded":
+            raise LocalQueueError("benchmark_queue_job_not_succeeded")
+        job = state.job
+        if (
+            job.model_fingerprint != receipt.model_fingerprint
+            or job.task_fingerprint != receipt.task_fingerprint
+            or job.task_kind != receipt.task_kind
+        ):
+            raise LocalQueueError("benchmark_queue_job_receipt_mismatch")
+        terminal_payload = state.last_event.get("payload", {})
+        output_path = Path(str(terminal_payload.get("outputPath") or "")).resolve()
+        if (
+            not output_path.is_file()
+            or output_path.is_symlink()
+            or sha256_file(output_path) != receipt.output_sha256
+            or terminal_payload.get("outputSha256") != receipt.output_sha256
+        ):
+            raise LocalQueueError("benchmark_output_missing_or_substituted")
+        execution = queue.execution_evidence(receipt.job_id)
+        if (
+            execution.get("status") != "succeeded"
+            or execution.get("hardwareFingerprint") != receipt.hardware_fingerprint
+            or execution.get("attemptCount") != receipt.execution_attempt_count
+            or execution.get("retryCount") != receipt.execution_retry_count
+        ):
+            raise LocalQueueError("benchmark_execution_evidence_mismatch")
+        measurement = LocalExecutionMeasurement(
+            wall_time_seconds=receipt.wall_time_seconds,
+            peak_memory_bytes=receipt.peak_memory_bytes,
+            memory_measurement_method=receipt.memory_measurement_method,
+        )
+        self._verify_artifact_event(
+            queue,
+            job,
+            terminal_event=state.last_event,
+            output_path=output_path,
+            output_sha256=receipt.output_sha256,
+            measurement=measurement,
+        )
+        recipe, registry = self._load_receipt_evidence(receipt)
+        required = self._required_analyzers(
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+        if (
+            job.benchmark_recipe_id != receipt.benchmark_recipe_id
+            or job.benchmark_recipe_fingerprint != receipt.benchmark_recipe_fingerprint
+            or job.analyzer_registry_id != receipt.analyzer_registry_id
+            or job.analyzer_registry_fingerprint
+            != receipt.analyzer_registry_fingerprint
+            or set(required).difference(
+                reference.check_id for reference in receipt.qc_references
+            )
+        ):
+            raise LocalQueueError("benchmark_current_evidence_linkage_mismatch")
+        for reference in receipt.qc_references:
+            self._verify_qc_reference(
+                reference,
+                expected_subject_sha256=receipt.output_sha256,
+                expected_version=required.get(reference.check_id),
+            )
+        deep = self._deep_model_verification(job.model_id)
+        deep_model_fingerprint = fingerprint(
+            {
+                "modelId": job.model_id,
+                "modelRevision": deep["revision"],
+                "modelManifestSha256": deep["manifestSha256"],
+            }
+        )
+        if (
+            deep_model_fingerprint != receipt.model_fingerprint
+            or deep["verificationFingerprint"]
+            != receipt.model_deep_verification_fingerprint
+        ):
+            raise LocalQueueError("benchmark_current_model_verification_drift")
+        return receipt
+
     def _load_evidence_payload(
         self, directory: str, expected_fingerprint: str
     ) -> dict[str, Any]:
@@ -1519,6 +1611,7 @@ class LocalModelBenchmarkStore:
         baseline = self._resolve_receipts(
             receipts, baseline_benchmark_ids, "baseline", blockers
         )
+        benchmark_task_identities: dict[str, str] = {}
         if len(candidate) < policy.minimum_candidate_samples:
             blockers.append("insufficient_candidate_samples")
         if len(baseline) < policy.minimum_baseline_samples:
@@ -1563,6 +1656,13 @@ class LocalModelBenchmarkStore:
                 expected_versions: dict[str, str] = {}
                 try:
                     recipe, registry = self._load_receipt_evidence(receipt)
+                    if recipe.get("promotionEvidenceAllowed") is not True:
+                        blockers.append(
+                            f"{label}_benchmark_recipe_not_promotion_eligible"
+                        )
+                    benchmark_task_identities[receipt.benchmark_id] = (
+                        self._benchmark_task_identity(recipe)
+                    )
                     expected_versions = self._required_analyzers(
                         benchmark_recipe=recipe,
                         analyzer_registry=registry,
@@ -1587,10 +1687,14 @@ class LocalModelBenchmarkStore:
                         blockers.append(
                             f"{label}_qc_evidence_unavailable:{reference.check_id}"
                         )
-        if sorted(receipt.task_fingerprint for receipt in candidate) != sorted(
-            receipt.task_fingerprint for receipt in baseline
+        if sorted(
+            benchmark_task_identities.get(receipt.benchmark_id, "")
+            for receipt in candidate
+        ) != sorted(
+            benchmark_task_identities.get(receipt.benchmark_id, "")
+            for receipt in baseline
         ):
-            blockers.append("task_fingerprint_cohort_mismatch")
+            blockers.append("benchmark_task_identity_cohort_mismatch")
         if sorted(self._recipe_link(receipt) for receipt in candidate) != sorted(
             self._recipe_link(receipt) for receipt in baseline
         ):
@@ -1984,6 +2088,26 @@ class LocalModelBenchmarkStore:
         return (
             receipt.analyzer_registry_id or "",
             receipt.analyzer_registry_fingerprint or "",
+        )
+
+    @staticmethod
+    def _benchmark_task_identity(recipe: Mapping[str, Any]) -> str:
+        try:
+            validated = BenchmarkRecipeV1.from_dict(dict(recipe))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LocalQueueError("benchmark_recipe_task_identity_invalid") from exc
+        return fingerprint(
+            {
+                "schema": "creator_os.benchmark_task_identity.v1",
+                "contentIntentId": validated.content_intent_id,
+                "executionPolicySchema": validated.execution_policy_schema,
+                "executionPolicyFingerprint": validated.execution_policy_fingerprint,
+                "taskKind": validated.task_kind,
+                "inputFingerprints": list(validated.input_fingerprints),
+                "parameterFingerprint": validated.parameter_fingerprint,
+                "expectedProviderCalls": validated.expected_provider_calls,
+                "productionWritesAllowed": validated.production_writes_allowed,
+            }
         )
 
     @classmethod

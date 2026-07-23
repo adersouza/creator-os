@@ -61,6 +61,88 @@ _LONGCAT_RUNTIME_REQUIREMENTS = (
 _LONGCAT_RUNTIME_REQUIREMENTS_FINGERPRINT = hashlib.sha256(
     "\n".join(_LONGCAT_RUNTIME_REQUIREMENTS).encode("utf-8")
 ).hexdigest()
+_UMT5_DEPENDENCY_ID = "wan_umt5_tokenizer"
+_UMT5_TOKEN_VECTOR_SHA256 = (
+    "cee60e2f5d072f2de4a20b0fa2db55e799ddc6f2bef3ccb2d120990171016443"
+)
+_UMT5_TOKENIZER_CLASS = "T5Tokenizer"
+_UMT5_PRETOKENIZER = (
+    'Sequence(pretokenizers=[WhitespaceSplit(), Metaspace(replacement="▁", '
+    "prepend_scheme=always, split=True)])"
+)
+_UMT5_PROBE_PROMPTS = (
+    "Subtle natural portrait motion. Stable face and identity.",
+    "Hello, world!  Two spaces.",
+    "café — 東京 — مرحبا",
+    "line one\nline two",
+    "emoji 🙂 punctuation?!",
+)
+_UMT5_SANDBOX_EXECUTABLE = Path("/usr/bin/sandbox-exec")
+_UMT5_SANDBOX_PROFILE = (
+    "(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)\n"
+)
+_UMT5_SEMANTIC_PROBE_SCRIPT = """\
+import hashlib
+import json
+import os
+import socket
+import sys
+
+from transformers import AutoTokenizer
+
+snapshot, alias, prompts_json = sys.argv[1:]
+prompts = json.loads(prompts_json)
+
+def isolation_probe():
+    try:
+        descriptor = os.open(
+            os.path.join(snapshot, "config.json"),
+            os.O_WRONLY,
+        )
+    except PermissionError:
+        write_open_denied = True
+    else:
+        os.close(descriptor)
+        write_open_denied = False
+    local_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        local_socket.bind(("127.0.0.1", 0))
+    except PermissionError:
+        local_network_bind_denied = True
+    else:
+        local_network_bind_denied = False
+    finally:
+        local_socket.close()
+    return {
+        "writeOpenDenied": write_open_denied,
+        "localNetworkBindDenied": local_network_bind_denied,
+    }
+
+def record(label, source):
+    tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
+    token_ids = [
+        tokenizer.encode(prompt, add_special_tokens=True) for prompt in prompts
+    ]
+    encoded = json.dumps(token_ids, separators=(",", ":")).encode("utf-8")
+    return {
+        "label": label,
+        "class": type(tokenizer).__name__,
+        "isFast": tokenizer.is_fast,
+        "fixMistralRegex": getattr(tokenizer, "fix_mistral_regex", None),
+        "preTokenizer": str(tokenizer.backend_tokenizer.pre_tokenizer),
+        "tokenIds": token_ids,
+        "tokenIdsSha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+print(json.dumps({
+    "schema": "reel_factory.umt5_semantic_probe_output.v1",
+    "isolation": isolation_probe(),
+    "records": [
+        record("alias-default", alias),
+        record("local-default", snapshot),
+    ],
+}, ensure_ascii=False, sort_keys=True))
+"""
 
 
 def _runtime_probe_environment(
@@ -1077,7 +1159,182 @@ def _tool_evidence(executable: str) -> dict[str, Any]:
     }
 
 
-def _verified_runtime_binding(family: LocalFamily) -> dict[str, Any]:
+def _umt5_semantic_preflight(
+    *,
+    root: Path,
+    python_executable: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Verify pinned UMT5 behavior under an offline, write-denied sandbox."""
+
+    dependency = local_install_dependency(_UMT5_DEPENDENCY_ID)
+    if dependency.revision != "66cb9e7e85526fe440a945569e42c72fb6cbc0ad":
+        raise RuntimeError("local_model_umt5_catalog_revision_drift")
+    if not _dependency_ready(dependency, root, deep=True):
+        raise RuntimeError("local_model_umt5_dependency_not_deep_verified")
+
+    snapshot = _cache_snapshot_path(dependency, root).resolve()
+    reference = _cache_runtime_reference_path(dependency, root).resolve()
+    sandbox = _UMT5_SANDBOX_EXECUTABLE.resolve()
+    try:
+        resolved_python = python_executable.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError("local_model_umt5_semantic_preflight_unsafe") from exc
+    if (
+        not snapshot.is_dir()
+        or snapshot.is_symlink()
+        or not reference.is_file()
+        or reference.is_symlink()
+        or not resolved_python.is_file()
+        or not sandbox.is_file()
+        or sandbox.is_symlink()
+    ):
+        raise RuntimeError("local_model_umt5_semantic_preflight_unsafe")
+
+    environment = _runtime_probe_environment()
+    environment.update(
+        {
+            "HF_HOME": str(hf_home(root)),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TOKENIZERS_PARALLELISM": "false",
+        }
+    )
+    command = [
+        str(sandbox),
+        "-p",
+        _UMT5_SANDBOX_PROFILE,
+        str(python_executable),
+        "-c",
+        _UMT5_SEMANTIC_PROBE_SCRIPT,
+        str(snapshot),
+        dependency.repository,
+        json.dumps(_UMT5_PROBE_PROMPTS, ensure_ascii=False),
+    ]
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+            env=environment,
+        )
+        payload = json.loads(completed.stdout) if completed.returncode == 0 else None
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise RuntimeError("local_model_umt5_semantic_probe_failed") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("local_model_umt5_semantic_probe_failed")
+    records = payload.get("records")
+    isolation = payload.get("isolation")
+    if (
+        payload.get("schema") != "reel_factory.umt5_semantic_probe_output.v1"
+        or not isinstance(records, list)
+        or len(records) != 2
+        or not isinstance(isolation, dict)
+        or isolation.get("writeOpenDenied") is not True
+        or isolation.get("localNetworkBindDenied") is not True
+    ):
+        raise RuntimeError("local_model_umt5_semantic_isolation_failed")
+    by_label = {
+        record.get("label"): record for record in records if isinstance(record, dict)
+    }
+    alias = by_label.get("alias-default")
+    local = by_label.get("local-default")
+    if not isinstance(alias, dict) or not isinstance(local, dict):
+        raise RuntimeError("local_model_umt5_semantic_probe_invalid")
+
+    def validated_token_ids(
+        record: Mapping[str, Any],
+    ) -> tuple[list[list[int]], str]:
+        token_ids = record.get("tokenIds")
+        if (
+            record.get("class") != _UMT5_TOKENIZER_CLASS
+            or record.get("isFast") is not True
+            or record.get("fixMistralRegex") is not None
+            or record.get("preTokenizer") != _UMT5_PRETOKENIZER
+            or not isinstance(token_ids, list)
+            or len(token_ids) != len(_UMT5_PROBE_PROMPTS)
+            or not all(
+                isinstance(vector, list)
+                and vector
+                and all(
+                    isinstance(token, int)
+                    and not isinstance(token, bool)
+                    and token >= 0
+                    for token in vector
+                )
+                for vector in token_ids
+            )
+        ):
+            raise RuntimeError("local_model_umt5_semantic_drift")
+        observed_digest = hashlib.sha256(
+            json.dumps(token_ids, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if record.get("tokenIdsSha256") != observed_digest:
+            raise RuntimeError("local_model_umt5_semantic_drift")
+        return token_ids, observed_digest
+
+    alias_ids, alias_digest = validated_token_ids(alias)
+    local_ids, local_digest = validated_token_ids(local)
+    if alias_ids != local_ids:
+        raise RuntimeError("local_model_umt5_alias_semantic_drift")
+    if (
+        alias_digest != _UMT5_TOKEN_VECTOR_SHA256
+        or local_digest != _UMT5_TOKEN_VECTOR_SHA256
+    ):
+        raise RuntimeError("local_model_umt5_semantic_drift")
+
+    behavior = {
+        "schema": "reel_factory.umt5_tokenizer_behavior.v1",
+        "dependencyId": dependency.id,
+        "repository": dependency.repository,
+        "revision": dependency.revision,
+        "tokenizerClass": _UMT5_TOKENIZER_CLASS,
+        "isFast": True,
+        "fixMistralRegex": None,
+        "preTokenizer": _UMT5_PRETOKENIZER,
+        "probeCorpusSha256": hashlib.sha256(
+            json.dumps(
+                _UMT5_PROBE_PROMPTS,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
+        "tokenIdsSha256": _UMT5_TOKEN_VECTOR_SHA256,
+        "aliasMatchesSnapshot": True,
+    }
+    return {
+        **behavior,
+        "behaviorFingerprint": _fingerprint(behavior),
+        "snapshotPath": str(snapshot),
+        "dependencyReceiptSha256": _sha256_file(
+            _dependency_receipt_path(dependency, root)
+        ),
+        "runtimeReferencePath": str(reference),
+        "runtimeReferenceSha256": _sha256_file(reference),
+        "probeScriptSha256": hashlib.sha256(
+            _UMT5_SEMANTIC_PROBE_SCRIPT.encode("utf-8")
+        ).hexdigest(),
+        "isolation": {
+            "sandboxExecutable": str(sandbox),
+            "sandboxExecutableSha256": _sha256_file(sandbox),
+            "profileFingerprint": _fingerprint({"profile": _UMT5_SANDBOX_PROFILE}),
+            "networkDenied": isolation["localNetworkBindDenied"],
+            "writesDenied": isolation["writeOpenDenied"],
+        },
+        "providerCalls": 0,
+        "productionWritesAllowed": False,
+    }
+
+
+def _verified_runtime_binding(
+    family: LocalFamily, *, models_root: Path | None = None
+) -> dict[str, Any]:
     status = runtime_status(family=family)
     if status.get("ready") is not True:
         raise RuntimeError(
@@ -1127,7 +1384,7 @@ def _verified_runtime_binding(family: LocalFamily) -> dict[str, Any]:
         raise RuntimeError("local_model_runtime_identity_drift")
     ffmpeg = _tool_evidence("ffmpeg")
     ffprobe = _tool_evidence("ffprobe")
-    return {
+    binding = {
         "runtimeId": runtime_id,
         "repository": repository,
         "revision": expected_revision,
@@ -1152,6 +1409,14 @@ def _verified_runtime_binding(family: LocalFamily) -> dict[str, Any]:
         "ffprobeSize": ffprobe["size"],
         "ffprobeVersion": ffprobe["version"],
     }
+    if family == "wan_2":
+        behavior = _umt5_semantic_preflight(
+            root=_models_root(models_root),
+            python_executable=python_path,
+        )
+        binding["umt5TokenizerBehavior"] = behavior
+        binding["umt5TokenizerBehaviorFingerprint"] = behavior["behaviorFingerprint"]
+    return binding
 
 
 def model_status(
@@ -1239,7 +1504,7 @@ def model_status(
         and records is not None
     ):
         try:
-            runtime_binding = _verified_runtime_binding(spec.family)
+            runtime_binding = _verified_runtime_binding(spec.family, models_root=root)
         except RuntimeError as exc:
             issues.append(str(exc))
             runtime_binding = None

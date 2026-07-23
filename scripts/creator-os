@@ -79,10 +79,32 @@ def _local_arena_command(*args: str) -> list[str]:
     return [
         "uv",
         "run",
+        "--isolated",
+        "--offline",
+        "--locked",
         "--all-packages",
+        "--extra",
+        "identity",
         "python",
         "-m",
         "reel_factory.local_model_arena",
+        *args,
+    ]
+
+
+def _identity_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--isolated",
+        "--offline",
+        "--locked",
+        "--all-packages",
+        "--extra",
+        "identity",
+        "python",
+        "-m",
+        "reel_factory.identity_verification",
         *args,
     ]
 
@@ -346,6 +368,7 @@ def _parser() -> argparse.ArgumentParser:
             "queue",
             "benchmarks",
             "arena",
+            "identity",
             "router",
             "analyzers",
             "evidence-key",
@@ -625,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run(_local_benchmark_command(*advanced_args))
         if args.surface == "arena":
             return _run(_local_arena_command(*advanced_args))
+        if args.surface == "identity":
+            return _run(_identity_command(*advanced_args))
         if args.surface == "router":
             return _run(_local_router_command(*advanced_args))
         if args.surface == "evidence-key":
@@ -679,16 +704,23 @@ def main(argv: list[str] | None = None) -> int:
             if receipt_args.operator:
                 command.extend(["--operator", receipt_args.operator])
             return _run(command)
-        request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
-        return _run(
-            [
-                "node",
-                str(ROOT / "packages/contentforge/cli.mjs"),
-                "analyzer-registry",
-            ],
-            cwd=ROOT,
-            input_text=request,
-        )
+        if args.surface == "analyzers":
+            analyzers = argparse.ArgumentParser(
+                prog="creator-os advanced analyzers",
+                description="Emit the canonical ContentForge analyzer registry.",
+            )
+            analyzers.parse_args(advanced_args)
+            request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
+            return _run(
+                [
+                    "node",
+                    str(ROOT / "packages/contentforge/cli.mjs"),
+                    "analyzer-registry",
+                ],
+                cwd=ROOT,
+                input_text=request,
+            )
+        raise AssertionError(f"unhandled advanced surface: {args.surface}")
     if args.command == "promote":
         command = _runtime_promotion_command(
             "--source-root",

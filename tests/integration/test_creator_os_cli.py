@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import runpy
 import subprocess
 import sys
@@ -233,6 +234,50 @@ def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
     ]
 
 
+def test_advanced_analyzers_without_args_emits_the_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    calls: list[tuple[list[str], Path, str | None]] = []
+
+    def fake_run(
+        command: list[str], *, cwd: Path = ROOT, input_text: str | None = None
+    ) -> int:
+        calls.append((command, cwd, input_text))
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"](["advanced", "analyzers"]) == 0
+    assert len(calls) == 1
+    command, cwd, input_text = calls[0]
+    assert command == [
+        "node",
+        str(ROOT / "packages/contentforge/cli.mjs"),
+        "analyzer-registry",
+    ]
+    assert cwd == ROOT
+    assert input_text is not None
+    assert set(json.loads(input_text)) == {"producedAt"}
+
+
+@pytest.mark.parametrize(
+    ("argument", "returncode", "stream", "expected"),
+    [
+        ("--help", 0, "stdout", "usage: creator-os advanced analyzers"),
+        ("--unknown", 2, "stderr", "unrecognized arguments: --unknown"),
+    ],
+)
+def test_advanced_analyzers_parses_diagnostic_arguments(
+    argument: str, returncode: int, stream: str, expected: str
+) -> None:
+    result = _run("advanced", "analyzers", argument)
+
+    assert result.returncode == returncode
+    assert expected in getattr(result, stream)
+    assert "analyzerRegistry" not in result.stdout
+
+
 @pytest.mark.parametrize("mode", ["--dry-run", "--apply"])
 def test_advanced_evidence_key_routes_only_to_core_initializer(
     monkeypatch: pytest.MonkeyPatch, mode: str
@@ -426,17 +471,49 @@ def test_local_operator_surfaces_route_only_to_reel_factory_modules(
 
 
 @pytest.mark.parametrize(
-    ("surface", "module"),
+    ("surface", "module", "uv_options"),
     [
-        ("benchmarks", "reel_factory.local_model_benchmark"),
-        ("arena", "reel_factory.local_model_arena"),
-        ("router", "reel_factory.local_model_router"),
+        (
+            "benchmarks",
+            "reel_factory.local_model_benchmark",
+            ["--all-packages"],
+        ),
+        (
+            "arena",
+            "reel_factory.local_model_arena",
+            [
+                "--isolated",
+                "--offline",
+                "--locked",
+                "--all-packages",
+                "--extra",
+                "identity",
+            ],
+        ),
+        (
+            "identity",
+            "reel_factory.identity_verification",
+            [
+                "--isolated",
+                "--offline",
+                "--locked",
+                "--all-packages",
+                "--extra",
+                "identity",
+            ],
+        ),
+        (
+            "router",
+            "reel_factory.local_model_router",
+            ["--all-packages"],
+        ),
     ],
 )
 def test_contract_aware_advanced_surfaces_use_the_full_workspace_environment(
     monkeypatch: pytest.MonkeyPatch,
     surface: str,
     module: str,
+    uv_options: list[str],
 ) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []
@@ -453,7 +530,7 @@ def test_contract_aware_advanced_surfaces_use_the_full_workspace_environment(
         [
             "uv",
             "run",
-            "--all-packages",
+            *uv_options,
             "python",
             "-m",
             module,

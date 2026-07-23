@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+from creator_os_core.task_inputs import (
+    canonical_task_input_bindings,
+    validate_task_input_binding_records,
+)
+from creator_os_core.task_parameters import (
+    DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT,
+    benchmark_task_parameter_fingerprint,
+    task_parameter_fingerprint,
+)
 
 from .audio_intent import read_audio_intent
 from .caption_bank import CaptionBankStore, load_or_build_caption_bank_store
@@ -18,10 +29,12 @@ from .local_generation_queue import (
 from .local_model_arena import LocalModelArenaStore
 from .local_model_benchmark import default_local_model_benchmark_store
 from .local_model_router import RouterRequest, route_local_model
+from .local_video import LocalVideoRequest, local_video_task_parameter_material
 from .reference_video_remix import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,
 )
+from .video_provider_models import video_model
 
 
 def admit_local_motion(
@@ -29,12 +42,30 @@ def admit_local_motion(
     arena_summary: Mapping[str, Any],
     evidence_records: Mapping[str, Any],
     input_fingerprints: Sequence[str],
+    input_bindings: Sequence[Mapping[str, object]],
     creator_id: str,
     identity_profile_id: str,
     identity_profile_fingerprint: str,
     content_intent_id: str,
     content_intent_fingerprint: str,
     task_kind: str,
+    prompt: str = "A person moves naturally within the original composition",
+    duration_seconds: int | None = None,
+    resolution: str | None = None,
+    seed: int = 42,
+    steps: int | None = None,
+    audio_mode: str = "none",
+    negative_prompt: str = DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT,
+    lora_path: Path | None = None,
+    lora_strength: float = 1.0,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    low_ram: bool = True,
+    tile_frames: int = 1,
+    tile_spatial: int = 2,
     override_model_id: str | None = None,
     override_operator: str | None = None,
     override_reason: str | None = None,
@@ -58,8 +89,11 @@ def admit_local_motion(
         "analyzerRegistry",
     }:
         raise ValueError("local_motion_evidence_record_set_invalid")
-    if not inputs or any(not _is_sha256(value) for value in inputs):
+    if any(not _is_sha256(value) for value in inputs):
         raise ValueError("local_motion_input_fingerprints_invalid")
+    canonical_inputs = validate_task_input_binding_records(task_kind, input_bindings)
+    if [binding["sha256"] for binding in canonical_inputs] != inputs:
+        raise ValueError("local_motion_input_binding_fingerprint_mismatch")
     identity = records.get("creatorIdentityProfile")
     intent = records.get("contentIntent")
     recipe = records.get("benchmarkRecipe")
@@ -81,13 +115,13 @@ def admit_local_motion(
         or fingerprint(identity) != identity_profile_fingerprint
         or intent.get("intentId") != content_intent_id
         or fingerprint(intent) != content_intent_fingerprint
-        or list(intent.get("sourceAssetFingerprints") or []) != inputs
+        or not set(inputs).issubset(set(intent.get("sourceAssetFingerprints") or []))
         or list(recipe.get("inputFingerprints") or []) != inputs
         or recipe.get("taskKind") != task_kind
     ):
         raise ValueError("local_motion_compiled_evidence_binding_mismatch")
 
-    selected_model, operator, reason = _validated_override(
+    override_selected_model, operator, reason = _validated_override(
         model_id=override_model_id,
         operator=override_operator,
         reason=override_reason,
@@ -122,6 +156,7 @@ def admit_local_motion(
     if not plan_id:
         raise ValueError("local_motion_arena_plan_id_missing")
     human_reviews = HumanMediaReviewStore(benchmark_store.root)
+    arena_plan = arena_store.load_plan(plan_id)
     review_packet = arena_store.load_review_packet(plan_id)
     decision = route_local_model(
         RouterRequest(
@@ -142,11 +177,11 @@ def admit_local_motion(
             ),
             available_memory_bytes=routed_available_memory,
             observed_at=timestamp,
-            override_model_id=selected_model,
+            override_model_id=override_selected_model,
             override_operator=operator,
             override_reason=reason,
         ),
-        arena_plan=arena_store.load_plan(plan_id),
+        arena_plan=arena_plan,
         arena_summary=summary,
         benchmark_store=benchmark_store,
         human_review_store=human_reviews,
@@ -164,6 +199,90 @@ def admit_local_motion(
         "hardwareFingerprint"
     ) != current_hardware.get("fingerprint"):
         raise ValueError("local_motion_promotion_hardware_mismatch")
+    promoted_samples = _promoted_samples(
+        arena_plan=arena_plan,
+        router_decision=decision,
+        task_kind=task_kind,
+    )
+    promotion_input_cohort = _promotion_input_cohort(promoted_samples)
+    current_input_bindings = list(canonical_inputs)
+    if current_input_bindings not in promotion_input_cohort:
+        raise ValueError("local_motion_input_not_in_promoted_cohort")
+    selected_model_id = str(decision.get("selectedModelId") or "")
+    selected_model_spec = video_model(selected_model_id)
+    matched_parameter_materials: dict[str, dict[str, Any]] = {}
+    for sample in promoted_samples:
+        sample_bindings = _sample_input_bindings(sample)
+        if sample_bindings != current_input_bindings:
+            continue
+        stored_material = sample.get("taskParameterMaterial")
+        stored_fingerprint = sample.get("taskParameterFingerprint")
+        if not isinstance(stored_material, dict) or not isinstance(
+            stored_fingerprint, str
+        ):
+            raise ValueError("local_motion_promoted_parameter_evidence_missing")
+        policy = stored_material.get("policyContext")
+        if not isinstance(policy, Mapping):
+            raise ValueError("local_motion_promoted_parameter_evidence_invalid")
+        current_request = LocalVideoRequest(
+            model_id=selected_model_id,
+            image_path=None,
+            prompt=prompt,
+            output_path=Path("/creator-os/admission/not-executed.mp4"),
+            duration_seconds=(
+                selected_model_spec.default_duration
+                if duration_seconds is None
+                else duration_seconds
+            ),
+            resolution=(
+                selected_model_spec.default_resolution
+                if resolution is None
+                else resolution
+            ),
+            seed=seed,
+            steps=steps,
+            negative_prompt=negative_prompt,
+            audio_mode=audio_mode,  # type: ignore[arg-type]
+            task=task_kind,  # type: ignore[arg-type]
+            lora_path=lora_path,
+            lora_strength=lora_strength,
+            source_video_path=source_video_path,
+            retake_start_frame=retake_start_frame,
+            retake_end_frame=retake_end_frame,
+            extend_frames=extend_frames,
+            extend_direction=extend_direction,  # type: ignore[arg-type]
+            low_ram=low_ram,
+            tile_frames=tile_frames,
+            tile_spatial=tile_spatial,
+            commercial_use=policy.get("commercialUse") is not False,
+            commercial_annual_revenue_usd=(
+                int(policy["commercialAnnualRevenueUsd"])
+                if policy.get("commercialAnnualRevenueUsd") is not None
+                else None
+            ),
+            overlays_exist=policy.get("overlaysExist") is True,
+        )
+        current_material = local_video_task_parameter_material(
+            current_request,
+            runtime_binding=(
+                winning.get("runtimeBinding") if isinstance(winning, Mapping) else None
+            ),
+        )
+        current_fingerprint = task_parameter_fingerprint(current_material)
+        if (
+            current_material == stored_material
+            and current_fingerprint == stored_fingerprint
+        ):
+            matched_parameter_materials[current_fingerprint] = current_material
+    if len(matched_parameter_materials) != 1:
+        raise ValueError("local_motion_task_parameter_mismatch")
+    parameter_fingerprint, parameter_material = next(
+        iter(matched_parameter_materials.items())
+    )
+    if recipe.get("parameterFingerprint") != benchmark_task_parameter_fingerprint(
+        parameter_material
+    ):
+        raise ValueError("local_motion_benchmark_parameter_mismatch")
     resource_snapshot["hardware"] = current_hardware
     summary_binding = {
         "summaryId": summary.get("summaryId"),
@@ -178,9 +297,91 @@ def admit_local_motion(
         "arenaSummary": summary_binding,
         "evidenceRecords": records,
         "inputFingerprints": inputs,
+        "inputBindings": current_input_bindings,
+        "promotionInputCohort": promotion_input_cohort,
+        "taskParameterMaterial": parameter_material,
+        "taskParameterFingerprint": parameter_fingerprint,
         "resourceSnapshot": resource_snapshot,
     }
     return {**core, "admissionFingerprint": fingerprint(core)}
+
+
+def _promoted_samples(
+    *,
+    arena_plan: Mapping[str, Any],
+    router_decision: Mapping[str, Any],
+    task_kind: str,
+) -> list[Mapping[str, Any]]:
+    winning = router_decision.get("winningEvidence")
+    if not isinstance(winning, Mapping):
+        raise ValueError("local_motion_winning_evidence_missing")
+    valid_ids = winning.get("validArenaSampleIds")
+    selected_model_id = str(router_decision.get("selectedModelId") or "")
+    if (
+        not isinstance(valid_ids, list)
+        or not valid_ids
+        or any(not str(value or "").strip() for value in valid_ids)
+        or len(valid_ids) != len(set(str(value) for value in valid_ids))
+        or not selected_model_id
+    ):
+        raise ValueError("local_motion_promoted_sample_identity_invalid")
+    samples = {
+        str(sample.get("sampleId") or ""): sample
+        for sample in arena_plan.get("samples", [])
+        if isinstance(sample, Mapping)
+    }
+    promoted: list[Mapping[str, Any]] = []
+    for sample_id in valid_ids:
+        sample = samples.get(str(sample_id))
+        if (
+            sample is None
+            or sample.get("modelId") != selected_model_id
+            or sample.get("taskKind") != task_kind
+        ):
+            raise ValueError("local_motion_promoted_sample_binding_invalid")
+        _sample_input_bindings(sample)
+        promoted.append(sample)
+    return promoted
+
+
+def _sample_input_bindings(sample: Mapping[str, Any]) -> list[dict[str, str]]:
+    return list(
+        canonical_task_input_bindings(
+            str(sample.get("taskKind") or ""),
+            image_sha256=(
+                str(sample["sourceSha256"])
+                if sample.get("sourcePath") is not None
+                else None
+            ),
+            audio_sha256=(
+                str(sample["audioSha256"])
+                if sample.get("audioSha256") is not None
+                else None
+            ),
+            last_image_sha256=(
+                str(sample["lastImageSha256"])
+                if sample.get("lastImageSha256") is not None
+                else None
+            ),
+            source_video_sha256=(
+                str(sample["sourceVideoSha256"])
+                if sample.get("sourceVideoSha256") is not None
+                else None
+            ),
+        )
+    )
+
+
+def _promotion_input_cohort(
+    promoted_samples: Sequence[Mapping[str, Any]],
+) -> list[list[dict[str, str]]]:
+    cohorts: dict[str, list[dict[str, str]]] = {}
+    for sample in promoted_samples:
+        bindings = _sample_input_bindings(sample)
+        cohorts[fingerprint({"inputs": bindings})] = bindings
+    if not cohorts:
+        raise ValueError("local_motion_promoted_input_cohort_missing")
+    return [cohorts[key] for key in sorted(cohorts)]
 
 
 def _exact_capability_cohort(

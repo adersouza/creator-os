@@ -8,15 +8,38 @@
   "properties": {
     "schema": {"const": "reel_factory.local_model_arena_plan.v1"},
     "planId": {"type": "string", "minLength": 1},
-    "purpose": {"enum": ["exploratory", "promotion_eligible"]},
+    "purpose": {
+      "enum": ["exploratory", "promotion_eligible", "supervised_rollout"]
+    },
     "createdAt": {"type": "string", "format": "date-time"},
     "creators": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["stacey", "larissa", "lola"]}},
     "expectedSampleCount": {"type": "integer", "minimum": 1},
-    "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sample"}},
+    "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sampleRecord"}},
     "providerCalls": {"const": 0},
     "productionWritesAllowed": {"const": false},
     "planFingerprint": {"$ref": "#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"purpose": {"const": "supervised_rollout"}},
+        "required": ["purpose"]
+      },
+      "then": {
+        "properties": {
+          "expectedSampleCount": {"enum": [10, 25, 50, 100]},
+          "samples": {
+            "anyOf": [
+              {"type": "array", "minItems": 10, "maxItems": 10},
+              {"type": "array", "minItems": 25, "maxItems": 25},
+              {"type": "array", "minItems": 50, "maxItems": 50},
+              {"type": "array", "minItems": 100, "maxItems": 100}
+            ]
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "binding": {
@@ -25,10 +48,52 @@
       "required": ["id", "fingerprint"],
       "properties": {"id": {"type": "string", "minLength": 1}, "fingerprint": {"$ref": "#/$defs/sha256"}}
     },
+    "umt5TokenizerBehavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "dependencyId", "repository", "revision", "tokenizerClass", "isFast", "fixMistralRegex", "preTokenizer", "probeCorpusSha256", "tokenIdsSha256", "aliasMatchesSnapshot", "behaviorFingerprint", "snapshotPath", "dependencyReceiptSha256", "runtimeReferencePath", "runtimeReferenceSha256", "probeScriptSha256", "isolation", "providerCalls", "productionWritesAllowed"],
+      "properties": {
+        "schema": {"const": "reel_factory.umt5_tokenizer_behavior.v1"},
+        "dependencyId": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "tokenizerClass": {"const": "T5Tokenizer"},
+        "isFast": {"const": true},
+        "fixMistralRegex": {"type": "null"},
+        "preTokenizer": {"type": "string", "minLength": 1},
+        "probeCorpusSha256": {"$ref": "#/$defs/sha256"},
+        "tokenIdsSha256": {"$ref": "#/$defs/sha256"},
+        "aliasMatchesSnapshot": {"const": true},
+        "behaviorFingerprint": {"$ref": "#/$defs/sha256"},
+        "snapshotPath": {"type": "string", "minLength": 1},
+        "dependencyReceiptSha256": {"$ref": "#/$defs/sha256"},
+        "runtimeReferencePath": {"type": "string", "minLength": 1},
+        "runtimeReferenceSha256": {"$ref": "#/$defs/sha256"},
+        "probeScriptSha256": {"$ref": "#/$defs/sha256"},
+        "isolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sandboxExecutable", "sandboxExecutableSha256", "profileFingerprint", "networkDenied", "writesDenied"],
+          "properties": {
+            "sandboxExecutable": {"type": "string", "minLength": 1},
+            "sandboxExecutableSha256": {"$ref": "#/$defs/sha256"},
+            "profileFingerprint": {"$ref": "#/$defs/sha256"},
+            "networkDenied": {"const": true},
+            "writesDenied": {"const": true}
+          }
+        },
+        "providerCalls": {"const": 0},
+        "productionWritesAllowed": {"const": false}
+      }
+    },
     "runtimeBinding": {
       "type": "object",
       "additionalProperties": false,
       "required": ["runtimeId", "repository", "revision", "platform", "platformRelease", "osBuild", "machine", "python", "pythonExecutable", "pythonExecutableResolved", "mlxVersion", "runtimeReceiptFingerprint", "resolvedEnvironmentFingerprint", "ffmpegExecutable", "ffmpegSha256", "ffmpegSize", "ffmpegVersion", "ffprobeExecutable", "ffprobeSha256", "ffprobeSize", "ffprobeVersion"],
+      "dependentRequired": {
+        "umt5TokenizerBehavior": ["umt5TokenizerBehaviorFingerprint"],
+        "umt5TokenizerBehaviorFingerprint": ["umt5TokenizerBehavior"]
+      },
       "properties": {
         "runtimeId": {"type": "string", "minLength": 1},
         "repository": {"type": "string", "minLength": 1},
@@ -50,7 +115,9 @@
         "ffprobeExecutable": {"type": "string", "minLength": 1},
         "ffprobeSha256": {"$ref": "#/$defs/sha256"},
         "ffprobeSize": {"type": "integer", "minimum": 1},
-        "ffprobeVersion": {"type": "string", "minLength": 1}
+        "ffprobeVersion": {"type": "string", "minLength": 1},
+        "umt5TokenizerBehavior": {"$ref": "#/$defs/umt5TokenizerBehavior"},
+        "umt5TokenizerBehaviorFingerprint": {"$ref": "#/$defs/sha256"}
       }
     },
     "licensePolicy": {
@@ -64,6 +131,94 @@
         "commercialRevenueLimitUsd": {"type": ["integer", "null"], "minimum": 1},
         "commercialUseAllowed": {"const": true},
         "aiDisclosureRequired": {"type": "boolean"}
+      }
+    },
+    "taskParameterMaterial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "benchmarkCell", "effectiveExecution", "policyContext"],
+      "properties": {
+        "schema": {"const": "creator_os.local_video_task_parameters.v1"},
+        "benchmarkCell": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskKind", "prompt", "seed", "durationSeconds", "resolution", "requestedSteps", "audioMode", "retakeStartFrame", "retakeEndFrame", "extendFrames", "extendDirection", "preserveAudio"],
+          "properties": {
+            "taskKind": {"enum": ["text_to_video", "image_to_video", "audio_image_to_video", "keyframe_interpolation", "video_retake", "video_extend"]},
+            "prompt": {"type": "string", "minLength": 1},
+            "seed": {"type": "integer", "minimum": 0},
+            "durationSeconds": {"type": ["integer", "null"], "minimum": 1},
+            "resolution": {"type": "string", "minLength": 1},
+            "requestedSteps": {"type": ["integer", "null"], "minimum": 1},
+            "audioMode": {"enum": ["none", "source", "generated", "preserved"]},
+            "retakeStartFrame": {"type": ["integer", "null"], "minimum": 0},
+            "retakeEndFrame": {"type": ["integer", "null"], "minimum": 1},
+            "extendFrames": {"type": ["integer", "null"], "minimum": 1},
+            "extendDirection": {"enum": ["before", "after", null]},
+            "preserveAudio": {"type": "boolean"}
+          }
+        },
+        "effectiveExecution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["negativePrompt", "negativePromptApplied", "geometrySource", "geometryProbe", "width", "height", "fps", "frameCount", "steps", "pipeline", "guideScale", "scheduler", "tilingMode", "trimFirstFrames", "lowRam", "tileFrames", "tileSpatial", "lora"],
+          "properties": {
+            "negativePrompt": {"type": ["string", "null"], "minLength": 1},
+            "negativePromptApplied": {"type": "boolean"},
+            "geometrySource": {"enum": ["model", "source_video"]},
+            "geometryProbe": {
+              "anyOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["executable", "sha256"],
+                  "properties": {
+                    "executable": {"type": "string", "minLength": 1},
+                    "sha256": {"$ref": "#/$defs/sha256"}
+                  }
+                }
+              ]
+            },
+            "width": {"type": "integer", "minimum": 1},
+            "height": {"type": "integer", "minimum": 1},
+            "fps": {"type": "string", "pattern": "^[1-9][0-9]*/[1-9][0-9]*$"},
+            "frameCount": {"type": ["integer", "null"], "minimum": 1},
+            "steps": {"type": "integer", "minimum": 1},
+            "pipeline": {"type": "string", "minLength": 1},
+            "guideScale": {"type": ["string", "null"]},
+            "scheduler": {"type": ["string", "null"]},
+            "tilingMode": {"type": ["string", "null"]},
+            "trimFirstFrames": {"type": "integer", "minimum": 0},
+            "lowRam": {"type": "boolean"},
+            "tileFrames": {"type": "integer", "minimum": 1, "maximum": 8},
+            "tileSpatial": {"type": "integer", "minimum": 1, "maximum": 4},
+            "lora": {
+              "anyOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["sha256", "scale"],
+                  "properties": {
+                    "sha256": {"$ref": "#/$defs/sha256"},
+                    "scale": {"type": "number", "exclusiveMinimum": 0, "maximum": 2}
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "policyContext": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commercialUse", "commercialAnnualRevenueUsd", "overlaysExist"],
+          "properties": {
+            "commercialUse": {"type": "boolean"},
+            "commercialAnnualRevenueUsd": {"type": ["integer", "null"], "minimum": 0},
+            "overlaysExist": {"type": "boolean"}
+          }
+        }
       }
     },
     "queueJob": {
@@ -94,6 +249,31 @@
         "licensePolicyFingerprint": {"$ref": "#/$defs/sha256"}
       }
     },
+    "sampleRecord": {
+      "oneOf": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/sample"},
+            {
+              "required": ["steps", "negativePrompt", "loraPath", "loraSha256", "loraStrength", "lowRam", "tileFrames", "tileSpatial", "taskParameterMaterial", "taskParameterFingerprint"]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/sample"},
+            {
+              "not": {
+                "anyOf": [
+                  {"required": ["taskParameterMaterial"]},
+                  {"required": ["taskParameterFingerprint"]}
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
     "sample": {
       "type": "object",
       "additionalProperties": false,
@@ -109,6 +289,12 @@
         "contentIntent": {"$ref": "content_intent.v1.schema.json"},
         "sourcePath": {"type": ["string", "null"], "minLength": 1},
         "sourceSha256": {"$ref": "#/$defs/sha256"},
+        "promptSource": {
+          "anyOf": [
+            {"$ref": "#/$defs/file"},
+            {"type": "null"}
+          ]
+        },
         "audioPath": {"type": ["string", "null"]},
         "audioSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
         "lastImagePath": {"type": ["string", "null"]},
@@ -135,10 +321,20 @@
         "seed": {"type": "integer"},
         "durationSeconds": {"type": "integer", "minimum": 1},
         "resolution": {"type": "string", "minLength": 1},
+        "steps": {"type": ["integer", "null"], "minimum": 1},
+        "negativePrompt": {"type": "string", "minLength": 1},
         "audioMode": {"enum": ["none", "source", "generated", "preserved"]},
+        "loraPath": {"type": ["string", "null"]},
+        "loraSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "loraStrength": {"type": "number", "exclusiveMinimum": 0, "maximum": 2},
+        "lowRam": {"type": "boolean"},
+        "tileFrames": {"type": "integer", "minimum": 1, "maximum": 8},
+        "tileSpatial": {"type": "integer", "minimum": 1, "maximum": 4},
         "commercialUse": {"type": "boolean"},
         "commercialAnnualRevenueUsd": {"type": ["integer", "null"], "minimum": 0},
         "overlaysExist": {"type": "boolean"},
+        "taskParameterMaterial": {"$ref": "#/$defs/taskParameterMaterial"},
+        "taskParameterFingerprint": {"$ref": "#/$defs/sha256"},
         "outputPath": {"type": "string", "minLength": 1},
         "blindedCandidateId": {"type": "string", "minLength": 1},
         "queueJob": {"$ref": "#/$defs/queueJob"},
@@ -148,6 +344,15 @@
         "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
         "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"},
         "promotionEligible": {"type": "boolean"}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
       }
     }
   }

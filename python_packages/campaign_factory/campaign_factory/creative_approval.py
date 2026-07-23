@@ -220,6 +220,7 @@ def _validate_v2_qc(
     payload: dict[str, Any],
     *,
     input_binding: dict[str, str],
+    prompt_source: dict[str, str] | None,
     output_binding: dict[str, str],
     approved_at: datetime,
 ) -> None:
@@ -299,7 +300,12 @@ def _validate_v2_qc(
         synthetic_asset = {
             "content_hash": output_binding["sha256"],
             "metadata_json": json.dumps(
-                {"generationInput": input_binding}, sort_keys=True
+                (
+                    {"promptSource": prompt_source}
+                    if prompt_source is not None
+                    else {"generationInput": input_binding}
+                ),
+                sort_keys=True,
             ),
         }
         trusted_failures = MotionQcPublishabilityMixin._trusted_motion_qc_failures(
@@ -549,6 +555,13 @@ def validate_creative_approval_v2(payload: dict[str, Any]) -> dict[str, Any]:
     model_binding = bindings["model"]
     assert isinstance(model_binding, dict)
     input_binding = _verify_bound_file(payload.get("input"), "input")
+    prompt_source = (
+        _verify_bound_file(payload.get("promptSource"), "prompt_source")
+        if payload.get("promptSource") is not None
+        else None
+    )
+    if prompt_source is not None and prompt_source != input_binding:
+        raise CreativeApprovalError("creative_approval_prompt_source_input_mismatch")
     output = _verify_bound_file(payload.get("output"), "output")
     _validate_execution_evidence(
         payload.get("executionEvidence"),
@@ -572,9 +585,14 @@ def validate_creative_approval_v2(payload: dict[str, Any]) -> dict[str, Any]:
         )
     if review_manifest.get("renderedAsset") != bindings["renderedAsset"]:
         raise CreativeApprovalError("creative_approval_review_manifest_asset_mismatch")
+    if review_manifest.get("promptSource") != prompt_source:
+        raise CreativeApprovalError(
+            "creative_approval_review_manifest_prompt_source_mismatch"
+        )
     _validate_v2_qc(
         payload,
         input_binding=input_binding,
+        prompt_source=prompt_source,
         output_binding=output,
         approved_at=approved_at,
     )
@@ -598,7 +616,9 @@ def validate_creative_approval_v2(payload: dict[str, Any]) -> dict[str, Any]:
         not isinstance(manifest_draft, dict)
         or manifest_campaign != campaign
         or creative_export_projection(
-            manifest_draft, campaign_slug=str(campaign["slug"])
+            manifest_draft,
+            campaign_slug=str(campaign["slug"]),
+            prompt_source=prompt_source,
         )
         != projection
     ):
@@ -719,9 +739,26 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
                 "fingerprint": admission_fingerprint,
             },
         }
-    input_record = metadata.get("generationInput") or metadata.get(
-        "staticFallbackSource"
-    )
+    source_role = metadata.get("sourceAssetRole")
+    prompt_source: dict[str, str] | None = None
+    input_record: Any
+    if source_role == "prompt_provenance_only":
+        if (
+            metadata.get("generationInput") is not None
+            or metadata.get("staticFallbackSource") is not None
+            or metadata.get("identityRole") != "non_creator_broll"
+        ):
+            raise CreativeApprovalError("creative_approval_prompt_source_role_mismatch")
+        prompt_source = _verify_bound_file(
+            metadata.get("promptSource"), "canonical_prompt_source"
+        )
+        input_record = prompt_source
+    else:
+        if metadata.get("promptSource") is not None:
+            raise CreativeApprovalError("creative_approval_prompt_source_unexpected")
+        input_record = metadata.get("generationInput") or metadata.get(
+            "staticFallbackSource"
+        )
     input_binding = _verify_bound_file(input_record, "canonical_input")
     output_binding = _verify_bound_file(
         {
@@ -759,7 +796,7 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
             input_binding=input_binding,
             output_binding=output_binding,
         )
-    return {
+    bindings = {
         "renderedAsset": {
             "id": _required_text(
                 asset.get("id") or asset.get("renderedAssetId"), "rendered_asset_id"
@@ -783,10 +820,16 @@ def canonical_asset_approval_bindings(asset: dict[str, Any]) -> dict[str, Any]:
         "input": input_binding,
         "output": output_binding,
     }
+    if prompt_source is not None:
+        bindings["promptSource"] = prompt_source
+    return bindings
 
 
 def creative_export_projection(
-    draft: dict[str, Any], *, campaign_slug: str
+    draft: dict[str, Any],
+    *,
+    campaign_slug: str,
+    prompt_source: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     draft_content = draft.get("content")
     post_caption = draft.get("instagramPostCaption")
@@ -845,6 +888,10 @@ def creative_export_projection(
         "audioIntentFingerprint": bound(draft.get("audioIntent")),
         "variationAssignmentFingerprint": bound(draft.get("variantAssignment")),
     }
+    if prompt_source is not None:
+        core["promptSourceSha256"] = _sha(
+            prompt_source.get("sha256"), "prompt_source_sha256"
+        )
     return {**core, "fingerprint": _fingerprint(core)}
 
 
@@ -852,7 +899,15 @@ def validate_approval_for_draft(
     approval: dict[str, Any], draft: dict[str, Any], *, campaign_slug: str
 ) -> dict[str, Any]:
     validated = validate_creative_approval_v2(approval)
-    projection = creative_export_projection(draft, campaign_slug=campaign_slug)
+    projection = creative_export_projection(
+        draft,
+        campaign_slug=campaign_slug,
+        prompt_source=(
+            validated.get("promptSource")
+            if isinstance(validated.get("promptSource"), dict)
+            else None
+        ),
+    )
     if validated["exportProjection"] != projection:
         raise CreativeApprovalError("creative_approval_export_projection_mismatch")
     semantics = validated["contentSemantics"]
@@ -975,6 +1030,7 @@ def build_and_record_creative_approval_v2(
         "generatedAt": approved_at,
         "campaign": {"id": str(campaign["id"]), "slug": str(campaign["slug"])},
         "renderedAsset": canonical["renderedAsset"],
+        "promptSource": canonical.get("promptSource"),
         "draftPayloadSchema": payload.get("schema"),
         "draft": draft,
         "providerCalls": 0,
@@ -987,7 +1043,15 @@ def build_and_record_creative_approval_v2(
     manifest_binding = _write_content_addressed_json(
         root, label="review_manifests", payload=manifest
     )
-    projection = creative_export_projection(draft, campaign_slug=campaign_slug)
+    projection = creative_export_projection(
+        draft,
+        campaign_slug=campaign_slug,
+        prompt_source=(
+            canonical.get("promptSource")
+            if isinstance(canonical.get("promptSource"), dict)
+            else None
+        ),
+    )
     audio_intent = draft.get("audioIntent")
     audio_intent = audio_intent if isinstance(audio_intent, dict) else {}
     approval_core = {

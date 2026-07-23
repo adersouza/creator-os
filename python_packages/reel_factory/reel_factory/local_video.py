@@ -9,11 +9,24 @@ import platform
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypedDict
+
+from creator_os_core.task_inputs import (
+    canonical_task_input_bindings,
+    validate_task_input_binding_records,
+)
+from creator_os_core.task_parameters import (
+    DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT,
+    benchmark_task_parameter_fingerprint,
+    canonical_task_parameter_material,
+    task_parameter_fingerprint,
+)
 
 from pipeline_contracts import validate_local_model_router_decision
 
@@ -58,6 +71,8 @@ _GENERATION_LOG_TAIL_BYTES = 32 * 1024
 _GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
 _GENERATION_SIGNAL_GRACE_SECONDS = 10
 _GENERATION_KILL_GRACE_SECONDS = 30
+_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS = 5
+_MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS = 30
 
 _SUBPROCESS_ENV_ALLOWLIST = frozenset(
     {
@@ -74,11 +89,82 @@ _SUBPROCESS_ENV_ALLOWLIST = frozenset(
         "VECLIB_MAXIMUM_THREADS",
     }
 )
+_ENVIRONMENT_PATH_POLICY = "allowlisted_uv_build_temp_bins_removed_v1"
+_SANDBOX_EXECUTABLE = Path("/usr/bin/sandbox-exec")
+_SANDBOX_DENIAL_PROBE = """import errno
+import socket
+import sys
 
-DEFAULT_NEGATIVE_PROMPT = (
-    "low quality, blurry, distorted face, deformed hands, extra fingers, "
-    "duplicate person, text, subtitles, watermark, interface elements, abrupt cuts"
+mask = 0
+try:
+    with open(sys.argv[1], "xb") as handle:
+        handle.write(b"x")
+except PermissionError:
+    pass
+else:
+    mask |= 1
+try:
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(("127.0.0.1", 0))
+except PermissionError:
+    pass
+else:
+    mask |= 2
+finally:
+    try:
+        tcp.close()
+    except NameError:
+        pass
+try:
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.connect(("127.0.0.1", 9))
+except PermissionError:
+    pass
+else:
+    mask |= 4
+finally:
+    try:
+        udp.close()
+    except NameError:
+        pass
+try:
+    tcp_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_client.connect(("127.0.0.1", 9))
+except PermissionError:
+    pass
+except OSError as exc:
+    if exc.errno not in {errno.EPERM, errno.EACCES}:
+        mask |= 8
+else:
+    mask |= 8
+finally:
+    try:
+        tcp_client.close()
+    except NameError:
+        pass
+raise SystemExit(mask)
+"""
+_SANDBOX_ALLOWED_WRITE_PROBE = """import os
+import sys
+
+descriptor = os.open(
+    sys.argv[1],
+    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+    0o600,
 )
+try:
+    os.write(descriptor, b"creator-os-sandbox-write-probe")
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+os.unlink(sys.argv[1])
+"""
+_IMAGEIO_FFMPEG_DISCOVERY_PROBE = """from imageio_ffmpeg import get_ffmpeg_exe
+
+print(get_ffmpeg_exe())
+"""
+
+DEFAULT_NEGATIVE_PROMPT = DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT
 
 
 class LocalVideoUnavailable(RuntimeError):
@@ -139,6 +225,9 @@ class LocalVideoRequest:
     low_ram: bool = True
     tile_frames: int = 1
     tile_spatial: int = 2
+    commercial_use: bool = True
+    commercial_annual_revenue_usd: int | None = None
+    overlays_exist: bool = False
     benchmark_recipe: Mapping[str, Any] | None = None
     analyzer_registry: Mapping[str, Any] | None = None
     creator_identity_profile: Mapping[str, Any] | None = None
@@ -189,12 +278,199 @@ def probe_local_video(
     }
 
 
+def _source_video_geometry(
+    source_video_path: Path, *, runtime_binding: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return exact source-derived geometry for edit-task evidence."""
+
+    source = Path(source_video_path).expanduser().resolve()
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("task_parameter_source_video_missing_or_unsafe")
+    ffprobe = (
+        Path(str(runtime_binding.get("ffprobeExecutable") or "")).expanduser().resolve()
+    )
+    expected_sha256 = str(runtime_binding.get("ffprobeSha256") or "")
+    if (
+        not ffprobe.is_file()
+        or ffprobe.is_symlink()
+        or len(expected_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in expected_sha256)
+        or _sha256_file(ffprobe) != expected_sha256
+    ):
+        raise ValueError("task_parameter_ffprobe_runtime_binding_mismatch")
+    completed = subprocess.run(
+        [
+            str(ffprobe),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate",
+            "-of",
+            "json",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    try:
+        payload = json.loads(completed.stdout) if completed.returncode == 0 else {}
+        [stream] = payload.get("streams") or []
+        width = int(stream.get("width") or 0)
+        height = int(stream.get("height") or 0)
+        numerator, denominator = str(stream.get("avg_frame_rate") or "").split("/", 1)
+        normalized_fps = f"{int(numerator)}/{int(denominator)}"
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("task_parameter_source_video_geometry_unreadable") from exc
+    if width <= 0 or height <= 0 or int(numerator) <= 0 or int(denominator) <= 0:
+        raise ValueError("task_parameter_source_video_geometry_unreadable")
+    return {
+        "geometrySource": "source_video",
+        "width": width,
+        "height": height,
+        "fps": normalized_fps,
+        "geometryProbe": {
+            "executable": str(ffprobe),
+            "sha256": expected_sha256,
+        },
+    }
+
+
+def _wan_execution_geometry(
+    request: LocalVideoRequest, spec: LocalVideoModelSpec
+) -> tuple[int, int]:
+    """Return the exact frame and trim geometry accepted by pinned mlx-video."""
+
+    frame_count = 4 * round(request.duration_seconds * spec.fps / 4) + 1
+    if frame_count <= 0 or (frame_count - 1) % 4 != 0:
+        raise ValueError("local_wan_frame_geometry_invalid")
+
+    # Pinned mlx-video keeps I2V image conditioning at the requested temporal
+    # length, but --trim-first-frames expands the noise latent before sampling.
+    # That makes, for example, 81 requested frames become 22 noise latents while
+    # conditioning remains 21. I2V therefore supports no pre-sampling trim.
+    trim_first_frames = 0
+    return frame_count, trim_first_frames
+
+
+def local_video_task_parameter_material(
+    request: LocalVideoRequest,
+    *,
+    spec: LocalVideoModelSpec | None = None,
+    runtime_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build exact inference material from the request and pinned model catalog."""
+
+    selected = spec or local_video_model_spec(request.model_id)
+    resolution = (
+        video_model(request.model_id).default_resolution
+        if request.resolution is None
+        else request.resolution
+    )
+    is_wan = selected.family == "wan_2"
+    is_ltx = selected.family == "ltx_2"
+    edit_task = request.task in {"video_retake", "video_extend"}
+    trim_first_frames = 0
+    if edit_task:
+        if request.source_video_path is None:
+            raise ValueError("task_parameter_source_video_missing")
+        if not isinstance(runtime_binding, Mapping):
+            raise ValueError("task_parameter_runtime_binding_required")
+        geometry = _source_video_geometry(
+            request.source_video_path, runtime_binding=runtime_binding
+        )
+        duration_seconds: int | None = None
+        frame_count: int | None = None
+        geometry_source = "source_video"
+        width = geometry["width"]
+        height = geometry["height"]
+        fps = geometry["fps"]
+        geometry_probe = geometry["geometryProbe"]
+    else:
+        duration_seconds = request.duration_seconds
+        if is_wan:
+            frame_count, trim_first_frames = _wan_execution_geometry(request, selected)
+        else:
+            frame_count = 8 * round(request.duration_seconds * selected.fps / 8) + 1
+        geometry_source = "model"
+        width = selected.width
+        height = selected.height
+        fps = f"{selected.fps}/1"
+        geometry_probe = None
+    ltx_ordinary_task = request.task in {
+        "text_to_video",
+        "image_to_video",
+        "audio_image_to_video",
+    }
+    lora_is_applied = is_wan or (is_ltx and ltx_ordinary_task)
+    lora_sha = (
+        _sha256_file(Path(request.lora_path).expanduser().resolve())
+        if request.lora_path is not None and lora_is_applied
+        else None
+    )
+    effective_low_ram = request.low_ram if is_ltx and not edit_task else False
+    ltx_tiling_is_applied = (
+        is_ltx
+        and request.task in {"text_to_video", "image_to_video"}
+        and request.audio_mode != "source"
+    )
+    effective_tile_frames = request.tile_frames if ltx_tiling_is_applied else 1
+    effective_tile_spatial = request.tile_spatial if ltx_tiling_is_applied else 1
+    return canonical_task_parameter_material(
+        task_kind=request.task,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt if is_wan else None,
+        negative_prompt_applied=is_wan,
+        seed=request.seed,
+        duration_seconds=duration_seconds,
+        resolution=resolution,
+        geometry_source=geometry_source,
+        geometry_probe=geometry_probe,
+        width=width,
+        height=height,
+        fps=fps,
+        frame_count=frame_count,
+        steps=_effective_steps(request, selected),
+        requested_steps=request.steps,
+        audio_mode=request.audio_mode,
+        pipeline=selected.pipeline,
+        guide_scale=selected.guide_scale if is_wan else None,
+        scheduler="unipc" if is_wan else None,
+        tiling_mode=(
+            "aggressive"
+            if is_wan and "a14b" in selected.model_id
+            else "auto"
+            if is_wan
+            else None
+        ),
+        trim_first_frames=trim_first_frames,
+        retake_start_frame=request.retake_start_frame,
+        retake_end_frame=request.retake_end_frame,
+        extend_frames=request.extend_frames,
+        extend_direction=request.extend_direction,
+        low_ram=effective_low_ram,
+        tile_frames=effective_tile_frames,
+        tile_spatial=effective_tile_spatial,
+        lora_sha256=lora_sha,
+        lora_scale=request.lora_strength if lora_sha is not None else None,
+        commercial_use=request.commercial_use,
+        commercial_annual_revenue_usd=request.commercial_annual_revenue_usd,
+        overlays_exist=request.overlays_exist,
+        preserve_audio=request.audio_mode == "preserved",
+    )
+
+
 def build_local_video_command(
     request: LocalVideoRequest, *, python_executable: str | None = None
 ) -> list[str]:
     spec = local_video_model_spec(request.model_id)
     model = video_model(request.model_id)
-    resolution = request.resolution or model.default_resolution
+    resolution = (
+        model.default_resolution if request.resolution is None else request.resolution
+    )
     validate_model_request(
         model,
         resolution=resolution,
@@ -504,6 +780,12 @@ def run_local_video(
     execution_binding = _validate_execution_binding(request, capability=capability)
     capability_fingerprint = _execution_capability_fingerprint(capability)
     command = build_local_video_command(request, python_executable=python_executable)
+    task_parameter_material = local_video_task_parameter_material(
+        request,
+        spec=spec,
+        runtime_binding=execution_binding.get("runtimeBinding"),
+    )
+    task_parameter_fp = task_parameter_fingerprint(task_parameter_material)
     lineage_path = output.with_suffix(output.suffix + ".local_video.json")
     audio_sidecar = output.with_suffix(output.suffix + ".audio.wav")
     manifest = capability.get("model", {}).get("manifest")
@@ -532,6 +814,8 @@ def run_local_video(
             if request.arena_benchmark_binding is not None
             else None
         ),
+        "taskParameterMaterial": task_parameter_material,
+        "taskParameterFingerprint": task_parameter_fp,
         "input": (
             {"path": str(image), "sha256": _sha256_file(image)}
             if image is not None
@@ -556,9 +840,18 @@ def run_local_video(
                 request.negative_prompt if spec.family == "wan_2" else None
             ),
             "negativePromptApplied": spec.family == "wan_2",
-            "durationSeconds": request.duration_seconds,
-            "resolution": f"{spec.width}x{spec.height}",
-            "fps": spec.fps,
+            "durationSeconds": task_parameter_material["benchmarkCell"][
+                "durationSeconds"
+            ],
+            "resolution": (
+                f"{task_parameter_material['effectiveExecution']['width']}x"
+                f"{task_parameter_material['effectiveExecution']['height']}"
+            ),
+            "geometrySource": task_parameter_material["effectiveExecution"][
+                "geometrySource"
+            ],
+            "fps": task_parameter_material["effectiveExecution"]["fps"],
+            "frameCount": task_parameter_material["effectiveExecution"]["frameCount"],
             "steps": _effective_steps(request, spec),
             "seed": request.seed,
             "pipeline": spec.pipeline,
@@ -567,9 +860,9 @@ def run_local_video(
             "retakeEndFrame": request.retake_end_frame,
             "extendFrames": request.extend_frames,
             "extendDirection": request.extend_direction,
-            "lowRam": request.low_ram,
-            "tileFrames": request.tile_frames,
-            "tileSpatial": request.tile_spatial,
+            "lowRam": task_parameter_material["effectiveExecution"]["lowRam"],
+            "tileFrames": task_parameter_material["effectiveExecution"]["tileFrames"],
+            "tileSpatial": task_parameter_material["effectiveExecution"]["tileSpatial"],
         },
         "capability": capability,
         "executionCapabilityFingerprint": capability_fingerprint,
@@ -595,6 +888,7 @@ def run_local_video(
             request,
             output=output,
             base_command=planned_base_command,
+            execution_binding=execution_binding,
         )
         lineage["command"] = planned_command
         lineage["executionIsolation"] = planned_isolation
@@ -631,6 +925,7 @@ def run_local_video(
         request,
         output=output,
         base_command=base_command,
+        execution_binding=execution_binding,
     )
     lineage["command"] = command
     lineage["executionIsolation"] = isolation
@@ -668,11 +963,13 @@ def run_local_video(
         "requestedMemoryBytes": job.requested_memory_bytes,
     }
     artifacts_completed = False
+    execution_stage = "pre_queue_admission"
     try:
         with queue.worker_session(blocking=False) as lease:
             queue.submit_and_start_exact(lease, job)
             queue_terminal = False
             try:
+                execution_stage = "pre_generation_validation"
                 # Do not create the requested lineage/output namespace until
                 # the exact job owns both the machine lease and resource
                 # admission. Busy or memory-blocked attempts remain clean and
@@ -692,9 +989,68 @@ def run_local_video(
                     raise LocalVideoUnavailable(
                         "local_video_execution_capability_drift"
                     )
+                # Recompute the launcher target and complete media-tool
+                # evidence after queue admission, immediately before spawn.
+                # A same-path binary replacement must not inherit the earlier
+                # plan's approval.
+                _bind_isolated_toolchain(
+                    request,
+                    base_command=base_command,
+                    environment=offline_env,
+                    execution_binding=execution_binding,
+                )
+                current_sandbox = _sandbox_executable()
+                if (
+                    current_sandbox is None
+                    or str(current_sandbox) != command[0]
+                    or len(command) < 5
+                    or command[1] != "-p"
+                    or command[3] != "--"
+                ):
+                    raise LocalVideoUnavailable(
+                        "local_video_isolation_execution_binding_drift"
+                    )
+                execution_stage = "isolation_preflight"
+                current_isolation_preflight = _preflight_sandbox_execution(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    forbidden_write_path=_sandbox_forbidden_write_probe_path(),
+                )
+                if current_isolation_preflight != isolation["isolationPreflight"]:
+                    raise LocalVideoUnavailable("local_video_isolation_preflight_drift")
+                execution_stage = "media_tool_discovery_preflight"
+                current_media_tool_discovery = _preflight_imageio_ffmpeg_discovery(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    environment=offline_env,
+                    expected_ffmpeg=Path(offline_env["IMAGEIO_FFMPEG_EXE"]),
+                )
+                if (
+                    current_media_tool_discovery
+                    != isolation["mediaToolDiscoveryPreflight"]
+                ):
+                    raise LocalVideoUnavailable(
+                        "local_video_media_tool_discovery_preflight_drift"
+                    )
+                execution_stage = "allowed_write_preflight"
+                allowed_write_preflight = _preflight_allowed_sandbox_write(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    sandbox_root=Path(str(isolation["sandboxRoot"])),
+                )
                 lineage["executionRevalidation"] = {
                     "modelId": request.model_id,
                     "capabilityFingerprint": current_fingerprint,
+                    "isolationPreflightFingerprint": fingerprint(
+                        current_isolation_preflight
+                    ),
+                    "mediaToolDiscoveryPreflightFingerprint": fingerprint(
+                        current_media_tool_discovery
+                    ),
+                    "allowedWritePreflight": allowed_write_preflight,
                     "deepVerified": current_capability.get("model", {}).get(
                         "deepVerified"
                     ),
@@ -706,6 +1062,7 @@ def run_local_video(
                     "ready": True,
                 }
                 _persist(lineage_path, lineage)
+                execution_stage = "generation_process"
                 benchmark_timer = LocalBenchmarkTimer.start()
                 try:
                     completed = _run_generation_process(
@@ -740,6 +1097,7 @@ def run_local_video(
                         ),
                     }
                     raise
+                execution_stage = "post_generation_validation"
                 lineage["executionLog"] = completed.log_evidence
                 measurement = benchmark_timer.finish()
                 lineage["executionMeasurement"] = {
@@ -809,9 +1167,12 @@ def run_local_video(
                 )
                 queue_terminal = True
             except KeyboardInterrupt:
+                lineage["executionStage"] = execution_stage
                 if not queue_terminal and not artifacts_completed:
                     queue.interrupt(
-                        lease, job.job_id, reason="generation_process_interrupted"
+                        lease,
+                        job.job_id,
+                        reason=f"{execution_stage}_interrupted",
                     )
                 raise
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
@@ -859,7 +1220,7 @@ def plan_local_video_job(
         model_dir=request.model_dir,
         python_executable=python_executable,
     )
-    _validate_execution_binding(request, capability=capability)
+    execution_binding = _validate_execution_binding(request, capability=capability)
     base_command = _build_execution_command(
         request,
         spec=spec,
@@ -870,6 +1231,7 @@ def plan_local_video_job(
         request,
         output=output,
         base_command=base_command,
+        execution_binding=execution_binding,
     )
     return _generation_job(
         request,
@@ -887,12 +1249,13 @@ def _isolated_execution(
     output: Path,
     base_command: list[str],
     environ: Mapping[str, str] | None = None,
+    execution_binding: Mapping[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
     environment_source = os.environ if environ is None else environ
     if platform.system() != "Darwin":
         raise LocalVideoUnavailable("local_video_isolation_unavailable:macos_required")
-    sandbox_exec = shutil.which("sandbox-exec")
-    if not sandbox_exec:
+    sandbox_exec = _sandbox_executable()
+    if sandbox_exec is None:
         raise LocalVideoUnavailable(
             "local_video_isolation_unavailable:sandbox_exec_missing"
         )
@@ -920,7 +1283,9 @@ def _isolated_execution(
     profile = "\n".join(
         [
             "(version 1)",
-            '(import "system.sb")',
+            # `system.sb` is an Apple-private profile whose execution policy
+            # changed on macOS 27. Keep this profile self-contained.
+            "(allow default)",
             "(deny network*)",
             "(deny file-write*",
             "  (require-not",
@@ -951,9 +1316,46 @@ def _isolated_execution(
             "no_proxy": "*",
         }
     )
+    environment = _sanitize_subprocess_environment(
+        environment,
+        environment_source=environment_source,
+    )
+    runtime = _runtime_binding(request, execution_binding=execution_binding)
+    expected_ffmpeg = str(runtime.get("ffmpegExecutable") or "")
+    if not expected_ffmpeg:
+        raise LocalVideoUnavailable("local_video_ffmpeg_runtime_binding_mismatch")
+    # Bind imageio-ffmpeg's own selector to the same exact runtime binary that
+    # the content-addressed toolchain check approves. PATH alone is not enough
+    # for this consumer and allowed the canary to fail only after rendering.
+    environment["IMAGEIO_FFMPEG_EXE"] = expected_ffmpeg
+    command = _bind_isolated_toolchain(
+        request,
+        base_command=base_command,
+        environment=environment,
+        execution_binding=execution_binding,
+    )
+    isolation_preflight = _preflight_sandbox_execution(
+        sandbox_exec=sandbox_exec,
+        profile=profile,
+        python_executable=Path(command[0]),
+        forbidden_write_path=_sandbox_forbidden_write_probe_path(),
+    )
+    media_tool_discovery_preflight = _preflight_imageio_ffmpeg_discovery(
+        sandbox_exec=sandbox_exec,
+        profile=profile,
+        python_executable=Path(command[0]),
+        environment=environment,
+        expected_ffmpeg=Path(expected_ffmpeg),
+    )
     isolation_core = {
         "schema": "reel_factory.local_subprocess_isolation.v1",
         "platform": "macos",
+        "hostOperatingSystem": {
+            "macVersion": platform.mac_ver()[0],
+            "kernelRelease": platform.release(),
+            "kernelVersion": platform.version(),
+            "machine": platform.machine(),
+        },
         "enforcement": "sandbox-exec",
         "enforcementBinary": str(Path(sandbox_exec).resolve()),
         "enforced": True,
@@ -964,15 +1366,20 @@ def _isolated_execution(
         "profileFingerprint": fingerprint({"profile": profile}),
         "environmentPolicy": "allowlist",
         "environmentAllowedKeys": sorted(environment),
+        "environmentPathPolicy": _ENVIRONMENT_PATH_POLICY,
         "environmentFingerprint": fingerprint(environment),
-        "environmentVariablesStripped": len(environment_source)
-        - len(set(environment_source).intersection(environment)),
+        "isolationPreflight": isolation_preflight,
+        "mediaToolDiscoveryPreflight": media_tool_discovery_preflight,
         "providerActivity": {
             "callsObserved": 0,
-            "measurementScope": "isolated_generation_subprocess",
-            "observationMethod": "macos_sandbox_network_policy",
+            "attemptsObserved": None,
+            "successfulDirectSocketCallsPossible": False,
+            "measurementScope": "successful_direct_socket_provider_calls",
+            "observationMethod": "macos_sandbox_active_socket_denial_preflight",
             "enforcementStatus": "enforced",
-            "evidenceBasis": "external_network_denied_by_macos_sandbox",
+            "evidenceBasis": (
+                "tcp_bind_tcp_connect_and_udp_connect_denied_by_macos_sandbox"
+            ),
         },
     }
     isolation = {
@@ -980,10 +1387,490 @@ def _isolated_execution(
         "isolationFingerprint": fingerprint(isolation_core),
     }
     return (
-        [str(sandbox_exec), "-p", profile, "--", *base_command],
+        [str(sandbox_exec), "-p", profile, "--", *command],
         environment,
         isolation,
     )
+
+
+def _sanitize_subprocess_environment(
+    environment: Mapping[str, str],
+    *,
+    environment_source: Mapping[str, str],
+) -> dict[str, str]:
+    """Remove uv build-launcher bins from the actual child environment.
+
+    ``uv run --with-editable`` prepends a random
+    ``builds-v<digits>/.tmp<nonempty>/bin`` directory for each invocation.
+    Passing it through would let a planner and worker resolve different
+    executables. Remove only that exact lexical shape beneath uv's configured
+    cache, preserve every other entry (including order and duplicates), and
+    fingerprint the exact sanitized environment that is executed.
+    """
+
+    sanitized = dict(environment)
+    raw_path = sanitized.get("PATH")
+    if raw_path is None:
+        return sanitized
+    configured_cache = environment_source.get("UV_CACHE_DIR")
+    uv_cache = (
+        Path(configured_cache).expanduser()
+        if configured_cache
+        else (Path.home() / ".cache" / "uv")
+    )
+    uv_cache = Path(os.path.abspath(uv_cache))
+    retained = [
+        raw_entry
+        for raw_entry in raw_path.split(os.pathsep)
+        if not _is_uv_ephemeral_build_bin(raw_entry, uv_cache=uv_cache)
+    ]
+    sanitized["PATH"] = os.pathsep.join(retained)
+    return sanitized
+
+
+def _is_uv_ephemeral_build_bin(raw_entry: str, *, uv_cache: Path) -> bool:
+    if not raw_entry:
+        return False
+    candidate = Path(os.path.abspath(Path(raw_entry).expanduser()))
+    try:
+        relative = candidate.relative_to(uv_cache)
+    except ValueError:
+        return False
+    parts = relative.parts
+    if len(parts) != 3 or parts[2] != "bin":
+        return False
+    cache_format, ephemeral_id, _bin = parts
+    if cache_format.startswith("builds-v"):
+        version = cache_format.removeprefix("builds-v")
+        return (
+            version.isdigit()
+            and ephemeral_id.startswith(".tmp")
+            and len(ephemeral_id) > len(".tmp")
+        )
+    return False
+
+
+def _sandbox_executable() -> Path | None:
+    if _SANDBOX_EXECUTABLE.is_file() and os.access(_SANDBOX_EXECUTABLE, os.X_OK):
+        return _SANDBOX_EXECUTABLE
+    return None
+
+
+def _preflight_sandbox_execution(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    forbidden_write_path: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove execution plus network/write denial before queue admission.
+
+    A permissive control must first show that the probe capabilities are
+    available in the parent environment. Otherwise an outer sandbox could make
+    an ineffective inner policy look enforced.
+    """
+
+    python = python_executable.expanduser()
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise LocalVideoUnavailable("local_video_isolation_probe_python_unavailable")
+    python_resolved = python.resolve(strict=True)
+    forbidden = forbidden_write_path.expanduser()
+    if forbidden.exists() or forbidden.is_symlink():
+        raise LocalVideoUnavailable("local_video_isolation_probe_path_collision")
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    probe_arguments = [
+        str(python),
+        "-B",
+        "-I",
+        "-S",
+        "-E",
+        "-c",
+        _SANDBOX_DENIAL_PROBE,
+        str(forbidden),
+    ]
+    control_profile = "(version 1)\n(allow default)"
+    control_command = [
+        str(sandbox_exec),
+        "-p",
+        control_profile,
+        "--",
+        *probe_arguments,
+    ]
+    denial_command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        *probe_arguments,
+    ]
+    for label, command, expected_returncode in (
+        ("control", control_command, 15),
+        ("denial", denial_command, 0),
+    ):
+        error_prefix = (
+            "local_video_isolation_control_preflight_failed"
+            if label == "control"
+            else "local_video_isolation_denial_preflight_failed"
+        )
+        created_regular = False
+        residual_observed = False
+        try:
+            completed = runner(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise LocalVideoUnavailable(f"{error_prefix}:timeout") from exc
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise LocalVideoUnavailable(f"{error_prefix}:unavailable") from exc
+        finally:
+            created_regular = forbidden.is_file() and not forbidden.is_symlink()
+            residual_observed = forbidden.exists() or forbidden.is_symlink()
+            if residual_observed:
+                try:
+                    forbidden.unlink()
+                except OSError as exc:
+                    raise LocalVideoUnavailable(
+                        "local_video_isolation_probe_cleanup_failed"
+                    ) from exc
+            if forbidden.exists() or forbidden.is_symlink():
+                raise LocalVideoUnavailable(
+                    "local_video_isolation_probe_cleanup_failed"
+                )
+        if completed.returncode != expected_returncode:
+            raise LocalVideoUnavailable(f"{error_prefix}:exit_{completed.returncode}")
+        if label == "control" and not created_regular:
+            raise LocalVideoUnavailable(
+                "local_video_isolation_control_preflight_failed:"
+                "regular_write_not_observed"
+            )
+        if label == "denial" and residual_observed:
+            raise LocalVideoUnavailable(
+                "local_video_isolation_denial_preflight_failed:artifact_write_allowed"
+            )
+    return {
+        "schema": "reel_factory.local_sandbox_preflight.v1",
+        "enforcementBinary": str(Path(sandbox_exec).resolve()),
+        "capabilityProbeExecutable": str(python),
+        "capabilityProbeExecutableResolved": str(python_resolved),
+        "capabilityProbeFingerprint": fingerprint(
+            {"implementation": _SANDBOX_DENIAL_PROBE}
+        ),
+        "timeoutSeconds": _SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+        "controlProfileFingerprint": fingerprint({"profile": control_profile}),
+        "controlProbeReturnCode": 15,
+        "denialProbeReturnCode": 0,
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "executionSucceeded": True,
+        "unscopedWriteDenied": True,
+        "tcpBindDenied": True,
+        "udpConnectDenied": True,
+        "tcpConnectDenied": True,
+        "temporaryControlWritesExpected": 1,
+        "temporaryControlWritesCleaned": True,
+        "residualArtifactWrites": 0,
+    }
+
+
+def _sandbox_forbidden_write_probe_path() -> Path:
+    return Path(tempfile.gettempdir()) / (
+        f"creator_os_sandbox_probe_{os.getpid()}_{uuid.uuid4().hex}.tmp"
+    )
+
+
+def _preflight_allowed_sandbox_write(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    sandbox_root: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove a job-owned scratch write works immediately before generation."""
+
+    probe_path = sandbox_root / f".allowed_write_probe_{uuid.uuid4().hex}.tmp"
+    if probe_path.exists() or probe_path.is_symlink():
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_probe_collision"
+        )
+    command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        str(python_executable),
+        "-B",
+        "-I",
+        "-S",
+        "-E",
+        "-c",
+        _SANDBOX_ALLOWED_WRITE_PROBE,
+        str(probe_path),
+    ]
+    residual = False
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+                "LC_ALL": "C",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:timeout"
+        ) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:unavailable"
+        ) from exc
+    finally:
+        residual = probe_path.exists() or probe_path.is_symlink()
+        if residual:
+            try:
+                probe_path.unlink()
+            except OSError as exc:
+                raise LocalVideoUnavailable(
+                    "local_video_isolation_allowed_write_probe_cleanup_failed"
+                ) from exc
+        if probe_path.exists() or probe_path.is_symlink():
+            raise LocalVideoUnavailable(
+                "local_video_isolation_allowed_write_probe_cleanup_failed"
+            )
+    if completed.returncode != 0:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:"
+            f"exit_{completed.returncode}"
+        )
+    if residual:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:residual_artifact"
+        )
+    return {
+        "schema": "reel_factory.local_sandbox_allowed_write_preflight.v1",
+        "capabilityProbeExecutable": str(python_executable),
+        "capabilityProbeFingerprint": fingerprint(
+            {"implementation": _SANDBOX_ALLOWED_WRITE_PROBE}
+        ),
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "createSucceeded": True,
+        "fsyncSucceeded": True,
+        "deleteSucceeded": True,
+        "residualArtifacts": 0,
+    }
+
+
+def _preflight_imageio_ffmpeg_discovery(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    environment: Mapping[str, str],
+    expected_ffmpeg: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove the model runtime's actual encoder consumer resolves exact FFmpeg."""
+
+    expected = expected_ffmpeg.expanduser()
+    if not expected.is_file() or not os.access(expected, os.X_OK):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "expected_ffmpeg_unavailable"
+        )
+    expected_resolved = expected.resolve(strict=True)
+    if environment.get("IMAGEIO_FFMPEG_EXE") != str(expected):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "environment_binding_mismatch"
+        )
+    command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        str(python_executable),
+        "-B",
+        "-I",
+        "-E",
+        "-c",
+        _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+    ]
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
+            env=dict(environment),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:timeout"
+        ) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:unavailable"
+        ) from exc
+    if completed.returncode != 0:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            f"exit_{completed.returncode}"
+        )
+    observed = completed.stdout.strip()
+    if observed != str(expected):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:resolved_path_mismatch"
+        )
+    try:
+        observed_resolved = Path(observed).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "resolved_path_unavailable"
+        ) from exc
+    if observed_resolved != expected_resolved:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:resolved_target_mismatch"
+        )
+    return {
+        "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
+        "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
+        "consumerProbeFingerprint": fingerprint(
+            {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
+        ),
+        "pythonExecutable": str(python_executable),
+        "expectedFfmpegExecutable": str(expected),
+        "expectedFfmpegExecutableResolved": str(expected_resolved),
+        "observedFfmpegExecutable": observed,
+        "observedFfmpegExecutableResolved": str(observed_resolved),
+        "environmentFingerprint": fingerprint(environment),
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "timeoutSeconds": _MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
+        "discoverySucceeded": True,
+    }
+
+
+def _runtime_binding(
+    request: LocalVideoRequest,
+    *,
+    execution_binding: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
+    binding = execution_binding or request.arena_benchmark_binding
+    runtime = binding.get("runtimeBinding") if isinstance(binding, Mapping) else None
+    if not isinstance(runtime, Mapping):
+        raise LocalVideoUnavailable("local_video_runtime_binding_missing")
+    return runtime
+
+
+def _bind_isolated_toolchain(
+    request: LocalVideoRequest,
+    *,
+    base_command: list[str],
+    environment: Mapping[str, str],
+    execution_binding: Mapping[str, Any] | None = None,
+) -> list[str]:
+    runtime = _runtime_binding(request, execution_binding=execution_binding)
+    expected_launcher = str(runtime.get("pythonExecutable") or "")
+    expected_resolved = str(runtime.get("pythonExecutableResolved") or "")
+    if not expected_launcher or not expected_resolved or not base_command:
+        raise LocalVideoUnavailable("local_video_python_runtime_binding_missing")
+    launcher = str(base_command[0])
+    if launcher != expected_launcher:
+        raise LocalVideoUnavailable("local_video_python_runtime_binding_mismatch")
+    if str(Path(launcher).expanduser().resolve()) != expected_resolved:
+        raise LocalVideoUnavailable("local_video_python_runtime_target_mismatch")
+    command = list(base_command)
+    path = environment.get("PATH", "")
+    if environment.get("IMAGEIO_FFMPEG_EXE") != str(
+        runtime.get("ffmpegExecutable") or ""
+    ):
+        raise LocalVideoUnavailable("local_video_ffmpeg_runtime_binding_mismatch")
+    for tool, field in (
+        ("ffmpeg", "ffmpegExecutable"),
+        ("ffprobe", "ffprobeExecutable"),
+    ):
+        resolved = shutil.which(tool, path=path)
+        if resolved is None:
+            raise LocalVideoUnavailable(f"local_video_{tool}_runtime_binding_mismatch")
+        expected = {
+            "executable": str(runtime.get(field) or ""),
+            "sha256": str(runtime.get(f"{tool}Sha256") or ""),
+            "size": runtime.get(f"{tool}Size"),
+            "version": str(runtime.get(f"{tool}Version") or ""),
+        }
+        try:
+            evidence = _tool_evidence_for_path(
+                Path(resolved),
+                expected=expected,
+                environment=environment,
+            )
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            raise LocalVideoUnavailable(
+                f"local_video_{tool}_runtime_binding_mismatch"
+            ) from exc
+        if evidence != expected:
+            raise LocalVideoUnavailable(f"local_video_{tool}_runtime_binding_mismatch")
+    return command
+
+
+def _tool_evidence_for_path(
+    path: Path,
+    *,
+    expected: Mapping[str, Any],
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
+    resolved = path.expanduser().resolve(strict=True)
+    if (
+        not resolved.is_file()
+        or resolved.is_symlink()
+        or not os.access(resolved, os.X_OK)
+    ):
+        raise RuntimeError(f"local_video_runtime_tool_unsafe:{resolved.name}")
+    stat = resolved.stat()
+    content_evidence = {
+        "executable": str(resolved),
+        "sha256": _sha256_file(resolved),
+        "size": stat.st_size,
+    }
+    expected_content = {
+        "executable": str(expected.get("executable") or ""),
+        "sha256": str(expected.get("sha256") or ""),
+        "size": expected.get("size"),
+    }
+    if content_evidence != expected_content:
+        raise RuntimeError(f"local_video_runtime_tool_content_mismatch:{resolved.name}")
+    completed = subprocess.run(
+        [str(resolved), "-version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=dict(environment),
+    )
+    first_line = (completed.stdout or completed.stderr).splitlines()
+    if completed.returncode != 0 or not first_line:
+        raise RuntimeError(f"local_video_runtime_tool_unreadable:{resolved.name}")
+    evidence = {**content_evidence, "version": first_line[0].strip()}
+    if evidence["version"] != str(expected.get("version") or ""):
+        raise RuntimeError(f"local_video_runtime_tool_version_mismatch:{resolved.name}")
+    return evidence
 
 
 def _prepare_isolation_workspace(isolation: Mapping[str, Any]) -> None:
@@ -1026,7 +1913,7 @@ def _build_wan_command(
     output: Path,
     prompt: str,
 ) -> list[str]:
-    frames = 4 * round(request.duration_seconds * spec.fps / 4) + 1
+    frames, trim_first_frames = _wan_execution_geometry(request, spec)
     command = [
         python,
         "-m",
@@ -1044,7 +1931,7 @@ def _build_wan_command(
         "--num-frames",
         str(frames),
         "--steps",
-        str(request.steps or spec.default_steps),
+        str(_effective_steps(request, spec)),
         "--guide-scale",
         spec.guide_scale,
         "--seed",
@@ -1066,8 +1953,8 @@ def _build_wan_command(
                 str(request.lora_strength),
             ]
         )
-    if "a14b" in spec.model_id:
-        command.extend(["--trim-first-frames", "1"])
+    if trim_first_frames:
+        command.extend(["--trim-first-frames", str(trim_first_frames)])
     return command
 
 
@@ -1195,7 +2082,7 @@ def _build_ltx_command(
             [
                 "--two-stages-hq",
                 "--stage1-steps",
-                str(request.steps or spec.default_steps),
+                str(_effective_steps(request, spec)),
                 "--stage2-steps",
                 "3",
             ]
@@ -1311,6 +2198,7 @@ def _validate_request_inputs(
         raise ValueError(
             "local video motion prompt must contain at least 20 characters"
         )
+    _request_input_bindings(request)
     if request.image_path is not None:
         image = Path(request.image_path).expanduser().resolve()
         if not image.is_file():
@@ -1796,15 +2684,24 @@ def _generation_job(
             "sourceVideo": inputs["sourceVideo"],
         }
     )
+    task_parameter_material = local_video_task_parameter_material(
+        request,
+        spec=spec,
+        runtime_binding=execution_binding.get("runtimeBinding"),
+    )
+    effective_duration_seconds = task_parameter_material["benchmarkCell"][
+        "durationSeconds"
+    ]
     params = {
         "command": command,
         "outputPath": str(output),
         "task": request.task,
-        "durationSeconds": request.duration_seconds,
+        "durationSeconds": effective_duration_seconds,
         "seed": request.seed,
         "executionContext": request.execution_context,
         "executionBindingFingerprint": execution_binding["bindingFingerprint"],
         "executionIsolationFingerprint": execution_isolation["isolationFingerprint"],
+        "taskParameterFingerprint": task_parameter_fingerprint(task_parameter_material),
     }
     job_id = (
         "local_video_"
@@ -1826,7 +2723,7 @@ def _generation_job(
             "sourceInputSha256": cohort_input_sha,
             "task": request.task,
             "prompt": " ".join(request.prompt.split()),
-            "durationSeconds": request.duration_seconds,
+            "durationSeconds": effective_duration_seconds,
             "seed": request.seed,
             "audioMode": request.audio_mode,
             "executionContext": request.execution_context,
@@ -1922,6 +2819,10 @@ def _validate_campaign_admission(
         "arenaSummary",
         "evidenceRecords",
         "inputFingerprints",
+        "inputBindings",
+        "promotionInputCohort",
+        "taskParameterMaterial",
+        "taskParameterFingerprint",
         "resourceSnapshot",
         "admissionFingerprint",
     }
@@ -2097,18 +2998,29 @@ def _validate_campaign_admission(
         raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
 
     input_fingerprints = payload.get("inputFingerprints")
-    exact_inputs: list[str] = []
-    for value in (
-        _optional_input_sha256(request.image_path),
-        _optional_input_sha256(request.audio_path),
-        _optional_input_sha256(request.last_image_path),
-        _optional_input_sha256(request.source_video_path),
-    ):
-        if value is not None and value not in exact_inputs:
-            exact_inputs.append(value)
+    exact_bindings = _request_input_bindings(request)
+    exact_inputs = [binding["sha256"] for binding in exact_bindings]
+    current_parameter_material = local_video_task_parameter_material(
+        request,
+        runtime_binding=winning.get("runtimeBinding"),
+    )
+    current_parameter_fingerprint = task_parameter_fingerprint(
+        current_parameter_material
+    )
+    promotion_input_cohort = _validated_promotion_input_cohort(
+        request.task, payload.get("promotionInputCohort")
+    )
     if (
         input_fingerprints != exact_inputs
-        or list(intent.get("sourceAssetFingerprints") or []) != exact_inputs
+        or payload.get("inputBindings") != list(exact_bindings)
+        or list(exact_bindings) not in promotion_input_cohort
+        or payload.get("taskParameterMaterial") != current_parameter_material
+        or payload.get("taskParameterFingerprint") != current_parameter_fingerprint
+        or recipe.get("parameterFingerprint")
+        != benchmark_task_parameter_fingerprint(current_parameter_material)
+        or not set(exact_inputs).issubset(
+            set(intent.get("sourceAssetFingerprints") or [])
+        )
         or list(recipe.get("inputFingerprints") or []) != exact_inputs
     ):
         raise LocalVideoUnavailable("local_motion_input_fingerprint_mismatch")
@@ -2270,9 +3182,18 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         or binding.get("productionWritesAllowed") is not False
     ):
         raise LocalVideoUnavailable("arena_benchmark_external_activity_not_closed")
+    primary_source_identity = _optional_input_sha256(
+        request.image_path or request.source_video_path
+    )
+    if request.task == "text_to_video":
+        primary_source_identity = fingerprint(
+            {
+                "taskKind": "text_to_video",
+                "prompt": " ".join(request.prompt.split()),
+            }
+        )
     if (
-        _optional_input_sha256(request.image_path or request.source_video_path)
-        != binding.get("sourceSha256")
+        primary_source_identity != binding.get("sourceSha256")
         or request.benchmark_recipe is None
         or fingerprint(request.benchmark_recipe)
         != binding.get("benchmarkRecipeFingerprint")
@@ -2305,10 +3226,24 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         or intent.get("intentId") != binding.get("contentIntentId")
         or fingerprint(intent) != binding.get("contentIntentFingerprint")
         or intent.get("creatorIdentityProfileId") != profile.get("profileId")
-        or binding.get("sourceSha256")
-        not in list(intent.get("sourceAssetFingerprints") or [])
     ):
         raise LocalVideoUnavailable("arena_identity_intent_record_binding_mismatch")
+    exact_bindings = _request_input_bindings(request)
+    exact_inputs = [binding["sha256"] for binding in exact_bindings]
+    if not set(exact_inputs).issubset(set(intent.get("sourceAssetFingerprints") or [])):
+        raise LocalVideoUnavailable("arena_identity_intent_input_unauthorized")
+    if list((request.benchmark_recipe or {}).get("inputFingerprints") or []) != (
+        exact_inputs
+    ):
+        raise LocalVideoUnavailable("arena_benchmark_recipe_input_mismatch")
+    current_parameter_material = local_video_task_parameter_material(
+        request,
+        runtime_binding=binding.get("runtimeBinding"),
+    )
+    if (request.benchmark_recipe or {}).get(
+        "parameterFingerprint"
+    ) != benchmark_task_parameter_fingerprint(current_parameter_material):
+        raise LocalVideoUnavailable("arena_task_parameter_binding_mismatch")
     for field in (
         "sampleId",
         "blindedCandidateId",
@@ -2333,6 +3268,44 @@ def _optional_input_sha256(path: Path | None) -> str | None:
     if not resolved.is_file() or resolved.is_symlink():
         raise LocalVideoUnavailable(f"local_video_input_missing_or_unsafe:{resolved}")
     return _sha256_file(resolved)
+
+
+def _request_input_bindings(
+    request: LocalVideoRequest,
+) -> tuple[dict[str, str], ...]:
+    return canonical_task_input_bindings(
+        request.task,
+        image_sha256=_optional_input_sha256(request.image_path),
+        audio_sha256=_optional_input_sha256(request.audio_path),
+        last_image_sha256=_optional_input_sha256(request.last_image_path),
+        source_video_sha256=_optional_input_sha256(request.source_video_path),
+    )
+
+
+def _validated_promotion_input_cohort(
+    task_kind: str, raw: Any
+) -> list[list[dict[str, str]]]:
+    if not isinstance(raw, list) or not raw:
+        raise LocalVideoUnavailable("local_motion_promoted_input_cohort_invalid")
+    cohort: list[list[dict[str, str]]] = []
+    identities: set[str] = set()
+    try:
+        for item in raw:
+            if not isinstance(item, list):
+                raise ValueError("task_input_binding_cohort_item_invalid")
+            bindings = list(validate_task_input_binding_records(task_kind, item))
+            identity = fingerprint({"inputs": bindings})
+            if identity in identities:
+                raise ValueError("task_input_binding_cohort_duplicate")
+            identities.add(identity)
+            cohort.append(bindings)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise LocalVideoUnavailable(
+            f"local_motion_promoted_input_cohort_invalid:{exc}"
+        ) from exc
+    if cohort != raw:
+        raise LocalVideoUnavailable("local_motion_promoted_input_cohort_not_canonical")
+    return cohort
 
 
 def _required_sha256(value: Any, field: str) -> str:

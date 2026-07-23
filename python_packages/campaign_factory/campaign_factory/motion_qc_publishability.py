@@ -571,8 +571,10 @@ class MotionQcPublishabilityMixin:
         )
         metadata = json_load(asset.get("metadata_json"), {})
         metadata = metadata if isinstance(metadata, dict) else {}
-        source_binding = metadata.get("generationInput") or metadata.get(
-            "staticFallbackSource"
+        source_binding = (
+            metadata.get("generationInput")
+            or metadata.get("staticFallbackSource")
+            or metadata.get("promptSource")
         )
         source_binding = source_binding if isinstance(source_binding, dict) else {}
         if (
@@ -764,7 +766,8 @@ class MotionQcPublishabilityMixin:
         }
         text_only_unassigned = bool(
             metadata.get("identityRole") == "non_creator_broll"
-            or metadata.get("sourceAssetRole") == "static_fallback_only"
+            or metadata.get("sourceAssetRole")
+            in {"static_fallback_only", "prompt_provenance_only"}
             or "text_to_video_identity_assignment_forbidden" in blocking_issues
         )
         return (

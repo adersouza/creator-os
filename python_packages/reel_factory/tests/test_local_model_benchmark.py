@@ -99,7 +99,11 @@ def _deep_verified_test_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _records(
-    *, input_fingerprint: str, parameter_fingerprint: str, task_kind: str
+    *,
+    input_fingerprint: str,
+    parameter_fingerprint: str,
+    task_kind: str,
+    promotion_evidence_allowed: bool = True,
 ) -> tuple[BenchmarkRecipeV1, AnalyzerRegistryV1]:
     implementation_fingerprint = hashlib.sha256(
         TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes()
@@ -122,6 +126,7 @@ def _records(
         task_kind=task_kind,
         input_fingerprints=(input_fingerprint,),
         parameter_fingerprint=parameter_fingerprint,
+        promotion_evidence_allowed=promotion_evidence_allowed,
         required_analyzers=(
             AnalyzerRequirementV1(
                 analyzer_id="contentforge.media_integrity",
@@ -167,13 +172,22 @@ def _records_for_job(
     )
 
 
-def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
+def _job(
+    job_id: str,
+    model: str,
+    task_input: str,
+    *,
+    promotion_evidence_allowed: bool = True,
+    frames: int = 81,
+    bind_execution_identity: bool = False,
+) -> LocalGenerationJob:
     input_fingerprint = _sha(task_input)
-    params = {"frames": 81, "seed": 9}
+    params = {"frames": frames, "seed": 9}
     recipe, registry = _records(
         input_fingerprint=input_fingerprint,
         parameter_fingerprint=queue_fingerprint(params),
         task_kind="image_to_video",
+        promotion_evidence_allowed=promotion_evidence_allowed,
     )
     profile = {
         "schema": "creator_os.creator_identity_profile.v1",
@@ -194,6 +208,16 @@ def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
         input_sha256=input_fingerprint,
         requested_memory_bytes=GIB,
         params=params,
+        cohort=(
+            {
+                "inputSha256": input_fingerprint,
+                "params": params,
+                "executionBindingFingerprint": _sha(f"{model}-execution-binding"),
+                "executionIsolationFingerprint": _sha(f"{job_id}-isolation"),
+            }
+            if bind_execution_identity
+            else None
+        ),
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         creator_identity_profile=profile,
@@ -326,8 +350,14 @@ def _complete_and_benchmark(
     *,
     benchmark_id: str,
     qc_passed: bool = True,
+    promotion_evidence_allowed: bool = True,
 ) -> BenchmarkReceipt:
-    benchmark_recipe, analyzer_registry = _records_for_job(job)
+    benchmark_recipe, analyzer_registry = _records(
+        input_fingerprint=job.input_fingerprint,
+        parameter_fingerprint=job.params_fingerprint,
+        task_kind=job.task_kind,
+        promotion_evidence_allowed=promotion_evidence_allowed,
+    )
     measurement = LocalExecutionMeasurement(
         wall_time_seconds=0.01,
         peak_memory_bytes=GIB,
@@ -447,6 +477,57 @@ def test_benchmark_is_bound_to_succeeded_job_and_measured_hardware(
     assert receipt.execution_retry_count == 0
     assert receipt.local_cost_usd is None
     assert receipt.local_cost_measurement_method == "unavailable:not_metered"
+
+
+def test_completed_benchmark_reverification_rejects_output_and_qc_substitution(
+    tmp_path: Path,
+) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    receipt = _complete_and_benchmark(
+        queue,
+        store,
+        _job("job", "wan", "shot-a"),
+        benchmark_id="benchmark-1",
+    )
+
+    store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+    output = queue.root / "job.mp4"
+    output.write_bytes(b"substituted output")
+    with pytest.raises(RuntimeError, match="output_missing_or_substituted"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+
+    output.write_bytes(b"output-job")
+    qc_path = store.root / receipt.qc_references[0].receipt_uri
+    qc_path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="qc_receipt_sha256_mismatch"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+
+
+def test_completed_benchmark_reverification_uses_current_analyzer_implementation(
+    tmp_path: Path,
+) -> None:
+    implementation_root = tmp_path / "implementation"
+    implementation = (
+        implementation_root / "packages/contentforge/lib/trusted-media-analysis.js"
+    )
+    implementation.parent.mkdir(parents=True, exist_ok=True)
+    implementation.write_bytes(TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes())
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(
+        tmp_path / "evidence",
+        implementation_root=implementation_root,
+    )
+    receipt = _complete_and_benchmark(
+        queue,
+        store,
+        _job("job", "wan", "shot-a"),
+        benchmark_id="benchmark-1",
+    )
+
+    implementation.write_text("drifted implementation\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="analyzer_implementation_drift"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
 
 
 def test_benchmark_rejects_nonterminal_job(tmp_path: Path) -> None:
@@ -677,7 +758,11 @@ def test_legacy_motion_qc_v1_is_never_promotion_evidence(tmp_path: Path) -> None
 
 
 def _matched_evidence(
-    tmp_path: Path, *, candidate_qc: bool = True
+    tmp_path: Path,
+    *,
+    candidate_qc: bool = True,
+    candidate_promotion_evidence_allowed: bool = True,
+    candidate_frames: int = 81,
 ) -> tuple[
     LocalModelBenchmarkStore,
     tuple[BenchmarkReceipt, ...],
@@ -693,7 +778,12 @@ def _matched_evidence(
             _complete_and_benchmark(
                 queue,
                 store,
-                _job(f"baseline-{index}", "baseline", task_input),
+                _job(
+                    f"baseline-{index}",
+                    "baseline",
+                    task_input,
+                    bind_execution_identity=True,
+                ),
                 benchmark_id=f"baseline-benchmark-{index}",
             )
         )
@@ -701,9 +791,17 @@ def _matched_evidence(
             _complete_and_benchmark(
                 queue,
                 store,
-                _job(f"candidate-{index}", "candidate", task_input),
+                _job(
+                    f"candidate-{index}",
+                    "candidate",
+                    task_input,
+                    promotion_evidence_allowed=(candidate_promotion_evidence_allowed),
+                    frames=candidate_frames,
+                    bind_execution_identity=True,
+                ),
                 benchmark_id=f"candidate-benchmark-{index}",
                 qc_passed=candidate_qc,
+                promotion_evidence_allowed=candidate_promotion_evidence_allowed,
             )
         )
     return store, tuple(candidate), tuple(baseline)
@@ -730,10 +828,24 @@ def _evaluate(
 
 def test_eligible_evaluation_never_auto_promotes(tmp_path: Path) -> None:
     store, candidate, baseline = _matched_evidence(tmp_path)
+    assert sorted(item.task_fingerprint for item in candidate) != sorted(
+        item.task_fingerprint for item in baseline
+    )
     evaluation = _evaluate(store, candidate, baseline)
     assert evaluation.eligible
     event_types = [event["eventType"] for event in store.promotions.read().events]
     assert event_types == ["promotion_evaluated"]
+
+
+def test_model_independent_task_identity_rejects_parameter_substitution(
+    tmp_path: Path,
+) -> None:
+    store, candidate, baseline = _matched_evidence(tmp_path, candidate_frames=82)
+
+    evaluation = _evaluate(store, candidate, baseline)
+
+    assert not evaluation.eligible
+    assert "benchmark_task_identity_cohort_mismatch" in evaluation.blocking_reasons
 
 
 def test_tiny_four_per_arm_cohort_is_not_promotion_eligible(tmp_path: Path) -> None:
@@ -871,6 +983,22 @@ def test_failed_qc_blocks_promotion(tmp_path: Path) -> None:
     assert "candidate_qc_failed" in evaluation.blocking_reasons
 
 
+def test_non_promotion_benchmark_recipe_cannot_enter_promotion(
+    tmp_path: Path,
+) -> None:
+    store, candidate, baseline = _matched_evidence(
+        tmp_path, candidate_promotion_evidence_allowed=False
+    )
+
+    evaluation = _evaluate(store, candidate, baseline)
+
+    assert not evaluation.eligible
+    assert (
+        "candidate_benchmark_recipe_not_promotion_eligible"
+        in evaluation.blocking_reasons
+    )
+
+
 def test_missing_qc_file_at_evaluation_time_blocks_promotion(tmp_path: Path) -> None:
     store, candidate, baseline = _matched_evidence(tmp_path)
     for receipt in (store.root / "evidence").glob("*.json"):
@@ -903,7 +1031,7 @@ def test_unmatched_task_cohort_blocks_promotion(tmp_path: Path) -> None:
     )
     assert not evaluation.eligible
     assert "duplicate_candidate_benchmark_id" in evaluation.blocking_reasons
-    assert "task_fingerprint_cohort_mismatch" in evaluation.blocking_reasons
+    assert "benchmark_task_identity_cohort_mismatch" in evaluation.blocking_reasons
 
 
 def test_operator_cli_records_output_bound_qc_receipt(

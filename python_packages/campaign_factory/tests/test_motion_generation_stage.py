@@ -168,6 +168,13 @@ def _local_motion_admission(model_id: str) -> dict:
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1"
         },
+        "taskParameterMaterial": {
+            "policyContext": {
+                "creatorId": "stacey",
+                "identityProfileId": "profile-1",
+                "contentIntentId": "intent-1",
+            }
+        },
     }
     return {
         **admission_core,
@@ -1019,7 +1026,9 @@ def _motion_qc_receipt(
 
 def _asset_source_sha256(asset: dict) -> str:
     metadata = json.loads(asset["metadata_json"])
-    return metadata["staticFallbackSource"]["sha256"]
+    source = metadata.get("staticFallbackSource") or metadata.get("promptSource")
+    assert isinstance(source, dict)
+    return str(source["sha256"])
 
 
 def _semantic_qc_failures(receipt: dict) -> list[str]:
@@ -1147,18 +1156,16 @@ def _write_motion_qc_receipt(tmp_path: Path, name: str, payload: dict) -> Path:
     return path
 
 
-def test_text_to_video_worker_omits_image_but_keeps_static_fallback_input(
+def test_text_to_video_worker_has_no_media_input(
     tmp_path: Path,
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        still = tmp_path / "accepted.jpg"
-        still.write_bytes(b"still")
         command = _worker_command(
             cf,
             model_id="local_wan22_ti2v_5b_mlx",
             prompt=PROMPT,
-            still=still,
+            still=None,
             output_path=tmp_path / "out.mp4",
             campaign_slug="may",
             duration_seconds=6,
@@ -1180,7 +1187,193 @@ def test_text_to_video_worker_omits_image_but_keeps_static_fallback_input(
         )
         assert command[command.index("--task") + 1] == "text_to_video"
         assert "--image" not in command
-        assert still.is_file()
+        assert "--audio" not in command
+        assert "--last-image" not in command
+        assert "--source-video" not in command
+    finally:
+        cf.close()
+
+
+@pytest.mark.parametrize(
+    ("motion_task", "with_still", "expected_error"),
+    [
+        ("image_to_video", False, "accepted still is required"),
+        (
+            "audio_image_to_video",
+            True,
+            "task_input_required_role_missing:audio",
+        ),
+        (
+            "keyframe_interpolation",
+            True,
+            "task_input_required_role_missing:last_image",
+        ),
+        ("video_retake", False, "source video is required"),
+        ("video_extend", False, "source video is required"),
+    ],
+)
+def test_motion_stage_preserves_strict_required_media_roles(
+    motion_task: str,
+    with_still: bool,
+    expected_error: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        still = tmp_path / "accepted.png"
+        if with_still:
+            still.write_bytes(b"still")
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage._invoke_worker",
+            lambda *_args, **_kwargs: pytest.fail("worker must not run"),
+        )
+        with pytest.raises((FileNotFoundError, ValueError), match=expected_error):
+            run_motion_generation_stage(
+                cf,
+                execution_plan=build_generation_execution_plan("local_wan"),
+                campaign_slug="may",
+                still_path=still if with_still else None,
+                prompt=PROMPT,
+                model_id="local_ltx23_distilled_mlx",
+                duration_seconds=6,
+                resolution=None,
+                seed=42,
+                steps=8,
+                dry_run=True,
+                apply=False,
+                motion_task=motion_task,
+                local_motion_admission=_local_motion_admission(
+                    "local_ltx23_distilled_mlx"
+                ),
+                local_arena_summary_path=tmp_path / "arena-summary.json",
+                campaign_creator="stacey",
+                benchmark_recipe={"recipeId": "fixture"},
+                analyzer_registry={"registryId": "fixture"},
+            )
+    finally:
+        cf.close()
+
+
+def test_motion_stage_rejects_unconsumed_source_video_for_image_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        still = tmp_path / "accepted.png"
+        source_video = tmp_path / "unexpected.mp4"
+        still.write_bytes(b"still")
+        source_video.write_bytes(b"unexpected-video")
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage._invoke_worker",
+            lambda *_args, **_kwargs: pytest.fail("worker must not run"),
+        )
+        with pytest.raises(ValueError, match="task_input_role_forbidden:source_video"):
+            run_motion_generation_stage(
+                cf,
+                execution_plan=build_generation_execution_plan("local_wan"),
+                campaign_slug="may",
+                still_path=still,
+                source_video_path=source_video,
+                prompt=PROMPT,
+                model_id="local_ltx23_distilled_mlx",
+                duration_seconds=6,
+                resolution=None,
+                seed=42,
+                steps=8,
+                dry_run=True,
+                apply=False,
+                motion_task="image_to_video",
+                local_motion_admission=_local_motion_admission(
+                    "local_ltx23_distilled_mlx"
+                ),
+                local_arena_summary_path=tmp_path / "arena-summary.json",
+                campaign_creator="stacey",
+                benchmark_recipe={"recipeId": "fixture"},
+                analyzer_registry={"registryId": "fixture"},
+            )
+    finally:
+        cf.close()
+
+
+def test_text_to_video_dry_run_has_no_media_or_prompt_source_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        source_count_before = cf.conn.execute(
+            "SELECT COUNT(*) FROM source_assets"
+        ).fetchone()[0]
+        captured: dict = {}
+
+        def fake_worker(command, *, factory, log_dir, phase):
+            del factory, log_dir
+            captured["command"] = command
+            captured["phase"] = phase
+            return {
+                "schema": "reel_factory.motion_generation_result.v1",
+                "providerCalls": 0,
+                "result": {"status": "planned"},
+            }
+
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage._invoke_worker", fake_worker
+        )
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage.revalidate_local_motion_admission",
+            lambda admission, **kwargs: (
+                dict(admission)
+                if kwargs["accepted_still_path"] is None
+                and kwargs["audio_path"] is None
+                and kwargs["last_image_path"] is None
+                and kwargs["source_video_path"] is None
+                and kwargs["task_kind"] == "text_to_video"
+                else pytest.fail("text-to-video revalidation received media")
+            ),
+        )
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage.run_static_mp4_stage",
+            lambda *_args, **_kwargs: pytest.fail(
+                "text-to-video must not create a static fallback"
+            ),
+        )
+        result = run_motion_generation_stage(
+            cf,
+            execution_plan=build_generation_execution_plan("local_wan"),
+            campaign_slug="may",
+            still_path=None,
+            prompt=PROMPT,
+            model_id="local_wan22_ti2v_5b_mlx",
+            duration_seconds=6,
+            resolution=None,
+            seed=42,
+            steps=40,
+            dry_run=True,
+            apply=False,
+            motion_task="text_to_video",
+            local_motion_admission=_local_motion_admission("local_wan22_ti2v_5b_mlx"),
+            local_arena_summary_path=tmp_path / "arena-summary.json",
+            campaign_creator="stacey",
+            benchmark_recipe={"recipeId": "fixture"},
+            analyzer_registry={"registryId": "fixture"},
+        )
+
+        assert captured["phase"] == "preflight"
+        assert "--image" not in captured["command"]
+        assert "--audio" not in captured["command"]
+        assert "--last-image" not in captured["command"]
+        assert "--source-video" not in captured["command"]
+        assert result["staticFallback"] is None
+        assert result["registeredAsset"] is None
+        assert result["providerCalls"] == 0
+        assert (
+            cf.conn.execute("SELECT COUNT(*) FROM source_assets").fetchone()[0]
+            == source_count_before
+        )
+        job = cf.domains.events.pipeline_job(result["pipelineJobId"])
+        assert job["input"]["sourcePath"] is None
+        assert job["input"]["sourceRole"] == "text_prompt"
     finally:
         cf.close()
 
@@ -1461,20 +1654,13 @@ def test_motion_edit_source_asset_is_exact_idempotent_and_fail_closed(
         cf.close()
 
 
-def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
+def test_local_wan_text_to_video_apply_registers_immutable_prompt_source_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cf = make_factory(tmp_path)
     try:
-        source = add_source_asset(cf, tmp_path)
-        still = tmp_path / "accepted.jpg"
-        still.write_bytes(b"accepted-still")
+        add_source_asset(cf, tmp_path)
         calls: list[str] = []
-
-        def fake_static(*_args, **kwargs):
-            calls.append("static")
-            assert kwargs["apply"] is True
-            return {"registeredAsset": {"source_asset_id": source["id"]}}
 
         def fake_worker(command, *, factory, log_dir, phase):
             del factory, log_dir, phase
@@ -1500,14 +1686,17 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
 
         def fake_revalidate(admission, **kwargs):
             calls.append("revalidate")
-            assert kwargs["accepted_still_path"] == still
+            assert kwargs["accepted_still_path"] is None
             assert kwargs["last_image_path"] is None
             assert kwargs["task_kind"] == "text_to_video"
             assert kwargs["model_id"] == "local_wan22_ti2v_5b_mlx"
             return dict(admission)
 
         monkeypatch.setattr(
-            "campaign_factory.motion_generation_stage.run_static_mp4_stage", fake_static
+            "campaign_factory.motion_generation_stage.run_static_mp4_stage",
+            lambda *_args, **_kwargs: pytest.fail(
+                "text-to-video must not create a static fallback"
+            ),
         )
         monkeypatch.setattr(
             "campaign_factory.motion_generation_stage._invoke_worker", fake_worker
@@ -1520,7 +1709,7 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
             cf,
             execution_plan=build_generation_execution_plan("local_wan"),
             campaign_slug="may",
-            still_path=still,
+            still_path=None,
             prompt=PROMPT,
             model_id="local_wan22_ti2v_5b_mlx",
             duration_seconds=6,
@@ -1539,7 +1728,6 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
         assert calls == [
             "revalidate",
             "preflight",
-            "static",
             "revalidate",
             "local_apply",
         ]
@@ -1548,6 +1736,7 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
         assert asset["review_state"] == "review_ready"
         assert asset["caption"] == ""
         assert result["providerCalls"] == 0
+        assert result["staticFallback"] is None
         assert (
             result["localMotionAdmission"]["routerDecision"]["selectedModelId"]
             == "local_wan22_ti2v_5b_mlx"
@@ -1556,7 +1745,8 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
         assert metadata["creativeApprovalRequired"] is True
         assert metadata["source"] is None
         assert metadata["generationInput"] is None
-        assert metadata["sourceAssetRole"] == "static_fallback_only"
+        assert metadata["staticFallbackSource"] is None
+        assert metadata["sourceAssetRole"] == "prompt_provenance_only"
         assert metadata["identityRole"] == "non_creator_broll"
         assert (
             "creative_approval_v2_required"
@@ -1566,10 +1756,42 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
             "text_to_video_identity_assignment_forbidden"
             in metadata["publishability"]["blockingIssues"]
         )
-        assert (
-            metadata["staticFallbackSource"]["sha256"]
-            == hashlib.sha256(still.read_bytes()).hexdigest()
+        prompt_source = metadata["promptSource"]
+        prompt_path = Path(prompt_source["path"])
+        expected_material = {"taskKind": "text_to_video", "prompt": PROMPT}
+        expected_fingerprint = _fingerprint(expected_material)
+        assert prompt_source["sha256"] == expected_fingerprint
+        assert hashlib.sha256(prompt_path.read_bytes()).hexdigest() == (
+            expected_fingerprint
         )
+        assert json.loads(prompt_path.read_text(encoding="utf-8")) == (
+            expected_material
+        )
+        assert prompt_path.stat().st_mode & 0o222 == 0
+        source_row = dict(
+            cf.conn.execute(
+                "SELECT * FROM source_assets WHERE id = ?",
+                (asset["source_asset_id"],),
+            ).fetchone()
+        )
+        assert source_row["media_type"] == "prompt"
+        assert source_row["content_hash"] == expected_fingerprint
+        assert source_row["stored_path"] == str(prompt_path)
+        attempt = dict(
+            cf.conn.execute(
+                "SELECT * FROM generation_attempts WHERE rendered_asset_id = ?",
+                (asset["id"],),
+            ).fetchone()
+        )
+        assert attempt["source_sha256"] is None
+        attempt_input = json.loads(attempt["input_json"])
+        assert attempt_input["sourcePath"] is None
+        assert attempt_input["sourceSha256"] is None
+        assert attempt_input["promptSource"]["sha256"] == expected_fingerprint
+        job = cf.domains.events.pipeline_job(result["pipelineJobId"])
+        assert job["input"]["sourcePath"] is None
+        assert job["input"]["sourceRole"] == "text_prompt"
+        assert job["input"]["sourceSha256"] == expected_fingerprint
     finally:
         cf.close()
 

@@ -161,6 +161,7 @@ def _arena_summary(*, purpose: str = "promotion_eligible") -> dict[str, Any]:
                     "retryCount": 0,
                     "admissionBlockCount": 0,
                     "failureClass": None,
+                    "hardwareFingerprint": SHA_A,
                     "executionMeasurement": {
                         "available": True,
                         "wallTimeSeconds": 12.5,

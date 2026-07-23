@@ -114,7 +114,9 @@ def compile_thin_evidence_records(
         raise ThinEvidenceCompatibilityError(
             "thin_evidence_execution_policy_fingerprint_mismatch"
         )
-    if benchmark_recipe.input_fingerprints != content_intent.source_asset_fingerprints:
+    if not set(benchmark_recipe.input_fingerprints).issubset(
+        set(content_intent.source_asset_fingerprints)
+    ):
         raise ThinEvidenceCompatibilityError("thin_evidence_benchmark_input_mismatch")
 
     registered = {

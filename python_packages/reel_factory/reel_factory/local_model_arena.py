@@ -9,6 +9,8 @@ logic.  It is deliberately not another scheduler: inference still runs through
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import math
 import os
@@ -17,18 +19,27 @@ import statistics
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
 from creator_os_core.evidence_attestation import (
     EvidenceAttestationError,
+    canonical_json,
     load_evidence_secret,
+    payload_fingerprint,
     sign_evidence_attestation,
     verify_evidence_attestation,
 )
+from creator_os_core.task_inputs import canonical_task_input_bindings
+from creator_os_core.task_parameters import (
+    benchmark_task_parameter_fingerprint,
+    task_parameter_fingerprint,
+)
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from pipeline_contracts import (
     ContentIntentV1,
@@ -40,12 +51,20 @@ from pipeline_contracts import (
     validate_local_model_arena_review_packet,
     validate_local_model_arena_summary,
     validate_local_model_arena_unblinding_receipt,
+    validate_local_model_rollout_external_activity_observation,
+    validate_local_model_rollout_gate_receipt,
 )
 
 from .fileops import atomic_write_text, file_lock
 from .human_media_review import HumanMediaReviewStore, HumanReviewSamplingEvidence
 from .human_media_review import load_review as load_human_review
-from .identity_verification import identity_qc_receipt, verify_identity
+from .identity_verification import (
+    _load_reference_embeddings,
+    get_identity_provider,
+    identity_health,
+    identity_qc_receipt,
+    verify_identity,
+)
 from .local_generation_queue import (
     AppendOnlyJournal,
     LocalGenerationJob,
@@ -53,6 +72,7 @@ from .local_generation_queue import (
     LocalQueueError,
     default_local_generation_queue,
     fingerprint,
+    hardware_identity,
     sha256_file,
 )
 from .local_model_benchmark import (
@@ -61,7 +81,9 @@ from .local_model_benchmark import (
 )
 from .local_model_manager import model_status
 from .local_video import (
+    DEFAULT_NEGATIVE_PROMPT,
     LocalVideoRequest,
+    local_video_task_parameter_material,
     plan_local_video_job,
     run_local_video,
 )
@@ -77,8 +99,50 @@ UNBLINDING_RECEIPT_SCHEMA: Final = (
 )
 REVIEW_PACKET_ISSUER: Final = "reel_factory.local_model_arena.review_packet"
 UNBLINDING_RECEIPT_ISSUER: Final = "reel_factory.local_model_arena.unblinding"
+ROLLOUT_GATE_SCHEMA: Final = "reel_factory.local_model_rollout_gate_receipt.v1"
+ROLLOUT_GATE_ISSUER: Final = "reel_factory.local_model_arena.rollout_gate"
+ROLLOUT_TERMINAL_ISSUER: Final = "reel_factory.local_model_arena.rollout_terminal"
+ROLLOUT_GATE_SIZES: Final = (10, 25, 50, 100)
+ROLLOUT_MODE_CONFIRMATION: Final = "Mode 3 — Local Wan / LTX motion — free."
+ROLLOUT_CLOCK_SKEW: Final = timedelta(minutes=5)
+ROLLOUT_EXTERNAL_ACTIVITY_KINDS: Final = (
+    "provider_cost",
+    "schedule",
+    "publish",
+    "qstash",
+)
+ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS: Final = {
+    "provider_cost": {
+        "issuer": "campaign_factory.rollout_provider_cost_observer",
+        "keyId": "campaign-factory-rollout-provider-cost-observer-v1",
+        "storeIdentity": "campaign_factory.provider_spend_ledger",
+        "queryIdentity": "provider_cost_events_by_interval.v1",
+        "publicKeyBase64": None,
+    },
+    "schedule": {
+        "issuer": "threads_dashboard.rollout_schedule_observer",
+        "keyId": "threads-dashboard-rollout-schedule-observer-v1",
+        "storeIdentity": "threads_dashboard.schedule_evidence_store",
+        "queryIdentity": "schedule_events_by_interval.v1",
+        "publicKeyBase64": None,
+    },
+    "publish": {
+        "issuer": "threads_dashboard.rollout_publish_observer",
+        "keyId": "threads-dashboard-rollout-publish-observer-v1",
+        "storeIdentity": "threads_dashboard.publish_attempt_evidence_store",
+        "queryIdentity": "publish_events_by_interval.v1",
+        "publicKeyBase64": None,
+    },
+    "qstash": {
+        "issuer": "threads_dashboard.rollout_qstash_observer",
+        "keyId": "threads-dashboard-rollout-qstash-observer-v1",
+        "storeIdentity": "upstash.qstash_event_evidence_store",
+        "queryIdentity": "qstash_events_by_interval.v1",
+        "publicKeyBase64": None,
+    },
+}
 CREATORS: Final = frozenset({"stacey", "larissa", "lola"})
-PURPOSES: Final = frozenset({"exploratory", "promotion_eligible"})
+PURPOSES: Final = frozenset({"exploratory", "promotion_eligible", "supervised_rollout"})
 TERMINAL_STATUSES: Final = frozenset(
     {
         "succeeded",
@@ -90,7 +154,8 @@ TERMINAL_STATUSES: Final = frozenset(
         "missing",
     }
 )
-RECORDED_TERMINAL_STATUSES: Final = frozenset(
+RECORDED_TERMINAL_STATUSES: Final = TERMINAL_STATUSES
+NON_ROLLOUT_RECORDED_TERMINAL_STATUSES: Final = frozenset(
     {"succeeded", "failed", "unsupported", "cancelled"}
 )
 IDENTITY_ANALYZER: Final = ("reel_factory.identity_preservation", "2.0.0")
@@ -98,6 +163,94 @@ HUMAN_ANALYZER: Final = (
     "reel_factory.structured_human_media_review",
     "1.0.0",
 )
+
+
+def _require_promotion_identity_ready(
+    *,
+    purpose: str,
+    bindings: Sequence[tuple[str, str, str, Mapping[str, Any]]],
+    identity_root: Path | None,
+) -> None:
+    """Fail before Arena work when exact promotion identity evidence is unusable.
+
+    The identity analyzer remains optional for general Reel Factory rendering,
+    but it is mandatory for a promotion-eligible Arena.  The operator launcher
+    selects the locked ``reel-factory[identity]`` extra; this boundary also
+    verifies the current provider, ArcFace weights, v4 reference set, analyzer
+    implementation, and exact CreatorIdentityProfile binding before a plan,
+    generation, or finalization can proceed.
+    """
+
+    if purpose != "promotion_eligible":
+        return
+    if identity_root is None:
+        raise LocalQueueError("arena_promotion_identity_root_required")
+    root = identity_root.expanduser().resolve()
+    provider = get_identity_provider()
+    seen: set[tuple[str, str, str]] = set()
+    for creator, profile_id, profile_fingerprint, raw_profile in sorted(
+        bindings, key=lambda item: (item[0], item[1], item[2])
+    ):
+        identity = (creator, profile_id, profile_fingerprint)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        health = identity_health(creator=creator, root=root, provider=provider)
+        blocking = [
+            str(reason)
+            for reason in health.get("blockingReasons", [])
+            if str(reason).strip()
+        ]
+        if (
+            health.get("status") != "ready"
+            or health.get("promotionEligible") is not True
+        ):
+            reasons = ",".join(sorted(set(blocking))) or "identity_unavailable"
+            raise LocalQueueError(
+                f"arena_promotion_identity_preflight_failed:{creator}:{reasons}"
+            )
+        reference_path = Path(str(health["referenceSetPath"])).expanduser().resolve()
+        loaded = _load_reference_embeddings(reference_path, creator=creator)
+        expected_profile = dict(raw_profile)
+        if (
+            loaded.error is not None
+            or loaded.promotion_eligible is not True
+            or loaded.creator_identity_profile != expected_profile
+            or expected_profile.get("profileId") != profile_id
+            or fingerprint(expected_profile) != profile_fingerprint
+        ):
+            reason = loaded.error or "identity_profile_binding_mismatch"
+            raise LocalQueueError(
+                f"arena_promotion_identity_preflight_failed:{creator}:{reason}"
+            )
+
+
+def _spec_identity_bindings(
+    sample_specs: Sequence[ArenaSampleSpec],
+) -> tuple[tuple[str, str, str, Mapping[str, Any]], ...]:
+    return tuple(
+        (
+            spec.creator_id,
+            spec.identity_profile_id,
+            spec.identity_profile_fingerprint,
+            spec.creator_identity_profile,
+        )
+        for spec in sample_specs
+    )
+
+
+def _plan_identity_bindings(
+    plan: Mapping[str, Any],
+) -> tuple[tuple[str, str, str, Mapping[str, Any]], ...]:
+    return tuple(
+        (
+            str(sample["creatorId"]),
+            str(sample["identityProfileId"]),
+            str(sample["identityProfileFingerprint"]),
+            dict(sample["creatorIdentityProfile"]),
+        )
+        for sample in plan["samples"]
+    )
 
 
 def _canonical(value: Mapping[str, Any]) -> str:
@@ -176,47 +329,56 @@ def arena_analyzer_registry(
 
     if contentforge_registry.get("schema") != "creator_os.analyzer_registry.v1":
         raise ValueError("arena_contentforge_registry_schema_mismatch")
-    base_id = _required_text(
-        contentforge_registry.get("registryId"), "contentforge_registry_id"
-    )
+    _required_text(contentforge_registry.get("registryId"), "contentforge_registry_id")
     raw_registrations = contentforge_registry.get("analyzers")
     if not isinstance(raw_registrations, list) or not raw_registrations:
         raise ValueError("arena_contentforge_registry_empty")
     registrations = [dict(registration) for registration in raw_registrations]
-    registrations.extend(
-        (
-            _implementation_registration(
-                analyzer_id=IDENTITY_ANALYZER[0],
-                analyzer_version=IDENTITY_ANALYZER[1],
-                evidence_kinds=(
-                    "creator_identity_similarity",
-                    "face_stability",
-                    "identity_qc_receipt",
-                ),
-                implementation_ref=(
-                    "python_packages/reel_factory/reel_factory/identity_verification.py"
-                ),
-                repository_root=repository_root,
+    fixed_registrations = (
+        _implementation_registration(
+            analyzer_id=IDENTITY_ANALYZER[0],
+            analyzer_version=IDENTITY_ANALYZER[1],
+            evidence_kinds=(
+                "creator_identity_similarity",
+                "face_stability",
+                "identity_qc_receipt",
             ),
-            _implementation_registration(
-                analyzer_id=HUMAN_ANALYZER[0],
-                analyzer_version=HUMAN_ANALYZER[1],
-                evidence_kinds=(
-                    "realism_rating",
-                    "attractiveness_rating",
-                    "creator_resemblance_rating",
-                    "motion_naturalness_rating",
-                    "anatomy_rating",
-                    "conversion_usefulness_rating",
-                    "human_review_qc_receipt",
-                ),
-                implementation_ref=(
-                    "python_packages/reel_factory/reel_factory/human_media_review.py"
-                ),
-                repository_root=repository_root,
+            implementation_ref=(
+                "python_packages/reel_factory/reel_factory/identity_verification.py"
             ),
-        )
+            repository_root=repository_root,
+        ),
+        _implementation_registration(
+            analyzer_id=HUMAN_ANALYZER[0],
+            analyzer_version=HUMAN_ANALYZER[1],
+            evidence_kinds=("human_media_review",),
+            implementation_ref=(
+                "python_packages/reel_factory/reel_factory/human_media_review.py"
+            ),
+            repository_root=repository_root,
+        ),
     )
+    by_identity = {
+        (str(item.get("analyzerId")), str(item.get("analyzerVersion"))): item
+        for item in registrations
+    }
+    if len(by_identity) != len(registrations):
+        raise LocalQueueError("arena_analyzer_registry_duplicate_identity")
+    for fixed in fixed_registrations:
+        identity = (
+            str(fixed["analyzerId"]),
+            str(fixed["analyzerVersion"]),
+        )
+        existing = by_identity.get(identity)
+        if existing is not None:
+            if existing != fixed:
+                raise LocalQueueError(
+                    "arena_analyzer_registration_drift:"
+                    + f"{identity[0]}@{identity[1]}"
+                )
+            continue
+        registrations.append(fixed)
+        by_identity[identity] = fixed
     registrations.sort(
         key=lambda item: (str(item["analyzerId"]), str(item["analyzerVersion"]))
     )
@@ -236,17 +398,10 @@ def arena_analyzer_registry(
             "producedAt": produced_at,
             "sourceReferences": [
                 {
-                    "recordId": base_id,
-                    "fingerprint": fingerprint(contentforge_registry),
-                },
-                *[
-                    {
-                        "recordId": (f"{item['analyzerId']}@{item['analyzerVersion']}"),
-                        "fingerprint": item["implementationFingerprint"],
-                    }
-                    for item in registrations
-                    if str(item["analyzerId"]).startswith("reel_factory.")
-                ],
+                    "recordId": f"{item['analyzerId']}@{item['analyzerVersion']}",
+                    "fingerprint": item["implementationFingerprint"],
+                }
+                for item in registrations
             ],
         },
     }
@@ -270,6 +425,8 @@ class ArenaSampleSpec:
     seed: int
     duration_seconds: int
     resolution: str
+    steps: int | None = None
+    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
     audio_mode: Literal["none", "source", "generated", "preserved"] = "none"
     audio_path: Path | None = None
     last_image_path: Path | None = None
@@ -279,15 +436,24 @@ class ArenaSampleSpec:
     extend_frames: int | None = None
     extend_direction: Literal["before", "after"] = "after"
     preserve_audio: bool = False
+    lora_path: Path | None = None
+    lora_strength: float = 1.0
+    low_ram: bool = True
+    tile_frames: int = 1
+    tile_spatial: int = 2
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
+    prompt_source_path: Path | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> ArenaSampleSpec:
         audio_path = value.get("audioPath")
         last_image_path = value.get("lastImagePath")
         source_video_path = value.get("sourceVideoPath")
+        prompt_source = value.get("promptSource")
+        if prompt_source is not None and not isinstance(prompt_source, dict):
+            raise ValueError("arena_prompt_source_invalid")
         raw_profile = value.get("creatorIdentityProfile")
         raw_intent = value.get("contentIntent")
         if not isinstance(raw_profile, dict):
@@ -330,6 +496,12 @@ class ArenaSampleSpec:
                 value.get("durationSeconds"), "duration_seconds"
             ),
             resolution=_required_text(value.get("resolution"), "resolution"),
+            steps=(
+                _required_int(value.get("steps"), "steps")
+                if value.get("steps") is not None
+                else None
+            ),
+            negative_prompt=str(value.get("negativePrompt") or DEFAULT_NEGATIVE_PROMPT),
             audio_mode=str(value.get("audioMode") or "none"),  # type: ignore[arg-type]
             audio_path=(
                 Path(str(audio_path)).expanduser().resolve()
@@ -363,6 +535,15 @@ class ArenaSampleSpec:
             ),
             extend_direction=str(value.get("extendDirection") or "after"),  # type: ignore[arg-type]
             preserve_audio=value.get("preserveAudio") is True,
+            lora_path=(
+                Path(str(value["loraPath"])).expanduser().resolve()
+                if value.get("loraPath") is not None
+                else None
+            ),
+            lora_strength=float(value.get("loraStrength", 1.0)),
+            low_ram=value.get("lowRam") is not False,
+            tile_frames=int(value.get("tileFrames", 1)),
+            tile_spatial=int(value.get("tileSpatial", 2)),
             commercial_use=value.get("commercialUse") is not False,
             commercial_annual_revenue_usd=(
                 _required_int(
@@ -373,6 +554,11 @@ class ArenaSampleSpec:
                 else None
             ),
             overlays_exist=value.get("overlaysExist") is True,
+            prompt_source_path=(
+                Path(str(prompt_source["path"])).expanduser().resolve()
+                if isinstance(prompt_source, dict) and prompt_source.get("path")
+                else None
+            ),
         )
 
 
@@ -393,17 +579,86 @@ def _required_analyzers(spec: ArenaSampleSpec) -> tuple[tuple[str, str], ...]:
     return tuple(required)
 
 
-def _spec_input_paths(spec: ArenaSampleSpec) -> tuple[Path, ...]:
-    paths: list[Path] = []
-    for path in (
-        spec.source_path,
-        spec.audio_path,
-        spec.last_image_path,
-        spec.source_video_path,
-    ):
-        if path is not None and path not in paths:
-            paths.append(path)
-    return tuple(paths)
+def _spec_input_bindings(spec: ArenaSampleSpec) -> tuple[dict[str, str], ...]:
+    return canonical_task_input_bindings(
+        spec.task_kind,
+        image_sha256=(
+            sha256_file(spec.source_path) if spec.source_path is not None else None
+        ),
+        audio_sha256=(
+            sha256_file(spec.audio_path) if spec.audio_path is not None else None
+        ),
+        last_image_sha256=(
+            sha256_file(spec.last_image_path)
+            if spec.last_image_path is not None
+            else None
+        ),
+        source_video_sha256=(
+            sha256_file(spec.source_video_path)
+            if spec.source_video_path is not None
+            else None
+        ),
+    )
+
+
+def _spec_input_binding_fingerprint(spec: ArenaSampleSpec) -> str:
+    return fingerprint({"inputBindings": list(_spec_input_bindings(spec))})
+
+
+def _spec_local_video_request(
+    spec: ArenaSampleSpec, *, output_path: Path
+) -> LocalVideoRequest:
+    return LocalVideoRequest(
+        model_id=spec.model_id,
+        image_path=spec.source_path,
+        prompt=spec.prompt,
+        output_path=output_path,
+        duration_seconds=spec.duration_seconds,
+        resolution=spec.resolution,
+        seed=spec.seed,
+        steps=spec.steps,
+        negative_prompt=spec.negative_prompt,
+        audio_mode=spec.audio_mode,
+        audio_path=spec.audio_path,
+        last_image_path=spec.last_image_path,
+        task=spec.task_kind,  # type: ignore[arg-type]
+        lora_path=spec.lora_path,
+        lora_strength=spec.lora_strength,
+        source_video_path=spec.source_video_path,
+        retake_start_frame=spec.retake_start_frame,
+        retake_end_frame=spec.retake_end_frame,
+        extend_frames=spec.extend_frames,
+        extend_direction=spec.extend_direction,
+        low_ram=spec.low_ram,
+        tile_frames=spec.tile_frames,
+        tile_spatial=spec.tile_spatial,
+        commercial_use=spec.commercial_use,
+        commercial_annual_revenue_usd=spec.commercial_annual_revenue_usd,
+        overlays_exist=spec.overlays_exist,
+    )
+
+
+def _spec_parameter_material(
+    spec: ArenaSampleSpec,
+    *,
+    runtime_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected_runtime = runtime_binding
+    if selected_runtime is None and spec.task_kind in {"video_retake", "video_extend"}:
+        status = model_status(spec.model_id, deep=True)
+        receipt = status.get("deepVerificationReceipt")
+        selected_runtime = (
+            receipt.get("runtimeBinding") if isinstance(receipt, Mapping) else None
+        )
+        if not isinstance(selected_runtime, Mapping):
+            raise LocalQueueError("arena_runtime_binding_missing_for_edit_geometry")
+    return local_video_task_parameter_material(
+        _spec_local_video_request(
+            spec, output_path=Path("/creator-os/arena/parameter-material-only.mp4")
+        ),
+        spec=local_video_model_spec(spec.model_id),
+        runtime_binding=selected_runtime,
+    )
 
 
 def _primary_source_path(spec: ArenaSampleSpec) -> Path:
@@ -411,9 +666,52 @@ def _primary_source_path(spec: ArenaSampleSpec) -> Path:
         if spec.source_video_path is None:
             raise ValueError("arena_video_task_source_video_missing")
         return spec.source_video_path
+    if spec.task_kind == "text_to_video":
+        raise ValueError("arena_text_task_has_no_media_source")
     if spec.source_path is None:
         raise ValueError("arena_image_task_source_missing")
     return spec.source_path
+
+
+def _primary_source_sha(spec: ArenaSampleSpec) -> str:
+    if spec.task_kind == "text_to_video":
+        return fingerprint(
+            {
+                "taskKind": spec.task_kind,
+                "prompt": " ".join(spec.prompt.split()),
+            }
+        )
+    return sha256_file(_primary_source_path(spec))
+
+
+def _prompt_source_binding(spec: ArenaSampleSpec) -> dict[str, str] | None:
+    if spec.task_kind != "text_to_video":
+        if spec.prompt_source_path is not None:
+            raise LocalQueueError("arena_prompt_source_forbidden_for_media_task")
+        return None
+    if spec.prompt_source_path is None:
+        raise LocalQueueError("arena_text_task_prompt_source_missing")
+    prompt_path = spec.prompt_source_path.expanduser().resolve()
+    expected_material = {
+        "prompt": " ".join(spec.prompt.split()),
+        "taskKind": "text_to_video",
+    }
+    expected_sha = fingerprint(expected_material)
+    if (
+        not prompt_path.is_file()
+        or prompt_path.is_symlink()
+        or sha256_file(prompt_path) != expected_sha
+    ):
+        raise LocalQueueError("arena_text_task_prompt_source_missing_or_substituted")
+    try:
+        decoded = json.loads(prompt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LocalQueueError("arena_text_task_prompt_source_invalid") from exc
+    if decoded != expected_material or prompt_path.read_text(encoding="utf-8") != (
+        _canonical(expected_material)
+    ):
+        raise LocalQueueError("arena_text_task_prompt_source_invalid")
+    return {"path": str(prompt_path), "sha256": expected_sha}
 
 
 def _validate_spec(spec: ArenaSampleSpec) -> None:
@@ -424,14 +722,12 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
         raise LocalQueueError(f"arena_model_not_local_free:{spec.model_id}")
     if spec.task_kind not in (model.supported_tasks or (model.task,)):
         raise LocalQueueError(f"arena_model_capability_mismatch:{spec.model_id}")
-    if spec.task_kind in {"video_retake", "video_extend"}:
-        if spec.source_path is not None:
-            raise ValueError("arena_video_task_unused_source_image")
-    elif spec.source_path is None:
-        raise ValueError("arena_image_task_source_missing")
-    primary_source = _primary_source_path(spec)
-    if not primary_source.is_file() or primary_source.is_symlink():
-        raise LocalQueueError(f"arena_source_missing_or_unsafe:{primary_source}")
+    _spec_input_bindings(spec)
+    prompt_source = _prompt_source_binding(spec)
+    if spec.task_kind != "text_to_video":
+        primary_source = _primary_source_path(spec)
+        if not primary_source.is_file() or primary_source.is_symlink():
+            raise LocalQueueError(f"arena_source_missing_or_unsafe:{primary_source}")
     if spec.audio_mode == "none" and spec.audio_path is not None:
         raise ValueError("arena_audio_path_without_audio_mode")
     if spec.audio_mode == "source" and spec.audio_path is None:
@@ -501,32 +797,21 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
         raise LocalQueueError("arena_content_intent_binding_mismatch")
     if intent["creatorIdentityProfileId"] != spec.identity_profile_id:
         raise LocalQueueError("arena_content_intent_profile_mismatch")
-    exact_input_fingerprints = [sha256_file(path) for path in _spec_input_paths(spec)]
-    if list(intent["sourceAssetFingerprints"]) != exact_input_fingerprints:
+    exact_input_fingerprints = [
+        binding["sha256"] for binding in _spec_input_bindings(spec)
+    ]
+    if prompt_source is not None:
+        exact_input_fingerprints.append(prompt_source["sha256"])
+    authorized_input_fingerprints = set(intent["sourceAssetFingerprints"])
+    if not set(exact_input_fingerprints).issubset(authorized_input_fingerprints):
         raise LocalQueueError("arena_content_intent_source_mismatch")
 
 
 def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
     if {spec.creator_id for spec in specs} != CREATORS:
         raise LocalQueueError("arena_promotion_requires_all_creators")
-    source_sha_by_path = {
-        _primary_source_path(spec): sha256_file(_primary_source_path(spec))
-        for spec in specs
-    }
-    audio_sha_by_path = {
-        spec.audio_path: sha256_file(spec.audio_path)
-        for spec in specs
-        if spec.audio_path is not None
-    }
-    last_image_sha_by_path = {
-        spec.last_image_path: sha256_file(spec.last_image_path)
-        for spec in specs
-        if spec.last_image_path is not None
-    }
-    source_video_sha_by_path = {
-        spec.source_video_path: sha256_file(spec.source_video_path)
-        for spec in specs
-        if spec.source_video_path is not None
+    source_sha_by_spec = {
+        id(spec): _spec_input_binding_fingerprint(spec) for spec in specs
     }
     grouped: dict[tuple[str, str, str, str], list[ArenaSampleSpec]] = defaultdict(list)
     for spec in specs:
@@ -539,16 +824,14 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
             )
         ].append(spec)
     for key, rows in grouped.items():
-        sources = {source_sha_by_path[_primary_source_path(row)] for row in rows}
+        sources = {source_sha_by_spec[id(row)] for row in rows}
         if len(sources) < 2:
             raise LocalQueueError(
                 "arena_promotion_requires_two_sources:" + ":".join(key)
             )
         for source_sha in sources:
             seeds = {
-                row.seed
-                for row in rows
-                if source_sha_by_path[_primary_source_path(row)] == source_sha
+                row.seed for row in rows if source_sha_by_spec[id(row)] == source_sha
             }
             if len(seeds) < 4:
                 raise LocalQueueError(
@@ -569,36 +852,8 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
                 spec.identity_profile_fingerprint,
                 spec.content_intent_id,
                 spec.content_intent_fingerprint,
-                source_sha_by_path[_primary_source_path(spec)],
-                (
-                    audio_sha_by_path[spec.audio_path]
-                    if spec.audio_path is not None
-                    else None
-                ),
-                (
-                    last_image_sha_by_path[spec.last_image_path]
-                    if spec.last_image_path is not None
-                    else None
-                ),
-                (
-                    source_video_sha_by_path[spec.source_video_path]
-                    if spec.source_video_path is not None
-                    else None
-                ),
-                spec.task_kind,
-                " ".join(spec.prompt.split()),
-                spec.seed,
-                spec.duration_seconds,
-                spec.resolution,
-                spec.audio_mode,
-                spec.retake_start_frame,
-                spec.retake_end_frame,
-                spec.extend_frames,
-                spec.extend_direction,
-                spec.preserve_audio,
-                spec.commercial_use,
-                spec.commercial_annual_revenue_usd,
-                spec.overlays_exist,
+                source_sha_by_spec[id(spec)],
+                benchmark_task_parameter_fingerprint(_spec_parameter_material(spec)),
             )
         )
     for (creator_id, capability_cohort), grids in comparison_groups.items():
@@ -622,21 +877,31 @@ def build_arena_plan(
     output_root: Path,
     execution_policy: Mapping[str, Any],
     analyzer_registry: Mapping[str, Any],
+    identity_root: Path | None = None,
 ) -> dict[str, Any]:
     if purpose not in PURPOSES:
         raise ValueError("arena_purpose_invalid")
     if not sample_specs:
         raise ValueError("arena_samples_missing")
+    if purpose == "supervised_rollout" and len(sample_specs) not in ROLLOUT_GATE_SIZES:
+        raise LocalQueueError("arena_rollout_gate_size_invalid")
     if execution_policy.get("schema") != "creator_os.execution_policy.v1":
         raise ValueError("arena_execution_policy_schema_mismatch")
     if execution_policy.get("paidProvidersAllowed") is not False:
         raise LocalQueueError("arena_execution_policy_paid_provider_forbidden")
     if execution_policy.get("productionWritesAllowed") is not False:
         raise LocalQueueError("arena_execution_policy_production_write_forbidden")
+    intent_identities: dict[tuple[str, str], str] = {}
     for spec in sample_specs:
         _validate_spec(spec)
+        existing_intent_fingerprint = intent_identities.setdefault(
+            (spec.creator_id, spec.content_intent_id),
+            spec.content_intent_fingerprint,
+        )
+        if existing_intent_fingerprint != spec.content_intent_fingerprint:
+            raise LocalQueueError("arena_content_intent_identity_collision")
     source_pairs = [
-        (spec.creator_id, sha256_file(_primary_source_path(spec)))
+        (spec.creator_id, _spec_input_binding_fingerprint(spec))
         for spec in sample_specs
     ]
     if len(source_pairs) != len(set(source_pairs)) and len(
@@ -645,7 +910,7 @@ def build_arena_plan(
                 spec.creator_id,
                 spec.model_id,
                 spec.seed,
-                sha256_file(_primary_source_path(spec)),
+                _spec_input_binding_fingerprint(spec),
             )
             for spec in sample_specs
         }
@@ -653,6 +918,11 @@ def build_arena_plan(
         raise LocalQueueError("arena_duplicate_sample_identity")
     if purpose == "promotion_eligible":
         _promotion_design_check(sample_specs)
+        _require_promotion_identity_ready(
+            purpose=purpose,
+            bindings=_spec_identity_bindings(sample_specs),
+            identity_root=identity_root,
+        )
 
     output_directory = output_root.expanduser().resolve()
     if analyzer_registry.get("schema") != "creator_os.analyzer_registry.v1":
@@ -673,7 +943,8 @@ def build_arena_plan(
     policy_fingerprint = fingerprint(execution_policy)
     samples: list[dict[str, Any]] = []
     for spec in sample_specs:
-        source_sha = sha256_file(_primary_source_path(spec))
+        source_sha = _primary_source_sha(spec)
+        prompt_source = _prompt_source_binding(spec)
         audio_sha = (
             sha256_file(spec.audio_path) if spec.audio_path is not None else None
         )
@@ -691,32 +962,26 @@ def build_arena_plan(
         if not set(required).issubset(registered):
             missing = sorted(set(required).difference(registered))
             raise LocalQueueError(f"arena_required_analyzer_unregistered:{missing}")
-        recipe_parameters = {
-            "capabilityCohort": spec.capability_cohort,
-            "taskKind": spec.task_kind,
-            "prompt": " ".join(spec.prompt.split()),
-            "seed": spec.seed,
-            "durationSeconds": spec.duration_seconds,
-            "resolution": spec.resolution,
-            "audioMode": spec.audio_mode,
-            "audioSha256": audio_sha,
-            "lastImageSha256": last_image_sha,
-            "sourceVideoSha256": source_video_sha,
-            "retakeStartFrame": spec.retake_start_frame,
-            "retakeEndFrame": spec.retake_end_frame,
-            "extendFrames": spec.extend_frames,
-            "extendDirection": spec.extend_direction,
-            "preserveAudio": spec.preserve_audio,
-            "commercialUse": spec.commercial_use,
-            "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
-            "overlaysExist": spec.overlays_exist,
-        }
+        model_spec = local_video_model_spec(spec.model_id)
+        parameter_request = _spec_local_video_request(
+            spec, output_path=output_directory / "parameters" / "not-executed.mp4"
+        )
+        parameter_material = _spec_parameter_material(spec)
+        parameter_fp = task_parameter_fingerprint(parameter_material)
+        benchmark_parameter_fp = benchmark_task_parameter_fingerprint(
+            parameter_material
+        )
+        exact_input_bindings = list(_spec_input_bindings(spec))
         recipe_identity = {
             "creatorId": spec.creator_id,
             "identityProfileFingerprint": spec.identity_profile_fingerprint,
             "contentIntentFingerprint": spec.content_intent_fingerprint,
-            "sourceSha256": source_sha,
-            **recipe_parameters,
+            "inputBindings": exact_input_bindings,
+            "inputBindingsFingerprint": fingerprint(
+                {"inputBindings": exact_input_bindings}
+            ),
+            "capabilityCohort": spec.capability_cohort,
+            "taskParameterFingerprint": benchmark_parameter_fp,
         }
         recipe_identity_fingerprint = fingerprint(recipe_identity)
         sample_identity = {**recipe_identity, "modelId": spec.model_id}
@@ -730,9 +995,10 @@ def build_arena_plan(
             "executionPolicyFingerprint": policy_fingerprint,
             "taskKind": spec.task_kind,
             "inputFingerprints": [
-                sha256_file(path) for path in _spec_input_paths(spec)
+                binding["sha256"] for binding in exact_input_bindings
             ],
-            "parameterFingerprint": fingerprint(recipe_parameters),
+            "parameterFingerprint": benchmark_parameter_fp,
+            "promotionEvidenceAllowed": purpose == "promotion_eligible",
             "requiredAnalyzers": [
                 {"analyzerId": item[0], "analyzerVersion": item[1]} for item in required
             ],
@@ -788,7 +1054,6 @@ def build_arena_plan(
             or fingerprint(runtime_binding) != runtime_binding_fingerprint
         ):
             raise LocalQueueError("arena_runtime_binding_invalid")
-        model_spec = local_video_model_spec(spec.model_id)
         manifest = status.get("manifest")
         if (
             not isinstance(manifest, dict)
@@ -806,27 +1071,9 @@ def build_arena_plan(
             "aiDisclosureRequired": model_spec.ai_disclosure_required,
         }
         license_policy_fingerprint = fingerprint(license_policy)
-        request = LocalVideoRequest(
-            model_id=spec.model_id,
-            image_path=(
-                None
-                if spec.task_kind in {"video_retake", "video_extend"}
-                else spec.source_path
-            ),
-            prompt=spec.prompt,
+        request = replace(
+            parameter_request,
             output_path=output_path,
-            duration_seconds=spec.duration_seconds,
-            resolution=spec.resolution,
-            seed=spec.seed,
-            audio_mode=spec.audio_mode,
-            audio_path=spec.audio_path,
-            last_image_path=spec.last_image_path,
-            task=spec.task_kind,  # type: ignore[arg-type]
-            source_video_path=spec.source_video_path,
-            retake_start_frame=spec.retake_start_frame,
-            retake_end_frame=spec.retake_end_frame,
-            extend_frames=spec.extend_frames,
-            extend_direction=spec.extend_direction,
             benchmark_recipe=recipe,
             analyzer_registry=registry_payload,
             creator_identity_profile=spec.creator_identity_profile,
@@ -867,6 +1114,7 @@ def build_arena_plan(
                 "contentIntent": spec.content_intent,
                 "sourcePath": str(spec.source_path) if spec.source_path else None,
                 "sourceSha256": source_sha,
+                "promptSource": prompt_source,
                 "audioPath": str(spec.audio_path) if spec.audio_path else None,
                 "audioSha256": audio_sha,
                 "lastImagePath": (
@@ -898,9 +1146,19 @@ def build_arena_plan(
                 "durationSeconds": spec.duration_seconds,
                 "resolution": spec.resolution,
                 "audioMode": spec.audio_mode,
+                "steps": spec.steps,
+                "negativePrompt": spec.negative_prompt,
+                "loraPath": str(spec.lora_path) if spec.lora_path else None,
+                "loraSha256": (sha256_file(spec.lora_path) if spec.lora_path else None),
+                "loraStrength": spec.lora_strength,
+                "lowRam": spec.low_ram,
+                "tileFrames": spec.tile_frames,
+                "tileSpatial": spec.tile_spatial,
                 "commercialUse": spec.commercial_use,
                 "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
                 "overlaysExist": spec.overlays_exist,
+                "taskParameterMaterial": parameter_material,
+                "taskParameterFingerprint": parameter_fp,
                 "outputPath": str(output_path),
                 "blindedCandidateId": f"candidate_{fingerprint({'sample': sample_id})[:16]}",
                 "queueJob": job.as_dict(),
@@ -940,6 +1198,10 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("arena_plan_samples_missing")
     if payload.get("expectedSampleCount") != len(samples):
         raise LocalQueueError("arena_plan_sample_denominator_mismatch")
+    if payload.get("purpose") == "supervised_rollout" and len(samples) not in (
+        ROLLOUT_GATE_SIZES
+    ):
+        raise LocalQueueError("arena_rollout_gate_size_invalid")
     expected_creators = sorted(
         {str(sample.get("creatorId")) for sample in samples if isinstance(sample, dict)}
     )
@@ -949,6 +1211,7 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     blinded: set[str] = set()
     outputs: set[str] = set()
     jobs: set[str] = set()
+    content_intent_identities: dict[tuple[str, str], str] = {}
     deep_models: dict[str, dict[str, Any]] = {}
     for raw in samples:
         if not isinstance(raw, dict):
@@ -1056,12 +1319,49 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         intent = ContentIntentV1.from_dict(dict(raw["contentIntent"])).to_dict()
         if recipe.get("schema") != "creator_os.benchmark_recipe.v1":
             raise ValueError("arena_benchmark_recipe_schema_mismatch")
+        promotion_evidence_allowed = recipe.get("promotionEvidenceAllowed")
+        purpose = payload.get("purpose")
+        if (
+            (
+                purpose == "supervised_rollout"
+                and promotion_evidence_allowed is not False
+            )
+            or (purpose == "promotion_eligible" and promotion_evidence_allowed is False)
+            or (purpose == "exploratory" and promotion_evidence_allowed is True)
+        ):
+            raise LocalQueueError("arena_benchmark_recipe_evidence_use_mismatch")
         if registry.get("schema") != "creator_os.analyzer_registry.v1":
             raise ValueError("arena_analyzer_registry_schema_mismatch")
         if fingerprint(recipe) != raw.get("benchmarkRecipeFingerprint"):
             raise LocalQueueError("arena_benchmark_recipe_fingerprint_mismatch")
         if fingerprint(registry) != raw.get("analyzerRegistryFingerprint"):
             raise LocalQueueError("arena_analyzer_registry_fingerprint_mismatch")
+        stored_parameter_material = raw.get("taskParameterMaterial")
+        stored_parameter_fingerprint = raw.get("taskParameterFingerprint")
+        if stored_parameter_material is None and stored_parameter_fingerprint is None:
+            # Historical v1 plans remain readable but cannot be executed or
+            # admitted because the execution boundaries require this evidence.
+            pass
+        elif not isinstance(stored_parameter_material, dict):
+            raise LocalQueueError("arena_task_parameter_material_invalid")
+        else:
+            current_parameter_material = local_video_task_parameter_material(
+                _request_from_sample(raw),
+                runtime_binding=raw.get("runtimeBinding"),
+            )
+            current_parameter_fingerprint = task_parameter_fingerprint(
+                current_parameter_material
+            )
+            current_benchmark_parameter_fingerprint = (
+                benchmark_task_parameter_fingerprint(current_parameter_material)
+            )
+            if (
+                stored_parameter_material != current_parameter_material
+                or stored_parameter_fingerprint != current_parameter_fingerprint
+                or recipe.get("parameterFingerprint")
+                != current_benchmark_parameter_fingerprint
+            ):
+                raise LocalQueueError("arena_task_parameter_material_mismatch")
         if (
             raw.get("identityProfileId") != profile.get("profileId")
             or raw.get("identityProfileFingerprint") != fingerprint(profile)
@@ -1075,6 +1375,13 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             or intent.get("creatorIdentityProfileId") != profile.get("profileId")
         ):
             raise LocalQueueError("arena_content_intent_binding_mismatch")
+        intent_id = str(intent["intentId"])
+        intent_fingerprint = fingerprint(intent)
+        existing_intent_fingerprint = content_intent_identities.setdefault(
+            (str(raw["creatorId"]), intent_id), intent_fingerprint
+        )
+        if existing_intent_fingerprint != intent_fingerprint:
+            raise LocalQueueError("arena_content_intent_identity_collision")
         if (
             job.benchmark_recipe_id != recipe.get("recipeId")
             or job.benchmark_recipe_fingerprint != fingerprint(recipe)
@@ -1162,16 +1469,44 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             raise LocalQueueError("arena_sample_promotion_eligibility_mismatch")
         source_path = raw.get("sourcePath")
         source_video_path = raw.get("sourceVideoPath")
-        if raw.get("taskKind") in {"video_retake", "video_extend"}:
+        if raw.get("taskKind") == "text_to_video":
+            if source_path is not None or source_video_path is not None:
+                raise LocalQueueError("arena_text_task_media_source_forbidden")
+            if raw.get("sourceSha256") != fingerprint(
+                {
+                    "taskKind": "text_to_video",
+                    "prompt": " ".join(str(raw.get("prompt") or "").split()),
+                }
+            ):
+                raise LocalQueueError("arena_text_task_source_identity_mismatch")
+            prompt_source = raw.get("promptSource")
+            if not isinstance(prompt_source, dict):
+                raise LocalQueueError("arena_text_task_prompt_source_missing")
+            prompt_path = Path(str(prompt_source.get("path") or "")).resolve()
+            if (
+                set(prompt_source) != {"path", "sha256"}
+                or prompt_source.get("sha256") != raw.get("sourceSha256")
+                or not prompt_path.is_file()
+                or prompt_path.is_symlink()
+                or sha256_file(prompt_path) != raw.get("sourceSha256")
+            ):
+                raise LocalQueueError(
+                    "arena_text_task_prompt_source_missing_or_substituted"
+                )
+            primary_source = None
+        elif raw.get("taskKind") in {"video_retake", "video_extend"}:
             if source_path is not None or source_video_path is None:
                 raise LocalQueueError("arena_video_task_primary_source_invalid")
             primary_source = Path(str(source_video_path)).resolve()
         else:
+            if raw.get("promptSource") is not None:
+                raise LocalQueueError("arena_media_task_prompt_source_forbidden")
             if source_path is None:
                 raise LocalQueueError("arena_image_task_primary_source_missing")
             primary_source = Path(str(source_path)).resolve()
-        if not primary_source.is_file() or sha256_file(primary_source) != raw.get(
-            "sourceSha256"
+        if primary_source is not None and (
+            not primary_source.is_file()
+            or sha256_file(primary_source) != raw.get("sourceSha256")
         ):
             raise LocalQueueError("arena_source_missing_or_substituted")
         audio_path = raw.get("audioPath")
@@ -1187,7 +1522,6 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 or sha256_file(audio) != audio_sha
             ):
                 raise LocalQueueError("arena_audio_missing_or_substituted")
-        extra_media: list[tuple[str, str]] = []
         for prefix in ("lastImage", "sourceVideo"):
             raw_path = raw.get(f"{prefix}Path")
             raw_sha = raw.get(f"{prefix}Sha256")
@@ -1198,19 +1532,29 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             path = Path(str(raw_path)).resolve()
             if not path.is_file() or raw_sha is None or sha256_file(path) != raw_sha:
                 raise LocalQueueError(f"arena_{prefix.lower()}_missing_or_substituted")
-            extra_media.append((str(path), str(raw_sha)))
-        exact_inputs: list[str] = []
-        for value in (
-            raw.get("sourceSha256"),
-            raw.get("audioSha256"),
-            *(sha for _path, sha in extra_media),
-        ):
-            if isinstance(value, str) and value not in exact_inputs:
-                exact_inputs.append(value)
-        if (
-            recipe.get("inputFingerprints") != exact_inputs
-            or intent.get("sourceAssetFingerprints") != exact_inputs
-        ):
+        exact_bindings = canonical_task_input_bindings(
+            str(raw["taskKind"]),
+            image_sha256=(
+                str(raw["sourceSha256"]) if raw.get("sourcePath") is not None else None
+            ),
+            audio_sha256=(
+                str(raw["audioSha256"]) if raw.get("audioSha256") is not None else None
+            ),
+            last_image_sha256=(
+                str(raw["lastImageSha256"])
+                if raw.get("lastImageSha256") is not None
+                else None
+            ),
+            source_video_sha256=(
+                str(raw["sourceVideoSha256"])
+                if raw.get("sourceVideoSha256") is not None
+                else None
+            ),
+        )
+        exact_inputs = [binding["sha256"] for binding in exact_bindings]
+        if recipe.get("inputFingerprints") != exact_inputs or not set(
+            exact_inputs
+        ).issubset(set(intent.get("sourceAssetFingerprints") or [])):
             raise LocalQueueError("arena_extended_input_fingerprint_mismatch")
         if raw.get("preserveAudio") is not (raw.get("audioMode") == "preserved"):
             raise LocalQueueError("arena_preserve_audio_binding_mismatch")
@@ -1745,18 +2089,427 @@ def validate_arena_unblinding_receipt(
     }
 
 
+def _rollout_count_map(
+    samples: Sequence[Mapping[str, Any]], field: str
+) -> dict[str, int]:
+    return dict(sorted(Counter(str(sample[field]) for sample in samples).items()))
+
+
+def _rollout_plan_counts(plan: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    samples = tuple(dict(sample) for sample in plan["samples"])
+    return {
+        "creatorCounts": _rollout_count_map(samples, "creatorId"),
+        "modelCounts": _rollout_count_map(samples, "modelId"),
+        "capabilityCounts": _rollout_count_map(samples, "capabilityCohort"),
+    }
+
+
+def validate_rollout_gate_receipt(
+    receipt: Mapping[str, Any],
+    *,
+    arena_plan: Mapping[str, Any],
+    evidence_secret: str | None = None,
+) -> dict[str, Any]:
+    validate_local_model_rollout_gate_receipt(dict(receipt))
+    plan = validate_arena_plan(arena_plan)
+    if plan.get("purpose") != "supervised_rollout":
+        raise LocalQueueError("arena_rollout_requires_non_promotion_plan")
+    payload = dict(receipt)
+    attestation = payload.pop("operatorAttestation", None)
+    claimed = _valid_sha256(
+        payload.pop("receiptFingerprint", None), "rollout_receipt_fingerprint"
+    )
+    if fingerprint(payload) != claimed:
+        raise LocalQueueError("arena_rollout_receipt_fingerprint_mismatch")
+    signed_payload = {**payload, "receiptFingerprint": claimed}
+    if not isinstance(attestation, dict):
+        raise LocalQueueError("arena_rollout_receipt_attestation_missing")
+    try:
+        verify_evidence_attestation(
+            attestation,
+            signed_payload,
+            secret=evidence_secret or load_evidence_secret(),
+            expected_issuer=ROLLOUT_GATE_ISSUER,
+        )
+    except EvidenceAttestationError as exc:
+        raise LocalQueueError("arena_rollout_receipt_attestation_invalid") from exc
+    expected_counts = _rollout_plan_counts(plan)
+    if (
+        payload.get("arenaPlanId") != plan["planId"]
+        or payload.get("arenaPlanFingerprint") != plan["planFingerprint"]
+        or payload.get("gateSize") != plan["expectedSampleCount"]
+        or any(payload.get(field) != value for field, value in expected_counts.items())
+    ):
+        raise LocalQueueError("arena_rollout_receipt_plan_binding_mismatch")
+    gate_size = int(payload["gateSize"])
+    predecessor = payload.get("predecessorReceiptFingerprint")
+    if (gate_size == ROLLOUT_GATE_SIZES[0]) is not (predecessor is None):
+        raise LocalQueueError("arena_rollout_predecessor_nullability_invalid")
+    if payload.get("decision") != payload.get("transition"):
+        raise LocalQueueError("arena_rollout_transition_decision_mismatch")
+    planned = {str(sample["sampleId"]): sample for sample in plan["samples"]}
+    referenced_sample_ids = [
+        str(sample_id)
+        for reference in payload["routerEvidence"]
+        for sample_id in reference["sampleIds"]
+    ]
+    if len(referenced_sample_ids) != len(set(referenced_sample_ids)) or set(
+        referenced_sample_ids
+    ) != set(planned):
+        raise LocalQueueError("arena_rollout_router_sample_partition_invalid")
+    for reference in payload["routerEvidence"]:
+        if (
+            reference["promotionHardwareFingerprint"]
+            != payload["promotionHardwareFingerprint"]
+        ):
+            raise LocalQueueError("arena_rollout_router_promotion_hardware_mismatch")
+        for sample_id in reference["sampleIds"]:
+            sample = planned[str(sample_id)]
+            if (
+                reference["selectedModelId"] != sample["modelId"]
+                or reference["selectedModelFingerprint"] != sample["modelFingerprint"]
+                or reference["taskKind"] != sample["taskKind"]
+                or reference["capabilityCohort"] != sample["capabilityCohort"]
+            ):
+                raise LocalQueueError("arena_rollout_router_reference_plan_mismatch")
+    summary_evidence = payload.get("summaryEvidence")
+    if isinstance(summary_evidence, dict):
+        if (
+            sum(int(value) for value in summary_evidence["terminalCounts"].values())
+            != gate_size
+        ):
+            raise LocalQueueError("arena_rollout_terminal_counts_mismatch")
+        failed_sample_ids = [
+            str(sample["sampleId"])
+            for sample in summary_evidence["failedOrHeldSamples"]
+        ]
+        if len(failed_sample_ids) != len(set(failed_sample_ids)) or not set(
+            failed_sample_ids
+        ).issubset(planned):
+            raise LocalQueueError("arena_rollout_failed_sample_set_invalid")
+        criteria = dict(summary_evidence["gateCriteria"])
+        criteria_fingerprint = criteria.pop("criteriaFingerprint")
+        if (
+            criteria.get("gateSize") != gate_size
+            or fingerprint(criteria) != criteria_fingerprint
+            or criteria.get("passed") is not (not criteria.get("blockingReasons"))
+            or criteria.get("promotionHardwareFingerprint")
+            != payload["promotionHardwareFingerprint"]
+        ):
+            raise LocalQueueError("arena_rollout_gate_criteria_invalid")
+    return {
+        **payload,
+        "receiptFingerprint": claimed,
+        "operatorAttestation": attestation,
+    }
+
+
+def _validate_rollout_router_bundle(
+    bundle: Mapping[str, Any],
+    *,
+    benchmark_store: LocalModelBenchmarkStore,
+    human_reviews: HumanMediaReviewStore,
+    observed_at: str,
+    evidence_secret: str | None,
+    require_active_promotion: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    from .local_model_router import validate_router_decision
+
+    exact = dict(bundle)
+    if set(exact) != {
+        "arenaPlan",
+        "arenaSummary",
+        "reviewPacket",
+        "unblindingReceipt",
+        "routerDecision",
+        "rolloutSampleIds",
+    } or not all(
+        isinstance(exact[field], dict)
+        for field in (
+            "arenaPlan",
+            "arenaSummary",
+            "reviewPacket",
+            "unblindingReceipt",
+            "routerDecision",
+        )
+    ):
+        raise LocalQueueError("arena_rollout_router_evidence_bundle_invalid")
+    rollout_sample_ids = exact["rolloutSampleIds"]
+    if (
+        not isinstance(rollout_sample_ids, list)
+        or not rollout_sample_ids
+        or any(
+            not isinstance(sample_id, str) or not sample_id.strip()
+            for sample_id in rollout_sample_ids
+        )
+        or len(rollout_sample_ids) != len(set(rollout_sample_ids))
+    ):
+        raise LocalQueueError("arena_rollout_router_sample_ids_invalid")
+    promotion_plan = validate_arena_plan(dict(exact["arenaPlan"]))
+    if promotion_plan.get("purpose") != "promotion_eligible":
+        raise LocalQueueError("arena_rollout_router_evidence_not_promotion_plan")
+    promotion_summary = validate_arena_summary(
+        dict(exact["arenaSummary"]), arena_plan=promotion_plan
+    )
+    packet = validate_arena_review_packet(
+        dict(exact["reviewPacket"]),
+        arena_plan=promotion_plan,
+        evidence_secret=evidence_secret,
+    )
+    unblinding = validate_arena_unblinding_receipt(
+        dict(exact["unblindingReceipt"]),
+        arena_plan=promotion_plan,
+        review_packet=packet,
+        human_reviews=human_reviews,
+        evidence_secret=evidence_secret,
+    )
+    expected_review_evidence = {
+        "reviewPacketId": packet["packetId"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+        "unblindingReceiptId": unblinding["receiptId"],
+        "unblindingReceiptFingerprint": unblinding["receiptFingerprint"],
+    }
+    if promotion_summary.get("reviewEvidence") != expected_review_evidence:
+        raise LocalQueueError("arena_rollout_router_review_evidence_mismatch")
+    decision = validate_router_decision(
+        dict(exact["routerDecision"]),
+        arena_plan=promotion_plan,
+        arena_summary=promotion_summary,
+    )
+    if (
+        decision.get("paidProviderFallbackAllowed") is not False
+        or decision.get("legacyLocalMotionFallbackAllowed") is not False
+    ):
+        raise LocalQueueError("arena_rollout_router_fallback_forbidden")
+    if decision.get("operatorOverride") is not None:
+        raise LocalQueueError("arena_rollout_router_override_forbidden")
+    winning = dict(decision["winningEvidence"])
+    approval = winning.get("promotionApproval")
+    if not isinstance(approval, dict):
+        raise LocalQueueError("arena_rollout_router_promotion_missing")
+    if require_active_promotion:
+        active = benchmark_store.active_promotion(
+            candidate_model_fingerprint=str(decision["selectedModelFingerprint"]),
+            task_kind=str(decision["request"]["taskKind"]),
+            candidate_benchmark_ids=tuple(
+                str(value) for value in winning["benchmarkIds"]
+            ),
+            hardware_fingerprint=str(approval["hardwareFingerprint"]),
+            observed_at=observed_at,
+        )
+        if active != approval:
+            raise LocalQueueError("arena_rollout_router_promotion_not_active")
+    snapshot_fingerprint = fingerprint(exact)
+    reference = {
+        "snapshotFingerprint": snapshot_fingerprint,
+        "sampleIds": sorted(rollout_sample_ids),
+        "routerDecisionId": decision["decisionId"],
+        "routerDecisionFingerprint": decision["decisionFingerprint"],
+        "selectedModelId": decision["selectedModelId"],
+        "selectedModelFingerprint": decision["selectedModelFingerprint"],
+        "taskKind": decision["request"]["taskKind"],
+        "capabilityCohort": decision["request"]["capabilityCohort"],
+        "promotionArenaPlanFingerprint": promotion_plan["planFingerprint"],
+        "promotionArenaSummaryFingerprint": promotion_summary["summaryFingerprint"],
+        "promotionReviewPacketFingerprint": packet["packetFingerprint"],
+        "promotionUnblindingReceiptFingerprint": unblinding["receiptFingerprint"],
+        "promotionApprovalEventId": approval["approvalEventId"],
+        "promotionApprovalEventHash": approval["approvalEventHash"],
+        "promotionHardwareFingerprint": approval["hardwareFingerprint"],
+        "promotionEvidenceFingerprint": approval["evidenceFingerprint"],
+    }
+    return exact, reference
+
+
+def _rollout_router_bundle_matches_sample(
+    bundle: Mapping[str, Any],
+    sample: Mapping[str, Any],
+    *,
+    promotion_hardware_fingerprint: str,
+) -> bool:
+    decision = dict(bundle["routerDecision"])
+    request = dict(decision["request"])
+    winning = decision.get("winningEvidence")
+    approval = winning.get("promotionApproval") if isinstance(winning, dict) else None
+    return (
+        isinstance(approval, dict)
+        and approval.get("hardwareFingerprint") == promotion_hardware_fingerprint
+        and decision["selectedModelId"] == sample["modelId"]
+        and decision["selectedModelFingerprint"] == sample["modelFingerprint"]
+        and request["creatorId"] == sample["creatorId"]
+        and request["identityProfileId"] == sample["identityProfileId"]
+        and request["identityProfileFingerprint"]
+        == sample["identityProfileFingerprint"]
+        and request["contentIntentId"] == sample["contentIntentId"]
+        and request["contentIntentFingerprint"] == sample["contentIntentFingerprint"]
+        and request["taskKind"] == sample["taskKind"]
+        and request["capabilityCohort"] == sample["capabilityCohort"]
+    )
+
+
+def _rollout_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LocalQueueError("arena_rollout_timestamp_invalid") from exc
+    if parsed.tzinfo is None:
+        raise LocalQueueError("arena_rollout_timestamp_timezone_missing")
+    return parsed.astimezone(UTC)
+
+
+def _rollout_external_activity_observer_public_keys() -> dict[str, bytes]:
+    public_keys: dict[str, bytes] = {}
+    for observer_kind, binding in ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS.items():
+        encoded = binding.get("publicKeyBase64")
+        if not isinstance(encoded, str) or not encoded:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observer_unavailable:{observer_kind}"
+            )
+        try:
+            decoded = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observer_key_invalid:{observer_kind}"
+            ) from exc
+        if len(decoded) != 32:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observer_key_invalid:{observer_kind}"
+            )
+        public_keys[observer_kind] = decoded
+    if len(set(public_keys.values())) != len(public_keys):
+        raise LocalQueueError(
+            "arena_rollout_external_activity_observer_keys_not_independent"
+        )
+    return public_keys
+
+
+def _verify_rollout_external_activity_observer_attestation(
+    attestation: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    kind: str,
+    reference_time: datetime,
+) -> dict[str, Any]:
+    binding = ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+    exact = dict(attestation)
+    if (
+        exact.get("schema") != "creator_os.external_observer_attestation.v1"
+        or exact.get("algorithm") != "ed25519"
+        or exact.get("issuer") != binding["issuer"]
+        or exact.get("keyId") != binding["keyId"]
+        or exact.get("payloadFingerprint") != payload_fingerprint(payload)
+    ):
+        raise LocalQueueError(
+            f"arena_rollout_external_activity_observation_attestation_invalid:{kind}"
+        )
+    issued_at = _rollout_timestamp(str(exact.get("issuedAt") or ""))
+    if issued_at > reference_time:
+        raise LocalQueueError(
+            f"arena_rollout_external_activity_observation_attestation_invalid:{kind}"
+        )
+    try:
+        signature = base64.b64decode(str(exact["signature"]), validate=True)
+        unsigned = dict(exact)
+        unsigned.pop("signature")
+        Ed25519PublicKey.from_public_bytes(
+            _rollout_external_activity_observer_public_keys()[kind]
+        ).verify(signature, canonical_json(unsigned))
+    except (
+        InvalidSignature,
+        KeyError,
+        TypeError,
+        ValueError,
+        binascii.Error,
+    ) as exc:
+        raise LocalQueueError(
+            f"arena_rollout_external_activity_observation_attestation_invalid:{kind}"
+        ) from exc
+    return exact
+
+
+def _external_activity_records(path: Path) -> list[Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LocalQueueError(
+            "arena_rollout_external_activity_source_unreadable"
+        ) from exc
+    stripped = text.strip()
+    if not stripped:
+        return []
+    try:
+        decoded = json.loads(stripped)
+    except json.JSONDecodeError:
+        rows = [line for line in text.splitlines() if line.strip()]
+        try:
+            for line in rows:
+                json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise LocalQueueError(
+                "arena_rollout_external_activity_source_invalid"
+            ) from exc
+        return [json.loads(line) for line in rows]
+    if isinstance(decoded, list):
+        return decoded
+    if isinstance(decoded, dict) and isinstance(decoded.get("events"), list):
+        return list(decoded["events"])
+    raise LocalQueueError("arena_rollout_external_activity_source_invalid")
+
+
 class LocalModelArenaStore:
     """Persist immutable Arena plans and outcomes beside benchmark evidence."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        trusted_clock: Callable[[], datetime] | None = None,
+        hardware_identity_provider: Callable[[], Mapping[str, Any]] | None = None,
+    ) -> None:
         self.root = root.expanduser().resolve()
         self.plans = self.root / "arena_plans"
         self.identity_profiles = self.root / "creator_identity_profiles"
         self.content_intents = self.root / "content_intents"
         self.review_packets = self.root / "arena_review_packets"
         self.unblinding_receipts = self.root / "arena_unblinding_receipts"
-        self.events = AppendOnlyJournal(self.root / "arena_events.jsonl")
+        self.rollout_router_evidence = self.root / "arena_rollout_router_evidence"
+        self.rollout_summaries = self.root / "arena_rollout_summaries"
+        self.rollout_external_activity = self.root / "arena_rollout_external_activity"
+        self.__events = AppendOnlyJournal(self.root / "arena_events.jsonl")
         self._mutation = self.root / "arena_mutation"
+        self._trusted_clock = trusted_clock or (lambda: datetime.now(UTC))
+        self._hardware_identity_provider = (
+            hardware_identity_provider or hardware_identity
+        )
+        self.__transition_token = object()
+
+    def _trusted_now(self) -> datetime:
+        observed = self._trusted_clock()
+        if observed.tzinfo is None:
+            raise LocalQueueError("arena_rollout_trusted_clock_timezone_missing")
+        return observed.astimezone(UTC)
+
+    def journal_events(self) -> tuple[dict[str, Any], ...]:
+        """Return an immutable snapshot; mutation remains internal to Arena."""
+
+        return tuple(dict(event) for event in self.__events.read().events)
+
+    def _validate_transition_timestamp(
+        self,
+        decided_at: str,
+        *,
+        not_before: str,
+    ) -> str:
+        decided = _rollout_timestamp(decided_at)
+        lower = _rollout_timestamp(not_before)
+        now = self._trusted_now()
+        if decided < lower:
+            raise LocalQueueError("arena_rollout_timestamp_order_invalid")
+        if decided < now - ROLLOUT_CLOCK_SKEW:
+            raise LocalQueueError("arena_rollout_timestamp_backdated")
+        if decided > now:
+            raise LocalQueueError("arena_rollout_timestamp_future")
+        return decided.isoformat()
 
     def persist_plan(self, plan: Mapping[str, Any]) -> Path:
         payload = validate_arena_plan(plan)
@@ -1832,6 +2585,1486 @@ class LocalModelArenaStore:
         self._verify_record_snapshots(plan)
         return plan
 
+    def _rollout_transition_events(self) -> list[dict[str, Any]]:
+        return [
+            dict(event)
+            for event in self.__events.read().events
+            if event.get("eventType") == "arena_rollout_gate_transition"
+        ]
+
+    def _validated_rollout_event(
+        self,
+        event: Mapping[str, Any],
+        *,
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            raise LocalQueueError("arena_rollout_event_payload_invalid")
+        plan = self.load_plan(str(payload.get("arenaPlanId") or ""))
+        receipt = validate_rollout_gate_receipt(
+            payload, arena_plan=plan, evidence_secret=evidence_secret
+        )
+        self._verify_rollout_external_activity_snapshot(
+            receipt["externalActivity"],
+            plan=plan,
+        )
+        return receipt
+
+    @staticmethod
+    def _validate_rollout_transition_sequence(
+        receipts: Sequence[Mapping[str, Any]],
+    ) -> None:
+        if not receipts:
+            return
+        transitions = [str(receipt["transition"]) for receipt in receipts]
+        if (
+            transitions[0] != "approved_to_run"
+            or len(transitions) > 3
+            or (len(transitions) >= 2 and transitions[1] not in {"terminal", "held"})
+            or (
+                len(transitions) == 3
+                and transitions
+                != [
+                    "approved_to_run",
+                    "terminal",
+                    "approved_to_escalate",
+                ]
+            )
+        ):
+            raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+        approval = receipts[0]
+        invariant_fields = (
+            "schema",
+            "rolloutId",
+            "gateId",
+            "gateSize",
+            "arenaPlanId",
+            "arenaPlanFingerprint",
+            "predecessorReceiptFingerprint",
+            "creatorCounts",
+            "modelCounts",
+            "capabilityCounts",
+            "promotionHardwareFingerprint",
+            "routerEvidence",
+            "modeConfirmation",
+        )
+        previous: Mapping[str, Any] | None = None
+        for receipt in receipts:
+            if any(
+                receipt.get(field) != approval.get(field) for field in invariant_fields
+            ):
+                raise LocalQueueError("arena_rollout_transition_binding_mismatch")
+            expected_previous = (
+                None if previous is None else previous["receiptFingerprint"]
+            )
+            if (
+                receipt.get("previousReceiptFingerprint") != expected_previous
+                or receipt.get("receiptId")
+                != f"{approval['gateId']}_{receipt['transition']}"
+                or (
+                    previous is not None
+                    and _rollout_timestamp(str(receipt["decidedAt"]))
+                    < _rollout_timestamp(str(previous["decidedAt"]))
+                )
+            ):
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+            previous = receipt
+
+    def _validated_rollout_journal(
+        self,
+        *,
+        evidence_secret: str | None = None,
+    ) -> list[dict[str, Any]]:
+        receipts = [
+            self._validated_rollout_event(event, evidence_secret=evidence_secret)
+            for event in self._rollout_transition_events()
+        ]
+        by_plan: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for receipt in receipts:
+            by_plan[str(receipt["arenaPlanId"])].append(receipt)
+        for plan_receipts in by_plan.values():
+            self._validate_rollout_transition_sequence(plan_receipts)
+
+        by_rollout: dict[str, list[list[dict[str, Any]]]] = defaultdict(list)
+        receipt_positions = {
+            str(receipt["receiptFingerprint"]): index
+            for index, receipt in enumerate(receipts)
+        }
+        if len(receipt_positions) != len(receipts):
+            raise LocalQueueError("arena_rollout_receipt_duplicate")
+        for plan_receipts in by_plan.values():
+            by_rollout[str(plan_receipts[0]["rolloutId"])].append(plan_receipts)
+        for rollout_plans in by_rollout.values():
+            ordered = sorted(
+                rollout_plans,
+                key=lambda values: ROLLOUT_GATE_SIZES.index(int(values[0]["gateSize"])),
+            )
+            gate_sizes = [int(values[0]["gateSize"]) for values in ordered]
+            if gate_sizes != list(ROLLOUT_GATE_SIZES[: len(gate_sizes)]):
+                raise LocalQueueError("arena_rollout_gate_order_invalid")
+            previous_plan_receipts: list[dict[str, Any]] | None = None
+            for plan_receipts in ordered:
+                approval = plan_receipts[0]
+                if previous_plan_receipts is None:
+                    if approval["predecessorReceiptFingerprint"] is not None:
+                        raise LocalQueueError("arena_rollout_gate_order_invalid")
+                else:
+                    previous = previous_plan_receipts[-1]
+                    if (
+                        previous["transition"] != "approved_to_escalate"
+                        or approval["predecessorReceiptFingerprint"]
+                        != previous["receiptFingerprint"]
+                        or receipt_positions[str(previous["receiptFingerprint"])]
+                        >= receipt_positions[str(approval["receiptFingerprint"])]
+                    ):
+                        raise LocalQueueError("arena_rollout_gate_order_invalid")
+                previous_plan_receipts = plan_receipts
+        return receipts
+
+    def _rollout_receipt_by_fingerprint(
+        self,
+        receipt_fingerprint: str,
+        *,
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        matches = [
+            receipt
+            for receipt in self._validated_rollout_journal(
+                evidence_secret=evidence_secret
+            )
+            if receipt["receiptFingerprint"] == receipt_fingerprint
+        ]
+        if len(matches) != 1:
+            raise LocalQueueError(
+                "arena_rollout_receipt_not_found_exactly_once:" + receipt_fingerprint
+            )
+        return matches[0]
+
+    def _rollout_gate_receipts(
+        self,
+        plan_id: str,
+        *,
+        evidence_secret: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            receipt
+            for receipt in self._validated_rollout_journal(
+                evidence_secret=evidence_secret
+            )
+            if receipt["arenaPlanId"] == plan_id
+        ]
+
+    def _persist_rollout_snapshot(
+        self, directory: Path, payload: Mapping[str, Any]
+    ) -> str:
+        expected = fingerprint(payload)
+        path = directory / f"{expected}.json"
+        _write_exact_json(path, payload)
+        if sha256_file(path) != expected:
+            raise LocalQueueError("arena_rollout_snapshot_persistence_failed")
+        return expected
+
+    def _load_rollout_snapshot(
+        self, directory: Path, expected_fingerprint: str
+    ) -> dict[str, Any]:
+        path = directory / f"{expected_fingerprint}.json"
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or sha256_file(path) != expected_fingerprint
+        ):
+            raise LocalQueueError("arena_rollout_snapshot_missing_or_substituted")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LocalQueueError("arena_rollout_snapshot_invalid") from exc
+        if (
+            not isinstance(payload, dict)
+            or fingerprint(payload) != expected_fingerprint
+        ):
+            raise LocalQueueError("arena_rollout_snapshot_fingerprint_mismatch")
+        return payload
+
+    def _load_external_activity_observation(
+        self,
+        receipt_path: Path,
+        *,
+        kind: str,
+        plan: Mapping[str, Any],
+        reference_time: str,
+    ) -> dict[str, Any]:
+        unresolved_receipt = receipt_path.expanduser()
+        resolved_receipt = unresolved_receipt.resolve()
+        if (
+            not unresolved_receipt.is_absolute()
+            or not resolved_receipt.is_file()
+            or unresolved_receipt.is_symlink()
+            or resolved_receipt.is_symlink()
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_missing:{kind}"
+            )
+        try:
+            raw = json.loads(resolved_receipt.read_text(encoding="utf-8"))
+            validate_local_model_rollout_external_activity_observation(raw)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_invalid:{kind}"
+            ) from exc
+        if not isinstance(raw, dict) or raw.get("kind") != kind:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_kind_mismatch:{kind}"
+            )
+        binding = ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+        if (
+            raw.get("storeIdentity") != binding["storeIdentity"]
+            or raw.get("queryIdentity") != binding["queryIdentity"]
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observer_identity_mismatch:{kind}"
+            )
+        attested_payload = dict(raw)
+        attestation = attested_payload.pop("producerAttestation", None)
+        core = dict(attested_payload)
+        claimed = core.pop("observationFingerprint", None)
+        if not isinstance(claimed, str) or fingerprint(core) != claimed:
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_fingerprint_mismatch:{kind}"
+            )
+        reference = _rollout_timestamp(reference_time)
+        _verify_rollout_external_activity_observer_attestation(
+            attestation if isinstance(attestation, dict) else {},
+            attested_payload,
+            kind=kind,
+            reference_time=reference,
+        )
+        interval_start = _rollout_timestamp(str(raw["intervalStart"]))
+        interval_end = _rollout_timestamp(str(raw["intervalEnd"]))
+        observed_at = _rollout_timestamp(str(raw["observedAt"]))
+        plan_created_at = _rollout_timestamp(str(plan["createdAt"]))
+        if (
+            interval_start > plan_created_at
+            or interval_end != observed_at
+            or observed_at > reference
+            or observed_at < reference - ROLLOUT_CLOCK_SKEW
+            or interval_start > interval_end
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_interval_invalid:{kind}"
+            )
+        provenance = dict(raw["provenance"])
+        source = dict(raw["source"])
+        expected_reference = {
+            "recordId": f"{binding['storeIdentity']}:{binding['queryIdentity']}",
+            "fingerprint": source["sha256"],
+        }
+        if (
+            provenance["producer"] != binding["issuer"]
+            or provenance["producedAt"] != raw["observedAt"]
+            or provenance["sourceReferences"] != [expected_reference]
+            or not isinstance(attestation, dict)
+            or attestation.get("issuedAt") != raw["observedAt"]
+            or raw["observationId"]
+            != (
+                f"rollout_external_{kind}_"
+                + fingerprint(
+                    {
+                        "kind": kind,
+                        "storeIdentity": binding["storeIdentity"],
+                        "queryIdentity": binding["queryIdentity"],
+                        "intervalStart": raw["intervalStart"],
+                        "intervalEnd": raw["intervalEnd"],
+                        "sourceSha256": source["sha256"],
+                    }
+                )[:24]
+            )
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_observation_provenance_invalid:{kind}"
+            )
+        unresolved_source = Path(str(source["path"])).expanduser()
+        resolved_source = unresolved_source.resolve()
+        if (
+            not unresolved_source.is_absolute()
+            or not resolved_source.is_file()
+            or unresolved_source.is_symlink()
+            or resolved_source.is_symlink()
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_source_missing:{kind}"
+            )
+        records = _external_activity_records(resolved_source)
+        if (
+            str(resolved_source) != source["path"]
+            or sha256_file(resolved_source) != source["sha256"]
+            or fingerprint({"records": records}) != source["recordsFingerprint"]
+            or len(records) != source["recordCount"]
+        ):
+            raise LocalQueueError(
+                f"arena_rollout_external_activity_source_substituted:{kind}"
+            )
+        return {
+            "kind": kind,
+            "observationReceiptPath": str(resolved_receipt),
+            "observationReceiptSha256": sha256_file(resolved_receipt),
+            "observationId": raw["observationId"],
+            "observationFingerprint": raw["observationFingerprint"],
+            "issuer": binding["issuer"],
+            "storeIdentity": binding["storeIdentity"],
+            "queryIdentity": binding["queryIdentity"],
+            "intervalStart": raw["intervalStart"],
+            "intervalEnd": raw["intervalEnd"],
+            "observedAt": raw["observedAt"],
+            "sourcePath": source["path"],
+            "sourceSha256": source["sha256"],
+            "recordsFingerprint": source["recordsFingerprint"],
+            "recordCount": source["recordCount"],
+        }
+
+    def _rollout_external_activity(
+        self,
+        plan: Mapping[str, Any],
+        *,
+        summary: Mapping[str, Any] | None,
+        observation_paths: Mapping[str, Path],
+        observed_at: str,
+    ) -> dict[str, Any]:
+        if set(observation_paths) != set(ROLLOUT_EXTERNAL_ACTIVITY_KINDS):
+            raise LocalQueueError(
+                "arena_rollout_external_activity_observations_required"
+            )
+        observer_sources: list[dict[str, Any]] = []
+        for kind in ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
+            observer_sources.append(
+                self._load_external_activity_observation(
+                    observation_paths[kind],
+                    kind=kind,
+                    plan=plan,
+                    reference_time=observed_at,
+                )
+            )
+        observer_core = {
+            "schema": "reel_factory.local_model_rollout_external_activity.v1",
+            "planId": plan["planId"],
+            "planFingerprint": plan["planFingerprint"],
+            "planCreatedAt": plan["createdAt"],
+            "observedAt": observed_at,
+            "sources": observer_sources,
+        }
+        observer_fingerprint = fingerprint(observer_core)
+        observer_snapshot = {
+            **observer_core,
+            "snapshotFingerprint": observer_fingerprint,
+        }
+        persisted_observer = self._persist_rollout_snapshot(
+            self.rollout_external_activity,
+            observer_snapshot,
+        )
+        if persisted_observer != fingerprint(observer_snapshot):
+            raise LocalQueueError(
+                "arena_rollout_external_activity_snapshot_persistence_failed"
+            )
+        terminal_events = [
+            event
+            for event in self.__events.read().events
+            if event.get("eventType") == "arena_sample_terminal"
+            and event.get("payload", {}).get("planId") == plan["planId"]
+        ]
+        terminal_provider_calls = sum(
+            int(event.get("payload", {}).get("providerCalls", -1))
+            for event in terminal_events
+        )
+        terminal_production_writes = sum(
+            int(event.get("payload", {}).get("productionWrites", -1))
+            for event in terminal_events
+        )
+        activity = {
+            "planProviderCalls": plan["providerCalls"],
+            "planProductionWritesAllowed": plan["productionWritesAllowed"],
+            "summaryProviderCalls": (
+                summary.get("providerCalls") if summary is not None else None
+            ),
+            "summaryProductionWrites": (
+                summary.get("productionWrites") if summary is not None else None
+            ),
+            "terminalEventCount": len(terminal_events),
+            "terminalEventProviderCalls": terminal_provider_calls,
+            "terminalEventProductionWrites": terminal_production_writes,
+            "observedProviderCalls": (
+                int(plan["providerCalls"])
+                + terminal_provider_calls
+                + int(summary.get("providerCalls", 0) if summary is not None else 0)
+            ),
+            "observedProductionWrites": (
+                terminal_production_writes
+                + int(summary.get("productionWrites", 0) if summary is not None else 0)
+            ),
+            "observerSnapshotFingerprint": fingerprint(observer_snapshot),
+            "observerObservedAt": observed_at,
+            "observerSources": observer_sources,
+            "observedProviderCostEvents": observer_sources[0]["recordCount"],
+            "observedSchedules": observer_sources[1]["recordCount"],
+            "observedPublishes": observer_sources[2]["recordCount"],
+            "observedQStashEvents": observer_sources[3]["recordCount"],
+        }
+        if (
+            activity["planProviderCalls"] != 0
+            or activity["planProductionWritesAllowed"] is not False
+            or activity["terminalEventProviderCalls"] != 0
+            or activity["terminalEventProductionWrites"] != 0
+            or activity["observedProviderCalls"] != 0
+            or activity["observedProductionWrites"] != 0
+            or any(source["recordCount"] != 0 for source in observer_sources)
+            or (
+                summary is not None
+                and (
+                    activity["summaryProviderCalls"] != 0
+                    or activity["summaryProductionWrites"] != 0
+                )
+            )
+        ):
+            raise LocalQueueError("arena_rollout_external_activity_detected")
+        return activity
+
+    def _verify_rollout_external_activity_snapshot(
+        self,
+        activity: Mapping[str, Any],
+        *,
+        plan: Mapping[str, Any],
+    ) -> None:
+        expected = str(activity.get("observerSnapshotFingerprint") or "")
+        snapshot = self._load_rollout_snapshot(
+            self.rollout_external_activity,
+            expected,
+        )
+        if (
+            snapshot.get("planId") != plan.get("planId")
+            or snapshot.get("planFingerprint") != plan.get("planFingerprint")
+            or snapshot.get("planCreatedAt") != plan.get("createdAt")
+            or snapshot.get("observedAt") != activity.get("observerObservedAt")
+            or snapshot.get("sources") != activity.get("observerSources")
+            or any(
+                self._load_external_activity_observation(
+                    Path(str(source["observationReceiptPath"])),
+                    kind=str(source["kind"]),
+                    plan=plan,
+                    reference_time=str(activity["observerObservedAt"]),
+                )
+                != source
+                for source in snapshot["sources"]
+            )
+        ):
+            raise LocalQueueError("arena_rollout_external_activity_snapshot_drift")
+
+    def _append_rollout_receipt(
+        self,
+        core: Mapping[str, Any],
+        *,
+        evidence_secret: str | None,
+        transition_token: object,
+    ) -> dict[str, Any]:
+        if transition_token is not self.__transition_token:
+            raise LocalQueueError("arena_rollout_transition_append_private")
+        exact_core = dict(core)
+        receipt_fingerprint = fingerprint(exact_core)
+        signed_payload = {
+            **exact_core,
+            "receiptFingerprint": receipt_fingerprint,
+        }
+        secret = evidence_secret or load_evidence_secret()
+        receipt = {
+            **signed_payload,
+            "operatorAttestation": sign_evidence_attestation(
+                signed_payload,
+                issuer=ROLLOUT_GATE_ISSUER,
+                issued_at=str(exact_core["decidedAt"]),
+                secret=secret,
+            ),
+        }
+        plan = self.load_plan(str(exact_core["arenaPlanId"]))
+        validated = validate_rollout_gate_receipt(
+            receipt, arena_plan=plan, evidence_secret=secret
+        )
+        self._verify_rollout_external_activity_snapshot(
+            validated["externalActivity"],
+            plan=plan,
+        )
+        current = self._rollout_gate_receipts(
+            str(plan["planId"]), evidence_secret=secret
+        )
+        transition = str(validated["transition"])
+        if transition == "approved_to_run":
+            if current or validated["previousReceiptFingerprint"] is not None:
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+        elif transition in {"terminal", "held"}:
+            if (
+                len(current) != 1
+                or current[0]["transition"] != "approved_to_run"
+                or validated["previousReceiptFingerprint"]
+                != current[0]["receiptFingerprint"]
+            ):
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+            summary_evidence = validated.get("summaryEvidence")
+            if not isinstance(summary_evidence, dict):
+                raise LocalQueueError("arena_rollout_transition_summary_missing")
+            summary = self._load_rollout_summary(
+                str(summary_evidence["summaryFingerprint"]), plan=plan
+            )
+            candidate_evidence = [
+                self._rollout_summary_evidence(
+                    summary,
+                    gate_size=int(plan["expectedSampleCount"]),
+                    promotion_active=promotion_active,
+                    promotion_hardware_fingerprint=str(
+                        validated["promotionHardwareFingerprint"]
+                    ),
+                )
+                for promotion_active in (
+                    (True,) if transition == "terminal" else (False, True)
+                )
+            ]
+            if summary_evidence not in candidate_evidence:
+                raise LocalQueueError("arena_rollout_transition_summary_drift")
+        elif transition == "approved_to_escalate":
+            if (
+                len(current) != 2
+                or current[0]["transition"] != "approved_to_run"
+                or current[1]["transition"] != "terminal"
+                or current[1]["previousReceiptFingerprint"]
+                != current[0]["receiptFingerprint"]
+                or validated["previousReceiptFingerprint"]
+                != current[1]["receiptFingerprint"]
+                or validated.get("summaryEvidence") != current[1].get("summaryEvidence")
+            ):
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+            summary_evidence = validated.get("summaryEvidence")
+            if not isinstance(summary_evidence, dict):
+                raise LocalQueueError("arena_rollout_transition_summary_missing")
+            summary = self._load_rollout_summary(
+                str(summary_evidence["summaryFingerprint"]), plan=plan
+            )
+            if (
+                self._rollout_summary_evidence(
+                    summary,
+                    gate_size=int(plan["expectedSampleCount"]),
+                    promotion_active=True,
+                    promotion_hardware_fingerprint=str(
+                        validated["promotionHardwareFingerprint"]
+                    ),
+                )
+                != summary_evidence
+            ):
+                raise LocalQueueError("arena_rollout_transition_summary_drift")
+        else:
+            raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+        event = self.__events.append("arena_rollout_gate_transition", validated)
+        return {"event": event, "receipt": validated}
+
+    def _verify_rollout_predecessor(
+        self,
+        *,
+        rollout_id: str,
+        gate_size: int,
+        predecessor_receipt_fingerprint: str | None,
+        evidence_secret: str | None,
+    ) -> None:
+        gate_index = ROLLOUT_GATE_SIZES.index(gate_size)
+        rollout_receipts = [
+            receipt
+            for receipt in self._validated_rollout_journal(
+                evidence_secret=evidence_secret
+            )
+            if receipt["rolloutId"] == rollout_id
+        ]
+        if gate_index == 0:
+            if predecessor_receipt_fingerprint is not None:
+                raise LocalQueueError("arena_rollout_gate_10_predecessor_forbidden")
+            if rollout_receipts:
+                raise LocalQueueError("arena_rollout_gate_order_invalid")
+            return
+        if predecessor_receipt_fingerprint is None:
+            raise LocalQueueError("arena_rollout_predecessor_required")
+        predecessor = self._rollout_receipt_by_fingerprint(
+            predecessor_receipt_fingerprint,
+            evidence_secret=evidence_secret,
+        )
+        expected_gate_size = ROLLOUT_GATE_SIZES[gate_index - 1]
+        if (
+            predecessor["rolloutId"] != rollout_id
+            or predecessor["gateSize"] != expected_gate_size
+            or predecessor["transition"] != "approved_to_escalate"
+        ):
+            raise LocalQueueError("arena_rollout_predecessor_invalid")
+        if (
+            not rollout_receipts
+            or rollout_receipts[-1]["receiptFingerprint"]
+            != predecessor_receipt_fingerprint
+            or any(receipt["gateSize"] == gate_size for receipt in rollout_receipts)
+        ):
+            raise LocalQueueError("arena_rollout_gate_order_invalid")
+
+    def approve_rollout_gate(
+        self,
+        *,
+        plan_id: str,
+        rollout_id: str,
+        operator_identity: str,
+        decided_at: str,
+        reason: str,
+        mode_confirmation: str,
+        router_evidence_bundles: Sequence[Mapping[str, Any]],
+        benchmark_store: LocalModelBenchmarkStore,
+        human_reviews: HumanMediaReviewStore,
+        external_activity_observations: Mapping[str, Path],
+        predecessor_receipt_fingerprint: str | None = None,
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        plan = self.load_plan(plan_id)
+        if plan.get("purpose") != "supervised_rollout":
+            raise LocalQueueError("arena_rollout_requires_non_promotion_plan")
+        gate_size = int(plan["expectedSampleCount"])
+        if gate_size not in ROLLOUT_GATE_SIZES:
+            raise LocalQueueError("arena_rollout_gate_size_invalid")
+        if mode_confirmation != ROLLOUT_MODE_CONFIRMATION:
+            raise LocalQueueError("arena_rollout_mode_confirmation_invalid")
+        if (
+            not rollout_id.strip()
+            or not operator_identity.strip()
+            or not reason.strip()
+        ):
+            raise ValueError("arena_rollout_operator_fields_missing")
+        not_before = str(plan["createdAt"])
+        if predecessor_receipt_fingerprint is not None:
+            not_before = str(
+                self._rollout_receipt_by_fingerprint(
+                    predecessor_receipt_fingerprint,
+                    evidence_secret=evidence_secret,
+                )["decidedAt"]
+            )
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=not_before,
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
+        if self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret):
+            raise LocalQueueError("arena_rollout_gate_already_transitioned")
+        self._verify_rollout_predecessor(
+            rollout_id=rollout_id,
+            gate_size=gate_size,
+            predecessor_receipt_fingerprint=predecessor_receipt_fingerprint,
+            evidence_secret=evidence_secret,
+        )
+        if not router_evidence_bundles:
+            raise LocalQueueError("arena_rollout_router_evidence_required")
+        snapshots: list[dict[str, Any]] = []
+        references: list[dict[str, Any]] = []
+        for raw_bundle in router_evidence_bundles:
+            snapshot, reference = _validate_rollout_router_bundle(
+                raw_bundle,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=trusted_observed_at,
+                evidence_secret=evidence_secret,
+            )
+            snapshots.append(snapshot)
+            references.append(reference)
+        reference_fingerprints = [
+            str(reference["snapshotFingerprint"]) for reference in references
+        ]
+        if len(reference_fingerprints) != len(set(reference_fingerprints)):
+            raise LocalQueueError("arena_rollout_router_evidence_duplicate")
+        promotion_hardware_fingerprints = {
+            str(reference["promotionHardwareFingerprint"]) for reference in references
+        }
+        if len(promotion_hardware_fingerprints) != 1:
+            raise LocalQueueError("arena_rollout_router_promotion_hardware_mismatch")
+        promotion_hardware_fingerprint = next(iter(promotion_hardware_fingerprints))
+        planned_samples = {
+            str(sample["sampleId"]): sample for sample in plan["samples"]
+        }
+        for sample_id, sample in planned_samples.items():
+            matches = [
+                snapshot
+                for snapshot, reference in zip(snapshots, references, strict=True)
+                if sample_id in reference["sampleIds"]
+                and _rollout_router_bundle_matches_sample(
+                    snapshot,
+                    sample,
+                    promotion_hardware_fingerprint=str(
+                        reference["promotionHardwareFingerprint"]
+                    ),
+                )
+            ]
+            if len(matches) != 1:
+                raise LocalQueueError(
+                    "arena_rollout_sample_router_evidence_not_exactly_once:" + sample_id
+                )
+        referenced_sample_ids = [
+            str(sample_id)
+            for reference in references
+            for sample_id in reference["sampleIds"]
+        ]
+        if len(referenced_sample_ids) != len(set(referenced_sample_ids)) or set(
+            referenced_sample_ids
+        ) != set(planned_samples):
+            raise LocalQueueError("arena_rollout_router_sample_partition_invalid")
+        activity = self._rollout_external_activity(
+            plan,
+            summary=None,
+            observation_paths=external_activity_observations,
+            observed_at=trusted_observed_at,
+        )
+        if activity["terminalEventCount"] != 0:
+            raise LocalQueueError("arena_rollout_activity_precedes_approval")
+        with file_lock(self._mutation):
+            if self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret):
+                raise LocalQueueError("arena_rollout_gate_already_transitioned")
+            self._verify_rollout_predecessor(
+                rollout_id=rollout_id,
+                gate_size=gate_size,
+                predecessor_receipt_fingerprint=predecessor_receipt_fingerprint,
+                evidence_secret=evidence_secret,
+            )
+            for snapshot, reference in zip(snapshots, references, strict=True):
+                current_snapshot, current_reference = _validate_rollout_router_bundle(
+                    snapshot,
+                    benchmark_store=benchmark_store,
+                    human_reviews=human_reviews,
+                    observed_at=self._trusted_now().isoformat(),
+                    evidence_secret=evidence_secret,
+                    require_active_promotion=True,
+                )
+                if current_snapshot != snapshot or current_reference != reference:
+                    raise LocalQueueError("arena_rollout_router_reference_drift")
+                persisted = self._persist_rollout_snapshot(
+                    self.rollout_router_evidence, snapshot
+                )
+                if persisted != reference["snapshotFingerprint"]:
+                    raise LocalQueueError(
+                        "arena_rollout_router_snapshot_fingerprint_mismatch"
+                    )
+            gate_id = f"rollout_gate_{gate_size}_{plan['planFingerprint'][:24]}"
+            core = {
+                "schema": ROLLOUT_GATE_SCHEMA,
+                "receiptId": f"{gate_id}_approved_to_run",
+                "rolloutId": rollout_id,
+                "gateId": gate_id,
+                "gateSize": gate_size,
+                "transition": "approved_to_run",
+                "arenaPlanId": plan["planId"],
+                "arenaPlanFingerprint": plan["planFingerprint"],
+                "predecessorReceiptFingerprint": predecessor_receipt_fingerprint,
+                "previousReceiptFingerprint": None,
+                **_rollout_plan_counts(plan),
+                "promotionHardwareFingerprint": promotion_hardware_fingerprint,
+                "routerEvidence": sorted(
+                    references,
+                    key=lambda item: (
+                        item["routerDecisionFingerprint"],
+                        item["snapshotFingerprint"],
+                    ),
+                ),
+                "modeConfirmation": mode_confirmation,
+                "operatorIdentity": operator_identity,
+                "decidedAt": transition_decided_at,
+                "decision": "approved_to_run",
+                "reason": reason,
+                "summaryEvidence": None,
+                "externalActivity": activity,
+            }
+            return self._append_rollout_receipt(
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
+            )
+
+    def _verify_rollout_router_snapshots(
+        self,
+        *,
+        plan: Mapping[str, Any],
+        receipt: Mapping[str, Any],
+        benchmark_store: LocalModelBenchmarkStore,
+        human_reviews: HumanMediaReviewStore,
+        observed_at: str,
+        evidence_secret: str | None,
+        require_active_promotion: bool,
+    ) -> list[dict[str, Any]]:
+        snapshots: list[dict[str, Any]] = []
+        for reference in receipt["routerEvidence"]:
+            snapshot = self._load_rollout_snapshot(
+                self.rollout_router_evidence,
+                str(reference["snapshotFingerprint"]),
+            )
+            validated_snapshot, exact_reference = _validate_rollout_router_bundle(
+                snapshot,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=observed_at,
+                evidence_secret=evidence_secret,
+                require_active_promotion=require_active_promotion,
+            )
+            if exact_reference != reference:
+                raise LocalQueueError("arena_rollout_router_reference_drift")
+            snapshots.append(validated_snapshot)
+        planned_samples = {
+            str(sample["sampleId"]): sample for sample in plan["samples"]
+        }
+        references = list(receipt["routerEvidence"])
+        for sample_id, sample in planned_samples.items():
+            matches = [
+                snapshot
+                for snapshot, reference in zip(snapshots, references, strict=True)
+                if sample_id in reference["sampleIds"]
+                and _rollout_router_bundle_matches_sample(
+                    snapshot,
+                    sample,
+                    promotion_hardware_fingerprint=str(
+                        reference["promotionHardwareFingerprint"]
+                    ),
+                )
+            ]
+            if len(matches) != 1:
+                raise LocalQueueError(
+                    "arena_rollout_sample_router_evidence_not_exactly_once:" + sample_id
+                )
+        referenced_sample_ids = [
+            str(sample_id)
+            for reference in references
+            for sample_id in reference["sampleIds"]
+        ]
+        if len(referenced_sample_ids) != len(set(referenced_sample_ids)) or set(
+            referenced_sample_ids
+        ) != set(planned_samples):
+            raise LocalQueueError("arena_rollout_router_sample_partition_invalid")
+        return snapshots
+
+    def require_rollout_approved_to_run(
+        self,
+        plan_id: str,
+        *,
+        benchmark_store: LocalModelBenchmarkStore,
+        human_reviews: HumanMediaReviewStore,
+        sample_id: str | None = None,
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        plan = self.load_plan(plan_id)
+        if plan.get("purpose") != "supervised_rollout":
+            raise LocalQueueError("arena_rollout_requires_non_promotion_plan")
+        receipts = self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret)
+        if len(receipts) != 1 or receipts[0].get("transition") != "approved_to_run":
+            raise LocalQueueError("arena_rollout_gate_not_executable")
+        approval = receipts[0]
+        current_hardware_fingerprint = self._hardware_identity_provider().get(
+            "fingerprint"
+        )
+        if current_hardware_fingerprint != approval["promotionHardwareFingerprint"]:
+            raise LocalQueueError(
+                "arena_rollout_current_hardware_does_not_match_promotion"
+            )
+        self._verify_rollout_router_snapshots(
+            plan=plan,
+            receipt=approval,
+            benchmark_store=benchmark_store,
+            human_reviews=human_reviews,
+            observed_at=self._trusted_now().isoformat(),
+            evidence_secret=evidence_secret,
+            require_active_promotion=True,
+        )
+        terminal_event_count = sum(
+            event.get("eventType") == "arena_sample_terminal"
+            and event.get("payload", {}).get("planId") == plan_id
+            for event in self.__events.read().events
+        )
+        if terminal_event_count >= int(plan["expectedSampleCount"]):
+            raise LocalQueueError("arena_rollout_gate_not_executable")
+        if sample_id is not None and any(
+            event.get("eventType") == "arena_sample_terminal"
+            and event.get("payload", {}).get("planId") == plan_id
+            and event.get("payload", {}).get("sampleId") == sample_id
+            for event in self.__events.read().events
+        ):
+            raise LocalQueueError("arena_rollout_sample_already_terminal")
+        return approval
+
+    @staticmethod
+    def _rollout_summary_evidence(
+        summary: Mapping[str, Any],
+        *,
+        gate_size: int,
+        promotion_active: bool,
+        promotion_hardware_fingerprint: str,
+    ) -> dict[str, Any]:
+        failed_or_held: list[dict[str, Any]] = []
+        for sample in summary["samples"]:
+            blockers = sorted(str(value) for value in sample["blockingReasons"])
+            if sample["status"] == "succeeded" and not blockers:
+                continue
+            failed_or_held.append(
+                {
+                    "sampleId": sample["sampleId"],
+                    "status": sample["status"],
+                    "classification": (
+                        "qc_blocked"
+                        if sample["status"] == "succeeded"
+                        else sample["status"]
+                    ),
+                    "reason": sample["reason"],
+                    "blockingReasons": blockers,
+                }
+            )
+        review_evidence = dict(summary["reviewEvidence"])
+        return {
+            "summaryId": summary["summaryId"],
+            "summaryFingerprint": summary["summaryFingerprint"],
+            "reviewPacketFingerprint": review_evidence["reviewPacketFingerprint"],
+            "unblindingReceiptFingerprint": review_evidence[
+                "unblindingReceiptFingerprint"
+            ],
+            "terminalCounts": dict(summary["sampleCounts"]),
+            "validReviewedYield": summary["promotionEligibleYield"],
+            "failedOrHeldSamples": failed_or_held,
+            "gateCriteria": LocalModelArenaStore._rollout_gate_criteria(
+                summary,
+                gate_size=gate_size,
+                promotion_active=promotion_active,
+                promotion_hardware_fingerprint=promotion_hardware_fingerprint,
+            ),
+        }
+
+    def _persist_rollout_summary(
+        self, summary: Mapping[str, Any], *, plan: Mapping[str, Any]
+    ) -> None:
+        payload = validate_arena_summary(summary, arena_plan=plan)
+        expected = str(payload["summaryFingerprint"])
+        path = self.rollout_summaries / f"{expected}.json"
+        _write_exact_json(path, payload)
+        persisted = validate_arena_summary(
+            json.loads(path.read_text(encoding="utf-8")), arena_plan=plan
+        )
+        if persisted != payload:
+            raise LocalQueueError("arena_rollout_summary_persistence_failed")
+
+    def _load_rollout_summary(
+        self,
+        summary_fingerprint: str,
+        *,
+        plan: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        path = self.rollout_summaries / f"{summary_fingerprint}.json"
+        if not path.is_file() or path.is_symlink():
+            raise LocalQueueError("arena_rollout_summary_missing_or_substituted")
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LocalQueueError("arena_rollout_summary_invalid") from exc
+        payload = validate_arena_summary(raw, arena_plan=plan)
+        if payload["summaryFingerprint"] != summary_fingerprint:
+            raise LocalQueueError("arena_rollout_summary_fingerprint_mismatch")
+        return payload
+
+    def _require_explicit_rollout_terminal_events(
+        self,
+        plan: Mapping[str, Any],
+        *,
+        queue: LocalGenerationQueue,
+        evidence_secret: str | None,
+    ) -> None:
+        planned = [str(sample["sampleId"]) for sample in plan["samples"]]
+        observed = [
+            str(event["sampleId"])
+            for event in self._validated_rollout_terminal_events(
+                plan,
+                queue=queue,
+                evidence_secret=evidence_secret,
+            )
+        ]
+        if len(observed) != int(plan["expectedSampleCount"]) or Counter(
+            observed
+        ) != Counter(planned):
+            raise LocalQueueError("arena_rollout_terminal_evidence_incomplete")
+
+    @staticmethod
+    def _rollout_gate_criteria(
+        summary: Mapping[str, Any],
+        *,
+        gate_size: int,
+        promotion_active: bool,
+        promotion_hardware_fingerprint: str,
+    ) -> dict[str, Any]:
+        samples = [dict(sample) for sample in summary["samples"]]
+        counts = dict(summary["sampleCounts"])
+        no_missing = int(counts.get("missing", 0)) == 0
+        integrity_markers = (
+            "duplicate",
+            "substitut",
+            "mismatch",
+            "drift",
+            "forg",
+            "queue_job_missing",
+        )
+        no_integrity_blockers = not any(
+            any(marker in str(reason) for marker in integrity_markers)
+            for sample in samples
+            for reason in sample["blockingReasons"]
+        )
+        valid_yield = float(summary["promotionEligibleYield"])
+        minimum_yield = {10: 0.80, 25: 0.75, 50: 1.0, 100: 1.0}[gate_size]
+        yield_threshold_met = valid_yield >= minimum_yield
+        queue_stability: bool | None = None
+        single_hardware_cohort: bool | None = None
+        hardware_fingerprint: str | None = None
+        execution_hardware_fingerprints = [
+            sample["executionEvidence"].get("hardwareFingerprint") for sample in samples
+        ]
+        execution_hardware_matches_promotion = bool(samples) and all(
+            value == promotion_hardware_fingerprint
+            for value in execution_hardware_fingerprints
+        )
+        active_distribution: bool | None = None
+        failure_recovery: bool | None = None
+        sustained_throughput: bool | None = None
+        resource_latency_complete: bool | None = None
+        if gate_size >= 25:
+            unique_hardware = {
+                value
+                for value in execution_hardware_fingerprints
+                if isinstance(value, str)
+            }
+            single_hardware_cohort = (
+                len(unique_hardware) == 1
+                and len(execution_hardware_fingerprints) == len(samples)
+                and all(
+                    isinstance(value, str) for value in execution_hardware_fingerprints
+                )
+            )
+            if single_hardware_cohort:
+                hardware_fingerprint = next(iter(unique_hardware))
+            queue_stability = (
+                int(counts.get("interrupted", 0)) == 0
+                and int(counts.get("resource_blocked", 0)) == 0
+                and all(
+                    isinstance(sample["executionEvidence"].get("attemptCount"), int)
+                    and sample["executionEvidence"]["attemptCount"] >= 0
+                    and sample["executionEvidence"].get("retryCount")
+                    == max(0, sample["executionEvidence"]["attemptCount"] - 1)
+                    for sample in samples
+                )
+            )
+        if gate_size >= 50:
+            active_distribution = promotion_active
+            failure_recovery = all(
+                sample["status"] == "succeeded"
+                and sample["promotionEvidenceValid"] is True
+                for sample in samples
+            )
+        if gate_size == 100:
+            sustained_throughput = (
+                int(counts.get("succeeded", 0)) == gate_size
+                and failure_recovery is True
+            )
+            resource_latency_complete = all(
+                sample.get("wallTimeSeconds") is not None
+                and sample.get("peakMemoryBytes") is not None
+                and sample["executionEvidence"]
+                .get("executionMeasurement", {})
+                .get("available")
+                is True
+                for sample in samples
+            )
+        checks = {
+            "allSamplesExplicitlyTerminal": True,
+            "noMissingEvidence": no_missing,
+            "noIntegrityBlockers": no_integrity_blockers,
+            "validReviewedYieldThresholdMet": yield_threshold_met,
+            "queueStabilityProven": queue_stability,
+            "singleHardwareCohortProven": single_hardware_cohort,
+            "hardwareFingerprint": hardware_fingerprint,
+            "promotionHardwareFingerprint": promotion_hardware_fingerprint,
+            "executionHardwareMatchesPromotion": (execution_hardware_matches_promotion),
+            "activePromotedRouterDistributionProven": active_distribution,
+            "failureRecoveryComplete": failure_recovery,
+            "sustainedThroughputProven": sustained_throughput,
+            "resourceLatencyEvidenceComplete": resource_latency_complete,
+        }
+        blocking_reasons: list[str] = []
+        for field, reason in (
+            ("noMissingEvidence", "rollout_missing_evidence"),
+            ("noIntegrityBlockers", "rollout_integrity_blocker"),
+            (
+                "validReviewedYieldThresholdMet",
+                f"rollout_valid_yield_below_{minimum_yield:.2f}",
+            ),
+            (
+                "executionHardwareMatchesPromotion",
+                "rollout_execution_hardware_does_not_match_promotion",
+            ),
+        ):
+            if checks[field] is not True:
+                blocking_reasons.append(reason)
+        for field, reason in (
+            ("queueStabilityProven", "rollout_queue_stability_not_proven"),
+            (
+                "singleHardwareCohortProven",
+                "rollout_single_hardware_cohort_not_proven",
+            ),
+            (
+                "activePromotedRouterDistributionProven",
+                "rollout_active_router_distribution_not_proven",
+            ),
+            ("failureRecoveryComplete", "rollout_failure_recovery_incomplete"),
+            ("sustainedThroughputProven", "rollout_sustained_throughput_not_proven"),
+            (
+                "resourceLatencyEvidenceComplete",
+                "rollout_resource_latency_evidence_incomplete",
+            ),
+        ):
+            if checks[field] is False:
+                blocking_reasons.append(reason)
+        core = {
+            "schema": "reel_factory.local_model_rollout_gate_criteria.v1",
+            "gateSize": gate_size,
+            **checks,
+            "blockingReasons": sorted(blocking_reasons),
+            "passed": not blocking_reasons,
+        }
+        return {**core, "criteriaFingerprint": fingerprint(core)}
+
+    @staticmethod
+    def _rollout_gate_passes(
+        summary: Mapping[str, Any],
+        *,
+        gate_size: int,
+        promotion_hardware_fingerprint: str,
+        promotion_active: bool = True,
+    ) -> bool:
+        return bool(
+            LocalModelArenaStore._rollout_gate_criteria(
+                summary,
+                gate_size=gate_size,
+                promotion_active=promotion_active,
+                promotion_hardware_fingerprint=promotion_hardware_fingerprint,
+            )["passed"]
+        )
+
+    def record_rollout_reconciliation(
+        self,
+        *,
+        plan_id: str,
+        decision: Literal["terminal", "held"],
+        operator_identity: str,
+        decided_at: str,
+        reason: str,
+        queue: LocalGenerationQueue,
+        benchmark_store: LocalModelBenchmarkStore,
+        human_reviews: HumanMediaReviewStore,
+        external_activity_observations: Mapping[str, Path],
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        if decision not in {"terminal", "held"}:
+            raise ValueError("arena_rollout_reconciliation_decision_invalid")
+        plan = self.load_plan(plan_id)
+        if plan.get("purpose") != "supervised_rollout":
+            raise LocalQueueError("arena_rollout_requires_non_promotion_plan")
+        receipts = self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret)
+        if len(receipts) != 1 or receipts[0].get("transition") != "approved_to_run":
+            raise LocalQueueError("arena_rollout_reconciliation_predecessor_invalid")
+        approval = receipts[0]
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=str(approval["decidedAt"]),
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
+        self._require_explicit_rollout_terminal_events(
+            plan,
+            queue=queue,
+            evidence_secret=evidence_secret,
+        )
+        promotion_active = True
+        try:
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=trusted_observed_at,
+                evidence_secret=evidence_secret,
+                require_active_promotion=True,
+            )
+        except LocalQueueError as exc:
+            if (
+                decision != "held"
+                or str(exc) != "arena_rollout_router_promotion_not_active"
+            ):
+                raise
+            promotion_active = False
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=trusted_observed_at,
+                evidence_secret=evidence_secret,
+                require_active_promotion=False,
+            )
+        summary = self.summarize(
+            plan_id,
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=human_reviews,
+            evidence_secret=evidence_secret,
+        )
+        gate_size = int(plan["expectedSampleCount"])
+        gate_passes = self._rollout_gate_passes(
+            summary,
+            gate_size=gate_size,
+            promotion_active=promotion_active,
+            promotion_hardware_fingerprint=str(
+                approval["promotionHardwareFingerprint"]
+            ),
+        )
+        if decision == "terminal" and not gate_passes:
+            raise LocalQueueError("arena_rollout_gate_pass_criteria_not_met")
+        activity = self._rollout_external_activity(
+            plan,
+            summary=summary,
+            observation_paths=external_activity_observations,
+            observed_at=trusted_observed_at,
+        )
+        summary_evidence = self._rollout_summary_evidence(
+            summary,
+            gate_size=gate_size,
+            promotion_active=promotion_active,
+            promotion_hardware_fingerprint=str(
+                approval["promotionHardwareFingerprint"]
+            ),
+        )
+        with file_lock(self._mutation):
+            current_receipts = self._rollout_gate_receipts(
+                plan_id, evidence_secret=evidence_secret
+            )
+            if (
+                len(current_receipts) != 1
+                or current_receipts[0]["receiptFingerprint"]
+                != approval["receiptFingerprint"]
+            ):
+                raise LocalQueueError(
+                    "arena_rollout_reconciliation_predecessor_invalid"
+                )
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=self._trusted_now().isoformat(),
+                evidence_secret=evidence_secret,
+                require_active_promotion=promotion_active,
+            )
+            if (
+                self.summarize(
+                    plan_id,
+                    queue=queue,
+                    benchmarks=benchmark_store,
+                    human_reviews=human_reviews,
+                    evidence_secret=evidence_secret,
+                )
+                != summary
+            ):
+                raise LocalQueueError("arena_rollout_reconciliation_summary_drift")
+            self._persist_rollout_summary(summary, plan=plan)
+            core = {
+                "schema": ROLLOUT_GATE_SCHEMA,
+                "receiptId": f"{approval['gateId']}_{decision}",
+                "rolloutId": approval["rolloutId"],
+                "gateId": approval["gateId"],
+                "gateSize": approval["gateSize"],
+                "transition": decision,
+                "arenaPlanId": approval["arenaPlanId"],
+                "arenaPlanFingerprint": approval["arenaPlanFingerprint"],
+                "predecessorReceiptFingerprint": approval[
+                    "predecessorReceiptFingerprint"
+                ],
+                "previousReceiptFingerprint": approval["receiptFingerprint"],
+                "creatorCounts": approval["creatorCounts"],
+                "modelCounts": approval["modelCounts"],
+                "capabilityCounts": approval["capabilityCounts"],
+                "promotionHardwareFingerprint": approval[
+                    "promotionHardwareFingerprint"
+                ],
+                "routerEvidence": approval["routerEvidence"],
+                "modeConfirmation": approval["modeConfirmation"],
+                "operatorIdentity": _required_text(
+                    operator_identity, "operator_identity"
+                ),
+                "decidedAt": transition_decided_at,
+                "decision": decision,
+                "reason": _required_text(reason, "rollout_reason"),
+                "summaryEvidence": summary_evidence,
+                "externalActivity": activity,
+            }
+            transition = self._append_rollout_receipt(
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
+            )
+        return {**transition, "summary": summary}
+
+    def approve_rollout_escalation(
+        self,
+        *,
+        plan_id: str,
+        operator_identity: str,
+        decided_at: str,
+        reason: str,
+        queue: LocalGenerationQueue,
+        benchmark_store: LocalModelBenchmarkStore,
+        human_reviews: HumanMediaReviewStore,
+        external_activity_observations: Mapping[str, Path],
+        evidence_secret: str | None = None,
+    ) -> dict[str, Any]:
+        plan = self.load_plan(plan_id)
+        receipts = self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret)
+        if (
+            len(receipts) != 2
+            or receipts[0].get("transition") != "approved_to_run"
+            or receipts[1].get("transition") != "terminal"
+            or receipts[1].get("previousReceiptFingerprint")
+            != receipts[0].get("receiptFingerprint")
+        ):
+            raise LocalQueueError("arena_rollout_escalation_predecessor_invalid")
+        approval, terminal = receipts
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=str(terminal["decidedAt"]),
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
+        summary_evidence = terminal.get("summaryEvidence")
+        if not isinstance(summary_evidence, dict):
+            raise LocalQueueError("arena_rollout_escalation_summary_missing")
+        persisted_summary = self._load_rollout_summary(
+            str(summary_evidence["summaryFingerprint"]), plan=plan
+        )
+        summary = self.summarize(
+            plan_id,
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=human_reviews,
+            evidence_secret=evidence_secret,
+        )
+        if summary != persisted_summary:
+            raise LocalQueueError("arena_rollout_escalation_summary_drift")
+        gate_size = int(plan["expectedSampleCount"])
+        if (
+            self._rollout_summary_evidence(
+                summary,
+                gate_size=gate_size,
+                promotion_active=True,
+                promotion_hardware_fingerprint=str(
+                    approval["promotionHardwareFingerprint"]
+                ),
+            )
+            != summary_evidence
+        ):
+            raise LocalQueueError("arena_rollout_escalation_summary_drift")
+        if not self._rollout_gate_passes(
+            summary,
+            gate_size=gate_size,
+            promotion_active=True,
+            promotion_hardware_fingerprint=str(
+                approval["promotionHardwareFingerprint"]
+            ),
+        ):
+            raise LocalQueueError("arena_rollout_gate_pass_criteria_not_met")
+        self._verify_rollout_router_snapshots(
+            plan=plan,
+            receipt=approval,
+            benchmark_store=benchmark_store,
+            human_reviews=human_reviews,
+            observed_at=trusted_observed_at,
+            evidence_secret=evidence_secret,
+            require_active_promotion=True,
+        )
+        activity = self._rollout_external_activity(
+            plan,
+            summary=summary,
+            observation_paths=external_activity_observations,
+            observed_at=trusted_observed_at,
+        )
+        core = {
+            "schema": ROLLOUT_GATE_SCHEMA,
+            "receiptId": f"{approval['gateId']}_approved_to_escalate",
+            "rolloutId": approval["rolloutId"],
+            "gateId": approval["gateId"],
+            "gateSize": approval["gateSize"],
+            "transition": "approved_to_escalate",
+            "arenaPlanId": approval["arenaPlanId"],
+            "arenaPlanFingerprint": approval["arenaPlanFingerprint"],
+            "predecessorReceiptFingerprint": approval["predecessorReceiptFingerprint"],
+            "previousReceiptFingerprint": terminal["receiptFingerprint"],
+            "creatorCounts": approval["creatorCounts"],
+            "modelCounts": approval["modelCounts"],
+            "capabilityCounts": approval["capabilityCounts"],
+            "promotionHardwareFingerprint": approval["promotionHardwareFingerprint"],
+            "routerEvidence": approval["routerEvidence"],
+            "modeConfirmation": approval["modeConfirmation"],
+            "operatorIdentity": _required_text(operator_identity, "operator_identity"),
+            "decidedAt": transition_decided_at,
+            "decision": "approved_to_escalate",
+            "reason": _required_text(reason, "rollout_reason"),
+            "summaryEvidence": summary_evidence,
+            "externalActivity": activity,
+        }
+        with file_lock(self._mutation):
+            current_receipts = self._rollout_gate_receipts(
+                plan_id, evidence_secret=evidence_secret
+            )
+            if (
+                len(current_receipts) != 2
+                or current_receipts[0]["receiptFingerprint"]
+                != approval["receiptFingerprint"]
+                or current_receipts[1]["receiptFingerprint"]
+                != terminal["receiptFingerprint"]
+            ):
+                raise LocalQueueError("arena_rollout_escalation_predecessor_invalid")
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=self._trusted_now().isoformat(),
+                evidence_secret=evidence_secret,
+                require_active_promotion=True,
+            )
+            if (
+                self.summarize(
+                    plan_id,
+                    queue=queue,
+                    benchmarks=benchmark_store,
+                    human_reviews=human_reviews,
+                    evidence_secret=evidence_secret,
+                )
+                != summary
+            ):
+                raise LocalQueueError("arena_rollout_escalation_summary_drift")
+            return self._append_rollout_receipt(
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
+            )
+
+    def rollout_status(
+        self, plan_id: str, *, evidence_secret: str | None = None
+    ) -> dict[str, Any]:
+        plan = self.load_plan(plan_id)
+        receipts = self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret)
+        return {
+            "planId": plan_id,
+            "planFingerprint": plan["planFingerprint"],
+            "gateSize": plan["expectedSampleCount"],
+            "state": receipts[-1]["transition"] if receipts else "proposed",
+            "receipts": receipts,
+        }
+
     def persist_review_packet(
         self, packet: Mapping[str, Any], *, evidence_secret: str | None = None
     ) -> Path:
@@ -1902,6 +4135,135 @@ class LocalModelArenaStore:
             evidence_secret=evidence_secret,
         )
 
+    def _validated_rollout_terminal_events(
+        self,
+        plan: Mapping[str, Any],
+        *,
+        queue: LocalGenerationQueue,
+        evidence_secret: str | None,
+    ) -> list[dict[str, Any]]:
+        receipts = self._rollout_gate_receipts(
+            str(plan["planId"]),
+            evidence_secret=evidence_secret,
+        )
+        if not receipts or receipts[0]["transition"] != "approved_to_run":
+            raise LocalQueueError("arena_rollout_gate_not_executable")
+        approval = receipts[0]
+        samples = {str(sample["sampleId"]): dict(sample) for sample in plan["samples"]}
+        expected_core_fields = {
+            "schema",
+            "planId",
+            "planFingerprint",
+            "sampleId",
+            "queueJobFingerprint",
+            "status",
+            "reason",
+            "outputSha256",
+            "benchmarkId",
+            "humanReviewId",
+            "queueStatus",
+            "queueEventHash",
+            "queueEvidenceFingerprint",
+            "hardwareFingerprint",
+            "providerCalls",
+            "productionWrites",
+            "approvalReceiptFingerprint",
+            "promotionHardwareFingerprint",
+            "recordedAt",
+        }
+        validated: list[dict[str, Any]] = []
+        for event in self.__events.read().events:
+            if (
+                event.get("eventType") != "arena_sample_terminal"
+                or event.get("payload", {}).get("planId") != plan["planId"]
+            ):
+                continue
+            raw = event.get("payload")
+            if not isinstance(raw, dict) or set(raw) != expected_core_fields | {
+                "eventFingerprint",
+                "operatorAttestation",
+            }:
+                raise LocalQueueError(
+                    "arena_rollout_terminal_event_authentication_invalid"
+                )
+            signed_payload = dict(raw)
+            attestation = signed_payload.pop("operatorAttestation")
+            core = dict(signed_payload)
+            claimed = core.pop("eventFingerprint")
+            if not isinstance(claimed, str) or fingerprint(core) != claimed:
+                raise LocalQueueError(
+                    "arena_rollout_terminal_event_fingerprint_mismatch"
+                )
+            try:
+                verify_evidence_attestation(
+                    attestation if isinstance(attestation, dict) else {},
+                    signed_payload,
+                    secret=evidence_secret or load_evidence_secret(),
+                    expected_issuer=ROLLOUT_TERMINAL_ISSUER,
+                )
+            except EvidenceAttestationError as exc:
+                raise LocalQueueError(
+                    "arena_rollout_terminal_event_authentication_invalid"
+                ) from exc
+            sample = samples.get(str(core["sampleId"]))
+            if (
+                sample is None
+                or core["schema"] != EVENT_SCHEMA
+                or core["planFingerprint"] != plan["planFingerprint"]
+                or core["queueJobFingerprint"] != sample["queueJobFingerprint"]
+                or core["approvalReceiptFingerprint"] != approval["receiptFingerprint"]
+                or core["promotionHardwareFingerprint"]
+                != approval["promotionHardwareFingerprint"]
+                or core["providerCalls"] != 0
+                or core["productionWrites"] != 0
+                or attestation.get("issuedAt") != core["recordedAt"]
+            ):
+                raise LocalQueueError("arena_rollout_terminal_event_binding_mismatch")
+            queue_job_id = str(sample["queueJob"]["jobId"])
+            queue_state = queue.states().get(queue_job_id)
+            execution_evidence = (
+                queue.execution_evidence(queue_job_id)
+                if queue_state is not None
+                else None
+            )
+            expected_queue_fingerprint = fingerprint(
+                execution_evidence
+                if execution_evidence is not None
+                else {"jobId": queue_job_id, "status": "missing"}
+            )
+            expected_hardware = (
+                execution_evidence.get("hardwareFingerprint")
+                if execution_evidence is not None
+                else None
+            )
+            if (
+                core["queueStatus"]
+                != (queue_state.status if queue_state is not None else "missing")
+                or core["queueEventHash"]
+                != (
+                    str(queue_state.last_event.get("eventHash"))
+                    if queue_state is not None
+                    else None
+                )
+                or core["queueEvidenceFingerprint"] != expected_queue_fingerprint
+                or core["hardwareFingerprint"] != expected_hardware
+                or (
+                    queue_state is not None
+                    and fingerprint(queue_state.job.as_dict())
+                    != sample["queueJobFingerprint"]
+                )
+                or (
+                    expected_hardware is not None
+                    and expected_hardware != approval["promotionHardwareFingerprint"]
+                )
+            ):
+                raise LocalQueueError("arena_rollout_terminal_queue_evidence_mismatch")
+            validated.append(dict(raw))
+        sample_ids = [str(event["sampleId"]) for event in validated]
+        if len(sample_ids) != len(set(sample_ids)):
+            raise LocalQueueError("arena_duplicate_terminal_sample")
+        return validated
+
     def record_terminal(
         self,
         *,
@@ -1915,14 +4277,36 @@ class LocalModelArenaStore:
         queue: LocalGenerationQueue | None = None,
         benchmarks: LocalModelBenchmarkStore | None = None,
         human_reviews: HumanMediaReviewStore | None = None,
+        evidence_secret: str | None = None,
     ) -> dict[str, Any]:
         if status not in RECORDED_TERMINAL_STATUSES:
             raise ValueError("arena_terminal_status_invalid")
         plan = self.load_plan(plan_id)
+        if (
+            plan.get("purpose") != "supervised_rollout"
+            and status not in NON_ROLLOUT_RECORDED_TERMINAL_STATUSES
+        ):
+            raise ValueError("arena_terminal_status_invalid")
         samples = {str(item["sampleId"]): item for item in plan["samples"]}
         sample = samples.get(sample_id)
         if sample is None:
             raise LocalQueueError("arena_sample_not_in_plan")
+        rollout_approval: dict[str, Any] | None = None
+        if plan.get("purpose") == "supervised_rollout":
+            if benchmarks is None or human_reviews is None:
+                raise LocalQueueError(
+                    "arena_rollout_terminal_approval_context_required"
+                )
+            rollout_approval = self.require_rollout_approved_to_run(
+                plan_id,
+                benchmark_store=benchmarks,
+                human_reviews=human_reviews,
+                sample_id=sample_id,
+                evidence_secret=evidence_secret,
+            )
+        queue_job_id = str(sample["queueJob"]["jobId"])
+        queue_state = queue.states().get(queue_job_id) if queue is not None else None
+        queue_evidence: dict[str, Any] | None = None
         if status == "succeeded":
             if output_sha256 is None or benchmark_id is None or human_review_id is None:
                 raise LocalQueueError("arena_success_evidence_incomplete")
@@ -1931,7 +4315,7 @@ class LocalModelArenaStore:
                 raise LocalQueueError("arena_success_output_substituted")
             if queue is None or benchmarks is None or human_reviews is None:
                 raise LocalQueueError("arena_success_verification_context_required")
-            queue_state = queue.states().get(str(sample["queueJob"]["jobId"]))
+            queue_state = queue.states().get(queue_job_id)
             if (
                 queue_state is None
                 or queue_state.status != "succeeded"
@@ -1973,11 +4357,83 @@ class LocalModelArenaStore:
                     else None
                 ),
             )
-        elif any(
-            value is not None
-            for value in (output_sha256, benchmark_id, human_review_id)
+            queue_evidence = execution
+        else:
+            if any(
+                value is not None
+                for value in (output_sha256, benchmark_id, human_review_id)
+            ):
+                raise LocalQueueError(
+                    "arena_non_success_must_not_claim_success_evidence"
+                )
+            if plan.get("purpose") == "supervised_rollout":
+                if queue is None:
+                    raise LocalQueueError(
+                        "arena_rollout_terminal_queue_context_required"
+                    )
+                expected_queue_status = {
+                    "failed": "failed",
+                    "interrupted": "interrupted",
+                    "cancelled": "cancelled",
+                    "resource_blocked": "queued",
+                    "unsupported": "failed",
+                    "missing": None,
+                }[status]
+                if expected_queue_status is None:
+                    if queue_state is not None:
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                else:
+                    if (
+                        queue_state is None
+                        or queue_state.status != expected_queue_status
+                        or fingerprint(queue_state.job.as_dict())
+                        != sample["queueJobFingerprint"]
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                    queue_evidence = queue.execution_evidence(queue_job_id)
+                    if status == "resource_blocked" and (
+                        queue_state.last_event.get("eventType")
+                        != "job_admission_blocked"
+                        or queue_evidence["admissionBlockCount"] < 1
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                    if (
+                        status == "unsupported"
+                        and queue_evidence.get("failureClass") != "unsupported"
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+        queue_status = queue_state.status if queue_state is not None else "missing"
+        queue_event_hash = (
+            str(queue_state.last_event.get("eventHash"))
+            if queue_state is not None
+            else None
+        )
+        queue_evidence_fingerprint = fingerprint(
+            queue_evidence
+            if queue_evidence is not None
+            else {"jobId": queue_job_id, "status": "missing"}
+        )
+        hardware_fingerprint = (
+            queue_evidence.get("hardwareFingerprint")
+            if queue_evidence is not None
+            else None
+        )
+        if (
+            rollout_approval is not None
+            and hardware_fingerprint is not None
+            and hardware_fingerprint != rollout_approval["promotionHardwareFingerprint"]
         ):
-            raise LocalQueueError("arena_non_success_must_not_claim_success_evidence")
+            raise LocalQueueError(
+                "arena_rollout_execution_hardware_does_not_match_promotion"
+            )
         terminal_payload = {
             "schema": EVENT_SCHEMA,
             "planId": plan_id,
@@ -1989,22 +4445,65 @@ class LocalModelArenaStore:
             "outputSha256": output_sha256,
             "benchmarkId": benchmark_id,
             "humanReviewId": human_review_id,
+            "queueStatus": queue_status,
+            "queueEventHash": queue_event_hash,
+            "queueEvidenceFingerprint": queue_evidence_fingerprint,
+            "hardwareFingerprint": hardware_fingerprint,
             "providerCalls": 0,
             "productionWrites": 0,
         }
+        if rollout_approval is not None:
+            if queue is None:
+                raise LocalQueueError("arena_rollout_terminal_queue_context_required")
+            recorded_at = self._trusted_now().isoformat()
+            terminal_core = {
+                **terminal_payload,
+                "approvalReceiptFingerprint": rollout_approval["receiptFingerprint"],
+                "promotionHardwareFingerprint": rollout_approval[
+                    "promotionHardwareFingerprint"
+                ],
+                "recordedAt": recorded_at,
+            }
+            event_fingerprint = fingerprint(terminal_core)
+            signed_payload = {
+                **terminal_core,
+                "eventFingerprint": event_fingerprint,
+            }
+            secret = evidence_secret or load_evidence_secret()
+            terminal_payload = {
+                **signed_payload,
+                "operatorAttestation": sign_evidence_attestation(
+                    signed_payload,
+                    issuer=ROLLOUT_TERMINAL_ISSUER,
+                    issued_at=recorded_at,
+                    secret=secret,
+                ),
+            }
         with file_lock(self._mutation):
-            prior = [
-                event
-                for event in self.events.read().events
-                if event.get("eventType") == "arena_sample_terminal"
-                and event.get("payload", {}).get("planId") == plan_id
-                and event.get("payload", {}).get("sampleId") == sample_id
-            ]
+            if rollout_approval is not None:
+                assert queue is not None
+                prior = [
+                    {"payload": payload}
+                    for payload in self._validated_rollout_terminal_events(
+                        plan,
+                        queue=queue,
+                        evidence_secret=evidence_secret,
+                    )
+                    if payload["sampleId"] == sample_id
+                ]
+            else:
+                prior = [
+                    event
+                    for event in self.__events.read().events
+                    if event.get("eventType") == "arena_sample_terminal"
+                    and event.get("payload", {}).get("planId") == plan_id
+                    and event.get("payload", {}).get("sampleId") == sample_id
+                ]
             if prior:
                 if len(prior) == 1 and prior[0].get("payload") == terminal_payload:
                     return prior[0]
                 raise LocalQueueError("arena_terminal_sample_collision")
-            return self.events.append(
+            return self.__events.append(
                 "arena_sample_terminal",
                 terminal_payload,
             )
@@ -2016,6 +4515,7 @@ class LocalModelArenaStore:
         queue: LocalGenerationQueue,
         benchmarks: LocalModelBenchmarkStore,
         human_reviews: HumanMediaReviewStore | None = None,
+        evidence_secret: str | None = None,
     ) -> dict[str, Any]:
         plan = self.load_plan(plan_id)
         packet: dict[str, Any] | None = None
@@ -2038,12 +4538,20 @@ class LocalModelArenaStore:
                 "unblindingReceiptId": unblinding["receiptId"],
                 "unblindingReceiptFingerprint": unblinding["receiptFingerprint"],
             }
-        terminal_events = [
-            dict(event["payload"])
-            for event in self.events.read().events
-            if event.get("eventType") == "arena_sample_terminal"
-            and event.get("payload", {}).get("planId") == plan_id
-        ]
+        terminal_events = (
+            self._validated_rollout_terminal_events(
+                plan,
+                queue=queue,
+                evidence_secret=evidence_secret,
+            )
+            if plan["purpose"] == "supervised_rollout"
+            else [
+                dict(event["payload"])
+                for event in self.__events.read().events
+                if event.get("eventType") == "arena_sample_terminal"
+                and event.get("payload", {}).get("planId") == plan_id
+            ]
+        )
         by_sample: dict[str, dict[str, Any]] = {}
         for event in terminal_events:
             sample_id = str(event["sampleId"])
@@ -2103,6 +4611,7 @@ class LocalModelArenaStore:
                 "retryCount": 0,
                 "admissionBlockCount": 0,
                 "failureClass": "queue_job_missing",
+                "hardwareFingerprint": None,
                 "executionMeasurement": {
                     "available": False,
                     "reason": "execution_measurement_unavailable",
@@ -2125,6 +4634,26 @@ class LocalModelArenaStore:
                     != sample["queueJobFingerprint"]
                 ):
                     blockers.append("queue_job_substituted")
+            expected_queue_evidence_fingerprint = fingerprint(
+                execution_evidence
+                if queue_state is not None
+                else {"jobId": queue_job_id, "status": "missing"}
+            )
+            expected_queue_event_hash = (
+                str(queue_state.last_event.get("eventHash"))
+                if queue_state is not None
+                else None
+            )
+            if terminal is not None and (
+                terminal.get("queueStatus")
+                != (queue_state.status if queue_state is not None else "missing")
+                or terminal.get("queueEventHash") != expected_queue_event_hash
+                or terminal.get("queueEvidenceFingerprint")
+                != expected_queue_evidence_fingerprint
+                or terminal.get("hardwareFingerprint")
+                != execution_evidence.get("hardwareFingerprint")
+            ):
+                blockers.append("terminal_queue_evidence_drift")
             if status == "succeeded":
                 if benchmark_id in benchmark_ids:
                     blockers.append("duplicate_benchmark_identity")
@@ -2134,6 +4663,11 @@ class LocalModelArenaStore:
                 if receipt is None:
                     blockers.append("benchmark_receipt_missing")
                 else:
+                    if plan["purpose"] == "supervised_rollout":
+                        receipt = benchmarks.reverify_completed_job_evidence(
+                            queue,
+                            benchmark_id=str(benchmark_id),
+                        )
                     if receipt.job_id != queue_job_id:
                         blockers.append("benchmark_queue_job_mismatch")
                     if receipt.output_sha256 != output_sha:
@@ -2325,11 +4859,22 @@ def validate_arena_summary(
         execution = sample.get("executionEvidence")
         if not isinstance(execution, dict):
             raise LocalQueueError("arena_summary_execution_evidence_missing")
+        hardware_fingerprint = execution.get("hardwareFingerprint")
+        if hardware_fingerprint is not None and (
+            not isinstance(hardware_fingerprint, str)
+            or len(hardware_fingerprint) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in hardware_fingerprint
+            )
+        ):
+            raise LocalQueueError("arena_summary_hardware_identity_invalid")
         measurement = execution.get("executionMeasurement")
         if sample.get("status") == "succeeded":
             if (
                 execution.get("status") != "succeeded"
                 or execution.get("failureClass") is not None
+                or hardware_fingerprint is None
                 or not isinstance(execution.get("attemptCount"), int)
                 or execution["attemptCount"] < 1
                 or execution.get("retryCount") != execution["attemptCount"] - 1
@@ -2462,6 +5007,8 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
         duration_seconds=int(sample["durationSeconds"]),
         resolution=str(sample["resolution"]),
         seed=int(sample["seed"]),
+        steps=(int(sample["steps"]) if sample.get("steps") is not None else None),
+        negative_prompt=str(sample.get("negativePrompt") or DEFAULT_NEGATIVE_PROMPT),
         audio_mode=str(sample["audioMode"]),  # type: ignore[arg-type]
         audio_path=(
             Path(str(sample["audioPath"]))
@@ -2474,6 +5021,12 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             else None
         ),
         task=str(sample["taskKind"]),  # type: ignore[arg-type]
+        lora_path=(
+            Path(str(sample["loraPath"]))
+            if sample.get("loraPath") is not None
+            else None
+        ),
+        lora_strength=float(sample.get("loraStrength", 1.0)),
         source_video_path=(
             Path(str(sample["sourceVideoPath"]))
             if sample.get("sourceVideoPath") is not None
@@ -2495,6 +5048,16 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             else None
         ),
         extend_direction=str(sample.get("extendDirection") or "after"),  # type: ignore[arg-type]
+        low_ram=sample.get("lowRam") is not False,
+        tile_frames=int(sample.get("tileFrames", 1)),
+        tile_spatial=int(sample.get("tileSpatial", 2)),
+        commercial_use=sample.get("commercialUse") is not False,
+        commercial_annual_revenue_usd=(
+            int(sample["commercialAnnualRevenueUsd"])
+            if sample.get("commercialAnnualRevenueUsd") is not None
+            else None
+        ),
+        overlays_exist=sample.get("overlaysExist") is True,
         benchmark_recipe=dict(sample["benchmarkRecipe"]),
         analyzer_registry=dict(sample["analyzerRegistry"]),
         creator_identity_profile=dict(sample["creatorIdentityProfile"]),
@@ -2566,11 +5129,34 @@ def execute_arena_sample_generation(
     plan_id: str,
     sample_id: str,
     dry_run: bool,
+    identity_root: Path | None = None,
+    benchmarks: LocalModelBenchmarkStore | None = None,
+    human_reviews: HumanMediaReviewStore | None = None,
+    evidence_secret: str | None = None,
 ) -> dict[str, Any]:
     """Run one exact planned sample through the normal local queue path."""
 
     plan = store.load_plan(plan_id)
+    if plan["purpose"] == "supervised_rollout":
+        if benchmarks is None or human_reviews is None:
+            raise LocalQueueError("arena_rollout_execution_context_required")
+        store.require_rollout_approved_to_run(
+            plan_id,
+            benchmark_store=benchmarks,
+            human_reviews=human_reviews,
+            sample_id=sample_id,
+            evidence_secret=evidence_secret,
+        )
     sample = _sample(plan, sample_id)
+    _require_promotion_identity_ready(
+        purpose=str(plan["purpose"]),
+        bindings=_plan_identity_bindings(plan),
+        identity_root=identity_root,
+    )
+    if not isinstance(sample.get("taskParameterMaterial"), dict) or not isinstance(
+        sample.get("taskParameterFingerprint"), str
+    ):
+        raise LocalQueueError("arena_task_parameter_evidence_required_for_execution")
     request = _request_from_sample(sample)
     planned_job = plan_local_video_job(request)
     if (
@@ -2626,17 +5212,45 @@ def _trusted_motion_qc_request(
     this boundary would be caller-supplied evidence and must remain impossible.
     """
 
+    source = _qc_source_binding(sample)
     return {
         "mediaPath": str(output),
         "mediaSha256": output_sha256,
-        "sourcePath": sample["sourcePath"],
-        "sourceSha256": sample["sourceSha256"],
+        "sourcePath": source["path"],
+        "sourceSha256": source["sha256"],
         "producedAt": produced_at,
         "overlaysExist": sample["overlaysExist"],
         "analyzerRegistry": dict(analyzer_registry),
         "humanReview": dict(human_review),
         "options": _motion_qc_options(sample),
     }
+
+
+def _qc_source_binding(sample: Mapping[str, Any]) -> dict[str, str]:
+    """Resolve immutable source provenance without adding an execution input."""
+
+    if sample.get("taskKind") == "text_to_video":
+        prompt_source = sample.get("promptSource")
+        if not isinstance(prompt_source, dict):
+            raise LocalQueueError("arena_text_task_prompt_source_missing")
+        path = Path(str(prompt_source.get("path") or "")).expanduser().resolve()
+        expected = str(sample.get("sourceSha256") or "")
+        if (
+            set(prompt_source) != {"path", "sha256"}
+            or prompt_source.get("sha256") != expected
+            or not path.is_file()
+            or path.is_symlink()
+            or sha256_file(path) != expected
+        ):
+            raise LocalQueueError(
+                "arena_text_task_prompt_source_missing_or_substituted"
+            )
+        return {"path": str(path), "sha256": expected}
+    path = Path(str(sample.get("sourcePath") or "")).expanduser().resolve()
+    expected = str(sample.get("sourceSha256") or "")
+    if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
+        raise LocalQueueError("arena_source_missing_or_substituted")
+    return {"path": str(path), "sha256": expected}
 
 
 def _run_contentforge(
@@ -2694,6 +5308,11 @@ def finalize_arena_sample_evidence(
 
     plan = store.load_plan(plan_id)
     sample = _sample(plan, sample_id)
+    _require_promotion_identity_ready(
+        purpose=str(plan["purpose"]),
+        bindings=_plan_identity_bindings(plan),
+        identity_root=identity_root,
+    )
     review_packet = (
         store.load_review_packet(plan_id)
         if plan["purpose"] == "promotion_eligible"
@@ -2720,13 +5339,14 @@ def finalize_arena_sample_evidence(
     registry = dict(sample["analyzerRegistry"])
     if fingerprint(registry) != sample["analyzerRegistryFingerprint"]:
         raise LocalQueueError("arena_analyzer_registry_fingerprint_mismatch")
+    source = _qc_source_binding(sample)
     analysis = _run_contentforge(
         "analyze-media",
         {
             "mediaPath": str(output),
             "mediaSha256": output_sha,
-            "sourcePath": sample["sourcePath"],
-            "sourceSha256": sample["sourceSha256"],
+            "sourcePath": source["path"],
+            "sourceSha256": source["sha256"],
             "producedAt": produced_at,
             "overlaysExist": sample["overlaysExist"],
             "analyzerRegistry": registry,
@@ -2864,11 +5484,36 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _parse_external_activity_observations(
+    values: Sequence[str],
+) -> dict[str, Path]:
+    observations: dict[str, Path] = {}
+    for value in values:
+        kind, separator, raw_path = value.partition("=")
+        if (
+            not separator
+            or kind not in ROLLOUT_EXTERNAL_ACTIVITY_KINDS
+            or not raw_path.strip()
+            or kind in observations
+        ):
+            raise ValueError(
+                "arena_rollout_external_activity_observation_must_be_unique_"
+                "kind_equals_path"
+            )
+        observations[kind] = Path(raw_path.strip())
+    if set(observations) != set(ROLLOUT_EXTERNAL_ACTIVITY_KINDS):
+        raise ValueError("arena_rollout_external_activity_observations_required")
+    return observations
+
+
 def build_arena_record_bundle(
     *,
     reviewed_identity_facts_path: Path,
     source_path: Path | None,
     typed_inputs: Sequence[tuple[str, Path]] = (),
+    reviewed_source_paths: Sequence[Path] = (),
+    task_kind: str = "image_to_video",
+    prompt: str | None = None,
     goal: str,
     content_surface: str,
     media_kind: str,
@@ -2877,26 +5522,103 @@ def build_arena_record_bundle(
     produced_at: str,
     output_root: Path,
 ) -> dict[str, Any]:
-    """Build exact Arena records only from reviewed facts and hashed source media."""
+    """Build exact Arena records from reviewed facts and authorized source media.
+
+    ``source_path`` and ``typed_inputs`` describe one exact execution cell.
+    ``reviewed_source_paths`` expands only the immutable ContentIntent
+    authorization set so matched Arena cells may share one intent. Each
+    BenchmarkRecipe remains bound to the exact inputs consumed by its cell.
+    Text-to-video has no typed media inputs; its immutable source descriptor is
+    the canonical ``taskKind`` + normalized ``prompt`` JSON whose file digest is
+    the same prompt-task fingerprint used by Arena plans.
+    """
 
     facts_path = reviewed_identity_facts_path.expanduser().resolve()
     source = source_path.expanduser().resolve() if source_path is not None else None
     if not facts_path.is_file() or facts_path.is_symlink():
         raise LocalQueueError("arena_reviewed_identity_facts_missing_or_unsafe")
-    inputs: list[tuple[str, Path]] = []
+    destination = output_root.expanduser().resolve()
+    reviewed_sources = [path.expanduser().resolve() for path in reviewed_source_paths]
+    for reviewed_source in reviewed_sources:
+        if not reviewed_source.is_file() or reviewed_source.is_symlink():
+            raise LocalQueueError("arena_record_reviewed_source_missing_or_unsafe")
+
+    role_aliases = {
+        "image": "image",
+        "audio": "audio",
+        "last-image": "last_image",
+        "last_image": "last_image",
+        "source-video": "source_video",
+        "source_video": "source_video",
+    }
+    role_paths: dict[str, Path] = {}
     if source is not None:
-        inputs.append(("image", source))
+        role_paths["image"] = source
     for input_kind, input_path in typed_inputs:
-        if input_kind not in {"image", "audio", "last-image", "source-video"}:
+        role = role_aliases.get(input_kind)
+        if role is None:
             raise ValueError(f"arena_record_input_kind_invalid:{input_kind}")
         resolved_input = input_path.expanduser().resolve()
-        if (input_kind, resolved_input) not in inputs:
-            inputs.append((input_kind, resolved_input))
-    if not inputs:
-        raise LocalQueueError("arena_record_source_missing_or_unsafe")
-    for _input_kind, input_path in inputs:
+        existing_role_path = role_paths.get(role)
+        if existing_role_path is not None and existing_role_path != resolved_input:
+            raise LocalQueueError(f"arena_record_input_role_duplicate:{role}")
+        role_paths[role] = resolved_input
+    for input_path in role_paths.values():
         if not input_path.is_file() or input_path.is_symlink():
             raise LocalQueueError("arena_record_source_missing_or_unsafe")
+
+    normalized_prompt: str | None = None
+    prompt_source_material: dict[str, str] | None = None
+    prompt_source_path: Path | None = None
+    prompt_task_fingerprint: str | None = None
+    authorized_source_fingerprints: tuple[str, ...]
+    if task_kind == "text_to_video":
+        if role_paths or reviewed_sources:
+            raise LocalQueueError("arena_record_text_task_media_forbidden")
+        normalized_prompt = " ".join(_required_text(prompt, "prompt").split())
+        prompt_source_material = {
+            "taskKind": "text_to_video",
+            "prompt": normalized_prompt,
+        }
+        prompt_task_fingerprint = fingerprint(prompt_source_material)
+        prompt_source_path = (
+            destination / "prompt_sources" / f"{prompt_task_fingerprint}.json"
+        )
+        canonical_bindings: tuple[dict[str, str], ...] = ()
+        input_assets: list[dict[str, str]] = []
+        source_sha: str | None = prompt_task_fingerprint
+        authorized_source_fingerprints = (prompt_task_fingerprint,)
+    else:
+        role_hashes = {role: sha256_file(path) for role, path in role_paths.items()}
+        try:
+            canonical_bindings = canonical_task_input_bindings(
+                task_kind,
+                image_sha256=role_hashes.get("image"),
+                audio_sha256=role_hashes.get("audio"),
+                last_image_sha256=role_hashes.get("last_image"),
+                source_video_sha256=role_hashes.get("source_video"),
+            )
+        except ValueError as exc:
+            raise LocalQueueError(f"arena_record_{exc}") from exc
+        input_assets = [
+            {
+                "kind": binding["role"].replace("_", "-"),
+                "path": str(role_paths[binding["role"]]),
+                "sha256": binding["sha256"],
+            }
+            for binding in canonical_bindings
+        ]
+        source_sha = (
+            str(canonical_bindings[0]["sha256"]) if canonical_bindings else None
+        )
+        authorized_source_fingerprints = tuple(
+            sorted(
+                {
+                    *(binding["sha256"] for binding in canonical_bindings),
+                    *(sha256_file(path) for path in reviewed_sources),
+                }
+            )
+        )
     facts = _read_json(facts_path)
     expected_fact_keys = {
         "schema",
@@ -2959,14 +5681,6 @@ def build_arena_record_bundle(
         ),
     ).to_dict()
     profile_fingerprint = fingerprint(profile)
-    input_assets = [
-        {"kind": input_kind, "path": str(path), "sha256": sha256_file(path)}
-        for input_kind, path in inputs
-    ]
-    source_sha = str(input_assets[0]["sha256"])
-    exact_input_fingerprints = tuple(
-        dict.fromkeys(str(item["sha256"]) for item in input_assets)
-    )
     normalized_lanes = tuple(
         dict.fromkeys(_required_text(value, "style_lane") for value in style_lanes)
     )
@@ -2975,7 +5689,7 @@ def build_arena_record_bundle(
     )
     intent_material = {
         "creatorIdentityProfileFingerprint": profile_fingerprint,
-        "sourceSha256": source_sha,
+        "authorizedSourceFingerprints": authorized_source_fingerprints,
         "goal": _required_text(goal, "goal"),
         "contentSurface": content_surface,
         "mediaKind": media_kind,
@@ -2990,7 +5704,7 @@ def build_arena_record_bundle(
         media_kind=media_kind,  # type: ignore[arg-type]
         style_lanes=normalized_lanes,
         concept_tags=normalized_tags,
-        source_asset_fingerprints=exact_input_fingerprints,
+        source_asset_fingerprints=authorized_source_fingerprints,
         provenance=ProvenanceV1(
             producer="reel_factory.local_model_arena.record_builder",
             produced_at=produced_at,
@@ -3004,17 +5718,25 @@ def build_arena_record_bundle(
                         record_id=f"source_asset:{value[:24]}",
                         fingerprint=value,
                     )
-                    for value in exact_input_fingerprints
+                    for value in authorized_source_fingerprints
                 ),
             ),
         ),
     ).to_dict()
     intent_fingerprint = fingerprint(intent)
-    destination = output_root.expanduser().resolve()
     profile_path = (
         destination / "creator_identity_profiles" / (f"{profile_fingerprint}.json")
     )
     intent_path = destination / "content_intents" / f"{intent_fingerprint}.json"
+    if (
+        prompt_source_path is not None
+        and prompt_source_material is not None
+        and prompt_task_fingerprint is not None
+    ):
+        _write_exact_json(prompt_source_path, prompt_source_material)
+        if sha256_file(prompt_source_path) != prompt_task_fingerprint:
+            raise LocalQueueError("arena_record_prompt_source_hash_mismatch")
+        prompt_source_path.chmod(0o444)
     _write_exact_json(profile_path, profile)
     _write_exact_json(intent_path, intent)
     return {
@@ -3024,12 +5746,27 @@ def build_arena_record_bundle(
         "contentIntent": intent,
         "contentIntentId": intent["intentId"],
         "contentIntentFingerprint": intent_fingerprint,
+        "taskKind": task_kind,
         "sourcePath": str(source) if source is not None else None,
         "sourceSha256": source_sha,
+        "promptTaskFingerprint": prompt_task_fingerprint,
+        "promptSource": (
+            {
+                "path": str(prompt_source_path),
+                "sha256": prompt_task_fingerprint,
+            }
+            if prompt_source_path is not None and prompt_task_fingerprint is not None
+            else None
+        ),
         "inputAssets": input_assets,
         "recordPaths": {
             "creatorIdentityProfile": str(profile_path),
             "contentIntent": str(intent_path),
+            **(
+                {"promptSource": str(prompt_source_path)}
+                if prompt_source_path is not None
+                else {}
+            ),
         },
         "providerCalls": 0,
         "productionWrites": 0,
@@ -3053,15 +5790,49 @@ def main(argv: list[str] | None = None) -> int:
     plan_command.add_argument("--request", type=Path, required=True)
     plan_command.add_argument("--contentforge-registry", type=Path, required=True)
     plan_command.add_argument("--repository-root", type=Path, required=True)
+    plan_command.add_argument(
+        "--identity-root",
+        type=Path,
+        help="required for promotion-eligible plans; contains signed v4 reference sets",
+    )
     records_command = sub.add_parser("build-records")
     records_command.add_argument("--reviewed-identity-facts", type=Path, required=True)
     records_command.add_argument("--source", type=Path)
+    records_command.add_argument(
+        "--reviewed-source",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "Repeatable reviewed source authorized by the shared ContentIntent; "
+            "does not add an input to the exact BenchmarkRecipe"
+        ),
+    )
     records_command.add_argument(
         "--input",
         action="append",
         default=[],
         metavar="KIND=PATH",
         help="Repeatable typed input: image, audio, last-image, or source-video",
+    )
+    records_command.add_argument(
+        "--task-kind",
+        choices=[
+            "text_to_video",
+            "image_to_video",
+            "audio_image_to_video",
+            "keyframe_interpolation",
+            "video_retake",
+            "video_extend",
+        ],
+        default="image_to_video",
+    )
+    records_command.add_argument(
+        "--prompt",
+        help=(
+            "Exact prompt required for text_to_video; its canonical task/prompt "
+            "descriptor is the zero-media source identity"
+        ),
     )
     records_command.add_argument("--goal", required=True)
     records_command.add_argument(
@@ -3080,6 +5851,11 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--plan-id", required=True)
     generate.add_argument("--sample-id", required=True)
     generate.add_argument("--mode", choices=["local_wan"], required=True)
+    generate.add_argument(
+        "--identity-root",
+        type=Path,
+        help="required when generating a promotion-eligible Arena plan",
+    )
     execution = generate.add_mutually_exclusive_group(required=True)
     execution.add_argument("--dry-run", action="store_true")
     execution.add_argument("--apply", action="store_true")
@@ -3099,6 +5875,60 @@ def main(argv: list[str] | None = None) -> int:
     unblind_command.add_argument("--created-at", required=True)
     summary = sub.add_parser("summary")
     summary.add_argument("--plan-id", required=True)
+    rollout_approve = sub.add_parser("rollout-approve")
+    rollout_approve.add_argument("--plan-id", required=True)
+    rollout_approve.add_argument("--rollout-id", required=True)
+    rollout_approve.add_argument("--operator-identity", required=True)
+    rollout_approve.add_argument("--decided-at", required=True)
+    rollout_approve.add_argument("--reason", required=True)
+    rollout_approve.add_argument("--mode-confirmation", required=True)
+    rollout_approve.add_argument(
+        "--router-evidence",
+        type=Path,
+        action="append",
+        required=True,
+        help="Repeat once per immutable Router evidence bundle JSON.",
+    )
+    rollout_approve.add_argument("--predecessor-receipt-fingerprint")
+    rollout_sample_terminal = sub.add_parser("rollout-sample-terminal")
+    rollout_sample_terminal.add_argument("--plan-id", required=True)
+    rollout_sample_terminal.add_argument("--sample-id", required=True)
+    rollout_sample_terminal.add_argument(
+        "--status",
+        choices=sorted(TERMINAL_STATUSES - {"succeeded"}),
+        required=True,
+    )
+    rollout_sample_terminal.add_argument("--reason", required=True)
+    rollout_reconcile = sub.add_parser("rollout-reconcile")
+    rollout_reconcile.add_argument("--plan-id", required=True)
+    rollout_reconcile.add_argument(
+        "--decision", choices=["terminal", "held"], required=True
+    )
+    rollout_reconcile.add_argument("--operator-identity", required=True)
+    rollout_reconcile.add_argument("--decided-at", required=True)
+    rollout_reconcile.add_argument("--reason", required=True)
+    rollout_escalate = sub.add_parser("rollout-escalate")
+    rollout_escalate.add_argument("--plan-id", required=True)
+    rollout_escalate.add_argument("--operator-identity", required=True)
+    rollout_escalate.add_argument("--decided-at", required=True)
+    rollout_escalate.add_argument("--reason", required=True)
+    for rollout_command in (
+        rollout_approve,
+        rollout_reconcile,
+        rollout_escalate,
+    ):
+        rollout_command.add_argument(
+            "--external-activity-observation",
+            action="append",
+            required=True,
+            metavar="KIND=PATH",
+            help=(
+                "Repeat for provider_cost, schedule, publish, and qstash "
+                "authenticated read-only observation receipts."
+            ),
+        )
+    rollout_status = sub.add_parser("rollout-status")
+    rollout_status.add_argument("--plan-id", required=True)
     args = parser.parse_args(argv)
     store = LocalModelArenaStore(args.root)
     try:
@@ -3113,6 +5943,9 @@ def main(argv: list[str] | None = None) -> int:
                 reviewed_identity_facts_path=args.reviewed_identity_facts,
                 source_path=args.source,
                 typed_inputs=typed_inputs,
+                reviewed_source_paths=args.reviewed_source,
+                task_kind=args.task_kind,
+                prompt=args.prompt,
                 goal=args.goal,
                 content_surface=args.content_surface,
                 media_kind=args.media_kind,
@@ -3137,17 +5970,22 @@ def main(argv: list[str] | None = None) -> int:
                 output_root=Path(str(request["outputRoot"])),
                 execution_policy=dict(request["executionPolicy"]),
                 analyzer_registry=registry,
+                identity_root=args.identity_root,
             )
             result = {
                 "plan": plan,
                 "path": str(store.persist_plan(plan)),
             }
         elif args.command == "generate":
+            benchmark_store = default_local_model_benchmark_store(args.root)
             result = execute_arena_sample_generation(
                 store,
                 plan_id=args.plan_id,
                 sample_id=args.sample_id,
                 dry_run=args.dry_run,
+                identity_root=args.identity_root,
+                benchmarks=benchmark_store,
+                human_reviews=HumanMediaReviewStore(args.root),
             )
         elif args.command == "finalize":
             benchmark_store = default_local_model_benchmark_store(args.root)
@@ -3190,6 +6028,63 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 ),
             }
+        elif args.command == "rollout-approve":
+            result = store.approve_rollout_gate(
+                plan_id=args.plan_id,
+                rollout_id=args.rollout_id,
+                operator_identity=args.operator_identity,
+                decided_at=args.decided_at,
+                reason=args.reason,
+                mode_confirmation=args.mode_confirmation,
+                router_evidence_bundles=[
+                    _read_json(path) for path in args.router_evidence
+                ],
+                benchmark_store=default_local_model_benchmark_store(args.root),
+                human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_observations=_parse_external_activity_observations(
+                    args.external_activity_observation
+                ),
+                predecessor_receipt_fingerprint=(args.predecessor_receipt_fingerprint),
+            )
+        elif args.command == "rollout-sample-terminal":
+            result = store.record_terminal(
+                plan_id=args.plan_id,
+                sample_id=args.sample_id,
+                status=args.status,
+                reason=args.reason,
+                queue=default_local_generation_queue(),
+                benchmarks=default_local_model_benchmark_store(args.root),
+                human_reviews=HumanMediaReviewStore(args.root),
+            )
+        elif args.command == "rollout-reconcile":
+            result = store.record_rollout_reconciliation(
+                plan_id=args.plan_id,
+                decision=args.decision,
+                operator_identity=args.operator_identity,
+                decided_at=args.decided_at,
+                reason=args.reason,
+                queue=default_local_generation_queue(),
+                benchmark_store=default_local_model_benchmark_store(args.root),
+                human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_observations=_parse_external_activity_observations(
+                    args.external_activity_observation
+                ),
+            )
+        elif args.command == "rollout-escalate":
+            result = store.approve_rollout_escalation(
+                plan_id=args.plan_id,
+                operator_identity=args.operator_identity,
+                decided_at=args.decided_at,
+                reason=args.reason,
+                queue=default_local_generation_queue(),
+                benchmark_store=default_local_model_benchmark_store(args.root),
+                human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_observations=_parse_external_activity_observations(
+                    args.external_activity_observation
+                ),
+            )
+        elif args.command == "rollout-status":
+            result = store.rollout_status(args.plan_id)
         else:
             result = store.summarize(
                 args.plan_id,

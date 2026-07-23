@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+_MAX_GIT_POINTER_BYTES = 4096
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,136 @@ class RuntimePaths:
     reel_render_queue_db: Path
 
 
+def _read_small_regular_file(path: Path) -> str | None:
+    """Read a bounded non-symlink file without following its final component."""
+
+    try:
+        path_stat = os.lstat(path)
+    except OSError:
+        return None
+    if (
+        not stat.S_ISREG(path_stat.st_mode)
+        or stat.S_ISLNK(path_stat.st_mode)
+        or path_stat.st_size > _MAX_GIT_POINTER_BYTES
+    ):
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        opened_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(opened_stat.st_mode) or (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ) != (path_stat.st_dev, path_stat.st_ino):
+            return None
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            raw = handle.read(_MAX_GIT_POINTER_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+    if len(raw) > _MAX_GIT_POINTER_BYTES:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _single_pointer_value(text: str, *, prefix: str = "") -> str | None:
+    lines = text.splitlines()
+    if len(lines) != 1 or not lines[0].startswith(prefix):
+        return None
+    value = lines[0][len(prefix) :]
+    if not value or value != value.strip() or "\x00" in value:
+        return None
+    return value
+
+
+def _absolute_pointer_target(value: str, *, relative_to: Path) -> Path:
+    selected = Path(value)
+    if not selected.is_absolute():
+        selected = relative_to / selected
+    return Path(os.path.abspath(os.fspath(selected)))
+
+
+def _is_plain_directory(path: Path) -> bool:
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _has_symlink_component(path: Path) -> bool:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            if stat.S_ISLNK(os.lstat(current).st_mode):
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def _linked_worktree_workspace(source: Path) -> Path | None:
+    """Return the primary checkout's workspace for one safe linked worktree."""
+
+    dot_git = source / ".git"
+    pointer_text = _read_small_regular_file(dot_git)
+    if pointer_text is None:
+        return None
+    pointer = _single_pointer_value(pointer_text, prefix="gitdir: ")
+    if pointer is None:
+        return None
+    gitdir = _absolute_pointer_target(pointer, relative_to=source)
+    common_git = gitdir.parent.parent
+    primary_checkout = common_git.parent
+    if (
+        gitdir.parent.name != "worktrees"
+        or common_git.name != ".git"
+        or _has_symlink_component(gitdir)
+        or not _is_plain_directory(gitdir)
+        or not _is_plain_directory(common_git)
+        or not _is_plain_directory(primary_checkout)
+    ):
+        return None
+
+    commondir_text = _read_small_regular_file(gitdir / "commondir")
+    if commondir_text is None:
+        return None
+    commondir = _single_pointer_value(commondir_text)
+    if commondir is None:
+        return None
+    if _absolute_pointer_target(commondir, relative_to=gitdir) != common_git:
+        return None
+
+    # Git maintains a reciprocal pointer from the per-worktree gitdir back to
+    # the worktree's .git file. Requiring it prevents an arbitrary lookalike
+    # path from selecting a different workspace.
+    backlink_text = _read_small_regular_file(gitdir / "gitdir")
+    if backlink_text is None:
+        return None
+    backlink = _single_pointer_value(backlink_text)
+    if backlink is None:
+        return None
+    backlink_target = _absolute_pointer_target(backlink, relative_to=gitdir)
+    if backlink_target != Path(os.path.abspath(os.fspath(dot_git))):
+        return None
+    return primary_checkout.parent
+
+
+def _workspace_root(source: Path) -> Path:
+    return _linked_worktree_workspace(source) or source.parent
+
+
 def resolve_runtime_paths(
     source_root: Path | None = None,
     *,
@@ -43,7 +176,7 @@ def resolve_runtime_paths(
         .expanduser()
         .resolve()
     )
-    workspace = source.parent
+    workspace = _workspace_root(source)
     runtime = (
         Path(values.get("CREATOR_OS_RUNTIME_ROOT") or workspace / "creator-os-runtime")
         .expanduser()

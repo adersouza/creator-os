@@ -70,6 +70,12 @@ LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA = (
     "local_model_arena_unblinding_receipt.v1.schema.json"
 )
 LOCAL_MODEL_ROUTER_DECISION_SCHEMA = "local_model_router_decision.v1.schema.json"
+LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA = (
+    "local_model_rollout_gate_receipt.v1.schema.json"
+)
+LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA = (
+    "local_model_rollout_external_activity_observation.v1.schema.json"
+)
 TRUSTED_MEDIA_ANALYSIS_SCHEMA = "trusted_media_analysis.v1.schema.json"
 HUMAN_MEDIA_REVIEW_SCHEMA = "human_media_review.v1.schema.json"
 MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA = "motion_specific_qc_receipt.v2.schema.json"
@@ -140,6 +146,10 @@ SCHEMA_NAMES = {
     "local_model_arena_review_packet": LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA,
     "local_model_arena_unblinding_receipt": LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA,
     "local_model_router_decision": LOCAL_MODEL_ROUTER_DECISION_SCHEMA,
+    "local_model_rollout_gate_receipt": LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA,
+    "local_model_rollout_external_activity_observation": (
+        LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA
+    ),
     "trusted_media_analysis": TRUSTED_MEDIA_ANALYSIS_SCHEMA,
     "human_media_review": HUMAN_MEDIA_REVIEW_SCHEMA,
     "motion_specific_qc_receipt_v2": MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA,
@@ -180,6 +190,10 @@ def validate_local_model_arena_plan(value: Any) -> None:
 
 def validate_local_model_arena_summary(value: Any) -> None:
     validate_contract(value, LOCAL_MODEL_ARENA_SUMMARY_SCHEMA)
+
+
+def validate_local_model_rollout_external_activity_observation(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ROLLOUT_EXTERNAL_ACTIVITY_OBSERVATION_SCHEMA)
 
 
 def validate_local_model_arena_review_packet(value: Any) -> None:
@@ -252,6 +266,10 @@ def _validate_unique_record_fields(
 
 def validate_local_model_router_decision(value: Any) -> None:
     validate_contract(value, LOCAL_MODEL_ROUTER_DECISION_SCHEMA)
+
+
+def validate_local_model_rollout_gate_receipt(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ROLLOUT_GATE_RECEIPT_SCHEMA)
 
 
 def validate_trusted_media_analysis(value: Any) -> None:

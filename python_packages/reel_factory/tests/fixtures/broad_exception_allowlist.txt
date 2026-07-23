@@ -19,7 +19,7 @@ reel_factory/generation_provider.py:download_result:640
 reel_factory/generation_qc.py:generated_video_qc:122
 reel_factory/hook_tools.py:<module>:26
 reel_factory/hook_tools.py:read_hook_library:131
-reel_factory/identity_verification.py:get_identity_provider:165
+reel_factory/identity_verification.py:get_identity_provider:166
 reel_factory/manifest.py:_import_json:153
 reel_factory/manifest.py:materialize_cached_job:227
 reel_factory/manifest.py:get_analysis:454

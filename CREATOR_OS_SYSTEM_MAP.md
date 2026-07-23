@@ -16,6 +16,36 @@ available evidence; it does not imply deployment or a successful live run.
 Never collapse these into “working” or “deployed.” Source, runtime, machine
 state, paid providers, and ThreadsDashboard production have separate evidence.
 
+## One-Page Mental Model
+
+The operator-facing system has four roles. Package names describe internal
+ownership; they are not four separate workflows the operator must manually
+coordinate.
+
+| Role | Question it answers | Internal owner |
+|---|---|---|
+| Intelligence | What should we make, and what actually worked? | Reference Factory plus Campaign performance learning |
+| Orchestrator | Who is this for, which mode is authorized, and is the result exportable? | Campaign Factory |
+| Content engine | Can we create the media and prove that it is usable? | Reel Factory plus ContentForge |
+| Distribution | Can an approved draft be scheduled, published, and measured on a real account? | ThreadsDashboard |
+
+The golden path is:
+
+```text
+references and real outcomes
+  -> one explicit content intent and generation mode
+  -> generated or reused media with immutable lineage
+  -> automated QC plus human review
+  -> Campaign approval and validated draft export
+  -> ThreadsDashboard scheduling/publishing
+  -> real Instagram identity and equal-age metric history
+  -> measured learning
+```
+
+Creator OS owns everything through validated draft export. It never treats
+asset generation, queue completion, QC, HMAC delivery, or QStash dispatch as
+proof of publication.
+
 ## Current Operational Truth
 
 Operational truth is intentionally not hard-coded in this durable document.
@@ -163,8 +193,9 @@ and benchmark journals:
 ```text
 Campaign content intent + execution policy
   -> BenchmarkRecipeV1 + exact AnalyzerRegistryV1 snapshot
-  -> typed task inputs: I2V image; keyframe first/last images; Retake source
-     video + frame range; or Extend source video + direction/frame count
+  -> typed task inputs: T2V immutable prompt artifact with no model media;
+     I2V image; audio-I2V image + audio; keyframe first/last images; Retake
+     source video + frame range; or Extend source video + direction/frame count
   -> LocalModelArena immutable plan
   -> exact LocalGenerationQueue job (same ID and fingerprint as normal motion)
   -> local output + measured duration/memory + exact output SHA-256
@@ -190,6 +221,30 @@ separately shuffled, model-free, authenticated review packet; all signed
 blinded reviews are locked before a distinct authenticated unblinding receipt
 reveals the sample/model mapping. Promotion summaries and Router decisions bind
 both packet and unblinding fingerprints.
+
+Content Intent authorizes the reviewed source set used to construct that grid;
+it does not promote every authorized source. Each recipe and queue job binds one
+canonical, role-preserving typed-input cell. Admission reconstructs the winning
+Router sample IDs from the frozen plan and permits only their exact measured
+input cohort. An authorized but unbenchmarked source, wrong-role reuse, or
+cross-task sample cannot inherit promotion evidence.
+
+Text-to-video is the deliberate zero-media exception. Campaign materializes one
+canonical compact prompt-provenance JSON artifact whose SHA-256 is the
+task-plus-normalized-prompt fingerprint. Arena, ContentForge, Creative Approval,
+the queue job, and registered lineage carry that exact `promptSource`, while the
+model execution input binding remains empty. The prompt artifact is provenance,
+never a fake still, identity source, static fallback, or additional model input.
+Supplying image, audio, last-frame, source-video, or reviewed-source media to a
+text-to-video request fails closed.
+
+Creator identity reference sets are local schema v4 for new promotion evidence.
+Every reference image must bind one-to-one to an exact fingerprint-bearing
+`CreatorIdentityProfileV1.identityReferences` entry. Duplicate, missing,
+unresolved, substituted, or profile-mismatched image bindings fail closed.
+Non-file identity references such as a Soul ID may coexist but cannot authorize
+image bytes. Historical v1-v3 sets remain readable evidence and are explicitly
+promotion-ineligible; they are never silently upgraded or backfilled.
 
 The generation journal also projects exact execution attempt count, retry count,
 admission-block count, stable failure class, measured duration/peak memory when
@@ -248,10 +303,13 @@ enough memory. It never silently selects a paid provider or the retired legacy
 local-motion path. Promotion must bind the exact creator/identity/intent/task
 cohort, the same benchmark IDs Router scores, the model/runtime/toolchain and
 license fingerprints, and the current hardware fingerprint.
-Each model arm requires at least eight matched measured samples. Receipts also
-bind one exact pinned-runtime/toolchain fingerprint and one exact model-license
-policy; mixed runtimes, changed FFmpeg/FFprobe binaries, or noncompliant
-commercial use are ineligible.
+Every creator/model/capability/intent group requires at least eight matched
+measured samples: two distinct sources and four seeds per source. A two-model
+promotion spanning Stacey, Larissa, and Lola therefore requires at least 24
+samples per model arm and 48 total. Receipts also bind one exact
+pinned-runtime/toolchain fingerprint and one exact model-license policy; mixed
+runtimes, changed FFmpeg/FFprobe binaries, or noncompliant commercial use are
+ineligible.
 An operator override may select only an otherwise valid candidate and is
 explicitly excluded from benchmark learning.
 
@@ -278,6 +336,9 @@ credentials. Output is streamed to a bounded append-only log and recorded by
 path/SHA/tail. Deep model verification is cached only as a content-addressed
 attestation bound to manifest, file metadata, runtime source, and environment;
 drift invalidates it and the selected model is checked again at execution.
+The exact verified FFmpeg path is also bound as `IMAGEIO_FFMPEG_EXE`, and the
+sandboxed pinned Python must prove `imageio_ffmpeg.get_ffmpeg_exe()` resolves
+that path both before queue admission and immediately before generation.
 
 Campaign pipeline jobs use expected-state compare-and-swap transitions. Only a
 queued job can start, only its running owner can finish/fail it, terminal rows
@@ -289,7 +350,32 @@ history. Local admission, recipe, and analyzer documents cross the Campaign ->
 Reel boundary as read-only content-addressed files with expected SHA-256 values,
 not process-list-visible JSON arguments.
 
-## Ordinary Operator Surface And Runtime Promotion
+### Local Motion Evidence And Authority Spine
+
+These records form a chain of evidence; none is a replacement for the next
+stage's independent validation.
+
+| Record or decision | Canonical producer | Required consumer or gate | Persistence/authority |
+|---|---|---|---|
+| `CreatorIdentityProfileV1` | Campaign snapshot compiler from existing model/profile facts and explicit identity references | Arena, identity verification, Campaign admission and Creative Approval | Content-addressed run evidence; mutable account/OAuth state stays outside it |
+| `ContentIntentV1` | Campaign from the reviewed creative plan and authorized source fingerprints | Arena cohort construction, Router cohort selection, Creative Approval | Content-addressed run evidence; creative-plan progress remains Campaign state |
+| `GenerationExecutionPlan` | Campaign Factory | motion admission and the exact Reel worker request | Existing Campaign execution-plan contract; this is the reused execution policy rather than a duplicate record |
+| `BenchmarkRecipeV1` | Reel Factory benchmark/Arena planner | queue job, measured receipt, promotion evaluation | Canonical recipe JSON beside append-only benchmark evidence |
+| `AnalyzerRegistryV1` | deterministic ContentForge registry adapter | trusted analysis, motion-QC validation, Campaign registration | Canonical registry snapshot with implementation references and SHA-256 values |
+| `LocalGenerationJob` and attempt journal | Reel Factory local queue | isolated worker execution and recovery | One machine-wide SQLite queue plus append-only attempt evidence |
+| trusted-media analysis and identity receipt | ContentForge and Reel Factory identity verifier | structured review and final motion QC | Output-bound authenticated artifacts |
+| structured blinded human review | operator review flow | final motion QC and promotion eligibility | Authenticated review packet/receipt; incomplete or unblinded review is non-promotable |
+| `contentforge.motion_specific_qc_receipt.v2` | ContentForge from canonical analysis, registry and review | Campaign immutable QC registration and publishability | Authenticated, output-bound receipt |
+| Creative Approval v2 | Campaign Factory | readiness and exact export | Immutable approval binding source, output, admission, QC, export projection and disclosure |
+| measured `BenchmarkReceipt` | Reel Factory benchmark store | matched promotion evaluation | Append-only journal linked to the exact recipe, queue job, output and QC references |
+| promotion approval and Router decision | Reel Factory promotion evaluator and Router | ordinary local-motion admission | Append-only promotion evidence and immutable decision; neither authorizes another cohort |
+| runtime promotion receipt | Creator OS Core guarded promotion flow | detached runtime checkout | Authenticated transaction/backup/health evidence; unrelated to model promotion or publishing |
+
+Historical records remain readable under their original schema. Missing links
+are never invented, and older evidence is not silently upgraded into promotion
+or publishability authority.
+
+## Canonical Operator Surface And Runtime Promotion
 
 The ordinary command surface is intentionally small:
 
@@ -302,19 +388,23 @@ creator-os export ...
 creator-os promote ...
 ```
 
+`create`, `review`, and `export` are canonical. `generate`, `readiness`, and
+`draft-export` remain deprecated compatibility aliases. New automation must use
+the canonical names. Every new generation run requires an explicit canonical
+mode; no default mode exists.
+
 Model installation, queue recovery, benchmark inspection, Arena diagnostics,
 Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
 The former top-level diagnostic commands remain compatibility aliases with
 deprecation notices.
 
-Creative Approval v2 and AI-disclosure policy remain owned by `origin/main`;
-this local-motion trust-chain work does not duplicate or replace them. They
-arrive here only through the reviewed rebase. After that rebase, the upstream
-approval binds the exact creator, source, output, intent, model admission, QC
-receipt set, export projection, and disclosure decision, and Campaign readiness
-and export reload it rather than trusting local-motion metadata. Until those
-upstream tests pass on the rebased commit, this branch is motion-evidence
-complete but not approval/export complete.
+Creative Approval v2 and AI-disclosure policy are integrated with the
+local-motion trust chain rather than duplicated by it. The approval binds the
+exact creator, source, output, intent, model admission, QC receipt set, export
+projection, and disclosure decision. Campaign readiness, publishability, and
+exact draft delivery reload and validate that approval instead of trusting
+local-motion metadata. Focused approval, readiness, and export tests cover this
+combined boundary.
 
 `creator-os promote` is local source/runtime management, not production
 publishing. It requires an exact clean reviewed commit, a write-capable
@@ -564,11 +654,14 @@ Campaign has at least three eligible measured examples for that pattern.
 | `status` | read-only live source/runtime/config/DB report; unprobed systems are `NOT_RUN` |
 | `doctor` | read-only fixture-backed integrity audit |
 | `reference-refresh --dry-run|--apply` | local Reference/Audio database and export workflow |
-| `generate --list-modes` | read-only canonical mode catalog with cost and gates |
-| `generate --mode <mode> --dry-run|--apply` | the only generation workflow; mode is mandatory and no mode may schedule or publish |
-| `readiness` | read-only campaign readiness |
-| `draft-export --dry-run|--apply` | bounded validated drafts only; never schedule/publish |
+| `create --list-modes` | read-only canonical five-mode catalog with cost and gates |
+| `create --mode <mode> --dry-run|--apply` | the only generation workflow; mode is mandatory and no mode may schedule or publish |
+| `review` | ordinary read-only Campaign creative/QC review |
+| `approve` | signs one immutable Creative Approval v2 from an exact review draft |
+| `export --dry-run|--apply` | bounded validated drafts only; never schedules or publishes |
 | `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
+| `advanced` | developer-only model, queue, benchmark, Arena, Router and analyzer diagnostics |
+| `promote` | guarded source-to-runtime promotion; never a content publish command |
 
 Package-local CLIs remain thin implementation boundaries:
 
@@ -582,11 +675,13 @@ Package-local CLIs remain thin implementation boundaries:
 compatibility fallback. Repositories receive explicit callbacks/context rather
 than a full `CampaignFactory` instance.
 
-Deleted `scripts/run/*` aliases and flat Reel module facades no longer create
-wrapper-calling-wrapper chains. The root surface deliberately has no generic
-package escape hatch: advanced package CLIs are invoked directly by developers,
-so scheduling and publishing operations cannot be hidden behind a normal
-Creator OS operator command.
+The deprecated root aliases `generate`, `readiness`, and `draft-export` parse
+the same canonical workflows and print migration notices; they are not separate
+implementations. Deleted `scripts/run/*` aliases and flat Reel module facades no
+longer create wrapper-calling-wrapper chains. The root surface deliberately has
+no generic package escape hatch: advanced package CLIs are invoked directly by
+developers, so scheduling and publishing operations cannot be hidden behind a
+normal Creator OS operator command.
 
 ## Repository And Automation Entrypoints
 

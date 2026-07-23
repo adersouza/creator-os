@@ -1242,6 +1242,22 @@ class LocalGenerationQueue:
             for event in events
             if event.get("eventType") == "job_admission_blocked"
         ]
+        submissions = [
+            event for event in events if event.get("eventType") == "job_submitted"
+        ]
+        if len(submissions) != 1:
+            raise JournalCorruptionError(
+                f"job_submission_not_found_exactly_once:{job_id}"
+            )
+        hardware_fingerprint = (
+            submissions[0].get("payload", {}).get("hardwareFingerprint")
+        )
+        if (
+            not isinstance(hardware_fingerprint, str)
+            or len(hardware_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in hardware_fingerprint)
+        ):
+            raise LocalQueueError(f"job_hardware_identity_missing:{job_id}")
         terminal = next(
             (
                 event
@@ -1279,6 +1295,7 @@ class LocalGenerationQueue:
             "retryCount": max(0, attempt_count - 1),
             "admissionBlockCount": len(admission_blocks),
             "failureClass": failure_class,
+            "hardwareFingerprint": hardware_fingerprint,
             "executionMeasurement": measurement,
             "localCost": local_cost,
         }
@@ -1894,6 +1911,9 @@ class LocalGenerationQueue:
             "durationSeconds": request.get("durationSeconds"),
             "seed": request.get("seed"),
         }
+        task_parameter_fingerprint = lineage.get("taskParameterFingerprint")
+        if isinstance(task_parameter_fingerprint, str):
+            params["taskParameterFingerprint"] = task_parameter_fingerprint
         if "executionContext" in lineage or "executionBinding" in lineage:
             params.update(
                 {

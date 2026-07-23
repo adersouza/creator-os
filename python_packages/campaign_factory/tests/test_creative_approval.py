@@ -261,6 +261,94 @@ def _v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict]:
     return (_sign_v2(core), asset, draft)
 
 
+def _text_v2_fixture(tmp_path: Path) -> tuple[dict, dict, dict, Path]:
+    _payload, asset, draft = _v2_fixture(tmp_path)
+    prompt = tmp_path / "text-prompt-source.json"
+    prompt.write_text(
+        json.dumps(
+            {
+                "prompt": "A cinematic ocean wave moves naturally.",
+                "taskKind": "text_to_video",
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    prompt_binding = {"path": str(prompt.resolve()), "sha256": _sha(prompt)}
+    metadata = json.loads(asset["metadata_json"])
+    metadata.update(
+        {
+            "generationInput": None,
+            "staticFallbackSource": None,
+            "promptSource": prompt_binding,
+            "sourceAssetRole": "prompt_provenance_only",
+            "identityRole": "non_creator_broll",
+        }
+    )
+    asset["metadata_json"] = json.dumps(metadata, sort_keys=True)
+    receipt = tmp_path / "motion-qc-v2.json"
+    receipt.write_text(
+        json.dumps(
+            _motion_qc_receipt(
+                asset["content_hash"], source_sha256=prompt_binding["sha256"]
+            ),
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    canonical = canonical_asset_approval_bindings(asset)
+    manifest_core = {
+        "schema": "campaign_factory.creative_review_manifest.v1",
+        "generatedAt": "2026-07-22T20:02:00Z",
+        "campaign": {"id": "campaign-1", "slug": "may"},
+        "renderedAsset": canonical["renderedAsset"],
+        "promptSource": canonical["promptSource"],
+        "draftPayloadSchema": "campaign_factory.draft_payload.v3",
+        "draft": draft,
+        "providerCalls": 0,
+        "productionWrites": 0,
+    }
+    manifest = {
+        **manifest_core,
+        "manifestFingerprint": _fingerprint(manifest_core),
+    }
+    manifest_path = tmp_path / "text-review-manifest-v2.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    core = {
+        "schema": "campaign_factory.creative_approval.v2",
+        "approvalId": "approval-v2-text-1",
+        "approvedBy": "operator",
+        "approvedAt": "2026-07-22T20:02:00Z",
+        "campaign": {"id": "campaign-1", "slug": "may"},
+        **canonical,
+        "qcEvidence": [
+            {
+                "checkId": "contentforge.motion_specific_qc",
+                "receiptPath": str(receipt),
+                "receiptSha256": _sha(receipt),
+                "subjectSha256": asset["content_hash"],
+                "passed": True,
+            }
+        ],
+        "reviewManifest": {
+            "path": str(manifest_path),
+            "sha256": _sha(manifest_path),
+        },
+        "exportProjection": creative_export_projection(
+            draft, campaign_slug="may", prompt_source=canonical["promptSource"]
+        ),
+        "contentSemantics": {
+            "burnedOverlayText": draft["burnedCaptionText"],
+            "instagramPostCaption": draft["instagramPostCaption"],
+            "generatedAudio": None,
+            "sourceAudio": None,
+            "nativeInstagramAudio": draft["audioIntent"]["nativeInstagramAudio"],
+        },
+    }
+    return _sign_v2(core), asset, draft, prompt
+
+
 class _BuilderPublishability:
     def __init__(self, asset: dict, receipt: dict) -> None:
         self.asset = asset
@@ -336,6 +424,44 @@ def test_supported_builder_uses_exact_generated_review_manifest_and_registered_q
         validate_approval_for_draft(approval, draft, campaign_slug="may")["projection"]
         == approval["exportProjection"]
     )
+
+
+def test_text_approval_binds_prompt_provenance_without_fake_media(
+    tmp_path: Path,
+) -> None:
+    approval, asset, draft, _prompt = _text_v2_fixture(tmp_path)
+    validated = validate_creative_approval(approval)
+    metadata = json.loads(asset["metadata_json"])
+
+    assert validated["input"] == validated["promptSource"]
+    assert (
+        validated["exportProjection"]["promptSourceSha256"]
+        == validated["promptSource"]["sha256"]
+    )
+    assert metadata["generationInput"] is None
+    assert metadata["staticFallbackSource"] is None
+    assert metadata["identityRole"] == "non_creator_broll"
+    assert (
+        validate_approval_for_draft(approval, draft, campaign_slug="may")["approval"]
+        == validated
+    )
+
+
+@pytest.mark.parametrize("failure", ["missing", "substituted"])
+def test_text_approval_rejects_missing_or_substituted_prompt_provenance(
+    tmp_path: Path, failure: str
+) -> None:
+    _approval_payload, asset, _draft, prompt = _text_v2_fixture(tmp_path)
+    if failure == "missing":
+        prompt.unlink()
+    else:
+        prompt.write_text("substituted", encoding="utf-8")
+
+    with pytest.raises(
+        CreativeApprovalError,
+        match="creative_approval_canonical_prompt_source_missing_or_substituted",
+    ):
+        canonical_asset_approval_bindings(asset)
 
 
 def test_supported_builder_uses_real_campaign_review_export_without_provider_calls(

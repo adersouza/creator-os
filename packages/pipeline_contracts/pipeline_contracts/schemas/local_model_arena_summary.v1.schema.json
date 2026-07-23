@@ -10,7 +10,9 @@
     "summaryId": {"type": "string", "minLength": 1},
     "planId": {"type": "string", "minLength": 1},
     "planFingerprint": {"$ref": "#/$defs/sha256"},
-    "purpose": {"enum": ["exploratory", "promotion_eligible"]},
+    "purpose": {
+      "enum": ["exploratory", "promotion_eligible", "supervised_rollout"]
+    },
     "expectedSampleCount": {"type": "integer", "minimum": 1},
     "sampleCounts": {"$ref": "#/$defs/sampleCounts"},
     "promotionEligibleYield": {"type": "number", "minimum": 0, "maximum": 1},
@@ -33,6 +35,25 @@
               "unblindingReceiptId": {"type": "string", "minLength": 1},
               "unblindingReceiptFingerprint": {"$ref": "#/$defs/sha256"}
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"purpose": {"const": "supervised_rollout"}},
+        "required": ["purpose"]
+      },
+      "then": {
+        "properties": {
+          "expectedSampleCount": {"enum": [10, 25, 50, 100]},
+          "samples": {
+            "anyOf": [
+              {"type": "array", "minItems": 10, "maxItems": 10},
+              {"type": "array", "minItems": 25, "maxItems": 25},
+              {"type": "array", "minItems": 50, "maxItems": 50},
+              {"type": "array", "minItems": 100, "maxItems": 100}
+            ]
           }
         }
       }
@@ -90,13 +111,14 @@
     "executionEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "attemptCount", "retryCount", "admissionBlockCount", "failureClass", "executionMeasurement", "localCost"],
+      "required": ["status", "attemptCount", "retryCount", "admissionBlockCount", "failureClass", "hardwareFingerprint", "executionMeasurement", "localCost"],
       "properties": {
         "status": {"enum": ["missing", "queued", "running", "succeeded", "failed", "interrupted", "cancelled"]},
         "attemptCount": {"type": "integer", "minimum": 0},
         "retryCount": {"type": "integer", "minimum": 0},
         "admissionBlockCount": {"type": "integer", "minimum": 0},
         "failureClass": {"type": ["string", "null"]},
+        "hardwareFingerprint": {"$ref": "#/$defs/nullableSha256"},
         "executionMeasurement": {"$ref": "#/$defs/executionMeasurement"},
         "localCost": {
           "type": "object",

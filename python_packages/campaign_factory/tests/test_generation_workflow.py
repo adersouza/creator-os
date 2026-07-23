@@ -122,6 +122,66 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert admission["last_image_path"] is None
 
 
+def test_local_wan_text_to_video_routes_without_any_media(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict = {}
+
+    def fake_motion(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"schema": "campaign_factory.motion_generation_stage_run.v1"}
+
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        fake_motion,
+    )
+    admission = _stub_local_motion_admission(monkeypatch)
+    result = run_generation_workflow(
+        _local_motion_factory(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        motion_task="text_to_video",
+        local_arena_summary_path=tmp_path / "arena-summary.json",
+        motion_prompt="A cinematic ocean wave moves naturally at golden hour",
+        dry_run=True,
+        apply=False,
+    )
+
+    assert result["mode"] == "local_wan"
+    assert captured["still_path"] is None
+    assert captured["audio_path"] is None
+    assert captured["last_image_path"] is None
+    assert captured["source_video_path"] is None
+    assert admission["accepted_still_path"] is None
+    assert admission["audio_path"] is None
+    assert admission["last_image_path"] is None
+    assert admission["source_video_path"] is None
+    assert admission["task_kind"] == "text_to_video"
+
+
+def test_local_wan_text_to_video_rejects_a_fake_still_before_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "fake-input.png"
+    still.write_bytes(b"must-not-be-consumed")
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        lambda *_args, **_kwargs: pytest.fail("motion stage must not run"),
+    )
+    with pytest.raises(ValueError, match="text_to_video accepts no media inputs"):
+        run_generation_workflow(
+            _local_motion_factory(),
+            mode="local_wan",
+            campaign_slug="campaign",
+            accepted_still_path=still,
+            motion_task="text_to_video",
+            local_arena_summary_path=tmp_path / "arena-summary.json",
+            motion_prompt="A cinematic ocean wave moves naturally at golden hour",
+            dry_run=True,
+            apply=False,
+        )
+
+
 def test_local_wan_admission_binds_last_frame(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -326,6 +386,25 @@ def test_local_mode_requires_arena_admission_before_motion_worker(
             campaign_slug="campaign",
             accepted_still_path=still,
             motion_prompt="Natural breathing and a slow camera push toward the subject",
+            dry_run=True,
+            apply=False,
+        )
+
+
+def test_local_mode_rejects_fractional_duration_before_admission(
+    tmp_path: Path,
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    with pytest.raises(ValueError, match="whole number of seconds"):
+        run_generation_workflow(
+            _local_motion_factory(),
+            mode="local_wan",
+            campaign_slug="campaign",
+            accepted_still_path=still,
+            local_arena_summary_path=tmp_path / "arena-summary.json",
+            motion_prompt="Natural breathing and a slow camera push toward the subject",
+            duration_seconds=3.5,
             dry_run=True,
             apply=False,
         )

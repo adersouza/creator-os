@@ -57,8 +57,10 @@ required.
   `evidence_provenance.v1`.
 - Frozen dataclasses serialize only through their canonical schema shape.
 - `ContentIntentV1.creatorIdentityProfileId` must match the identity snapshot.
-- `BenchmarkRecipeV1.contentIntentId` and ordered input fingerprints must match
-  the intent snapshot and the exact ordered Library Reuse selection.
+- `ContentIntentV1.sourceAssetFingerprints` is the reviewed authorization
+  cohort, not a claim that every authorized source was measured. A
+  `BenchmarkRecipeV1` binds one exact, ordered execution cell whose
+  role-preserving typed inputs must be a subset of that cohort.
 - The recipe's execution-policy schema and canonical SHA-256 must match the
   existing execution plan; its parameter fingerprint must match the actual
   normalized format, variant count, and worker count.
@@ -70,6 +72,11 @@ required.
   journaled. The job retains its own exact aggregate input and parameter
   fingerprints while the recipe retains its ordered source fingerprints; the
   bridge does not reinterpret or collapse either identity.
+- Promotion and Router admission remain narrower than Content Intent
+  authorization: they bind the winning exact Arena sample IDs and reconstruct
+  their canonical typed input cohort. An authorized but unbenchmarked source,
+  a source reused under the wrong role, or a source measured under another task
+  cannot inherit a promotion.
 - New measured receipts require the same IDs and canonical fingerprints carried
   by the succeeded queue job. The benchmark store copies both canonical records
   into content-addressed local evidence paths before appending the receipt.

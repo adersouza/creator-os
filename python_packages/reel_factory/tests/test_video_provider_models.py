@@ -30,6 +30,13 @@ def _bound_evidence_args(tmp_path: Path) -> list[str]:
                     "creatorIdentityProfile": {"profileId": "test-profile"},
                     "contentIntent": {"intentId": "test-intent"},
                 },
+                "taskParameterMaterial": {
+                    "policyContext": {
+                        "commercialUse": True,
+                        "commercialAnnualRevenueUsd": 1_000,
+                        "overlaysExist": False,
+                    }
+                },
             }
         payload = json.dumps(value, sort_keys=True).encode("utf-8")
         path.write_bytes(payload)
@@ -218,7 +225,7 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
 
 def test_audio_task_and_inputs_cannot_silently_disagree() -> None:
     ltx = video_model("local_ltx23_dev_hq_mlx")
-    with pytest.raises(ValueError, match="requires source or generated audio"):
+    with pytest.raises(ValueError, match="requires exact source audio"):
         validate_model_request(
             ltx,
             resolution="576x1024",

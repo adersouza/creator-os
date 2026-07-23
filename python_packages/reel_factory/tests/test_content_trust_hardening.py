@@ -75,7 +75,9 @@ class FakeDownloadResponse:
         return self._chunks.pop(0) if self._chunks else b""
 
 
-def _identity_profile(creator: str) -> dict[str, object]:
+def _identity_profile(
+    creator: str, reference_paths: list[Path] | tuple[Path, ...]
+) -> dict[str, object]:
     profile: dict[str, object] = {
         "schema": "creator_os.creator_identity_profile.v1",
         "profileId": f"identity-{creator.lower()}",
@@ -85,9 +87,10 @@ def _identity_profile(creator: str) -> dict[str, object]:
         "identityReferences": [
             {
                 "namespace": "test",
-                "externalId": f"{creator.lower()}-reviewed",
-                "fingerprint": "b" * 64,
+                "externalId": path.name,
+                "fingerprint": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
+            for path in reference_paths
         ],
         "provenance": {
             "producer": "test.identity_fixture",
@@ -124,7 +127,7 @@ def _write_reference_set(
         extra = root / "identity_reference_fixture_2.png"
         _write_image(extra)
         available_images.append(extra)
-    profile = _identity_profile(creator)
+    profile = _identity_profile(creator, available_images)
     built = build_reference_set(
         creator=creator,
         input_dir=root,
@@ -226,7 +229,7 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
         creator="Stacey",
         root=tmp_path,
         provider=FakeIdentityProvider([1.0, 0.0]),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=profile,
         identity_profile_id=str(profile["profileId"]),
         identity_profile_fingerprint=profile_fingerprint,
     )
@@ -463,13 +466,15 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
         input_dir=input_dir,
         root=tmp_path,
         provider=FakeIdentityProvider([1.0, 0.0]),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
     health = identity_health(
         creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([1.0, 0.0])
     )
 
-    assert built["schema"] == "reel_factory.identity_reference_set.v3"
+    assert built["schema"] == "reel_factory.identity_reference_set.v4"
     assert built["status"] == "ready"
     assert len(built["embeddings"]) == 2
     assert all(item["status"] == "embedded" for item in built["sourceImages"])
@@ -490,7 +495,9 @@ def test_identity_reference_build_rejects_output_outside_reference_root(
         root=tmp_path,
         output=tmp_path / "tracked.json",
         provider=FakeIdentityProvider(),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
 
     assert result["status"] == "failed"
@@ -511,7 +518,9 @@ def test_identity_reference_build_writes_private_file_and_delete_removes_it(
         input_dir=input_dir,
         root=tmp_path,
         provider=FakeIdentityProvider(),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
     target = Path(result["outputPath"])
 
@@ -533,7 +542,7 @@ def test_identity_reference_cli_redacts_embeddings_by_default(
     _write_image(input_dir / "ref_a.png")
     _write_image(input_dir / "ref_b.png")
     profile_path = tmp_path / "profile.json"
-    profile = _identity_profile("Stacey")
+    profile = _identity_profile("Stacey", tuple(sorted(input_dir.iterdir())))
     profile_path.write_text(json.dumps(profile))
     monkeypatch.setattr(
         identity_verification,
@@ -575,7 +584,9 @@ def test_identity_reference_build_fails_closed_when_provider_missing(
         input_dir=input_dir,
         root=tmp_path,
         provider=FakeIdentityProvider(available=False),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
 
     assert result["status"] == "failed"
@@ -602,7 +613,9 @@ def test_identity_reference_build_rejects_any_source_with_multiple_faces(
         input_dir=input_dir,
         root=tmp_path,
         provider=MultipleFaceReferenceProvider(),
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
 
     assert result["status"] == "failed"
@@ -635,7 +648,9 @@ def test_identity_reference_build_excludes_embedding_outlier_with_evidence(
         input_dir=input_dir,
         root=tmp_path,
         provider=provider,
-        creator_identity_profile=_identity_profile("Stacey"),
+        creator_identity_profile=_identity_profile(
+            "Stacey", tuple(sorted(input_dir.iterdir()))
+        ),
     )
 
     assert result["status"] == "ready"

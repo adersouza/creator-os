@@ -191,9 +191,37 @@ def run_generation_workflow(
                     f"{motion_task} uses source_video_path as its only primary input; "
                     "accepted_still_path is forbidden"
                 )
+        elif motion_task == "text_to_video":
+            supplied_media = [
+                label
+                for label, value in (
+                    ("accepted_still_path", accepted_still_path),
+                    ("audio_path", audio_path),
+                    ("last_image_path", last_image_path),
+                    ("source_video_path", source_video_path),
+                    ("motion_reference_image_paths", motion_reference_image_paths),
+                    ("motion_reference_video_paths", motion_reference_video_paths),
+                )
+                if value
+            ]
+            if supplied_media:
+                raise ValueError(
+                    "text_to_video accepts no media inputs: " + ",".join(supplied_media)
+                )
         else:
             _require(accepted_still_path, "accepted_still_path")
         _require(motion_prompt, "motion_prompt")
+        normalized_motion_prompt = " ".join(str(motion_prompt).split())
+        selected_duration = None
+        if duration_seconds is not None:
+            if (
+                not math.isfinite(float(duration_seconds))
+                or not float(duration_seconds).is_integer()
+            ):
+                raise ValueError("motion duration must be a whole number of seconds")
+            selected_duration = int(duration_seconds)
+            if selected_duration <= 0:
+                raise ValueError("motion duration must be positive")
         local_motion_admission = None
         if mode_id == "local_wan":
             from .local_motion_admission import build_local_motion_admission
@@ -212,11 +240,19 @@ def run_generation_workflow(
                 audio_path=audio_path,
                 last_image_path=last_image_path,
                 source_video_path=source_video_path,
+                prompt=normalized_motion_prompt,
+                duration_seconds=selected_duration,
+                resolution=resolution,
+                seed=seed,
+                steps=steps,
+                generate_audio=generate_audio,
                 retake_start_frame=retake_start_frame,
                 retake_end_frame=retake_end_frame,
                 extend_frames=extend_frames,
                 extend_direction=extend_direction,
                 preserve_audio=preserve_audio,
+                lora_path=motion_lora_path,
+                lora_strength=motion_lora_strength,
                 campaign_creator=campaign_creator,
                 task_kind=motion_task,
                 override_model_id=motion_model_id,
@@ -244,17 +280,12 @@ def run_generation_workflow(
             selected_model = motion_model_id or "wavespeed_wan27_i2v_pro"
             local_benchmark_recipe = None
             local_analyzer_registry = None
-        selected_duration = None
-        if duration_seconds is not None:
-            if not float(duration_seconds).is_integer():
-                raise ValueError("motion duration must be a whole number of seconds")
-            selected_duration = int(duration_seconds)
         result = run_motion_generation_stage(
             factory,
             execution_plan=execution_plan,
             campaign_slug=campaign_slug,
             still_path=accepted_still_path,
-            prompt=str(motion_prompt),
+            prompt=normalized_motion_prompt,
             model_id=selected_model,
             duration_seconds=selected_duration,
             resolution=resolution,

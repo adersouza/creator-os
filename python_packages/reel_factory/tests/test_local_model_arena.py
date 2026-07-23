@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+from copy import deepcopy
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import reel_factory.local_model_arena as arena_module
+from creator_os_core.evidence_attestation import (
+    canonical_json,
+    payload_fingerprint,
+)
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from reel_factory.human_media_review import (
     HumanMediaReview,
     HumanMediaReviewStore,
@@ -15,6 +26,7 @@ from reel_factory.human_media_review import (
     HumanReviewSamplingEvidence,
 )
 from reel_factory.local_generation_queue import (
+    AppendOnlyJournal,
     LocalGenerationJob,
     LocalGenerationQueue,
     LocalQueueError,
@@ -28,6 +40,8 @@ from reel_factory.local_model_arena import (
     _human_review_evidence,
     _motion_qc_options,
     _promotion_design_check,
+    _request_from_sample,
+    _require_promotion_identity_ready,
     _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
@@ -35,18 +49,256 @@ from reel_factory.local_model_arena import (
     build_arena_record_bundle,
     build_arena_review_packet,
     build_arena_unblinding_receipt,
+    execute_arena_sample_generation,
     finalize_arena_sample_evidence,
     validate_arena_plan,
     validate_arena_review_packet,
     validate_arena_unblinding_receipt,
+    validate_rollout_gate_receipt,
 )
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
 from reel_factory.local_video_models import local_video_model_spec
+
+from pipeline_contracts import ContractValidationError
 
 PRODUCED_AT = "2026-07-22T12:00:00Z"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 EVIDENCE_SECRET = "arena-test-evidence-" + "fixture-material-" + ("x" * 32)
+OBSERVER_PRIVATE_KEYS = {
+    kind: Ed25519PrivateKey.from_private_bytes(
+        hashlib.sha256(f"test-only-{kind}-observer-key".encode()).digest()
+    )
+    for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS
+}
+OBSERVER_PUBLIC_KEYS = {
+    kind: base64.b64encode(
+        private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+    ).decode()
+    for kind, private_key in OBSERVER_PRIVATE_KEYS.items()
+}
+
+
+@pytest.fixture(autouse=True)
+def _fixed_independent_rollout_observer_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        {
+            kind: {
+                **binding,
+                "publicKeyBase64": OBSERVER_PUBLIC_KEYS[kind],
+            }
+            for kind, binding in (
+                arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS.items()
+            )
+        },
+    )
+
+
+def _rollout_store(root: Path) -> LocalModelArenaStore:
+    instant = datetime.fromisoformat(PRODUCED_AT.replace("Z", "+00:00"))
+    return LocalModelArenaStore(
+        root,
+        trusted_clock=lambda: instant.astimezone(UTC),
+        hardware_identity_provider=lambda: {"fingerprint": "9" * 64},
+    )
+
+
+def _sign_external_observer_attestation(
+    payload: dict,
+    *,
+    kind: str,
+    issued_at: str,
+    signer: Ed25519PrivateKey | None = None,
+    issuer: str | None = None,
+) -> dict:
+    binding = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+    core = {
+        "schema": "creator_os.external_observer_attestation.v1",
+        "algorithm": "ed25519",
+        "issuer": issuer or binding["issuer"],
+        "keyId": binding["keyId"],
+        "issuedAt": issued_at,
+        "payloadFingerprint": payload_fingerprint(payload),
+    }
+    signature = (signer or OBSERVER_PRIVATE_KEYS[kind]).sign(canonical_json(core))
+    return {**core, "signature": base64.b64encode(signature).decode()}
+
+
+def _external_activity_observations(
+    root: Path,
+    *,
+    observed_at: str = PRODUCED_AT,
+    interval_start: str = PRODUCED_AT,
+    records_by_kind: dict[str, list[dict]] | None = None,
+) -> dict[str, Path]:
+    observations: dict[str, Path] = {}
+    source_root = root / "sources"
+    receipt_root = root / "receipts"
+    source_root.mkdir(parents=True, exist_ok=True)
+    receipt_root.mkdir(parents=True, exist_ok=True)
+    for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
+        records = list((records_by_kind or {}).get(kind, []))
+        source_path = (source_root / f"{kind}.json").resolve()
+        source_path.write_text(
+            json.dumps(records, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        binding = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+        identity_fingerprint = fingerprint(
+            {
+                "kind": kind,
+                "storeIdentity": binding["storeIdentity"],
+                "queryIdentity": binding["queryIdentity"],
+                "intervalStart": interval_start,
+                "intervalEnd": observed_at,
+                "sourceSha256": sha256_file(source_path),
+            }
+        )
+        core = {
+            "schema": (
+                "reel_factory.local_model_rollout_external_activity_observation.v1"
+            ),
+            "observationId": (f"rollout_external_{kind}_{identity_fingerprint[:24]}"),
+            "kind": kind,
+            "storeIdentity": binding["storeIdentity"],
+            "queryIdentity": binding["queryIdentity"],
+            "intervalStart": interval_start,
+            "intervalEnd": observed_at,
+            "observedAt": observed_at,
+            "source": {
+                "path": str(source_path),
+                "sha256": sha256_file(source_path),
+                "recordsFingerprint": fingerprint({"records": records}),
+                "recordCount": len(records),
+            },
+            "provenance": {
+                "producer": binding["issuer"],
+                "producedAt": observed_at,
+                "sourceReferences": [
+                    {
+                        "recordId": (
+                            f"{binding['storeIdentity']}:{binding['queryIdentity']}"
+                        ),
+                        "fingerprint": sha256_file(source_path),
+                    }
+                ],
+            },
+        }
+        observation_fingerprint = fingerprint(core)
+        attested = {
+            **core,
+            "observationFingerprint": observation_fingerprint,
+        }
+        receipt = {
+            **attested,
+            "producerAttestation": _sign_external_observer_attestation(
+                attested,
+                kind=kind,
+                issuer=binding["issuer"],
+                issued_at=observed_at,
+            ),
+        }
+        receipt_path = (receipt_root / f"{kind}.json").resolve()
+        receipt_path.write_text(
+            json.dumps(receipt, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        observations[kind] = receipt_path
+    return observations
+
+
+def _external_activity_source_path(observation_path: Path) -> Path:
+    receipt = json.loads(observation_path.read_text(encoding="utf-8"))
+    return Path(receipt["source"]["path"])
+
+
+def _rewrite_external_activity_observation(
+    observation_path: Path,
+    *,
+    updates: dict | None = None,
+    issuer: str | None = None,
+    observer_signer: Ed25519PrivateKey | None = None,
+) -> None:
+    receipt = json.loads(observation_path.read_text(encoding="utf-8"))
+    core = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"observationFingerprint", "producerAttestation"}
+    }
+    core.update(updates or {})
+    attested = {
+        **core,
+        "observationFingerprint": fingerprint(core),
+    }
+    rewritten = {
+        **attested,
+        "producerAttestation": _sign_external_observer_attestation(
+            attested,
+            kind=core["kind"],
+            issuer=issuer or core["provenance"]["producer"],
+            issued_at=core["observedAt"],
+            signer=observer_signer,
+        ),
+    }
+    observation_path.write_text(
+        json.dumps(rewritten, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _passing_rollout_summary(summary: dict) -> dict:
+    payload = deepcopy(summary)
+    for index, sample in enumerate(payload["samples"]):
+        sample.update(
+            {
+                "status": "succeeded",
+                "reason": "verified",
+                "outputSha256": f"{index + 1:064x}",
+                "benchmarkId": f"benchmark-{index}",
+                "humanReviewId": f"review-{index}",
+                "qualityScore": 1.0,
+                "wallTimeSeconds": 1.0,
+                "peakMemoryBytes": 1024,
+                "executionEvidence": {
+                    "status": "succeeded",
+                    "attemptCount": 1,
+                    "retryCount": 0,
+                    "admissionBlockCount": 0,
+                    "failureClass": None,
+                    "hardwareFingerprint": "9" * 64,
+                    "executionMeasurement": {
+                        "available": True,
+                        "wallTimeSeconds": 1.0,
+                        "peakMemoryBytes": 1024,
+                        "memoryMeasurementMethod": "fixture",
+                    },
+                    "localCost": {
+                        "available": False,
+                        "currency": "USD",
+                        "reason": "local_compute_cost_not_metered",
+                        "value": None,
+                    },
+                },
+                "blockingReasons": [],
+                "promotionEvidenceValid": True,
+            }
+        )
+    payload["sampleCounts"] = {
+        status: (len(payload["samples"]) if status == "succeeded" else 0)
+        for status in sorted(arena_module.TERMINAL_STATUSES)
+    }
+    payload["promotionEligibleYield"] = 1.0
+    payload["candidateAggregates"] = _arena_candidate_aggregates(payload["samples"])
+    core = {key: value for key, value in payload.items() if key != "summaryFingerprint"}
+    payload["summaryFingerprint"] = fingerprint(core)
+    return payload
 
 
 def _base_registry(repository_root: Path) -> dict:
@@ -169,6 +421,37 @@ def _policy() -> dict:
     }
 
 
+def _umt5_behavior() -> dict:
+    return {
+        "schema": "reel_factory.umt5_tokenizer_behavior.v1",
+        "dependencyId": "wan_umt5_tokenizer",
+        "repository": "google/umt5-xxl",
+        "revision": "fixture-revision",
+        "tokenizerClass": "T5Tokenizer",
+        "isFast": True,
+        "fixMistralRegex": None,
+        "preTokenizer": "fixture-pre-tokenizer",
+        "probeCorpusSha256": "5" * 64,
+        "tokenIdsSha256": "6" * 64,
+        "aliasMatchesSnapshot": True,
+        "behaviorFingerprint": "7" * 64,
+        "snapshotPath": "/fixture/models/umt5/snapshot",
+        "dependencyReceiptSha256": "8" * 64,
+        "runtimeReferencePath": "/fixture/models/umt5/refs/main",
+        "runtimeReferenceSha256": "9" * 64,
+        "probeScriptSha256": "a" * 64,
+        "isolation": {
+            "sandboxExecutable": "/usr/bin/sandbox-exec",
+            "sandboxExecutableSha256": "b" * 64,
+            "profileFingerprint": "d" * 64,
+            "networkDenied": True,
+            "writesDenied": True,
+        },
+        "providerCalls": 0,
+        "productionWritesAllowed": False,
+    }
+
+
 def test_candidate_aggregates_use_true_even_sample_medians() -> None:
     rows = [
         {
@@ -202,13 +485,24 @@ def test_candidate_aggregates_use_true_even_sample_medians() -> None:
 def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
+    primary_source = request.image_path or request.source_video_path
+    source_sha = (
+        sha256_file(primary_source)
+        if primary_source is not None
+        else fingerprint(
+            {
+                "prompt": " ".join(request.prompt.split()),
+                "taskKind": "text_to_video",
+            }
+        )
+    )
     return LocalGenerationJob.create(
-        job_id=f"job-{request.model_id}-{request.seed}",
+        job_id=f"job-{request.model_id}-{request.seed}-{source_sha[:12]}",
         model_id=request.model_id,
         model_revision="model-revision",
         model_manifest_sha256="c" * 64,
         task_kind=request.task,
-        input_sha256="d" * 64,
+        input_sha256=source_sha,
         requested_memory_bytes=1024,
         params={"seed": request.seed, "output": str(request.output_path)},
         cohort={"seed": request.seed},
@@ -251,7 +545,92 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
     )
 
 
-def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
+def test_arena_registry_merges_existing_human_analyzer_and_preserves_exact_provenance() -> (
+    None
+):
+    repository_root = Path(__file__).resolve().parents[3]
+    human_implementation = (
+        repository_root
+        / "python_packages/reel_factory/reel_factory/human_media_review.py"
+    )
+    base = _base_registry(repository_root)
+    base["analyzers"].append(
+        {
+            "analyzerId": "reel_factory.structured_human_media_review",
+            "analyzerVersion": "1.0.0",
+            "evidenceKinds": ["human_media_review"],
+            "implementationRef": str(human_implementation.relative_to(repository_root)),
+            "implementationFingerprint": sha256_file(human_implementation),
+        }
+    )
+
+    registry = arena_analyzer_registry(
+        base,
+        produced_at=PRODUCED_AT,
+        repository_root=repository_root,
+    )
+
+    identities = [
+        (item["analyzerId"], item["analyzerVersion"]) for item in registry["analyzers"]
+    ]
+    assert len(identities) == len(set(identities))
+    [human] = [
+        item
+        for item in registry["analyzers"]
+        if item["analyzerId"] == "reel_factory.structured_human_media_review"
+    ]
+    assert human["evidenceKinds"] == ["human_media_review"]
+    references = {
+        item["recordId"]: item["fingerprint"]
+        for item in registry["provenance"]["sourceReferences"]
+    }
+    assert len(references) == len(registry["analyzers"])
+    assert references == {
+        f"{item['analyzerId']}@{item['analyzerVersion']}": item[
+            "implementationFingerprint"
+        ]
+        for item in registry["analyzers"]
+    }
+
+
+def test_arena_registry_rejects_existing_human_analyzer_semantic_drift() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    human_implementation = (
+        repository_root
+        / "python_packages/reel_factory/reel_factory/human_media_review.py"
+    )
+    base = _base_registry(repository_root)
+    base["analyzers"].append(
+        {
+            "analyzerId": "reel_factory.structured_human_media_review",
+            "analyzerVersion": "1.0.0",
+            "evidenceKinds": ["self_asserted_rating"],
+            "implementationRef": str(human_implementation.relative_to(repository_root)),
+            "implementationFingerprint": sha256_file(human_implementation),
+        }
+    )
+
+    with pytest.raises(
+        LocalQueueError,
+        match=(
+            "arena_analyzer_registration_drift:"
+            "reel_factory.structured_human_media_review@1.0.0"
+        ),
+    ):
+        arena_analyzer_registry(
+            base,
+            produced_at=PRODUCED_AT,
+            repository_root=repository_root,
+        )
+
+
+def _build(
+    monkeypatch,
+    tmp_path: Path,
+    specs: list[ArenaSampleSpec],
+    *,
+    purpose: str = "exploratory",
+) -> dict:
     repository_root = Path(__file__).resolve().parents[3]
     registry = arena_analyzer_registry(
         _base_registry(repository_root),
@@ -294,6 +673,12 @@ def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
             "ffprobeSize": 1024,
             "ffprobeVersion": "ffprobe version fixture",
         }
+        if local_video_model_spec(model_id).family == "wan_2":
+            behavior = _umt5_behavior()
+            runtime_binding["umt5TokenizerBehavior"] = behavior
+            runtime_binding["umt5TokenizerBehaviorFingerprint"] = behavior[
+                "behaviorFingerprint"
+            ]
         model_core = {
             **deep_core,
             "modelId": model_id,
@@ -324,14 +709,97 @@ def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
     monkeypatch.setattr(
         "reel_factory.local_model_arena.plan_local_video_job", _fake_job
     )
+    monkeypatch.setattr(
+        "reel_factory.local_video._source_video_geometry",
+        lambda _path, **_kwargs: {
+            "geometrySource": "source_video",
+            "width": 1080,
+            "height": 1920,
+            "fps": "30000/1001",
+            "geometryProbe": {
+                "executable": "/fixture/bin/ffprobe",
+                "sha256": "4" * 64,
+            },
+        },
+    )
+    identity_root = None
+    if purpose == "promotion_eligible":
+        identity_root = tmp_path / "identity"
+        monkeypatch.setattr(
+            "reel_factory.local_model_arena._require_promotion_identity_ready",
+            lambda **_kwargs: None,
+        )
     return build_arena_plan(
         sample_specs=specs,
-        purpose="exploratory",
+        purpose=purpose,
         produced_at=PRODUCED_AT,
         output_root=tmp_path / "arena",
         execution_policy=_policy(),
         analyzer_registry=registry,
+        identity_root=identity_root,
     )
+
+
+def _rollout_router_bundle(
+    sample: dict,
+    index: int,
+    *,
+    promotion_hardware_fingerprint: str = "9" * 64,
+) -> dict:
+    decision = {
+        "decisionId": f"router-decision-{index}",
+        "selectedModelId": sample["modelId"],
+        "selectedModelFingerprint": sample["modelFingerprint"],
+        "winningEvidence": {
+            "promotionApproval": {
+                "hardwareFingerprint": promotion_hardware_fingerprint,
+            }
+        },
+        "request": {
+            "creatorId": sample["creatorId"],
+            "identityProfileId": sample["identityProfileId"],
+            "identityProfileFingerprint": sample["identityProfileFingerprint"],
+            "contentIntentId": sample["contentIntentId"],
+            "contentIntentFingerprint": sample["contentIntentFingerprint"],
+            "taskKind": sample["taskKind"],
+            "capabilityCohort": sample["capabilityCohort"],
+        },
+    }
+    return {
+        "arenaPlan": {"purpose": "promotion_eligible"},
+        "arenaSummary": {"purpose": "promotion_eligible"},
+        "reviewPacket": {"packetId": f"packet-{index}"},
+        "unblindingReceipt": {"receiptId": f"unblind-{index}"},
+        "routerDecision": decision,
+        "rolloutSampleIds": [sample["sampleId"]],
+    }
+
+
+def _fake_rollout_router_validator(bundle: dict, **_kwargs) -> tuple[dict, dict]:
+    exact = deepcopy(bundle)
+    decision = exact["routerDecision"]
+    index = str(decision["decisionId"]).rsplit("-", 1)[-1]
+    promotion_hardware_fingerprint = decision["winningEvidence"]["promotionApproval"][
+        "hardwareFingerprint"
+    ]
+    return exact, {
+        "snapshotFingerprint": fingerprint(exact),
+        "sampleIds": sorted(exact["rolloutSampleIds"]),
+        "routerDecisionId": decision["decisionId"],
+        "routerDecisionFingerprint": fingerprint(decision),
+        "selectedModelId": decision["selectedModelId"],
+        "selectedModelFingerprint": decision["selectedModelFingerprint"],
+        "taskKind": decision["request"]["taskKind"],
+        "capabilityCohort": decision["request"]["capabilityCohort"],
+        "promotionArenaPlanFingerprint": fingerprint({"promotionPlan": index}),
+        "promotionArenaSummaryFingerprint": fingerprint({"promotionSummary": index}),
+        "promotionReviewPacketFingerprint": fingerprint({"packet": index}),
+        "promotionUnblindingReceiptFingerprint": fingerprint({"unblinding": index}),
+        "promotionApprovalEventId": f"approval-{index}",
+        "promotionApprovalEventHash": fingerprint({"approval": index}),
+        "promotionHardwareFingerprint": promotion_hardware_fingerprint,
+        "promotionEvidenceFingerprint": fingerprint({"evidence": index}),
+    }
 
 
 def test_registry_adds_exact_reel_factory_producers() -> None:
@@ -350,16 +818,228 @@ def test_registry_adds_exact_reel_factory_producers() -> None:
         assert sha256_file(implementation) == registration["implementationFingerprint"]
 
 
+def test_promotion_identity_preflight_requires_supported_extra_and_exact_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    spec = _spec(source)
+    binding = (
+        spec.creator_id,
+        spec.identity_profile_id,
+        spec.identity_profile_fingerprint,
+        spec.creator_identity_profile,
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_promotion_identity_root_required"):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=None,
+        )
+
+    provider = SimpleNamespace(name="unavailable")
+    monkeypatch.setattr(arena_module, "get_identity_provider", lambda: provider)
+    monkeypatch.setattr(
+        arena_module,
+        "identity_health",
+        lambda **_kwargs: {
+            "status": "unavailable",
+            "promotionEligible": False,
+            "blockingReasons": ["identity_provider_unavailable:ModuleNotFoundError"],
+        },
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="identity_provider_unavailable:ModuleNotFoundError",
+    ):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=tmp_path,
+        )
+
+    reference_path = tmp_path / "identity_references" / "stacey.json"
+    monkeypatch.setattr(
+        arena_module,
+        "identity_health",
+        lambda **_kwargs: {
+            "status": "ready",
+            "promotionEligible": True,
+            "blockingReasons": [],
+            "referenceSetPath": str(reference_path),
+        },
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_load_reference_embeddings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            error=None,
+            promotion_eligible=True,
+            creator_identity_profile={
+                **spec.creator_identity_profile,
+                "profileId": "substituted-profile",
+            },
+        ),
+    )
+    with pytest.raises(LocalQueueError, match="identity_profile_binding_mismatch"):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=tmp_path,
+        )
+
+    monkeypatch.setattr(
+        arena_module,
+        "_load_reference_embeddings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            error=None,
+            promotion_eligible=True,
+            creator_identity_profile=spec.creator_identity_profile,
+        ),
+    )
+    _require_promotion_identity_ready(
+        purpose="promotion_eligible",
+        bindings=(binding, binding),
+        identity_root=tmp_path,
+    )
+
+
+def test_promotion_plan_preflights_identity_before_model_planning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    repository_root = Path(__file__).resolve().parents[3]
+    registry = arena_analyzer_registry(
+        _base_registry(repository_root),
+        produced_at=PRODUCED_AT,
+        repository_root=repository_root,
+    )
+    monkeypatch.setattr(arena_module, "_promotion_design_check", lambda _specs: None)
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "model_status",
+        lambda *_args, **_kwargs: pytest.fail(
+            "model planning ran before identity preflight"
+        ),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        build_arena_plan(
+            sample_specs=[_spec(source)],
+            purpose="promotion_eligible",
+            produced_at=PRODUCED_AT,
+            output_root=tmp_path / "arena",
+            execution_policy=_policy(),
+            analyzer_registry=registry,
+            identity_root=tmp_path / "identity",
+        )
+
+
+def test_generation_preflights_promotion_identity_before_queue_planning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sample = {
+        "sampleId": "sample-1",
+        "creatorId": "stacey",
+        "identityProfileId": "profile-1",
+        "identityProfileFingerprint": SHA_A,
+        "creatorIdentityProfile": {"profileId": "profile-1"},
+    }
+    store = SimpleNamespace(
+        load_plan=lambda _plan_id: {
+            "purpose": "promotion_eligible",
+            "samples": [sample],
+        }
+    )
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "plan_local_video_job",
+        lambda *_args, **_kwargs: pytest.fail("queue planning ran before preflight"),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        execute_arena_sample_generation(
+            store,  # type: ignore[arg-type]
+            plan_id="plan-1",
+            sample_id="sample-1",
+            dry_run=False,
+            identity_root=tmp_path,
+        )
+
+
+def test_finalization_preflights_promotion_identity_before_qc_writes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sample = {
+        "sampleId": "sample-1",
+        "creatorId": "stacey",
+        "identityProfileId": "profile-1",
+        "identityProfileFingerprint": SHA_A,
+        "creatorIdentityProfile": {"profileId": "profile-1"},
+    }
+    store = SimpleNamespace(
+        load_plan=lambda _plan_id: {
+            "purpose": "promotion_eligible",
+            "samples": [sample],
+        }
+    )
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_run_contentforge",
+        lambda *_args, **_kwargs: pytest.fail("QC ran before identity preflight"),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        finalize_arena_sample_evidence(
+            store,  # type: ignore[arg-type]
+            plan_id="plan-1",
+            sample_id="sample-1",
+            review_path=tmp_path / "review.json",
+            queue=SimpleNamespace(),  # type: ignore[arg-type]
+            benchmarks=SimpleNamespace(),  # type: ignore[arg-type]
+            human_reviews=SimpleNamespace(),  # type: ignore[arg-type]
+            repository_root=tmp_path,
+            identity_root=tmp_path,
+            produced_at=PRODUCED_AT,
+        )
+
+
 def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "output.mp4"
+    source = tmp_path / "source.png"
+    source.write_bytes(b"trusted source")
+    source_sha = sha256_file(source)
     registry = {"schema": "creator_os.analyzer_registry.v1", "registryId": "r1"}
     review = {"schema": "reel_factory.human_media_review.v1", "reviewId": "h1"}
     request = _trusted_motion_qc_request(
         {
-            "sourcePath": str(tmp_path / "source.png"),
-            "sourceSha256": SHA_A,
+            "sourcePath": str(source),
+            "sourceSha256": source_sha,
             "taskKind": "image_to_video",
             "audioMode": "none",
             "overlaysExist": False,
@@ -374,8 +1054,8 @@ def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     assert request == {
         "mediaPath": str(output),
         "mediaSha256": SHA_B,
-        "sourcePath": str(tmp_path / "source.png"),
-        "sourceSha256": SHA_A,
+        "sourcePath": str(source.resolve()),
+        "sourceSha256": source_sha,
         "producedAt": PRODUCED_AT,
         "overlaysExist": False,
         "analyzerRegistry": registry,
@@ -384,6 +1064,78 @@ def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     }
     assert "analysis" not in request
     assert "evidence" not in request
+
+
+def test_text_motion_qc_uses_prompt_provenance_without_media_input(
+    tmp_path: Path,
+) -> None:
+    material = {
+        "prompt": "A cinematic ocean wave moves naturally at golden hour.",
+        "taskKind": "text_to_video",
+    }
+    prompt = tmp_path / "prompt.json"
+    prompt.write_text(
+        json.dumps(material, separators=(",", ":"), sort_keys=True),
+        encoding="utf-8",
+    )
+    prompt_sha = sha256_file(prompt)
+    request = _trusted_motion_qc_request(
+        {
+            "sourcePath": None,
+            "sourceSha256": prompt_sha,
+            "promptSource": {"path": str(prompt), "sha256": prompt_sha},
+            "taskKind": "text_to_video",
+            "audioMode": "none",
+            "overlaysExist": False,
+        },
+        output=tmp_path / "output.mp4",
+        output_sha256=SHA_B,
+        produced_at=PRODUCED_AT,
+        analyzer_registry={"schema": "creator_os.analyzer_registry.v1"},
+        human_review={"schema": "reel_factory.human_media_review.v1"},
+    )
+
+    assert request["sourcePath"] == str(prompt.resolve())
+    assert request["sourceSha256"] == prompt_sha
+    assert request["mediaPath"] == str(tmp_path / "output.mp4")
+    assert request.get("imagePath") is None
+    assert request.get("sourceVideoPath") is None
+
+
+@pytest.mark.parametrize("failure", ["missing", "substituted"])
+def test_text_motion_qc_rejects_missing_or_substituted_prompt_provenance(
+    tmp_path: Path, failure: str
+) -> None:
+    prompt = tmp_path / "prompt.json"
+    prompt.write_text(
+        '{"prompt":"A cinematic ocean wave.","taskKind":"text_to_video"}',
+        encoding="utf-8",
+    )
+    prompt_sha = sha256_file(prompt)
+    if failure == "missing":
+        prompt.unlink()
+    else:
+        prompt.write_text("substituted", encoding="utf-8")
+
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_text_task_prompt_source_missing_or_substituted",
+    ):
+        _trusted_motion_qc_request(
+            {
+                "sourcePath": None,
+                "sourceSha256": prompt_sha,
+                "promptSource": {"path": str(prompt), "sha256": prompt_sha},
+                "taskKind": "text_to_video",
+                "audioMode": "none",
+                "overlaysExist": False,
+            },
+            output=tmp_path / "output.mp4",
+            output_sha256=SHA_B,
+            produced_at=PRODUCED_AT,
+            analyzer_registry={"schema": "creator_os.analyzer_registry.v1"},
+            human_review={"schema": "reel_factory.human_media_review.v1"},
+        )
 
 
 def test_arena_plan_freezes_exact_queue_and_evidence(
@@ -402,6 +1154,53 @@ def test_arena_plan_freezes_exact_queue_and_evidence(
     assert sample["queueJobFingerprint"] == fingerprint(sample["queueJob"])
     assert validated["providerCalls"] == 0
     assert validated["productionWritesAllowed"] is False
+
+
+def test_a14b_arena_plan_accepts_exact_umt5_semantic_binding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe A14B source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, model_id="local_wan22_i2v_a14b_q4_mlx")],
+    )
+
+    [sample] = validate_arena_plan(plan)["samples"]
+    behavior = sample["runtimeBinding"]["umt5TokenizerBehavior"]
+
+    assert behavior == _umt5_behavior()
+    assert (
+        sample["runtimeBinding"]["umt5TokenizerBehaviorFingerprint"]
+        == behavior["behaviorFingerprint"]
+    )
+    assert sample["queueJob"]["runtimeBinding"] == sample["runtimeBinding"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda binding: binding.pop("umt5TokenizerBehaviorFingerprint"),
+        lambda binding: binding["umt5TokenizerBehavior"].update(
+            {"aliasMatchesSnapshot": False}
+        ),
+    ],
+)
+def test_a14b_arena_plan_rejects_incomplete_or_failed_umt5_semantic_binding(
+    monkeypatch, tmp_path: Path, mutate
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe A14B source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, model_id="local_wan22_i2v_a14b_q4_mlx")],
+    )
+    mutate(plan["samples"][0]["runtimeBinding"])
+
+    with pytest.raises(ContractValidationError):
+        validate_arena_plan(plan)
 
 
 def test_record_builder_uses_reviewed_facts_and_exact_source_hash(
@@ -454,9 +1253,9 @@ def test_record_builder_uses_reviewed_facts_and_exact_source_hash(
 
 
 def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> None:
-    source_video = tmp_path / "source.mp4"
+    source_image = tmp_path / "source.png"
     audio = tmp_path / "source.wav"
-    source_video.write_bytes(b"source video")
+    source_image.write_bytes(b"source image")
     audio.write_bytes(b"source audio")
     facts = tmp_path / "facts.json"
     facts.write_text(
@@ -481,25 +1280,503 @@ def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> Non
     )
     bundle = build_arena_record_bundle(
         reviewed_identity_facts_path=facts,
-        source_path=None,
-        typed_inputs=(("source-video", source_video), ("audio", audio)),
-        goal="Retake exact reviewed video",
+        source_path=source_image,
+        typed_inputs=(("audio", audio),),
+        task_kind="audio_image_to_video",
+        goal="Animate the exact reviewed image from source audio",
         content_surface="reel",
         media_kind="video",
-        style_lanes=("retake",),
+        style_lanes=("speaking",),
         concept_tags=(),
         produced_at="2026-01-02T12:00:00Z",
         output_root=tmp_path / "records",
     )
-    assert bundle["sourcePath"] is None
+    assert bundle["sourcePath"] == str(source_image.resolve())
     assert [item["kind"] for item in bundle["inputAssets"]] == [
-        "source-video",
+        "image",
         "audio",
     ]
-    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [
-        sha256_file(source_video),
-        sha256_file(audio),
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == sorted(
+        [sha256_file(source_image), sha256_file(audio)]
+    )
+
+
+def test_record_builder_creates_exact_zero_media_text_prompt_source(
+    tmp_path: Path,
+) -> None:
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt = "  A cinematic   ocean wave moves naturally at golden hour. "
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=None,
+        task_kind="text_to_video",
+        prompt=prompt,
+        goal="Create non-creator atmospheric b-roll",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("atmospheric_broll",),
+        concept_tags=("ocean",),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+
+    expected_material = {
+        "taskKind": "text_to_video",
+        "prompt": "A cinematic ocean wave moves naturally at golden hour.",
+    }
+    expected_fingerprint = fingerprint(expected_material)
+    prompt_path = Path(bundle["promptSource"]["path"])
+    assert bundle["taskKind"] == "text_to_video"
+    assert bundle["sourcePath"] is None
+    assert bundle["sourceSha256"] == expected_fingerprint
+    assert bundle["promptTaskFingerprint"] == expected_fingerprint
+    assert bundle["inputAssets"] == []
+    assert json.loads(prompt_path.read_text(encoding="utf-8")) == expected_material
+    assert sha256_file(prompt_path) == expected_fingerprint
+    assert prompt_path.stat().st_mode & 0o222 == 0
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [expected_fingerprint]
+
+
+def test_text_arena_plan_keeps_execution_media_empty_and_prompt_provenance_exact(
+    monkeypatch, tmp_path: Path
+) -> None:
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt = "A cinematic ocean wave moves naturally at golden hour."
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=None,
+        task_kind="text_to_video",
+        prompt=prompt,
+        goal="Create non-creator atmospheric b-roll",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("atmospheric_broll",),
+        concept_tags=("ocean",),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+    spec = ArenaSampleSpec.from_dict(
+        {
+            "creatorId": "stacey",
+            "identityProfileId": bundle["identityProfileId"],
+            "identityProfileFingerprint": bundle["identityProfileFingerprint"],
+            "creatorIdentityProfile": bundle["creatorIdentityProfile"],
+            "contentIntentId": bundle["contentIntentId"],
+            "contentIntentFingerprint": bundle["contentIntentFingerprint"],
+            "contentIntent": bundle["contentIntent"],
+            "sourcePath": None,
+            "promptSource": bundle["promptSource"],
+            "modelId": "local_ltx23_distilled_mlx",
+            "capabilityCohort": "silent_t2v",
+            "taskKind": "text_to_video",
+            "prompt": prompt,
+            "seed": 7,
+            "durationSeconds": 5,
+            "resolution": "576x1024",
+            "commercialAnnualRevenueUsd": 0,
+        }
+    )
+    plan = _build(monkeypatch, tmp_path, [spec])
+    sample = plan["samples"][0]
+    request = _request_from_sample(sample)
+
+    assert sample["sourcePath"] is None
+    assert sample["promptSource"] == bundle["promptSource"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == []
+    assert request.image_path is None
+    assert request.audio_path is None
+    assert request.last_image_path is None
+    assert request.source_video_path is None
+
+
+@pytest.mark.parametrize("reviewed_only", [False, True])
+def test_record_builder_rejects_any_text_task_media(
+    tmp_path: Path, reviewed_only: bool
+) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"source")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(LocalQueueError, match="text_task_media_forbidden"):
+        build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=None if reviewed_only else source,
+            reviewed_source_paths=(source,) if reviewed_only else (),
+            task_kind="text_to_video",
+            prompt="A cinematic ocean wave moves naturally at golden hour.",
+            goal="Create non-creator atmospheric b-roll",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("atmospheric_broll",),
+            concept_tags=(),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=tmp_path / "records",
+        )
+
+
+def test_record_builder_invalid_facts_leave_no_prompt_source(tmp_path: Path) -> None:
+    facts = tmp_path / "invalid-facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "records"
+    with pytest.raises(ValueError, match="reviewed_identity_references_missing"):
+        build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=None,
+            task_kind="text_to_video",
+            prompt="A cinematic ocean wave moves naturally at golden hour.",
+            goal="Create non-creator atmospheric b-roll",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("atmospheric_broll",),
+            concept_tags=(),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=output_root,
+        )
+    assert (output_root / "prompt_sources").exists() is False
+
+
+def test_record_builder_binds_full_reviewed_source_set_deterministically(
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "source-a.png"
+    source_b = tmp_path / "source-b.png"
+    source_a.write_bytes(b"reviewed-source-a")
+    source_b.write_bytes(b"reviewed-source-b")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    common = {
+        "reviewed_identity_facts_path": facts,
+        "goal": "Benchmark subtle natural motion",
+        "content_surface": "reel",
+        "media_kind": "video",
+        "style_lanes": ("subtle_motion",),
+        "concept_tags": ("lifestyle",),
+        "produced_at": "2026-01-02T12:00:00Z",
+    }
+    first = build_arena_record_bundle(
+        **common,
+        source_path=source_a,
+        reviewed_source_paths=(source_b, source_a),
+        output_root=tmp_path / "records-a",
+    )
+    second = build_arena_record_bundle(
+        **common,
+        source_path=source_b,
+        reviewed_source_paths=(source_a, source_b),
+        output_root=tmp_path / "records-b",
+    )
+
+    expected_sources = sorted((sha256_file(source_a), sha256_file(source_b)))
+    assert first["contentIntent"] == second["contentIntent"]
+    assert first["contentIntentId"] == second["contentIntentId"]
+    assert first["contentIntentFingerprint"] == second["contentIntentFingerprint"]
+    assert first["contentIntent"]["sourceAssetFingerprints"] == expected_sources
+    assert [item["sha256"] for item in first["inputAssets"]] == [sha256_file(source_a)]
+    assert [item["sha256"] for item in second["inputAssets"]] == [sha256_file(source_b)]
+
+
+def test_promotion_plan_accepts_full_canonical_two_source_cohort(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    specs: list[ArenaSampleSpec] = []
+    models = (
+        "local_wan22_ti2v_5b_mlx",
+        "local_wan22_i2v_a14b_q4_mlx",
+    )
+    for creator in ("stacey", "larissa", "lola"):
+        sources = (
+            tmp_path / f"{creator}-source-a.png",
+            tmp_path / f"{creator}-source-b.png",
+        )
+        for index, source in enumerate(sources):
+            source.write_bytes(f"{creator}-reviewed-source-{index}".encode())
+        facts = tmp_path / f"{creator}-facts.json"
+        facts.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                    "creatorKey": creator,
+                    "displayName": creator.title(),
+                    "modelProfile": f"soul-{creator}",
+                    "identityReferences": [
+                        {
+                            "namespace": "test",
+                            "externalId": creator,
+                            "fingerprint": fingerprint({"creator": creator}),
+                        }
+                    ],
+                    "reviewedBy": "operator",
+                    "reviewedAt": "2026-01-01T11:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        records = build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=sources[0],
+            reviewed_source_paths=sources,
+            goal="Benchmark subtle natural motion",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("subtle_motion",),
+            concept_tags=("lifestyle",),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=tmp_path / f"{creator}-records",
+        )
+        for model_id in models:
+            for source in sources:
+                for seed in (1, 2, 3, 4):
+                    base = _spec(
+                        source,
+                        creator=creator,
+                        model_id=model_id,
+                        seed=seed,
+                    )
+                    specs.append(
+                        replace(
+                            base,
+                            identity_profile_id=records["identityProfileId"],
+                            identity_profile_fingerprint=records[
+                                "identityProfileFingerprint"
+                            ],
+                            creator_identity_profile=records["creatorIdentityProfile"],
+                            content_intent_id=records["contentIntentId"],
+                            content_intent_fingerprint=records[
+                                "contentIntentFingerprint"
+                            ],
+                            content_intent=records["contentIntent"],
+                        )
+                    )
+
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        specs,
+        purpose="promotion_eligible",
+    )
+    validated = validate_arena_plan(plan)
+    assert validated["expectedSampleCount"] == 48
+    assert (
+        len(
+            {
+                (
+                    sample["creatorId"],
+                    sample["modelId"],
+                    sample["contentIntentId"],
+                )
+                for sample in validated["samples"]
+            }
+        )
+        == 6
+    )
+    assert all(
+        len(sample["benchmarkRecipe"]["inputFingerprints"]) == 1
+        for sample in validated["samples"]
+    )
+    assert all(
+        len(sample["contentIntent"]["sourceAssetFingerprints"]) == 2
+        for sample in validated["samples"]
+    )
+
+
+def test_arena_rejects_unlisted_source_and_content_intent_set_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sources = (tmp_path / "source-a.png", tmp_path / "source-b.png")
+    unlisted = tmp_path / "source-c.png"
+    for index, source in enumerate((*sources, unlisted)):
+        source.write_bytes(f"reviewed-source-{index}".encode())
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    records = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=sources[0],
+        reviewed_source_paths=sources,
+        goal="Benchmark subtle natural motion",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("subtle_motion",),
+        concept_tags=(),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+
+    unlisted_spec = replace(
+        _spec(unlisted),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=records["contentIntentFingerprint"],
+        content_intent=records["contentIntent"],
+    )
+    with pytest.raises(LocalQueueError, match="content_intent_source_mismatch"):
+        _build(monkeypatch, tmp_path, [unlisted_spec])
+
+    first = replace(
+        _spec(sources[0], seed=1),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=records["contentIntentFingerprint"],
+        content_intent=records["contentIntent"],
+    )
+    drifted_intent = dict(records["contentIntent"])
+    drifted_intent["sourceAssetFingerprints"] = [
+        *drifted_intent["sourceAssetFingerprints"],
+        sha256_file(unlisted),
     ]
+    second = replace(
+        _spec(sources[1], seed=2),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=fingerprint(drifted_intent),
+        content_intent=drifted_intent,
+    )
+    with pytest.raises(LocalQueueError, match="content_intent_identity_collision"):
+        _build(monkeypatch, tmp_path, [first, second])
+
+
+def test_shared_intent_keeps_live_source_substitution_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_a = tmp_path / "source-a.png"
+    source_b = tmp_path / "source-b.png"
+    source_a.write_bytes(b"reviewed-source-a")
+    source_b.write_bytes(b"reviewed-source-b")
+    spec = _spec(source_a)
+    shared_intent = dict(spec.content_intent)
+    shared_intent["sourceAssetFingerprints"] = sorted(
+        (sha256_file(source_a), sha256_file(source_b))
+    )
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [
+            replace(
+                spec,
+                content_intent=shared_intent,
+                content_intent_fingerprint=fingerprint(shared_intent),
+            )
+        ],
+    )
+
+    source_a.write_bytes(b"substituted-after-plan")
+    with pytest.raises(LocalQueueError, match="source_missing_or_substituted"):
+        validate_arena_plan(plan)
 
 
 def test_video_retake_uses_only_exact_source_video_and_rejects_substitution(
@@ -527,6 +1804,152 @@ def test_video_retake_uses_only_exact_source_video_and_rejects_substitution(
     source_video.write_bytes(b"substituted source video")
     with pytest.raises(LocalQueueError, match="source_missing_or_substituted"):
         validate_arena_plan(plan)
+
+
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "edit_fields"),
+    [
+        (
+            "video_retake",
+            "preserved",
+            {"retake_start_frame": 10, "retake_end_frame": 30},
+        ),
+        ("video_extend", "generated", {"extend_frames": 24}),
+    ],
+)
+def test_video_edit_recipe_uses_canonical_typed_input_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    edit_fields: dict[str, int],
+) -> None:
+    source_video = tmp_path / f"{task_kind}-source.mp4"
+    source_video.write_bytes(b"reviewed-source-video")
+    base = _spec(source_video)
+    intent = dict(base.content_intent)
+    spec = replace(
+        base,
+        source_path=None,
+        source_video_path=source_video,
+        audio_mode=audio_mode,
+        preserve_audio=audio_mode == "preserved",
+        model_id="local_ltx23_dev_hq_mlx",
+        capability_cohort=task_kind,
+        task_kind=task_kind,
+        commercial_annual_revenue_usd=1_000,
+        content_intent=intent,
+        content_intent_fingerprint=fingerprint(intent),
+        **edit_fields,
+    )
+
+    plan = _build(monkeypatch, tmp_path, [spec])
+    [sample] = validate_arena_plan(plan)["samples"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == [
+        sha256_file(source_video),
+    ]
+
+    source_video.write_bytes(b"substituted-after-plan")
+    with pytest.raises(LocalQueueError, match="missing_or_substituted"):
+        validate_arena_plan(plan)
+
+
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "auxiliary_role"),
+    [
+        ("audio_image_to_video", "source", "audio"),
+        ("keyframe_interpolation", "generated", "last_image"),
+    ],
+)
+def test_image_task_recipe_binds_audio_and_last_image_in_canonical_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    auxiliary_role: str,
+) -> None:
+    source = tmp_path / f"{task_kind}-source.png"
+    auxiliary = tmp_path / f"{task_kind}-auxiliary.bin"
+    source.write_bytes(b"reviewed-source-image")
+    auxiliary.write_bytes(b"reviewed-auxiliary-input")
+    base = _spec(source)
+    intent = dict(base.content_intent)
+    intent["sourceAssetFingerprints"] = sorted(
+        (sha256_file(source), sha256_file(auxiliary))
+    )
+    spec = replace(
+        base,
+        model_id="local_ltx23_dev_hq_mlx",
+        capability_cohort=task_kind,
+        task_kind=task_kind,
+        audio_mode=audio_mode,
+        audio_path=auxiliary if auxiliary_role == "audio" else None,
+        last_image_path=auxiliary if auxiliary_role == "last_image" else None,
+        commercial_annual_revenue_usd=1_000,
+        content_intent=intent,
+        content_intent_fingerprint=fingerprint(intent),
+    )
+
+    plan = _build(monkeypatch, tmp_path, [spec])
+    [sample] = validate_arena_plan(plan)["samples"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == [
+        sha256_file(source),
+        sha256_file(auxiliary),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "auxiliary_field"),
+    [
+        ("audio_image_to_video", "source", "audio_path"),
+        ("keyframe_interpolation", "generated", "last_image_path"),
+    ],
+)
+def test_auxiliary_input_swap_changes_recipe_sample_and_output_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    auxiliary_field: str,
+) -> None:
+    source = tmp_path / "source.png"
+    first_auxiliary = tmp_path / "first-auxiliary.bin"
+    second_auxiliary = tmp_path / "second-auxiliary.bin"
+    source.write_bytes(b"reviewed source")
+    first_auxiliary.write_bytes(b"first exact auxiliary")
+    second_auxiliary.write_bytes(b"second exact auxiliary")
+    base = _spec(source, model_id="local_ltx23_dev_hq_mlx")
+    intent = dict(base.content_intent)
+    intent["sourceAssetFingerprints"] = sorted(
+        (
+            sha256_file(source),
+            sha256_file(first_auxiliary),
+            sha256_file(second_auxiliary),
+        )
+    )
+    common = {
+        "capability_cohort": task_kind,
+        "task_kind": task_kind,
+        "audio_mode": audio_mode,
+        "commercial_annual_revenue_usd": 1_000,
+        "content_intent": intent,
+        "content_intent_fingerprint": fingerprint(intent),
+    }
+    first = replace(base, **common, **{auxiliary_field: first_auxiliary})
+    second = replace(base, **common, **{auxiliary_field: second_auxiliary})
+
+    plan = _build(monkeypatch, tmp_path, [first, second])
+    first_sample, second_sample = plan["samples"]
+    assert (
+        first_sample["benchmarkRecipe"]["recipeId"]
+        != (second_sample["benchmarkRecipe"]["recipeId"])
+    )
+    assert first_sample["sampleId"] != second_sample["sampleId"]
+    assert first_sample["outputPath"] != second_sample["outputPath"]
+    assert (
+        first_sample["benchmarkRecipe"]["inputFingerprints"]
+        != (second_sample["benchmarkRecipe"]["inputFingerprints"])
+    )
 
 
 def test_arena_plan_rejects_profile_and_source_record_mismatch(
@@ -716,8 +2139,58 @@ def test_matched_models_share_recipe_and_task_but_keep_distinct_identity(
     assert first["modelFingerprint"] != second["modelFingerprint"]
     assert first["benchmarkRecipe"]["recipeId"] == second["benchmarkRecipe"]["recipeId"]
     assert first["benchmarkRecipeFingerprint"] == second["benchmarkRecipeFingerprint"]
+    assert (
+        first["benchmarkRecipe"]["parameterFingerprint"]
+        == second["benchmarkRecipe"]["parameterFingerprint"]
+    )
+    assert (
+        first["taskParameterMaterial"]["benchmarkCell"]
+        == second["taskParameterMaterial"]["benchmarkCell"]
+    )
+    assert (
+        first["taskParameterMaterial"]["effectiveExecution"]
+        != second["taskParameterMaterial"]["effectiveExecution"]
+    )
+    assert first["taskParameterFingerprint"] != second["taskParameterFingerprint"]
     assert first["queueJob"]["taskFingerprint"] == second["queueJob"]["taskFingerprint"]
     assert "modelId" not in first["benchmarkRecipe"]
+
+
+def test_historical_plan_is_readable_but_partial_parameter_evidence_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    legacy = deepcopy(plan)
+    sample = legacy["samples"][0]
+    for field in (
+        "steps",
+        "negativePrompt",
+        "loraPath",
+        "loraSha256",
+        "loraStrength",
+        "lowRam",
+        "tileFrames",
+        "tileSpatial",
+        "taskParameterMaterial",
+        "taskParameterFingerprint",
+    ):
+        sample.pop(field, None)
+    legacy_core = dict(legacy)
+    legacy_core.pop("planFingerprint")
+    legacy["planFingerprint"] = fingerprint(legacy_core)
+
+    validated = validate_arena_plan(legacy)
+    assert "taskParameterMaterial" not in validated["samples"][0]
+
+    partial = deepcopy(legacy)
+    partial["samples"][0]["taskParameterFingerprint"] = "f" * 64
+    partial_core = dict(partial)
+    partial_core.pop("planFingerprint")
+    partial["planFingerprint"] = fingerprint(partial_core)
+    with pytest.raises(ValueError):
+        validate_arena_plan(partial)
 
 
 def test_review_packet_is_shuffled_model_free_and_unblinding_waits_for_reviews(
@@ -1247,7 +2720,7 @@ def test_terminal_exact_replay_is_idempotent_but_changed_payload_collides(
     }
     first = store.record_terminal(**kwargs)
     assert store.record_terminal(**kwargs) == first
-    assert len(store.events.read().events) == 1
+    assert len(store.journal_events()) == 1
     with pytest.raises(LocalQueueError, match="arena_terminal_sample_collision"):
         store.record_terminal(**{**kwargs, "reason": "different_failure"})
 
@@ -1358,3 +2831,1004 @@ def test_promotion_comparison_requires_exact_non_model_grid(tmp_path: Path) -> N
     )
     with pytest.raises(LocalQueueError, match="arena_promotion_unmatched_model_grid"):
         _promotion_design_check(unmatched)
+
+
+def test_supervised_rollout_plan_is_exact_size_and_never_promotion_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+
+    assert plan["purpose"] == "supervised_rollout"
+    assert plan["expectedSampleCount"] == 10
+    assert {
+        sample["benchmarkRecipe"]["promotionEvidenceAllowed"]
+        for sample in plan["samples"]
+    } == {False}
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_size_invalid"):
+        _build(
+            monkeypatch,
+            tmp_path / "invalid",
+            [_spec(source, seed=index) for index in range(1, 12)],
+            purpose="supervised_rollout",
+        )
+
+
+def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = _rollout_store(root)
+    store.persist_plan(plan)
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    bundles = [
+        _rollout_router_bundle(sample, index)
+        for index, sample in enumerate(plan["samples"])
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_not_executable"):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=plan["samples"][0]["sampleId"],
+            dry_run=True,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    backdated_store = LocalModelArenaStore(
+        tmp_path / "backdated-state",
+        trusted_clock=lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00"),
+    )
+    backdated_store.persist_plan(plan)
+    with pytest.raises(LocalQueueError, match="arena_rollout_timestamp_backdated"):
+        backdated_store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-backdated",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="caller time is stale",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles,
+            benchmark_store=LocalModelBenchmarkStore(tmp_path / "backdated-state"),
+            human_reviews=HumanMediaReviewStore(tmp_path / "backdated-state"),
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    for decided_at, error in (
+        ("2026-07-22T11:59:59Z", "arena_rollout_timestamp_order_invalid"),
+        ("2026-07-22T12:00:01Z", "arena_rollout_timestamp_future"),
+    ):
+        with pytest.raises(LocalQueueError, match=error):
+            store.approve_rollout_gate(
+                plan_id=plan["planId"],
+                rollout_id="rollout-1",
+                operator_identity="operator@example.test",
+                decided_at=decided_at,
+                reason="invalid trusted-clock claim",
+                mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+                router_evidence_bundles=bundles,
+                benchmark_store=benchmark_store,
+                human_reviews=reviews,
+                external_activity_observations=external_sources,
+                evidence_secret=EVIDENCE_SECRET,
+            )
+    nonzero_observations = _external_activity_observations(
+        tmp_path / "external-activity-nonzero",
+        records_by_kind={"provider_cost": [{"costUsd": 1}]},
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_external_activity_detected"
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="external activity must block",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=nonzero_observations,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_sample_router_evidence_not_exactly_once",
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="reviewed exact gate",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles[:-1],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_mode_confirmation_invalid"
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="reviewed exact gate",
+            mode_confirmation="Mode 3",
+            router_evidence_bundles=bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    mixed_hardware_bundles = list(bundles)
+    mixed_hardware_bundles[-1] = _rollout_router_bundle(
+        plan["samples"][-1],
+        len(plan["samples"]) - 1,
+        promotion_hardware_fingerprint="8" * 64,
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_router_promotion_hardware_mismatch",
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="mixed promotion hardware must hold",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=mixed_hardware_bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    approved = store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-1",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="reviewed exact gate",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=bundles,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+    assert approved["transition"] == "approved_to_run"
+    assert len(approved["routerEvidence"]) == 10
+    assert approved["promotionHardwareFingerprint"] == "9" * 64
+    assert (
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+        == approved
+    )
+    store._trusted_clock = lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00")
+    assert (
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+        == approved
+    )
+    store._trusted_clock = lambda: datetime.fromisoformat(
+        PRODUCED_AT.replace("Z", "+00:00")
+    )
+    store._hardware_identity_provider = lambda: {"fingerprint": "8" * 64}
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_current_hardware_does_not_match_promotion",
+    ):
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    store._hardware_identity_provider = lambda: {"fingerprint": "9" * 64}
+    schedule_source = _external_activity_source_path(external_sources["schedule"])
+    schedule_source.write_text('[{"scheduleId": "unexpected"}]\n', encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_external_activity_source_substituted"
+    ):
+        store.rollout_status(plan["planId"], evidence_secret=EVIDENCE_SECRET)
+    schedule_source.write_text("[]\n", encoding="utf-8")
+
+    tampered = deepcopy(approved)
+    tampered["reason"] = "substituted approval"
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_receipt_fingerprint_mismatch"
+    ):
+        validate_rollout_gate_receipt(
+            tampered,
+            arena_plan=plan,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    assert not hasattr(store, "events")
+    AppendOnlyJournal(root / "arena_events.jsonl").append(
+        "arena_rollout_gate_transition",
+        approved,
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_transition_sequence_invalid"
+    ):
+        store.rollout_status(plan["planId"], evidence_secret=EVIDENCE_SECRET)
+
+
+def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = _rollout_store(root)
+    store.persist_plan(plan)
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    queue = LocalGenerationQueue(
+        tmp_path / "queue",
+        resource_limit_bytes=1,
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-held",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="reviewed exact gate",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(sample, index)
+            for index, sample in enumerate(plan["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_timestamp_order_invalid"):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="held",
+            operator_identity="operator@example.test",
+            decided_at="2026-07-22T11:59:59Z",
+            reason="must not predate approval",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_terminal_evidence_incomplete"
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="terminal",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="not complete",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    for index, sample in enumerate(plan["samples"]):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="evidence unavailable remains missing",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+        if index == 0:
+            with pytest.raises(
+                LocalQueueError, match="arena_rollout_sample_already_terminal"
+            ):
+                execute_arena_sample_generation(
+                    store,
+                    plan_id=plan["planId"],
+                    sample_id=sample["sampleId"],
+                    dry_run=True,
+                    benchmarks=benchmark_store,
+                    human_reviews=reviews,
+                    evidence_secret=EVIDENCE_SECRET,
+                )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_gate_pass_criteria_not_met"
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="terminal",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="missing cannot pass",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    store._trusted_clock = lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00")
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_interval_invalid",
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="held",
+            operator_identity="operator@example.test",
+            decided_at="2026-07-22T12:10:00Z",
+            reason="terminal transition requires a fresh observation",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    store._trusted_clock = lambda: datetime.fromisoformat(
+        PRODUCED_AT.replace("Z", "+00:00")
+    )
+
+    held = store.record_rollout_reconciliation(
+        plan_id=plan["planId"],
+        decision="held",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="missing evidence holds the gate",
+        queue=queue,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    assert held["receipt"]["transition"] == "held"
+    assert held["receipt"]["summaryEvidence"]["terminalCounts"]["missing"] == 10
+    assert len(held["receipt"]["summaryEvidence"]["failedOrHeldSamples"]) == 10
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_escalation_predecessor_invalid"
+    ):
+        store.approve_rollout_escalation(
+            plan_id=plan["planId"],
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="held gates cannot escalate",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_rollout_external_activity_requires_authentic_observer_receipts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    store = _rollout_store(tmp_path / "state")
+    store.persist_plan(plan)
+    benchmark_store = LocalModelBenchmarkStore(tmp_path / "state")
+    reviews = HumanMediaReviewStore(tmp_path / "state")
+    bundles = [
+        _rollout_router_bundle(sample, index)
+        for index, sample in enumerate(plan["samples"])
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+
+    def attempt(
+        observations: dict[str, Path],
+        *,
+        target_store: LocalModelArenaStore = store,
+        decided_at: str = PRODUCED_AT,
+    ) -> None:
+        target_store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-authenticity",
+            operator_identity="operator@example.test",
+            decided_at=decided_at,
+            reason="observer authenticity test",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=observations,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
+        observations = _external_activity_observations(
+            tmp_path / f"forged-empty-{kind}"
+        )
+        forged = (tmp_path / f"unsigned-{kind}.json").resolve()
+        forged.write_text("[]\n", encoding="utf-8")
+        observations[kind] = forged
+        with pytest.raises(
+            LocalQueueError,
+            match=f"arena_rollout_external_activity_observation_invalid:{kind}",
+        ):
+            attempt(observations)
+
+    caller_signed = _external_activity_observations(tmp_path / "caller-signed")
+    _rewrite_external_activity_observation(
+        caller_signed["provider_cost"],
+        observer_signer=Ed25519PrivateKey.from_private_bytes(
+            hashlib.sha256(EVIDENCE_SECRET.encode()).digest()
+        ),
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_attestation_invalid",
+    ):
+        attempt(caller_signed)
+
+    configured_bindings = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS
+    unavailable_bindings = deepcopy(configured_bindings)
+    unavailable_bindings["provider_cost"]["publicKeyBase64"] = None
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        unavailable_bindings,
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observer_unavailable:provider_cost",
+    ):
+        attempt(_external_activity_observations(tmp_path / "observer-unavailable"))
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        configured_bindings,
+    )
+
+    wrong_issuer = _external_activity_observations(tmp_path / "wrong-issuer")
+    _rewrite_external_activity_observation(
+        wrong_issuer["provider_cost"],
+        issuer="operator.self_asserted_empty_observer",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_issuer)
+
+    wrong_kind = _external_activity_observations(tmp_path / "wrong-kind")
+    _rewrite_external_activity_observation(
+        wrong_kind["provider_cost"],
+        updates={"kind": "schedule"},
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_kind)
+
+    wrong_query = _external_activity_observations(tmp_path / "wrong-query")
+    _rewrite_external_activity_observation(
+        wrong_query["provider_cost"],
+        updates={"queryIdentity": "operator_selected_empty_query.v1"},
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_query)
+
+    substituted = _external_activity_observations(tmp_path / "substituted-source")
+    _external_activity_source_path(substituted["publish"]).write_text(
+        '[{"publishId": "substituted"}]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_source_substituted:publish",
+    ):
+        attempt(substituted)
+
+    stale_store = LocalModelArenaStore(
+        tmp_path / "stale-state",
+        trusted_clock=lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00"),
+    )
+    stale_store.persist_plan(plan)
+    stale = _external_activity_observations(
+        tmp_path / "stale-observation",
+        observed_at="2026-07-22T12:04:00Z",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_interval_invalid",
+    ):
+        attempt(
+            stale,
+            target_store=stale_store,
+            decided_at="2026-07-22T12:10:00Z",
+        )
+
+    future = _external_activity_observations(
+        tmp_path / "future-observation",
+        observed_at="2026-07-22T12:00:01Z",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_attestation_invalid",
+    ):
+        attempt(future)
+
+
+def test_rollout_terminal_status_must_match_exact_queue_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    store = _rollout_store(tmp_path / "state")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=1024)
+    benchmark_store = LocalModelBenchmarkStore(tmp_path / "state")
+    reviews = HumanMediaReviewStore(tmp_path / "state")
+    sample = plan["samples"][0]
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_not_executable"):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="proposed plans cannot accept terminal evidence",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-terminal-evidence",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="authorize exact terminal evidence",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(item, index)
+            for index, item in enumerate(plan["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_terminal_queue_state_mismatch"
+    ):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="failed",
+            reason="never-run cannot be disguised as failed",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    queue.submit(_job_from_sample(sample))
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_terminal_queue_state_mismatch"
+    ):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="submitted work cannot be called missing",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    AppendOnlyJournal(tmp_path / "state" / "arena_events.jsonl").append(
+        "arena_sample_terminal",
+        {
+            "schema": arena_module.EVENT_SCHEMA,
+            "planId": plan["planId"],
+            "planFingerprint": plan["planFingerprint"],
+            "sampleId": sample["sampleId"],
+            "status": "missing",
+        },
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_terminal_event_authentication_invalid",
+    ):
+        store.summarize(
+            plan["planId"],
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_rollout_approval_rechecks_promotion_before_append(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    store = _rollout_store(tmp_path / "state")
+    store.persist_plan(plan)
+    bundles = [
+        _rollout_router_bundle(sample, index)
+        for index, sample in enumerate(plan["samples"])
+    ]
+    calls = 0
+
+    def revoking_validator(bundle: dict, **kwargs) -> tuple[dict, dict]:
+        nonlocal calls
+        calls += 1
+        if calls > len(bundles) and kwargs.get("require_active_promotion") is True:
+            raise LocalQueueError("arena_rollout_router_promotion_not_active")
+        return _fake_rollout_router_validator(bundle, **kwargs)
+
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        revoking_validator,
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_router_promotion_not_active"
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-revoked",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="must recheck immediately before append",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles,
+            benchmark_store=LocalModelBenchmarkStore(tmp_path / "state"),
+            human_reviews=HumanMediaReviewStore(tmp_path / "state"),
+            external_activity_observations=_external_activity_observations(
+                tmp_path / "external-activity"
+            ),
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    assert (
+        store.rollout_status(plan["planId"], evidence_secret=EVIDENCE_SECRET)["state"]
+        == "proposed"
+    )
+
+
+def test_rollout_predecessor_must_be_prior_gate_escalation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan_10 = _build(
+        monkeypatch,
+        tmp_path / "gate10",
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    plan_25 = _build(
+        monkeypatch,
+        tmp_path / "gate25",
+        [_spec(source, seed=index) for index in range(101, 126)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = _rollout_store(root)
+    store.persist_plan(plan_10)
+    store.persist_plan(plan_25)
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=1)
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    approval_10 = store.approve_rollout_gate(
+        plan_id=plan_10["planId"],
+        rollout_id="rollout-chain",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="gate 10",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(sample, index)
+            for index, sample in enumerate(plan_10["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+
+    gate_25_arguments = {
+        "plan_id": plan_25["planId"],
+        "rollout_id": "rollout-chain",
+        "operator_identity": "operator@example.test",
+        "decided_at": PRODUCED_AT,
+        "reason": "gate 25",
+        "mode_confirmation": arena_module.ROLLOUT_MODE_CONFIRMATION,
+        "router_evidence_bundles": [
+            _rollout_router_bundle(sample, index + 100)
+            for index, sample in enumerate(plan_25["samples"])
+        ],
+        "benchmark_store": benchmark_store,
+        "human_reviews": reviews,
+        "external_activity_observations": external_sources,
+        "evidence_secret": EVIDENCE_SECRET,
+    }
+    with pytest.raises(LocalQueueError, match="arena_rollout_predecessor_invalid"):
+        store.approve_rollout_gate(
+            predecessor_receipt_fingerprint=approval_10["receiptFingerprint"],
+            **gate_25_arguments,
+        )
+
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_transition_append_private"
+    ):
+        store._append_rollout_receipt(
+            {},
+            evidence_secret=EVIDENCE_SECRET,
+            transition_token=object(),
+        )
+
+    for sample in plan_10["samples"]:
+        store.record_terminal(
+            plan_id=plan_10["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="full-chain state-machine fixture",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    passing_summary = _passing_rollout_summary(
+        store.summarize(
+            plan_10["planId"],
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    )
+    original_summarize = store.summarize
+    monkeypatch.setattr(
+        store,
+        "summarize",
+        lambda plan_id, **_kwargs: (
+            passing_summary
+            if plan_id == plan_10["planId"]
+            else original_summarize(plan_id, **_kwargs)
+        ),
+    )
+    terminal_10 = store.record_rollout_reconciliation(
+        plan_id=plan_10["planId"],
+        decision="terminal",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="gate 10 passed",
+        queue=queue,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+    assert (
+        terminal_10["previousReceiptFingerprint"] == approval_10["receiptFingerprint"]
+    )
+    escalation_10 = store.approve_rollout_escalation(
+        plan_id=plan_10["planId"],
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="full-chain escalation",
+        queue=queue,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+
+    approval_25 = store.approve_rollout_gate(
+        predecessor_receipt_fingerprint=escalation_10["receiptFingerprint"],
+        **gate_25_arguments,
+    )["receipt"]
+    assert (
+        approval_25["predecessorReceiptFingerprint"]
+        == escalation_10["receiptFingerprint"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("gate_size", "failure_kind", "expected_blocker"),
+    [
+        (25, "resource_blocked", "rollout_queue_stability_not_proven"),
+        (50, "failed", "rollout_failure_recovery_incomplete"),
+        (
+            100,
+            "missing_resource_measurement",
+            "rollout_resource_latency_evidence_incomplete",
+        ),
+    ],
+)
+def test_larger_rollout_gates_require_named_derived_criteria(
+    gate_size: int,
+    failure_kind: str,
+    expected_blocker: str,
+) -> None:
+    samples = []
+    for index in range(gate_size):
+        status = "succeeded"
+        promotion_valid = True
+        measurement_available = True
+        if index == 0 and failure_kind in {"resource_blocked", "failed"}:
+            status = failure_kind
+            promotion_valid = False
+        if index == 0 and failure_kind == "missing_resource_measurement":
+            measurement_available = False
+        samples.append(
+            {
+                "status": status,
+                "promotionEvidenceValid": promotion_valid,
+                "blockingReasons": [],
+                "wallTimeSeconds": 10.0,
+                "peakMemoryBytes": 1024,
+                "executionEvidence": {
+                    "attemptCount": 1,
+                    "retryCount": 0,
+                    "hardwareFingerprint": "9" * 64,
+                    "executionMeasurement": {
+                        "available": measurement_available,
+                    },
+                },
+            }
+        )
+    counts = {
+        status: sum(sample["status"] == status for sample in samples)
+        for status in arena_module.TERMINAL_STATUSES
+    }
+    summary = {
+        "samples": samples,
+        "sampleCounts": counts,
+        "promotionEligibleYield": sum(
+            sample["promotionEvidenceValid"] for sample in samples
+        )
+        / gate_size,
+    }
+
+    criteria = LocalModelArenaStore._rollout_gate_criteria(
+        summary,
+        gate_size=gate_size,
+        promotion_active=True,
+        promotion_hardware_fingerprint="9" * 64,
+    )
+
+    assert criteria["passed"] is False
+    assert expected_blocker in criteria["blockingReasons"]
+
+
+def test_gate_25_requires_one_exact_hardware_cohort() -> None:
+    samples = [
+        {
+            "status": "succeeded",
+            "promotionEvidenceValid": True,
+            "blockingReasons": [],
+            "wallTimeSeconds": 1.0,
+            "peakMemoryBytes": 1024,
+            "executionEvidence": {
+                "attemptCount": 1,
+                "retryCount": 0,
+                "hardwareFingerprint": ("8" if index == 0 else "9") * 64,
+                "executionMeasurement": {"available": True},
+            },
+        }
+        for index in range(25)
+    ]
+    criteria = LocalModelArenaStore._rollout_gate_criteria(
+        {
+            "samples": samples,
+            "sampleCounts": {
+                status: (25 if status == "succeeded" else 0)
+                for status in arena_module.TERMINAL_STATUSES
+            },
+            "promotionEligibleYield": 1.0,
+        },
+        gate_size=25,
+        promotion_active=True,
+        promotion_hardware_fingerprint="9" * 64,
+    )
+
+    assert criteria["singleHardwareCohortProven"] is False
+    assert criteria["hardwareFingerprint"] is None
+    assert "rollout_single_hardware_cohort_not_proven" in criteria["blockingReasons"]
+    assert criteria["executionHardwareMatchesPromotion"] is False
+    assert (
+        "rollout_execution_hardware_does_not_match_promotion"
+        in criteria["blockingReasons"]
+    )

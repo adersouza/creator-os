@@ -57,6 +57,7 @@
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     ],
     "parameterFingerprint": "289fe887055da5aac5763c159bf6cf1fbb4421a0b15f9ec3a94632951c1b21b5",
+    "promotionEvidenceAllowed": true,
     "requiredAnalyzers": [
       {
         "analyzerId": "contentforge.campaign_factory_audit",
