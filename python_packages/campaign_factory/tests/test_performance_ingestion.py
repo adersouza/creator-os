@@ -1218,7 +1218,8 @@ def test_metric_history_failure_records_no_metrics_eligible_fallback(
         assert result["inserted"] == 0
         assert result["postsScanned"] == 2
         assert result["postsImported"] == 0
-        assert result["metricHistoryError"] == error
+        assert result["metricHistoryError"] == "metric_history_unavailable"
+        assert error not in json.dumps(result)
         assert result["historySources"] == {}
         assert result["fallbackRows"] == 0
         assert result["learningIneligiblePosts"] == 2

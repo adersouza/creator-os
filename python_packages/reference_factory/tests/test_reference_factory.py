@@ -157,17 +157,28 @@ def test_audio_platform_inference_uses_hostname(url: str, expected: str):
     assert _infer_platform_from_url(url) == expected
 
 
-def test_reference_analysis_export_rejects_provider_path_traversal(tmp_path: Path):
+@pytest.mark.parametrize(
+    "provider_target",
+    [
+        "../../outside",
+        "/tmp/outside",
+        "nested/provider",
+        r"nested\provider",
+    ],
+)
+def test_reference_analysis_export_rejects_all_provider_path_shapes(
+    tmp_path: Path, provider_target: str
+):
     conn = make_conn(tmp_path)
 
     with pytest.raises(ValueError, match="provider_target"):
         export_analysis_queue(
             conn,
             data_root=tmp_path / "data",
-            provider_target="../../outside",
+            provider_target=provider_target,
         )
 
-    assert not (tmp_path / "outside_analysis_queue.json").exists()
+    assert list(tmp_path.rglob("*_analysis_queue.json")) == []
 
 
 def make_conn(tmp_path: Path) -> sqlite3.Connection:

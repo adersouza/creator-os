@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
@@ -144,13 +145,14 @@ def sync_performance_snapshots(
                 raise RuntimeError(
                     "campaign metric history read was truncated; refusing partial sync"
                 )
-        except RuntimeError as exc:
+        except RuntimeError:
+            logging.exception("ThreadsDashboard metric history read failed")
             metric_history_rows = []
-            metric_history_error = str(exc)
+            metric_history_error = "metric_history_unavailable"
             warnings.append(
                 {
                     "reason": "metric_history_unavailable",
-                    "message": str(exc),
+                    "message": "metric_history_unavailable",
                 }
             )
         _validate_threadsdash_post_metric_history_read(metric_history_rows)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
@@ -41,6 +42,7 @@ THREADSDASH_INGEST_PATH = "/api/campaign-factory/drafts/ingest"
 DEFAULT_THREADSDASH_INGEST_HOSTS = frozenset({"juno33.com", "www.juno33.com"})
 POST_METRIC_HISTORY_POST_ID_BATCH_SIZE = 5
 _STDLIB_URLOPEN = urlopen
+logger = logging.getLogger(__name__)
 
 from . import threadsdash_client as _threadsdash_client
 from . import threadsdash_draft_payload as _draft_payload
@@ -280,8 +282,9 @@ def evaluate_export_readiness(
                     rendered_asset_ids=rendered_asset_ids,
                     draft_payload=payload,
                 )
-            except Exception as exc:
-                usage_error = str(exc)
+            except Exception:
+                logger.exception("ThreadsDashboard usage check failed")
+                usage_error = "usage_check_unavailable"
         else:
             usage_error = "supabase_url and supabase_service_role_key are required for live usage checks"
 
@@ -633,8 +636,9 @@ def _preflight_check(name: str, fn) -> dict[str, Any]:
                 if key in result
             }
         return {"name": name, "ok": True, "detail": detail}
-    except Exception as exc:
-        return {"name": name, "ok": False, "error": str(exc)}
+    except Exception:
+        logger.exception("Supabase preflight check failed: %s", name)
+        return {"name": name, "ok": False, "error": f"{name}_failed"}
 
 
 def _load_export_result(

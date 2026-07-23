@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from sqlite3 import Connection
@@ -44,8 +45,9 @@ _SAFE_FILENAME_TOKEN = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
 
 
 def _safe_filename_token(value: object, *, field: str) -> str:
-    token = _norm(value)
-    if not _SAFE_FILENAME_TOKEN.fullmatch(token):
+    normalized = _norm(value)
+    token = os.path.basename(normalized)
+    if token != normalized or not _SAFE_FILENAME_TOKEN.fullmatch(token):
         raise ValueError(f"{field} must contain only letters, numbers, and underscores")
     return token
 
