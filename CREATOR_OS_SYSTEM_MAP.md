@@ -335,14 +335,13 @@ Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
 The former top-level diagnostic commands remain compatibility aliases with
 deprecation notices.
 
-Creative Approval v2 and AI-disclosure policy remain owned by `origin/main`;
-this local-motion trust-chain work does not duplicate or replace them. They
-arrive here only through the reviewed rebase. After that rebase, the upstream
-approval binds the exact creator, source, output, intent, model admission, QC
-receipt set, export projection, and disclosure decision, and Campaign readiness
-and export reload it rather than trusting local-motion metadata. Until those
-upstream tests pass on the rebased commit, this branch is motion-evidence
-complete but not approval/export complete.
+Creative Approval v2 and AI-disclosure policy are integrated with the
+local-motion trust chain rather than duplicated by it. The approval binds the
+exact creator, source, output, intent, model admission, QC receipt set, export
+projection, and disclosure decision. Campaign readiness, publishability, and
+exact draft delivery reload and validate that approval instead of trusting
+local-motion metadata. Focused approval, readiness, and export tests cover this
+combined boundary.
 
 `creator-os promote` is local source/runtime management, not production
 publishing. It requires an exact clean reviewed commit, a write-capable
