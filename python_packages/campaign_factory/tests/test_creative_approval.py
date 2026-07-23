@@ -815,9 +815,175 @@ def test_creative_approval_binds_every_exact_artifact(tmp_path: Path) -> None:
     payload = _approval(tmp_path)
     assert validate_creative_approval(payload) == payload
     store = CreativeApprovalStore(tmp_path / "approvals")
-    path = store.record(payload)
+    with pytest.raises(CreativeApprovalError, match="v1_read_only"):
+        store.record(payload)
+
+
+def test_creative_approval_v1_is_preserved_as_non_operational_history(
+    tmp_path: Path,
+) -> None:
+    payload = _approval(tmp_path)
+    root = tmp_path / "approvals"
+    root.mkdir()
+    path = root / f"{payload['approvalId']}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
     assert load_creative_approval(path) == payload
-    assert store.record(payload) == path
+
+    store = CreativeApprovalStore(root)
+    inventory = store.legacy_inventory()
+    assert inventory["summary"] == {
+        "historicalV1Records": 1,
+        "operationallyEligible": 0,
+        "automaticallyMigratable": 0,
+        "unsafeJsonPaths": 0,
+    }
+    assert inventory["records"][0]["classification"] == "valid_historical_v1"
+    assert inventory["records"][0]["blockingReason"] == (
+        "creative_approval_v1_not_operational"
+    )
+    assert inventory["records"][0]["automaticallyMigratable"] is False
+
+
+def test_creative_approval_inventory_never_follows_symlinks(tmp_path: Path) -> None:
+    payload = _approval(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(payload), encoding="utf-8")
+    root = tmp_path / "approvals"
+    root.mkdir()
+    unsafe = root / "unsafe.json"
+    unsafe.symlink_to(outside)
+
+    store = CreativeApprovalStore(root)
+    inventory = store.legacy_inventory()
+    assert inventory["summary"]["historicalV1Records"] == 0
+    assert inventory["summary"]["unsafeJsonPaths"] == 1
+    assert inventory["unsafePaths"] == [str(unsafe.absolute())]
+    with pytest.raises(CreativeApprovalError, match="missing_or_unsafe"):
+        load_creative_approval(unsafe)
+
+
+def test_creative_approval_v1_matching_asset_is_explicitly_blocked(
+    tmp_path: Path,
+) -> None:
+    payload, asset, _draft = _v2_fixture(tmp_path)
+    legacy = _approval(tmp_path)
+    legacy["output"] = dict(payload["output"])
+    core = dict(legacy)
+    core.pop("approvalFingerprint")
+    legacy["approvalFingerprint"] = _fingerprint(core)
+    root = tmp_path / "approvals"
+    root.mkdir()
+    (root / "legacy.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    status = CreativeApprovalStore(root).status_for_asset(asset)
+    assert status["state"] == "legacy_unmigrated"
+    assert status["blockingReason"] == "creative_approval_v1_not_operational"
+    assert status["historicalRecords"] == [
+        {"approvalId": "approval-1", "path": str((root / "legacy.json").resolve())}
+    ]
+
+
+def test_ai_disclosure_is_added_and_waits_for_exact_v2_approval(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        asset = {
+            "id": "asset-ai-disclosure",
+            "metadata_json": json.dumps(
+                {
+                    "schema": "campaign_factory.motion_generation_asset.v1",
+                    "worker": {"result": {"aiDisclosureRequired": True}},
+                    "publishability": {
+                        "blockingIssues": ["ai_generated_media_disclosure_required"]
+                    },
+                }
+            ),
+        }
+        post_caption = cf.domains.publishability.instagram_post_caption_for_asset(
+            asset,
+            {"instagram_post_caption": "felt cute"},
+        )
+        assert post_caption["instagram_post_caption"] == (
+            "felt cute\nAI-generated media."
+        )
+        assert post_caption["ai_disclosure_required"] is True
+        assert post_caption["ai_disclosure_appended"] is True
+        disclosure = cf.domains.publishability.ai_disclosure_status(
+            asset=asset,
+            post_caption=post_caption,
+            creative_approval={"state": "missing"},
+        )
+        assert disclosure["resolved"] is False
+        assert disclosure["state"] == "awaiting_creative_approval_v2"
+    finally:
+        cf.close()
+
+
+def test_ai_disclosure_requires_exact_creative_approval_caption_binding(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        asset = {
+            "id": "asset-ai-disclosure",
+            "metadata_json": json.dumps(
+                {
+                    "schema": "campaign_factory.motion_generation_asset.v1",
+                    "aiDisclosureRequired": True,
+                }
+            ),
+        }
+        post_caption = {
+            "instagram_post_caption": "AI-generated media.",
+            "instagram_post_caption_hash": cf.domains.publishability.text_hash(
+                "AI-generated media."
+            ),
+        }
+        mismatch = cf.domains.publishability.ai_disclosure_status(
+            asset=asset,
+            post_caption=post_caption,
+            creative_approval={
+                "state": "approved",
+                "approval": {
+                    "approvalId": "approval-1",
+                    "approvalFingerprint": "a" * 64,
+                    "contentSemantics": {"instagramPostCaption": "different caption"},
+                    "exportProjection": {
+                        "instagramPostCaptionHash": post_caption[
+                            "instagram_post_caption_hash"
+                        ]
+                    },
+                },
+            },
+        )
+        assert mismatch["resolved"] is False
+        assert mismatch["state"] == "creative_approval_disclosure_binding_mismatch"
+
+        resolved = cf.domains.publishability.ai_disclosure_status(
+            asset=asset,
+            post_caption=post_caption,
+            creative_approval={
+                "state": "approved",
+                "approval": {
+                    "approvalId": "approval-1",
+                    "approvalFingerprint": "a" * 64,
+                    "contentSemantics": {
+                        "instagramPostCaption": post_caption["instagram_post_caption"]
+                    },
+                    "exportProjection": {
+                        "instagramPostCaptionHash": post_caption[
+                            "instagram_post_caption_hash"
+                        ]
+                    },
+                },
+            },
+        )
+        assert resolved["resolved"] is True
+        assert resolved["state"] == "resolved_by_creative_approval_v2"
+        assert resolved["approvalId"] == "approval-1"
+    finally:
+        cf.close()
 
 
 def test_v2_contract_is_visible_through_the_canonical_manifest() -> None:
@@ -852,7 +1018,7 @@ def test_creative_approval_rejects_semantic_conflation(tmp_path: Path) -> None:
 
 
 def test_creative_approval_rejects_identity_collision(tmp_path: Path) -> None:
-    payload = _approval(tmp_path)
+    payload, _asset, _draft = _v2_fixture(tmp_path)
     store = CreativeApprovalStore(tmp_path / "approvals")
     path = store.record(payload)
     decoded = json.loads(path.read_text())
