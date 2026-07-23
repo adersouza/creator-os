@@ -273,10 +273,13 @@ enough memory. It never silently selects a paid provider or the retired legacy
 local-motion path. Promotion must bind the exact creator/identity/intent/task
 cohort, the same benchmark IDs Router scores, the model/runtime/toolchain and
 license fingerprints, and the current hardware fingerprint.
-Each model arm requires at least eight matched measured samples. Receipts also
-bind one exact pinned-runtime/toolchain fingerprint and one exact model-license
-policy; mixed runtimes, changed FFmpeg/FFprobe binaries, or noncompliant
-commercial use are ineligible.
+Every creator/model/capability/intent group requires at least eight matched
+measured samples: two distinct sources and four seeds per source. A two-model
+promotion spanning Stacey, Larissa, and Lola therefore requires at least 24
+samples per model arm and 48 total. Receipts also bind one exact
+pinned-runtime/toolchain fingerprint and one exact model-license policy; mixed
+runtimes, changed FFmpeg/FFprobe binaries, or noncompliant commercial use are
+ineligible.
 An operator override may select only an otherwise valid candidate and is
 explicitly excluded from benchmark learning.
 

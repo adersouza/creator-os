@@ -704,16 +704,23 @@ def main(argv: list[str] | None = None) -> int:
             if receipt_args.operator:
                 command.extend(["--operator", receipt_args.operator])
             return _run(command)
-        request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
-        return _run(
-            [
-                "node",
-                str(ROOT / "packages/contentforge/cli.mjs"),
-                "analyzer-registry",
-            ],
-            cwd=ROOT,
-            input_text=request,
-        )
+        if args.surface == "analyzers":
+            analyzers = argparse.ArgumentParser(
+                prog="creator-os advanced analyzers",
+                description="Emit the canonical ContentForge analyzer registry.",
+            )
+            analyzers.parse_args(advanced_args)
+            request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
+            return _run(
+                [
+                    "node",
+                    str(ROOT / "packages/contentforge/cli.mjs"),
+                    "analyzer-registry",
+                ],
+                cwd=ROOT,
+                input_text=request,
+            )
+        raise AssertionError(f"unhandled advanced surface: {args.surface}")
     if args.command == "promote":
         command = _runtime_promotion_command(
             "--source-root",
