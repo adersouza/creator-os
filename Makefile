@@ -40,5 +40,5 @@ verify:
 # environments from the exact frozen locks before verifying the promoted tree.
 runtime-verify:
 	pnpm install --frozen-lockfile
-	uv sync --all-packages --frozen
+	uv sync --all-extras --all-packages --frozen
 	$(MAKE) verify

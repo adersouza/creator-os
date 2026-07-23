@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -140,6 +141,31 @@ def test_monorepo_ci_always_runs_required_promotion_language_jobs() -> None:
     for required_job in ("javascript", "python"):
         assert "if" not in jobs[required_job]
         assert "needs" not in jobs[required_job]
+
+
+def test_runtime_verify_reconstructs_complete_frozen_python_environment() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    runtime_verify = makefile.split("\nruntime-verify:\n", maxsplit=1)[1].split(
+        "\n\n", maxsplit=1
+    )[0]
+    sync_commands = [
+        line.strip() for line in runtime_verify.splitlines() if "uv sync" in line
+    ]
+
+    assert sync_commands == ["uv sync --all-extras --all-packages --frozen"]
+
+
+def test_mypy_skips_only_the_incompatible_tifffile_implementation() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    mypy = pyproject["tool"]["mypy"]
+
+    assert "follow_imports" not in mypy
+    assert mypy["overrides"] == [
+        {
+            "module": ["tifffile", "tifffile.*"],
+            "follow_imports": "skip",
+        }
+    ]
 
 
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
