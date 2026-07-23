@@ -178,9 +178,11 @@ def _job(
     task_input: str,
     *,
     promotion_evidence_allowed: bool = True,
+    frames: int = 81,
+    bind_execution_identity: bool = False,
 ) -> LocalGenerationJob:
     input_fingerprint = _sha(task_input)
-    params = {"frames": 81, "seed": 9}
+    params = {"frames": frames, "seed": 9}
     recipe, registry = _records(
         input_fingerprint=input_fingerprint,
         parameter_fingerprint=queue_fingerprint(params),
@@ -206,6 +208,16 @@ def _job(
         input_sha256=input_fingerprint,
         requested_memory_bytes=GIB,
         params=params,
+        cohort=(
+            {
+                "inputSha256": input_fingerprint,
+                "params": params,
+                "executionBindingFingerprint": _sha(f"{model}-execution-binding"),
+                "executionIsolationFingerprint": _sha(f"{job_id}-isolation"),
+            }
+            if bind_execution_identity
+            else None
+        ),
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         creator_identity_profile=profile,
@@ -750,6 +762,7 @@ def _matched_evidence(
     *,
     candidate_qc: bool = True,
     candidate_promotion_evidence_allowed: bool = True,
+    candidate_frames: int = 81,
 ) -> tuple[
     LocalModelBenchmarkStore,
     tuple[BenchmarkReceipt, ...],
@@ -765,7 +778,12 @@ def _matched_evidence(
             _complete_and_benchmark(
                 queue,
                 store,
-                _job(f"baseline-{index}", "baseline", task_input),
+                _job(
+                    f"baseline-{index}",
+                    "baseline",
+                    task_input,
+                    bind_execution_identity=True,
+                ),
                 benchmark_id=f"baseline-benchmark-{index}",
             )
         )
@@ -778,6 +796,8 @@ def _matched_evidence(
                     "candidate",
                     task_input,
                     promotion_evidence_allowed=(candidate_promotion_evidence_allowed),
+                    frames=candidate_frames,
+                    bind_execution_identity=True,
                 ),
                 benchmark_id=f"candidate-benchmark-{index}",
                 qc_passed=candidate_qc,
@@ -808,10 +828,24 @@ def _evaluate(
 
 def test_eligible_evaluation_never_auto_promotes(tmp_path: Path) -> None:
     store, candidate, baseline = _matched_evidence(tmp_path)
+    assert sorted(item.task_fingerprint for item in candidate) != sorted(
+        item.task_fingerprint for item in baseline
+    )
     evaluation = _evaluate(store, candidate, baseline)
     assert evaluation.eligible
     event_types = [event["eventType"] for event in store.promotions.read().events]
     assert event_types == ["promotion_evaluated"]
+
+
+def test_model_independent_task_identity_rejects_parameter_substitution(
+    tmp_path: Path,
+) -> None:
+    store, candidate, baseline = _matched_evidence(tmp_path, candidate_frames=82)
+
+    evaluation = _evaluate(store, candidate, baseline)
+
+    assert not evaluation.eligible
+    assert "benchmark_task_identity_cohort_mismatch" in evaluation.blocking_reasons
 
 
 def test_tiny_four_per_arm_cohort_is_not_promotion_eligible(tmp_path: Path) -> None:
@@ -997,7 +1031,7 @@ def test_unmatched_task_cohort_blocks_promotion(tmp_path: Path) -> None:
     )
     assert not evaluation.eligible
     assert "duplicate_candidate_benchmark_id" in evaluation.blocking_reasons
-    assert "task_fingerprint_cohort_mismatch" in evaluation.blocking_reasons
+    assert "benchmark_task_identity_cohort_mismatch" in evaluation.blocking_reasons
 
 
 def test_operator_cli_records_output_bound_qc_receipt(

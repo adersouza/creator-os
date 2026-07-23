@@ -25,6 +25,7 @@ from creator_os_core.evidence_attestation import (
 )
 
 from pipeline_contracts import (
+    BenchmarkRecipeV1,
     validate_human_media_review,
     validate_motion_specific_qc_receipt_v2,
     validate_trusted_media_analysis,
@@ -1610,6 +1611,7 @@ class LocalModelBenchmarkStore:
         baseline = self._resolve_receipts(
             receipts, baseline_benchmark_ids, "baseline", blockers
         )
+        benchmark_task_identities: dict[str, str] = {}
         if len(candidate) < policy.minimum_candidate_samples:
             blockers.append("insufficient_candidate_samples")
         if len(baseline) < policy.minimum_baseline_samples:
@@ -1658,6 +1660,9 @@ class LocalModelBenchmarkStore:
                         blockers.append(
                             f"{label}_benchmark_recipe_not_promotion_eligible"
                         )
+                    benchmark_task_identities[receipt.benchmark_id] = (
+                        self._benchmark_task_identity(recipe)
+                    )
                     expected_versions = self._required_analyzers(
                         benchmark_recipe=recipe,
                         analyzer_registry=registry,
@@ -1682,10 +1687,14 @@ class LocalModelBenchmarkStore:
                         blockers.append(
                             f"{label}_qc_evidence_unavailable:{reference.check_id}"
                         )
-        if sorted(receipt.task_fingerprint for receipt in candidate) != sorted(
-            receipt.task_fingerprint for receipt in baseline
+        if sorted(
+            benchmark_task_identities.get(receipt.benchmark_id, "")
+            for receipt in candidate
+        ) != sorted(
+            benchmark_task_identities.get(receipt.benchmark_id, "")
+            for receipt in baseline
         ):
-            blockers.append("task_fingerprint_cohort_mismatch")
+            blockers.append("benchmark_task_identity_cohort_mismatch")
         if sorted(self._recipe_link(receipt) for receipt in candidate) != sorted(
             self._recipe_link(receipt) for receipt in baseline
         ):
@@ -2079,6 +2088,26 @@ class LocalModelBenchmarkStore:
         return (
             receipt.analyzer_registry_id or "",
             receipt.analyzer_registry_fingerprint or "",
+        )
+
+    @staticmethod
+    def _benchmark_task_identity(recipe: Mapping[str, Any]) -> str:
+        try:
+            validated = BenchmarkRecipeV1.from_dict(dict(recipe))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise LocalQueueError("benchmark_recipe_task_identity_invalid") from exc
+        return fingerprint(
+            {
+                "schema": "creator_os.benchmark_task_identity.v1",
+                "contentIntentId": validated.content_intent_id,
+                "executionPolicySchema": validated.execution_policy_schema,
+                "executionPolicyFingerprint": validated.execution_policy_fingerprint,
+                "taskKind": validated.task_kind,
+                "inputFingerprints": list(validated.input_fingerprints),
+                "parameterFingerprint": validated.parameter_fingerprint,
+                "expectedProviderCalls": validated.expected_provider_calls,
+                "productionWritesAllowed": validated.production_writes_allowed,
+            }
         )
 
     @classmethod
