@@ -1563,6 +1563,10 @@ class LocalModelBenchmarkStore:
                 expected_versions: dict[str, str] = {}
                 try:
                     recipe, registry = self._load_receipt_evidence(receipt)
+                    if recipe.get("promotionEvidenceAllowed") is not True:
+                        blockers.append(
+                            f"{label}_benchmark_recipe_not_promotion_eligible"
+                        )
                     expected_versions = self._required_analyzers(
                         benchmark_recipe=recipe,
                         analyzer_registry=registry,

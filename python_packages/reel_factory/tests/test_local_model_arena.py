@@ -44,6 +44,7 @@ from reel_factory.local_model_arena import (
     validate_arena_plan,
     validate_arena_review_packet,
     validate_arena_unblinding_receipt,
+    validate_rollout_gate_receipt,
 )
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
 from reel_factory.local_video_models import local_video_model_spec
@@ -493,6 +494,54 @@ def _build(
         analyzer_registry=registry,
         identity_root=identity_root,
     )
+
+
+def _rollout_router_bundle(sample: dict, index: int) -> dict:
+    decision = {
+        "decisionId": f"router-decision-{index}",
+        "selectedModelId": sample["modelId"],
+        "selectedModelFingerprint": sample["modelFingerprint"],
+        "request": {
+            "creatorId": sample["creatorId"],
+            "identityProfileId": sample["identityProfileId"],
+            "identityProfileFingerprint": sample["identityProfileFingerprint"],
+            "contentIntentId": sample["contentIntentId"],
+            "contentIntentFingerprint": sample["contentIntentFingerprint"],
+            "taskKind": sample["taskKind"],
+            "capabilityCohort": sample["capabilityCohort"],
+        },
+    }
+    return {
+        "arenaPlan": {"purpose": "promotion_eligible"},
+        "arenaSummary": {"purpose": "promotion_eligible"},
+        "reviewPacket": {"packetId": f"packet-{index}"},
+        "unblindingReceipt": {"receiptId": f"unblind-{index}"},
+        "routerDecision": decision,
+        "rolloutSampleIds": [sample["sampleId"]],
+    }
+
+
+def _fake_rollout_router_validator(bundle: dict, **_kwargs) -> tuple[dict, dict]:
+    exact = deepcopy(bundle)
+    decision = exact["routerDecision"]
+    index = str(decision["decisionId"]).rsplit("-", 1)[-1]
+    return exact, {
+        "snapshotFingerprint": fingerprint(exact),
+        "sampleIds": sorted(exact["rolloutSampleIds"]),
+        "routerDecisionId": decision["decisionId"],
+        "routerDecisionFingerprint": fingerprint(decision),
+        "selectedModelId": decision["selectedModelId"],
+        "selectedModelFingerprint": decision["selectedModelFingerprint"],
+        "taskKind": decision["request"]["taskKind"],
+        "capabilityCohort": decision["request"]["capabilityCohort"],
+        "promotionArenaPlanFingerprint": fingerprint({"promotionPlan": index}),
+        "promotionArenaSummaryFingerprint": fingerprint({"promotionSummary": index}),
+        "promotionReviewPacketFingerprint": fingerprint({"packet": index}),
+        "promotionUnblindingReceiptFingerprint": fingerprint({"unblinding": index}),
+        "promotionApprovalEventId": f"approval-{index}",
+        "promotionApprovalEventHash": fingerprint({"approval": index}),
+        "promotionEvidenceFingerprint": fingerprint({"evidence": index}),
+    }
 
 
 def test_registry_adds_exact_reel_factory_producers() -> None:
@@ -2524,3 +2573,459 @@ def test_promotion_comparison_requires_exact_non_model_grid(tmp_path: Path) -> N
     )
     with pytest.raises(LocalQueueError, match="arena_promotion_unmatched_model_grid"):
         _promotion_design_check(unmatched)
+
+
+def test_supervised_rollout_plan_is_exact_size_and_never_promotion_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+
+    assert plan["purpose"] == "supervised_rollout"
+    assert plan["expectedSampleCount"] == 10
+    assert {
+        sample["benchmarkRecipe"]["promotionEvidenceAllowed"]
+        for sample in plan["samples"]
+    } == {False}
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_size_invalid"):
+        _build(
+            monkeypatch,
+            tmp_path / "invalid",
+            [_spec(source, seed=index) for index in range(1, 12)],
+            purpose="supervised_rollout",
+        )
+
+
+def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = LocalModelArenaStore(root)
+    store.persist_plan(plan)
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    bundles = [
+        _rollout_router_bundle(sample, index)
+        for index, sample in enumerate(plan["samples"])
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_not_executable"):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=plan["samples"][0]["sampleId"],
+            dry_run=True,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_sample_router_evidence_not_exactly_once",
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="reviewed exact gate",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles[:-1],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_mode_confirmation_invalid"
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="reviewed exact gate",
+            mode_confirmation="Mode 3",
+            router_evidence_bundles=bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    approved = store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-1",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="reviewed exact gate",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=bundles,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+    assert approved["transition"] == "approved_to_run"
+    assert len(approved["routerEvidence"]) == 10
+    assert (
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            observed_at=PRODUCED_AT,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+        == approved
+    )
+
+    tampered = deepcopy(approved)
+    tampered["reason"] = "substituted approval"
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_receipt_fingerprint_mismatch"
+    ):
+        validate_rollout_gate_receipt(
+            tampered,
+            arena_plan=plan,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = LocalModelArenaStore(root)
+    store.persist_plan(plan)
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    queue = LocalGenerationQueue(
+        tmp_path / "queue",
+        resource_limit_bytes=1,
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-held",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="reviewed exact gate",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(sample, index)
+            for index, sample in enumerate(plan["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_terminal_evidence_incomplete"
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="terminal",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="not complete",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    for index, sample in enumerate(plan["samples"]):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="evidence unavailable remains missing",
+        )
+        if index == 0:
+            with pytest.raises(
+                LocalQueueError, match="arena_rollout_sample_already_terminal"
+            ):
+                execute_arena_sample_generation(
+                    store,
+                    plan_id=plan["planId"],
+                    sample_id=sample["sampleId"],
+                    dry_run=True,
+                    benchmarks=benchmark_store,
+                    human_reviews=reviews,
+                    evidence_secret=EVIDENCE_SECRET,
+                )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_gate_pass_criteria_not_met"
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="terminal",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="missing cannot pass",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    held = store.record_rollout_reconciliation(
+        plan_id=plan["planId"],
+        decision="held",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="missing evidence holds the gate",
+        queue=queue,
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    assert held["receipt"]["transition"] == "held"
+    assert held["receipt"]["summaryEvidence"]["terminalCounts"]["missing"] == 10
+    assert len(held["receipt"]["summaryEvidence"]["failedOrHeldSamples"]) == 10
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_escalation_predecessor_invalid"
+    ):
+        store.approve_rollout_escalation(
+            plan_id=plan["planId"],
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="held gates cannot escalate",
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_rollout_predecessor_must_be_prior_gate_escalation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan_10 = _build(
+        monkeypatch,
+        tmp_path / "gate10",
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    plan_25 = _build(
+        monkeypatch,
+        tmp_path / "gate25",
+        [_spec(source, seed=index) for index in range(101, 126)],
+        purpose="supervised_rollout",
+    )
+    root = tmp_path / "state"
+    store = LocalModelArenaStore(root)
+    store.persist_plan(plan_10)
+    store.persist_plan(plan_25)
+    benchmark_store = LocalModelBenchmarkStore(root)
+    reviews = HumanMediaReviewStore(root)
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    approval_10 = store.approve_rollout_gate(
+        plan_id=plan_10["planId"],
+        rollout_id="rollout-chain",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="gate 10",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(sample, index)
+            for index, sample in enumerate(plan_10["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+
+    gate_25_arguments = {
+        "plan_id": plan_25["planId"],
+        "rollout_id": "rollout-chain",
+        "operator_identity": "operator@example.test",
+        "decided_at": PRODUCED_AT,
+        "reason": "gate 25",
+        "mode_confirmation": arena_module.ROLLOUT_MODE_CONFIRMATION,
+        "router_evidence_bundles": [
+            _rollout_router_bundle(sample, index + 100)
+            for index, sample in enumerate(plan_25["samples"])
+        ],
+        "benchmark_store": benchmark_store,
+        "human_reviews": reviews,
+        "evidence_secret": EVIDENCE_SECRET,
+    }
+    with pytest.raises(LocalQueueError, match="arena_rollout_predecessor_invalid"):
+        store.approve_rollout_gate(
+            predecessor_receipt_fingerprint=approval_10["receiptFingerprint"],
+            **gate_25_arguments,
+        )
+
+    terminal_counts = {
+        status: (10 if status == "succeeded" else 0)
+        for status in sorted(arena_module.TERMINAL_STATUSES)
+    }
+    summary_evidence = {
+        "summaryId": "summary-gate-10",
+        "summaryFingerprint": fingerprint({"summary": "gate-10"}),
+        "reviewPacketFingerprint": None,
+        "unblindingReceiptFingerprint": None,
+        "terminalCounts": terminal_counts,
+        "validReviewedYield": 1.0,
+        "failedOrHeldSamples": [],
+    }
+    criteria_core = {
+        "schema": "reel_factory.local_model_rollout_gate_criteria.v1",
+        "gateSize": 10,
+        "allSamplesExplicitlyTerminal": True,
+        "noMissingEvidence": True,
+        "noIntegrityBlockers": True,
+        "validReviewedYieldThresholdMet": True,
+        "queueStabilityProven": None,
+        "activePromotedRouterDistributionProven": None,
+        "failureRecoveryComplete": None,
+        "sustainedThroughputProven": None,
+        "resourceLatencyEvidenceComplete": None,
+        "blockingReasons": [],
+        "passed": True,
+    }
+    summary_evidence["gateCriteria"] = {
+        **criteria_core,
+        "criteriaFingerprint": fingerprint(criteria_core),
+    }
+    escalation_10 = store._append_rollout_receipt(
+        {
+            **{
+                key: approval_10[key]
+                for key in (
+                    "schema",
+                    "rolloutId",
+                    "gateId",
+                    "gateSize",
+                    "arenaPlanId",
+                    "arenaPlanFingerprint",
+                    "predecessorReceiptFingerprint",
+                    "creatorCounts",
+                    "modelCounts",
+                    "capabilityCounts",
+                    "routerEvidence",
+                    "modeConfirmation",
+                    "externalActivity",
+                )
+            },
+            "receiptId": f"{approval_10['gateId']}_approved_to_escalate",
+            "transition": "approved_to_escalate",
+            "previousReceiptFingerprint": approval_10["receiptFingerprint"],
+            "operatorIdentity": "operator@example.test",
+            "decidedAt": PRODUCED_AT,
+            "decision": "approved_to_escalate",
+            "reason": "fixture prior gate escalation",
+            "summaryEvidence": summary_evidence,
+        },
+        evidence_secret=EVIDENCE_SECRET,
+    )["receipt"]
+
+    approval_25 = store.approve_rollout_gate(
+        predecessor_receipt_fingerprint=escalation_10["receiptFingerprint"],
+        **gate_25_arguments,
+    )["receipt"]
+    assert (
+        approval_25["predecessorReceiptFingerprint"]
+        == escalation_10["receiptFingerprint"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("gate_size", "failure_kind", "expected_blocker"),
+    [
+        (25, "resource_blocked", "rollout_queue_stability_not_proven"),
+        (50, "failed", "rollout_failure_recovery_incomplete"),
+        (
+            100,
+            "missing_resource_measurement",
+            "rollout_resource_latency_evidence_incomplete",
+        ),
+    ],
+)
+def test_larger_rollout_gates_require_named_derived_criteria(
+    gate_size: int,
+    failure_kind: str,
+    expected_blocker: str,
+) -> None:
+    samples = []
+    for index in range(gate_size):
+        status = "succeeded"
+        promotion_valid = True
+        measurement_available = True
+        if index == 0 and failure_kind in {"resource_blocked", "failed"}:
+            status = failure_kind
+            promotion_valid = False
+        if index == 0 and failure_kind == "missing_resource_measurement":
+            measurement_available = False
+        samples.append(
+            {
+                "status": status,
+                "promotionEvidenceValid": promotion_valid,
+                "blockingReasons": [],
+                "wallTimeSeconds": 10.0,
+                "peakMemoryBytes": 1024,
+                "executionEvidence": {
+                    "attemptCount": 1,
+                    "retryCount": 0,
+                    "executionMeasurement": {
+                        "available": measurement_available,
+                    },
+                },
+            }
+        )
+    counts = {
+        status: sum(sample["status"] == status for sample in samples)
+        for status in arena_module.TERMINAL_STATUSES
+    }
+    summary = {
+        "samples": samples,
+        "sampleCounts": counts,
+        "promotionEligibleYield": sum(
+            sample["promotionEvidenceValid"] for sample in samples
+        )
+        / gate_size,
+    }
+
+    criteria = LocalModelArenaStore._rollout_gate_criteria(
+        summary,
+        gate_size=gate_size,
+        promotion_active=True,
+    )
+
+    assert criteria["passed"] is False
+    assert expected_blocker in criteria["blockingReasons"]

@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.local_model_rollout_gate_receipt.v1",
+  "title": "Local Model Supervised Rollout Gate Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "receiptId",
+    "rolloutId",
+    "gateId",
+    "gateSize",
+    "transition",
+    "arenaPlanId",
+    "arenaPlanFingerprint",
+    "predecessorReceiptFingerprint",
+    "previousReceiptFingerprint",
+    "creatorCounts",
+    "modelCounts",
+    "capabilityCounts",
+    "routerEvidence",
+    "modeConfirmation",
+    "operatorIdentity",
+    "decidedAt",
+    "decision",
+    "reason",
+    "summaryEvidence",
+    "externalActivity",
+    "receiptFingerprint",
+    "operatorAttestation"
+  ],
+  "properties": {
+    "schema": {"const": "reel_factory.local_model_rollout_gate_receipt.v1"},
+    "receiptId": {"type": "string", "minLength": 1},
+    "rolloutId": {"type": "string", "minLength": 1},
+    "gateId": {"type": "string", "minLength": 1},
+    "gateSize": {"enum": [10, 25, 50, 100]},
+    "transition": {
+      "enum": ["approved_to_run", "terminal", "held", "approved_to_escalate"]
+    },
+    "arenaPlanId": {"type": "string", "minLength": 1},
+    "arenaPlanFingerprint": {"$ref": "#/$defs/sha256"},
+    "predecessorReceiptFingerprint": {"$ref": "#/$defs/nullableSha256"},
+    "previousReceiptFingerprint": {"$ref": "#/$defs/nullableSha256"},
+    "creatorCounts": {"$ref": "#/$defs/countMap"},
+    "modelCounts": {"$ref": "#/$defs/countMap"},
+    "capabilityCounts": {"$ref": "#/$defs/countMap"},
+    "routerEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/routerEvidence"}
+    },
+    "modeConfirmation": {
+      "const": "Mode 3 — Local Wan / LTX motion — free."
+    },
+    "operatorIdentity": {"type": "string", "minLength": 1},
+    "decidedAt": {"type": "string", "format": "date-time"},
+    "decision": {
+      "enum": ["approved_to_run", "terminal", "held", "approved_to_escalate"]
+    },
+    "reason": {"type": "string", "minLength": 1},
+    "summaryEvidence": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/summaryEvidence"}
+      ]
+    },
+    "externalActivity": {"$ref": "#/$defs/externalActivity"},
+    "receiptFingerprint": {"$ref": "#/$defs/sha256"},
+    "operatorAttestation": {
+      "$ref": "evidence_attestation.v1.schema.json"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"transition": {"const": "approved_to_run"}},
+        "required": ["transition"]
+      },
+      "then": {
+        "properties": {
+          "decision": {"const": "approved_to_run"},
+          "previousReceiptFingerprint": {"type": "null"},
+          "summaryEvidence": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"transition": {"enum": ["terminal", "held"]}},
+        "required": ["transition"]
+      },
+      "then": {
+        "properties": {
+          "previousReceiptFingerprint": {"$ref": "#/$defs/sha256"},
+          "summaryEvidence": {"$ref": "#/$defs/summaryEvidence"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"transition": {"const": "terminal"}},
+        "required": ["transition"]
+      },
+      "then": {"properties": {"decision": {"const": "terminal"}}}
+    },
+    {
+      "if": {
+        "properties": {"transition": {"const": "held"}},
+        "required": ["transition"]
+      },
+      "then": {"properties": {"decision": {"const": "held"}}}
+    },
+    {
+      "if": {
+        "properties": {"transition": {"const": "approved_to_escalate"}},
+        "required": ["transition"]
+      },
+      "then": {
+        "properties": {
+          "decision": {"const": "approved_to_escalate"},
+          "previousReceiptFingerprint": {"$ref": "#/$defs/sha256"},
+          "summaryEvidence": {"$ref": "#/$defs/summaryEvidence"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableSha256": {
+      "anyOf": [
+        {"$ref": "#/$defs/sha256"},
+        {"type": "null"}
+      ]
+    },
+    "countMap": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "routerEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshotFingerprint",
+        "sampleIds",
+        "routerDecisionId",
+        "routerDecisionFingerprint",
+        "selectedModelId",
+        "selectedModelFingerprint",
+        "taskKind",
+        "capabilityCohort",
+        "promotionArenaPlanFingerprint",
+        "promotionArenaSummaryFingerprint",
+        "promotionReviewPacketFingerprint",
+        "promotionUnblindingReceiptFingerprint",
+        "promotionApprovalEventId",
+        "promotionApprovalEventHash",
+        "promotionEvidenceFingerprint"
+      ],
+      "properties": {
+        "snapshotFingerprint": {"$ref": "#/$defs/sha256"},
+        "sampleIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "routerDecisionId": {"type": "string", "minLength": 1},
+        "routerDecisionFingerprint": {"$ref": "#/$defs/sha256"},
+        "selectedModelId": {"type": "string", "minLength": 1},
+        "selectedModelFingerprint": {"$ref": "#/$defs/sha256"},
+        "taskKind": {"type": "string", "minLength": 1},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "promotionArenaPlanFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionArenaSummaryFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionReviewPacketFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionUnblindingReceiptFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionApprovalEventId": {"type": "string", "minLength": 1},
+        "promotionApprovalEventHash": {"$ref": "#/$defs/sha256"},
+        "promotionEvidenceFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "terminalCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cancelled",
+        "failed",
+        "interrupted",
+        "missing",
+        "resource_blocked",
+        "succeeded",
+        "unsupported"
+      ],
+      "properties": {
+        "cancelled": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "interrupted": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0},
+        "resource_blocked": {"type": "integer", "minimum": 0},
+        "succeeded": {"type": "integer", "minimum": 0},
+        "unsupported": {"type": "integer", "minimum": 0}
+      }
+    },
+    "failedOrHeldSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleId",
+        "status",
+        "classification",
+        "reason",
+        "blockingReasons"
+      ],
+      "properties": {
+        "sampleId": {"type": "string", "minLength": 1},
+        "status": {
+          "enum": [
+            "cancelled",
+            "failed",
+            "interrupted",
+            "missing",
+            "resource_blocked",
+            "succeeded",
+            "unsupported"
+          ]
+        },
+        "classification": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "blockingReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "summaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summaryId",
+        "summaryFingerprint",
+        "reviewPacketFingerprint",
+        "unblindingReceiptFingerprint",
+        "terminalCounts",
+        "validReviewedYield",
+        "failedOrHeldSamples",
+        "gateCriteria"
+      ],
+      "properties": {
+        "summaryId": {"type": "string", "minLength": 1},
+        "summaryFingerprint": {"$ref": "#/$defs/sha256"},
+        "reviewPacketFingerprint": {"$ref": "#/$defs/nullableSha256"},
+        "unblindingReceiptFingerprint": {"$ref": "#/$defs/nullableSha256"},
+        "terminalCounts": {"$ref": "#/$defs/terminalCounts"},
+        "validReviewedYield": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "failedOrHeldSamples": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/failedOrHeldSample"}
+        },
+        "gateCriteria": {"$ref": "#/$defs/gateCriteria"}
+      }
+    },
+    "gateCriteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "gateSize",
+        "allSamplesExplicitlyTerminal",
+        "noMissingEvidence",
+        "noIntegrityBlockers",
+        "validReviewedYieldThresholdMet",
+        "queueStabilityProven",
+        "activePromotedRouterDistributionProven",
+        "failureRecoveryComplete",
+        "sustainedThroughputProven",
+        "resourceLatencyEvidenceComplete",
+        "blockingReasons",
+        "passed",
+        "criteriaFingerprint"
+      ],
+      "properties": {
+        "schema": {
+          "const": "reel_factory.local_model_rollout_gate_criteria.v1"
+        },
+        "gateSize": {"enum": [10, 25, 50, 100]},
+        "allSamplesExplicitlyTerminal": {"const": true},
+        "noMissingEvidence": {"type": "boolean"},
+        "noIntegrityBlockers": {"type": "boolean"},
+        "validReviewedYieldThresholdMet": {"type": "boolean"},
+        "queueStabilityProven": {"type": ["boolean", "null"]},
+        "activePromotedRouterDistributionProven": {
+          "type": ["boolean", "null"]
+        },
+        "failureRecoveryComplete": {"type": ["boolean", "null"]},
+        "sustainedThroughputProven": {"type": ["boolean", "null"]},
+        "resourceLatencyEvidenceComplete": {"type": ["boolean", "null"]},
+        "blockingReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "passed": {"type": "boolean"},
+        "criteriaFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "externalActivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planProviderCalls",
+        "planProductionWritesAllowed",
+        "summaryProviderCalls",
+        "summaryProductionWrites",
+        "terminalEventCount",
+        "terminalEventProviderCalls",
+        "terminalEventProductionWrites",
+        "observedProviderCalls",
+        "observedProductionWrites"
+      ],
+      "properties": {
+        "planProviderCalls": {"const": 0},
+        "planProductionWritesAllowed": {"const": false},
+        "summaryProviderCalls": {"enum": [0, null]},
+        "summaryProductionWrites": {"enum": [0, null]},
+        "terminalEventCount": {"type": "integer", "minimum": 0},
+        "terminalEventProviderCalls": {"const": 0},
+        "terminalEventProductionWrites": {"const": 0},
+        "observedProviderCalls": {"const": 0},
+        "observedProductionWrites": {"const": 0}
+      }
+    }
+  }
+}

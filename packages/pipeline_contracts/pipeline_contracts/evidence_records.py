@@ -229,6 +229,7 @@ class BenchmarkRecipeV1:
     expected_provider_calls: int
     production_writes_allowed: Literal[False]
     provenance: ProvenanceV1
+    promotion_evidence_allowed: bool = False
 
     def __post_init__(self) -> None:
         validate_benchmark_recipe(self.to_dict())
@@ -243,6 +244,7 @@ class BenchmarkRecipeV1:
             "taskKind": self.task_kind,
             "inputFingerprints": list(self.input_fingerprints),
             "parameterFingerprint": self.parameter_fingerprint,
+            "promotionEvidenceAllowed": self.promotion_evidence_allowed,
             "requiredAnalyzers": [
                 requirement.to_dict() for requirement in self.required_analyzers
             ],
@@ -271,6 +273,7 @@ class BenchmarkRecipeV1:
             expected_provider_calls=int(payload["expectedProviderCalls"]),
             production_writes_allowed=payload["productionWritesAllowed"],
             provenance=ProvenanceV1.from_dict(payload["provenance"]),
+            promotion_evidence_allowed=payload.get("promotionEvidenceAllowed") is True,
         )
 
 

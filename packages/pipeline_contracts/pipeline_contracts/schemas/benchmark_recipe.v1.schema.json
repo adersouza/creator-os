@@ -37,6 +37,7 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "promotionEvidenceAllowed": {"type": "boolean"},
     "requiredAnalyzers": {
       "type": "array",
       "uniqueItems": true,

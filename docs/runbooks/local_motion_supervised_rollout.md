@@ -7,14 +7,20 @@ Immediately before the first local generation in a gate, the operator must
 confirm exactly: **“Mode 3 — Local Wan / LTX motion — free.”** A confirmation
 from an earlier gate or task does not carry forward.
 
-At every gate, freeze a new Arena plan containing exact source/intent/model/
-recipe/analyzer/seed/output fingerprints. No silent retry, sample replacement,
-provider fallback, or escalation is allowed.
+At every gate, freeze a new `supervised_rollout` Arena plan containing exact
+source/intent/model/recipe/analyzer/seed/output fingerprints. The plan must have
+exactly 10, 25, 50, or 100 samples. Every rollout recipe is permanently marked
+`promotionEvidenceAllowed: false`; rollout results cannot be reused to promote
+a model. No silent retry, sample replacement, provider fallback, or escalation
+is allowed.
 
-Promotion comparisons must use the identical source/prompt/seed/intent grid
-for every model. Create the model-free authenticated review packet, complete and
-lock every signed blinded review, and only then create the authenticated
-unblinding receipt. The promotion summary must bind both records.
+The model evidence used by a rollout must already have completed the separate
+promotion protocol. For each rollout sample, capture the immutable
+promotion-plan, promotion-summary, authenticated review-packet, authenticated
+unblinding-receipt, and Router-decision bundle. Each bundle declares its
+`rolloutSampleIds`; those declarations must form an exact, non-overlapping
+partition of the rollout plan. Approval and execution both revalidate the
+bundle and require its promotion to be active.
 
 Before freezing or running a gate, execute
 `scripts/creator-os advanced models status --deep`. Cache-only Hugging Face
@@ -49,9 +55,9 @@ permission to render.
 | Gate | Primary proof | Pass criteria | Holds/failures |
 |---|---|---|---|
 | 10 | identity, actual-media QC, lineage, review/export ergonomics | every sample terminal; no substitution; >=80% valid reviewed yield; zero provider/production writes | failed, interrupted, resource-blocked, unsupported, missing, QC-blocked |
-| 25 | queue/resource stability and useful yield | one machine lease; recoverable interruptions; >=75% valid reviewed yield; no duplicate jobs/receipts | same exact classes; no hidden retry |
-| 50 | Router distribution and failure recovery | only active promoted models selected; every exclusion explained; overrides separately recorded | no-valid-model is a hold, never paid fallback |
-| 100 | sustained throughput and evidence completeness | 100/100 terminal classifications; all successes have exact QC/review/benchmark records; resource and latency report complete | missing remains missing, never zero |
+| 25 | queue/resource stability and useful yield | single-machine queue invariant; no terminal interrupted/resource-blocked sample; >=75% valid reviewed yield; no substitution/duplicate evidence | same exact classes; no hidden retry |
+| 50 | Router distribution and failure recovery | only active promoted models selected; no fallback/override; every sample recovered to a valid reviewed success | any unrecovered failure is a hold |
+| 100 | sustained throughput and evidence completeness | 100/100 valid reviewed successes; every execution has exact QC/review/benchmark, resource, and latency evidence | missing or unavailable evidence remains missing and holds the gate |
 
 For each gate the operator reviews the exact input list, creator/model
 assignments, sample count, intended capability cohorts, and prior-gate receipt.
@@ -66,29 +72,39 @@ a rollout database or a second scheduler. Each gate moves through these states:
 
 1. **proposed** — prepare the exact request and verify its intended sample count
    is exactly 10, 25, 50, or 100;
-2. **frozen** — persist one `promotion_eligible` Arena plan and record its
-   `planId` and `planFingerprint`; no inputs or assignments may change;
-3. **approved-to-run** — the operator reviews the exact sample list and records
-   approval tied to that plan fingerprint;
+2. **frozen** — persist one `supervised_rollout` Arena plan and record its
+   `planId` and `planFingerprint`; no inputs or assignments may change and its
+   benchmark recipes remain ineligible for promotion;
+3. **approved-to-run** — the operator reviews the exact sample list, the exact
+   Router evidence partition, and the current active promotions, then records
+   an authenticated approval tied to that plan fingerprint;
 4. **executing** — run only sample IDs in the frozen plan through the local
    queue; an interrupted lease may resume the same immutable job, but a new
    seed, model, source, output, or sample ID is a new plan rather than a retry;
-5. **reviewing** — finalize actual-media evidence, create the model-free blinded
-   review packet, lock every signed review, then create the unblinding receipt;
+5. **reviewing** — finalize actual-media QC, benchmark, and signed human-review
+   evidence for every success. The review packet and unblinding receipt in the
+   rollout approval belong to the earlier promotion evidence; do not create a
+   promotion review packet from rollout outputs;
 6. **terminal** — build the Arena summary only after every planned sample has an
    honest terminal classification;
 7. **approved-to-escalate** or **held** — record the decision against the exact
-   plan, review packet, unblinding receipt, and summary fingerprints. A held gate
-   cannot be bypassed by starting a larger cohort.
+   plan, Router evidence, and summary fingerprints. A held gate cannot be
+   bypassed by starting a larger cohort.
 
-The operator record for states 3 and 7 must contain the gate size, plan ID and
-fingerprint, predecessor-gate receipt fingerprint (null only for gate 10), exact
-creator/model/capability counts, operator identity, UTC timestamp, decision,
-and reason. The terminal record additionally contains the summary fingerprint,
-review-packet fingerprint, unblinding-receipt fingerprint, terminal counts,
-promotion-eligible yield, explicit failed/held sample IDs and classifications,
-and the observed provider-call and production-write totals. Missing values stay
-missing; they are never serialized as zero to satisfy a gate.
+Every transition is an HMAC-authenticated, append-only
+`reel_factory.local_model_rollout_gate_receipt.v1` record. It contains the gate
+size, plan ID and fingerprint, predecessor-gate
+`approved_to_escalate` receipt fingerprint (null only for gate 10), exact
+creator/model/capability counts, Router snapshot references and sample
+partition, exact mode confirmation, operator identity, UTC timestamp, decision,
+and reason. The terminal or held record additionally contains the summary
+fingerprint, terminal counts, valid reviewed yield, explicit failed/held sample
+IDs and classifications, and Arena-observed provider-call and production-write
+totals. It also embeds a fingerprinted
+`reel_factory.local_model_rollout_gate_criteria.v1` derivation with every
+gate-specific check and blocking reason; escalation re-derives that record from
+the persisted summary. Missing values stay missing; they are never serialized
+as zero to satisfy a gate.
 
 ## Operator procedure
 
@@ -116,46 +132,90 @@ scripts/creator-os advanced identity identity-reference-build \
 scripts/creator-os advanced arena --root <arena-root> plan \
   --request <gate-request.json> \
   --contentforge-registry <analyzer-registry.json> \
-  --repository-root <exact-clean-source-root> \
-  --identity-root <identity-root>
+  --repository-root <exact-clean-source-root>
 ```
 
-For a promotion-eligible plan, the plan command completes only when every
-creator's current signed v4 identity reference set is ready. Arena repeats the
-same exact profile/provider/analyzer check before generation and finalization;
-never work around `arena_promotion_identity_preflight_failed` with the default
-uv environment or a historical reference set.
+The request must say `"purpose": "supervised_rollout"`. Each Router evidence JSON
+passed to the next command contains exactly these keys:
+`arenaPlan`, `arenaSummary`, `reviewPacket`, `unblindingReceipt`,
+`routerDecision`, and `rolloutSampleIds`. The first five values are the complete
+immutable records from the separate promotion/Router decision. The last value
+lists the exact sample IDs covered by that decision.
 
-Read the returned immutable plan before approving it. Then execute each exact
-sample ID; do not loop over a directory that can change underneath the run:
+Read the returned immutable plan before approving it. Repeat
+`--router-evidence` for every bundle and use the exact mode sentence:
+
+```bash
+scripts/creator-os advanced arena --root <arena-root> rollout-approve \
+  --plan-id <plan-id> --rollout-id <rollout-id> \
+  --operator-identity <operator> --decided-at <utc-timestamp> \
+  --reason <reviewed-reason> \
+  --mode-confirmation "Mode 3 — Local Wan / LTX motion — free." \
+  --router-evidence <router-bundle-1.json> \
+  --router-evidence <router-bundle-2.json> \
+  [--predecessor-receipt-fingerprint <prior-approved-to-escalate-fingerprint>]
+```
+
+The 10 gate forbids a predecessor. The 25, 50, and 100 gates require the
+authenticated `approved_to_escalate` receipt from the immediately preceding
+gate in the same rollout. An approval receipt or terminal receipt is not a valid
+predecessor.
+
+Then execute each exact sample ID; do not loop over a directory that can change
+underneath the run. `generate` revalidates the approval, Router snapshots, and
+active promotion immediately before entering the local generation path:
 
 ```bash
 scripts/creator-os advanced arena --root <arena-root> generate \
   --plan-id <plan-id> --sample-id <sample-id> --mode local_wan \
-  --identity-root <identity-root> --apply
+  --apply
 scripts/creator-os advanced arena --root <arena-root> finalize \
   --plan-id <plan-id> --sample-id <sample-id> --review <signed-review.json> \
   --repository-root <exact-clean-source-root> --identity-root <identity-root> \
   --produced-at <utc-timestamp>
 ```
 
-After every sample is terminal, preserve blinding order:
+`finalize` records successful samples with their exact output, benchmark, and
+human-review evidence. Record every non-success explicitly; inferred queue
+state is not sufficient for rollout reconciliation:
 
 ```bash
-scripts/creator-os advanced arena --root <arena-root> review-packet \
-  --plan-id <plan-id> --created-at <utc-timestamp>
-# Complete and lock every signed blinded review before the next command.
-scripts/creator-os advanced arena --root <arena-root> unblind \
-  --plan-id <plan-id> --created-at <later-utc-timestamp>
-scripts/creator-os advanced arena --root <arena-root> summary --plan-id <plan-id>
+scripts/creator-os advanced arena --root <arena-root> rollout-sample-terminal \
+  --plan-id <plan-id> --sample-id <sample-id> \
+  --status <failed|interrupted|resource_blocked|unsupported|cancelled|missing> \
+  --reason <exact-classification-reason>
 ```
 
-Before escalation, re-read the plan and summary from their canonical stores,
-verify every bound fingerprint, compare the result with the gate table above,
-and have the operator sign the terminal decision. The 25 gate must cite the 10
-terminal record, the 50 gate must cite the 25 record, and the 100 gate must cite
-the 50 record. Model benchmark promotion and Router activation remain separate,
-evidence-gated decisions; passing a rollout gate does not silently perform either.
+After every planned sample has one explicit terminal event, record the
+evidence-derived reconciliation:
+
+```bash
+scripts/creator-os advanced arena --root <arena-root> rollout-reconcile \
+  --plan-id <plan-id> --decision <terminal|held> \
+  --operator-identity <operator> --decided-at <utc-timestamp> \
+  --reason <reviewed-reason>
+```
+
+`terminal` is rejected when documented pass criteria are not met. `held` is
+always available as the conservative operator decision, including when the
+measured thresholds pass but review identifies a reason not to proceed. A
+missing terminal event blocks either transition. A held receipt cannot
+escalate. For a terminal gate, re-read the saved summary and have the operator
+authenticate the separate escalation:
+
+```bash
+scripts/creator-os advanced arena --root <arena-root> rollout-escalate \
+  --plan-id <plan-id> --operator-identity <operator> \
+  --decided-at <utc-timestamp> --reason <reviewed-reason>
+scripts/creator-os advanced arena --root <arena-root> rollout-status \
+  --plan-id <plan-id>
+```
+
+The 25 gate must cite the 10 escalation receipt, the 50 gate must cite the 25
+escalation receipt, and the 100 gate must cite the 50 escalation receipt. Model
+benchmark promotion and Router activation remain separate, evidence-gated
+decisions; rollout data is contractually barred from promotion, and passing a
+rollout gate does not silently perform a promotion or Router activation.
 
 ## Final zero-write reconciliation
 

@@ -99,7 +99,11 @@ def _deep_verified_test_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _records(
-    *, input_fingerprint: str, parameter_fingerprint: str, task_kind: str
+    *,
+    input_fingerprint: str,
+    parameter_fingerprint: str,
+    task_kind: str,
+    promotion_evidence_allowed: bool = True,
 ) -> tuple[BenchmarkRecipeV1, AnalyzerRegistryV1]:
     implementation_fingerprint = hashlib.sha256(
         TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes()
@@ -122,6 +126,7 @@ def _records(
         task_kind=task_kind,
         input_fingerprints=(input_fingerprint,),
         parameter_fingerprint=parameter_fingerprint,
+        promotion_evidence_allowed=promotion_evidence_allowed,
         required_analyzers=(
             AnalyzerRequirementV1(
                 analyzer_id="contentforge.media_integrity",
@@ -167,13 +172,20 @@ def _records_for_job(
     )
 
 
-def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
+def _job(
+    job_id: str,
+    model: str,
+    task_input: str,
+    *,
+    promotion_evidence_allowed: bool = True,
+) -> LocalGenerationJob:
     input_fingerprint = _sha(task_input)
     params = {"frames": 81, "seed": 9}
     recipe, registry = _records(
         input_fingerprint=input_fingerprint,
         parameter_fingerprint=queue_fingerprint(params),
         task_kind="image_to_video",
+        promotion_evidence_allowed=promotion_evidence_allowed,
     )
     profile = {
         "schema": "creator_os.creator_identity_profile.v1",
@@ -326,8 +338,14 @@ def _complete_and_benchmark(
     *,
     benchmark_id: str,
     qc_passed: bool = True,
+    promotion_evidence_allowed: bool = True,
 ) -> BenchmarkReceipt:
-    benchmark_recipe, analyzer_registry = _records_for_job(job)
+    benchmark_recipe, analyzer_registry = _records(
+        input_fingerprint=job.input_fingerprint,
+        parameter_fingerprint=job.params_fingerprint,
+        task_kind=job.task_kind,
+        promotion_evidence_allowed=promotion_evidence_allowed,
+    )
     measurement = LocalExecutionMeasurement(
         wall_time_seconds=0.01,
         peak_memory_bytes=GIB,
@@ -677,7 +695,10 @@ def test_legacy_motion_qc_v1_is_never_promotion_evidence(tmp_path: Path) -> None
 
 
 def _matched_evidence(
-    tmp_path: Path, *, candidate_qc: bool = True
+    tmp_path: Path,
+    *,
+    candidate_qc: bool = True,
+    candidate_promotion_evidence_allowed: bool = True,
 ) -> tuple[
     LocalModelBenchmarkStore,
     tuple[BenchmarkReceipt, ...],
@@ -701,9 +722,15 @@ def _matched_evidence(
             _complete_and_benchmark(
                 queue,
                 store,
-                _job(f"candidate-{index}", "candidate", task_input),
+                _job(
+                    f"candidate-{index}",
+                    "candidate",
+                    task_input,
+                    promotion_evidence_allowed=(candidate_promotion_evidence_allowed),
+                ),
                 benchmark_id=f"candidate-benchmark-{index}",
                 qc_passed=candidate_qc,
+                promotion_evidence_allowed=candidate_promotion_evidence_allowed,
             )
         )
     return store, tuple(candidate), tuple(baseline)
@@ -869,6 +896,22 @@ def test_failed_qc_blocks_promotion(tmp_path: Path) -> None:
     evaluation = _evaluate(store, candidate, baseline)
     assert not evaluation.eligible
     assert "candidate_qc_failed" in evaluation.blocking_reasons
+
+
+def test_non_promotion_benchmark_recipe_cannot_enter_promotion(
+    tmp_path: Path,
+) -> None:
+    store, candidate, baseline = _matched_evidence(
+        tmp_path, candidate_promotion_evidence_allowed=False
+    )
+
+    evaluation = _evaluate(store, candidate, baseline)
+
+    assert not evaluation.eligible
+    assert (
+        "candidate_benchmark_recipe_not_promotion_eligible"
+        in evaluation.blocking_reasons
+    )
 
 
 def test_missing_qc_file_at_evaluation_time_blocks_promotion(tmp_path: Path) -> None:
