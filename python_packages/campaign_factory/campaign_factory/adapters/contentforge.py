@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import uuid
 from contextlib import contextmanager
@@ -23,6 +24,7 @@ DEFAULT_LAYERS = [
 ]
 DEFAULT_AUDIT_PROFILE = "campaign_factory_v1"
 CONTENTFORGE_EXECUTION_MODE = "cli_local"
+logger = logging.getLogger(__name__)
 
 
 def _require_cli_local(contentforge_base_url: str | None) -> None:
@@ -516,9 +518,10 @@ def _audit_asset(
             failed.append("contentforge_malformed_response")
             overall = "fail"
             response["overallVerdict"] = overall
-    except Exception as exc:
+    except Exception:
+        logger.exception("ContentForge CLI audit failed")
         overall = "fail"
-        error_message = str(exc)
+        error_message = "contentforge_cli_failed"
         failed.append("contentforge_cli")
         warnings.append(f"contentforge_cli: {error_message}")
         response = {

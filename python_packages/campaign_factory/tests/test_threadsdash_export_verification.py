@@ -1163,6 +1163,37 @@ def test_export_readiness_blocks_invalid_draft_contract(tmp_path: Path, monkeypa
         cf.close()
 
 
+def test_export_readiness_does_not_return_usage_exception_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sensitive_error = "service-role-secret leaked by upstream exception"
+
+    def fail_usage(*_args, **_kwargs):
+        raise RuntimeError(sensitive_error)
+
+    monkeypatch.setattr(
+        threadsdash_accounts_adapter, "summarize_threadsdash_usage", fail_usage
+    )
+    cf = make_factory(tmp_path)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.domains.finished_video.review_rendered_asset("asset_1", decision="approved")
+        add_audit_report(cf)
+
+        readiness = evaluate_export_readiness(
+            cf,
+            campaign_slug="may",
+            user_id="user_1",
+            supabase_url="https://example.supabase.co",
+            supabase_service_role_key="service-role",
+        )
+
+        assert readiness["usageError"] == "usage_check_unavailable"
+        assert sensitive_error not in json.dumps(readiness)
+    finally:
+        cf.close()
+
+
 def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
     tmp_path: Path, monkeypatch
 ):
@@ -2535,6 +2566,36 @@ def test_supabase_preflight_checks_bucket_and_required_schema(monkeypatch):
         "media_schema",
         "posts_schema",
     }
+
+
+def test_supabase_preflight_does_not_return_exception_details(monkeypatch):
+    sensitive_error = "service-role-secret leaked by upstream exception"
+
+    class FailingClient:
+        def __init__(self, url: str, service_role_key: str):
+            self.url = url
+
+        def get_storage_bucket(self, _bucket):
+            raise RuntimeError(sensitive_error)
+
+        def select(self, _table, _params):
+            raise RuntimeError(sensitive_error)
+
+    monkeypatch.setattr(threadsdash_client_adapter, "SupabaseRestClient", FailingClient)
+    result = preflight_supabase(
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+        supabase_storage_bucket="media",
+    )
+
+    assert result["ok"] is False
+    assert {check["error"] for check in result["checks"]} == {
+        "auth_posts_read_failed",
+        "media_bucket_exists_failed",
+        "media_schema_failed",
+        "posts_schema_failed",
+    }
+    assert sensitive_error not in json.dumps(result)
 
 
 def test_verify_threadsdash_export_blocks_non_draft_posts(monkeypatch):

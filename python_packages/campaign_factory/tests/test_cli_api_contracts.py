@@ -548,8 +548,9 @@ def test_contentforge_cli_audit_handles_runner_unavailable(tmp_path: Path, monke
         report = result["reports"][0]
         assert report["status"] == "needs_review"
         assert "contentforge_cli" in report["failedChecks"]
-        assert report["error"] == "ContentForge is unavailable"
-        assert "contentforge_cli: ContentForge is unavailable" in report["warnings"]
+        assert report["error"] == "contentforge_cli_failed"
+        assert "contentforge_cli: contentforge_cli_failed" in report["warnings"]
+        assert "ContentForge is unavailable" not in json.dumps(report)
         assert report["overallVerdict"] == "fail"
     finally:
         cf.close()
