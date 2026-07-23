@@ -31,6 +31,21 @@ network denied, minimal secret-free environment, exact artifact write root,
 bounded hashed log, and current deep model/runtime attestation. A bare
 `providerCalls: 0` field is insufficient.
 
+Before spending model compute on the first sample after a runtime/toolchain
+change, run the explicit no-model encoder-discovery canary:
+
+```bash
+CREATOR_OS_RUN_REAL_LOCAL_PREFLIGHT=1 \
+  uv run --package reel-factory pytest -q \
+  python_packages/reel_factory/tests/test_local_video.py \
+  -k real_pinned_wan_runtime_discovers_exact_ffmpeg_in_sandbox
+```
+
+It starts no queue job and generates no media. It proves the pinned Wan Python,
+inside the active no-network/no-write sandbox, imports `imageio_ffmpeg` and
+resolves the exact verified FFmpeg binary. A skip or failure is a hold, not
+permission to render.
+
 | Gate | Primary proof | Pass criteria | Holds/failures |
 |---|---|---|---|
 | 10 | identity, actual-media QC, lineage, review/export ergonomics | every sample terminal; no substitution; >=80% valid reviewed yield; zero provider/production writes | failed, interrupted, resource-blocked, unsupported, missing, QC-blocked |
