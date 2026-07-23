@@ -18,38 +18,6 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      js: ${{ steps.filter.outputs.js }}
-      py: ${{ steps.filter.outputs.py }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            js:
-              - 'apps/**'
-              - 'packages/contentforge/**'
-              - 'packages/pipeline_contracts/**'
-              - 'scripts/**/*.mjs'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.github/workflows/monorepo-ci.yml'
-            py:
-              - 'python_packages/**'
-              - 'packages/creator_os_core/**'
-              - 'packages/pipeline_contracts/**'
-              - 'scripts/**/*.py'
-              - 'scripts/**/*.sh'
-              - 'tests/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - '.github/workflows/monorepo-ci.yml'
-
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -99,8 +67,6 @@ jobs:
         run: pnpm check:prompts
 
   javascript:
-    needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.js == 'true'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -125,8 +91,6 @@ jobs:
       - run: pnpm --filter contentforge build
 
   python:
-    needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.py == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
