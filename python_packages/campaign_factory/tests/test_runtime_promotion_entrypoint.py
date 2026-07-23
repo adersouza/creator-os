@@ -24,6 +24,7 @@ def test_runtime_promotion_entrypoint_validates_approval_and_receipt(
 
     def promote(**kwargs):
         assert kwargs["approval_payload"] is approval
+        assert kwargs["verifier_command"] == ("make", "runtime-verify")
         kwargs["approval_validator"](kwargs["approval_payload"])
         kwargs["receipt_validator"](receipt)
         return receipt

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.runtime_promotion import (
+    RUNTIME_VERIFIER_COMMAND,
     RuntimePromotionError,
     _promote_runtime,
     load_runtime_promotion_approval,
@@ -39,6 +40,7 @@ def run_contract_validated_promotion(
         state_root=state_root,
         operator=operator,
         dry_run=dry_run,
+        verifier_command=RUNTIME_VERIFIER_COMMAND,
         receipt_validator=validate_runtime_promotion_receipt,
         approval_payload=approval,
         approval_validator=validate_runtime_promotion_approval,
