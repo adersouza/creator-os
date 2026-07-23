@@ -2769,7 +2769,9 @@ def _validate_campaign_admission(
             exact_inputs.append(value)
     if (
         input_fingerprints != exact_inputs
-        or list(intent.get("sourceAssetFingerprints") or []) != exact_inputs
+        or not set(exact_inputs).issubset(
+            set(intent.get("sourceAssetFingerprints") or [])
+        )
         or list(recipe.get("inputFingerprints") or []) != exact_inputs
     ):
         raise LocalVideoUnavailable("local_motion_input_fingerprint_mismatch")
@@ -2966,10 +2968,23 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         or intent.get("intentId") != binding.get("contentIntentId")
         or fingerprint(intent) != binding.get("contentIntentFingerprint")
         or intent.get("creatorIdentityProfileId") != profile.get("profileId")
-        or binding.get("sourceSha256")
-        not in list(intent.get("sourceAssetFingerprints") or [])
     ):
         raise LocalVideoUnavailable("arena_identity_intent_record_binding_mismatch")
+    exact_inputs: list[str] = []
+    for value in (
+        _optional_input_sha256(request.image_path),
+        _optional_input_sha256(request.audio_path),
+        _optional_input_sha256(request.last_image_path),
+        _optional_input_sha256(request.source_video_path),
+    ):
+        if value is not None and value not in exact_inputs:
+            exact_inputs.append(value)
+    if not set(exact_inputs).issubset(set(intent.get("sourceAssetFingerprints") or [])):
+        raise LocalVideoUnavailable("arena_identity_intent_input_unauthorized")
+    if list((request.benchmark_recipe or {}).get("inputFingerprints") or []) != (
+        exact_inputs
+    ):
+        raise LocalVideoUnavailable("arena_benchmark_recipe_input_mismatch")
     for field in (
         "sampleId",
         "blindedCandidateId",

@@ -419,7 +419,9 @@ def build_local_motion_admission(
         preserve_audio=preserve_audio,
         error_prefix="",
     )
-    if list(intent.get("sourceAssetFingerprints") or []) != input_fingerprints:
+    if not set(input_fingerprints).issubset(
+        set(intent.get("sourceAssetFingerprints") or [])
+    ):
         raise LocalMotionAdmissionError("local_motion_content_intent_input_mismatch")
     if list(recipe.get("inputFingerprints") or []) != input_fingerprints:
         raise LocalMotionAdmissionError("local_motion_benchmark_input_mismatch")
@@ -603,7 +605,9 @@ def revalidate_local_motion_admission(
     )
     if (
         original.get("inputFingerprints") != input_fingerprints
-        or list(intent.get("sourceAssetFingerprints") or []) != input_fingerprints
+        or not set(input_fingerprints).issubset(
+            set(intent.get("sourceAssetFingerprints") or [])
+        )
         or list(recipe.get("inputFingerprints") or []) != input_fingerprints
     ):
         raise LocalMotionAdmissionError(

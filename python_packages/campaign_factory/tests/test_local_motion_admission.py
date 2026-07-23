@@ -204,6 +204,31 @@ def test_admission_binds_exact_inputs_and_calls_only_public_worker_api(
     assert result["resourceSnapshot"]["routerAvailableMemoryBytes"] == 24_000
 
 
+def test_admission_allows_exact_recipe_input_from_shared_intent_cohort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+    other_reviewed_source = "f" * 64
+    records["contentIntent"]["sourceAssetFingerprints"].append(other_reviewed_source)
+    captured = _patch_admission_dependencies(monkeypatch)
+
+    build_local_motion_admission(
+        evidence_bundle_path=None,
+        evidence_bundle=records,
+        arena_summary_path=summary_path,
+        accepted_still_path=still,
+        audio_path=None,
+        campaign_creator="stacey",
+        task_kind="image_to_video",
+    )
+
+    assert (
+        captured["input_fingerprints"]
+        == records["benchmarkRecipe"]["inputFingerprints"]
+    )
+    assert other_reviewed_source not in captured["input_fingerprints"]
+
+
 def test_admission_binds_first_and_last_frame_fingerprints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

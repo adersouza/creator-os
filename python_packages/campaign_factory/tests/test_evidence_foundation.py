@@ -153,6 +153,57 @@ def test_incompatible_thin_evidence_records_fail_closed() -> None:
         )
 
 
+def test_benchmark_recipe_inputs_are_exact_subset_of_intent_authorization() -> None:
+    identity, intent, recipe, registry = _records(SHA_A)
+    shared_intent = ContentIntentV1(
+        intent_id=intent.intent_id,
+        creator_identity_profile_id=intent.creator_identity_profile_id,
+        goal=intent.goal,
+        content_surface=intent.content_surface,
+        media_kind=intent.media_kind,
+        style_lanes=intent.style_lanes,
+        concept_tags=intent.concept_tags,
+        source_asset_fingerprints=(SHA_A, SHA_B),
+        provenance=intent.provenance,
+    )
+    records = compile_thin_evidence_records(
+        creator_identity_profile=identity,
+        content_intent=shared_intent,
+        execution_policy=build_generation_execution_plan("library_reuse").to_contract(),
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+    )
+    assert records["contentIntent"]["sourceAssetFingerprints"] == [SHA_A, SHA_B]
+    assert records["benchmarkRecipe"]["inputFingerprints"] == [SHA_A]
+
+    unlisted_recipe = BenchmarkRecipeV1(
+        recipe_id=recipe.recipe_id,
+        content_intent_id=recipe.content_intent_id,
+        execution_policy_schema=recipe.execution_policy_schema,
+        execution_policy_fingerprint=recipe.execution_policy_fingerprint,
+        task_kind=recipe.task_kind,
+        input_fingerprints=("c" * 64,),
+        parameter_fingerprint=recipe.parameter_fingerprint,
+        required_analyzers=recipe.required_analyzers,
+        expected_provider_calls=recipe.expected_provider_calls,
+        production_writes_allowed=recipe.production_writes_allowed,
+        provenance=recipe.provenance,
+    )
+    with pytest.raises(
+        ThinEvidenceCompatibilityError,
+        match="thin_evidence_benchmark_input_mismatch",
+    ):
+        compile_thin_evidence_records(
+            creator_identity_profile=identity,
+            content_intent=shared_intent,
+            execution_policy=build_generation_execution_plan(
+                "library_reuse"
+            ).to_contract(),
+            benchmark_recipe=unlisted_recipe,
+            analyzer_registry=registry,
+        )
+
+
 @pytest.mark.parametrize(
     ("model_slug", "source_fingerprints", "variant_count", "error_code"),
     [

@@ -502,7 +502,8 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
     if intent["creatorIdentityProfileId"] != spec.identity_profile_id:
         raise LocalQueueError("arena_content_intent_profile_mismatch")
     exact_input_fingerprints = [sha256_file(path) for path in _spec_input_paths(spec)]
-    if list(intent["sourceAssetFingerprints"]) != exact_input_fingerprints:
+    authorized_input_fingerprints = set(intent["sourceAssetFingerprints"])
+    if not set(exact_input_fingerprints).issubset(authorized_input_fingerprints):
         raise LocalQueueError("arena_content_intent_source_mismatch")
 
 
@@ -633,8 +634,15 @@ def build_arena_plan(
         raise LocalQueueError("arena_execution_policy_paid_provider_forbidden")
     if execution_policy.get("productionWritesAllowed") is not False:
         raise LocalQueueError("arena_execution_policy_production_write_forbidden")
+    intent_identities: dict[tuple[str, str], str] = {}
     for spec in sample_specs:
         _validate_spec(spec)
+        existing_intent_fingerprint = intent_identities.setdefault(
+            (spec.creator_id, spec.content_intent_id),
+            spec.content_intent_fingerprint,
+        )
+        if existing_intent_fingerprint != spec.content_intent_fingerprint:
+            raise LocalQueueError("arena_content_intent_identity_collision")
     source_pairs = [
         (spec.creator_id, sha256_file(_primary_source_path(spec)))
         for spec in sample_specs
@@ -949,6 +957,7 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     blinded: set[str] = set()
     outputs: set[str] = set()
     jobs: set[str] = set()
+    content_intent_identities: dict[tuple[str, str], str] = {}
     deep_models: dict[str, dict[str, Any]] = {}
     for raw in samples:
         if not isinstance(raw, dict):
@@ -1075,6 +1084,13 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             or intent.get("creatorIdentityProfileId") != profile.get("profileId")
         ):
             raise LocalQueueError("arena_content_intent_binding_mismatch")
+        intent_id = str(intent["intentId"])
+        intent_fingerprint = fingerprint(intent)
+        existing_intent_fingerprint = content_intent_identities.setdefault(
+            (str(raw["creatorId"]), intent_id), intent_fingerprint
+        )
+        if existing_intent_fingerprint != intent_fingerprint:
+            raise LocalQueueError("arena_content_intent_identity_collision")
         if (
             job.benchmark_recipe_id != recipe.get("recipeId")
             or job.benchmark_recipe_fingerprint != fingerprint(recipe)
@@ -1207,10 +1223,9 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         ):
             if isinstance(value, str) and value not in exact_inputs:
                 exact_inputs.append(value)
-        if (
-            recipe.get("inputFingerprints") != exact_inputs
-            or intent.get("sourceAssetFingerprints") != exact_inputs
-        ):
+        if recipe.get("inputFingerprints") != exact_inputs or not set(
+            exact_inputs
+        ).issubset(set(intent.get("sourceAssetFingerprints") or [])):
             raise LocalQueueError("arena_extended_input_fingerprint_mismatch")
         if raw.get("preserveAudio") is not (raw.get("audioMode") == "preserved"):
             raise LocalQueueError("arena_preserve_audio_binding_mismatch")
@@ -2869,6 +2884,7 @@ def build_arena_record_bundle(
     reviewed_identity_facts_path: Path,
     source_path: Path | None,
     typed_inputs: Sequence[tuple[str, Path]] = (),
+    reviewed_source_paths: Sequence[Path] = (),
     goal: str,
     content_surface: str,
     media_kind: str,
@@ -2877,7 +2893,13 @@ def build_arena_record_bundle(
     produced_at: str,
     output_root: Path,
 ) -> dict[str, Any]:
-    """Build exact Arena records only from reviewed facts and hashed source media."""
+    """Build exact Arena records from reviewed facts and authorized source media.
+
+    ``source_path`` and ``typed_inputs`` describe one exact execution cell.
+    ``reviewed_source_paths`` expands only the immutable ContentIntent
+    authorization set so matched Arena cells may share one intent. Each
+    BenchmarkRecipe remains bound to the exact inputs consumed by its cell.
+    """
 
     facts_path = reviewed_identity_facts_path.expanduser().resolve()
     source = source_path.expanduser().resolve() if source_path is not None else None
@@ -2897,6 +2919,10 @@ def build_arena_record_bundle(
     for _input_kind, input_path in inputs:
         if not input_path.is_file() or input_path.is_symlink():
             raise LocalQueueError("arena_record_source_missing_or_unsafe")
+    reviewed_sources = [path.expanduser().resolve() for path in reviewed_source_paths]
+    for reviewed_source in reviewed_sources:
+        if not reviewed_source.is_file() or reviewed_source.is_symlink():
+            raise LocalQueueError("arena_record_reviewed_source_missing_or_unsafe")
     facts = _read_json(facts_path)
     expected_fact_keys = {
         "schema",
@@ -2967,6 +2993,14 @@ def build_arena_record_bundle(
     exact_input_fingerprints = tuple(
         dict.fromkeys(str(item["sha256"]) for item in input_assets)
     )
+    authorized_source_fingerprints = tuple(
+        sorted(
+            {
+                *exact_input_fingerprints,
+                *(sha256_file(path) for path in reviewed_sources),
+            }
+        )
+    )
     normalized_lanes = tuple(
         dict.fromkeys(_required_text(value, "style_lane") for value in style_lanes)
     )
@@ -2975,7 +3009,7 @@ def build_arena_record_bundle(
     )
     intent_material = {
         "creatorIdentityProfileFingerprint": profile_fingerprint,
-        "sourceSha256": source_sha,
+        "authorizedSourceFingerprints": authorized_source_fingerprints,
         "goal": _required_text(goal, "goal"),
         "contentSurface": content_surface,
         "mediaKind": media_kind,
@@ -2990,7 +3024,7 @@ def build_arena_record_bundle(
         media_kind=media_kind,  # type: ignore[arg-type]
         style_lanes=normalized_lanes,
         concept_tags=normalized_tags,
-        source_asset_fingerprints=exact_input_fingerprints,
+        source_asset_fingerprints=authorized_source_fingerprints,
         provenance=ProvenanceV1(
             producer="reel_factory.local_model_arena.record_builder",
             produced_at=produced_at,
@@ -3004,7 +3038,7 @@ def build_arena_record_bundle(
                         record_id=f"source_asset:{value[:24]}",
                         fingerprint=value,
                     )
-                    for value in exact_input_fingerprints
+                    for value in authorized_source_fingerprints
                 ),
             ),
         ),
@@ -3056,6 +3090,16 @@ def main(argv: list[str] | None = None) -> int:
     records_command = sub.add_parser("build-records")
     records_command.add_argument("--reviewed-identity-facts", type=Path, required=True)
     records_command.add_argument("--source", type=Path)
+    records_command.add_argument(
+        "--reviewed-source",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "Repeatable reviewed source authorized by the shared ContentIntent; "
+            "does not add an input to the exact BenchmarkRecipe"
+        ),
+    )
     records_command.add_argument(
         "--input",
         action="append",
@@ -3113,6 +3157,7 @@ def main(argv: list[str] | None = None) -> int:
                 reviewed_identity_facts_path=args.reviewed_identity_facts,
                 source_path=args.source,
                 typed_inputs=typed_inputs,
+                reviewed_source_paths=args.reviewed_source,
                 goal=args.goal,
                 content_surface=args.content_surface,
                 media_kind=args.media_kind,

@@ -327,11 +327,17 @@ def _request(
 ) -> LocalVideoRequest:
     selected_image = image_path if image_path is not None else _image(tmp_path)
     source_sha256 = hashlib.sha256(selected_image.read_bytes()).hexdigest()
+    exact_input_fingerprints = [source_sha256]
+    for path in (audio_path, last_image_path):
+        if path is not None:
+            value = hashlib.sha256(path.read_bytes()).hexdigest()
+            if value not in exact_input_fingerprints:
+                exact_input_fingerprints.append(value)
     recipe = {
         "schema": "creator_os.benchmark_recipe.v1",
         "recipeId": "fixture-recipe",
         "taskKind": task,
-        "inputFingerprints": [source_sha256],
+        "inputFingerprints": exact_input_fingerprints,
         "requiredAnalyzers": [
             {"analyzerId": "fixture.motion", "analyzerVersion": "1.0.0"}
         ],
@@ -351,7 +357,7 @@ def _request(
         "schema": "creator_os.content_intent.v1",
         "intentId": "fixture-intent",
         "creatorIdentityProfileId": profile["profileId"],
-        "sourceAssetFingerprints": [source_sha256],
+        "sourceAssetFingerprints": exact_input_fingerprints,
     }
     model_deep_fingerprint = _model_status(model_id)["deepVerificationReceipt"][
         "verificationFingerprint"
@@ -1322,7 +1328,7 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         "schema": "creator_os.content_intent.v1",
         "intentId": "intent-flf",
         "creatorIdentityProfileId": identity["profileId"],
-        "sourceAssetFingerprints": inputs,
+        "sourceAssetFingerprints": [*inputs, "f" * 64],
     }
     recipe = {
         "schema": "creator_os.benchmark_recipe.v1",
@@ -1484,6 +1490,7 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
     )
     binding = _validate_campaign_admission(request, capability=capability)
     assert binding["inputFingerprints"] == inputs
+    assert intent["sourceAssetFingerprints"] != inputs
 
     last.write_bytes(b"substituted-last-frame")
     with pytest.raises(LocalVideoUnavailable, match="input_fingerprint_mismatch"):

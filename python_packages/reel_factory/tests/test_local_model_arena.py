@@ -202,13 +202,16 @@ def test_candidate_aggregates_use_true_even_sample_medians() -> None:
 def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
+    primary_source = request.image_path or request.source_video_path
+    assert primary_source is not None
+    source_sha = sha256_file(primary_source)
     return LocalGenerationJob.create(
-        job_id=f"job-{request.model_id}-{request.seed}",
+        job_id=f"job-{request.model_id}-{request.seed}-{source_sha[:12]}",
         model_id=request.model_id,
         model_revision="model-revision",
         model_manifest_sha256="c" * 64,
         task_kind=request.task,
-        input_sha256="d" * 64,
+        input_sha256=source_sha,
         requested_memory_bytes=1024,
         params={"seed": request.seed, "output": str(request.output_path)},
         cohort={"seed": request.seed},
@@ -251,7 +254,13 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
     )
 
 
-def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
+def _build(
+    monkeypatch,
+    tmp_path: Path,
+    specs: list[ArenaSampleSpec],
+    *,
+    purpose: str = "exploratory",
+) -> dict:
     repository_root = Path(__file__).resolve().parents[3]
     registry = arena_analyzer_registry(
         _base_registry(repository_root),
@@ -326,7 +335,7 @@ def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
     )
     return build_arena_plan(
         sample_specs=specs,
-        purpose="exploratory",
+        purpose=purpose,
         produced_at=PRODUCED_AT,
         output_root=tmp_path / "arena",
         execution_policy=_policy(),
@@ -496,10 +505,281 @@ def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> Non
         "source-video",
         "audio",
     ]
-    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [
-        sha256_file(source_video),
-        sha256_file(audio),
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == sorted(
+        [sha256_file(source_video), sha256_file(audio)]
+    )
+
+
+def test_record_builder_binds_full_reviewed_source_set_deterministically(
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "source-a.png"
+    source_b = tmp_path / "source-b.png"
+    source_a.write_bytes(b"reviewed-source-a")
+    source_b.write_bytes(b"reviewed-source-b")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    common = {
+        "reviewed_identity_facts_path": facts,
+        "goal": "Benchmark subtle natural motion",
+        "content_surface": "reel",
+        "media_kind": "video",
+        "style_lanes": ("subtle_motion",),
+        "concept_tags": ("lifestyle",),
+        "produced_at": "2026-01-02T12:00:00Z",
+    }
+    first = build_arena_record_bundle(
+        **common,
+        source_path=source_a,
+        reviewed_source_paths=(source_b, source_a),
+        output_root=tmp_path / "records-a",
+    )
+    second = build_arena_record_bundle(
+        **common,
+        source_path=source_b,
+        reviewed_source_paths=(source_a, source_b),
+        output_root=tmp_path / "records-b",
+    )
+
+    expected_sources = sorted((sha256_file(source_a), sha256_file(source_b)))
+    assert first["contentIntent"] == second["contentIntent"]
+    assert first["contentIntentId"] == second["contentIntentId"]
+    assert first["contentIntentFingerprint"] == second["contentIntentFingerprint"]
+    assert first["contentIntent"]["sourceAssetFingerprints"] == expected_sources
+    assert [item["sha256"] for item in first["inputAssets"]] == [sha256_file(source_a)]
+    assert [item["sha256"] for item in second["inputAssets"]] == [sha256_file(source_b)]
+
+
+def test_promotion_plan_accepts_full_canonical_two_source_cohort(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    specs: list[ArenaSampleSpec] = []
+    models = (
+        "local_wan22_ti2v_5b_mlx",
+        "local_wan22_i2v_a14b_q4_mlx",
+    )
+    for creator in ("stacey", "larissa", "lola"):
+        sources = (
+            tmp_path / f"{creator}-source-a.png",
+            tmp_path / f"{creator}-source-b.png",
+        )
+        for index, source in enumerate(sources):
+            source.write_bytes(f"{creator}-reviewed-source-{index}".encode())
+        facts = tmp_path / f"{creator}-facts.json"
+        facts.write_text(
+            json.dumps(
+                {
+                    "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                    "creatorKey": creator,
+                    "displayName": creator.title(),
+                    "modelProfile": f"soul-{creator}",
+                    "identityReferences": [
+                        {
+                            "namespace": "test",
+                            "externalId": creator,
+                            "fingerprint": fingerprint({"creator": creator}),
+                        }
+                    ],
+                    "reviewedBy": "operator",
+                    "reviewedAt": "2026-01-01T11:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        records = build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=sources[0],
+            reviewed_source_paths=sources,
+            goal="Benchmark subtle natural motion",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("subtle_motion",),
+            concept_tags=("lifestyle",),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=tmp_path / f"{creator}-records",
+        )
+        for model_id in models:
+            for source in sources:
+                for seed in (1, 2, 3, 4):
+                    base = _spec(
+                        source,
+                        creator=creator,
+                        model_id=model_id,
+                        seed=seed,
+                    )
+                    specs.append(
+                        replace(
+                            base,
+                            identity_profile_id=records["identityProfileId"],
+                            identity_profile_fingerprint=records[
+                                "identityProfileFingerprint"
+                            ],
+                            creator_identity_profile=records["creatorIdentityProfile"],
+                            content_intent_id=records["contentIntentId"],
+                            content_intent_fingerprint=records[
+                                "contentIntentFingerprint"
+                            ],
+                            content_intent=records["contentIntent"],
+                        )
+                    )
+
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        specs,
+        purpose="promotion_eligible",
+    )
+    validated = validate_arena_plan(plan)
+    assert validated["expectedSampleCount"] == 48
+    assert (
+        len(
+            {
+                (
+                    sample["creatorId"],
+                    sample["modelId"],
+                    sample["contentIntentId"],
+                )
+                for sample in validated["samples"]
+            }
+        )
+        == 6
+    )
+    assert all(
+        len(sample["benchmarkRecipe"]["inputFingerprints"]) == 1
+        for sample in validated["samples"]
+    )
+    assert all(
+        len(sample["contentIntent"]["sourceAssetFingerprints"]) == 2
+        for sample in validated["samples"]
+    )
+
+
+def test_arena_rejects_unlisted_source_and_content_intent_set_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sources = (tmp_path / "source-a.png", tmp_path / "source-b.png")
+    unlisted = tmp_path / "source-c.png"
+    for index, source in enumerate((*sources, unlisted)):
+        source.write_bytes(f"reviewed-source-{index}".encode())
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    records = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=sources[0],
+        reviewed_source_paths=sources,
+        goal="Benchmark subtle natural motion",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("subtle_motion",),
+        concept_tags=(),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+
+    unlisted_spec = replace(
+        _spec(unlisted),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=records["contentIntentFingerprint"],
+        content_intent=records["contentIntent"],
+    )
+    with pytest.raises(LocalQueueError, match="content_intent_source_mismatch"):
+        _build(monkeypatch, tmp_path, [unlisted_spec])
+
+    first = replace(
+        _spec(sources[0], seed=1),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=records["contentIntentFingerprint"],
+        content_intent=records["contentIntent"],
+    )
+    drifted_intent = dict(records["contentIntent"])
+    drifted_intent["sourceAssetFingerprints"] = [
+        *drifted_intent["sourceAssetFingerprints"],
+        sha256_file(unlisted),
     ]
+    second = replace(
+        _spec(sources[1], seed=2),
+        identity_profile_id=records["identityProfileId"],
+        identity_profile_fingerprint=records["identityProfileFingerprint"],
+        creator_identity_profile=records["creatorIdentityProfile"],
+        content_intent_id=records["contentIntentId"],
+        content_intent_fingerprint=fingerprint(drifted_intent),
+        content_intent=drifted_intent,
+    )
+    with pytest.raises(LocalQueueError, match="content_intent_identity_collision"):
+        _build(monkeypatch, tmp_path, [first, second])
+
+
+def test_shared_intent_keeps_live_source_substitution_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_a = tmp_path / "source-a.png"
+    source_b = tmp_path / "source-b.png"
+    source_a.write_bytes(b"reviewed-source-a")
+    source_b.write_bytes(b"reviewed-source-b")
+    spec = _spec(source_a)
+    shared_intent = dict(spec.content_intent)
+    shared_intent["sourceAssetFingerprints"] = sorted(
+        (sha256_file(source_a), sha256_file(source_b))
+    )
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [
+            replace(
+                spec,
+                content_intent=shared_intent,
+                content_intent_fingerprint=fingerprint(shared_intent),
+            )
+        ],
+    )
+
+    source_a.write_bytes(b"substituted-after-plan")
+    with pytest.raises(LocalQueueError, match="source_missing_or_substituted"):
+        validate_arena_plan(plan)
 
 
 def test_video_retake_uses_only_exact_source_video_and_rejects_substitution(

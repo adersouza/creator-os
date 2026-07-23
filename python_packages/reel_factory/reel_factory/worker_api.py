@@ -81,7 +81,7 @@ def admit_local_motion(
         or fingerprint(identity) != identity_profile_fingerprint
         or intent.get("intentId") != content_intent_id
         or fingerprint(intent) != content_intent_fingerprint
-        or list(intent.get("sourceAssetFingerprints") or []) != inputs
+        or not set(inputs).issubset(set(intent.get("sourceAssetFingerprints") or []))
         or list(recipe.get("inputFingerprints") or []) != inputs
         or recipe.get("taskKind") != task_kind
     ):
