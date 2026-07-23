@@ -111,13 +111,14 @@
     "executionEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "attemptCount", "retryCount", "admissionBlockCount", "failureClass", "executionMeasurement", "localCost"],
+      "required": ["status", "attemptCount", "retryCount", "admissionBlockCount", "failureClass", "hardwareFingerprint", "executionMeasurement", "localCost"],
       "properties": {
         "status": {"enum": ["missing", "queued", "running", "succeeded", "failed", "interrupted", "cancelled"]},
         "attemptCount": {"type": "integer", "minimum": 0},
         "retryCount": {"type": "integer", "minimum": 0},
         "admissionBlockCount": {"type": "integer", "minimum": 0},
         "failureClass": {"type": ["string", "null"]},
+        "hardwareFingerprint": {"$ref": "#/$defs/nullableSha256"},
         "executionMeasurement": {"$ref": "#/$defs/executionMeasurement"},
         "localCost": {
           "type": "object",

@@ -214,6 +214,7 @@ def _summary(
             "retryCount": 0,
             "admissionBlockCount": 0,
             "failureClass": None,
+            "hardwareFingerprint": "f" * 64,
             "executionMeasurement": {
                 "available": True,
                 "wallTimeSeconds": 100.0,

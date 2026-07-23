@@ -467,6 +467,57 @@ def test_benchmark_is_bound_to_succeeded_job_and_measured_hardware(
     assert receipt.local_cost_measurement_method == "unavailable:not_metered"
 
 
+def test_completed_benchmark_reverification_rejects_output_and_qc_substitution(
+    tmp_path: Path,
+) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    receipt = _complete_and_benchmark(
+        queue,
+        store,
+        _job("job", "wan", "shot-a"),
+        benchmark_id="benchmark-1",
+    )
+
+    store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+    output = queue.root / "job.mp4"
+    output.write_bytes(b"substituted output")
+    with pytest.raises(RuntimeError, match="output_missing_or_substituted"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+
+    output.write_bytes(b"output-job")
+    qc_path = store.root / receipt.qc_references[0].receipt_uri
+    qc_path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="qc_receipt_sha256_mismatch"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+
+
+def test_completed_benchmark_reverification_uses_current_analyzer_implementation(
+    tmp_path: Path,
+) -> None:
+    implementation_root = tmp_path / "implementation"
+    implementation = (
+        implementation_root / "packages/contentforge/lib/trusted-media-analysis.js"
+    )
+    implementation.parent.mkdir(parents=True, exist_ok=True)
+    implementation.write_bytes(TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes())
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    store = LocalModelBenchmarkStore(
+        tmp_path / "evidence",
+        implementation_root=implementation_root,
+    )
+    receipt = _complete_and_benchmark(
+        queue,
+        store,
+        _job("job", "wan", "shot-a"),
+        benchmark_id="benchmark-1",
+    )
+
+    implementation.write_text("drifted implementation\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="analyzer_implementation_drift"):
+        store.reverify_completed_job_evidence(queue, benchmark_id=receipt.benchmark_id)
+
+
 def test_benchmark_rejects_nonterminal_job(tmp_path: Path) -> None:
     queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
     store = LocalModelBenchmarkStore(tmp_path / "evidence")

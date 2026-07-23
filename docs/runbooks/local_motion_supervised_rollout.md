@@ -55,7 +55,7 @@ permission to render.
 | Gate | Primary proof | Pass criteria | Holds/failures |
 |---|---|---|---|
 | 10 | identity, actual-media QC, lineage, review/export ergonomics | every sample terminal; no substitution; >=80% valid reviewed yield; zero provider/production writes | failed, interrupted, resource-blocked, unsupported, missing, QC-blocked |
-| 25 | queue/resource stability and useful yield | single-machine queue invariant; no terminal interrupted/resource-blocked sample; >=75% valid reviewed yield; no substitution/duplicate evidence | same exact classes; no hidden retry |
+| 25 | queue/resource stability and useful yield | one exact hardware fingerprint across the cohort; single-machine queue invariant; no terminal interrupted/resource-blocked sample; >=75% valid reviewed yield; no substitution/duplicate evidence | same exact classes; mixed or missing hardware identity; no hidden retry |
 | 50 | Router distribution and failure recovery | only active promoted models selected; no fallback/override; every sample recovered to a valid reviewed success | any unrecovered failure is a hold |
 | 100 | sustained throughput and evidence completeness | 100/100 valid reviewed successes; every execution has exact QC/review/benchmark, resource, and latency evidence | missing or unavailable evidence remains missing and holds the gate |
 
@@ -106,6 +106,18 @@ gate-specific check and blocking reason; escalation re-derives that record from
 the persisted summary. Missing values stay missing; they are never serialized
 as zero to satisfy a gate.
 
+The caller's `decided-at` must be monotonic, no later than the Arena's trusted
+current clock, and no more than five minutes old. Router activation is always
+evaluated at that trusted current time, never at a caller-supplied backdated
+timestamp.
+
+Each transition also requires four independently produced, read-only activity
+snapshots: provider cost events, schedules, publishes, and QStash events. Use
+JSON arrays, `{"events": [...]}`, or JSONL exported from the real evidence
+stores. The Arena hashes, counts, and content-addresses every snapshot, rejects
+unavailable or nonzero sources, and rehashes the original source before every
+later transition. Keep those exact files immutable for the gate.
+
 ## Operator procedure
 
 All diagnostic commands use the explicit advanced surface:
@@ -153,6 +165,10 @@ scripts/creator-os advanced arena --root <arena-root> rollout-approve \
   --mode-confirmation "Mode 3 — Local Wan / LTX motion — free." \
   --router-evidence <router-bundle-1.json> \
   --router-evidence <router-bundle-2.json> \
+  --external-activity-source provider_cost=<provider-cost-events.json> \
+  --external-activity-source schedule=<schedule-events.json> \
+  --external-activity-source publish=<publish-events.json> \
+  --external-activity-source qstash=<qstash-events.json> \
   [--predecessor-receipt-fingerprint <prior-approved-to-escalate-fingerprint>]
 ```
 
@@ -177,7 +193,10 @@ scripts/creator-os advanced arena --root <arena-root> finalize \
 
 `finalize` records successful samples with their exact output, benchmark, and
 human-review evidence. Record every non-success explicitly; inferred queue
-state is not sufficient for rollout reconciliation:
+state is not sufficient for rollout reconciliation. The command verifies the
+classification against the exact queue job and its latest append-only evidence;
+a never-run job cannot be called failed, and a submitted job cannot be called
+missing:
 
 ```bash
 scripts/creator-os advanced arena --root <arena-root> rollout-sample-terminal \
@@ -193,7 +212,11 @@ evidence-derived reconciliation:
 scripts/creator-os advanced arena --root <arena-root> rollout-reconcile \
   --plan-id <plan-id> --decision <terminal|held> \
   --operator-identity <operator> --decided-at <utc-timestamp> \
-  --reason <reviewed-reason>
+  --reason <reviewed-reason> \
+  --external-activity-source provider_cost=<provider-cost-events.json> \
+  --external-activity-source schedule=<schedule-events.json> \
+  --external-activity-source publish=<publish-events.json> \
+  --external-activity-source qstash=<qstash-events.json>
 ```
 
 `terminal` is rejected when documented pass criteria are not met. `held` is
@@ -206,7 +229,11 @@ authenticate the separate escalation:
 ```bash
 scripts/creator-os advanced arena --root <arena-root> rollout-escalate \
   --plan-id <plan-id> --operator-identity <operator> \
-  --decided-at <utc-timestamp> --reason <reviewed-reason>
+  --decided-at <utc-timestamp> --reason <reviewed-reason> \
+  --external-activity-source provider_cost=<provider-cost-events.json> \
+  --external-activity-source schedule=<schedule-events.json> \
+  --external-activity-source publish=<publish-events.json> \
+  --external-activity-source qstash=<qstash-events.json>
 scripts/creator-os advanced arena --root <arena-root> rollout-status \
   --plan-id <plan-id>
 ```

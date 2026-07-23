@@ -49,9 +49,9 @@
     "pipeline_contracts/schemas/learning_cohort.v1.schema.json": "33ee26318aebab2e5d35246d9db0969b99d45d7c237fe7c017daa41ea715485a",
     "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "c0ee10f1c6ed257084a08fe05f51365a566d2f3f4518d45c512ec17eae6155a0",
     "pipeline_contracts/schemas/local_model_arena_review_packet.v1.schema.json": "55b33e7b62122bce7f64ebe07225de1eba5192becfb79a363e176f198b3ffe5f",
-    "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "52d3be6c6b99c9b78c5c87d1e2693743e369b32103dda66bffba0766d0298dd8",
+    "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "06dfc88aa954b803645e321c36217aa3348353b37759a704a09b5093a2ae65f3",
     "pipeline_contracts/schemas/local_model_arena_unblinding_receipt.v1.schema.json": "0b88a97cd99bf88bd647fa9d65f69c421be8d91415aca5da87a2c5ed599a7373",
-    "pipeline_contracts/schemas/local_model_rollout_gate_receipt.v1.schema.json": "73ebafd95456d0221f13307d872a49d1a0e6e7431f6f05078efb0ac30f7bfc6b",
+    "pipeline_contracts/schemas/local_model_rollout_gate_receipt.v1.schema.json": "a9f61bebe089ef8601b1ccd99f80576db9ab59047fc79ebe03af1f1f2714f26f",
     "pipeline_contracts/schemas/local_model_router_decision.v1.schema.json": "7746dbc15d8bd5c83da7962a0dde66454dff74d049a440a0da0ec4dbdc4c1520",
     "pipeline_contracts/schemas/motion_edit_render.v1.example.json": "6cb05a01ca512f9a65c526993be108a5b8cd2b626b6e399aaca17546dc76512f",
     "pipeline_contracts/schemas/motion_edit_render.v1.schema.json": "e7f0d58dbb92675130cc30a0e240608f64ba412edc5c144936640c3760ceb59a",
@@ -91,7 +91,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "f295e8c460ff26a6776d2716299b08185cd10f405534ac8e8f8205e813b79b54",
+    "typescript/generated-schemas.ts": "4165e1aa2930e07501119b4a513ef14307868ebf7c3703969438f8b09b74cda3",
     "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }

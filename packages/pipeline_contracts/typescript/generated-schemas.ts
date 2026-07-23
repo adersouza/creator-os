@@ -7109,6 +7109,7 @@ export const generatedPipelineContractSchemas = {
 	        "retryCount",
 	        "admissionBlockCount",
 	        "failureClass",
+	        "hardwareFingerprint",
 	        "executionMeasurement",
 	        "localCost"
 	      ],
@@ -7141,6 +7142,9 @@ export const generatedPipelineContractSchemas = {
 	            "string",
 	            "null"
 	          ]
+	        },
+	        "hardwareFingerprint": {
+	          "$ref": "#/$defs/nullableSha256"
 	        },
 	        "executionMeasurement": {
 	          "$ref": "#/$defs/executionMeasurement"
@@ -8065,6 +8069,8 @@ export const generatedPipelineContractSchemas = {
 	        "noIntegrityBlockers",
 	        "validReviewedYieldThresholdMet",
 	        "queueStabilityProven",
+	        "singleHardwareCohortProven",
+	        "hardwareFingerprint",
 	        "activePromotedRouterDistributionProven",
 	        "failureRecoveryComplete",
 	        "sustainedThroughputProven",
@@ -8102,6 +8108,15 @@ export const generatedPipelineContractSchemas = {
 	            "boolean",
 	            "null"
 	          ]
+	        },
+	        "singleHardwareCohortProven": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        },
+	        "hardwareFingerprint": {
+	          "$ref": "#/$defs/nullableSha256"
 	        },
 	        "activePromotedRouterDistributionProven": {
 	          "type": [
@@ -8155,7 +8170,14 @@ export const generatedPipelineContractSchemas = {
 	        "terminalEventProviderCalls",
 	        "terminalEventProductionWrites",
 	        "observedProviderCalls",
-	        "observedProductionWrites"
+	        "observedProductionWrites",
+	        "observerSnapshotFingerprint",
+	        "observerObservedAt",
+	        "observerSources",
+	        "observedProviderCostEvents",
+	        "observedSchedules",
+	        "observedPublishes",
+	        "observedQStashEvents"
 	      ],
 	      "properties": {
 	        "planProviderCalls": {
@@ -8190,6 +8212,64 @@ export const generatedPipelineContractSchemas = {
 	          "const": 0
 	        },
 	        "observedProductionWrites": {
+	          "const": 0
+	        },
+	        "observerSnapshotFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "observerObservedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "observerSources": {
+	          "type": "array",
+	          "minItems": 4,
+	          "maxItems": 4,
+	          "uniqueItems": true,
+	          "items": {
+	            "$ref": "#/$defs/externalActivitySource"
+	          }
+	        },
+	        "observedProviderCostEvents": {
+	          "const": 0
+	        },
+	        "observedSchedules": {
+	          "const": 0
+	        },
+	        "observedPublishes": {
+	          "const": 0
+	        },
+	        "observedQStashEvents": {
+	          "const": 0
+	        }
+	      }
+	    },
+	    "externalActivitySource": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "kind",
+	        "path",
+	        "sha256",
+	        "recordCount"
+	      ],
+	      "properties": {
+	        "kind": {
+	          "enum": [
+	            "provider_cost",
+	            "schedule",
+	            "publish",
+	            "qstash"
+	          ]
+	        },
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recordCount": {
 	          "const": 0
 	        }
 	      }

@@ -17,9 +17,9 @@ import statistics
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -95,6 +95,13 @@ ROLLOUT_GATE_SCHEMA: Final = "reel_factory.local_model_rollout_gate_receipt.v1"
 ROLLOUT_GATE_ISSUER: Final = "reel_factory.local_model_arena.rollout_gate"
 ROLLOUT_GATE_SIZES: Final = (10, 25, 50, 100)
 ROLLOUT_MODE_CONFIRMATION: Final = "Mode 3 — Local Wan / LTX motion — free."
+ROLLOUT_CLOCK_SKEW: Final = timedelta(minutes=5)
+ROLLOUT_EXTERNAL_ACTIVITY_KINDS: Final = (
+    "provider_cost",
+    "schedule",
+    "publish",
+    "qstash",
+)
 CREATORS: Final = frozenset({"stacey", "larissa", "lola"})
 PURPOSES: Final = frozenset({"exploratory", "promotion_eligible", "supervised_rollout"})
 TERMINAL_STATUSES: Final = frozenset(
@@ -2286,10 +2293,54 @@ def _rollout_router_bundle_matches_sample(
     )
 
 
+def _rollout_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LocalQueueError("arena_rollout_timestamp_invalid") from exc
+    if parsed.tzinfo is None:
+        raise LocalQueueError("arena_rollout_timestamp_timezone_missing")
+    return parsed.astimezone(UTC)
+
+
+def _external_activity_record_count(path: Path) -> int:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LocalQueueError(
+            "arena_rollout_external_activity_source_unreadable"
+        ) from exc
+    stripped = text.strip()
+    if not stripped:
+        return 0
+    try:
+        decoded = json.loads(stripped)
+    except json.JSONDecodeError:
+        rows = [line for line in text.splitlines() if line.strip()]
+        try:
+            for line in rows:
+                json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise LocalQueueError(
+                "arena_rollout_external_activity_source_invalid"
+            ) from exc
+        return len(rows)
+    if isinstance(decoded, list):
+        return len(decoded)
+    if isinstance(decoded, dict) and isinstance(decoded.get("events"), list):
+        return len(decoded["events"])
+    raise LocalQueueError("arena_rollout_external_activity_source_invalid")
+
+
 class LocalModelArenaStore:
     """Persist immutable Arena plans and outcomes beside benchmark evidence."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        trusted_clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self.root = root.expanduser().resolve()
         self.plans = self.root / "arena_plans"
         self.identity_profiles = self.root / "creator_identity_profiles"
@@ -2298,8 +2349,34 @@ class LocalModelArenaStore:
         self.unblinding_receipts = self.root / "arena_unblinding_receipts"
         self.rollout_router_evidence = self.root / "arena_rollout_router_evidence"
         self.rollout_summaries = self.root / "arena_rollout_summaries"
+        self.rollout_external_activity = self.root / "arena_rollout_external_activity"
         self.events = AppendOnlyJournal(self.root / "arena_events.jsonl")
         self._mutation = self.root / "arena_mutation"
+        self._trusted_clock = trusted_clock or (lambda: datetime.now(UTC))
+        self.__transition_token = object()
+
+    def _trusted_now(self) -> datetime:
+        observed = self._trusted_clock()
+        if observed.tzinfo is None:
+            raise LocalQueueError("arena_rollout_trusted_clock_timezone_missing")
+        return observed.astimezone(UTC)
+
+    def _validate_transition_timestamp(
+        self,
+        decided_at: str,
+        *,
+        not_before: str,
+    ) -> str:
+        decided = _rollout_timestamp(decided_at)
+        lower = _rollout_timestamp(not_before)
+        now = self._trusted_now()
+        if decided < lower:
+            raise LocalQueueError("arena_rollout_timestamp_order_invalid")
+        if decided < now - ROLLOUT_CLOCK_SKEW:
+            raise LocalQueueError("arena_rollout_timestamp_backdated")
+        if decided > now:
+            raise LocalQueueError("arena_rollout_timestamp_future")
+        return decided.isoformat()
 
     def persist_plan(self, plan: Mapping[str, Any]) -> Path:
         payload = validate_arena_plan(plan)
@@ -2392,9 +2469,11 @@ class LocalModelArenaStore:
         if not isinstance(payload, dict):
             raise LocalQueueError("arena_rollout_event_payload_invalid")
         plan = self.load_plan(str(payload.get("arenaPlanId") or ""))
-        return validate_rollout_gate_receipt(
+        receipt = validate_rollout_gate_receipt(
             payload, arena_plan=plan, evidence_secret=evidence_secret
         )
+        self._verify_rollout_external_activity_snapshot(receipt["externalActivity"])
+        return receipt
 
     def _rollout_receipt_by_fingerprint(
         self,
@@ -2461,7 +2540,49 @@ class LocalModelArenaStore:
         plan: Mapping[str, Any],
         *,
         summary: Mapping[str, Any] | None,
+        source_paths: Mapping[str, Path],
+        observed_at: str,
     ) -> dict[str, Any]:
+        if set(source_paths) != set(ROLLOUT_EXTERNAL_ACTIVITY_KINDS):
+            raise LocalQueueError("arena_rollout_external_activity_sources_required")
+        observer_sources: list[dict[str, Any]] = []
+        for kind in ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
+            unresolved = source_paths[kind].expanduser()
+            resolved = unresolved.resolve()
+            if (
+                not resolved.is_file()
+                or unresolved.is_symlink()
+                or resolved.is_symlink()
+            ):
+                raise LocalQueueError(
+                    f"arena_rollout_external_activity_source_missing:{kind}"
+                )
+            observer_sources.append(
+                {
+                    "kind": kind,
+                    "path": str(resolved),
+                    "sha256": sha256_file(resolved),
+                    "recordCount": _external_activity_record_count(resolved),
+                }
+            )
+        observer_core = {
+            "schema": "reel_factory.local_model_rollout_external_activity.v1",
+            "observedAt": observed_at,
+            "sources": observer_sources,
+        }
+        observer_fingerprint = fingerprint(observer_core)
+        observer_snapshot = {
+            **observer_core,
+            "snapshotFingerprint": observer_fingerprint,
+        }
+        persisted_observer = self._persist_rollout_snapshot(
+            self.rollout_external_activity,
+            observer_snapshot,
+        )
+        if persisted_observer != fingerprint(observer_snapshot):
+            raise LocalQueueError(
+                "arena_rollout_external_activity_snapshot_persistence_failed"
+            )
         terminal_events = [
             event
             for event in self.events.read().events
@@ -2497,6 +2618,13 @@ class LocalModelArenaStore:
                 terminal_production_writes
                 + int(summary.get("productionWrites", 0) if summary is not None else 0)
             ),
+            "observerSnapshotFingerprint": fingerprint(observer_snapshot),
+            "observerObservedAt": observed_at,
+            "observerSources": observer_sources,
+            "observedProviderCostEvents": observer_sources[0]["recordCount"],
+            "observedSchedules": observer_sources[1]["recordCount"],
+            "observedPublishes": observer_sources[2]["recordCount"],
+            "observedQStashEvents": observer_sources[3]["recordCount"],
         }
         if (
             activity["planProviderCalls"] != 0
@@ -2505,6 +2633,7 @@ class LocalModelArenaStore:
             or activity["terminalEventProductionWrites"] != 0
             or activity["observedProviderCalls"] != 0
             or activity["observedProductionWrites"] != 0
+            or any(source["recordCount"] != 0 for source in observer_sources)
             or (
                 summary is not None
                 and (
@@ -2516,12 +2645,37 @@ class LocalModelArenaStore:
             raise LocalQueueError("arena_rollout_external_activity_detected")
         return activity
 
+    def _verify_rollout_external_activity_snapshot(
+        self, activity: Mapping[str, Any]
+    ) -> None:
+        expected = str(activity.get("observerSnapshotFingerprint") or "")
+        snapshot = self._load_rollout_snapshot(
+            self.rollout_external_activity,
+            expected,
+        )
+        if (
+            snapshot.get("observedAt") != activity.get("observerObservedAt")
+            or snapshot.get("sources") != activity.get("observerSources")
+            or any(
+                not Path(str(source["path"])).is_file()
+                or Path(str(source["path"])).is_symlink()
+                or sha256_file(Path(str(source["path"]))) != source["sha256"]
+                or _external_activity_record_count(Path(str(source["path"])))
+                != source["recordCount"]
+                for source in snapshot["sources"]
+            )
+        ):
+            raise LocalQueueError("arena_rollout_external_activity_snapshot_drift")
+
     def _append_rollout_receipt(
         self,
         core: Mapping[str, Any],
         *,
         evidence_secret: str | None,
+        transition_token: object,
     ) -> dict[str, Any]:
+        if transition_token is not self.__transition_token:
+            raise LocalQueueError("arena_rollout_transition_append_private")
         exact_core = dict(core)
         receipt_fingerprint = fingerprint(exact_core)
         signed_payload = {
@@ -2542,6 +2696,69 @@ class LocalModelArenaStore:
         validated = validate_rollout_gate_receipt(
             receipt, arena_plan=plan, evidence_secret=secret
         )
+        self._verify_rollout_external_activity_snapshot(validated["externalActivity"])
+        current = self._rollout_gate_receipts(
+            str(plan["planId"]), evidence_secret=secret
+        )
+        transition = str(validated["transition"])
+        if transition == "approved_to_run":
+            if current or validated["previousReceiptFingerprint"] is not None:
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+        elif transition in {"terminal", "held"}:
+            if (
+                len(current) != 1
+                or current[0]["transition"] != "approved_to_run"
+                or validated["previousReceiptFingerprint"]
+                != current[0]["receiptFingerprint"]
+            ):
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+            summary_evidence = validated.get("summaryEvidence")
+            if not isinstance(summary_evidence, dict):
+                raise LocalQueueError("arena_rollout_transition_summary_missing")
+            summary = self._load_rollout_summary(
+                str(summary_evidence["summaryFingerprint"]), plan=plan
+            )
+            candidate_evidence = [
+                self._rollout_summary_evidence(
+                    summary,
+                    gate_size=int(plan["expectedSampleCount"]),
+                    promotion_active=promotion_active,
+                )
+                for promotion_active in (
+                    (True,) if transition == "terminal" else (False, True)
+                )
+            ]
+            if summary_evidence not in candidate_evidence:
+                raise LocalQueueError("arena_rollout_transition_summary_drift")
+        elif transition == "approved_to_escalate":
+            if (
+                len(current) != 2
+                or current[0]["transition"] != "approved_to_run"
+                or current[1]["transition"] != "terminal"
+                or current[1]["previousReceiptFingerprint"]
+                != current[0]["receiptFingerprint"]
+                or validated["previousReceiptFingerprint"]
+                != current[1]["receiptFingerprint"]
+                or validated.get("summaryEvidence") != current[1].get("summaryEvidence")
+            ):
+                raise LocalQueueError("arena_rollout_transition_sequence_invalid")
+            summary_evidence = validated.get("summaryEvidence")
+            if not isinstance(summary_evidence, dict):
+                raise LocalQueueError("arena_rollout_transition_summary_missing")
+            summary = self._load_rollout_summary(
+                str(summary_evidence["summaryFingerprint"]), plan=plan
+            )
+            if (
+                self._rollout_summary_evidence(
+                    summary,
+                    gate_size=int(plan["expectedSampleCount"]),
+                    promotion_active=True,
+                )
+                != summary_evidence
+            ):
+                raise LocalQueueError("arena_rollout_transition_summary_drift")
+        else:
+            raise LocalQueueError("arena_rollout_transition_sequence_invalid")
         event = self.events.append("arena_rollout_gate_transition", validated)
         return {"event": event, "receipt": validated}
 
@@ -2598,6 +2815,7 @@ class LocalModelArenaStore:
         router_evidence_bundles: Sequence[Mapping[str, Any]],
         benchmark_store: LocalModelBenchmarkStore,
         human_reviews: HumanMediaReviewStore,
+        external_activity_sources: Mapping[str, Path],
         predecessor_receipt_fingerprint: str | None = None,
         evidence_secret: str | None = None,
     ) -> dict[str, Any]:
@@ -2615,6 +2833,19 @@ class LocalModelArenaStore:
             or not reason.strip()
         ):
             raise ValueError("arena_rollout_operator_fields_missing")
+        not_before = str(plan["createdAt"])
+        if predecessor_receipt_fingerprint is not None:
+            not_before = str(
+                self._rollout_receipt_by_fingerprint(
+                    predecessor_receipt_fingerprint,
+                    evidence_secret=evidence_secret,
+                )["decidedAt"]
+            )
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=not_before,
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
         if self._rollout_gate_receipts(plan_id, evidence_secret=evidence_secret):
             raise LocalQueueError("arena_rollout_gate_already_transitioned")
         self._verify_rollout_predecessor(
@@ -2632,7 +2863,7 @@ class LocalModelArenaStore:
                 raw_bundle,
                 benchmark_store=benchmark_store,
                 human_reviews=human_reviews,
-                observed_at=decided_at,
+                observed_at=trusted_observed_at,
                 evidence_secret=evidence_secret,
             )
             snapshots.append(snapshot)
@@ -2665,7 +2896,12 @@ class LocalModelArenaStore:
             referenced_sample_ids
         ) != set(planned_samples):
             raise LocalQueueError("arena_rollout_router_sample_partition_invalid")
-        activity = self._rollout_external_activity(plan, summary=None)
+        activity = self._rollout_external_activity(
+            plan,
+            summary=None,
+            source_paths=external_activity_sources,
+            observed_at=trusted_observed_at,
+        )
         if activity["terminalEventCount"] != 0:
             raise LocalQueueError("arena_rollout_activity_precedes_approval")
         with file_lock(self._mutation):
@@ -2678,6 +2914,16 @@ class LocalModelArenaStore:
                 evidence_secret=evidence_secret,
             )
             for snapshot, reference in zip(snapshots, references, strict=True):
+                current_snapshot, current_reference = _validate_rollout_router_bundle(
+                    snapshot,
+                    benchmark_store=benchmark_store,
+                    human_reviews=human_reviews,
+                    observed_at=self._trusted_now().isoformat(),
+                    evidence_secret=evidence_secret,
+                    require_active_promotion=True,
+                )
+                if current_snapshot != snapshot or current_reference != reference:
+                    raise LocalQueueError("arena_rollout_router_reference_drift")
                 persisted = self._persist_rollout_snapshot(
                     self.rollout_router_evidence, snapshot
                 )
@@ -2707,13 +2953,17 @@ class LocalModelArenaStore:
                 ),
                 "modeConfirmation": mode_confirmation,
                 "operatorIdentity": operator_identity,
-                "decidedAt": decided_at,
+                "decidedAt": transition_decided_at,
                 "decision": "approved_to_run",
                 "reason": reason,
                 "summaryEvidence": None,
                 "externalActivity": activity,
             }
-            return self._append_rollout_receipt(core, evidence_secret=evidence_secret)
+            return self._append_rollout_receipt(
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
+            )
 
     def _verify_rollout_router_snapshots(
         self,
@@ -2776,7 +3026,6 @@ class LocalModelArenaStore:
         benchmark_store: LocalModelBenchmarkStore,
         human_reviews: HumanMediaReviewStore,
         sample_id: str | None = None,
-        observed_at: str | None = None,
         evidence_secret: str | None = None,
     ) -> dict[str, Any]:
         plan = self.load_plan(plan_id)
@@ -2791,11 +3040,20 @@ class LocalModelArenaStore:
             receipt=approval,
             benchmark_store=benchmark_store,
             human_reviews=human_reviews,
-            observed_at=observed_at or datetime.now(UTC).isoformat(),
+            observed_at=self._trusted_now().isoformat(),
             evidence_secret=evidence_secret,
             require_active_promotion=True,
         )
-        activity = self._rollout_external_activity(plan, summary=None)
+        source_paths = {
+            str(source["kind"]): Path(str(source["path"]))
+            for source in approval["externalActivity"]["observerSources"]
+        }
+        activity = self._rollout_external_activity(
+            plan,
+            summary=None,
+            source_paths=source_paths,
+            observed_at=self._trusted_now().isoformat(),
+        )
         if activity["terminalEventCount"] >= int(plan["expectedSampleCount"]):
             raise LocalQueueError("arena_rollout_gate_not_executable")
         if sample_id is not None and any(
@@ -2912,6 +3170,7 @@ class LocalModelArenaStore:
             "mismatch",
             "drift",
             "forg",
+            "queue_job_missing",
         )
         no_integrity_blockers = not any(
             any(marker in str(reason) for marker in integrity_markers)
@@ -2922,11 +3181,27 @@ class LocalModelArenaStore:
         minimum_yield = {10: 0.80, 25: 0.75, 50: 1.0, 100: 1.0}[gate_size]
         yield_threshold_met = valid_yield >= minimum_yield
         queue_stability: bool | None = None
+        single_hardware_cohort: bool | None = None
+        hardware_fingerprint: str | None = None
         active_distribution: bool | None = None
         failure_recovery: bool | None = None
         sustained_throughput: bool | None = None
         resource_latency_complete: bool | None = None
         if gate_size >= 25:
+            hardware_fingerprints = [
+                sample["executionEvidence"].get("hardwareFingerprint")
+                for sample in samples
+            ]
+            unique_hardware = {
+                value for value in hardware_fingerprints if isinstance(value, str)
+            }
+            single_hardware_cohort = (
+                len(unique_hardware) == 1
+                and len(hardware_fingerprints) == len(samples)
+                and all(isinstance(value, str) for value in hardware_fingerprints)
+            )
+            if single_hardware_cohort:
+                hardware_fingerprint = next(iter(unique_hardware))
             queue_stability = (
                 int(counts.get("interrupted", 0)) == 0
                 and int(counts.get("resource_blocked", 0)) == 0
@@ -2965,6 +3240,8 @@ class LocalModelArenaStore:
             "noIntegrityBlockers": no_integrity_blockers,
             "validReviewedYieldThresholdMet": yield_threshold_met,
             "queueStabilityProven": queue_stability,
+            "singleHardwareCohortProven": single_hardware_cohort,
+            "hardwareFingerprint": hardware_fingerprint,
             "activePromotedRouterDistributionProven": active_distribution,
             "failureRecoveryComplete": failure_recovery,
             "sustainedThroughputProven": sustained_throughput,
@@ -2983,6 +3260,10 @@ class LocalModelArenaStore:
                 blocking_reasons.append(reason)
         for field, reason in (
             ("queueStabilityProven", "rollout_queue_stability_not_proven"),
+            (
+                "singleHardwareCohortProven",
+                "rollout_single_hardware_cohort_not_proven",
+            ),
             (
                 "activePromotedRouterDistributionProven",
                 "rollout_active_router_distribution_not_proven",
@@ -3031,6 +3312,7 @@ class LocalModelArenaStore:
         queue: LocalGenerationQueue,
         benchmark_store: LocalModelBenchmarkStore,
         human_reviews: HumanMediaReviewStore,
+        external_activity_sources: Mapping[str, Path],
         evidence_secret: str | None = None,
     ) -> dict[str, Any]:
         if decision not in {"terminal", "held"}:
@@ -3042,6 +3324,11 @@ class LocalModelArenaStore:
         if len(receipts) != 1 or receipts[0].get("transition") != "approved_to_run":
             raise LocalQueueError("arena_rollout_reconciliation_predecessor_invalid")
         approval = receipts[0]
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=str(approval["decidedAt"]),
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
         self._require_explicit_rollout_terminal_events(plan)
         promotion_active = True
         try:
@@ -3050,7 +3337,7 @@ class LocalModelArenaStore:
                 receipt=approval,
                 benchmark_store=benchmark_store,
                 human_reviews=human_reviews,
-                observed_at=decided_at,
+                observed_at=trusted_observed_at,
                 evidence_secret=evidence_secret,
                 require_active_promotion=True,
             )
@@ -3066,7 +3353,7 @@ class LocalModelArenaStore:
                 receipt=approval,
                 benchmark_store=benchmark_store,
                 human_reviews=human_reviews,
-                observed_at=decided_at,
+                observed_at=trusted_observed_at,
                 evidence_secret=evidence_secret,
                 require_active_promotion=False,
             )
@@ -3084,7 +3371,12 @@ class LocalModelArenaStore:
         )
         if decision == "terminal" and not gate_passes:
             raise LocalQueueError("arena_rollout_gate_pass_criteria_not_met")
-        activity = self._rollout_external_activity(plan, summary=summary)
+        activity = self._rollout_external_activity(
+            plan,
+            summary=summary,
+            source_paths=external_activity_sources,
+            observed_at=trusted_observed_at,
+        )
         summary_evidence = self._rollout_summary_evidence(
             summary,
             gate_size=gate_size,
@@ -3102,6 +3394,25 @@ class LocalModelArenaStore:
                 raise LocalQueueError(
                     "arena_rollout_reconciliation_predecessor_invalid"
                 )
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=self._trusted_now().isoformat(),
+                evidence_secret=evidence_secret,
+                require_active_promotion=promotion_active,
+            )
+            if (
+                self.summarize(
+                    plan_id,
+                    queue=queue,
+                    benchmarks=benchmark_store,
+                    human_reviews=human_reviews,
+                )
+                != summary
+            ):
+                raise LocalQueueError("arena_rollout_reconciliation_summary_drift")
             self._persist_rollout_summary(summary, plan=plan)
             core = {
                 "schema": ROLLOUT_GATE_SCHEMA,
@@ -3124,14 +3435,16 @@ class LocalModelArenaStore:
                 "operatorIdentity": _required_text(
                     operator_identity, "operator_identity"
                 ),
-                "decidedAt": decided_at,
+                "decidedAt": transition_decided_at,
                 "decision": decision,
                 "reason": _required_text(reason, "rollout_reason"),
                 "summaryEvidence": summary_evidence,
                 "externalActivity": activity,
             }
             transition = self._append_rollout_receipt(
-                core, evidence_secret=evidence_secret
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
             )
         return {**transition, "summary": summary}
 
@@ -3142,8 +3455,10 @@ class LocalModelArenaStore:
         operator_identity: str,
         decided_at: str,
         reason: str,
+        queue: LocalGenerationQueue,
         benchmark_store: LocalModelBenchmarkStore,
         human_reviews: HumanMediaReviewStore,
+        external_activity_sources: Mapping[str, Path],
         evidence_secret: str | None = None,
     ) -> dict[str, Any]:
         plan = self.load_plan(plan_id)
@@ -3157,12 +3472,25 @@ class LocalModelArenaStore:
         ):
             raise LocalQueueError("arena_rollout_escalation_predecessor_invalid")
         approval, terminal = receipts
+        transition_decided_at = self._validate_transition_timestamp(
+            decided_at,
+            not_before=str(terminal["decidedAt"]),
+        )
+        trusted_observed_at = self._trusted_now().isoformat()
         summary_evidence = terminal.get("summaryEvidence")
         if not isinstance(summary_evidence, dict):
             raise LocalQueueError("arena_rollout_escalation_summary_missing")
-        summary = self._load_rollout_summary(
+        persisted_summary = self._load_rollout_summary(
             str(summary_evidence["summaryFingerprint"]), plan=plan
         )
+        summary = self.summarize(
+            plan_id,
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=human_reviews,
+        )
+        if summary != persisted_summary:
+            raise LocalQueueError("arena_rollout_escalation_summary_drift")
         gate_size = int(plan["expectedSampleCount"])
         if (
             self._rollout_summary_evidence(
@@ -3184,11 +3512,16 @@ class LocalModelArenaStore:
             receipt=approval,
             benchmark_store=benchmark_store,
             human_reviews=human_reviews,
-            observed_at=decided_at,
+            observed_at=trusted_observed_at,
             evidence_secret=evidence_secret,
             require_active_promotion=True,
         )
-        activity = self._rollout_external_activity(plan, summary=summary)
+        activity = self._rollout_external_activity(
+            plan,
+            summary=summary,
+            source_paths=external_activity_sources,
+            observed_at=trusted_observed_at,
+        )
         core = {
             "schema": ROLLOUT_GATE_SCHEMA,
             "receiptId": f"{approval['gateId']}_approved_to_escalate",
@@ -3206,7 +3539,7 @@ class LocalModelArenaStore:
             "routerEvidence": approval["routerEvidence"],
             "modeConfirmation": approval["modeConfirmation"],
             "operatorIdentity": _required_text(operator_identity, "operator_identity"),
-            "decidedAt": decided_at,
+            "decidedAt": transition_decided_at,
             "decision": "approved_to_escalate",
             "reason": _required_text(reason, "rollout_reason"),
             "summaryEvidence": summary_evidence,
@@ -3224,7 +3557,30 @@ class LocalModelArenaStore:
                 != terminal["receiptFingerprint"]
             ):
                 raise LocalQueueError("arena_rollout_escalation_predecessor_invalid")
-            return self._append_rollout_receipt(core, evidence_secret=evidence_secret)
+            self._verify_rollout_router_snapshots(
+                plan=plan,
+                receipt=approval,
+                benchmark_store=benchmark_store,
+                human_reviews=human_reviews,
+                observed_at=self._trusted_now().isoformat(),
+                evidence_secret=evidence_secret,
+                require_active_promotion=True,
+            )
+            if (
+                self.summarize(
+                    plan_id,
+                    queue=queue,
+                    benchmarks=benchmark_store,
+                    human_reviews=human_reviews,
+                )
+                != summary
+            ):
+                raise LocalQueueError("arena_rollout_escalation_summary_drift")
+            return self._append_rollout_receipt(
+                core,
+                evidence_secret=evidence_secret,
+                transition_token=self.__transition_token,
+            )
 
     def rollout_status(
         self, plan_id: str, *, evidence_secret: str | None = None
@@ -3335,6 +3691,9 @@ class LocalModelArenaStore:
         sample = samples.get(sample_id)
         if sample is None:
             raise LocalQueueError("arena_sample_not_in_plan")
+        queue_job_id = str(sample["queueJob"]["jobId"])
+        queue_state = queue.states().get(queue_job_id) if queue is not None else None
+        queue_evidence: dict[str, Any] | None = None
         if status == "succeeded":
             if output_sha256 is None or benchmark_id is None or human_review_id is None:
                 raise LocalQueueError("arena_success_evidence_incomplete")
@@ -3343,7 +3702,7 @@ class LocalModelArenaStore:
                 raise LocalQueueError("arena_success_output_substituted")
             if queue is None or benchmarks is None or human_reviews is None:
                 raise LocalQueueError("arena_success_verification_context_required")
-            queue_state = queue.states().get(str(sample["queueJob"]["jobId"]))
+            queue_state = queue.states().get(queue_job_id)
             if (
                 queue_state is None
                 or queue_state.status != "succeeded"
@@ -3385,11 +3744,75 @@ class LocalModelArenaStore:
                     else None
                 ),
             )
-        elif any(
-            value is not None
-            for value in (output_sha256, benchmark_id, human_review_id)
-        ):
-            raise LocalQueueError("arena_non_success_must_not_claim_success_evidence")
+            queue_evidence = execution
+        else:
+            if any(
+                value is not None
+                for value in (output_sha256, benchmark_id, human_review_id)
+            ):
+                raise LocalQueueError(
+                    "arena_non_success_must_not_claim_success_evidence"
+                )
+            if plan.get("purpose") == "supervised_rollout":
+                if queue is None:
+                    raise LocalQueueError(
+                        "arena_rollout_terminal_queue_context_required"
+                    )
+                expected_queue_status = {
+                    "failed": "failed",
+                    "interrupted": "interrupted",
+                    "cancelled": "cancelled",
+                    "resource_blocked": "queued",
+                    "unsupported": "failed",
+                    "missing": None,
+                }[status]
+                if expected_queue_status is None:
+                    if queue_state is not None:
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                else:
+                    if (
+                        queue_state is None
+                        or queue_state.status != expected_queue_status
+                        or fingerprint(queue_state.job.as_dict())
+                        != sample["queueJobFingerprint"]
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                    queue_evidence = queue.execution_evidence(queue_job_id)
+                    if status == "resource_blocked" and (
+                        queue_state.last_event.get("eventType")
+                        != "job_admission_blocked"
+                        or queue_evidence["admissionBlockCount"] < 1
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+                    if (
+                        status == "unsupported"
+                        and queue_evidence.get("failureClass") != "unsupported"
+                    ):
+                        raise LocalQueueError(
+                            "arena_rollout_terminal_queue_state_mismatch"
+                        )
+        queue_status = queue_state.status if queue_state is not None else "missing"
+        queue_event_hash = (
+            str(queue_state.last_event.get("eventHash"))
+            if queue_state is not None
+            else None
+        )
+        queue_evidence_fingerprint = fingerprint(
+            queue_evidence
+            if queue_evidence is not None
+            else {"jobId": queue_job_id, "status": "missing"}
+        )
+        hardware_fingerprint = (
+            queue_evidence.get("hardwareFingerprint")
+            if queue_evidence is not None
+            else None
+        )
         terminal_payload = {
             "schema": EVENT_SCHEMA,
             "planId": plan_id,
@@ -3401,6 +3824,10 @@ class LocalModelArenaStore:
             "outputSha256": output_sha256,
             "benchmarkId": benchmark_id,
             "humanReviewId": human_review_id,
+            "queueStatus": queue_status,
+            "queueEventHash": queue_event_hash,
+            "queueEvidenceFingerprint": queue_evidence_fingerprint,
+            "hardwareFingerprint": hardware_fingerprint,
             "providerCalls": 0,
             "productionWrites": 0,
         }
@@ -3515,6 +3942,7 @@ class LocalModelArenaStore:
                 "retryCount": 0,
                 "admissionBlockCount": 0,
                 "failureClass": "queue_job_missing",
+                "hardwareFingerprint": None,
                 "executionMeasurement": {
                     "available": False,
                     "reason": "execution_measurement_unavailable",
@@ -3537,6 +3965,26 @@ class LocalModelArenaStore:
                     != sample["queueJobFingerprint"]
                 ):
                     blockers.append("queue_job_substituted")
+            expected_queue_evidence_fingerprint = fingerprint(
+                execution_evidence
+                if queue_state is not None
+                else {"jobId": queue_job_id, "status": "missing"}
+            )
+            expected_queue_event_hash = (
+                str(queue_state.last_event.get("eventHash"))
+                if queue_state is not None
+                else None
+            )
+            if terminal is not None and (
+                terminal.get("queueStatus")
+                != (queue_state.status if queue_state is not None else "missing")
+                or terminal.get("queueEventHash") != expected_queue_event_hash
+                or terminal.get("queueEvidenceFingerprint")
+                != expected_queue_evidence_fingerprint
+                or terminal.get("hardwareFingerprint")
+                != execution_evidence.get("hardwareFingerprint")
+            ):
+                blockers.append("terminal_queue_evidence_drift")
             if status == "succeeded":
                 if benchmark_id in benchmark_ids:
                     blockers.append("duplicate_benchmark_identity")
@@ -3546,6 +3994,11 @@ class LocalModelArenaStore:
                 if receipt is None:
                     blockers.append("benchmark_receipt_missing")
                 else:
+                    if plan["purpose"] == "supervised_rollout":
+                        receipt = benchmarks.reverify_completed_job_evidence(
+                            queue,
+                            benchmark_id=str(benchmark_id),
+                        )
                     if receipt.job_id != queue_job_id:
                         blockers.append("benchmark_queue_job_mismatch")
                     if receipt.output_sha256 != output_sha:
@@ -3737,11 +4190,22 @@ def validate_arena_summary(
         execution = sample.get("executionEvidence")
         if not isinstance(execution, dict):
             raise LocalQueueError("arena_summary_execution_evidence_missing")
+        hardware_fingerprint = execution.get("hardwareFingerprint")
+        if hardware_fingerprint is not None and (
+            not isinstance(hardware_fingerprint, str)
+            or len(hardware_fingerprint) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in hardware_fingerprint
+            )
+        ):
+            raise LocalQueueError("arena_summary_hardware_identity_invalid")
         measurement = execution.get("executionMeasurement")
         if sample.get("status") == "succeeded":
             if (
                 execution.get("status") != "succeeded"
                 or execution.get("failureClass") is not None
+                or hardware_fingerprint is None
                 or not isinstance(execution.get("attemptCount"), int)
                 or execution["attemptCount"] < 1
                 or execution.get("retryCount") != execution["attemptCount"] - 1
@@ -4351,6 +4815,27 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _parse_external_activity_sources(
+    values: Sequence[str],
+) -> dict[str, Path]:
+    sources: dict[str, Path] = {}
+    for value in values:
+        kind, separator, raw_path = value.partition("=")
+        if (
+            not separator
+            or kind not in ROLLOUT_EXTERNAL_ACTIVITY_KINDS
+            or not raw_path.strip()
+            or kind in sources
+        ):
+            raise ValueError(
+                "arena_rollout_external_activity_source_must_be_unique_kind_equals_path"
+            )
+        sources[kind] = Path(raw_path.strip())
+    if set(sources) != set(ROLLOUT_EXTERNAL_ACTIVITY_KINDS):
+        raise ValueError("arena_rollout_external_activity_sources_required")
+    return sources
+
+
 def build_arena_record_bundle(
     *,
     reviewed_identity_facts_path: Path,
@@ -4757,6 +5242,21 @@ def main(argv: list[str] | None = None) -> int:
     rollout_escalate.add_argument("--operator-identity", required=True)
     rollout_escalate.add_argument("--decided-at", required=True)
     rollout_escalate.add_argument("--reason", required=True)
+    for rollout_command in (
+        rollout_approve,
+        rollout_reconcile,
+        rollout_escalate,
+    ):
+        rollout_command.add_argument(
+            "--external-activity-source",
+            action="append",
+            required=True,
+            metavar="KIND=PATH",
+            help=(
+                "Repeat for provider_cost, schedule, publish, and qstash "
+                "read-only observer snapshots."
+            ),
+        )
     rollout_status = sub.add_parser("rollout-status")
     rollout_status.add_argument("--plan-id", required=True)
     args = parser.parse_args(argv)
@@ -4871,6 +5371,9 @@ def main(argv: list[str] | None = None) -> int:
                 ],
                 benchmark_store=default_local_model_benchmark_store(args.root),
                 human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_sources=_parse_external_activity_sources(
+                    args.external_activity_source
+                ),
                 predecessor_receipt_fingerprint=(args.predecessor_receipt_fingerprint),
             )
         elif args.command == "rollout-sample-terminal":
@@ -4879,6 +5382,7 @@ def main(argv: list[str] | None = None) -> int:
                 sample_id=args.sample_id,
                 status=args.status,
                 reason=args.reason,
+                queue=default_local_generation_queue(),
             )
         elif args.command == "rollout-reconcile":
             result = store.record_rollout_reconciliation(
@@ -4890,6 +5394,9 @@ def main(argv: list[str] | None = None) -> int:
                 queue=default_local_generation_queue(),
                 benchmark_store=default_local_model_benchmark_store(args.root),
                 human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_sources=_parse_external_activity_sources(
+                    args.external_activity_source
+                ),
             )
         elif args.command == "rollout-escalate":
             result = store.approve_rollout_escalation(
@@ -4897,8 +5404,12 @@ def main(argv: list[str] | None = None) -> int:
                 operator_identity=args.operator_identity,
                 decided_at=args.decided_at,
                 reason=args.reason,
+                queue=default_local_generation_queue(),
                 benchmark_store=default_local_model_benchmark_store(args.root),
                 human_reviews=HumanMediaReviewStore(args.root),
+                external_activity_sources=_parse_external_activity_sources(
+                    args.external_activity_source
+                ),
             )
         elif args.command == "rollout-status":
             result = store.rollout_status(args.plan_id)
