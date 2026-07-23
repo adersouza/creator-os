@@ -8,11 +8,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .ai_disclosure import AI_DISCLOSURE_BLOCKER, AiDisclosurePublishabilityMixin
 from .caption_outcome import load_context_json
+from .caption_policy import (
+    CAPTION_PLACEMENT_QC_WARNING_CODES,
+    SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL,
+)
 from .creative_approval import (
     CreativeApprovalStore,
     asset_requires_creative_approval,
 )
+from .distribution_surface import normalize_distribution_surface
 from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
 from .readiness_finding import (
@@ -21,59 +27,10 @@ from .readiness_finding import (
     readiness_findings_from_codes,
 )
 
-CAPTION_PLACEMENT_QC_WARNING_CODES = {
-    "caption_too_close_to_edge",
-    "caption_overlaps_ui_safe_zone",
-    "caption_low_confidence",
-    "text_hidden",
-    "safe_zone_violation",
-}
-SIMPLE_INSTAGRAM_POST_CAPTION_REPAIR_POOL = (
-    "new fit today",
-    "which one wins?",
-    "felt cute",
-    "mirror check",
-    "simple today",
-    "pick one",
-    "soft launch",
-    "posting this one",
-)
 
-
-def normalize_distribution_surface(value: str | None) -> str:
-    normalized = (value or "regular_reel").strip().lower().replace("-", "_")
-    aliases = {
-        "reel": "regular_reel",
-        "regular": "regular_reel",
-        "ig_reel": "regular_reel",
-        "trial": "trial_reel",
-        "trial_reels": "trial_reel",
-        "stories": "story",
-        "ig_story": "story",
-        "cta_story": "story_cta",
-        "single_image": "feed_single",
-        "feed_image": "feed_single",
-        "feed_single_image": "feed_single",
-        "carousel": "feed_carousel",
-        "carousel_album": "feed_carousel",
-    }
-    normalized = aliases.get(normalized, normalized)
-    return (
-        normalized
-        if normalized
-        in {
-            "regular_reel",
-            "trial_reel",
-            "story",
-            "story_cta",
-            "feed_single",
-            "feed_carousel",
-        }
-        else "regular_reel"
-    )
-
-
-class PublishabilityRepository(MotionQcPublishabilityMixin):
+class PublishabilityRepository(
+    AiDisclosurePublishabilityMixin, MotionQcPublishabilityMixin
+):
     def __init__(
         self,
         conn: sqlite3.Connection,
@@ -289,6 +246,9 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         ]
         if missing_tags:
             final_caption = f"{final_caption}\n{' '.join(missing_tags)}".strip()
+        final_caption, disclosure_fields = self.append_ai_disclosure(
+            final_caption, asset
+        )
         return {
             "instagram_post_caption": final_caption,
             "instagram_post_caption_hash": self._text_hash(final_caption)
@@ -301,6 +261,7 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
             "burned_caption_hash": self._text_hash(burned_caption)
             if burned_caption
             else None,
+            **disclosure_fields,
         }
 
     def caption_lineage_sidecar(self, output_path: str) -> dict[str, Any]:
@@ -1029,6 +990,11 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         post_caption = self._instagram_post_caption_for_asset(
             asset, caption_context, distribution_plan=distribution_plan
         )
+        ai_disclosure = self.ai_disclosure_status(
+            asset=asset,
+            post_caption=post_caption,
+            creative_approval=creative_approval,
+        )
         post_caption_quality = self.instagram_post_caption_quality(post_caption)
         trust_blockers, trust_statuses = self._content_trust_status_blockers(
             asset,
@@ -1149,6 +1115,7 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
             "quarantine_clear": not bool(quarantine),
             "creative_approval_valid": creative_approval.get("state")
             in {"approved", "not_required"},
+            "ai_disclosure_resolved": ai_disclosure["resolved"] is True,
             **motion_gate["checks"],
         }
         failures: list[str] = []
@@ -1197,6 +1164,8 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
                     or "creative_approval_missing"
                 )
             )
+        if not checks["ai_disclosure_resolved"]:
+            failures.append(AI_DISCLOSURE_BLOCKER)
         failures.extend(trust_blockers)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
@@ -1287,6 +1256,7 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
                 "post_caption_style": post_caption["post_caption_style"],
                 "burned_caption_text": post_caption["burned_caption_text"],
                 "burned_caption_hash": post_caption["burned_caption_hash"],
+                "ai_disclosure": ai_disclosure,
                 "visualQcStatus": trust_statuses["visualQcStatus"],
                 "identityVerificationStatus": trust_statuses[
                     "identityVerificationStatus"
@@ -1441,6 +1411,7 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
                 for key, value in creative_approval.items()
                 if key != "approval"
             },
+            "aiDisclosure": ai_disclosure,
             "checks": checks,
             "failureReasons": failures,
             "publishability_failure_reasons": failures,

@@ -88,6 +88,30 @@ def test_readiness_finding_exposes_affected_entities_and_source_check() -> None:
     assert payload["affectedPostId"] == "post_1"
 
 
+@pytest.mark.parametrize(
+    ("code", "owner", "action"),
+    [
+        (
+            "ai_generated_media_disclosure_required",
+            "creative_approval",
+            "review_and_approve_ai_disclosure_caption",
+        ),
+        (
+            "creative_approval_v1_not_operational",
+            "creative_approval",
+            "create_exact_creative_approval_v2",
+        ),
+    ],
+)
+def test_creative_approval_findings_have_exact_recovery_actions(
+    code: str, owner: str, action: str
+) -> None:
+    finding = make_readiness_finding(code, severity="blocker").to_payload()
+    assert finding["owner"] == owner
+    assert finding["operatorAction"] == action
+    assert finding["retryable"] is True
+
+
 def test_execution_readiness_aggregates_canonical_findings(
     tmp_path: Path,
 ) -> None:

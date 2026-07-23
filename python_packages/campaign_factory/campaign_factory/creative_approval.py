@@ -38,6 +38,9 @@ SCHEMA_V2: Final = "campaign_factory.creative_approval.v2"
 EXPORT_PROJECTION_SCHEMA: Final = "campaign_factory.creative_export_projection.v1"
 APPROVAL_ATTESTATION_ISSUER: Final = "campaign_factory.creative_approval"
 REVIEW_MANIFEST_SCHEMA: Final = "campaign_factory.creative_review_manifest.v1"
+LEGACY_INVENTORY_SCHEMA: Final = (
+    "campaign_factory.creative_approval_legacy_inventory.v1"
+)
 
 
 class CreativeApprovalError(RuntimeError):
@@ -1070,7 +1073,11 @@ class CreativeApprovalStore:
         self._lock = self.root / "creative_approvals"
 
     def record(self, payload: dict[str, Any]) -> Path:
-        approval = validate_creative_approval(payload)
+        if payload.get("schema") != SCHEMA_V2:
+            raise CreativeApprovalError("creative_approval_v1_read_only")
+        if self.root.exists() and self.root.is_symlink():
+            raise CreativeApprovalError("creative_approval_directory_unsafe")
+        approval = validate_creative_approval_v2(payload)
         path = self.root / f"{approval['approvalId']}.json"
         with file_lock(self._lock):
             if path.exists():
@@ -1082,13 +1089,78 @@ class CreativeApprovalStore:
                     raise CreativeApprovalError("creative_approval_identity_collision")
                 return path
             atomic_write_json(path, approval)
-            validate_creative_approval(json.loads(path.read_text(encoding="utf-8")))
+            validate_creative_approval_v2(json.loads(path.read_text(encoding="utf-8")))
         return path
+
+    def legacy_inventory(self) -> dict[str, Any]:
+        """Classify historical v1 records without treating them as approvals.
+
+        V1 does not bind the campaign, rendered-asset identity, generation recipe,
+        Router decision, execution evidence, exact export projection, or operator
+        attestation required by v2.  Those facts cannot be inferred safely, so the
+        only honest migration is to preserve the record as non-operational evidence
+        and require a new v2 approval for the current exact asset.
+        """
+
+        if self.root.exists() and self.root.is_symlink():
+            raise CreativeApprovalError("creative_approval_directory_unsafe")
+        records: list[dict[str, Any]] = []
+        unsafe_paths: list[str] = []
+        if self.root.exists():
+            for path in sorted(self.root.glob("*.json")):
+                if path.is_symlink() or not path.is_file():
+                    unsafe_paths.append(str(path.absolute()))
+                    continue
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(raw, dict) or raw.get("schema") != SCHEMA:
+                    continue
+                try:
+                    validate_creative_approval(raw)
+                    validity = "valid_historical_v1"
+                except CreativeApprovalError:
+                    validity = "invalid_historical_v1"
+                records.append(
+                    {
+                        "approvalId": str(raw.get("approvalId") or ""),
+                        "path": str(path.resolve()),
+                        "fileSha256": _sha256_file(path),
+                        "classification": validity,
+                        "operationallyEligible": False,
+                        "automaticallyMigratable": False,
+                        "blockingReason": "creative_approval_v1_not_operational",
+                        "missingV2Bindings": [
+                            "campaign",
+                            "renderedAsset",
+                            "generationRecipe",
+                            "routerDecision",
+                            "executionEvidence",
+                            "reviewManifest",
+                            "exportProjection",
+                            "operatorAttestation",
+                        ],
+                    }
+                )
+        core = {
+            "schema": LEGACY_INVENTORY_SCHEMA,
+            "records": records,
+            "summary": {
+                "historicalV1Records": len(records),
+                "operationallyEligible": 0,
+                "automaticallyMigratable": 0,
+                "unsafeJsonPaths": len(unsafe_paths),
+            },
+            "unsafePaths": unsafe_paths,
+        }
+        return {**core, "inventoryFingerprint": _fingerprint(core)}
 
     def status_for_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         rendered_asset_id = str(asset.get("id") or asset.get("renderedAssetId") or "")
         matching: list[dict[str, Any]] = []
         invalid = False
+        matching_legacy: list[dict[str, str]] = []
         try:
             canonical_bindings = canonical_asset_approval_bindings(asset)
         except CreativeApprovalError:
@@ -1098,12 +1170,36 @@ class CreativeApprovalStore:
             }
         if not self.root.exists():
             return {"state": "missing", "blockingReason": "creative_approval_missing"}
+        if self.root.is_symlink():
+            return {
+                "state": "invalid",
+                "blockingReason": "creative_approval_directory_unsafe",
+            }
         for path in sorted(self.root.glob("*.json")):
+            if path.is_symlink() or not path.is_file():
+                invalid = True
+                continue
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if not isinstance(raw, dict):
+                continue
+            if raw.get("schema") == SCHEMA:
+                legacy_output = raw.get("output")
+                canonical_output = canonical_bindings.get("output")
+                if (
+                    isinstance(legacy_output, dict)
+                    and isinstance(canonical_output, dict)
+                    and legacy_output.get("path") == canonical_output.get("path")
+                    and legacy_output.get("sha256") == canonical_output.get("sha256")
+                ):
+                    matching_legacy.append(
+                        {
+                            "approvalId": str(raw.get("approvalId") or ""),
+                            "path": str(path.resolve()),
+                        }
+                    )
                 continue
             binding = raw.get("renderedAsset")
             if not isinstance(binding, dict) or binding.get("id") != rendered_asset_id:
@@ -1143,6 +1239,12 @@ class CreativeApprovalStore:
                 "approvalFingerprint": approval["approvalFingerprint"],
                 "approval": approval,
             }
+        if matching_legacy and not invalid:
+            return {
+                "state": "legacy_unmigrated",
+                "blockingReason": "creative_approval_v1_not_operational",
+                "historicalRecords": matching_legacy,
+            }
         return {
             "state": "invalid" if invalid else "missing",
             "blockingReason": (
@@ -1152,8 +1254,11 @@ class CreativeApprovalStore:
 
 
 def load_creative_approval(path: Path) -> dict[str, Any]:
-    resolved = path.expanduser().resolve()
-    if not resolved.is_file() or resolved.is_symlink():
+    candidate = path.expanduser()
+    if candidate.is_symlink():
+        raise CreativeApprovalError("creative_approval_missing_or_unsafe")
+    resolved = candidate.resolve()
+    if not resolved.is_file():
         raise CreativeApprovalError("creative_approval_missing_or_unsafe")
     try:
         payload = json.loads(resolved.read_text(encoding="utf-8"))

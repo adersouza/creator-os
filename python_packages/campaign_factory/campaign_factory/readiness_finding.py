@@ -227,6 +227,16 @@ _FINDING_SPECS: dict[str, _FindingSpec] = {
         "Text-only video has no creator identity conditioning and cannot be assigned to a creator.",
         retryable=False,
     ),
+    "ai_generated_media_disclosure_required": _FindingSpec(
+        "creative_approval",
+        "review_and_approve_ai_disclosure_caption",
+        "AI-generated media requires an intelligible disclosure bound by Creative Approval v2.",
+    ),
+    "creative_approval_v1_not_operational": _FindingSpec(
+        "creative_approval",
+        "create_exact_creative_approval_v2",
+        "Historical Creative Approval v1 evidence cannot authorize the current exact asset.",
+    ),
     "schedule_plan_not_ready": _FindingSpec(
         "schedule_plan",
         "rerun_campaign_schedule_plan",
