@@ -352,7 +352,21 @@ def test_model_status_detects_file_collision_or_truncation(tmp_path: Path) -> No
     assert any("file_size_mismatch" in value for value in status["issues"])
 
 
-def test_deep_model_status_hashes_cache_only_dependencies(tmp_path: Path) -> None:
+def test_deep_model_status_hashes_cache_only_dependencies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._verified_runtime_binding",
+        lambda _family: {
+            "runtimeId": "fixture-runtime",
+            "repository": "creator-os/test-runtime",
+            "revision": "fixture-revision",
+            "python": "3.12.0",
+            "mlxVersion": "fixture",
+            "ffmpegSha256": "a" * 64,
+            "ffprobeSha256": "b" * 64,
+        },
+    )
     spec = local_video_model_spec("local_wan22_ti2v_5b_mlx")
     directory = spec.directory(tmp_path)
     directory.mkdir(parents=True)
