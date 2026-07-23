@@ -154,6 +154,8 @@ def _patch_admission_dependencies(
             "arenaSummary": {"summaryId": kwargs["arena_summary"]["summaryId"]},
             "evidenceRecords": dict(kwargs["evidence_records"]),
             "inputFingerprints": list(kwargs["input_fingerprints"]),
+            "inputBindings": [dict(item) for item in kwargs["input_bindings"]],
+            "promotionInputCohort": [[dict(item) for item in kwargs["input_bindings"]]],
             "resourceSnapshot": {
                 "schema": "campaign_factory.local_motion_resource_snapshot.v1",
                 "routerAvailableMemoryBytes": 24_000,
@@ -500,6 +502,20 @@ def _execution_admission_fixture(
         },
         "evidenceRecords": records,
         "inputFingerprints": [hashlib.sha256(still.read_bytes()).hexdigest()],
+        "inputBindings": [
+            {
+                "role": "image",
+                "sha256": hashlib.sha256(still.read_bytes()).hexdigest(),
+            }
+        ],
+        "promotionInputCohort": [
+            [
+                {
+                    "role": "image",
+                    "sha256": hashlib.sha256(still.read_bytes()).hexdigest(),
+                }
+            ]
+        ],
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1",
             "motionEditBinding": {
@@ -585,6 +601,8 @@ def _retake_execution_fixture(
     records["benchmarkRecipe"]["inputFingerprints"] = [source_sha]
     records["benchmarkRecipe"]["taskKind"] = "video_retake"
     admission["inputFingerprints"] = [source_sha]
+    admission["inputBindings"] = [{"role": "source_video", "sha256": source_sha}]
+    admission["promotionInputCohort"] = [admission["inputBindings"]]
     decision = admission["routerDecision"]
     decision["request"]["taskKind"] = "video_retake"
     decision["winningEvidence"]["cohortKey"]["taskKind"] = "video_retake"

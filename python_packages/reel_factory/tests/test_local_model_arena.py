@@ -809,6 +809,102 @@ def test_video_retake_uses_only_exact_source_video_and_rejects_substitution(
         validate_arena_plan(plan)
 
 
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "edit_fields"),
+    [
+        (
+            "video_retake",
+            "preserved",
+            {"retake_start_frame": 10, "retake_end_frame": 30},
+        ),
+        ("video_extend", "generated", {"extend_frames": 24}),
+    ],
+)
+def test_video_edit_recipe_uses_canonical_typed_input_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    edit_fields: dict[str, int],
+) -> None:
+    source_video = tmp_path / f"{task_kind}-source.mp4"
+    source_video.write_bytes(b"reviewed-source-video")
+    base = _spec(source_video)
+    intent = dict(base.content_intent)
+    spec = replace(
+        base,
+        source_path=None,
+        source_video_path=source_video,
+        audio_mode=audio_mode,
+        preserve_audio=audio_mode == "preserved",
+        model_id="local_ltx23_dev_hq_mlx",
+        capability_cohort=task_kind,
+        task_kind=task_kind,
+        commercial_annual_revenue_usd=1_000,
+        content_intent=intent,
+        content_intent_fingerprint=fingerprint(intent),
+        **edit_fields,
+    )
+
+    plan = _build(monkeypatch, tmp_path, [spec])
+    [sample] = validate_arena_plan(plan)["samples"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == [
+        sha256_file(source_video),
+    ]
+
+    source_video.write_bytes(b"substituted-after-plan")
+    with pytest.raises(LocalQueueError, match="missing_or_substituted"):
+        validate_arena_plan(plan)
+
+
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "auxiliary_role"),
+    [
+        ("audio_image_to_video", "source", "audio"),
+        ("keyframe_interpolation", "generated", "last_image"),
+    ],
+)
+def test_image_task_recipe_binds_audio_and_last_image_in_canonical_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    auxiliary_role: str,
+) -> None:
+    source = tmp_path / f"{task_kind}-source.png"
+    auxiliary = tmp_path / f"{task_kind}-auxiliary.bin"
+    source.write_bytes(b"reviewed-source-image")
+    auxiliary.write_bytes(b"reviewed-auxiliary-input")
+    base = _spec(source)
+    intent = dict(base.content_intent)
+    intent["sourceAssetFingerprints"] = sorted(
+        (sha256_file(source), sha256_file(auxiliary))
+    )
+    spec = replace(
+        base,
+        model_id="local_ltx23_dev_hq_mlx",
+        capability_cohort=task_kind,
+        task_kind=task_kind,
+        audio_mode=audio_mode,
+        audio_path=auxiliary if auxiliary_role == "audio" else None,
+        last_image_path=auxiliary if auxiliary_role == "last_image" else None,
+        commercial_annual_revenue_usd=1_000,
+        content_intent=intent,
+        content_intent_fingerprint=fingerprint(intent),
+    )
+
+    plan = _build(monkeypatch, tmp_path, [spec])
+    [sample] = validate_arena_plan(plan)["samples"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == [
+        sha256_file(source),
+        sha256_file(auxiliary),
+    ]
+
+    auxiliary.write_bytes(b"substituted-after-plan")
+    with pytest.raises(LocalQueueError, match="missing_or_substituted"):
+        validate_arena_plan(plan)
+
+
 def test_arena_plan_rejects_profile_and_source_record_mismatch(
     monkeypatch, tmp_path: Path
 ) -> None:

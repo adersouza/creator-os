@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_os_core.evidence_attestation import payload_fingerprint
+from creator_os_core.task_inputs import canonical_task_input_bindings
 from reel_factory.worker_api import admit_local_motion
 
 from pipeline_contracts import validate_local_model_router_decision
@@ -91,7 +92,7 @@ def _normalized_override(
     return str(model_id).strip(), str(operator).strip(), normalized_reason
 
 
-def _execution_input_fingerprints(
+def _execution_input_bindings(
     *,
     accepted_still_path: Path | None,
     audio_path: Path | None,
@@ -99,15 +100,20 @@ def _execution_input_fingerprints(
     source_video_path: Path | None,
     task_kind: str,
     error_prefix: str,
-) -> list[str]:
-    """Hash every file a supported local motion request can consume, in CLI order."""
+) -> list[dict[str, str]]:
+    """Hash every consumed file and return its canonical typed role binding."""
 
-    fingerprints: list[str] = []
     accepted_input = (
         None if task_kind in {"video_retake", "video_extend"} else accepted_still_path
     )
+    role_fingerprints: dict[str, str | None] = {
+        "image": None,
+        "audio": None,
+        "last_image": None,
+        "source_video": None,
+    }
     for field, raw_path in (
-        ("accepted_still", accepted_input),
+        ("image", accepted_input),
         ("audio", audio_path),
         ("last_image", last_image_path),
         ("source_video", source_video_path),
@@ -119,10 +125,19 @@ def _execution_input_fingerprints(
             raise LocalMotionAdmissionError(
                 f"local_motion_{error_prefix}{field}_missing_or_unsafe"
             )
-        digest = sha256_file(path)
-        if digest not in fingerprints:
-            fingerprints.append(digest)
-    return fingerprints
+        role_fingerprints[field] = sha256_file(path)
+    try:
+        return list(
+            canonical_task_input_bindings(
+                task_kind,
+                image_sha256=role_fingerprints["image"],
+                audio_sha256=role_fingerprints["audio"],
+                last_image_sha256=role_fingerprints["last_image"],
+                source_video_sha256=role_fingerprints["source_video"],
+            )
+        )
+    except ValueError as exc:
+        raise LocalMotionAdmissionError(f"local_motion_{error_prefix}{exc}") from exc
 
 
 def _motion_edit_binding(
@@ -401,7 +416,7 @@ def build_local_motion_admission(
     if not normalized_creator or evidence_creator != normalized_creator:
         raise LocalMotionAdmissionError("local_motion_campaign_creator_mismatch")
 
-    input_fingerprints = _execution_input_fingerprints(
+    input_bindings = _execution_input_bindings(
         accepted_still_path=accepted_still_path,
         audio_path=audio_path,
         last_image_path=last_image_path,
@@ -409,6 +424,7 @@ def build_local_motion_admission(
         task_kind=task_kind,
         error_prefix="",
     )
+    input_fingerprints = [binding["sha256"] for binding in input_bindings]
     edit_binding = _motion_edit_binding(
         task_kind=task_kind,
         source_video_path=source_video_path,
@@ -442,6 +458,7 @@ def build_local_motion_admission(
             arena_summary=summary,
             evidence_records=records,
             input_fingerprints=input_fingerprints,
+            input_bindings=input_bindings,
             creator_id=normalized_creator,
             identity_profile_id=profile_id,
             identity_profile_fingerprint=profile_fingerprint,
@@ -507,6 +524,8 @@ def revalidate_local_motion_admission(
         "arenaSummary",
         "evidenceRecords",
         "inputFingerprints",
+        "inputBindings",
+        "promotionInputCohort",
         "resourceSnapshot",
         "admissionFingerprint",
     }
@@ -595,7 +614,7 @@ def revalidate_local_motion_admission(
         raise LocalMotionAdmissionError(
             "local_motion_execution_campaign_creator_mismatch"
         )
-    input_fingerprints = _execution_input_fingerprints(
+    input_bindings = _execution_input_bindings(
         accepted_still_path=accepted_still_path,
         audio_path=audio_path,
         last_image_path=last_image_path,
@@ -603,8 +622,10 @@ def revalidate_local_motion_admission(
         task_kind=task_kind,
         error_prefix="execution_",
     )
+    input_fingerprints = [binding["sha256"] for binding in input_bindings]
     if (
         original.get("inputFingerprints") != input_fingerprints
+        or original.get("inputBindings") != input_bindings
         or not set(input_fingerprints).issubset(
             set(intent.get("sourceAssetFingerprints") or [])
         )
@@ -641,6 +662,7 @@ def revalidate_local_motion_admission(
             arena_summary=summary,
             evidence_records=records,
             input_fingerprints=input_fingerprints,
+            input_bindings=input_bindings,
             creator_id=normalized_creator,
             identity_profile_id=str(identity.get("profileId") or ""),
             identity_profile_fingerprint=_fingerprint(identity),
@@ -657,6 +679,11 @@ def revalidate_local_motion_admission(
         ) from exc
     if not isinstance(current, dict):
         raise LocalMotionAdmissionError("local_motion_execution_readmission_invalid")
+    for field in ("inputBindings", "promotionInputCohort"):
+        if current.get(field) != original.get(field):
+            raise LocalMotionAdmissionError(
+                f"local_motion_execution_promoted_input_drift:{field}"
+            )
     current_decision = current.get("routerDecision")
     if not isinstance(current_decision, Mapping):
         raise LocalMotionAdmissionError(

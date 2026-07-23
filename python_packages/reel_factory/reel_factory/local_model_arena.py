@@ -29,6 +29,7 @@ from creator_os_core.evidence_attestation import (
     sign_evidence_attestation,
     verify_evidence_attestation,
 )
+from creator_os_core.task_inputs import canonical_task_input_bindings
 
 from pipeline_contracts import (
     ContentIntentV1,
@@ -393,17 +394,26 @@ def _required_analyzers(spec: ArenaSampleSpec) -> tuple[tuple[str, str], ...]:
     return tuple(required)
 
 
-def _spec_input_paths(spec: ArenaSampleSpec) -> tuple[Path, ...]:
-    paths: list[Path] = []
-    for path in (
-        spec.source_path,
-        spec.audio_path,
-        spec.last_image_path,
-        spec.source_video_path,
-    ):
-        if path is not None and path not in paths:
-            paths.append(path)
-    return tuple(paths)
+def _spec_input_bindings(spec: ArenaSampleSpec) -> tuple[dict[str, str], ...]:
+    return canonical_task_input_bindings(
+        spec.task_kind,
+        image_sha256=(
+            sha256_file(spec.source_path) if spec.source_path is not None else None
+        ),
+        audio_sha256=(
+            sha256_file(spec.audio_path) if spec.audio_path is not None else None
+        ),
+        last_image_sha256=(
+            sha256_file(spec.last_image_path)
+            if spec.last_image_path is not None
+            else None
+        ),
+        source_video_sha256=(
+            sha256_file(spec.source_video_path)
+            if spec.source_video_path is not None
+            else None
+        ),
+    )
 
 
 def _primary_source_path(spec: ArenaSampleSpec) -> Path:
@@ -501,7 +511,9 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
         raise LocalQueueError("arena_content_intent_binding_mismatch")
     if intent["creatorIdentityProfileId"] != spec.identity_profile_id:
         raise LocalQueueError("arena_content_intent_profile_mismatch")
-    exact_input_fingerprints = [sha256_file(path) for path in _spec_input_paths(spec)]
+    exact_input_fingerprints = [
+        binding["sha256"] for binding in _spec_input_bindings(spec)
+    ]
     authorized_input_fingerprints = set(intent["sourceAssetFingerprints"])
     if not set(exact_input_fingerprints).issubset(authorized_input_fingerprints):
         raise LocalQueueError("arena_content_intent_source_mismatch")
@@ -738,7 +750,7 @@ def build_arena_plan(
             "executionPolicyFingerprint": policy_fingerprint,
             "taskKind": spec.task_kind,
             "inputFingerprints": [
-                sha256_file(path) for path in _spec_input_paths(spec)
+                binding["sha256"] for binding in _spec_input_bindings(spec)
             ],
             "parameterFingerprint": fingerprint(recipe_parameters),
             "requiredAnalyzers": [
@@ -1203,7 +1215,6 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 or sha256_file(audio) != audio_sha
             ):
                 raise LocalQueueError("arena_audio_missing_or_substituted")
-        extra_media: list[tuple[str, str]] = []
         for prefix in ("lastImage", "sourceVideo"):
             raw_path = raw.get(f"{prefix}Path")
             raw_sha = raw.get(f"{prefix}Sha256")
@@ -1214,15 +1225,26 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             path = Path(str(raw_path)).resolve()
             if not path.is_file() or raw_sha is None or sha256_file(path) != raw_sha:
                 raise LocalQueueError(f"arena_{prefix.lower()}_missing_or_substituted")
-            extra_media.append((str(path), str(raw_sha)))
-        exact_inputs: list[str] = []
-        for value in (
-            raw.get("sourceSha256"),
-            raw.get("audioSha256"),
-            *(sha for _path, sha in extra_media),
-        ):
-            if isinstance(value, str) and value not in exact_inputs:
-                exact_inputs.append(value)
+        exact_bindings = canonical_task_input_bindings(
+            str(raw["taskKind"]),
+            image_sha256=(
+                str(raw["sourceSha256"]) if raw.get("sourcePath") is not None else None
+            ),
+            audio_sha256=(
+                str(raw["audioSha256"]) if raw.get("audioSha256") is not None else None
+            ),
+            last_image_sha256=(
+                str(raw["lastImageSha256"])
+                if raw.get("lastImageSha256") is not None
+                else None
+            ),
+            source_video_sha256=(
+                str(raw["sourceVideoSha256"])
+                if raw.get("sourceVideoSha256") is not None
+                else None
+            ),
+        )
+        exact_inputs = [binding["sha256"] for binding in exact_bindings]
         if recipe.get("inputFingerprints") != exact_inputs or not set(
             exact_inputs
         ).issubset(set(intent.get("sourceAssetFingerprints") or [])):

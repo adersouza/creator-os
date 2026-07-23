@@ -6,6 +6,11 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from creator_os_core.task_inputs import (
+    canonical_task_input_bindings,
+    validate_task_input_binding_records,
+)
+
 from .audio_intent import read_audio_intent
 from .caption_bank import CaptionBankStore, load_or_build_caption_bank_store
 from .human_media_review import HumanMediaReviewStore
@@ -29,6 +34,7 @@ def admit_local_motion(
     arena_summary: Mapping[str, Any],
     evidence_records: Mapping[str, Any],
     input_fingerprints: Sequence[str],
+    input_bindings: Sequence[Mapping[str, object]],
     creator_id: str,
     identity_profile_id: str,
     identity_profile_fingerprint: str,
@@ -60,6 +66,9 @@ def admit_local_motion(
         raise ValueError("local_motion_evidence_record_set_invalid")
     if not inputs or any(not _is_sha256(value) for value in inputs):
         raise ValueError("local_motion_input_fingerprints_invalid")
+    canonical_inputs = validate_task_input_binding_records(task_kind, input_bindings)
+    if [binding["sha256"] for binding in canonical_inputs] != inputs:
+        raise ValueError("local_motion_input_binding_fingerprint_mismatch")
     identity = records.get("creatorIdentityProfile")
     intent = records.get("contentIntent")
     recipe = records.get("benchmarkRecipe")
@@ -122,6 +131,7 @@ def admit_local_motion(
     if not plan_id:
         raise ValueError("local_motion_arena_plan_id_missing")
     human_reviews = HumanMediaReviewStore(benchmark_store.root)
+    arena_plan = arena_store.load_plan(plan_id)
     review_packet = arena_store.load_review_packet(plan_id)
     decision = route_local_model(
         RouterRequest(
@@ -146,7 +156,7 @@ def admit_local_motion(
             override_operator=operator,
             override_reason=reason,
         ),
-        arena_plan=arena_store.load_plan(plan_id),
+        arena_plan=arena_plan,
         arena_summary=summary,
         benchmark_store=benchmark_store,
         human_review_store=human_reviews,
@@ -164,6 +174,14 @@ def admit_local_motion(
         "hardwareFingerprint"
     ) != current_hardware.get("fingerprint"):
         raise ValueError("local_motion_promotion_hardware_mismatch")
+    promotion_input_cohort = _promotion_input_cohort(
+        arena_plan=arena_plan,
+        router_decision=decision,
+        task_kind=task_kind,
+    )
+    current_input_bindings = list(canonical_inputs)
+    if current_input_bindings not in promotion_input_cohort:
+        raise ValueError("local_motion_input_not_in_promoted_cohort")
     resource_snapshot["hardware"] = current_hardware
     summary_binding = {
         "summaryId": summary.get("summaryId"),
@@ -178,9 +196,75 @@ def admit_local_motion(
         "arenaSummary": summary_binding,
         "evidenceRecords": records,
         "inputFingerprints": inputs,
+        "inputBindings": current_input_bindings,
+        "promotionInputCohort": promotion_input_cohort,
         "resourceSnapshot": resource_snapshot,
     }
     return {**core, "admissionFingerprint": fingerprint(core)}
+
+
+def _promotion_input_cohort(
+    *,
+    arena_plan: Mapping[str, Any],
+    router_decision: Mapping[str, Any],
+    task_kind: str,
+) -> list[list[dict[str, str]]]:
+    winning = router_decision.get("winningEvidence")
+    if not isinstance(winning, Mapping):
+        raise ValueError("local_motion_winning_evidence_missing")
+    valid_ids = winning.get("validArenaSampleIds")
+    selected_model_id = str(router_decision.get("selectedModelId") or "")
+    if (
+        not isinstance(valid_ids, list)
+        or not valid_ids
+        or any(not str(value or "").strip() for value in valid_ids)
+        or len(valid_ids) != len(set(str(value) for value in valid_ids))
+        or not selected_model_id
+    ):
+        raise ValueError("local_motion_promoted_sample_identity_invalid")
+    samples = {
+        str(sample.get("sampleId") or ""): sample
+        for sample in arena_plan.get("samples", [])
+        if isinstance(sample, Mapping)
+    }
+    cohorts: dict[str, list[dict[str, str]]] = {}
+    for sample_id in valid_ids:
+        sample = samples.get(str(sample_id))
+        if (
+            sample is None
+            or sample.get("modelId") != selected_model_id
+            or sample.get("taskKind") != task_kind
+        ):
+            raise ValueError("local_motion_promoted_sample_binding_invalid")
+        bindings = list(
+            canonical_task_input_bindings(
+                str(sample.get("taskKind") or ""),
+                image_sha256=(
+                    str(sample["sourceSha256"])
+                    if sample.get("sourcePath") is not None
+                    else None
+                ),
+                audio_sha256=(
+                    str(sample["audioSha256"])
+                    if sample.get("audioSha256") is not None
+                    else None
+                ),
+                last_image_sha256=(
+                    str(sample["lastImageSha256"])
+                    if sample.get("lastImageSha256") is not None
+                    else None
+                ),
+                source_video_sha256=(
+                    str(sample["sourceVideoSha256"])
+                    if sample.get("sourceVideoSha256") is not None
+                    else None
+                ),
+            )
+        )
+        cohorts[fingerprint({"inputs": bindings})] = bindings
+    if not cohorts:
+        raise ValueError("local_motion_promoted_input_cohort_missing")
+    return [cohorts[key] for key in sorted(cohorts)]
 
 
 def _exact_capability_cohort(

@@ -409,14 +409,18 @@ def _rebind_arena_source(
     request: LocalVideoRequest, source_path: Path
 ) -> LocalVideoRequest:
     source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    exact_inputs = [source_sha256]
+    for path in (request.audio_path, request.last_image_path):
+        if path is not None:
+            exact_inputs.append(hashlib.sha256(path.read_bytes()).hexdigest())
     recipe = {
         **dict(request.benchmark_recipe or {}),
-        "inputFingerprints": [source_sha256],
+        "inputFingerprints": exact_inputs,
         "taskKind": request.task,
     }
     intent = {
         **dict(request.content_intent or {}),
-        "sourceAssetFingerprints": [source_sha256],
+        "sourceAssetFingerprints": sorted(exact_inputs),
     }
     core = dict(request.arena_benchmark_binding or {})
     core.pop("bindingFingerprint", None)
@@ -1434,6 +1438,16 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
             "analyzerRegistry": registry,
         },
         "inputFingerprints": inputs,
+        "inputBindings": [
+            {"role": "image", "sha256": inputs[0]},
+            {"role": "last_image", "sha256": inputs[1]},
+        ],
+        "promotionInputCohort": [
+            [
+                {"role": "image", "sha256": inputs[0]},
+                {"role": "last_image", "sha256": inputs[1]},
+            ]
+        ],
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1",
             "routerAvailableMemoryBytes": decision_request["availableMemoryBytes"],
@@ -1716,6 +1730,50 @@ def test_ltx_keyframe_retake_and_extend_are_explicit_q8_tasks(
     assert lineage["audio"]["mode"] == "preserved"
     assert lineage["providerCalls"] == 0
     assert lineage["paidGeneration"] is False
+
+
+def test_arena_audio_binding_requires_canonical_exact_input_order(
+    tmp_path: Path,
+) -> None:
+    source = _image(tmp_path, "source-with-audio.jpg")
+    audio = tmp_path / "source-audio.wav"
+    audio.write_bytes(b"source-audio")
+    request = _request(
+        tmp_path,
+        model_id="local_ltx23_dev_hq_mlx",
+        image_path=source,
+        audio_mode="source",
+        audio_path=audio,
+        task="audio_image_to_video",
+    )
+    expected = [
+        hashlib.sha256(path.read_bytes()).hexdigest() for path in (source, audio)
+    ]
+
+    job = plan_local_video_job(request)
+    assert request.benchmark_recipe is not None
+    assert request.benchmark_recipe["inputFingerprints"] == expected
+    assert job.benchmark_recipe_fingerprint == fingerprint(request.benchmark_recipe)
+
+    wrong_recipe = {
+        **dict(request.benchmark_recipe),
+        "inputFingerprints": [expected[1], expected[0]],
+    }
+    binding_core = dict(request.arena_benchmark_binding)
+    binding_core.pop("bindingFingerprint")
+    binding_core["benchmarkRecipeFingerprint"] = fingerprint(wrong_recipe)
+    wrong_request = replace(
+        request,
+        benchmark_recipe=wrong_recipe,
+        arena_benchmark_binding={
+            **binding_core,
+            "bindingFingerprint": fingerprint(binding_core),
+        },
+    )
+    with pytest.raises(
+        LocalVideoUnavailable, match="arena_benchmark_recipe_input_mismatch"
+    ):
+        plan_local_video_job(wrong_request)
 
 
 def test_wan_fails_closed_when_audio_is_requested(tmp_path: Path) -> None:

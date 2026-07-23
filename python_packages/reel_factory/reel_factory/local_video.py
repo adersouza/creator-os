@@ -17,6 +17,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
+from creator_os_core.task_inputs import (
+    canonical_task_input_bindings,
+    validate_task_input_binding_records,
+)
+
 from pipeline_contracts import validate_local_model_router_decision
 
 from .fileops import atomic_write_text
@@ -2583,6 +2588,8 @@ def _validate_campaign_admission(
         "arenaSummary",
         "evidenceRecords",
         "inputFingerprints",
+        "inputBindings",
+        "promotionInputCohort",
         "resourceSnapshot",
         "admissionFingerprint",
     }
@@ -2758,17 +2765,15 @@ def _validate_campaign_admission(
         raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
 
     input_fingerprints = payload.get("inputFingerprints")
-    exact_inputs: list[str] = []
-    for value in (
-        _optional_input_sha256(request.image_path),
-        _optional_input_sha256(request.audio_path),
-        _optional_input_sha256(request.last_image_path),
-        _optional_input_sha256(request.source_video_path),
-    ):
-        if value is not None and value not in exact_inputs:
-            exact_inputs.append(value)
+    exact_bindings = _request_input_bindings(request)
+    exact_inputs = [binding["sha256"] for binding in exact_bindings]
+    promotion_input_cohort = _validated_promotion_input_cohort(
+        request.task, payload.get("promotionInputCohort")
+    )
     if (
         input_fingerprints != exact_inputs
+        or payload.get("inputBindings") != list(exact_bindings)
+        or list(exact_bindings) not in promotion_input_cohort
         or not set(exact_inputs).issubset(
             set(intent.get("sourceAssetFingerprints") or [])
         )
@@ -2970,15 +2975,8 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         or intent.get("creatorIdentityProfileId") != profile.get("profileId")
     ):
         raise LocalVideoUnavailable("arena_identity_intent_record_binding_mismatch")
-    exact_inputs: list[str] = []
-    for value in (
-        _optional_input_sha256(request.image_path),
-        _optional_input_sha256(request.audio_path),
-        _optional_input_sha256(request.last_image_path),
-        _optional_input_sha256(request.source_video_path),
-    ):
-        if value is not None and value not in exact_inputs:
-            exact_inputs.append(value)
+    exact_bindings = _request_input_bindings(request)
+    exact_inputs = [binding["sha256"] for binding in exact_bindings]
     if not set(exact_inputs).issubset(set(intent.get("sourceAssetFingerprints") or [])):
         raise LocalVideoUnavailable("arena_identity_intent_input_unauthorized")
     if list((request.benchmark_recipe or {}).get("inputFingerprints") or []) != (
@@ -3009,6 +3007,44 @@ def _optional_input_sha256(path: Path | None) -> str | None:
     if not resolved.is_file() or resolved.is_symlink():
         raise LocalVideoUnavailable(f"local_video_input_missing_or_unsafe:{resolved}")
     return _sha256_file(resolved)
+
+
+def _request_input_bindings(
+    request: LocalVideoRequest,
+) -> tuple[dict[str, str], ...]:
+    return canonical_task_input_bindings(
+        request.task,
+        image_sha256=_optional_input_sha256(request.image_path),
+        audio_sha256=_optional_input_sha256(request.audio_path),
+        last_image_sha256=_optional_input_sha256(request.last_image_path),
+        source_video_sha256=_optional_input_sha256(request.source_video_path),
+    )
+
+
+def _validated_promotion_input_cohort(
+    task_kind: str, raw: Any
+) -> list[list[dict[str, str]]]:
+    if not isinstance(raw, list) or not raw:
+        raise LocalVideoUnavailable("local_motion_promoted_input_cohort_invalid")
+    cohort: list[list[dict[str, str]]] = []
+    identities: set[str] = set()
+    try:
+        for item in raw:
+            if not isinstance(item, list):
+                raise ValueError("task_input_binding_cohort_item_invalid")
+            bindings = list(validate_task_input_binding_records(task_kind, item))
+            identity = fingerprint({"inputs": bindings})
+            if identity in identities:
+                raise ValueError("task_input_binding_cohort_duplicate")
+            identities.add(identity)
+            cohort.append(bindings)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise LocalVideoUnavailable(
+            f"local_motion_promoted_input_cohort_invalid:{exc}"
+        ) from exc
+    if cohort != raw:
+        raise LocalVideoUnavailable("local_motion_promoted_input_cohort_not_canonical")
+    return cohort
 
 
 def _required_sha256(value: Any, field: str) -> str:
