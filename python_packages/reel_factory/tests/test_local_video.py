@@ -19,12 +19,15 @@ from reel_factory.local_generation_queue import (
 )
 from reel_factory.local_lora_registry import register_local_lora
 from reel_factory.local_video import (
+    _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
     _SANDBOX_ALLOWED_WRITE_PROBE,
     _SANDBOX_DENIAL_PROBE,
     LocalVideoRequest,
     LocalVideoUnavailable,
+    _bind_isolated_toolchain,
     _isolated_execution,
     _preflight_allowed_sandbox_write,
+    _preflight_imageio_ffmpeg_discovery,
     _preflight_sandbox_execution,
     _run_generation_process,
     _tool_evidence_for_path,
@@ -99,6 +102,25 @@ def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "reel_factory.local_video._preflight_sandbox_execution",
         stable_isolation_preflight,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_imageio_ffmpeg_discovery",
+        lambda **kwargs: {
+            "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
+            "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
+            "consumerProbeFingerprint": fingerprint(
+                {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
+            ),
+            "pythonExecutable": str(kwargs["python_executable"]),
+            "expectedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "expectedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "environmentFingerprint": fingerprint(kwargs["environment"]),
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "timeoutSeconds": 30,
+            "discoverySucceeded": True,
+        },
     )
     monkeypatch.setattr(
         "reel_factory.local_video._preflight_allowed_sandbox_write",
@@ -514,6 +536,13 @@ def test_uv_path_normalization_preserves_executed_environment_and_policy_evidenc
     )
     assert first_environment["PATH"] == expected_path
     assert second_environment["PATH"] == expected_path
+    assert (
+        first_environment["IMAGEIO_FFMPEG_EXE"] == RUNTIME_BINDING["ffmpegExecutable"]
+    )
+    assert (
+        second_environment["IMAGEIO_FFMPEG_EXE"] == RUNTIME_BINDING["ffmpegExecutable"]
+    )
+    assert "IMAGEIO_FFMPEG_EXE" in first_isolation["environmentAllowedKeys"]
     assert "OPENAI_API_KEY" not in first_environment
     assert "OPENAI_API_KEY" not in second_environment
     assert "environmentObservation" not in first_isolation
@@ -632,6 +661,119 @@ def test_sandbox_preflight_proves_control_and_restrictive_capabilities(
     assert not forbidden.exists()
     assert "networkAccess" not in evidence
     assert "writeAccess" not in evidence
+
+
+def test_imageio_ffmpeg_discovery_preflight_proves_exact_runtime_consumer(
+    tmp_path: Path,
+) -> None:
+    ffmpeg = tmp_path / "ffmpeg"
+    ffmpeg.write_bytes(b"#!/bin/sh\n")
+    ffmpeg.chmod(0o755)
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "IMAGEIO_FFMPEG_EXE": str(ffmpeg),
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def successful_runner(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, dict(kwargs)))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=f"{ffmpeg}\n",
+            stderr="",
+        )
+
+    evidence = _preflight_imageio_ffmpeg_discovery(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile="(version 1)\n(allow default)\n(deny network*)",
+        python_executable=Path(sys.executable),
+        environment=environment,
+        expected_ffmpeg=ffmpeg,
+        runner=successful_runner,
+    )
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command[:4] == [
+        "/usr/bin/sandbox-exec",
+        "-p",
+        "(version 1)\n(allow default)\n(deny network*)",
+        "--",
+    ]
+    assert command[4:9] == [sys.executable, "-B", "-I", "-E", "-c"]
+    assert command[-1] == _IMAGEIO_FFMPEG_DISCOVERY_PROBE
+    assert kwargs["env"] == environment
+    assert kwargs["timeout"] == 30
+    assert evidence["consumer"] == "imageio_ffmpeg.get_ffmpeg_exe"
+    assert evidence["expectedFfmpegExecutable"] == str(ffmpeg)
+    assert evidence["observedFfmpegExecutable"] == str(ffmpeg)
+    assert evidence["discoverySucceeded"] is True
+
+
+def test_imageio_ffmpeg_discovery_preflight_rejects_environment_substitution(
+    tmp_path: Path,
+) -> None:
+    expected = tmp_path / "ffmpeg"
+    expected.write_bytes(b"#!/bin/sh\n")
+    expected.chmod(0o755)
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="environment_binding_mismatch",
+    ):
+        _preflight_imageio_ffmpeg_discovery(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)",
+            python_executable=Path(sys.executable),
+            environment={"IMAGEIO_FFMPEG_EXE": str(tmp_path / "substitute")},
+            expected_ffmpeg=expected,
+            runner=lambda *_args, **_kwargs: pytest.fail(
+                "substituted binding must fail before spawning the consumer"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("completed", "expected"),
+    [
+        (
+            subprocess.CompletedProcess(
+                ["imageio-probe"], 72, stdout="", stderr="import failed"
+            ),
+            "exit_72",
+        ),
+        (
+            subprocess.CompletedProcess(
+                ["imageio-probe"],
+                0,
+                stdout="/tmp/substituted-ffmpeg\n",
+                stderr="",
+            ),
+            "resolved_path_mismatch",
+        ),
+    ],
+)
+def test_imageio_ffmpeg_discovery_preflight_fails_closed_on_consumer_failure(
+    tmp_path: Path,
+    completed: subprocess.CompletedProcess[str],
+    expected: str,
+) -> None:
+    ffmpeg = tmp_path / "ffmpeg"
+    ffmpeg.write_bytes(b"#!/bin/sh\n")
+    ffmpeg.chmod(0o755)
+
+    with pytest.raises(LocalVideoUnavailable, match=expected):
+        _preflight_imageio_ffmpeg_discovery(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)",
+            python_executable=Path(sys.executable),
+            environment={"IMAGEIO_FFMPEG_EXE": str(ffmpeg)},
+            expected_ffmpeg=ffmpeg,
+            runner=lambda *_args, **_kwargs: completed,
+        )
 
 
 def test_sandbox_preflight_fails_closed_on_nonzero_control_exit(
@@ -982,6 +1124,25 @@ def test_dropped_uv_build_bin_cannot_supply_missing_media_tools(
         )
 
 
+def test_toolchain_binding_rejects_substituted_imageio_ffmpeg_selector(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_ffmpeg_runtime_binding_mismatch",
+    ):
+        _bind_isolated_toolchain(
+            request,
+            base_command=[sys.executable, "/fixture/generate.py"],
+            environment={
+                "PATH": "/fixture/bin:/usr/bin:/bin",
+                "IMAGEIO_FFMPEG_EXE": "/tmp/substituted-ffmpeg",
+            },
+        )
+
+
 def test_isolation_rejects_same_path_media_tool_content_substitution(
     tmp_path: Path,
 ) -> None:
@@ -1062,6 +1223,41 @@ def test_sandbox_preflight_failure_creates_no_queue_or_output(
     with pytest.raises(
         LocalVideoUnavailable,
         match="local_video_isolation_preflight_failed:exit_71",
+    ):
+        run_local_video(request, dry_run=False)
+
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
+    assert not request.output_path.with_suffix(
+        request.output_path.suffix + ".local_video.json"
+    ).exists()
+    assert not list(tmp_path.glob(".local_video_sandbox_*"))
+
+
+def test_media_tool_discovery_failure_creates_no_queue_or_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+
+    def reject_discovery(**_kwargs: object) -> dict[str, object]:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:exit_72"
+        )
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_imageio_ffmpeg_discovery",
+        reject_discovery,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video.default_local_generation_queue",
+        lambda: pytest.fail(
+            "queue must not be opened before media-tool discovery succeeds"
+        ),
+    )
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_media_tool_discovery_preflight_failed:exit_72",
     ):
         run_local_video(request, dry_run=False)
 
@@ -1602,6 +1798,9 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     def runner(command, **kwargs):
         assert kwargs["env"]["HF_HUB_OFFLINE"] == "1"
         assert kwargs["env"]["TRANSFORMERS_OFFLINE"] == "1"
+        assert (
+            kwargs["env"]["IMAGEIO_FFMPEG_EXE"] == RUNTIME_BINDING["ffmpegExecutable"]
+        )
         assert "OPENAI_API_KEY" not in kwargs["env"]
         assert "PYTHONPATH" not in kwargs["env"]
         assert "DYLD_LIBRARY_PATH" not in kwargs["env"]
@@ -1772,6 +1971,74 @@ def test_post_queue_isolation_preflight_drift_fails_terminally_before_generation
     )
     assert state.last_event["payload"]["failureClass"] == (
         "local_generation_runtime_error"
+    )
+
+
+def test_post_queue_media_tool_discovery_drift_fails_before_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue_root = tmp_path / "queue"
+    monkeypatch.setenv("CREATOR_OS_LOCAL_GENERATION_QUEUE_ROOT", str(queue_root))
+    request = _request(tmp_path)
+    discovery_calls = 0
+
+    def drifting_discovery(**kwargs: object) -> dict[str, object]:
+        nonlocal discovery_calls
+        discovery_calls += 1
+        return {
+            "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
+            "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
+            "consumerProbeFingerprint": fingerprint(
+                {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
+            ),
+            "pythonExecutable": str(kwargs["python_executable"]),
+            "expectedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "expectedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "environmentFingerprint": fingerprint(kwargs["environment"]),
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "timeoutSeconds": 30,
+            "discoverySucceeded": True,
+            "probeGeneration": discovery_calls,
+        }
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_imageio_ffmpeg_discovery",
+        drifting_discovery,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_allowed_sandbox_write",
+        lambda **_kwargs: pytest.fail(
+            "allowed-write probe must not run after media-tool discovery drifts"
+        ),
+    )
+    runner_called = False
+
+    def runner(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("drifted encoder discovery must not run generation")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_media_tool_discovery_preflight_drift",
+    ):
+        run_local_video(request, dry_run=False, runner=runner)
+
+    assert discovery_calls == 2
+    assert runner_called is False
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
+    assert not request.output_path.with_suffix(".mp4.local_video.json").exists()
+
+    states = default_local_generation_queue(queue_root).states()
+    assert len(states) == 1
+    state = next(iter(states.values()))
+    assert state.status == "failed"
+    assert state.last_event["eventType"] == "job_failed"
+    assert state.last_event["payload"]["errorMessage"] == (
+        "local_video_media_tool_discovery_preflight_drift"
     )
 
 

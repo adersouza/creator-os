@@ -61,6 +61,7 @@ _GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
 _GENERATION_SIGNAL_GRACE_SECONDS = 10
 _GENERATION_KILL_GRACE_SECONDS = 30
 _SANDBOX_PREFLIGHT_TIMEOUT_SECONDS = 5
+_MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS = 30
 
 _SUBPROCESS_ENV_ALLOWLIST = frozenset(
     {
@@ -146,6 +147,10 @@ try:
 finally:
     os.close(descriptor)
 os.unlink(sys.argv[1])
+"""
+_IMAGEIO_FFMPEG_DISCOVERY_PROBE = """from imageio_ffmpeg import get_ffmpeg_exe
+
+print(get_ffmpeg_exe())
 """
 
 DEFAULT_NEGATIVE_PROMPT = (
@@ -796,6 +801,21 @@ def run_local_video(
                 )
                 if current_isolation_preflight != isolation["isolationPreflight"]:
                     raise LocalVideoUnavailable("local_video_isolation_preflight_drift")
+                execution_stage = "media_tool_discovery_preflight"
+                current_media_tool_discovery = _preflight_imageio_ffmpeg_discovery(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    environment=offline_env,
+                    expected_ffmpeg=Path(offline_env["IMAGEIO_FFMPEG_EXE"]),
+                )
+                if (
+                    current_media_tool_discovery
+                    != isolation["mediaToolDiscoveryPreflight"]
+                ):
+                    raise LocalVideoUnavailable(
+                        "local_video_media_tool_discovery_preflight_drift"
+                    )
                 execution_stage = "allowed_write_preflight"
                 allowed_write_preflight = _preflight_allowed_sandbox_write(
                     sandbox_exec=current_sandbox,
@@ -808,6 +828,9 @@ def run_local_video(
                     "capabilityFingerprint": current_fingerprint,
                     "isolationPreflightFingerprint": fingerprint(
                         current_isolation_preflight
+                    ),
+                    "mediaToolDiscoveryPreflightFingerprint": fingerprint(
+                        current_media_tool_discovery
                     ),
                     "allowedWritePreflight": allowed_write_preflight,
                     "deepVerified": current_capability.get("model", {}).get(
@@ -1077,6 +1100,14 @@ def _isolated_execution(
         environment,
         environment_source=environment_source,
     )
+    runtime = _runtime_binding(request)
+    expected_ffmpeg = str(runtime.get("ffmpegExecutable") or "")
+    if not expected_ffmpeg:
+        raise LocalVideoUnavailable("local_video_ffmpeg_runtime_binding_mismatch")
+    # Bind imageio-ffmpeg's own selector to the same exact runtime binary that
+    # the content-addressed toolchain check approves. PATH alone is not enough
+    # for this consumer and allowed the canary to fail only after rendering.
+    environment["IMAGEIO_FFMPEG_EXE"] = expected_ffmpeg
     command = _bind_isolated_toolchain(
         request,
         base_command=base_command,
@@ -1087,6 +1118,13 @@ def _isolated_execution(
         profile=profile,
         python_executable=Path(command[0]),
         forbidden_write_path=_sandbox_forbidden_write_probe_path(),
+    )
+    media_tool_discovery_preflight = _preflight_imageio_ffmpeg_discovery(
+        sandbox_exec=sandbox_exec,
+        profile=profile,
+        python_executable=Path(command[0]),
+        environment=environment,
+        expected_ffmpeg=Path(expected_ffmpeg),
     )
     isolation_core = {
         "schema": "reel_factory.local_subprocess_isolation.v1",
@@ -1110,6 +1148,7 @@ def _isolated_execution(
         "environmentPathPolicy": _ENVIRONMENT_PATH_POLICY,
         "environmentFingerprint": fingerprint(environment),
         "isolationPreflight": isolation_preflight,
+        "mediaToolDiscoveryPreflight": media_tool_discovery_preflight,
         "providerActivity": {
             "callsObserved": 0,
             "attemptsObserved": None,
@@ -1416,16 +1455,112 @@ def _preflight_allowed_sandbox_write(
     }
 
 
+def _preflight_imageio_ffmpeg_discovery(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    environment: Mapping[str, str],
+    expected_ffmpeg: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove the model runtime's actual encoder consumer resolves exact FFmpeg."""
+
+    expected = expected_ffmpeg.expanduser()
+    if not expected.is_file() or not os.access(expected, os.X_OK):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "expected_ffmpeg_unavailable"
+        )
+    expected_resolved = expected.resolve(strict=True)
+    if environment.get("IMAGEIO_FFMPEG_EXE") != str(expected):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "environment_binding_mismatch"
+        )
+    command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        str(python_executable),
+        "-B",
+        "-I",
+        "-E",
+        "-c",
+        _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+    ]
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
+            env=dict(environment),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:timeout"
+        ) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:unavailable"
+        ) from exc
+    if completed.returncode != 0:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            f"exit_{completed.returncode}"
+        )
+    observed = completed.stdout.strip()
+    if observed != str(expected):
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:resolved_path_mismatch"
+        )
+    try:
+        observed_resolved = Path(observed).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:"
+            "resolved_path_unavailable"
+        ) from exc
+    if observed_resolved != expected_resolved:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:resolved_target_mismatch"
+        )
+    return {
+        "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
+        "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
+        "consumerProbeFingerprint": fingerprint(
+            {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
+        ),
+        "pythonExecutable": str(python_executable),
+        "expectedFfmpegExecutable": str(expected),
+        "expectedFfmpegExecutableResolved": str(expected_resolved),
+        "observedFfmpegExecutable": observed,
+        "observedFfmpegExecutableResolved": str(observed_resolved),
+        "environmentFingerprint": fingerprint(environment),
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "timeoutSeconds": _MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
+        "discoverySucceeded": True,
+    }
+
+
+def _runtime_binding(request: LocalVideoRequest) -> Mapping[str, Any]:
+    binding = request.arena_benchmark_binding or request.local_motion_admission
+    runtime = binding.get("runtimeBinding") if isinstance(binding, Mapping) else None
+    if not isinstance(runtime, Mapping):
+        raise LocalVideoUnavailable("local_video_runtime_binding_missing")
+    return runtime
+
+
 def _bind_isolated_toolchain(
     request: LocalVideoRequest,
     *,
     base_command: list[str],
     environment: Mapping[str, str],
 ) -> list[str]:
-    binding = request.arena_benchmark_binding or request.local_motion_admission
-    runtime = binding.get("runtimeBinding") if isinstance(binding, Mapping) else None
-    if not isinstance(runtime, Mapping):
-        raise LocalVideoUnavailable("local_video_runtime_binding_missing")
+    runtime = _runtime_binding(request)
     expected_launcher = str(runtime.get("pythonExecutable") or "")
     expected_resolved = str(runtime.get("pythonExecutableResolved") or "")
     if not expected_launcher or not expected_resolved or not base_command:
@@ -1437,6 +1572,10 @@ def _bind_isolated_toolchain(
         raise LocalVideoUnavailable("local_video_python_runtime_target_mismatch")
     command = list(base_command)
     path = environment.get("PATH", "")
+    if environment.get("IMAGEIO_FFMPEG_EXE") != str(
+        runtime.get("ffmpegExecutable") or ""
+    ):
+        raise LocalVideoUnavailable("local_video_ffmpeg_runtime_binding_mismatch")
     for tool, field in (
         ("ffmpeg", "ffmpegExecutable"),
         ("ffprobe", "ffprobeExecutable"),
