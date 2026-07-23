@@ -18,6 +18,7 @@ from reel_factory.local_generation_queue import (
     fingerprint,
 )
 from reel_factory.local_lora_registry import register_local_lora
+from reel_factory.local_model_manager import runtime_status as manager_runtime_status
 from reel_factory.local_video import (
     _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
     _SANDBOX_ALLOWED_WRITE_PROBE,
@@ -973,6 +974,73 @@ def test_real_macos_sandbox_preflight_proves_active_denials(tmp_path: Path) -> N
     assert not (tmp_path / "forbidden-write.tmp").exists()
 
 
+@pytest.mark.skipif(
+    sys.platform != "darwin"
+    or os.environ.get("CREATOR_OS_RUN_REAL_LOCAL_PREFLIGHT") != "1",
+    reason="explicit local-only pinned-runtime preflight",
+)
+def test_real_pinned_wan_runtime_discovers_exact_ffmpeg_in_sandbox(
+    tmp_path: Path,
+) -> None:
+    status = manager_runtime_status()
+    if status.get("ready") is not True:
+        pytest.skip("pinned Wan runtime is not ready on this machine")
+    python = Path(str(status["python"]))
+    assert python.is_file()
+    which = subprocess.run(
+        ["/usr/bin/which", "ffmpeg"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+        env=os.environ.copy(),
+    )
+    if which.returncode != 0 or not which.stdout.strip():
+        pytest.skip("system FFmpeg is not available")
+    ffmpeg = Path(which.stdout.strip()).resolve(strict=True)
+    home = tmp_path / "home"
+    temporary = tmp_path / "tmp"
+    cache = tmp_path / "cache"
+    for directory in (home, temporary, cache):
+        directory.mkdir()
+    profile = "\n".join(
+        (
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            "(deny file-write*)",
+        )
+    )
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "HOME": str(home),
+        "TMPDIR": str(temporary),
+        "XDG_CACHE_HOME": str(cache),
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "NO_PROXY": "*",
+        "no_proxy": "*",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "IMAGEIO_FFMPEG_EXE": str(ffmpeg),
+    }
+
+    evidence = _preflight_imageio_ffmpeg_discovery(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile=profile,
+        python_executable=python,
+        environment=environment,
+        expected_ffmpeg=ffmpeg,
+    )
+
+    assert evidence["pythonExecutable"] == str(python)
+    assert evidence["observedFfmpegExecutable"] == str(ffmpeg)
+    assert evidence["observedFfmpegExecutableResolved"] == str(ffmpeg)
+    assert evidence["discoverySucceeded"] is True
+    assert not any(any(directory.iterdir()) for directory in (home, temporary, cache))
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS sandbox policy smoke")
 def test_real_macos_allowed_write_preflight_accepts_only_sandbox_root(
     tmp_path: Path,
@@ -1151,6 +1219,112 @@ def test_toolchain_binding_rejects_substituted_imageio_ffmpeg_selector(
                 "IMAGEIO_FFMPEG_EXE": "/tmp/substituted-ffmpeg",
             },
         )
+
+
+def test_campaign_execution_passes_validated_runtime_binding_into_isolation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = replace(
+        _request(tmp_path),
+        execution_context="campaign_generation",
+        arena_benchmark_binding=None,
+        local_motion_admission={"schema": "campaign-admission-fixture"},
+    )
+    binding_core = {
+        "schema": "reel_factory.campaign_local_motion_binding.v1",
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+    }
+    execution_binding = {
+        **binding_core,
+        "bindingFingerprint": fingerprint(binding_core),
+    }
+    monkeypatch.setattr(
+        "reel_factory.local_video._validate_execution_binding",
+        lambda *_args, **_kwargs: execution_binding,
+    )
+
+    lineage = run_local_video(request, dry_run=True)
+
+    assert lineage["executionContext"] == "campaign_generation"
+    assert lineage["executionBinding"] == execution_binding
+    discovery = lineage["executionIsolation"]["mediaToolDiscoveryPreflight"]
+    assert discovery["expectedFfmpegExecutable"] == RUNTIME_BINDING["ffmpegExecutable"]
+    assert (
+        discovery["environmentFingerprint"]
+        == lineage["executionIsolation"]["environmentFingerprint"]
+    )
+
+
+def test_campaign_apply_runs_exact_ffmpeg_discovery_before_queue_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = replace(
+        _request(tmp_path),
+        execution_context="campaign_generation",
+        arena_benchmark_binding=None,
+        local_motion_admission={"schema": "campaign-admission-fixture"},
+    )
+    binding_core = {
+        "schema": "reel_factory.campaign_local_motion_binding.v1",
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+    }
+    execution_binding = {
+        **binding_core,
+        "bindingFingerprint": fingerprint(binding_core),
+    }
+    monkeypatch.setattr(
+        "reel_factory.local_video._validate_execution_binding",
+        lambda *_args, **_kwargs: execution_binding,
+    )
+    discovery_calls: list[dict[str, object]] = []
+
+    def observe_discovery(**kwargs: object) -> dict[str, object]:
+        discovery_calls.append(dict(kwargs))
+        return {
+            "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
+            "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
+            "consumerProbeFingerprint": fingerprint(
+                {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
+            ),
+            "pythonExecutable": str(kwargs["python_executable"]),
+            "expectedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "expectedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutable": str(kwargs["expected_ffmpeg"]),
+            "observedFfmpegExecutableResolved": str(kwargs["expected_ffmpeg"]),
+            "environmentFingerprint": fingerprint(kwargs["environment"]),
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "timeoutSeconds": 30,
+            "discoverySucceeded": True,
+        }
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_imageio_ffmpeg_discovery",
+        observe_discovery,
+    )
+
+    class QueueReached(RuntimeError):
+        pass
+
+    def queue_after_preflight() -> object:
+        assert len(discovery_calls) == 1
+        environment = discovery_calls[0]["environment"]
+        assert isinstance(environment, dict)
+        assert environment["IMAGEIO_FFMPEG_EXE"] == RUNTIME_BINDING["ffmpegExecutable"]
+        raise QueueReached("queue reached after exact media-tool preflight")
+
+    monkeypatch.setattr(
+        "reel_factory.local_video.default_local_generation_queue",
+        queue_after_preflight,
+    )
+
+    with pytest.raises(QueueReached, match="queue reached after exact"):
+        run_local_video(request, dry_run=False)
+
+    assert len(discovery_calls) == 1
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
 
 
 def test_isolation_rejects_same_path_media_tool_content_substitution(

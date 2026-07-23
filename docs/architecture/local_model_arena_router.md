@@ -24,9 +24,12 @@ The identity and intent fingerprints are not operator assertions. Every sample
 embeds one schema-valid `CreatorIdentityProfileV1` and one schema-valid
 `ContentIntentV1`. Arena recomputes both fingerprints, requires the profile
 creator to match the sample creator, requires the intent to reference that
-profile, and requires the exact source SHA-256 in the intent. The immutable plan
-store also writes content-addressed copies under `creator_identity_profiles/`
-and `content_intents/`; missing or changed copies make the plan unloadable.
+profile, and requires every exact typed-input SHA-256 to belong to the intent's
+reviewed authorization cohort. The benchmark recipe remains narrower: it binds
+the canonical role-preserving inputs for one execution cell. The immutable
+plan store also writes content-addressed copies under
+`creator_identity_profiles/` and `content_intents/`; missing or changed copies
+make the plan unloadable.
 Queue jobs, measured benchmark receipts, summaries, and Router decisions retain
 the same IDs and fingerprints. Historical entries without these links remain
 readable but cannot support promotion.
@@ -86,6 +89,12 @@ Model identity uses a content-addressed deep-verification attestation cache
 bound to the manifest, file metadata, pinned runtime executable and package
 environment, OS build, MLX version, and exact FFmpeg/FFprobe executable hashes;
 any change invalidates it, and the selected model is revalidated at execution.
+The isolated child also receives `IMAGEIO_FFMPEG_EXE` set to that exact verified
+FFmpeg binary. Before queue admission—and again immediately before generation—
+the sandboxed pinned Python imports `imageio_ffmpeg` and proves
+`get_ffmpeg_exe()` resolves the same exact path. Consumer discovery failure or
+drift therefore blocks before model compute rather than failing during final
+video encoding.
 Arena samples, benchmark receipts, promotion cohorts, Router decisions, queue
 jobs, and asset lineage retain that runtime fingerprint and the evaluated model
 license policy. Mixed toolchains or noncompliant commercial use fail closed.
@@ -172,6 +181,14 @@ The active promotion must name the exact candidate benchmark IDs for the
 creator/identity/intent cohort and the same hardware fingerprint observed by
 the Router. Aggregate performance from another creator, intent, or machine
 cannot authorize selection.
+
+Content Intent may authorize several reviewed sources for matched planning,
+but promotion does not cover that superset automatically. Admission resolves
+the Router's winning exact Arena sample IDs back through the frozen plan,
+reconstructs each sample's canonical role-preserving input bindings, and
+requires the requested execution cell to be in that measured cohort. New
+authorized-but-unbenchmarked inputs, wrong-role reuse, and cross-task sample
+leakage fail closed.
 
 Overrides may choose only an otherwise valid candidate. The decision records
 the operator and reason and excludes that choice from benchmark learning.

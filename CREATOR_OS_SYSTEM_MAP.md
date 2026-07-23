@@ -191,6 +191,13 @@ blinded reviews are locked before a distinct authenticated unblinding receipt
 reveals the sample/model mapping. Promotion summaries and Router decisions bind
 both packet and unblinding fingerprints.
 
+Content Intent authorizes the reviewed source set used to construct that grid;
+it does not promote every authorized source. Each recipe and queue job binds one
+canonical, role-preserving typed-input cell. Admission reconstructs the winning
+Router sample IDs from the frozen plan and permits only their exact measured
+input cohort. An authorized but unbenchmarked source, wrong-role reuse, or
+cross-task sample cannot inherit promotion evidence.
+
 The generation journal also projects exact execution attempt count, retry count,
 admission-block count, stable failure class, measured duration/peak memory when
 available, and local-compute cost availability. Creator OS has no machine cost
@@ -278,6 +285,9 @@ credentials. Output is streamed to a bounded append-only log and recorded by
 path/SHA/tail. Deep model verification is cached only as a content-addressed
 attestation bound to manifest, file metadata, runtime source, and environment;
 drift invalidates it and the selected model is checked again at execution.
+The exact verified FFmpeg path is also bound as `IMAGEIO_FFMPEG_EXE`, and the
+sandboxed pinned Python must prove `imageio_ffmpeg.get_ffmpeg_exe()` resolves
+that path both before queue admission and immediately before generation.
 
 Campaign pipeline jobs use expected-state compare-and-swap transitions. Only a
 queued job can start, only its running owner can finish/fail it, terminal rows

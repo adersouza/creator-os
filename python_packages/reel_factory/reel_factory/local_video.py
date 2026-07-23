@@ -678,6 +678,7 @@ def run_local_video(
             request,
             output=output,
             base_command=planned_base_command,
+            execution_binding=execution_binding,
         )
         lineage["command"] = planned_command
         lineage["executionIsolation"] = planned_isolation
@@ -714,6 +715,7 @@ def run_local_video(
         request,
         output=output,
         base_command=base_command,
+        execution_binding=execution_binding,
     )
     lineage["command"] = command
     lineage["executionIsolation"] = isolation
@@ -785,6 +787,7 @@ def run_local_video(
                     request,
                     base_command=base_command,
                     environment=offline_env,
+                    execution_binding=execution_binding,
                 )
                 current_sandbox = _sandbox_executable()
                 if (
@@ -1007,7 +1010,7 @@ def plan_local_video_job(
         model_dir=request.model_dir,
         python_executable=python_executable,
     )
-    _validate_execution_binding(request, capability=capability)
+    execution_binding = _validate_execution_binding(request, capability=capability)
     base_command = _build_execution_command(
         request,
         spec=spec,
@@ -1018,6 +1021,7 @@ def plan_local_video_job(
         request,
         output=output,
         base_command=base_command,
+        execution_binding=execution_binding,
     )
     return _generation_job(
         request,
@@ -1035,6 +1039,7 @@ def _isolated_execution(
     output: Path,
     base_command: list[str],
     environ: Mapping[str, str] | None = None,
+    execution_binding: Mapping[str, Any] | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
     environment_source = os.environ if environ is None else environ
     if platform.system() != "Darwin":
@@ -1105,7 +1110,7 @@ def _isolated_execution(
         environment,
         environment_source=environment_source,
     )
-    runtime = _runtime_binding(request)
+    runtime = _runtime_binding(request, execution_binding=execution_binding)
     expected_ffmpeg = str(runtime.get("ffmpegExecutable") or "")
     if not expected_ffmpeg:
         raise LocalVideoUnavailable("local_video_ffmpeg_runtime_binding_mismatch")
@@ -1117,6 +1122,7 @@ def _isolated_execution(
         request,
         base_command=base_command,
         environment=environment,
+        execution_binding=execution_binding,
     )
     isolation_preflight = _preflight_sandbox_execution(
         sandbox_exec=sandbox_exec,
@@ -1551,8 +1557,12 @@ def _preflight_imageio_ffmpeg_discovery(
     }
 
 
-def _runtime_binding(request: LocalVideoRequest) -> Mapping[str, Any]:
-    binding = request.arena_benchmark_binding or request.local_motion_admission
+def _runtime_binding(
+    request: LocalVideoRequest,
+    *,
+    execution_binding: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
+    binding = execution_binding or request.arena_benchmark_binding
     runtime = binding.get("runtimeBinding") if isinstance(binding, Mapping) else None
     if not isinstance(runtime, Mapping):
         raise LocalVideoUnavailable("local_video_runtime_binding_missing")
@@ -1564,8 +1574,9 @@ def _bind_isolated_toolchain(
     *,
     base_command: list[str],
     environment: Mapping[str, str],
+    execution_binding: Mapping[str, Any] | None = None,
 ) -> list[str]:
-    runtime = _runtime_binding(request)
+    runtime = _runtime_binding(request, execution_binding=execution_binding)
     expected_launcher = str(runtime.get("pythonExecutable") or "")
     expected_resolved = str(runtime.get("pythonExecutableResolved") or "")
     if not expected_launcher or not expected_resolved or not base_command:
