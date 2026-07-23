@@ -163,8 +163,9 @@ and benchmark journals:
 ```text
 Campaign content intent + execution policy
   -> BenchmarkRecipeV1 + exact AnalyzerRegistryV1 snapshot
-  -> typed task inputs: I2V image; keyframe first/last images; Retake source
-     video + frame range; or Extend source video + direction/frame count
+  -> typed task inputs: T2V immutable prompt artifact with no model media;
+     I2V image; audio-I2V image + audio; keyframe first/last images; Retake
+     source video + frame range; or Extend source video + direction/frame count
   -> LocalModelArena immutable plan
   -> exact LocalGenerationQueue job (same ID and fingerprint as normal motion)
   -> local output + measured duration/memory + exact output SHA-256
@@ -197,6 +198,23 @@ canonical, role-preserving typed-input cell. Admission reconstructs the winning
 Router sample IDs from the frozen plan and permits only their exact measured
 input cohort. An authorized but unbenchmarked source, wrong-role reuse, or
 cross-task sample cannot inherit promotion evidence.
+
+Text-to-video is the deliberate zero-media exception. Campaign materializes one
+canonical compact prompt-provenance JSON artifact whose SHA-256 is the
+task-plus-normalized-prompt fingerprint. Arena, ContentForge, Creative Approval,
+the queue job, and registered lineage carry that exact `promptSource`, while the
+model execution input binding remains empty. The prompt artifact is provenance,
+never a fake still, identity source, static fallback, or additional model input.
+Supplying image, audio, last-frame, source-video, or reviewed-source media to a
+text-to-video request fails closed.
+
+Creator identity reference sets are local schema v4 for new promotion evidence.
+Every reference image must bind one-to-one to an exact fingerprint-bearing
+`CreatorIdentityProfileV1.identityReferences` entry. Duplicate, missing,
+unresolved, substituted, or profile-mismatched image bindings fail closed.
+Non-file identity references such as a Soul ID may coexist but cannot authorize
+image bytes. Historical v1-v3 sets remain readable evidence and are explicitly
+promotion-ineligible; they are never silently upgraded or backfilled.
 
 The generation journal also projects exact execution attempt count, retry count,
 admission-block count, stable failure class, measured duration/peak memory when

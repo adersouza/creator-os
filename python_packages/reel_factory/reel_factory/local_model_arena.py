@@ -296,12 +296,16 @@ class ArenaSampleSpec:
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
+    prompt_source_path: Path | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> ArenaSampleSpec:
         audio_path = value.get("audioPath")
         last_image_path = value.get("lastImagePath")
         source_video_path = value.get("sourceVideoPath")
+        prompt_source = value.get("promptSource")
+        if prompt_source is not None and not isinstance(prompt_source, dict):
+            raise ValueError("arena_prompt_source_invalid")
         raw_profile = value.get("creatorIdentityProfile")
         raw_intent = value.get("contentIntent")
         if not isinstance(raw_profile, dict):
@@ -402,6 +406,11 @@ class ArenaSampleSpec:
                 else None
             ),
             overlays_exist=value.get("overlaysExist") is True,
+            prompt_source_path=(
+                Path(str(prompt_source["path"])).expanduser().resolve()
+                if isinstance(prompt_source, dict) and prompt_source.get("path")
+                else None
+            ),
         )
 
 
@@ -527,6 +536,36 @@ def _primary_source_sha(spec: ArenaSampleSpec) -> str:
     return sha256_file(_primary_source_path(spec))
 
 
+def _prompt_source_binding(spec: ArenaSampleSpec) -> dict[str, str] | None:
+    if spec.task_kind != "text_to_video":
+        if spec.prompt_source_path is not None:
+            raise LocalQueueError("arena_prompt_source_forbidden_for_media_task")
+        return None
+    if spec.prompt_source_path is None:
+        raise LocalQueueError("arena_text_task_prompt_source_missing")
+    prompt_path = spec.prompt_source_path.expanduser().resolve()
+    expected_material = {
+        "prompt": " ".join(spec.prompt.split()),
+        "taskKind": "text_to_video",
+    }
+    expected_sha = fingerprint(expected_material)
+    if (
+        not prompt_path.is_file()
+        or prompt_path.is_symlink()
+        or sha256_file(prompt_path) != expected_sha
+    ):
+        raise LocalQueueError("arena_text_task_prompt_source_missing_or_substituted")
+    try:
+        decoded = json.loads(prompt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LocalQueueError("arena_text_task_prompt_source_invalid") from exc
+    if decoded != expected_material or prompt_path.read_text(encoding="utf-8") != (
+        _canonical(expected_material)
+    ):
+        raise LocalQueueError("arena_text_task_prompt_source_invalid")
+    return {"path": str(prompt_path), "sha256": expected_sha}
+
+
 def _validate_spec(spec: ArenaSampleSpec) -> None:
     if spec.creator_id not in CREATORS:
         raise ValueError(f"arena_creator_unsupported:{spec.creator_id}")
@@ -536,6 +575,7 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
     if spec.task_kind not in (model.supported_tasks or (model.task,)):
         raise LocalQueueError(f"arena_model_capability_mismatch:{spec.model_id}")
     _spec_input_bindings(spec)
+    prompt_source = _prompt_source_binding(spec)
     if spec.task_kind != "text_to_video":
         primary_source = _primary_source_path(spec)
         if not primary_source.is_file() or primary_source.is_symlink():
@@ -612,6 +652,8 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
     exact_input_fingerprints = [
         binding["sha256"] for binding in _spec_input_bindings(spec)
     ]
+    if prompt_source is not None:
+        exact_input_fingerprints.append(prompt_source["sha256"])
     authorized_input_fingerprints = set(intent["sourceAssetFingerprints"])
     if not set(exact_input_fingerprints).issubset(authorized_input_fingerprints):
         raise LocalQueueError("arena_content_intent_source_mismatch")
@@ -746,6 +788,7 @@ def build_arena_plan(
     samples: list[dict[str, Any]] = []
     for spec in sample_specs:
         source_sha = _primary_source_sha(spec)
+        prompt_source = _prompt_source_binding(spec)
         audio_sha = (
             sha256_file(spec.audio_path) if spec.audio_path is not None else None
         )
@@ -914,6 +957,7 @@ def build_arena_plan(
                 "contentIntent": spec.content_intent,
                 "sourcePath": str(spec.source_path) if spec.source_path else None,
                 "sourceSha256": source_sha,
+                "promptSource": prompt_source,
                 "audioPath": str(spec.audio_path) if spec.audio_path else None,
                 "audioSha256": audio_sha,
                 "lastImagePath": (
@@ -1263,12 +1307,28 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 }
             ):
                 raise LocalQueueError("arena_text_task_source_identity_mismatch")
+            prompt_source = raw.get("promptSource")
+            if not isinstance(prompt_source, dict):
+                raise LocalQueueError("arena_text_task_prompt_source_missing")
+            prompt_path = Path(str(prompt_source.get("path") or "")).resolve()
+            if (
+                set(prompt_source) != {"path", "sha256"}
+                or prompt_source.get("sha256") != raw.get("sourceSha256")
+                or not prompt_path.is_file()
+                or prompt_path.is_symlink()
+                or sha256_file(prompt_path) != raw.get("sourceSha256")
+            ):
+                raise LocalQueueError(
+                    "arena_text_task_prompt_source_missing_or_substituted"
+                )
             primary_source = None
         elif raw.get("taskKind") in {"video_retake", "video_extend"}:
             if source_path is not None or source_video_path is None:
                 raise LocalQueueError("arena_video_task_primary_source_invalid")
             primary_source = Path(str(source_video_path)).resolve()
         else:
+            if raw.get("promptSource") is not None:
+                raise LocalQueueError("arena_media_task_prompt_source_forbidden")
             if source_path is None:
                 raise LocalQueueError("arena_image_task_primary_source_missing")
             primary_source = Path(str(source_path)).resolve()
@@ -2760,17 +2820,45 @@ def _trusted_motion_qc_request(
     this boundary would be caller-supplied evidence and must remain impossible.
     """
 
+    source = _qc_source_binding(sample)
     return {
         "mediaPath": str(output),
         "mediaSha256": output_sha256,
-        "sourcePath": sample["sourcePath"],
-        "sourceSha256": sample["sourceSha256"],
+        "sourcePath": source["path"],
+        "sourceSha256": source["sha256"],
         "producedAt": produced_at,
         "overlaysExist": sample["overlaysExist"],
         "analyzerRegistry": dict(analyzer_registry),
         "humanReview": dict(human_review),
         "options": _motion_qc_options(sample),
     }
+
+
+def _qc_source_binding(sample: Mapping[str, Any]) -> dict[str, str]:
+    """Resolve immutable source provenance without adding an execution input."""
+
+    if sample.get("taskKind") == "text_to_video":
+        prompt_source = sample.get("promptSource")
+        if not isinstance(prompt_source, dict):
+            raise LocalQueueError("arena_text_task_prompt_source_missing")
+        path = Path(str(prompt_source.get("path") or "")).expanduser().resolve()
+        expected = str(sample.get("sourceSha256") or "")
+        if (
+            set(prompt_source) != {"path", "sha256"}
+            or prompt_source.get("sha256") != expected
+            or not path.is_file()
+            or path.is_symlink()
+            or sha256_file(path) != expected
+        ):
+            raise LocalQueueError(
+                "arena_text_task_prompt_source_missing_or_substituted"
+            )
+        return {"path": str(path), "sha256": expected}
+    path = Path(str(sample.get("sourcePath") or "")).expanduser().resolve()
+    expected = str(sample.get("sourceSha256") or "")
+    if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
+        raise LocalQueueError("arena_source_missing_or_substituted")
+    return {"path": str(path), "sha256": expected}
 
 
 def _run_contentforge(
@@ -2854,13 +2942,14 @@ def finalize_arena_sample_evidence(
     registry = dict(sample["analyzerRegistry"])
     if fingerprint(registry) != sample["analyzerRegistryFingerprint"]:
         raise LocalQueueError("arena_analyzer_registry_fingerprint_mismatch")
+    source = _qc_source_binding(sample)
     analysis = _run_contentforge(
         "analyze-media",
         {
             "mediaPath": str(output),
             "mediaSha256": output_sha,
-            "sourcePath": sample["sourcePath"],
-            "sourceSha256": sample["sourceSha256"],
+            "sourcePath": source["path"],
+            "sourceSha256": source["sha256"],
             "producedAt": produced_at,
             "overlaysExist": sample["overlaysExist"],
             "analyzerRegistry": registry,
@@ -3004,6 +3093,8 @@ def build_arena_record_bundle(
     source_path: Path | None,
     typed_inputs: Sequence[tuple[str, Path]] = (),
     reviewed_source_paths: Sequence[Path] = (),
+    task_kind: str = "image_to_video",
+    prompt: str | None = None,
     goal: str,
     content_surface: str,
     media_kind: str,
@@ -3018,30 +3109,97 @@ def build_arena_record_bundle(
     ``reviewed_source_paths`` expands only the immutable ContentIntent
     authorization set so matched Arena cells may share one intent. Each
     BenchmarkRecipe remains bound to the exact inputs consumed by its cell.
+    Text-to-video has no typed media inputs; its immutable source descriptor is
+    the canonical ``taskKind`` + normalized ``prompt`` JSON whose file digest is
+    the same prompt-task fingerprint used by Arena plans.
     """
 
     facts_path = reviewed_identity_facts_path.expanduser().resolve()
     source = source_path.expanduser().resolve() if source_path is not None else None
     if not facts_path.is_file() or facts_path.is_symlink():
         raise LocalQueueError("arena_reviewed_identity_facts_missing_or_unsafe")
-    inputs: list[tuple[str, Path]] = []
-    if source is not None:
-        inputs.append(("image", source))
-    for input_kind, input_path in typed_inputs:
-        if input_kind not in {"image", "audio", "last-image", "source-video"}:
-            raise ValueError(f"arena_record_input_kind_invalid:{input_kind}")
-        resolved_input = input_path.expanduser().resolve()
-        if (input_kind, resolved_input) not in inputs:
-            inputs.append((input_kind, resolved_input))
-    if not inputs:
-        raise LocalQueueError("arena_record_source_missing_or_unsafe")
-    for _input_kind, input_path in inputs:
-        if not input_path.is_file() or input_path.is_symlink():
-            raise LocalQueueError("arena_record_source_missing_or_unsafe")
+    destination = output_root.expanduser().resolve()
     reviewed_sources = [path.expanduser().resolve() for path in reviewed_source_paths]
     for reviewed_source in reviewed_sources:
         if not reviewed_source.is_file() or reviewed_source.is_symlink():
             raise LocalQueueError("arena_record_reviewed_source_missing_or_unsafe")
+
+    role_aliases = {
+        "image": "image",
+        "audio": "audio",
+        "last-image": "last_image",
+        "last_image": "last_image",
+        "source-video": "source_video",
+        "source_video": "source_video",
+    }
+    role_paths: dict[str, Path] = {}
+    if source is not None:
+        role_paths["image"] = source
+    for input_kind, input_path in typed_inputs:
+        role = role_aliases.get(input_kind)
+        if role is None:
+            raise ValueError(f"arena_record_input_kind_invalid:{input_kind}")
+        resolved_input = input_path.expanduser().resolve()
+        existing_role_path = role_paths.get(role)
+        if existing_role_path is not None and existing_role_path != resolved_input:
+            raise LocalQueueError(f"arena_record_input_role_duplicate:{role}")
+        role_paths[role] = resolved_input
+    for input_path in role_paths.values():
+        if not input_path.is_file() or input_path.is_symlink():
+            raise LocalQueueError("arena_record_source_missing_or_unsafe")
+
+    normalized_prompt: str | None = None
+    prompt_source_material: dict[str, str] | None = None
+    prompt_source_path: Path | None = None
+    prompt_task_fingerprint: str | None = None
+    authorized_source_fingerprints: tuple[str, ...]
+    if task_kind == "text_to_video":
+        if role_paths or reviewed_sources:
+            raise LocalQueueError("arena_record_text_task_media_forbidden")
+        normalized_prompt = " ".join(_required_text(prompt, "prompt").split())
+        prompt_source_material = {
+            "taskKind": "text_to_video",
+            "prompt": normalized_prompt,
+        }
+        prompt_task_fingerprint = fingerprint(prompt_source_material)
+        prompt_source_path = (
+            destination / "prompt_sources" / f"{prompt_task_fingerprint}.json"
+        )
+        canonical_bindings: tuple[dict[str, str], ...] = ()
+        input_assets: list[dict[str, str]] = []
+        source_sha: str | None = prompt_task_fingerprint
+        authorized_source_fingerprints = (prompt_task_fingerprint,)
+    else:
+        role_hashes = {role: sha256_file(path) for role, path in role_paths.items()}
+        try:
+            canonical_bindings = canonical_task_input_bindings(
+                task_kind,
+                image_sha256=role_hashes.get("image"),
+                audio_sha256=role_hashes.get("audio"),
+                last_image_sha256=role_hashes.get("last_image"),
+                source_video_sha256=role_hashes.get("source_video"),
+            )
+        except ValueError as exc:
+            raise LocalQueueError(f"arena_record_{exc}") from exc
+        input_assets = [
+            {
+                "kind": binding["role"].replace("_", "-"),
+                "path": str(role_paths[binding["role"]]),
+                "sha256": binding["sha256"],
+            }
+            for binding in canonical_bindings
+        ]
+        source_sha = (
+            str(canonical_bindings[0]["sha256"]) if canonical_bindings else None
+        )
+        authorized_source_fingerprints = tuple(
+            sorted(
+                {
+                    *(binding["sha256"] for binding in canonical_bindings),
+                    *(sha256_file(path) for path in reviewed_sources),
+                }
+            )
+        )
     facts = _read_json(facts_path)
     expected_fact_keys = {
         "schema",
@@ -3104,22 +3262,6 @@ def build_arena_record_bundle(
         ),
     ).to_dict()
     profile_fingerprint = fingerprint(profile)
-    input_assets = [
-        {"kind": input_kind, "path": str(path), "sha256": sha256_file(path)}
-        for input_kind, path in inputs
-    ]
-    source_sha = str(input_assets[0]["sha256"])
-    exact_input_fingerprints = tuple(
-        dict.fromkeys(str(item["sha256"]) for item in input_assets)
-    )
-    authorized_source_fingerprints = tuple(
-        sorted(
-            {
-                *exact_input_fingerprints,
-                *(sha256_file(path) for path in reviewed_sources),
-            }
-        )
-    )
     normalized_lanes = tuple(
         dict.fromkeys(_required_text(value, "style_lane") for value in style_lanes)
     )
@@ -3163,11 +3305,19 @@ def build_arena_record_bundle(
         ),
     ).to_dict()
     intent_fingerprint = fingerprint(intent)
-    destination = output_root.expanduser().resolve()
     profile_path = (
         destination / "creator_identity_profiles" / (f"{profile_fingerprint}.json")
     )
     intent_path = destination / "content_intents" / f"{intent_fingerprint}.json"
+    if (
+        prompt_source_path is not None
+        and prompt_source_material is not None
+        and prompt_task_fingerprint is not None
+    ):
+        _write_exact_json(prompt_source_path, prompt_source_material)
+        if sha256_file(prompt_source_path) != prompt_task_fingerprint:
+            raise LocalQueueError("arena_record_prompt_source_hash_mismatch")
+        prompt_source_path.chmod(0o444)
     _write_exact_json(profile_path, profile)
     _write_exact_json(intent_path, intent)
     return {
@@ -3177,12 +3327,27 @@ def build_arena_record_bundle(
         "contentIntent": intent,
         "contentIntentId": intent["intentId"],
         "contentIntentFingerprint": intent_fingerprint,
+        "taskKind": task_kind,
         "sourcePath": str(source) if source is not None else None,
         "sourceSha256": source_sha,
+        "promptTaskFingerprint": prompt_task_fingerprint,
+        "promptSource": (
+            {
+                "path": str(prompt_source_path),
+                "sha256": prompt_task_fingerprint,
+            }
+            if prompt_source_path is not None and prompt_task_fingerprint is not None
+            else None
+        ),
         "inputAssets": input_assets,
         "recordPaths": {
             "creatorIdentityProfile": str(profile_path),
             "contentIntent": str(intent_path),
+            **(
+                {"promptSource": str(prompt_source_path)}
+                if prompt_source_path is not None
+                else {}
+            ),
         },
         "providerCalls": 0,
         "productionWrites": 0,
@@ -3225,6 +3390,25 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         metavar="KIND=PATH",
         help="Repeatable typed input: image, audio, last-image, or source-video",
+    )
+    records_command.add_argument(
+        "--task-kind",
+        choices=[
+            "text_to_video",
+            "image_to_video",
+            "audio_image_to_video",
+            "keyframe_interpolation",
+            "video_retake",
+            "video_extend",
+        ],
+        default="image_to_video",
+    )
+    records_command.add_argument(
+        "--prompt",
+        help=(
+            "Exact prompt required for text_to_video; its canonical task/prompt "
+            "descriptor is the zero-media source identity"
+        ),
     )
     records_command.add_argument("--goal", required=True)
     records_command.add_argument(
@@ -3277,6 +3461,8 @@ def main(argv: list[str] | None = None) -> int:
                 source_path=args.source,
                 typed_inputs=typed_inputs,
                 reviewed_source_paths=args.reviewed_source,
+                task_kind=args.task_kind,
+                prompt=args.prompt,
                 goal=args.goal,
                 content_surface=args.content_surface,
                 media_kind=args.media_kind,

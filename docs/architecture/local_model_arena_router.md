@@ -34,6 +34,28 @@ Queue jobs, measured benchmark receipts, summaries, and Router decisions retain
 the same IDs and fingerprints. Historical entries without these links remain
 readable but cannot support promotion.
 
+The six task families have a strict typed-input matrix. Text-to-video consumes
+no model media. Its normalized prompt is stored as one canonical compact JSON
+artifact whose file SHA-256 equals the task-plus-prompt fingerprint; the plan
+binds it separately as `promptSource`. That artifact travels through Arena,
+ContentForge finalization, Creative Approval, and Campaign lineage, but it is
+never passed to the model as an image, treated as an identity reference, or
+used as a static fallback. Image-to-video consumes one image; audio-driven
+image-to-video consumes one image and one audio source; keyframe consumes first
+and last images; Retake and Extend consume one source video with their
+task-specific controls. Missing, extra, wrong-role, substituted, or drifted
+inputs fail closed at record construction, plan load, admission, and execution.
+
+New identity reference sets use local schema v4. Each image in the set must
+resolve one-to-one to an exact fingerprint-bearing entry in the reviewed
+`CreatorIdentityProfileV1.identityReferences` array. The binding is included in
+the reference-set identity material and attestation. Duplicate reference
+identities or fingerprints, unresolved or omitted reviewed images, creator or
+profile mismatch, and changed source bytes are rejected. A non-file reference
+without a media fingerprint may identify a creator model but cannot authorize
+local image bytes. Historical v1-v3 reference sets remain readable and are
+promotion-ineligible; no provenance is inferred for them.
+
 Operators build these records from reviewed facts and exact media, not invented
 fingerprints:
 
@@ -195,10 +217,11 @@ the operator and reason and excludes that choice from benchmark learning.
 
 The normal Campaign `create --mode local_wan` path is a Router consumer, not a
 separate model selector. It must load the frozen Arena plan referenced by the
-summary, bind the accepted still/audio to the content intent and recipe, and
-carry the decision and admission fingerprints into the local queue job and
-registered asset. Arena benchmarking has a separate typed pre-promotion
-context; there is no generic missing-evidence bypass.
+summary, bind the exact task-specific media inputs—or the zero-media T2V prompt
+artifact—to the content intent and recipe, and carry the decision and admission
+fingerprints into the local queue job and registered asset. Arena benchmarking
+has a separate typed pre-promotion context; there is no generic missing-evidence
+bypass.
 
 ## Commands
 

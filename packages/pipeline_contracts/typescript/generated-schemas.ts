@@ -3175,6 +3175,9 @@ export const generatedPipelineContractSchemas = {
 	    "input": {
 	      "$ref": "#/$defs/file"
 	    },
+	    "promptSource": {
+	      "$ref": "#/$defs/file"
+	    },
 	    "output": {
 	      "$ref": "#/$defs/file"
 	    },
@@ -3549,6 +3552,9 @@ export const generatedPipelineContractSchemas = {
 	              "type": "null"
 	            }
 	          ]
+	        },
+	        "promptSourceSha256": {
+	          "$ref": "#/$defs/sha256"
 	        },
 	        "fingerprint": {
 	          "$ref": "#/$defs/sha256"
@@ -6238,6 +6244,16 @@ export const generatedPipelineContractSchemas = {
 	        "sourceSha256": {
 	          "$ref": "#/$defs/sha256"
 	        },
+	        "promptSource": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/file"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
 	        "audioPath": {
 	          "type": [
 	            "string",
@@ -6468,6 +6484,23 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "promotionEligible": {
 	          "type": "boolean"
+	        }
+	      }
+	    },
+	    "file": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    }

@@ -45,10 +45,11 @@ SCHEMA = "reel_factory.identity_verification.v1"
 IDENTITY_ANALYZER_ID = "reel_factory.identity_preservation"
 IDENTITY_ANALYZER_VERSION = "2.0.0"
 FACE_STABILITY_THRESHOLD = 0.80
-REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v3"
+REFERENCE_SET_SCHEMA = "reel_factory.identity_reference_set.v4"
 HISTORICAL_REFERENCE_SET_SCHEMAS = {
     "reel_factory.identity_reference_set.v1",
     "reel_factory.identity_reference_set.v2",
+    "reel_factory.identity_reference_set.v3",
 }
 REFERENCE_SET_ATTESTATION_ISSUER = "reel_factory.identity_reference_set"
 REFERENCE_QUALITY_POLICY_ID = "reel_factory.identity_reference_consensus"
@@ -253,6 +254,47 @@ def _canonical_identity_profile(
         error="identity_profile_timestamp_invalid",
     )
     return profile, payload_fingerprint(profile)
+
+
+def _reviewed_identity_reference_index(
+    profile: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Index exact reviewed media identities without inventing missing hashes."""
+
+    raw_references = profile.get("identityReferences")
+    if not isinstance(raw_references, list) or not raw_references:
+        raise ValueError("identity_reference_missing")
+    identities: set[tuple[str, str]] = set()
+    by_fingerprint: dict[str, dict[str, Any]] = {}
+    for raw_reference in raw_references:
+        if not isinstance(raw_reference, dict):
+            raise ValueError("identity_reference_unresolved")
+        namespace = str(raw_reference.get("namespace") or "")
+        external_id = str(raw_reference.get("externalId") or "")
+        reference: dict[str, Any] = {
+            "namespace": namespace,
+            "externalId": external_id,
+            "fingerprint": raw_reference.get("fingerprint"),
+        }
+        identity = (namespace, external_id)
+        if not all(identity):
+            raise ValueError("identity_reference_unresolved")
+        if identity in identities:
+            raise ValueError("identity_reference_duplicate")
+        identities.add(identity)
+        reference_fingerprint = reference["fingerprint"]
+        if reference_fingerprint is None:
+            # Non-file identities such as a Soul ID may coexist with reviewed
+            # media references, but they cannot authorize source image bytes.
+            continue
+        if not _valid_sha256(reference_fingerprint):
+            raise ValueError("identity_reference_unresolved")
+        if reference_fingerprint in by_fingerprint:
+            raise ValueError("identity_reference_duplicate")
+        by_fingerprint[reference_fingerprint] = reference
+    if not by_fingerprint:
+        raise ValueError("identity_reference_missing")
+    return by_fingerprint
 
 
 def _reference_set_unsigned_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -618,7 +660,11 @@ def _reference_set_identity_material(
         "provider": provider,
         "qualityPolicy": dict(quality_policy),
         "acceptedSources": [
-            {"path": str(item["path"]), "sha256": str(item["sha256"])}
+            {
+                "path": str(item["path"]),
+                "sha256": str(item["sha256"]),
+                "identityReference": dict(item["identityReference"]),
+            }
             for item in accepted_sources
         ],
         "embeddings": embeddings,
@@ -653,7 +699,11 @@ def _historical_reference_set(
     return LoadedReferenceSet(
         reference_set_id,
         rows,
-        "reference_set_historical_unattested",
+        (
+            "reference_set_historical_unbound"
+            if payload.get("schema") == "reel_factory.identity_reference_set.v3"
+            else "reference_set_historical_unattested"
+        ),
         historical_readable=True,
         promotion_eligible=False,
     )
@@ -722,6 +772,7 @@ def _load_reference_embeddings(path: Path, *, creator: str) -> LoadedReferenceSe
         profile, profile_fingerprint = _canonical_identity_profile(
             raw_profile, expected_creator=creator
         )
+        reviewed_references = _reviewed_identity_reference_index(profile)
     except (KeyError, TypeError, ValueError) as exc:
         return LoadedReferenceSet(reference_set_id, (), str(exc))
     if payload.get("creatorIdentityProfileFingerprint") != profile_fingerprint:
@@ -780,10 +831,12 @@ def _load_reference_embeddings(path: Path, *, creator: str) -> LoadedReferenceSe
     accepted_sources: list[dict[str, Any]] = []
     source_paths: set[str] = set()
     source_hashes: set[str] = set()
+    bound_reference_identities: set[tuple[str, str]] = set()
     for source in sources:
         if not isinstance(source, dict) or set(source) != {
             "path",
             "sha256",
+            "identityReference",
             "status",
             "failureReason",
             "faceCount",
@@ -798,6 +851,23 @@ def _load_reference_embeddings(path: Path, *, creator: str) -> LoadedReferenceSe
             )
         raw_source = Path(str(source.get("path") or "")).expanduser()
         source_sha = source.get("sha256")
+        raw_binding = source.get("identityReference")
+        if not isinstance(raw_binding, dict) or set(raw_binding) != {
+            "namespace",
+            "externalId",
+            "fingerprint",
+        }:
+            return LoadedReferenceSet(
+                reference_set_id, (), "identity_reference_unresolved"
+            )
+        binding_namespace = str(raw_binding.get("namespace") or "")
+        binding_external_id = str(raw_binding.get("externalId") or "")
+        binding: dict[str, Any] = {
+            "namespace": binding_namespace,
+            "externalId": binding_external_id,
+            "fingerprint": raw_binding.get("fingerprint"),
+        }
+        binding_identity = (binding_namespace, binding_external_id)
         resolved_source = str(raw_source.resolve())
         if (
             not _valid_sha256(source_sha)
@@ -807,8 +877,26 @@ def _load_reference_embeddings(path: Path, *, creator: str) -> LoadedReferenceSe
             return LoadedReferenceSet(
                 reference_set_id, (), "reference_set_source_identity_invalid"
             )
+        if (
+            not all(binding_identity)
+            or not _valid_sha256(binding["fingerprint"])
+            or binding["fingerprint"] != source_sha
+        ):
+            return LoadedReferenceSet(
+                reference_set_id, (), "identity_reference_hash_drift"
+            )
+        if binding_identity in bound_reference_identities:
+            return LoadedReferenceSet(
+                reference_set_id, (), "identity_reference_duplicate"
+            )
+        expected_binding = reviewed_references.get(str(source_sha))
+        if expected_binding is None or binding != expected_binding:
+            return LoadedReferenceSet(
+                reference_set_id, (), "identity_reference_profile_mismatch"
+            )
         source_paths.add(resolved_source)
         source_hashes.add(str(source_sha))
+        bound_reference_identities.add(binding_identity)
         if (
             raw_source.is_symlink()
             or not raw_source.is_file()
@@ -827,6 +915,8 @@ def _load_reference_embeddings(path: Path, *, creator: str) -> LoadedReferenceSe
                 )
             continue
         accepted_sources.append(source)
+    if source_hashes != set(reviewed_references):
+        return LoadedReferenceSet(reference_set_id, (), "identity_reference_missing")
     embeddings = payload.get("embeddings")
     if (
         not isinstance(embeddings, list)
@@ -940,6 +1030,7 @@ def build_reference_set(
         identity_profile, identity_profile_fingerprint = _canonical_identity_profile(
             creator_identity_profile, expected_creator=creator
         )
+        reviewed_references = _reviewed_identity_reference_index(identity_profile)
     except (KeyError, TypeError, ValueError) as exc:
         return {**base, "failureReason": str(exc)}
     if not _output_allowed(root_path, output_path):
@@ -957,26 +1048,63 @@ def build_reference_set(
     if not image_paths:
         return {**base, "failureReason": "no_reference_images_found"}
 
-    candidate_embeddings: list[list[float]] = []
     sources: list[dict[str, Any]] = []
     source_hashes: set[str] = set()
     for image_path in image_paths:
         source_sha = _sha256_file(image_path)
+        identity_reference = reviewed_references.get(source_sha)
         item: dict[str, Any] = {
             "path": str(image_path),
             "sha256": source_sha,
+            "identityReference": (
+                dict(identity_reference) if identity_reference is not None else None
+            ),
             "status": "failed",
             "failureReason": "",
         }
         if image_path.is_symlink():
-            face_embeddings: list[list[float]] = []
             item["failureReason"] = "reference_source_symlink_forbidden"
         elif source_sha in source_hashes:
-            face_embeddings = []
-            item["failureReason"] = "duplicate_reference_source"
+            item["failureReason"] = "identity_reference_duplicate"
+        elif identity_reference is None:
+            item["failureReason"] = "identity_reference_unresolved"
         else:
             source_hashes.add(source_sha)
-            face_embeddings = _provider_face_embeddings(provider, image_path)
+        sources.append(item)
+    if any(
+        item["failureReason"] == "reference_source_symlink_forbidden"
+        for item in sources
+    ):
+        return {
+            **base,
+            "sourceImages": sources,
+            "failureReason": "reference_source_symlink_forbidden",
+        }
+    if any(item["failureReason"] == "identity_reference_duplicate" for item in sources):
+        return {
+            **base,
+            "sourceImages": sources,
+            "failureReason": "identity_reference_duplicate",
+        }
+    if any(
+        item["failureReason"] == "identity_reference_unresolved" for item in sources
+    ):
+        return {
+            **base,
+            "sourceImages": sources,
+            "failureReason": "identity_reference_unresolved",
+        }
+    if source_hashes != set(reviewed_references):
+        return {
+            **base,
+            "sourceImages": sources,
+            "failureReason": "identity_reference_missing",
+        }
+
+    candidate_embeddings: list[list[float]] = []
+    for item in sources:
+        image_path = Path(str(item["path"]))
+        face_embeddings = _provider_face_embeddings(provider, image_path)
         item["faceCount"] = len(face_embeddings)
         item["consensusScore"] = None
         if len(face_embeddings) != 1:
@@ -989,7 +1117,6 @@ def build_reference_set(
         else:
             item["status"] = "candidate"
             candidate_embeddings.append(face_embeddings[0])
-        sources.append(item)
 
     if any(item["faceCount"] != 1 for item in sources):
         return {

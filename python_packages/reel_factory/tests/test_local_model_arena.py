@@ -29,6 +29,7 @@ from reel_factory.local_model_arena import (
     _human_review_evidence,
     _motion_qc_options,
     _promotion_design_check,
+    _request_from_sample,
     _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
@@ -204,8 +205,16 @@ def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
     primary_source = request.image_path or request.source_video_path
-    assert primary_source is not None
-    source_sha = sha256_file(primary_source)
+    source_sha = (
+        sha256_file(primary_source)
+        if primary_source is not None
+        else fingerprint(
+            {
+                "prompt": " ".join(request.prompt.split()),
+                "taskKind": "text_to_video",
+            }
+        )
+    )
     return LocalGenerationJob.create(
         job_id=f"job-{request.model_id}-{request.seed}-{source_sha[:12]}",
         model_id=request.model_id,
@@ -377,12 +386,15 @@ def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "output.mp4"
+    source = tmp_path / "source.png"
+    source.write_bytes(b"trusted source")
+    source_sha = sha256_file(source)
     registry = {"schema": "creator_os.analyzer_registry.v1", "registryId": "r1"}
     review = {"schema": "reel_factory.human_media_review.v1", "reviewId": "h1"}
     request = _trusted_motion_qc_request(
         {
-            "sourcePath": str(tmp_path / "source.png"),
-            "sourceSha256": SHA_A,
+            "sourcePath": str(source),
+            "sourceSha256": source_sha,
             "taskKind": "image_to_video",
             "audioMode": "none",
             "overlaysExist": False,
@@ -397,8 +409,8 @@ def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     assert request == {
         "mediaPath": str(output),
         "mediaSha256": SHA_B,
-        "sourcePath": str(tmp_path / "source.png"),
-        "sourceSha256": SHA_A,
+        "sourcePath": str(source.resolve()),
+        "sourceSha256": source_sha,
         "producedAt": PRODUCED_AT,
         "overlaysExist": False,
         "analyzerRegistry": registry,
@@ -407,6 +419,78 @@ def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
     }
     assert "analysis" not in request
     assert "evidence" not in request
+
+
+def test_text_motion_qc_uses_prompt_provenance_without_media_input(
+    tmp_path: Path,
+) -> None:
+    material = {
+        "prompt": "A cinematic ocean wave moves naturally at golden hour.",
+        "taskKind": "text_to_video",
+    }
+    prompt = tmp_path / "prompt.json"
+    prompt.write_text(
+        json.dumps(material, separators=(",", ":"), sort_keys=True),
+        encoding="utf-8",
+    )
+    prompt_sha = sha256_file(prompt)
+    request = _trusted_motion_qc_request(
+        {
+            "sourcePath": None,
+            "sourceSha256": prompt_sha,
+            "promptSource": {"path": str(prompt), "sha256": prompt_sha},
+            "taskKind": "text_to_video",
+            "audioMode": "none",
+            "overlaysExist": False,
+        },
+        output=tmp_path / "output.mp4",
+        output_sha256=SHA_B,
+        produced_at=PRODUCED_AT,
+        analyzer_registry={"schema": "creator_os.analyzer_registry.v1"},
+        human_review={"schema": "reel_factory.human_media_review.v1"},
+    )
+
+    assert request["sourcePath"] == str(prompt.resolve())
+    assert request["sourceSha256"] == prompt_sha
+    assert request["mediaPath"] == str(tmp_path / "output.mp4")
+    assert request.get("imagePath") is None
+    assert request.get("sourceVideoPath") is None
+
+
+@pytest.mark.parametrize("failure", ["missing", "substituted"])
+def test_text_motion_qc_rejects_missing_or_substituted_prompt_provenance(
+    tmp_path: Path, failure: str
+) -> None:
+    prompt = tmp_path / "prompt.json"
+    prompt.write_text(
+        '{"prompt":"A cinematic ocean wave.","taskKind":"text_to_video"}',
+        encoding="utf-8",
+    )
+    prompt_sha = sha256_file(prompt)
+    if failure == "missing":
+        prompt.unlink()
+    else:
+        prompt.write_text("substituted", encoding="utf-8")
+
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_text_task_prompt_source_missing_or_substituted",
+    ):
+        _trusted_motion_qc_request(
+            {
+                "sourcePath": None,
+                "sourceSha256": prompt_sha,
+                "promptSource": {"path": str(prompt), "sha256": prompt_sha},
+                "taskKind": "text_to_video",
+                "audioMode": "none",
+                "overlaysExist": False,
+            },
+            output=tmp_path / "output.mp4",
+            output_sha256=SHA_B,
+            produced_at=PRODUCED_AT,
+            analyzer_registry={"schema": "creator_os.analyzer_registry.v1"},
+            human_review={"schema": "reel_factory.human_media_review.v1"},
+        )
 
 
 def test_arena_plan_freezes_exact_queue_and_evidence(
@@ -477,9 +561,9 @@ def test_record_builder_uses_reviewed_facts_and_exact_source_hash(
 
 
 def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> None:
-    source_video = tmp_path / "source.mp4"
+    source_image = tmp_path / "source.png"
     audio = tmp_path / "source.wav"
-    source_video.write_bytes(b"source video")
+    source_image.write_bytes(b"source image")
     audio.write_bytes(b"source audio")
     facts = tmp_path / "facts.json"
     facts.write_text(
@@ -504,24 +588,231 @@ def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> Non
     )
     bundle = build_arena_record_bundle(
         reviewed_identity_facts_path=facts,
-        source_path=None,
-        typed_inputs=(("source-video", source_video), ("audio", audio)),
-        goal="Retake exact reviewed video",
+        source_path=source_image,
+        typed_inputs=(("audio", audio),),
+        task_kind="audio_image_to_video",
+        goal="Animate the exact reviewed image from source audio",
         content_surface="reel",
         media_kind="video",
-        style_lanes=("retake",),
+        style_lanes=("speaking",),
         concept_tags=(),
         produced_at="2026-01-02T12:00:00Z",
         output_root=tmp_path / "records",
     )
-    assert bundle["sourcePath"] is None
+    assert bundle["sourcePath"] == str(source_image.resolve())
     assert [item["kind"] for item in bundle["inputAssets"]] == [
-        "source-video",
+        "image",
         "audio",
     ]
     assert bundle["contentIntent"]["sourceAssetFingerprints"] == sorted(
-        [sha256_file(source_video), sha256_file(audio)]
+        [sha256_file(source_image), sha256_file(audio)]
     )
+
+
+def test_record_builder_creates_exact_zero_media_text_prompt_source(
+    tmp_path: Path,
+) -> None:
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt = "  A cinematic   ocean wave moves naturally at golden hour. "
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=None,
+        task_kind="text_to_video",
+        prompt=prompt,
+        goal="Create non-creator atmospheric b-roll",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("atmospheric_broll",),
+        concept_tags=("ocean",),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+
+    expected_material = {
+        "taskKind": "text_to_video",
+        "prompt": "A cinematic ocean wave moves naturally at golden hour.",
+    }
+    expected_fingerprint = fingerprint(expected_material)
+    prompt_path = Path(bundle["promptSource"]["path"])
+    assert bundle["taskKind"] == "text_to_video"
+    assert bundle["sourcePath"] is None
+    assert bundle["sourceSha256"] == expected_fingerprint
+    assert bundle["promptTaskFingerprint"] == expected_fingerprint
+    assert bundle["inputAssets"] == []
+    assert json.loads(prompt_path.read_text(encoding="utf-8")) == expected_material
+    assert sha256_file(prompt_path) == expected_fingerprint
+    assert prompt_path.stat().st_mode & 0o222 == 0
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [expected_fingerprint]
+
+
+def test_text_arena_plan_keeps_execution_media_empty_and_prompt_provenance_exact(
+    monkeypatch, tmp_path: Path
+) -> None:
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt = "A cinematic ocean wave moves naturally at golden hour."
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=None,
+        task_kind="text_to_video",
+        prompt=prompt,
+        goal="Create non-creator atmospheric b-roll",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("atmospheric_broll",),
+        concept_tags=("ocean",),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+    spec = ArenaSampleSpec.from_dict(
+        {
+            "creatorId": "stacey",
+            "identityProfileId": bundle["identityProfileId"],
+            "identityProfileFingerprint": bundle["identityProfileFingerprint"],
+            "creatorIdentityProfile": bundle["creatorIdentityProfile"],
+            "contentIntentId": bundle["contentIntentId"],
+            "contentIntentFingerprint": bundle["contentIntentFingerprint"],
+            "contentIntent": bundle["contentIntent"],
+            "sourcePath": None,
+            "promptSource": bundle["promptSource"],
+            "modelId": "local_ltx23_distilled_mlx",
+            "capabilityCohort": "silent_t2v",
+            "taskKind": "text_to_video",
+            "prompt": prompt,
+            "seed": 7,
+            "durationSeconds": 5,
+            "resolution": "576x1024",
+            "commercialAnnualRevenueUsd": 0,
+        }
+    )
+    plan = _build(monkeypatch, tmp_path, [spec])
+    sample = plan["samples"][0]
+    request = _request_from_sample(sample)
+
+    assert sample["sourcePath"] is None
+    assert sample["promptSource"] == bundle["promptSource"]
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == []
+    assert request.image_path is None
+    assert request.audio_path is None
+    assert request.last_image_path is None
+    assert request.source_video_path is None
+
+
+@pytest.mark.parametrize("reviewed_only", [False, True])
+def test_record_builder_rejects_any_text_task_media(
+    tmp_path: Path, reviewed_only: bool
+) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"source")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(LocalQueueError, match="text_task_media_forbidden"):
+        build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=None if reviewed_only else source,
+            reviewed_source_paths=(source,) if reviewed_only else (),
+            task_kind="text_to_video",
+            prompt="A cinematic ocean wave moves naturally at golden hour.",
+            goal="Create non-creator atmospheric b-roll",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("atmospheric_broll",),
+            concept_tags=(),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=tmp_path / "records",
+        )
+
+
+def test_record_builder_invalid_facts_leave_no_prompt_source(tmp_path: Path) -> None:
+    facts = tmp_path / "invalid-facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "records"
+    with pytest.raises(ValueError, match="reviewed_identity_references_missing"):
+        build_arena_record_bundle(
+            reviewed_identity_facts_path=facts,
+            source_path=None,
+            task_kind="text_to_video",
+            prompt="A cinematic ocean wave moves naturally at golden hour.",
+            goal="Create non-creator atmospheric b-roll",
+            content_surface="reel",
+            media_kind="video",
+            style_lanes=("atmospheric_broll",),
+            concept_tags=(),
+            produced_at="2026-01-02T12:00:00Z",
+            output_root=output_root,
+        )
+    assert (output_root / "prompt_sources").exists() is False
 
 
 def test_record_builder_binds_full_reviewed_source_set_deterministically(

@@ -222,6 +222,12 @@
         "contentIntent": {"$ref": "content_intent.v1.schema.json"},
         "sourcePath": {"type": ["string", "null"], "minLength": 1},
         "sourceSha256": {"$ref": "#/$defs/sha256"},
+        "promptSource": {
+          "anyOf": [
+            {"$ref": "#/$defs/file"},
+            {"type": "null"}
+          ]
+        },
         "audioPath": {"type": ["string", "null"]},
         "audioSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
         "lastImagePath": {"type": ["string", "null"]},
@@ -271,6 +277,15 @@
         "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
         "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"},
         "promotionEligible": {"type": "boolean"}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
       }
     }
   }

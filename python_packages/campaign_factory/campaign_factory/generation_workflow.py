@@ -191,6 +191,23 @@ def run_generation_workflow(
                     f"{motion_task} uses source_video_path as its only primary input; "
                     "accepted_still_path is forbidden"
                 )
+        elif motion_task == "text_to_video":
+            supplied_media = [
+                label
+                for label, value in (
+                    ("accepted_still_path", accepted_still_path),
+                    ("audio_path", audio_path),
+                    ("last_image_path", last_image_path),
+                    ("source_video_path", source_video_path),
+                    ("motion_reference_image_paths", motion_reference_image_paths),
+                    ("motion_reference_video_paths", motion_reference_video_paths),
+                )
+                if value
+            ]
+            if supplied_media:
+                raise ValueError(
+                    "text_to_video accepts no media inputs: " + ",".join(supplied_media)
+                )
         else:
             _require(accepted_still_path, "accepted_still_path")
         _require(motion_prompt, "motion_prompt")

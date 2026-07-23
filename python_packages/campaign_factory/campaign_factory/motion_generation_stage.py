@@ -18,6 +18,7 @@ from creator_os_core.evidence_attestation import (
 )
 from creator_os_core.fileops import atomic_write_text
 from creator_os_core.provider_spend import verify_authorization_v2
+from creator_os_core.task_inputs import canonical_task_input_bindings
 
 from pipeline_contracts import (
     ContentIntentV1,
@@ -41,6 +42,20 @@ from .generation_execution_plan import (
     require_generation_execution_mode,
 )
 from .local_motion_admission import revalidate_local_motion_admission
+from .motion_request_identity import (
+    ensure_text_prompt_source_asset as _ensure_text_prompt_source_asset,
+)
+from .motion_request_identity import (
+    motion_request_fingerprint as _motion_request_fingerprint,
+)
+from .motion_request_identity import required_path as _required_path
+from .motion_request_identity import (
+    resolve_task_media_path as _resolve_task_media_path,
+)
+from .motion_request_identity import (
+    text_prompt_task_fingerprint as _text_prompt_task_fingerprint,
+)
+from .motion_routing_lineage import local_routing_lineage as _local_routing_lineage
 from .motion_source_assets import (
     ensure_motion_edit_source_asset as _ensure_motion_edit_source_asset,
 )
@@ -109,10 +124,29 @@ def run_motion_generation_stage(
     require_generation_execution_mode(execution_plan, expected_mode)
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
+    text_only = motion_task == "text_to_video"
     video_edit = motion_task in {"video_retake", "video_extend"}
     still: Path | None = None
     source_video: Path | None = None
-    if video_edit:
+    if text_only:
+        supplied_media = [
+            label
+            for label, value in (
+                ("still_path", still_path),
+                ("audio_path", audio_path),
+                ("last_image_path", last_image_path),
+                ("source_video_path", source_video_path),
+                ("reference_image_paths", reference_image_paths),
+                ("reference_video_paths", reference_video_paths),
+            )
+            if value
+        ]
+        if supplied_media:
+            raise ValueError(
+                "text_to_video accepts no media inputs: " + ",".join(supplied_media)
+            )
+        primary_source = None
+    elif video_edit:
         if still_path is not None:
             raise ValueError(
                 f"{motion_task} uses source_video_path as its only primary input; "
@@ -133,7 +167,25 @@ def run_motion_generation_stage(
         still = Path(still_path).expanduser().resolve()
         if still.is_symlink() or not still.is_file():
             raise FileNotFoundError(f"accepted still not found: {still}")
+        source_video = _resolve_task_media_path(source_video_path, "source video")
+        source_video_path = source_video
         primary_source = still
+    audio_path = _resolve_task_media_path(audio_path, "source audio")
+    last_image_path = _resolve_task_media_path(last_image_path, "last image")
+    try:
+        canonical_task_input_bindings(
+            motion_task,
+            image_sha256=sha256_file(still) if still is not None else None,
+            audio_sha256=(sha256_file(audio_path) if audio_path is not None else None),
+            last_image_sha256=(
+                sha256_file(last_image_path) if last_image_path is not None else None
+            ),
+            source_video_sha256=(
+                sha256_file(source_video) if source_video is not None else None
+            ),
+        )
+    except ValueError as exc:
+        raise ValueError(f"motion_{exc}") from exc
     prompt = " ".join(str(prompt or "").split())
     if len(prompt) < 20:
         raise ValueError("motion prompt must contain at least 20 characters")
@@ -194,7 +246,11 @@ def run_motion_generation_stage(
         )
         local_motion_admission = revalidate_admission(local_motion_admission)
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
-    source_hash = sha256_file(primary_source)
+    source_hash = (
+        _text_prompt_task_fingerprint(prompt)
+        if text_only
+        else sha256_file(_required_path(primary_source, "motion generation input"))
+    )
     request_fingerprint = _motion_request_fingerprint(
         model_id=model_id,
         prompt=prompt,
@@ -224,8 +280,13 @@ def run_motion_generation_stage(
         analyzer_registry=analyzer_registry,
         local_motion_admission=local_motion_admission,
     )
+    output_source_stem = (
+        "text_prompt"
+        if text_only
+        else slugify(_required_path(primary_source, "motion generation input").stem)
+    )
     output_path = dirs["rendered"] / (
-        f"{slugify(primary_source.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
+        f"{output_source_stem}_{source_hash[:12]}_{slugify(model_id)}_"
         f"{request_fingerprint[:16]}.mp4"
     )
     evidence_dir = dirs["audits"] / "motion_generation"
@@ -269,9 +330,14 @@ def run_motion_generation_stage(
         {
             "campaign": campaign_slug,
             "modelId": model_id,
-            "sourcePath": str(primary_source),
+            "sourcePath": str(primary_source) if primary_source is not None else None,
             "sourceSha256": source_hash,
-            "sourceRole": "source_video_edit" if video_edit else "accepted_still",
+            "sourceRole": (
+                "text_prompt"
+                if text_only
+                else ("source_video_edit" if video_edit else "accepted_still")
+            ),
+            "promptTaskFingerprint": source_hash if text_only else None,
             "requestFingerprint": request_fingerprint,
             "outputPath": str(output_path),
             "dryRun": dry_run,
@@ -304,14 +370,34 @@ def run_motion_generation_stage(
         preflight_log_evidence = worker_plan.pop("_campaignExecutionLogEvidence", None)
         scope = worker_plan.get("spendScope")
         source_asset_id: str | None = None
-        if video_edit:
+        registration_source_path = primary_source
+        registration_source_hash = source_hash
+        if text_only:
+            static_fallback = None
+            if apply:
+                prompt_source = _ensure_text_prompt_source_asset(
+                    factory,
+                    campaign=campaign,
+                    model_slug=model_slug,
+                    prompt=prompt,
+                    prompt_task_fingerprint=source_hash,
+                    evidence_dir=evidence_dir,
+                )
+                source_asset_id = str(prompt_source["id"])
+                registration_source_path = (
+                    Path(str(prompt_source["stored_path"])).expanduser().resolve()
+                )
+                registration_source_hash = str(prompt_source["content_hash"])
+        elif video_edit:
             static_fallback = None
             if apply:
                 source_asset = _ensure_motion_edit_source_asset(
                     factory,
                     campaign=campaign,
                     model_slug=model_slug,
-                    source_video=primary_source,
+                    source_video=_required_path(
+                        primary_source, "motion edit source video"
+                    ),
                     source_hash=source_hash,
                     motion_task=motion_task,
                 )
@@ -470,8 +556,11 @@ def run_motion_generation_stage(
                         authorization=authorization,
                         authorization_path=authorization_path,
                         authorization_verified_at=authorization_verified_at,
-                        source_path=primary_source,
-                        source_sha256=source_hash,
+                        source_path=_required_path(
+                            registration_source_path,
+                            "motion generation provenance source",
+                        ),
+                        source_sha256=registration_source_hash,
                         output_path=output_path,
                         prediction_id=prediction_id,
                         provider_result=execution,
@@ -488,8 +577,11 @@ def run_motion_generation_stage(
                 source_asset_id=source_asset_id,
                 model_slug=model_slug,
                 model_id=model_id,
-                source_path=primary_source,
-                source_hash=source_hash,
+                source_path=_required_path(
+                    registration_source_path,
+                    "motion generation provenance source",
+                ),
+                source_hash=registration_source_hash,
                 output_path=output_path,
                 worker_result=worker_result,
                 paid=paid,
@@ -543,107 +635,6 @@ def run_motion_generation_stage(
             sanitize_for_storage(failure_evidence),
         )
         raise
-
-
-def _motion_request_fingerprint(
-    *,
-    model_id: str,
-    prompt: str,
-    still: Path | None,
-    duration_seconds: int | None,
-    resolution: str | None,
-    seed: int,
-    steps: int | None,
-    audio_path: Path | None,
-    generate_audio: bool,
-    last_image_path: Path | None,
-    source_video_path: Path | None = None,
-    retake_start_frame: int | None = None,
-    retake_end_frame: int | None = None,
-    extend_frames: int | None = None,
-    extend_direction: str = "after",
-    preserve_audio: bool = False,
-    reference_image_paths: tuple[Path, ...],
-    reference_video_paths: tuple[Path, ...],
-    enable_prompt_expansion: bool,
-    shot_type: str,
-    local_model_dir: Path | None,
-    motion_task: str,
-    motion_lora_path: Path | None,
-    motion_lora_strength: float,
-    benchmark_recipe: Mapping[str, Any] | None = None,
-    analyzer_registry: Mapping[str, Any] | None = None,
-    local_motion_admission: Mapping[str, Any] | None = None,
-) -> str:
-    def media(path: Path | None) -> dict[str, str] | None:
-        if path is None:
-            return None
-        resolved = Path(path).expanduser().resolve()
-        return {"path": str(resolved), "sha256": sha256_file(resolved)}
-
-    payload = {
-        "modelId": model_id,
-        "prompt": prompt,
-        "still": media(still),
-        "durationSeconds": duration_seconds,
-        "resolution": resolution,
-        "seed": seed,
-        "steps": steps,
-        "audio": media(audio_path),
-        "generateAudio": generate_audio,
-        "lastImage": media(last_image_path),
-        "sourceVideo": media(source_video_path),
-        "retakeStartFrame": retake_start_frame,
-        "retakeEndFrame": retake_end_frame,
-        "extendFrames": extend_frames,
-        "extendDirection": extend_direction,
-        "preserveAudio": preserve_audio,
-        "referenceImages": [media(path) for path in reference_image_paths],
-        "referenceVideos": [media(path) for path in reference_video_paths],
-        "enablePromptExpansion": enable_prompt_expansion,
-        "shotType": shot_type,
-        "localModelDir": (
-            str(Path(local_model_dir).expanduser().resolve())
-            if local_model_dir is not None
-            else None
-        ),
-        "motionTask": motion_task,
-        "lora": media(motion_lora_path),
-        "loraStrength": motion_lora_strength,
-        "benchmarkRecipeFingerprint": (
-            hashlib.sha256(
-                json.dumps(
-                    dict(benchmark_recipe),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ).encode("utf-8")
-            ).hexdigest()
-            if benchmark_recipe is not None
-            else None
-        ),
-        "analyzerRegistryFingerprint": (
-            hashlib.sha256(
-                json.dumps(
-                    dict(analyzer_registry),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ).encode("utf-8")
-            ).hexdigest()
-            if analyzer_registry is not None
-            else None
-        ),
-        "localMotionAdmissionFingerprint": (
-            local_motion_admission.get("admissionFingerprint")
-            if local_motion_admission is not None
-            else None
-        ),
-    }
-    encoded = json.dumps(
-        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _validate_local_motion_admission(
@@ -708,68 +699,6 @@ def _canonical_fingerprint(value: Mapping[str, Any]) -> str:
             dict(value), ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
     ).hexdigest()
-
-
-def _local_routing_lineage(
-    admission: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    if admission is None or admission.get("schema") != (
-        "campaign_factory.local_motion_admission.v1"
-    ):
-        return None
-    decision = admission.get("routerDecision")
-    records = admission.get("evidenceRecords")
-    summary = admission.get("arenaSummary")
-    if not all(isinstance(value, Mapping) for value in (decision, records, summary)):
-        raise RuntimeError("local_motion_asset_routing_evidence_missing")
-    assert isinstance(decision, Mapping)
-    assert isinstance(records, Mapping)
-    assert isinstance(summary, Mapping)
-    request = decision.get("request")
-    winning = decision.get("winningEvidence")
-    if not isinstance(request, Mapping) or not isinstance(winning, Mapping):
-        raise RuntimeError("local_motion_asset_router_evidence_missing")
-    cohort = winning.get("cohortKey")
-    promotion = winning.get("promotionApproval")
-    recipe = records.get("benchmarkRecipe")
-    registry = records.get("analyzerRegistry")
-    if not all(
-        isinstance(value, Mapping) for value in (cohort, promotion, recipe, registry)
-    ):
-        raise RuntimeError("local_motion_asset_promotion_evidence_missing")
-    assert isinstance(cohort, Mapping)
-    assert isinstance(promotion, Mapping)
-    assert isinstance(recipe, Mapping)
-    assert isinstance(registry, Mapping)
-    return {
-        "schema": "campaign_factory.local_motion_routing_lineage.v1",
-        "admissionFingerprint": admission.get("admissionFingerprint"),
-        "routerDecisionId": decision.get("decisionId"),
-        "routerDecisionFingerprint": decision.get("decisionFingerprint"),
-        "selectedModelId": decision.get("selectedModelId"),
-        "selectedModelFingerprint": decision.get("selectedModelFingerprint"),
-        "capabilityCohort": request.get("capabilityCohort"),
-        "cohortKey": dict(cohort),
-        "cohortKeyFingerprint": _canonical_fingerprint(cohort),
-        "runtimeBinding": winning.get("runtimeBinding"),
-        "runtimeBindingFingerprint": winning.get("runtimeBindingFingerprint"),
-        "licensePolicy": winning.get("licensePolicy"),
-        "licensePolicyFingerprint": winning.get("licensePolicyFingerprint"),
-        "arenaSummaryId": summary.get("summaryId"),
-        "arenaSummaryFingerprint": summary.get("summaryFingerprint"),
-        "benchmarkRecipeId": recipe.get("recipeId"),
-        "benchmarkRecipeFingerprint": _canonical_fingerprint(recipe),
-        "analyzerRegistryId": registry.get("registryId"),
-        "analyzerRegistryFingerprint": _canonical_fingerprint(registry),
-        "promotionApprovalEventId": promotion.get("approvalEventId"),
-        "promotionApprovalEventHash": promotion.get("approvalEventHash"),
-        "promotionHardwareFingerprint": promotion.get("hardwareFingerprint"),
-        "promotionEvidenceFingerprint": promotion.get("evidenceFingerprint"),
-        "promotionBenchmarkIdsFingerprint": _canonical_fingerprint(
-            {"candidateBenchmarkIds": promotion.get("candidateBenchmarkIds")}
-        ),
-        "operatorOverride": decision.get("operatorOverride"),
-    }
 
 
 def _verify_paid_authorization_at_call(
@@ -1247,7 +1176,8 @@ def _register_review_asset(
         blocking_issues.append("ai_generated_media_disclosure_required")
     source_binding = {"path": str(source_path), "sha256": source_hash}
     video_edit = motion_task in {"video_retake", "video_extend"}
-    static_fallback_source = None if video_edit else source_binding
+    prompt_only = motion_task == "text_to_video"
+    static_fallback_source = None if video_edit or prompt_only else source_binding
     generation_source = None if motion_task == "text_to_video" else source_binding
     paid_generation_evidence = (
         _paid_generation_evidence(
@@ -1286,9 +1216,10 @@ def _register_review_asset(
         "source": generation_source,
         "generationInput": generation_source,
         "staticFallbackSource": static_fallback_source,
+        "promptSource": source_binding if prompt_only else None,
         "sourceAssetRole": (
-            "static_fallback_only"
-            if motion_task == "text_to_video"
+            "prompt_provenance_only"
+            if prompt_only
             else (
                 "generation_input_only"
                 if video_edit
@@ -1316,6 +1247,7 @@ def _register_review_asset(
             "blockingIssues": blocking_issues,
         },
     }
+    source_clip = "text_prompt_only" if prompt_only else source_path.name
     outcome_context = {
         "schema": "campaign_factory.caption_outcome_context.v1",
         "caption_hash": caption_hash,
@@ -1329,9 +1261,7 @@ def _register_review_asset(
         "caption_fit_version": "none",
         "suitability_decision": "review_required",
         "suitability_reason": "generated motion requires ContentForge and human review",
-        "source_clip": (
-            "text_prompt_only" if motion_task == "text_to_video" else source_path.name
-        ),
+        "source_clip": source_clip,
     }
     blob_id = f"blob_{digest.lower()}"
     attempt_id = new_id("generation_attempt")
@@ -1373,7 +1303,16 @@ def _register_review_asset(
         "motionTask": motion_task,
         "requestFingerprint": request_fingerprint,
         "promptSha256": prompt_sha256,
-        "source": {"assetId": source_asset_id, "sha256": source_hash},
+        "source": {
+            "assetId": source_asset_id,
+            "sha256": source_hash,
+            "role": ("prompt_provenance_only" if prompt_only else "generation_input"),
+            "promptTaskFingerprint": (
+                _text_prompt_task_fingerprint(normalized_prompt)
+                if prompt_only
+                else None
+            ),
+        },
         "output": {"blobId": blob_id, "sha256": digest},
         "admissionFingerprint": admission_fingerprint,
         "localMotionRouting": local_routing_lineage,
@@ -1413,7 +1352,7 @@ def _register_review_asset(
                     model_slug,
                     model_slug,
                     outcome_context["suitability_reason"],
-                    source_path.name,
+                    source_clip,
                     json.dumps(outcome_context, sort_keys=True),
                     json.dumps(sanitize_for_storage(metadata), sort_keys=True),
                     model_id,
@@ -1442,13 +1381,25 @@ def _register_review_asset(
                 model_id,
                 motion_task,
                 prompt_sha256,
-                source_hash,
+                None if prompt_only else source_hash,
                 admission_fingerprint,
                 json.dumps(
                     sanitize_for_storage(
                         {
-                            "sourcePath": str(source_path),
-                            "sourceSha256": source_hash,
+                            "sourcePath": (None if prompt_only else str(source_path)),
+                            "sourceSha256": None if prompt_only else source_hash,
+                            "promptSource": (
+                                {
+                                    "assetId": source_asset_id,
+                                    "path": str(source_path),
+                                    "sha256": source_hash,
+                                    "promptTaskFingerprint": (
+                                        _text_prompt_task_fingerprint(normalized_prompt)
+                                    ),
+                                }
+                                if prompt_only
+                                else None
+                            ),
                             "motionTask": motion_task,
                         }
                     ),

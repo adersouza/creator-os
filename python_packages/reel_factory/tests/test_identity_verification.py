@@ -21,7 +21,13 @@ def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", "v" * 64)
 
 
-def _profile(creator: str = "stacey", *, profile_id: str | None = None) -> dict:
+def _profile(
+    creator: str = "stacey",
+    *,
+    profile_id: str | None = None,
+    reference_paths: tuple[Path, ...] = (),
+    extra_references: tuple[dict, ...] = (),
+) -> dict:
     return {
         "schema": "creator_os.creator_identity_profile.v1",
         "profileId": profile_id or f"profile-{creator}",
@@ -29,6 +35,17 @@ def _profile(creator: str = "stacey", *, profile_id: str | None = None) -> dict:
         "displayName": creator.title(),
         "modelProfile": f"{creator}-model",
         "identityReferences": [
+            *[
+                {
+                    "namespace": "reviewed-reference",
+                    "externalId": path.name,
+                    "fingerprint": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+                for path in reference_paths
+            ],
+            *extra_references,
+        ]
+        or [
             {
                 "namespace": "reviewed-reference",
                 "externalId": f"{creator}-reference-set",
@@ -99,12 +116,13 @@ def _build(
     _image(source_dir / "ref_a.png")
     _image(source_dir / "ref_b.png")
     exact_provider = provider or FaceProvider()
+    source_paths = tuple(sorted(source_dir.iterdir()))
     result = build_reference_set(
         creator="stacey",
         input_dir=source_dir,
         root=tmp_path,
         provider=exact_provider,
-        creator_identity_profile=profile or _profile(),
+        creator_identity_profile=profile or _profile(reference_paths=source_paths),
     )
     return result, tmp_path / "identity_references/stacey.json", exact_provider
 
@@ -202,7 +220,9 @@ def test_reference_build_rejects_embedding_outlier_from_consensus(
         input_dir=source_dir,
         root=tmp_path,
         provider=provider,
-        creator_identity_profile=_profile(),
+        creator_identity_profile=_profile(
+            reference_paths=tuple(sorted(source_dir.iterdir()))
+        ),
     )
 
     assert result["status"] == "ready"
@@ -212,6 +232,123 @@ def test_reference_build_rejects_embedding_outlier_from_consensus(
     )
     assert outlier["status"] == "rejected"
     assert outlier["failureReason"] == "identity_embedding_outlier"
+
+
+def test_reference_build_binds_each_source_to_exact_reviewed_identity(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "reviewed"
+    source_dir.mkdir()
+    for name in ("ref_a.png", "ref_b.png"):
+        _image(source_dir / name)
+    reference_paths = tuple(sorted(source_dir.iterdir()))
+    profile = _profile(
+        reference_paths=reference_paths,
+        extra_references=(
+            {
+                "namespace": "higgsfield.soul",
+                "externalId": "soul-stacey",
+                "fingerprint": None,
+            },
+        ),
+    )
+
+    result = build_reference_set(
+        creator="stacey",
+        input_dir=source_dir,
+        root=tmp_path,
+        provider=FaceProvider(),
+        creator_identity_profile=profile,
+    )
+
+    assert result["schema"] == "reel_factory.identity_reference_set.v4"
+    assert result["status"] == "ready"
+    assert {
+        item["identityReference"]["fingerprint"] for item in result["sourceImages"]
+    } == {hashlib.sha256(path.read_bytes()).hexdigest() for path in reference_paths}
+
+
+def test_reference_build_rejects_coherent_wrong_person_cluster(
+    tmp_path: Path,
+) -> None:
+    reviewed_dir = tmp_path / "reviewed"
+    reviewed_dir.mkdir()
+    wrong_dir = tmp_path / "coherent_wrong_person"
+    wrong_dir.mkdir()
+    for name in ("ref_a.png", "ref_b.png"):
+        _image(reviewed_dir / name)
+    for name in ("wrong_a.png", "wrong_b.png"):
+        _image(wrong_dir / name)
+    profile = _profile(reference_paths=tuple(sorted(reviewed_dir.iterdir())))
+    provider = FaceProvider(
+        {
+            "wrong_a.png": [[0.0, 1.0]],
+            "wrong_b.png": [[0.01, 0.99]],
+        }
+    )
+
+    result = build_reference_set(
+        creator="stacey",
+        input_dir=wrong_dir,
+        root=tmp_path,
+        provider=provider,
+        creator_identity_profile=profile,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "identity_reference_unresolved"
+    assert not (tmp_path / "identity_references/stacey.json").exists()
+
+
+def test_reference_build_rejects_missing_reviewed_identity_source(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "reviewed"
+    source_dir.mkdir()
+    for name in ("ref_a.png", "ref_b.png", "ref_c.png"):
+        _image(source_dir / name)
+    profile = _profile(reference_paths=tuple(sorted(source_dir.iterdir())))
+    (source_dir / "ref_c.png").unlink()
+
+    result = build_reference_set(
+        creator="stacey",
+        input_dir=source_dir,
+        root=tmp_path,
+        provider=FaceProvider(),
+        creator_identity_profile=profile,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "identity_reference_missing"
+
+
+def test_reference_build_rejects_duplicate_reviewed_identity(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "reviewed"
+    source_dir.mkdir()
+    for name in ("ref_a.png", "ref_b.png"):
+        _image(source_dir / name)
+    paths = tuple(sorted(source_dir.iterdir()))
+    profile = _profile(reference_paths=paths)
+    profile["identityReferences"].append(
+        {
+            "namespace": "reviewed-reference",
+            "externalId": paths[0].name,
+            "fingerprint": hashlib.sha256(paths[1].read_bytes()).hexdigest(),
+        }
+    )
+
+    result = build_reference_set(
+        creator="stacey",
+        input_dir=source_dir,
+        root=tmp_path,
+        provider=FaceProvider(),
+        creator_identity_profile=profile,
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "identity_reference_duplicate"
 
 
 def test_brief_mid_interval_identity_drift_blocks_video(tmp_path: Path) -> None:
@@ -254,7 +391,10 @@ def test_profile_binding_mismatch_is_not_usable_identity_evidence(
         creator="stacey",
         root=tmp_path,
         provider=provider,
-        creator_identity_profile=_profile(profile_id="different-profile"),
+        creator_identity_profile=_profile(
+            profile_id="different-profile",
+            reference_paths=tuple(sorted((tmp_path / "reviewed").iterdir())),
+        ),
     )
 
     assert verified["status"] == "unavailable"
@@ -285,6 +425,67 @@ def test_historical_reference_set_remains_readable_but_not_promotion_eligible(
     assert health["referenceEmbeddings"] == 2
     assert health["promotionEligible"] is False
     assert health["blockingReasons"] == ["reference_set_historical_unattested"]
+
+
+def test_v3_unbound_reference_set_remains_readable_but_not_promotion_eligible(
+    tmp_path: Path,
+) -> None:
+    reference_path = tmp_path / "identity_references/stacey.json"
+    reference_path.parent.mkdir()
+    reference_path.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.identity_reference_set.v3",
+                "creator": "stacey",
+                "status": "ready",
+                "referenceSetId": "unbound-stacey",
+                "embeddings": [[1.0, 0.0], [0.99, 0.01]],
+            }
+        )
+    )
+
+    health = identity_health(creator="stacey", root=tmp_path, provider=FaceProvider())
+
+    assert health["status"] == "unavailable"
+    assert health["historicalReadable"] is True
+    assert health["promotionEligible"] is False
+    assert health["blockingReasons"] == ["reference_set_historical_unbound"]
+
+
+def test_reference_load_rejects_identity_binding_profile_mismatch(
+    tmp_path: Path,
+) -> None:
+    result, reference_path, provider = _build(tmp_path)
+    assert result["status"] == "ready"
+    payload = json.loads(reference_path.read_text())
+    payload["sourceImages"][0]["identityReference"]["externalId"] = "wrong-person"
+    reference_path.write_text(json.dumps(payload))
+    media = tmp_path / "media.png"
+    _image(media)
+
+    verified = verify_identity(
+        media, creator="stacey", root=tmp_path, provider=provider
+    )
+
+    assert verified["status"] == "unavailable"
+    assert verified["failureReason"] == "identity_reference_profile_mismatch"
+
+
+def test_reference_load_rejects_identity_binding_hash_drift(tmp_path: Path) -> None:
+    result, reference_path, provider = _build(tmp_path)
+    assert result["status"] == "ready"
+    payload = json.loads(reference_path.read_text())
+    payload["sourceImages"][0]["identityReference"]["fingerprint"] = "f" * 64
+    reference_path.write_text(json.dumps(payload))
+    media = tmp_path / "media.png"
+    _image(media)
+
+    verified = verify_identity(
+        media, creator="stacey", root=tmp_path, provider=provider
+    )
+
+    assert verified["status"] == "unavailable"
+    assert verified["failureReason"] == "identity_reference_hash_drift"
 
 
 def test_future_reference_and_receipt_timestamps_fail_closed(tmp_path: Path) -> None:
@@ -355,7 +556,7 @@ def test_identity_reference_cli_rejects_substituted_profile_file(
     source_dir.mkdir()
     _image(source_dir / "ref_a.png")
     _image(source_dir / "ref_b.png")
-    original = _profile()
+    original = _profile(reference_paths=tuple(sorted(source_dir.iterdir())))
     expected_fingerprint = _fingerprint(original)
     substituted = {**original, "profileId": "substituted-profile"}
     profile_path = tmp_path / "profile.json"
@@ -390,7 +591,7 @@ def test_identity_reference_cli_returns_nonzero_for_failed_build(
     source_dir.mkdir()
     _image(source_dir / "ref_a.png")
     _image(source_dir / "ref_b.png")
-    profile = _profile()
+    profile = _profile(reference_paths=tuple(sorted(source_dir.iterdir())))
     profile_path = tmp_path / "profile.json"
     profile_path.write_text(json.dumps(profile))
     monkeypatch.setattr(
