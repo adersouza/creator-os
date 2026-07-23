@@ -1195,7 +1195,6 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "inputFingerprints": {
 	      "type": "array",
-	      "minItems": 1,
 	      "uniqueItems": true,
 	      "items": {
 	        "type": "string",
@@ -5517,7 +5516,7 @@ export const generatedPipelineContractSchemas = {
 	      "type": "array",
 	      "minItems": 1,
 	      "items": {
-	        "$ref": "#/$defs/sample"
+	        "$ref": "#/$defs/sampleRecord"
 	      }
 	    },
 	    "providerCalls": {
@@ -5702,6 +5701,293 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      }
 	    },
+	    "taskParameterMaterial": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "benchmarkCell",
+	        "effectiveExecution",
+	        "policyContext"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "creator_os.local_video_task_parameters.v1"
+	        },
+	        "benchmarkCell": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "taskKind",
+	            "prompt",
+	            "seed",
+	            "durationSeconds",
+	            "resolution",
+	            "requestedSteps",
+	            "audioMode",
+	            "retakeStartFrame",
+	            "retakeEndFrame",
+	            "extendFrames",
+	            "extendDirection",
+	            "preserveAudio"
+	          ],
+	          "properties": {
+	            "taskKind": {
+	              "enum": [
+	                "text_to_video",
+	                "image_to_video",
+	                "audio_image_to_video",
+	                "keyframe_interpolation",
+	                "video_retake",
+	                "video_extend"
+	              ]
+	            },
+	            "prompt": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "seed": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "durationSeconds": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 1
+	            },
+	            "resolution": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "requestedSteps": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 1
+	            },
+	            "audioMode": {
+	              "enum": [
+	                "none",
+	                "source",
+	                "generated",
+	                "preserved"
+	              ]
+	            },
+	            "retakeStartFrame": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 0
+	            },
+	            "retakeEndFrame": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 1
+	            },
+	            "extendFrames": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 1
+	            },
+	            "extendDirection": {
+	              "enum": [
+	                "before",
+	                "after",
+	                null
+	              ]
+	            },
+	            "preserveAudio": {
+	              "type": "boolean"
+	            }
+	          }
+	        },
+	        "effectiveExecution": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "negativePrompt",
+	            "negativePromptApplied",
+	            "geometrySource",
+	            "geometryProbe",
+	            "width",
+	            "height",
+	            "fps",
+	            "frameCount",
+	            "steps",
+	            "pipeline",
+	            "guideScale",
+	            "scheduler",
+	            "tilingMode",
+	            "trimFirstFrames",
+	            "lowRam",
+	            "tileFrames",
+	            "tileSpatial",
+	            "lora"
+	          ],
+	          "properties": {
+	            "negativePrompt": {
+	              "type": [
+	                "string",
+	                "null"
+	              ],
+	              "minLength": 1
+	            },
+	            "negativePromptApplied": {
+	              "type": "boolean"
+	            },
+	            "geometrySource": {
+	              "enum": [
+	                "model",
+	                "source_video"
+	              ]
+	            },
+	            "geometryProbe": {
+	              "anyOf": [
+	                {
+	                  "type": "null"
+	                },
+	                {
+	                  "type": "object",
+	                  "additionalProperties": false,
+	                  "required": [
+	                    "executable",
+	                    "sha256"
+	                  ],
+	                  "properties": {
+	                    "executable": {
+	                      "type": "string",
+	                      "minLength": 1
+	                    },
+	                    "sha256": {
+	                      "$ref": "#/$defs/sha256"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            "width": {
+	              "type": "integer",
+	              "minimum": 1
+	            },
+	            "height": {
+	              "type": "integer",
+	              "minimum": 1
+	            },
+	            "fps": {
+	              "type": "string",
+	              "pattern": "^[1-9][0-9]*/[1-9][0-9]*$"
+	            },
+	            "frameCount": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 1
+	            },
+	            "steps": {
+	              "type": "integer",
+	              "minimum": 1
+	            },
+	            "pipeline": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "guideScale": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "scheduler": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "tilingMode": {
+	              "type": [
+	                "string",
+	                "null"
+	              ]
+	            },
+	            "trimFirstFrames": {
+	              "type": "integer",
+	              "minimum": 0
+	            },
+	            "lowRam": {
+	              "type": "boolean"
+	            },
+	            "tileFrames": {
+	              "type": "integer",
+	              "minimum": 1,
+	              "maximum": 8
+	            },
+	            "tileSpatial": {
+	              "type": "integer",
+	              "minimum": 1,
+	              "maximum": 4
+	            },
+	            "lora": {
+	              "anyOf": [
+	                {
+	                  "type": "null"
+	                },
+	                {
+	                  "type": "object",
+	                  "additionalProperties": false,
+	                  "required": [
+	                    "sha256",
+	                    "scale"
+	                  ],
+	                  "properties": {
+	                    "sha256": {
+	                      "$ref": "#/$defs/sha256"
+	                    },
+	                    "scale": {
+	                      "type": "number",
+	                      "exclusiveMinimum": 0,
+	                      "maximum": 2
+	                    }
+	                  }
+	                }
+	              ]
+	            }
+	          }
+	        },
+	        "policyContext": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "commercialUse",
+	            "commercialAnnualRevenueUsd",
+	            "overlaysExist"
+	          ],
+	          "properties": {
+	            "commercialUse": {
+	              "type": "boolean"
+	            },
+	            "commercialAnnualRevenueUsd": {
+	              "type": [
+	                "integer",
+	                "null"
+	              ],
+	              "minimum": 0
+	            },
+	            "overlaysExist": {
+	              "type": "boolean"
+	            }
+	          }
+	        }
+	      }
+	    },
 	    "queueJob": {
 	      "type": "object",
 	      "additionalProperties": false,
@@ -5807,6 +6093,54 @@ export const generatedPipelineContractSchemas = {
 	          "$ref": "#/$defs/sha256"
 	        }
 	      }
+	    },
+	    "sampleRecord": {
+	      "oneOf": [
+	        {
+	          "allOf": [
+	            {
+	              "$ref": "#/$defs/sample"
+	            },
+	            {
+	              "required": [
+	                "steps",
+	                "negativePrompt",
+	                "loraPath",
+	                "loraSha256",
+	                "loraStrength",
+	                "lowRam",
+	                "tileFrames",
+	                "tileSpatial",
+	                "taskParameterMaterial",
+	                "taskParameterFingerprint"
+	              ]
+	            }
+	          ]
+	        },
+	        {
+	          "allOf": [
+	            {
+	              "$ref": "#/$defs/sample"
+	            },
+	            {
+	              "not": {
+	                "anyOf": [
+	                  {
+	                    "required": [
+	                      "taskParameterMaterial"
+	                    ]
+	                  },
+	                  {
+	                    "required": [
+	                      "taskParameterFingerprint"
+	                    ]
+	                  }
+	                ]
+	              }
+	            }
+	          ]
+	        }
+	      ]
 	    },
 	    "sample": {
 	      "type": "object",
@@ -6034,6 +6368,17 @@ export const generatedPipelineContractSchemas = {
 	          "type": "string",
 	          "minLength": 1
 	        },
+	        "steps": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "negativePrompt": {
+	          "type": "string",
+	          "minLength": 1
+	        },
 	        "audioMode": {
 	          "enum": [
 	            "none",
@@ -6041,6 +6386,40 @@ export const generatedPipelineContractSchemas = {
 	            "generated",
 	            "preserved"
 	          ]
+	        },
+	        "loraPath": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "loraSha256": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "loraStrength": {
+	          "type": "number",
+	          "exclusiveMinimum": 0,
+	          "maximum": 2
+	        },
+	        "lowRam": {
+	          "type": "boolean"
+	        },
+	        "tileFrames": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 8
+	        },
+	        "tileSpatial": {
+	          "type": "integer",
+	          "minimum": 1,
+	          "maximum": 4
 	        },
 	        "commercialUse": {
 	          "type": "boolean"
@@ -6054,6 +6433,12 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "overlaysExist": {
 	          "type": "boolean"
+	        },
+	        "taskParameterMaterial": {
+	          "$ref": "#/$defs/taskParameterMaterial"
+	        },
+	        "taskParameterFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        },
 	        "outputPath": {
 	          "type": "string",

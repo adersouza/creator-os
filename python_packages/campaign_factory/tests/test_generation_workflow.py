@@ -331,6 +331,25 @@ def test_local_mode_requires_arena_admission_before_motion_worker(
         )
 
 
+def test_local_mode_rejects_fractional_duration_before_admission(
+    tmp_path: Path,
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    with pytest.raises(ValueError, match="whole number of seconds"):
+        run_generation_workflow(
+            _local_motion_factory(),
+            mode="local_wan",
+            campaign_slug="campaign",
+            accepted_still_path=still,
+            local_arena_summary_path=tmp_path / "arena-summary.json",
+            motion_prompt="Natural breathing and a slow camera push toward the subject",
+            duration_seconds=3.5,
+            dry_run=True,
+            apply=False,
+        )
+
+
 def test_generation_workflow_rejects_unknown_or_missing_mode() -> None:
     with pytest.raises(ValueError, match="unknown creative workflow mode"):
         run_generation_workflow(

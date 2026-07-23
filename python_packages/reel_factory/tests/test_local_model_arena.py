@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -332,6 +333,19 @@ def _build(
     )
     monkeypatch.setattr(
         "reel_factory.local_model_arena.plan_local_video_job", _fake_job
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._source_video_geometry",
+        lambda _path, **_kwargs: {
+            "geometrySource": "source_video",
+            "width": 1080,
+            "height": 1920,
+            "fps": "30000/1001",
+            "geometryProbe": {
+                "executable": "/fixture/bin/ffprobe",
+                "sha256": "4" * 64,
+            },
+        },
     )
     return build_arena_plan(
         sample_specs=specs,
@@ -900,9 +914,59 @@ def test_image_task_recipe_binds_audio_and_last_image_in_canonical_order(
         sha256_file(auxiliary),
     ]
 
-    auxiliary.write_bytes(b"substituted-after-plan")
-    with pytest.raises(LocalQueueError, match="missing_or_substituted"):
-        validate_arena_plan(plan)
+
+@pytest.mark.parametrize(
+    ("task_kind", "audio_mode", "auxiliary_field"),
+    [
+        ("audio_image_to_video", "source", "audio_path"),
+        ("keyframe_interpolation", "generated", "last_image_path"),
+    ],
+)
+def test_auxiliary_input_swap_changes_recipe_sample_and_output_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    task_kind: str,
+    audio_mode: str,
+    auxiliary_field: str,
+) -> None:
+    source = tmp_path / "source.png"
+    first_auxiliary = tmp_path / "first-auxiliary.bin"
+    second_auxiliary = tmp_path / "second-auxiliary.bin"
+    source.write_bytes(b"reviewed source")
+    first_auxiliary.write_bytes(b"first exact auxiliary")
+    second_auxiliary.write_bytes(b"second exact auxiliary")
+    base = _spec(source, model_id="local_ltx23_dev_hq_mlx")
+    intent = dict(base.content_intent)
+    intent["sourceAssetFingerprints"] = sorted(
+        (
+            sha256_file(source),
+            sha256_file(first_auxiliary),
+            sha256_file(second_auxiliary),
+        )
+    )
+    common = {
+        "capability_cohort": task_kind,
+        "task_kind": task_kind,
+        "audio_mode": audio_mode,
+        "commercial_annual_revenue_usd": 1_000,
+        "content_intent": intent,
+        "content_intent_fingerprint": fingerprint(intent),
+    }
+    first = replace(base, **common, **{auxiliary_field: first_auxiliary})
+    second = replace(base, **common, **{auxiliary_field: second_auxiliary})
+
+    plan = _build(monkeypatch, tmp_path, [first, second])
+    first_sample, second_sample = plan["samples"]
+    assert (
+        first_sample["benchmarkRecipe"]["recipeId"]
+        != (second_sample["benchmarkRecipe"]["recipeId"])
+    )
+    assert first_sample["sampleId"] != second_sample["sampleId"]
+    assert first_sample["outputPath"] != second_sample["outputPath"]
+    assert (
+        first_sample["benchmarkRecipe"]["inputFingerprints"]
+        != (second_sample["benchmarkRecipe"]["inputFingerprints"])
+    )
 
 
 def test_arena_plan_rejects_profile_and_source_record_mismatch(
@@ -1092,8 +1156,58 @@ def test_matched_models_share_recipe_and_task_but_keep_distinct_identity(
     assert first["modelFingerprint"] != second["modelFingerprint"]
     assert first["benchmarkRecipe"]["recipeId"] == second["benchmarkRecipe"]["recipeId"]
     assert first["benchmarkRecipeFingerprint"] == second["benchmarkRecipeFingerprint"]
+    assert (
+        first["benchmarkRecipe"]["parameterFingerprint"]
+        == second["benchmarkRecipe"]["parameterFingerprint"]
+    )
+    assert (
+        first["taskParameterMaterial"]["benchmarkCell"]
+        == second["taskParameterMaterial"]["benchmarkCell"]
+    )
+    assert (
+        first["taskParameterMaterial"]["effectiveExecution"]
+        != second["taskParameterMaterial"]["effectiveExecution"]
+    )
+    assert first["taskParameterFingerprint"] != second["taskParameterFingerprint"]
     assert first["queueJob"]["taskFingerprint"] == second["queueJob"]["taskFingerprint"]
     assert "modelId" not in first["benchmarkRecipe"]
+
+
+def test_historical_plan_is_readable_but_partial_parameter_evidence_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    legacy = deepcopy(plan)
+    sample = legacy["samples"][0]
+    for field in (
+        "steps",
+        "negativePrompt",
+        "loraPath",
+        "loraSha256",
+        "loraStrength",
+        "lowRam",
+        "tileFrames",
+        "tileSpatial",
+        "taskParameterMaterial",
+        "taskParameterFingerprint",
+    ):
+        sample.pop(field, None)
+    legacy_core = dict(legacy)
+    legacy_core.pop("planFingerprint")
+    legacy["planFingerprint"] = fingerprint(legacy_core)
+
+    validated = validate_arena_plan(legacy)
+    assert "taskParameterMaterial" not in validated["samples"][0]
+
+    partial = deepcopy(legacy)
+    partial["samples"][0]["taskParameterFingerprint"] = "f" * 64
+    partial_core = dict(partial)
+    partial_core.pop("planFingerprint")
+    partial["planFingerprint"] = fingerprint(partial_core)
+    with pytest.raises(ValueError):
+        validate_arena_plan(partial)
 
 
 def test_review_packet_is_shuffled_model_free_and_unblinding_waits_for_reviews(

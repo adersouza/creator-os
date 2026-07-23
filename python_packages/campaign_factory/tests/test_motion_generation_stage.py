@@ -168,6 +168,13 @@ def _local_motion_admission(model_id: str) -> dict:
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1"
         },
+        "taskParameterMaterial": {
+            "policyContext": {
+                "creatorId": "stacey",
+                "identityProfileId": "profile-1",
+                "contentIntentId": "intent-1",
+            }
+        },
     }
     return {
         **admission_core,

@@ -12,6 +12,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from creator_os_core.task_parameters import (
+    benchmark_task_parameter_fingerprint,
+    task_parameter_fingerprint,
+)
 from reel_factory.local_generation_queue import (
     WorkerLeaseUnavailable,
     default_local_generation_queue,
@@ -31,9 +35,11 @@ from reel_factory.local_video import (
     _preflight_imageio_ffmpeg_discovery,
     _preflight_sandbox_execution,
     _run_generation_process,
+    _source_video_geometry,
     _tool_evidence_for_path,
     _validate_campaign_admission,
     build_local_video_command,
+    local_video_task_parameter_material,
     plan_local_video_job,
     probe_local_video,
     run_local_video,
@@ -121,6 +127,19 @@ def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
             "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
             "timeoutSeconds": 30,
             "discoverySucceeded": True,
+        },
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._source_video_geometry",
+        lambda _path, **_kwargs: {
+            "geometrySource": "source_video",
+            "width": 1080,
+            "height": 1920,
+            "fps": "30000/1001",
+            "geometryProbe": {
+                "executable": "/fixture/bin/ffprobe",
+                "sha256": "4" * 64,
+            },
         },
     )
     monkeypatch.setattr(
@@ -334,11 +353,27 @@ def _request(
             value = hashlib.sha256(path.read_bytes()).hexdigest()
             if value not in exact_input_fingerprints:
                 exact_input_fingerprints.append(value)
+    base_request = LocalVideoRequest(
+        model_id=model_id,
+        image_path=selected_image,
+        prompt="Subtle natural movement with a steady portrait camera composition",
+        output_path=tmp_path / "out.mp4",
+        duration_seconds=6,
+        seed=71,
+        audio_mode=audio_mode,  # type: ignore[arg-type]
+        audio_path=audio_path,
+        last_image_path=last_image_path,
+        task=task,  # type: ignore[arg-type]
+        lora_path=lora_path,
+    )
     recipe = {
         "schema": "creator_os.benchmark_recipe.v1",
         "recipeId": "fixture-recipe",
         "taskKind": task,
         "inputFingerprints": exact_input_fingerprints,
+        "parameterFingerprint": benchmark_task_parameter_fingerprint(
+            local_video_task_parameter_material(base_request)
+        ),
         "requiredAnalyzers": [
             {"analyzerId": "fixture.motion", "analyzerVersion": "1.0.0"}
         ],
@@ -382,18 +417,8 @@ def _request(
         "providerCalls": 0,
         "productionWritesAllowed": False,
     }
-    return LocalVideoRequest(
-        model_id=model_id,
-        image_path=selected_image,
-        prompt="Subtle natural movement with a steady portrait camera composition",
-        output_path=tmp_path / "out.mp4",
-        duration_seconds=6,
-        seed=71,
-        audio_mode=audio_mode,  # type: ignore[arg-type]
-        audio_path=audio_path,
-        last_image_path=last_image_path,
-        task=task,  # type: ignore[arg-type]
-        lora_path=lora_path,
+    return replace(
+        base_request,
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         creator_identity_profile=profile,
@@ -418,6 +443,14 @@ def _rebind_arena_source(
         **dict(request.benchmark_recipe or {}),
         "inputFingerprints": exact_inputs,
         "taskKind": request.task,
+        "parameterFingerprint": benchmark_task_parameter_fingerprint(
+            local_video_task_parameter_material(
+                replace(request, image_path=source_path),
+                runtime_binding=(request.arena_benchmark_binding or {}).get(
+                    "runtimeBinding"
+                ),
+            )
+        ),
     }
     intent = {
         **dict(request.content_intent or {}),
@@ -1327,6 +1360,56 @@ def test_campaign_apply_runs_exact_ffmpeg_discovery_before_queue_creation(
     assert not request.output_path.with_suffix(".partial.mp4").exists()
 
 
+def test_edit_geometry_uses_content_addressed_ffprobe_not_ambient_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source video")
+    trusted_ffprobe = tmp_path / "trusted-ffprobe"
+    trusted_ffprobe.write_bytes(b"trusted ffprobe bytes")
+    trusted_ffprobe.chmod(0o755)
+    ambient = tmp_path / "ambient"
+    ambient.mkdir()
+    (ambient / "ffprobe").write_bytes(b"ambient substitute")
+    monkeypatch.setenv("PATH", str(ambient))
+    observed: list[str] = []
+
+    def probe(command, **_kwargs):
+        observed.extend(command)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "streams": [
+                        {
+                            "width": 1080,
+                            "height": 1920,
+                            "avg_frame_rate": "30000/1001",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", probe)
+    geometry = _source_video_geometry(
+        source,
+        runtime_binding={
+            "ffprobeExecutable": str(trusted_ffprobe),
+            "ffprobeSha256": hashlib.sha256(trusted_ffprobe.read_bytes()).hexdigest(),
+        },
+    )
+
+    assert observed[0] == str(trusted_ffprobe.resolve())
+    assert geometry["fps"] == "30000/1001"
+    assert (
+        geometry["geometryProbe"]["sha256"]
+        == hashlib.sha256(trusted_ffprobe.read_bytes()).hexdigest()
+    )
+
+
 def test_isolation_rejects_same_path_media_tool_content_substitution(
     tmp_path: Path,
 ) -> None:
@@ -1482,13 +1565,226 @@ def test_wan_t2v_omits_image_and_never_falls_back_to_one(tmp_path: Path) -> None
     assert command[command.index("--prompt") + 1] == request.prompt
 
 
-def test_campaign_admission_rehashes_last_image_before_flf_execution(
+@pytest.mark.parametrize(
+    ("model_id", "task", "audio_mode", "task_fields", "change_low_ram"),
+    [
+        ("local_wan22_ti2v_5b_mlx", "image_to_video", "none", {}, True),
+        (
+            "local_longcat_avatar15_q4_mlx",
+            "audio_image_to_video",
+            "source",
+            {},
+            True,
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "audio_image_to_video",
+            "source",
+            {},
+            False,
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "keyframe_interpolation",
+            "generated",
+            {},
+            False,
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "video_retake",
+            "preserved",
+            {"retake_start_frame": 4, "retake_end_frame": 20},
+            True,
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "video_extend",
+            "generated",
+            {"extend_frames": 12},
+            True,
+        ),
+    ],
+)
+def test_ignored_memory_and_tiling_controls_do_not_change_effective_identity(
+    tmp_path: Path,
+    model_id: str,
+    task: str,
+    audio_mode: str,
+    task_fields: dict[str, int],
+    change_low_ram: bool,
+) -> None:
+    image = _image(tmp_path)
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"source audio")
+    last = tmp_path / "last.png"
+    last.write_bytes(b"last frame")
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source video")
+    base = LocalVideoRequest(
+        model_id=model_id,
+        image_path=(None if task in {"video_retake", "video_extend"} else image),
+        prompt="Subtle natural movement with a steady portrait camera composition",
+        output_path=tmp_path / "ignored-controls.mp4",
+        task=task,  # type: ignore[arg-type]
+        audio_mode=audio_mode,  # type: ignore[arg-type]
+        audio_path=audio if task == "audio_image_to_video" else None,
+        last_image_path=last if task == "keyframe_interpolation" else None,
+        source_video_path=(
+            source_video if task in {"video_retake", "video_extend"} else None
+        ),
+        **task_fields,
+    )
+    changed = replace(
+        base,
+        low_ram=not base.low_ram if change_low_ram else base.low_ram,
+        tile_frames=4,
+        tile_spatial=3,
+    )
+    baseline_material = local_video_task_parameter_material(
+        base, runtime_binding=RUNTIME_BINDING
+    )
+    changed_material = local_video_task_parameter_material(
+        changed, runtime_binding=RUNTIME_BINDING
+    )
+
+    assert baseline_material == changed_material
+
+
+def test_edit_duration_and_model_geometry_are_not_falsely_bound(
+    tmp_path: Path,
+) -> None:
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source video")
+    base = LocalVideoRequest(
+        model_id="local_ltx23_dev_hq_mlx",
+        image_path=None,
+        prompt="Preserve the source while replacing the exact selected range",
+        output_path=tmp_path / "retake.mp4",
+        task="video_retake",
+        source_video_path=source_video,
+        audio_mode="preserved",
+        retake_start_frame=4,
+        retake_end_frame=20,
+        duration_seconds=6,
+    )
+    baseline = local_video_task_parameter_material(
+        base, runtime_binding=RUNTIME_BINDING
+    )
+    changed_duration = local_video_task_parameter_material(
+        replace(base, duration_seconds=18), runtime_binding=RUNTIME_BINDING
+    )
+
+    assert baseline == changed_duration
+    assert baseline["benchmarkCell"]["durationSeconds"] is None
+    assert baseline["effectiveExecution"]["geometrySource"] == "source_video"
+    assert baseline["effectiveExecution"]["frameCount"] is None
+    assert baseline["effectiveExecution"]["width"] == 1080
+    assert baseline["effectiveExecution"]["height"] == 1920
+    assert baseline["effectiveExecution"]["fps"] == "30000/1001"
+
+
+@pytest.mark.parametrize(
+    ("model_id", "task", "audio_mode", "task_fields"),
+    [
+        ("local_longcat_avatar15_q4_mlx", "audio_image_to_video", "source", {}),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "keyframe_interpolation",
+            "generated",
+            {},
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "video_retake",
+            "preserved",
+            {"retake_start_frame": 4, "retake_end_frame": 20},
+        ),
+        (
+            "local_ltx23_dev_hq_mlx",
+            "video_extend",
+            "generated",
+            {"extend_frames": 12},
+        ),
+    ],
+)
+def test_unsupported_lora_does_not_enter_effective_material(
+    tmp_path: Path,
+    model_id: str,
+    task: str,
+    audio_mode: str,
+    task_fields: dict[str, int],
+) -> None:
+    image = _image(tmp_path)
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"source audio")
+    last = tmp_path / "last.png"
+    last.write_bytes(b"last frame")
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source video")
+    lora = tmp_path / "ignored.safetensors"
+    lora.write_bytes(b"unsupported lora bytes")
+    base = LocalVideoRequest(
+        model_id=model_id,
+        image_path=None if task in {"video_retake", "video_extend"} else image,
+        prompt="Subtle natural movement with a steady portrait camera composition",
+        output_path=tmp_path / "ignored-lora.mp4",
+        task=task,  # type: ignore[arg-type]
+        audio_mode=audio_mode,  # type: ignore[arg-type]
+        audio_path=audio if task == "audio_image_to_video" else None,
+        last_image_path=last if task == "keyframe_interpolation" else None,
+        source_video_path=(
+            source_video if task in {"video_retake", "video_extend"} else None
+        ),
+        **task_fields,
+    )
+
+    assert local_video_task_parameter_material(
+        base, runtime_binding=RUNTIME_BINDING
+    ) == local_video_task_parameter_material(
+        replace(base, lora_path=lora, lora_strength=0.75),
+        runtime_binding=RUNTIME_BINDING,
+    )
+
+
+def test_applied_ltx_memory_tiling_and_lora_controls_change_effective_identity(
+    tmp_path: Path,
+) -> None:
+    image = _image(tmp_path)
+    lora = tmp_path / "creator.safetensors"
+    lora.write_bytes(b"exact lora identity")
+    base = LocalVideoRequest(
+        model_id="local_ltx23_dev_hq_mlx",
+        image_path=image,
+        prompt="Subtle natural movement with a steady portrait camera composition",
+        output_path=tmp_path / "applied-controls.mp4",
+        task="image_to_video",
+        audio_mode="generated",
+    )
+    changed = replace(
+        base,
+        low_ram=not base.low_ram,
+        tile_frames=4,
+        tile_spatial=3,
+        lora_path=lora,
+        lora_strength=0.75,
+    )
+    baseline = local_video_task_parameter_material(base)
+    applied = local_video_task_parameter_material(changed)
+
+    assert benchmark_task_parameter_fingerprint(baseline) == (
+        benchmark_task_parameter_fingerprint(applied)
+    )
+    assert task_parameter_fingerprint(baseline) != task_parameter_fingerprint(applied)
+
+
+def test_campaign_admission_rehashes_last_image_before_keyframe_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first = _image(tmp_path, "first.png")
     last = _image(tmp_path, "last.png")
     inputs = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (first, last)]
-    model_id = "local_wan21_flf2v_14b_cuda"
+    model_id = "local_ltx23_dev_hq_mlx"
     manifest_sha = "c" * 64
     revision = "fixture-revision"
     model_fingerprint = fingerprint(
@@ -1508,11 +1804,6 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         "creatorIdentityProfileId": identity["profileId"],
         "sourceAssetFingerprints": [*inputs, "f" * 64],
     }
-    recipe = {
-        "schema": "creator_os.benchmark_recipe.v1",
-        "recipeId": "recipe-flf",
-        "inputFingerprints": inputs,
-    }
     registry = {
         "schema": "creator_os.analyzer_registry.v1",
         "registryId": "registry-flf",
@@ -1524,7 +1815,7 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         "identityProfileFingerprint": fingerprint(identity),
         "contentIntentId": intent["intentId"],
         "contentIntentFingerprint": fingerprint(intent),
-        "taskKind": "first_last_frame_to_video",
+        "taskKind": "keyframe_interpolation",
         "capabilityCohort": "first_last_frame",
         "availableMemoryBytes": 48 * 1024**3,
     }
@@ -1533,7 +1824,7 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         "approvalEventHash": "7" * 64,
         "candidateModelFingerprint": model_fingerprint,
         "candidateBenchmarkIds": ["benchmark-flf"],
-        "taskKind": "first_last_frame_to_video",
+        "taskKind": "keyframe_interpolation",
         "hardwareFingerprint": "8" * 64,
         "evidenceFingerprint": "9" * 64,
     }
@@ -1591,6 +1882,25 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         **decision_core,
         "decisionFingerprint": fingerprint(decision_core),
     }
+    base_request = LocalVideoRequest(
+        model_id=model_id,
+        image_path=first,
+        last_image_path=last,
+        prompt="Move naturally between the exact endpoint frames",
+        output_path=tmp_path / "out.mp4",
+        task="keyframe_interpolation",
+        audio_mode="generated",
+    )
+    task_parameter_material = local_video_task_parameter_material(base_request)
+    recipe = {
+        "schema": "creator_os.benchmark_recipe.v1",
+        "recipeId": "recipe-flf",
+        "taskKind": "keyframe_interpolation",
+        "inputFingerprints": inputs,
+        "parameterFingerprint": benchmark_task_parameter_fingerprint(
+            task_parameter_material
+        ),
+    }
     admission_core = {
         "schema": "campaign_factory.local_motion_admission.v1",
         "routerDecision": decision,
@@ -1622,6 +1932,8 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
                 {"role": "last_image", "sha256": inputs[1]},
             ]
         ],
+        "taskParameterMaterial": task_parameter_material,
+        "taskParameterFingerprint": task_parameter_fingerprint(task_parameter_material),
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1",
             "routerAvailableMemoryBytes": decision_request["availableMemoryBytes"],
@@ -1632,13 +1944,8 @@ def test_campaign_admission_rehashes_last_image_before_flf_execution(
         **admission_core,
         "admissionFingerprint": fingerprint(admission_core),
     }
-    request = LocalVideoRequest(
-        model_id=model_id,
-        image_path=first,
-        last_image_path=last,
-        prompt="Move naturally between the exact endpoint frames",
-        output_path=tmp_path / "out.mp4",
-        task="first_last_frame_to_video",
+    request = replace(
+        base_request,
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         execution_context="campaign_generation",
@@ -1771,7 +2078,7 @@ def test_bound_execution_forbids_custom_model_directory_even_if_probe_passes(
         plan_local_video_job(request)
 
 
-def test_ltx_q8_supports_source_audio_and_first_last_frame(
+def test_ltx_q8_supports_exact_source_audio_and_rejects_extra_last_frame(
     tmp_path: Path,
 ) -> None:
     audio = tmp_path / "voice.wav"
@@ -1782,7 +2089,6 @@ def test_ltx_q8_supports_source_audio_and_first_last_frame(
         model_id="local_ltx23_dev_hq_mlx",
         audio_mode="source",
         audio_path=audio,
-        last_image_path=last,
         task="audio_image_to_video",
     )
     command = build_local_video_command(request, python_executable="python3")
@@ -1791,11 +2097,16 @@ def test_ltx_q8_supports_source_audio_and_first_last_frame(
     assert command[command.index("--height") + 1] == "1024"
     assert command[command.index("--stage1-steps") + 1] == "30"
     assert command[command.index("--audio") + 1] == str(audio.resolve())
-    assert str(last.resolve()) in command
     assert "--low-ram" in command
     frames = int(command[command.index("--frames") + 1])
     assert frames == 145
     assert (frames - 1) % 8 == 0
+
+    with pytest.raises(ValueError, match="task_input_role_forbidden:last_image"):
+        build_local_video_command(
+            replace(request, last_image_path=last),
+            python_executable="python3",
+        )
 
 
 def test_ltx_hq_generated_audio_is_explicit(tmp_path: Path) -> None:

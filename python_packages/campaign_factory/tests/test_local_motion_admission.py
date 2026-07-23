@@ -156,6 +156,8 @@ def _patch_admission_dependencies(
             "inputFingerprints": list(kwargs["input_fingerprints"]),
             "inputBindings": [dict(item) for item in kwargs["input_bindings"]],
             "promotionInputCohort": [[dict(item) for item in kwargs["input_bindings"]]],
+            "taskParameterMaterial": {"schema": "fixture.parameters.v1"},
+            "taskParameterFingerprint": "9" * 64,
             "resourceSnapshot": {
                 "schema": "campaign_factory.local_motion_resource_snapshot.v1",
                 "routerAvailableMemoryBytes": 24_000,
@@ -240,6 +242,7 @@ def test_admission_binds_first_and_last_frame_fingerprints(
     last_sha = hashlib.sha256(last_image.read_bytes()).hexdigest()
     records["contentIntent"]["sourceAssetFingerprints"].append(last_sha)
     records["benchmarkRecipe"]["inputFingerprints"].append(last_sha)
+    records["benchmarkRecipe"]["taskKind"] = "keyframe_interpolation"
     captured = _patch_admission_dependencies(monkeypatch)
 
     build_local_motion_admission(
@@ -250,7 +253,7 @@ def test_admission_binds_first_and_last_frame_fingerprints(
         audio_path=None,
         last_image_path=last_image,
         campaign_creator="stacey",
-        task_kind="image_to_video",
+        task_kind="keyframe_interpolation",
     )
 
     assert captured["input_fingerprints"] == [
@@ -280,6 +283,27 @@ def test_admission_fails_closed_without_current_memory_measurement(
             task_kind="image_to_video",
         )
     assert captured["creator_id"] == "stacey"
+
+
+def test_build_admission_rejects_conflicting_audio_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"source audio")
+    _patch_admission_dependencies(monkeypatch)
+
+    with pytest.raises(LocalMotionAdmissionError, match="audio_mode_conflict"):
+        build_local_motion_admission(
+            evidence_bundle_path=None,
+            evidence_bundle=records,
+            arena_summary_path=summary_path,
+            accepted_still_path=still,
+            audio_path=audio,
+            generate_audio=True,
+            campaign_creator="stacey",
+            task_kind="audio_image_to_video",
+        )
 
 
 @pytest.mark.parametrize(
@@ -516,6 +540,8 @@ def _execution_admission_fixture(
                 }
             ]
         ],
+        "taskParameterMaterial": {"schema": "fixture.parameters.v1"},
+        "taskParameterFingerprint": "9" * 64,
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1",
             "motionEditBinding": {
@@ -587,6 +613,31 @@ def test_execution_revalidation_rehashes_current_input_and_rechecks_promotion(
         )
         == admission
     )
+
+
+def test_execution_revalidation_rejects_conflicting_audio_modes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admission, still, summary, recipe, registry = _execution_admission_fixture(tmp_path)
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"source audio")
+    _patch_execution_revalidation(monkeypatch, admission)
+
+    with pytest.raises(
+        LocalMotionAdmissionError, match="execution_audio_mode_conflict"
+    ):
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=audio,
+            generate_audio=True,
+            campaign_creator="stacey",
+            task_kind="audio_image_to_video",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
 
 
 def _retake_execution_fixture(
@@ -767,9 +818,18 @@ def test_execution_revalidation_rejects_audio_substitution_before_readmission(
     records = admission["evidenceRecords"]
     intent = records["contentIntent"]
     recipe["inputFingerprints"].append(audio_sha)
+    recipe["taskKind"] = "audio_image_to_video"
     intent["sourceAssetFingerprints"].append(audio_sha)
     admission["inputFingerprints"].append(audio_sha)
+    audio_binding = {"role": "audio", "sha256": audio_sha}
+    admission["inputBindings"].append(audio_binding)
+    admission["promotionInputCohort"] = [[*admission["inputBindings"]]]
+    admission["resourceSnapshot"]["motionEditBinding"]["taskKind"] = (
+        "audio_image_to_video"
+    )
     decision = admission["routerDecision"]
+    decision["request"]["taskKind"] = "audio_image_to_video"
+    decision["winningEvidence"]["cohortKey"]["taskKind"] = "audio_image_to_video"
     decision["request"]["contentIntentFingerprint"] = _fingerprint(intent)
     decision_core = dict(decision)
     decision_core.pop("decisionFingerprint")
@@ -799,7 +859,7 @@ def test_execution_revalidation_rejects_audio_substitution_before_readmission(
             accepted_still_path=still,
             audio_path=audio,
             campaign_creator="stacey",
-            task_kind="image_to_video",
+            task_kind="audio_image_to_video",
             model_id="local_wan22_i2v_a14b_q4_mlx",
             benchmark_recipe=recipe,
             analyzer_registry=registry,
@@ -817,9 +877,18 @@ def test_execution_revalidation_rejects_last_frame_substitution_before_readmissi
     records = admission["evidenceRecords"]
     intent = records["contentIntent"]
     recipe["inputFingerprints"].append(last_sha)
+    recipe["taskKind"] = "keyframe_interpolation"
     intent["sourceAssetFingerprints"].append(last_sha)
     admission["inputFingerprints"].append(last_sha)
+    last_binding = {"role": "last_image", "sha256": last_sha}
+    admission["inputBindings"].append(last_binding)
+    admission["promotionInputCohort"] = [[*admission["inputBindings"]]]
+    admission["resourceSnapshot"]["motionEditBinding"]["taskKind"] = (
+        "keyframe_interpolation"
+    )
     decision = admission["routerDecision"]
+    decision["request"]["taskKind"] = "keyframe_interpolation"
+    decision["winningEvidence"]["cohortKey"]["taskKind"] = "keyframe_interpolation"
     decision["request"]["contentIntentFingerprint"] = _fingerprint(intent)
     decision_core = dict(decision)
     decision_core.pop("decisionFingerprint")
@@ -850,7 +919,7 @@ def test_execution_revalidation_rejects_last_frame_substitution_before_readmissi
             audio_path=None,
             last_image_path=last_image,
             campaign_creator="stacey",
-            task_kind="image_to_video",
+            task_kind="keyframe_interpolation",
             model_id="local_wan22_i2v_a14b_q4_mlx",
             benchmark_recipe=recipe,
             analyzer_registry=registry,

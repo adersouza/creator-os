@@ -5,9 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-_EDIT_TASKS: Final = frozenset({"video_retake", "video_extend"})
-_IMAGE_TASK_ORDER: Final = ("image", "audio", "last_image", "source_video")
-_EDIT_TASK_ORDER: Final = ("source_video", "audio", "last_image")
+_ROLE_ORDER: Final = ("image", "audio", "last_image", "source_video")
+_TASK_ROLE_MATRIX: Final = {
+    "text_to_video": ((), ()),
+    "image_to_video": (("image",), ("image",)),
+    "audio_image_to_video": (("image", "audio"), ("image", "audio")),
+    "keyframe_interpolation": (
+        ("image", "last_image"),
+        ("image", "last_image"),
+    ),
+    "video_retake": (("source_video",), ("source_video",)),
+    "video_extend": (("source_video",), ("source_video",)),
+}
 
 
 def canonical_task_input_bindings(
@@ -31,18 +40,23 @@ def canonical_task_input_bindings(
         "last_image": last_image_sha256,
         "source_video": source_video_sha256,
     }
-    if task_kind in _EDIT_TASKS:
-        if image_sha256 is not None:
-            raise ValueError("task_input_edit_image_forbidden")
-        if source_video_sha256 is None:
-            raise ValueError("task_input_edit_source_video_required")
-        order = _EDIT_TASK_ORDER
-    else:
-        order = _IMAGE_TASK_ORDER
+    matrix = _TASK_ROLE_MATRIX.get(task_kind)
+    if matrix is None:
+        raise ValueError("task_input_task_kind_unsupported")
+    required, allowed = matrix
+    present = {role for role, value in values.items() if value is not None}
+    missing = set(required).difference(present)
+    if missing:
+        raise ValueError(
+            "task_input_required_role_missing:" + ",".join(sorted(missing))
+        )
+    forbidden = present.difference(allowed)
+    if forbidden:
+        raise ValueError("task_input_role_forbidden:" + ",".join(sorted(forbidden)))
 
     bindings: list[dict[str, str]] = []
     seen_fingerprints: set[str] = set()
-    for role in order:
+    for role in _ROLE_ORDER:
         fingerprint = values[role]
         if fingerprint is None:
             continue
@@ -69,7 +83,7 @@ def validate_task_input_binding_records(
         if role in by_role:
             raise ValueError("task_input_binding_role_duplicate")
         by_role[role] = value
-    unexpected = set(by_role).difference(_IMAGE_TASK_ORDER)
+    unexpected = set(by_role).difference(_ROLE_ORDER)
     if unexpected:
         raise ValueError("task_input_binding_role_invalid")
     canonical = canonical_task_input_bindings(

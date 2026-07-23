@@ -18,7 +18,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -30,6 +30,10 @@ from creator_os_core.evidence_attestation import (
     verify_evidence_attestation,
 )
 from creator_os_core.task_inputs import canonical_task_input_bindings
+from creator_os_core.task_parameters import (
+    benchmark_task_parameter_fingerprint,
+    task_parameter_fingerprint,
+)
 
 from pipeline_contracts import (
     ContentIntentV1,
@@ -62,7 +66,9 @@ from .local_model_benchmark import (
 )
 from .local_model_manager import model_status
 from .local_video import (
+    DEFAULT_NEGATIVE_PROMPT,
     LocalVideoRequest,
+    local_video_task_parameter_material,
     plan_local_video_job,
     run_local_video,
 )
@@ -271,6 +277,8 @@ class ArenaSampleSpec:
     seed: int
     duration_seconds: int
     resolution: str
+    steps: int | None = None
+    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
     audio_mode: Literal["none", "source", "generated", "preserved"] = "none"
     audio_path: Path | None = None
     last_image_path: Path | None = None
@@ -280,6 +288,11 @@ class ArenaSampleSpec:
     extend_frames: int | None = None
     extend_direction: Literal["before", "after"] = "after"
     preserve_audio: bool = False
+    lora_path: Path | None = None
+    lora_strength: float = 1.0
+    low_ram: bool = True
+    tile_frames: int = 1
+    tile_spatial: int = 2
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
@@ -331,6 +344,12 @@ class ArenaSampleSpec:
                 value.get("durationSeconds"), "duration_seconds"
             ),
             resolution=_required_text(value.get("resolution"), "resolution"),
+            steps=(
+                _required_int(value.get("steps"), "steps")
+                if value.get("steps") is not None
+                else None
+            ),
+            negative_prompt=str(value.get("negativePrompt") or DEFAULT_NEGATIVE_PROMPT),
             audio_mode=str(value.get("audioMode") or "none"),  # type: ignore[arg-type]
             audio_path=(
                 Path(str(audio_path)).expanduser().resolve()
@@ -364,6 +383,15 @@ class ArenaSampleSpec:
             ),
             extend_direction=str(value.get("extendDirection") or "after"),  # type: ignore[arg-type]
             preserve_audio=value.get("preserveAudio") is True,
+            lora_path=(
+                Path(str(value["loraPath"])).expanduser().resolve()
+                if value.get("loraPath") is not None
+                else None
+            ),
+            lora_strength=float(value.get("loraStrength", 1.0)),
+            low_ram=value.get("lowRam") is not False,
+            tile_frames=int(value.get("tileFrames", 1)),
+            tile_spatial=int(value.get("tileSpatial", 2)),
             commercial_use=value.get("commercialUse") is not False,
             commercial_annual_revenue_usd=(
                 _required_int(
@@ -416,14 +444,87 @@ def _spec_input_bindings(spec: ArenaSampleSpec) -> tuple[dict[str, str], ...]:
     )
 
 
+def _spec_input_binding_fingerprint(spec: ArenaSampleSpec) -> str:
+    return fingerprint({"inputBindings": list(_spec_input_bindings(spec))})
+
+
+def _spec_local_video_request(
+    spec: ArenaSampleSpec, *, output_path: Path
+) -> LocalVideoRequest:
+    return LocalVideoRequest(
+        model_id=spec.model_id,
+        image_path=spec.source_path,
+        prompt=spec.prompt,
+        output_path=output_path,
+        duration_seconds=spec.duration_seconds,
+        resolution=spec.resolution,
+        seed=spec.seed,
+        steps=spec.steps,
+        negative_prompt=spec.negative_prompt,
+        audio_mode=spec.audio_mode,
+        audio_path=spec.audio_path,
+        last_image_path=spec.last_image_path,
+        task=spec.task_kind,  # type: ignore[arg-type]
+        lora_path=spec.lora_path,
+        lora_strength=spec.lora_strength,
+        source_video_path=spec.source_video_path,
+        retake_start_frame=spec.retake_start_frame,
+        retake_end_frame=spec.retake_end_frame,
+        extend_frames=spec.extend_frames,
+        extend_direction=spec.extend_direction,
+        low_ram=spec.low_ram,
+        tile_frames=spec.tile_frames,
+        tile_spatial=spec.tile_spatial,
+        commercial_use=spec.commercial_use,
+        commercial_annual_revenue_usd=spec.commercial_annual_revenue_usd,
+        overlays_exist=spec.overlays_exist,
+    )
+
+
+def _spec_parameter_material(
+    spec: ArenaSampleSpec,
+    *,
+    runtime_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected_runtime = runtime_binding
+    if selected_runtime is None and spec.task_kind in {"video_retake", "video_extend"}:
+        status = model_status(spec.model_id, deep=True)
+        receipt = status.get("deepVerificationReceipt")
+        selected_runtime = (
+            receipt.get("runtimeBinding") if isinstance(receipt, Mapping) else None
+        )
+        if not isinstance(selected_runtime, Mapping):
+            raise LocalQueueError("arena_runtime_binding_missing_for_edit_geometry")
+    return local_video_task_parameter_material(
+        _spec_local_video_request(
+            spec, output_path=Path("/creator-os/arena/parameter-material-only.mp4")
+        ),
+        spec=local_video_model_spec(spec.model_id),
+        runtime_binding=selected_runtime,
+    )
+
+
 def _primary_source_path(spec: ArenaSampleSpec) -> Path:
     if spec.task_kind in {"video_retake", "video_extend"}:
         if spec.source_video_path is None:
             raise ValueError("arena_video_task_source_video_missing")
         return spec.source_video_path
+    if spec.task_kind == "text_to_video":
+        raise ValueError("arena_text_task_has_no_media_source")
     if spec.source_path is None:
         raise ValueError("arena_image_task_source_missing")
     return spec.source_path
+
+
+def _primary_source_sha(spec: ArenaSampleSpec) -> str:
+    if spec.task_kind == "text_to_video":
+        return fingerprint(
+            {
+                "taskKind": spec.task_kind,
+                "prompt": " ".join(spec.prompt.split()),
+            }
+        )
+    return sha256_file(_primary_source_path(spec))
 
 
 def _validate_spec(spec: ArenaSampleSpec) -> None:
@@ -434,14 +535,11 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
         raise LocalQueueError(f"arena_model_not_local_free:{spec.model_id}")
     if spec.task_kind not in (model.supported_tasks or (model.task,)):
         raise LocalQueueError(f"arena_model_capability_mismatch:{spec.model_id}")
-    if spec.task_kind in {"video_retake", "video_extend"}:
-        if spec.source_path is not None:
-            raise ValueError("arena_video_task_unused_source_image")
-    elif spec.source_path is None:
-        raise ValueError("arena_image_task_source_missing")
-    primary_source = _primary_source_path(spec)
-    if not primary_source.is_file() or primary_source.is_symlink():
-        raise LocalQueueError(f"arena_source_missing_or_unsafe:{primary_source}")
+    _spec_input_bindings(spec)
+    if spec.task_kind != "text_to_video":
+        primary_source = _primary_source_path(spec)
+        if not primary_source.is_file() or primary_source.is_symlink():
+            raise LocalQueueError(f"arena_source_missing_or_unsafe:{primary_source}")
     if spec.audio_mode == "none" and spec.audio_path is not None:
         raise ValueError("arena_audio_path_without_audio_mode")
     if spec.audio_mode == "source" and spec.audio_path is None:
@@ -522,24 +620,8 @@ def _validate_spec(spec: ArenaSampleSpec) -> None:
 def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
     if {spec.creator_id for spec in specs} != CREATORS:
         raise LocalQueueError("arena_promotion_requires_all_creators")
-    source_sha_by_path = {
-        _primary_source_path(spec): sha256_file(_primary_source_path(spec))
-        for spec in specs
-    }
-    audio_sha_by_path = {
-        spec.audio_path: sha256_file(spec.audio_path)
-        for spec in specs
-        if spec.audio_path is not None
-    }
-    last_image_sha_by_path = {
-        spec.last_image_path: sha256_file(spec.last_image_path)
-        for spec in specs
-        if spec.last_image_path is not None
-    }
-    source_video_sha_by_path = {
-        spec.source_video_path: sha256_file(spec.source_video_path)
-        for spec in specs
-        if spec.source_video_path is not None
+    source_sha_by_spec = {
+        id(spec): _spec_input_binding_fingerprint(spec) for spec in specs
     }
     grouped: dict[tuple[str, str, str, str], list[ArenaSampleSpec]] = defaultdict(list)
     for spec in specs:
@@ -552,16 +634,14 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
             )
         ].append(spec)
     for key, rows in grouped.items():
-        sources = {source_sha_by_path[_primary_source_path(row)] for row in rows}
+        sources = {source_sha_by_spec[id(row)] for row in rows}
         if len(sources) < 2:
             raise LocalQueueError(
                 "arena_promotion_requires_two_sources:" + ":".join(key)
             )
         for source_sha in sources:
             seeds = {
-                row.seed
-                for row in rows
-                if source_sha_by_path[_primary_source_path(row)] == source_sha
+                row.seed for row in rows if source_sha_by_spec[id(row)] == source_sha
             }
             if len(seeds) < 4:
                 raise LocalQueueError(
@@ -582,36 +662,8 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
                 spec.identity_profile_fingerprint,
                 spec.content_intent_id,
                 spec.content_intent_fingerprint,
-                source_sha_by_path[_primary_source_path(spec)],
-                (
-                    audio_sha_by_path[spec.audio_path]
-                    if spec.audio_path is not None
-                    else None
-                ),
-                (
-                    last_image_sha_by_path[spec.last_image_path]
-                    if spec.last_image_path is not None
-                    else None
-                ),
-                (
-                    source_video_sha_by_path[spec.source_video_path]
-                    if spec.source_video_path is not None
-                    else None
-                ),
-                spec.task_kind,
-                " ".join(spec.prompt.split()),
-                spec.seed,
-                spec.duration_seconds,
-                spec.resolution,
-                spec.audio_mode,
-                spec.retake_start_frame,
-                spec.retake_end_frame,
-                spec.extend_frames,
-                spec.extend_direction,
-                spec.preserve_audio,
-                spec.commercial_use,
-                spec.commercial_annual_revenue_usd,
-                spec.overlays_exist,
+                source_sha_by_spec[id(spec)],
+                benchmark_task_parameter_fingerprint(_spec_parameter_material(spec)),
             )
         )
     for (creator_id, capability_cohort), grids in comparison_groups.items():
@@ -656,7 +708,7 @@ def build_arena_plan(
         if existing_intent_fingerprint != spec.content_intent_fingerprint:
             raise LocalQueueError("arena_content_intent_identity_collision")
     source_pairs = [
-        (spec.creator_id, sha256_file(_primary_source_path(spec)))
+        (spec.creator_id, _spec_input_binding_fingerprint(spec))
         for spec in sample_specs
     ]
     if len(source_pairs) != len(set(source_pairs)) and len(
@@ -665,7 +717,7 @@ def build_arena_plan(
                 spec.creator_id,
                 spec.model_id,
                 spec.seed,
-                sha256_file(_primary_source_path(spec)),
+                _spec_input_binding_fingerprint(spec),
             )
             for spec in sample_specs
         }
@@ -693,7 +745,7 @@ def build_arena_plan(
     policy_fingerprint = fingerprint(execution_policy)
     samples: list[dict[str, Any]] = []
     for spec in sample_specs:
-        source_sha = sha256_file(_primary_source_path(spec))
+        source_sha = _primary_source_sha(spec)
         audio_sha = (
             sha256_file(spec.audio_path) if spec.audio_path is not None else None
         )
@@ -711,32 +763,26 @@ def build_arena_plan(
         if not set(required).issubset(registered):
             missing = sorted(set(required).difference(registered))
             raise LocalQueueError(f"arena_required_analyzer_unregistered:{missing}")
-        recipe_parameters = {
-            "capabilityCohort": spec.capability_cohort,
-            "taskKind": spec.task_kind,
-            "prompt": " ".join(spec.prompt.split()),
-            "seed": spec.seed,
-            "durationSeconds": spec.duration_seconds,
-            "resolution": spec.resolution,
-            "audioMode": spec.audio_mode,
-            "audioSha256": audio_sha,
-            "lastImageSha256": last_image_sha,
-            "sourceVideoSha256": source_video_sha,
-            "retakeStartFrame": spec.retake_start_frame,
-            "retakeEndFrame": spec.retake_end_frame,
-            "extendFrames": spec.extend_frames,
-            "extendDirection": spec.extend_direction,
-            "preserveAudio": spec.preserve_audio,
-            "commercialUse": spec.commercial_use,
-            "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
-            "overlaysExist": spec.overlays_exist,
-        }
+        model_spec = local_video_model_spec(spec.model_id)
+        parameter_request = _spec_local_video_request(
+            spec, output_path=output_directory / "parameters" / "not-executed.mp4"
+        )
+        parameter_material = _spec_parameter_material(spec)
+        parameter_fp = task_parameter_fingerprint(parameter_material)
+        benchmark_parameter_fp = benchmark_task_parameter_fingerprint(
+            parameter_material
+        )
+        exact_input_bindings = list(_spec_input_bindings(spec))
         recipe_identity = {
             "creatorId": spec.creator_id,
             "identityProfileFingerprint": spec.identity_profile_fingerprint,
             "contentIntentFingerprint": spec.content_intent_fingerprint,
-            "sourceSha256": source_sha,
-            **recipe_parameters,
+            "inputBindings": exact_input_bindings,
+            "inputBindingsFingerprint": fingerprint(
+                {"inputBindings": exact_input_bindings}
+            ),
+            "capabilityCohort": spec.capability_cohort,
+            "taskParameterFingerprint": benchmark_parameter_fp,
         }
         recipe_identity_fingerprint = fingerprint(recipe_identity)
         sample_identity = {**recipe_identity, "modelId": spec.model_id}
@@ -750,9 +796,9 @@ def build_arena_plan(
             "executionPolicyFingerprint": policy_fingerprint,
             "taskKind": spec.task_kind,
             "inputFingerprints": [
-                binding["sha256"] for binding in _spec_input_bindings(spec)
+                binding["sha256"] for binding in exact_input_bindings
             ],
-            "parameterFingerprint": fingerprint(recipe_parameters),
+            "parameterFingerprint": benchmark_parameter_fp,
             "requiredAnalyzers": [
                 {"analyzerId": item[0], "analyzerVersion": item[1]} for item in required
             ],
@@ -808,7 +854,6 @@ def build_arena_plan(
             or fingerprint(runtime_binding) != runtime_binding_fingerprint
         ):
             raise LocalQueueError("arena_runtime_binding_invalid")
-        model_spec = local_video_model_spec(spec.model_id)
         manifest = status.get("manifest")
         if (
             not isinstance(manifest, dict)
@@ -826,27 +871,9 @@ def build_arena_plan(
             "aiDisclosureRequired": model_spec.ai_disclosure_required,
         }
         license_policy_fingerprint = fingerprint(license_policy)
-        request = LocalVideoRequest(
-            model_id=spec.model_id,
-            image_path=(
-                None
-                if spec.task_kind in {"video_retake", "video_extend"}
-                else spec.source_path
-            ),
-            prompt=spec.prompt,
+        request = replace(
+            parameter_request,
             output_path=output_path,
-            duration_seconds=spec.duration_seconds,
-            resolution=spec.resolution,
-            seed=spec.seed,
-            audio_mode=spec.audio_mode,
-            audio_path=spec.audio_path,
-            last_image_path=spec.last_image_path,
-            task=spec.task_kind,  # type: ignore[arg-type]
-            source_video_path=spec.source_video_path,
-            retake_start_frame=spec.retake_start_frame,
-            retake_end_frame=spec.retake_end_frame,
-            extend_frames=spec.extend_frames,
-            extend_direction=spec.extend_direction,
             benchmark_recipe=recipe,
             analyzer_registry=registry_payload,
             creator_identity_profile=spec.creator_identity_profile,
@@ -918,9 +945,19 @@ def build_arena_plan(
                 "durationSeconds": spec.duration_seconds,
                 "resolution": spec.resolution,
                 "audioMode": spec.audio_mode,
+                "steps": spec.steps,
+                "negativePrompt": spec.negative_prompt,
+                "loraPath": str(spec.lora_path) if spec.lora_path else None,
+                "loraSha256": (sha256_file(spec.lora_path) if spec.lora_path else None),
+                "loraStrength": spec.lora_strength,
+                "lowRam": spec.low_ram,
+                "tileFrames": spec.tile_frames,
+                "tileSpatial": spec.tile_spatial,
                 "commercialUse": spec.commercial_use,
                 "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
                 "overlaysExist": spec.overlays_exist,
+                "taskParameterMaterial": parameter_material,
+                "taskParameterFingerprint": parameter_fp,
                 "outputPath": str(output_path),
                 "blindedCandidateId": f"candidate_{fingerprint({'sample': sample_id})[:16]}",
                 "queueJob": job.as_dict(),
@@ -1083,6 +1120,32 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             raise LocalQueueError("arena_benchmark_recipe_fingerprint_mismatch")
         if fingerprint(registry) != raw.get("analyzerRegistryFingerprint"):
             raise LocalQueueError("arena_analyzer_registry_fingerprint_mismatch")
+        stored_parameter_material = raw.get("taskParameterMaterial")
+        stored_parameter_fingerprint = raw.get("taskParameterFingerprint")
+        if stored_parameter_material is None and stored_parameter_fingerprint is None:
+            # Historical v1 plans remain readable but cannot be executed or
+            # admitted because the execution boundaries require this evidence.
+            pass
+        elif not isinstance(stored_parameter_material, dict):
+            raise LocalQueueError("arena_task_parameter_material_invalid")
+        else:
+            current_parameter_material = local_video_task_parameter_material(
+                _request_from_sample(raw),
+                runtime_binding=raw.get("runtimeBinding"),
+            )
+            current_parameter_fingerprint = task_parameter_fingerprint(
+                current_parameter_material
+            )
+            current_benchmark_parameter_fingerprint = (
+                benchmark_task_parameter_fingerprint(current_parameter_material)
+            )
+            if (
+                stored_parameter_material != current_parameter_material
+                or stored_parameter_fingerprint != current_parameter_fingerprint
+                or recipe.get("parameterFingerprint")
+                != current_benchmark_parameter_fingerprint
+            ):
+                raise LocalQueueError("arena_task_parameter_material_mismatch")
         if (
             raw.get("identityProfileId") != profile.get("profileId")
             or raw.get("identityProfileFingerprint") != fingerprint(profile)
@@ -1190,7 +1253,18 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             raise LocalQueueError("arena_sample_promotion_eligibility_mismatch")
         source_path = raw.get("sourcePath")
         source_video_path = raw.get("sourceVideoPath")
-        if raw.get("taskKind") in {"video_retake", "video_extend"}:
+        if raw.get("taskKind") == "text_to_video":
+            if source_path is not None or source_video_path is not None:
+                raise LocalQueueError("arena_text_task_media_source_forbidden")
+            if raw.get("sourceSha256") != fingerprint(
+                {
+                    "taskKind": "text_to_video",
+                    "prompt": " ".join(str(raw.get("prompt") or "").split()),
+                }
+            ):
+                raise LocalQueueError("arena_text_task_source_identity_mismatch")
+            primary_source = None
+        elif raw.get("taskKind") in {"video_retake", "video_extend"}:
             if source_path is not None or source_video_path is None:
                 raise LocalQueueError("arena_video_task_primary_source_invalid")
             primary_source = Path(str(source_video_path)).resolve()
@@ -1198,8 +1272,9 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             if source_path is None:
                 raise LocalQueueError("arena_image_task_primary_source_missing")
             primary_source = Path(str(source_path)).resolve()
-        if not primary_source.is_file() or sha256_file(primary_source) != raw.get(
-            "sourceSha256"
+        if primary_source is not None and (
+            not primary_source.is_file()
+            or sha256_file(primary_source) != raw.get("sourceSha256")
         ):
             raise LocalQueueError("arena_source_missing_or_substituted")
         audio_path = raw.get("audioPath")
@@ -2499,6 +2574,8 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
         duration_seconds=int(sample["durationSeconds"]),
         resolution=str(sample["resolution"]),
         seed=int(sample["seed"]),
+        steps=(int(sample["steps"]) if sample.get("steps") is not None else None),
+        negative_prompt=str(sample.get("negativePrompt") or DEFAULT_NEGATIVE_PROMPT),
         audio_mode=str(sample["audioMode"]),  # type: ignore[arg-type]
         audio_path=(
             Path(str(sample["audioPath"]))
@@ -2511,6 +2588,12 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             else None
         ),
         task=str(sample["taskKind"]),  # type: ignore[arg-type]
+        lora_path=(
+            Path(str(sample["loraPath"]))
+            if sample.get("loraPath") is not None
+            else None
+        ),
+        lora_strength=float(sample.get("loraStrength", 1.0)),
         source_video_path=(
             Path(str(sample["sourceVideoPath"]))
             if sample.get("sourceVideoPath") is not None
@@ -2532,6 +2615,16 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             else None
         ),
         extend_direction=str(sample.get("extendDirection") or "after"),  # type: ignore[arg-type]
+        low_ram=sample.get("lowRam") is not False,
+        tile_frames=int(sample.get("tileFrames", 1)),
+        tile_spatial=int(sample.get("tileSpatial", 2)),
+        commercial_use=sample.get("commercialUse") is not False,
+        commercial_annual_revenue_usd=(
+            int(sample["commercialAnnualRevenueUsd"])
+            if sample.get("commercialAnnualRevenueUsd") is not None
+            else None
+        ),
+        overlays_exist=sample.get("overlaysExist") is True,
         benchmark_recipe=dict(sample["benchmarkRecipe"]),
         analyzer_registry=dict(sample["analyzerRegistry"]),
         creator_identity_profile=dict(sample["creatorIdentityProfile"]),
@@ -2608,6 +2701,10 @@ def execute_arena_sample_generation(
 
     plan = store.load_plan(plan_id)
     sample = _sample(plan, sample_id)
+    if not isinstance(sample.get("taskParameterMaterial"), dict) or not isinstance(
+        sample.get("taskParameterFingerprint"), str
+    ):
+        raise LocalQueueError("arena_task_parameter_evidence_required_for_execution")
     request = _request_from_sample(sample)
     planned_job = plan_local_video_job(request)
     if (

@@ -12,7 +12,7 @@
     "pipeline_contracts/schemas/audio_catalog_export.v1.schema.json": "44cdd005f482e8840fd3d168a471dc766684bb3e1ed0b67c0a3cbbfda2b7e00d",
     "pipeline_contracts/schemas/audio_intent.v1.example.json": "a1a367e3c6490ce2ea5a83563d56715a73cea81bc1e85cbf311676c532284adc",
     "pipeline_contracts/schemas/audio_intent.v1.schema.json": "c00a30c2203eadeded5a46c3681a55b8af7329ae97ac75b55140792671ec2b27",
-    "pipeline_contracts/schemas/benchmark_recipe.v1.schema.json": "c22bf88a096370e124d4397f3ddd9da20853499330389f4fad6604fde1926b62",
+    "pipeline_contracts/schemas/benchmark_recipe.v1.schema.json": "77332a8a8d9df8610c8ddf92471f0b05731283f0fc1ba468b804d4459deea583",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.example.json": "47dbcbac1a314f772bbe850d6ea19720a9e1db38b6d6f4f3cf53a386566b5add",
     "pipeline_contracts/schemas/campaign_draft_payload.v1.schema.json": "c3ab72d9dde40f45509b17086a7029c0fdc59d04dff83441f9ded717ea1e64f4",
     "pipeline_contracts/schemas/campaign_draft_payload.v2.example.json": "acf311f47cb2ab8ef30dab56331dfe93a35df6dc8b484d0a06b781923f1d5c64",
@@ -47,7 +47,7 @@
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.example.json": "7dce2362cf7107b39124360ff30a28f8dcab03377957ba8ec4882c6ada3b1d9e",
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.schema.json": "0b8620e0130ee0c27bcb8461221f3886ac58b2b2b4959980f179a530c63809fd",
     "pipeline_contracts/schemas/learning_cohort.v1.schema.json": "33ee26318aebab2e5d35246d9db0969b99d45d7c237fe7c017daa41ea715485a",
-    "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "8bd9354efd8f51c1159b05e575f0eac6b6bd71f41cd7feee35f90bc888b268e0",
+    "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "32b110e6652a50ab74de0573717e558338376d240e6d9b98b25fdaee7250a1ba",
     "pipeline_contracts/schemas/local_model_arena_review_packet.v1.schema.json": "55b33e7b62122bce7f64ebe07225de1eba5192becfb79a363e176f198b3ffe5f",
     "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "7d8e9a7c28c01c3dc2bf2cb862e8543d5de0b86d3d3a20ed148bb861813d28fc",
     "pipeline_contracts/schemas/local_model_arena_unblinding_receipt.v1.schema.json": "0b88a97cd99bf88bd647fa9d65f69c421be8d91415aca5da87a2c5ed599a7373",
@@ -90,7 +90,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "fb10e2c0645ff4c6daab79627d016d5345dc428486761b8562a9f45952a23c62",
+    "typescript/generated-schemas.ts": "770765cc3f6092aacefc2523ea17b655269919457438e9b1a750f356d949b65a",
     "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }

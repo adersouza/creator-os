@@ -1894,6 +1894,9 @@ class LocalGenerationQueue:
             "durationSeconds": request.get("durationSeconds"),
             "seed": request.get("seed"),
         }
+        task_parameter_fingerprint = lineage.get("taskParameterFingerprint")
+        if isinstance(task_parameter_fingerprint, str):
+            params["taskParameterFingerprint"] = task_parameter_fingerprint
         if "executionContext" in lineage or "executionBinding" in lineage:
             params.update(
                 {

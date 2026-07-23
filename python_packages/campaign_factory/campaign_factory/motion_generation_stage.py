@@ -7,6 +7,7 @@ import json
 import os
 from collections.abc import Mapping
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -164,18 +165,26 @@ def run_motion_generation_stage(
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     if not paid:
-        local_motion_admission = revalidate_local_motion_admission(
-            local_motion_admission,
+        revalidate_admission = partial(
+            revalidate_local_motion_admission,
             arena_summary_path=local_arena_summary_path,
             accepted_still_path=still,
             audio_path=audio_path,
             last_image_path=last_image_path,
             source_video_path=source_video_path,
+            prompt=prompt,
+            duration_seconds=duration_seconds,
+            resolution=resolution,
+            seed=seed,
+            steps=steps,
+            generate_audio=generate_audio,
             retake_start_frame=retake_start_frame,
             retake_end_frame=retake_end_frame,
             extend_frames=extend_frames,
             extend_direction=extend_direction,
             preserve_audio=preserve_audio,
+            lora_path=motion_lora_path,
+            lora_strength=motion_lora_strength,
             campaign_creator=campaign_creator or model_slug,
             task_kind=motion_task,
             model_id=model_id,
@@ -183,6 +192,7 @@ def run_motion_generation_stage(
             analyzer_registry=analyzer_registry,
             contentforge_root=factory.settings.contentforge_root,
         )
+        local_motion_admission = revalidate_admission(local_motion_admission)
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     source_hash = sha256_file(primary_source)
     request_fingerprint = _motion_request_fingerprint(
@@ -312,7 +322,9 @@ def run_motion_generation_stage(
                 factory,
                 campaign_slug=campaign_slug,
                 still_path=still,
-                duration_seconds=float(duration_seconds or 6),
+                duration_seconds=float(
+                    6 if duration_seconds is None else duration_seconds
+                ),
                 dry_run=dry_run,
                 apply=apply,
             )
@@ -324,25 +336,7 @@ def run_motion_generation_stage(
         worker_result = worker_plan
         if apply:
             if not paid:
-                local_motion_admission = revalidate_local_motion_admission(
-                    local_motion_admission,
-                    arena_summary_path=local_arena_summary_path,
-                    accepted_still_path=still,
-                    audio_path=audio_path,
-                    last_image_path=last_image_path,
-                    source_video_path=source_video_path,
-                    retake_start_frame=retake_start_frame,
-                    retake_end_frame=retake_end_frame,
-                    extend_frames=extend_frames,
-                    extend_direction=extend_direction,
-                    preserve_audio=preserve_audio,
-                    campaign_creator=campaign_creator or model_slug,
-                    task_kind=motion_task,
-                    model_id=model_id,
-                    benchmark_recipe=benchmark_recipe,
-                    analyzer_registry=analyzer_registry,
-                    contentforge_root=factory.settings.contentforge_root,
-                )
+                local_motion_admission = revalidate_admission(local_motion_admission)
             apply_command = _worker_command(
                 factory,
                 model_id=model_id,

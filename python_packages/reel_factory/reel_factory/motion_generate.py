@@ -143,6 +143,14 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             raise ValueError(
                 "--audio, --generate-audio, and --preserve-audio are mutually exclusive"
             )
+        parameter_material = local_motion_admission.get("taskParameterMaterial")
+        policy_context = (
+            parameter_material.get("policyContext")
+            if isinstance(parameter_material, dict)
+            else None
+        )
+        if not isinstance(policy_context, dict):
+            raise ValueError("local motion admission parameter policy is missing")
         validate_model_request(
             model,
             resolution=resolution,
@@ -186,6 +194,13 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             low_ram=not args.no_low_ram,
             tile_frames=args.tile_frames if args.tile_frames is not None else 1,
             tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
+            commercial_use=policy_context.get("commercialUse") is not False,
+            commercial_annual_revenue_usd=(
+                int(policy_context["commercialAnnualRevenueUsd"])
+                if policy_context.get("commercialAnnualRevenueUsd") is not None
+                else None
+            ),
+            overlays_exist=policy_context.get("overlaysExist") is True,
             benchmark_recipe=benchmark_recipe,
             analyzer_registry=analyzer_registry,
             creator_identity_profile=creator_identity_profile,

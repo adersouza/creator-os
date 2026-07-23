@@ -21,6 +21,12 @@ from creator_os_core.task_inputs import (
     canonical_task_input_bindings,
     validate_task_input_binding_records,
 )
+from creator_os_core.task_parameters import (
+    DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT,
+    benchmark_task_parameter_fingerprint,
+    canonical_task_parameter_material,
+    task_parameter_fingerprint,
+)
 
 from pipeline_contracts import validate_local_model_router_decision
 
@@ -158,10 +164,7 @@ _IMAGEIO_FFMPEG_DISCOVERY_PROBE = """from imageio_ffmpeg import get_ffmpeg_exe
 print(get_ffmpeg_exe())
 """
 
-DEFAULT_NEGATIVE_PROMPT = (
-    "low quality, blurry, distorted face, deformed hands, extra fingers, "
-    "duplicate person, text, subtitles, watermark, interface elements, abrupt cuts"
-)
+DEFAULT_NEGATIVE_PROMPT = DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT
 
 
 class LocalVideoUnavailable(RuntimeError):
@@ -222,6 +225,9 @@ class LocalVideoRequest:
     low_ram: bool = True
     tile_frames: int = 1
     tile_spatial: int = 2
+    commercial_use: bool = True
+    commercial_annual_revenue_usd: int | None = None
+    overlays_exist: bool = False
     benchmark_recipe: Mapping[str, Any] | None = None
     analyzer_registry: Mapping[str, Any] | None = None
     creator_identity_profile: Mapping[str, Any] | None = None
@@ -272,12 +278,183 @@ def probe_local_video(
     }
 
 
+def _source_video_geometry(
+    source_video_path: Path, *, runtime_binding: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return exact source-derived geometry for edit-task evidence."""
+
+    source = Path(source_video_path).expanduser().resolve()
+    if not source.is_file() or source.is_symlink():
+        raise ValueError("task_parameter_source_video_missing_or_unsafe")
+    ffprobe = (
+        Path(str(runtime_binding.get("ffprobeExecutable") or "")).expanduser().resolve()
+    )
+    expected_sha256 = str(runtime_binding.get("ffprobeSha256") or "")
+    if (
+        not ffprobe.is_file()
+        or ffprobe.is_symlink()
+        or len(expected_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in expected_sha256)
+        or _sha256_file(ffprobe) != expected_sha256
+    ):
+        raise ValueError("task_parameter_ffprobe_runtime_binding_mismatch")
+    completed = subprocess.run(
+        [
+            str(ffprobe),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate",
+            "-of",
+            "json",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    try:
+        payload = json.loads(completed.stdout) if completed.returncode == 0 else {}
+        [stream] = payload.get("streams") or []
+        width = int(stream.get("width") or 0)
+        height = int(stream.get("height") or 0)
+        numerator, denominator = str(stream.get("avg_frame_rate") or "").split("/", 1)
+        normalized_fps = f"{int(numerator)}/{int(denominator)}"
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("task_parameter_source_video_geometry_unreadable") from exc
+    if width <= 0 or height <= 0 or int(numerator) <= 0 or int(denominator) <= 0:
+        raise ValueError("task_parameter_source_video_geometry_unreadable")
+    return {
+        "geometrySource": "source_video",
+        "width": width,
+        "height": height,
+        "fps": normalized_fps,
+        "geometryProbe": {
+            "executable": str(ffprobe),
+            "sha256": expected_sha256,
+        },
+    }
+
+
+def local_video_task_parameter_material(
+    request: LocalVideoRequest,
+    *,
+    spec: LocalVideoModelSpec | None = None,
+    runtime_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build exact inference material from the request and pinned model catalog."""
+
+    selected = spec or local_video_model_spec(request.model_id)
+    resolution = (
+        video_model(request.model_id).default_resolution
+        if request.resolution is None
+        else request.resolution
+    )
+    is_wan = selected.family == "wan_2"
+    is_ltx = selected.family == "ltx_2"
+    edit_task = request.task in {"video_retake", "video_extend"}
+    if edit_task:
+        if request.source_video_path is None:
+            raise ValueError("task_parameter_source_video_missing")
+        if not isinstance(runtime_binding, Mapping):
+            raise ValueError("task_parameter_runtime_binding_required")
+        geometry = _source_video_geometry(
+            request.source_video_path, runtime_binding=runtime_binding
+        )
+        duration_seconds: int | None = None
+        frame_count: int | None = None
+        geometry_source = "source_video"
+        width = geometry["width"]
+        height = geometry["height"]
+        fps = geometry["fps"]
+        geometry_probe = geometry["geometryProbe"]
+    else:
+        frame_multiple = 8 if is_ltx else 4
+        duration_seconds = request.duration_seconds
+        frame_count = (
+            frame_multiple
+            * round(request.duration_seconds * selected.fps / frame_multiple)
+            + 1
+        )
+        geometry_source = "model"
+        width = selected.width
+        height = selected.height
+        fps = f"{selected.fps}/1"
+        geometry_probe = None
+    ltx_ordinary_task = request.task in {
+        "text_to_video",
+        "image_to_video",
+        "audio_image_to_video",
+    }
+    lora_is_applied = is_wan or (is_ltx and ltx_ordinary_task)
+    lora_sha = (
+        _sha256_file(Path(request.lora_path).expanduser().resolve())
+        if request.lora_path is not None and lora_is_applied
+        else None
+    )
+    effective_low_ram = request.low_ram if is_ltx and not edit_task else False
+    ltx_tiling_is_applied = (
+        is_ltx
+        and request.task in {"text_to_video", "image_to_video"}
+        and request.audio_mode != "source"
+    )
+    effective_tile_frames = request.tile_frames if ltx_tiling_is_applied else 1
+    effective_tile_spatial = request.tile_spatial if ltx_tiling_is_applied else 1
+    return canonical_task_parameter_material(
+        task_kind=request.task,
+        prompt=request.prompt,
+        negative_prompt=request.negative_prompt if is_wan else None,
+        negative_prompt_applied=is_wan,
+        seed=request.seed,
+        duration_seconds=duration_seconds,
+        resolution=resolution,
+        geometry_source=geometry_source,
+        geometry_probe=geometry_probe,
+        width=width,
+        height=height,
+        fps=fps,
+        frame_count=frame_count,
+        steps=_effective_steps(request, selected),
+        requested_steps=request.steps,
+        audio_mode=request.audio_mode,
+        pipeline=selected.pipeline,
+        guide_scale=selected.guide_scale if is_wan else None,
+        scheduler="unipc" if is_wan else None,
+        tiling_mode=(
+            "aggressive"
+            if is_wan and "a14b" in selected.model_id
+            else "auto"
+            if is_wan
+            else None
+        ),
+        trim_first_frames=1 if is_wan and "a14b" in selected.model_id else 0,
+        retake_start_frame=request.retake_start_frame,
+        retake_end_frame=request.retake_end_frame,
+        extend_frames=request.extend_frames,
+        extend_direction=request.extend_direction,
+        low_ram=effective_low_ram,
+        tile_frames=effective_tile_frames,
+        tile_spatial=effective_tile_spatial,
+        lora_sha256=lora_sha,
+        lora_scale=request.lora_strength if lora_sha is not None else None,
+        commercial_use=request.commercial_use,
+        commercial_annual_revenue_usd=request.commercial_annual_revenue_usd,
+        overlays_exist=request.overlays_exist,
+        preserve_audio=request.audio_mode == "preserved",
+    )
+
+
 def build_local_video_command(
     request: LocalVideoRequest, *, python_executable: str | None = None
 ) -> list[str]:
     spec = local_video_model_spec(request.model_id)
     model = video_model(request.model_id)
-    resolution = request.resolution or model.default_resolution
+    resolution = (
+        model.default_resolution if request.resolution is None else request.resolution
+    )
     validate_model_request(
         model,
         resolution=resolution,
@@ -587,6 +764,12 @@ def run_local_video(
     execution_binding = _validate_execution_binding(request, capability=capability)
     capability_fingerprint = _execution_capability_fingerprint(capability)
     command = build_local_video_command(request, python_executable=python_executable)
+    task_parameter_material = local_video_task_parameter_material(
+        request,
+        spec=spec,
+        runtime_binding=execution_binding.get("runtimeBinding"),
+    )
+    task_parameter_fp = task_parameter_fingerprint(task_parameter_material)
     lineage_path = output.with_suffix(output.suffix + ".local_video.json")
     audio_sidecar = output.with_suffix(output.suffix + ".audio.wav")
     manifest = capability.get("model", {}).get("manifest")
@@ -615,6 +798,8 @@ def run_local_video(
             if request.arena_benchmark_binding is not None
             else None
         ),
+        "taskParameterMaterial": task_parameter_material,
+        "taskParameterFingerprint": task_parameter_fp,
         "input": (
             {"path": str(image), "sha256": _sha256_file(image)}
             if image is not None
@@ -639,9 +824,18 @@ def run_local_video(
                 request.negative_prompt if spec.family == "wan_2" else None
             ),
             "negativePromptApplied": spec.family == "wan_2",
-            "durationSeconds": request.duration_seconds,
-            "resolution": f"{spec.width}x{spec.height}",
-            "fps": spec.fps,
+            "durationSeconds": task_parameter_material["benchmarkCell"][
+                "durationSeconds"
+            ],
+            "resolution": (
+                f"{task_parameter_material['effectiveExecution']['width']}x"
+                f"{task_parameter_material['effectiveExecution']['height']}"
+            ),
+            "geometrySource": task_parameter_material["effectiveExecution"][
+                "geometrySource"
+            ],
+            "fps": task_parameter_material["effectiveExecution"]["fps"],
+            "frameCount": task_parameter_material["effectiveExecution"]["frameCount"],
             "steps": _effective_steps(request, spec),
             "seed": request.seed,
             "pipeline": spec.pipeline,
@@ -650,9 +844,9 @@ def run_local_video(
             "retakeEndFrame": request.retake_end_frame,
             "extendFrames": request.extend_frames,
             "extendDirection": request.extend_direction,
-            "lowRam": request.low_ram,
-            "tileFrames": request.tile_frames,
-            "tileSpatial": request.tile_spatial,
+            "lowRam": task_parameter_material["effectiveExecution"]["lowRam"],
+            "tileFrames": task_parameter_material["effectiveExecution"]["tileFrames"],
+            "tileSpatial": task_parameter_material["effectiveExecution"]["tileSpatial"],
         },
         "capability": capability,
         "executionCapabilityFingerprint": capability_fingerprint,
@@ -1721,7 +1915,7 @@ def _build_wan_command(
         "--num-frames",
         str(frames),
         "--steps",
-        str(request.steps or spec.default_steps),
+        str(_effective_steps(request, spec)),
         "--guide-scale",
         spec.guide_scale,
         "--seed",
@@ -1872,7 +2066,7 @@ def _build_ltx_command(
             [
                 "--two-stages-hq",
                 "--stage1-steps",
-                str(request.steps or spec.default_steps),
+                str(_effective_steps(request, spec)),
                 "--stage2-steps",
                 "3",
             ]
@@ -1988,6 +2182,7 @@ def _validate_request_inputs(
         raise ValueError(
             "local video motion prompt must contain at least 20 characters"
         )
+    _request_input_bindings(request)
     if request.image_path is not None:
         image = Path(request.image_path).expanduser().resolve()
         if not image.is_file():
@@ -2473,15 +2668,24 @@ def _generation_job(
             "sourceVideo": inputs["sourceVideo"],
         }
     )
+    task_parameter_material = local_video_task_parameter_material(
+        request,
+        spec=spec,
+        runtime_binding=execution_binding.get("runtimeBinding"),
+    )
+    effective_duration_seconds = task_parameter_material["benchmarkCell"][
+        "durationSeconds"
+    ]
     params = {
         "command": command,
         "outputPath": str(output),
         "task": request.task,
-        "durationSeconds": request.duration_seconds,
+        "durationSeconds": effective_duration_seconds,
         "seed": request.seed,
         "executionContext": request.execution_context,
         "executionBindingFingerprint": execution_binding["bindingFingerprint"],
         "executionIsolationFingerprint": execution_isolation["isolationFingerprint"],
+        "taskParameterFingerprint": task_parameter_fingerprint(task_parameter_material),
     }
     job_id = (
         "local_video_"
@@ -2503,7 +2707,7 @@ def _generation_job(
             "sourceInputSha256": cohort_input_sha,
             "task": request.task,
             "prompt": " ".join(request.prompt.split()),
-            "durationSeconds": request.duration_seconds,
+            "durationSeconds": effective_duration_seconds,
             "seed": request.seed,
             "audioMode": request.audio_mode,
             "executionContext": request.execution_context,
@@ -2601,6 +2805,8 @@ def _validate_campaign_admission(
         "inputFingerprints",
         "inputBindings",
         "promotionInputCohort",
+        "taskParameterMaterial",
+        "taskParameterFingerprint",
         "resourceSnapshot",
         "admissionFingerprint",
     }
@@ -2778,6 +2984,13 @@ def _validate_campaign_admission(
     input_fingerprints = payload.get("inputFingerprints")
     exact_bindings = _request_input_bindings(request)
     exact_inputs = [binding["sha256"] for binding in exact_bindings]
+    current_parameter_material = local_video_task_parameter_material(
+        request,
+        runtime_binding=winning.get("runtimeBinding"),
+    )
+    current_parameter_fingerprint = task_parameter_fingerprint(
+        current_parameter_material
+    )
     promotion_input_cohort = _validated_promotion_input_cohort(
         request.task, payload.get("promotionInputCohort")
     )
@@ -2785,6 +2998,10 @@ def _validate_campaign_admission(
         input_fingerprints != exact_inputs
         or payload.get("inputBindings") != list(exact_bindings)
         or list(exact_bindings) not in promotion_input_cohort
+        or payload.get("taskParameterMaterial") != current_parameter_material
+        or payload.get("taskParameterFingerprint") != current_parameter_fingerprint
+        or recipe.get("parameterFingerprint")
+        != benchmark_task_parameter_fingerprint(current_parameter_material)
         or not set(exact_inputs).issubset(
             set(intent.get("sourceAssetFingerprints") or [])
         )
@@ -2949,9 +3166,18 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         or binding.get("productionWritesAllowed") is not False
     ):
         raise LocalVideoUnavailable("arena_benchmark_external_activity_not_closed")
+    primary_source_identity = _optional_input_sha256(
+        request.image_path or request.source_video_path
+    )
+    if request.task == "text_to_video":
+        primary_source_identity = fingerprint(
+            {
+                "taskKind": "text_to_video",
+                "prompt": " ".join(request.prompt.split()),
+            }
+        )
     if (
-        _optional_input_sha256(request.image_path or request.source_video_path)
-        != binding.get("sourceSha256")
+        primary_source_identity != binding.get("sourceSha256")
         or request.benchmark_recipe is None
         or fingerprint(request.benchmark_recipe)
         != binding.get("benchmarkRecipeFingerprint")
@@ -2994,6 +3220,14 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         exact_inputs
     ):
         raise LocalVideoUnavailable("arena_benchmark_recipe_input_mismatch")
+    current_parameter_material = local_video_task_parameter_material(
+        request,
+        runtime_binding=binding.get("runtimeBinding"),
+    )
+    if (request.benchmark_recipe or {}).get(
+        "parameterFingerprint"
+    ) != benchmark_task_parameter_fingerprint(current_parameter_material):
+        raise LocalVideoUnavailable("arena_task_parameter_binding_mismatch")
     for field in (
         "sampleId",
         "blindedCandidateId",

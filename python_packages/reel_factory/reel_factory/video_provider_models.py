@@ -348,10 +348,8 @@ def validate_model_request(
         raise ValueError(f"{model.id} does not support video extension")
     if selected_task == "text_to_video" and has_image:
         raise ValueError("text_to_video must not silently consume an image")
-    if selected_task == "audio_image_to_video" and not (has_audio or generate_audio):
-        raise ValueError(
-            f"{model.id} audio_image_to_video requires source or generated audio"
-        )
+    if selected_task == "audio_image_to_video" and (not has_audio or generate_audio):
+        raise ValueError(f"{model.id} audio_image_to_video requires exact source audio")
     if selected_task != "audio_image_to_video" and has_audio:
         raise ValueError("source audio requires the explicit audio_image_to_video task")
     if resolution not in model.resolutions:
