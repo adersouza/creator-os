@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -45,6 +46,21 @@ def _upstream_module(runtime_root: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@contextmanager
+def _runtime_import_path(runtime_root: Path):
+    """Expose the verified upstream package only for this adapter invocation."""
+
+    package_root = runtime_root / "longcat_video_avatar"
+    if not (package_root / "__init__.py").is_file():
+        raise FileNotFoundError("longcat_upstream_package_missing")
+    original_path = list(sys.path)
+    sys.path.insert(0, str(runtime_root))
+    try:
+        yield
+    finally:
+        sys.path[:] = original_path
 
 
 def _audio_mel(path: Path):
@@ -112,32 +128,33 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     if args.num_frames < 29 or (args.num_frames - 1) % 4:
         raise ValueError("longcat_num_frames_must_be_4n_plus_1")
 
-    upstream = _upstream_module(runtime_root)
-    pipeline = upstream.build_pipeline(weights_root, variant="q4-merged")
-    image = upstream.preprocess_image(image_path, args.height, args.width)
-    audio_mel = _audio_mel(audio_path)
-    ids, mask = upstream.tokenize_prompt(
-        args.prompt, weights_root / upstream.VARIANT_DIRNAMES["q4-merged"]
-    )
-    text_hidden = pipeline.text_encoder(ids, mask=mask)
-    text_embeds = text_hidden[:, None, :, :]
-    text_mask = mask[:, None, None, :]
-    empty_ids = mx.zeros_like(ids)
-    empty_mask = mx.zeros_like(mask)
-    uncond_hidden = pipeline.text_encoder(empty_ids, mask=empty_mask)
-    video = pipeline(
-        image=image,
-        audio_mel=audio_mel,
-        text_embeds=text_embeds,
-        text_mask=text_mask,
-        uncond_embeds=uncond_hidden[:, None, :, :],
-        uncond_mask=empty_mask[:, None, None, :],
-        height=args.height,
-        width=args.width,
-        num_frames=args.num_frames,
-        seed=args.seed,
-    )
-    mx.eval(video)
+    with _runtime_import_path(runtime_root):
+        upstream = _upstream_module(runtime_root)
+        pipeline = upstream.build_pipeline(weights_root, variant="q4-merged")
+        image = upstream.preprocess_image(image_path, args.height, args.width)
+        audio_mel = _audio_mel(audio_path)
+        ids, mask = upstream.tokenize_prompt(
+            args.prompt, weights_root / upstream.VARIANT_DIRNAMES["q4-merged"]
+        )
+        text_hidden = pipeline.text_encoder(ids, mask=mask)
+        text_embeds = text_hidden[:, None, :, :]
+        text_mask = mask[:, None, None, :]
+        empty_ids = mx.zeros_like(ids)
+        empty_mask = mx.zeros_like(mask)
+        uncond_hidden = pipeline.text_encoder(empty_ids, mask=empty_mask)
+        video = pipeline(
+            image=image,
+            audio_mel=audio_mel,
+            text_embeds=text_embeds,
+            text_mask=text_mask,
+            uncond_embeds=uncond_hidden[:, None, :, :],
+            uncond_mask=empty_mask[:, None, None, :],
+            height=args.height,
+            width=args.width,
+            num_frames=args.num_frames,
+            seed=args.seed,
+        )
+        mx.eval(video)
     frames = (
         (np.asarray(video).transpose(0, 2, 3, 4, 1)[0] * 127.5 + 127.5)
         .clip(0, 255)
