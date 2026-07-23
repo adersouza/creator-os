@@ -15,6 +15,8 @@ from reel_factory.local_model_manager import (
     _load_deep_verification_cache,
     _longcat_runtime_status,
     _runtime_probe_environment,
+    _umt5_semantic_preflight,
+    _verified_runtime_binding,
     _write_deep_verification_cache,
     all_model_status,
     install_models,
@@ -79,6 +81,53 @@ def _cache_dependency_receipt(root: Path) -> Path:
     return root / ".receipts" / "wan_umt5_tokenizer.json"
 
 
+_UMT5_TOKEN_IDS = [
+    [5991, 38700, 4709, 82892, 30463, 274, 348, 14221, 1908, 333, 80405, 274, 1],
+    [23231, 275, 3914, 332, 16349, 103613, 274, 1],
+    [12831, 645, 22964, 645, 11124, 182944, 1],
+    [5100, 1249, 5100, 2816, 1],
+    [156081, 5452, 200932, 1561, 8584, 1],
+]
+_UMT5_PRETOKENIZER = (
+    'Sequence(pretokenizers=[WhitespaceSplit(), Metaspace(replacement="▁", '
+    "prepend_scheme=always, split=True)])"
+)
+
+
+def _umt5_probe_output(
+    *,
+    alias_ids: list[list[int]] | None = None,
+    local_ids: list[list[int]] | None = None,
+) -> str:
+    def record(label: str, token_ids: list[list[int]]) -> dict[str, object]:
+        digest = hashlib.sha256(
+            json.dumps(token_ids, separators=(",", ":")).encode()
+        ).hexdigest()
+        return {
+            "label": label,
+            "class": "T5Tokenizer",
+            "isFast": True,
+            "fixMistralRegex": None,
+            "preTokenizer": _UMT5_PRETOKENIZER,
+            "tokenIds": token_ids,
+            "tokenIdsSha256": digest,
+        }
+
+    return json.dumps(
+        {
+            "schema": "reel_factory.umt5_semantic_probe_output.v1",
+            "isolation": {
+                "writeOpenDenied": True,
+                "localNetworkBindDenied": True,
+            },
+            "records": [
+                record("alias-default", alias_ids or _UMT5_TOKEN_IDS),
+                record("local-default", local_ids or _UMT5_TOKEN_IDS),
+            ],
+        }
+    )
+
+
 def test_deep_cache_is_invalidated_by_toolchain_fingerprint_change(
     tmp_path: Path,
 ) -> None:
@@ -136,6 +185,169 @@ def test_runtime_probe_environment_strips_caller_python_paths_and_secrets() -> N
     assert environment["HF_HUB_OFFLINE"] == "1"
     assert "PYTHONPATH" not in environment
     assert "CREATOR_OS_EVIDENCE_AUTH_SECRET" not in environment
+
+
+def test_umt5_semantic_preflight_binds_matching_alias_under_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    reference.write_text(dependency.revision)
+    python = tmp_path / "runtime-python"
+    python.write_text("python")
+    sandbox = tmp_path / "sandbox-exec"
+    sandbox.write_text("sandbox")
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._UMT5_SANDBOX_EXECUTABLE", sandbox
+    )
+    observed: dict[str, object] = {}
+
+    def runner(command, **kwargs):
+        observed["command"] = command
+        observed["environment"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, _umt5_probe_output(), "")
+
+    evidence = _umt5_semantic_preflight(
+        root=tmp_path, python_executable=python, runner=runner
+    )
+
+    command = observed["command"]
+    environment = observed["environment"]
+    assert isinstance(command, list)
+    assert command[:3] == [
+        str(sandbox),
+        "-p",
+        "(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)\n",
+    ]
+    assert "fix_mistral_regex=" not in command[5]
+    assert isinstance(environment, dict)
+    assert environment["HF_HUB_OFFLINE"] == "1"
+    assert environment["TRANSFORMERS_OFFLINE"] == "1"
+    assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert evidence["tokenIdsSha256"] == (
+        "cee60e2f5d072f2de4a20b0fa2db55e799ddc6f2bef3ccb2d120990171016443"
+    )
+    assert evidence["aliasMatchesSnapshot"] is True
+    assert evidence["isolation"]["networkDenied"] is True
+    assert evidence["isolation"]["writesDenied"] is True
+    assert evidence["providerCalls"] == 0
+    assert evidence["productionWritesAllowed"] is False
+    assert len(evidence["behaviorFingerprint"]) == 64
+
+
+def test_umt5_semantic_preflight_rejects_alias_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    reference.write_text(dependency.revision)
+    python = tmp_path / "runtime-python"
+    python.write_text("python")
+    sandbox = tmp_path / "sandbox-exec"
+    sandbox.write_text("sandbox")
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._UMT5_SANDBOX_EXECUTABLE", sandbox
+    )
+    changed = [list(vector) for vector in _UMT5_TOKEN_IDS]
+    changed[0][0] += 1
+
+    with pytest.raises(RuntimeError, match="local_model_umt5_alias_semantic_drift"):
+        _umt5_semantic_preflight(
+            root=tmp_path,
+            python_executable=python,
+            runner=lambda command, **_kwargs: subprocess.CompletedProcess(
+                command,
+                0,
+                _umt5_probe_output(local_ids=changed),
+                "",
+            ),
+        )
+
+
+def test_umt5_semantic_preflight_rejects_shared_behavior_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    reference.write_text(dependency.revision)
+    python = tmp_path / "runtime-python"
+    python.write_text("python")
+    sandbox = tmp_path / "sandbox-exec"
+    sandbox.write_text("sandbox")
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._UMT5_SANDBOX_EXECUTABLE", sandbox
+    )
+    changed = [list(vector) for vector in _UMT5_TOKEN_IDS]
+    changed[0][0] += 1
+
+    with pytest.raises(RuntimeError, match="local_model_umt5_semantic_drift"):
+        _umt5_semantic_preflight(
+            root=tmp_path,
+            python_executable=python,
+            runner=lambda command, **_kwargs: subprocess.CompletedProcess(
+                command,
+                0,
+                _umt5_probe_output(alias_ids=changed, local_ids=changed),
+                "",
+            ),
+        )
+
+
+def test_wan_runtime_binding_includes_umt5_behavior_fingerprint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    python = tmp_path / "python"
+    python.write_text("python")
+    behavior = {
+        "schema": "reel_factory.umt5_tokenizer_behavior.v1",
+        "behaviorFingerprint": "f" * 64,
+    }
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager.runtime_status",
+        lambda **_kwargs: {
+            "ready": True,
+            "issues": [],
+            "receipt": {"schema": "fixture"},
+            "resolvedEnvironment": ["mlx==fixture"],
+            "python": str(python),
+            "runtimeId": "mlx_video",
+            "repository": MLX_VIDEO_REPOSITORY,
+            "observedRevision": MLX_VIDEO_REVISION,
+        },
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager.subprocess.run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps(
+                {
+                    "python": "3.12.0",
+                    "executable": str(python),
+                    "mlx": "fixture",
+                }
+            ),
+            "",
+        ),
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._tool_evidence",
+        lambda executable: {
+            "executable": f"/fixture/{executable}",
+            "sha256": "a" * 64,
+            "size": 1,
+            "version": f"{executable} fixture",
+        },
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._umt5_semantic_preflight",
+        lambda **_kwargs: behavior,
+    )
+
+    binding = _verified_runtime_binding("wan_2", models_root=tmp_path)
+
+    assert binding["umt5TokenizerBehavior"] == behavior
+    assert binding["umt5TokenizerBehaviorFingerprint"] == "f" * 64
 
 
 def test_all_model_plan_deduplicates_quantized_ltx_dependencies(tmp_path: Path) -> None:
@@ -357,7 +569,7 @@ def test_deep_model_status_hashes_cache_only_dependencies(
 ) -> None:
     monkeypatch.setattr(
         "reel_factory.local_model_manager._verified_runtime_binding",
-        lambda _family: {
+        lambda _family, **_kwargs: {
             "runtimeId": "fixture-runtime",
             "repository": "creator-os/test-runtime",
             "revision": "fixture-revision",
@@ -365,6 +577,11 @@ def test_deep_model_status_hashes_cache_only_dependencies(
             "mlxVersion": "fixture",
             "ffmpegSha256": "a" * 64,
             "ffprobeSha256": "b" * 64,
+            "umt5TokenizerBehavior": {
+                "schema": "reel_factory.umt5_tokenizer_behavior.v1",
+                "behaviorFingerprint": "f" * 64,
+            },
+            "umt5TokenizerBehaviorFingerprint": "f" * 64,
         },
     )
     spec = local_video_model_spec("local_wan22_ti2v_5b_mlx")
@@ -411,6 +628,12 @@ def test_deep_model_status_hashes_cache_only_dependencies(
     first_verified = model_status(spec.model_id, models_root=tmp_path, deep=True)
     assert first_verified["ready"]
     assert first_verified["deepVerificationCacheHit"] is False
+    assert (
+        first_verified["deepVerificationReceipt"]["runtimeBinding"][
+            "umt5TokenizerBehaviorFingerprint"
+        ]
+        == "f" * 64
+    )
     cached = model_status(spec.model_id, models_root=tmp_path, deep=True)
     assert cached["ready"]
     assert cached["deepVerificationCacheHit"] is True
