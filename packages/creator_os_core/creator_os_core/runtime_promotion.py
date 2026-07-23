@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import uuid
 from collections import Counter
@@ -83,6 +84,24 @@ PROMOTED_ENV_ALLOWLIST: Final = frozenset(
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
     }
+)
+PROMOTED_ENV_BLOCKLIST: Final = frozenset(
+    {
+        "CONDA_PREFIX",
+        "PIPENV_ACTIVE",
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "UV_PROJECT_ENVIRONMENT",
+        "VIRTUAL_ENV",
+    }
+)
+PROMOTED_REQUIRED_EXECUTABLES: Final = (
+    "git",
+    "make",
+    "node",
+    "pnpm",
+    "python3",
+    "uv",
 )
 REQUIRED_CHECKS: Final = frozenset(
     {
@@ -248,12 +267,78 @@ def _checked(command: Sequence[str], *, cwd: Path, code: str) -> str:
 
 
 def _promoted_subprocess_environment(
+    *,
+    source_root: Path,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     source = os.environ if environ is None else environ
     environment = {
         key: value for key, value in source.items() if key in PROMOTED_ENV_ALLOWLIST
     }
+    for key in PROMOTED_ENV_BLOCKLIST:
+        environment.pop(key, None)
+
+    source_path = source_root.expanduser().resolve()
+    excluded_roots = {source_path}
+    for key in ("CONDA_PREFIX", "UV_PROJECT_ENVIRONMENT", "VIRTUAL_ENV"):
+        if environment_root := source.get(key):
+            root = Path(environment_root).expanduser()
+            if not root.is_absolute():
+                root = source_path / root
+            excluded_roots.add(root.resolve())
+
+    def excluded(path: Path) -> bool:
+        return (
+            any(path == root or path.is_relative_to(root) for root in excluded_roots)
+            or (path.name == "bin" and path.parent.name in {".venv", "venv"})
+            or (path.name == ".bin" and path.parent.name == "node_modules")
+        )
+
+    promoted_path = environment.get("PATH", "")
+    path_entries: list[str] = []
+    resolved_entries: set[Path] = set()
+    for entry in promoted_path.split(os.pathsep):
+        if not entry:
+            continue
+        candidate = Path(entry).expanduser()
+        if not candidate.is_absolute():
+            continue
+        resolved = candidate.resolve()
+        if excluded(resolved):
+            continue
+        if resolved in resolved_entries:
+            continue
+        resolved_entries.add(resolved)
+        path_entries.append(str(resolved))
+    environment["PATH"] = os.pathsep.join(path_entries) or os.defpath
+    resolved_executables = {
+        executable: shutil.which(executable, path=environment["PATH"])
+        for executable in PROMOTED_REQUIRED_EXECUTABLES
+    }
+    missing_executables = [
+        executable
+        for executable, executable_path in resolved_executables.items()
+        if executable_path is None
+    ]
+    if missing_executables:
+        raise RuntimePromotionError(
+            "runtime_promotion_required_executable_missing:"
+            + ",".join(missing_executables)
+        )
+    unsafe_executables = [
+        executable
+        for executable, executable_path in resolved_executables.items()
+        if executable_path is not None
+        and (
+            excluded(Path(executable_path).resolve())
+            or excluded(Path(executable_path).resolve().parent)
+        )
+    ]
+    if unsafe_executables:
+        raise RuntimePromotionError(
+            "runtime_promotion_required_executable_unsafe:"
+            + ",".join(unsafe_executables)
+        )
     environment.update(
         {
             "CREATOR_OS_RUNTIME_PROMOTION_ISOLATED": "1",
@@ -1637,6 +1722,7 @@ def _promote_runtime(
             _owned_subroot(state, subroot, create=True)
         _recover_incomplete_transactions(state, runtime)
         destination_commit = _clean_detached_runtime_commit(runtime)
+        promoted_environment = _promoted_subprocess_environment(source_root=source)
         plan = _promotion_plan(
             source=source,
             runtime=runtime,
@@ -1793,7 +1879,7 @@ def _promote_runtime(
                 completed = _run(
                     command,
                     cwd=runtime,
-                    environment=_promoted_subprocess_environment(),
+                    environment=promoted_environment,
                 )
                 passed = completed.returncode == 0
                 report_summary = None

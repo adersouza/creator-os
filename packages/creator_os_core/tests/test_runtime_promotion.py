@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -14,6 +16,8 @@ from pathlib import Path
 import pytest
 import yaml
 from creator_os_core.runtime_promotion import (
+    PROMOTED_ENV_BLOCKLIST,
+    PROMOTED_REQUIRED_EXECUTABLES,
     REQUIRED_CHECKS,
     REQUIRED_LIVE_HEALTH_CHECKS,
     TRUSTED_CHECK_APP_ID,
@@ -21,6 +25,7 @@ from creator_os_core.runtime_promotion import (
     TRUSTED_CHECK_WORKFLOWS,
     RuntimePromotionError,
     _promote_runtime,
+    _promoted_subprocess_environment,
     _rollback_instructions,
     _runtime_lock_target,
     _validate_runtime_promotion_receipt_payload,
@@ -922,21 +927,162 @@ def test_incomplete_all_pass_health_inventory_rolls_back(repositories) -> None:
 def test_promoted_commands_receive_only_allowlisted_environment(
     repositories, monkeypatch
 ) -> None:
+    source, _runtime, *_rest = repositories
+    source_venv_bin = source / ".venv" / "bin"
+    source_venv_bin.mkdir(parents=True)
+    inherited_path = os.environ["PATH"]
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join((str(source_venv_bin), inherited_path)),
+    )
     monkeypatch.setenv("SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN", "sensitive")
-    monkeypatch.setenv("VIRTUAL_ENV", "/tmp/source-worktree-venv")
+    monkeypatch.setenv("VIRTUAL_ENV", str(source / ".venv"))
     verifier = (
         sys.executable,
         "-c",
         (
-            "import os; "
+            "import os, shutil; "
             "blocked={'CREATOR_OS_EVIDENCE_AUTH_SECRET',"
             "'SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN','VIRTUAL_ENV'}; "
             "raise SystemExit(0 if blocked.isdisjoint(os.environ) "
-            "and os.environ.get('PATH') else 9)"
+            f"and {str(source_venv_bin)!r} not in os.environ.get('PATH','') "
+            "and all(shutil.which(tool) for tool in "
+            f"{PROMOTED_REQUIRED_EXECUTABLES!r}) else 9)"
         ),
     )
     receipt = _promote(repositories, verifier=verifier)
     assert receipt["status"] == "promoted"
+
+
+def test_promoted_environment_preserves_unrelated_node_and_system_paths(
+    tmp_path: Path,
+) -> None:
+    def executable(path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    source = tmp_path / "source"
+    source_venv_bin = source / ".venv" / "bin"
+    source_venv_bin.mkdir(parents=True)
+    source_venv_alias = tmp_path / "source-venv-alias"
+    source_venv_alias.symlink_to(source_venv_bin, target_is_directory=True)
+    source_named_venv_bin = source / "venv" / "bin"
+    source_tools_bin = source / "tools" / "bin"
+    activated_venv_bin = tmp_path / "activated-source-venv" / "bin"
+    node_24_bin = tmp_path / "node-24" / "bin"
+    node_modules_bin = tmp_path / "node_modules" / ".bin"
+    unrelated_bin = tmp_path / "unrelated-tools" / "bin"
+    system_bin = tmp_path / "system" / "bin"
+    for name in ("node", "pnpm"):
+        executable(node_24_bin / name)
+    for name in ("git", "make", "python3", "uv"):
+        executable(system_bin / name)
+    original_path = os.pathsep.join(
+        (
+            str(source_venv_bin),
+            str(source_venv_alias),
+            str(source_named_venv_bin),
+            str(source_tools_bin),
+            str(node_24_bin),
+            str(activated_venv_bin),
+            str(node_modules_bin),
+            "relative/bin",
+            str(unrelated_bin),
+            str(node_24_bin),
+            str(system_bin),
+        )
+    )
+
+    environment = _promoted_subprocess_environment(
+        source_root=source,
+        environ={
+            "CONDA_PREFIX": str(tmp_path / "conda"),
+            "PATH": original_path,
+            "PIPENV_ACTIVE": "1",
+            "PYTHONHOME": str(source / ".venv"),
+            "PYTHONPATH": str(source),
+            "UV_PROJECT_ENVIRONMENT": str(tmp_path / "uv-environment"),
+            "VIRTUAL_ENV": str(activated_venv_bin.parent),
+        },
+    )
+
+    assert PROMOTED_ENV_BLOCKLIST.isdisjoint(environment)
+    assert environment["PATH"].split(os.pathsep) == [
+        str(node_24_bin),
+        str(unrelated_bin),
+        str(system_bin),
+    ]
+    assert all(
+        shutil.which(executable_name, path=environment["PATH"])
+        for executable_name in PROMOTED_REQUIRED_EXECUTABLES
+    )
+
+
+def test_promoted_environment_fails_closed_when_required_tool_is_missing(
+    tmp_path: Path,
+) -> None:
+    tools = tmp_path / "tools"
+    for name in set(PROMOTED_REQUIRED_EXECUTABLES) - {"pnpm"}:
+        path = tools / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="runtime_promotion_required_executable_missing:pnpm",
+    ):
+        _promoted_subprocess_environment(
+            source_root=tmp_path / "source",
+            environ={"PATH": str(tools)},
+        )
+
+
+def test_promoted_environment_rejects_required_tool_symlinked_into_source(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source_tools = source / "tools" / "bin"
+    clean_tools = tmp_path / "clean-tools"
+    source_tools.mkdir(parents=True)
+    clean_tools.mkdir()
+    for name in PROMOTED_REQUIRED_EXECUTABLES:
+        path = source_tools / name if name == "node" else clean_tools / name
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+    (clean_tools / "node").symlink_to(source_tools / "node")
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="runtime_promotion_required_executable_unsafe:node",
+    ):
+        _promoted_subprocess_environment(
+            source_root=source,
+            environ={"PATH": str(clean_tools)},
+        )
+
+
+def test_promoted_environment_is_validated_before_runtime_mutation(
+    repositories, monkeypatch
+) -> None:
+    _source, runtime, first, *_rest = repositories
+
+    def reject_environment(*, source_root, environ=None):
+        raise RuntimePromotionError("runtime_promotion_required_executable_missing:uv")
+
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._promoted_subprocess_environment",
+        reject_environment,
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="runtime_promotion_required_executable_missing:uv",
+    ):
+        _promote(repositories)
+
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
 
 
 def test_runtime_must_start_detached(repositories) -> None:
