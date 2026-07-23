@@ -277,47 +277,56 @@ def arena_analyzer_registry(
 
     if contentforge_registry.get("schema") != "creator_os.analyzer_registry.v1":
         raise ValueError("arena_contentforge_registry_schema_mismatch")
-    base_id = _required_text(
-        contentforge_registry.get("registryId"), "contentforge_registry_id"
-    )
+    _required_text(contentforge_registry.get("registryId"), "contentforge_registry_id")
     raw_registrations = contentforge_registry.get("analyzers")
     if not isinstance(raw_registrations, list) or not raw_registrations:
         raise ValueError("arena_contentforge_registry_empty")
     registrations = [dict(registration) for registration in raw_registrations]
-    registrations.extend(
-        (
-            _implementation_registration(
-                analyzer_id=IDENTITY_ANALYZER[0],
-                analyzer_version=IDENTITY_ANALYZER[1],
-                evidence_kinds=(
-                    "creator_identity_similarity",
-                    "face_stability",
-                    "identity_qc_receipt",
-                ),
-                implementation_ref=(
-                    "python_packages/reel_factory/reel_factory/identity_verification.py"
-                ),
-                repository_root=repository_root,
+    fixed_registrations = (
+        _implementation_registration(
+            analyzer_id=IDENTITY_ANALYZER[0],
+            analyzer_version=IDENTITY_ANALYZER[1],
+            evidence_kinds=(
+                "creator_identity_similarity",
+                "face_stability",
+                "identity_qc_receipt",
             ),
-            _implementation_registration(
-                analyzer_id=HUMAN_ANALYZER[0],
-                analyzer_version=HUMAN_ANALYZER[1],
-                evidence_kinds=(
-                    "realism_rating",
-                    "attractiveness_rating",
-                    "creator_resemblance_rating",
-                    "motion_naturalness_rating",
-                    "anatomy_rating",
-                    "conversion_usefulness_rating",
-                    "human_review_qc_receipt",
-                ),
-                implementation_ref=(
-                    "python_packages/reel_factory/reel_factory/human_media_review.py"
-                ),
-                repository_root=repository_root,
+            implementation_ref=(
+                "python_packages/reel_factory/reel_factory/identity_verification.py"
             ),
-        )
+            repository_root=repository_root,
+        ),
+        _implementation_registration(
+            analyzer_id=HUMAN_ANALYZER[0],
+            analyzer_version=HUMAN_ANALYZER[1],
+            evidence_kinds=("human_media_review",),
+            implementation_ref=(
+                "python_packages/reel_factory/reel_factory/human_media_review.py"
+            ),
+            repository_root=repository_root,
+        ),
     )
+    by_identity = {
+        (str(item.get("analyzerId")), str(item.get("analyzerVersion"))): item
+        for item in registrations
+    }
+    if len(by_identity) != len(registrations):
+        raise LocalQueueError("arena_analyzer_registry_duplicate_identity")
+    for fixed in fixed_registrations:
+        identity = (
+            str(fixed["analyzerId"]),
+            str(fixed["analyzerVersion"]),
+        )
+        existing = by_identity.get(identity)
+        if existing is not None:
+            if existing != fixed:
+                raise LocalQueueError(
+                    "arena_analyzer_registration_drift:"
+                    + f"{identity[0]}@{identity[1]}"
+                )
+            continue
+        registrations.append(fixed)
+        by_identity[identity] = fixed
     registrations.sort(
         key=lambda item: (str(item["analyzerId"]), str(item["analyzerVersion"]))
     )
@@ -337,17 +346,10 @@ def arena_analyzer_registry(
             "producedAt": produced_at,
             "sourceReferences": [
                 {
-                    "recordId": base_id,
-                    "fingerprint": fingerprint(contentforge_registry),
-                },
-                *[
-                    {
-                        "recordId": (f"{item['analyzerId']}@{item['analyzerVersion']}"),
-                        "fingerprint": item["implementationFingerprint"],
-                    }
-                    for item in registrations
-                    if str(item["analyzerId"]).startswith("reel_factory.")
-                ],
+                    "recordId": f"{item['analyzerId']}@{item['analyzerVersion']}",
+                    "fingerprint": item["implementationFingerprint"],
+                }
+                for item in registrations
             ],
         },
     }

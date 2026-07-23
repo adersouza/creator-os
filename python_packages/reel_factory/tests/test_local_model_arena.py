@@ -267,6 +267,85 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
     )
 
 
+def test_arena_registry_merges_existing_human_analyzer_and_preserves_exact_provenance() -> (
+    None
+):
+    repository_root = Path(__file__).resolve().parents[3]
+    human_implementation = (
+        repository_root
+        / "python_packages/reel_factory/reel_factory/human_media_review.py"
+    )
+    base = _base_registry(repository_root)
+    base["analyzers"].append(
+        {
+            "analyzerId": "reel_factory.structured_human_media_review",
+            "analyzerVersion": "1.0.0",
+            "evidenceKinds": ["human_media_review"],
+            "implementationRef": str(human_implementation.relative_to(repository_root)),
+            "implementationFingerprint": sha256_file(human_implementation),
+        }
+    )
+
+    registry = arena_analyzer_registry(
+        base,
+        produced_at=PRODUCED_AT,
+        repository_root=repository_root,
+    )
+
+    identities = [
+        (item["analyzerId"], item["analyzerVersion"]) for item in registry["analyzers"]
+    ]
+    assert len(identities) == len(set(identities))
+    [human] = [
+        item
+        for item in registry["analyzers"]
+        if item["analyzerId"] == "reel_factory.structured_human_media_review"
+    ]
+    assert human["evidenceKinds"] == ["human_media_review"]
+    references = {
+        item["recordId"]: item["fingerprint"]
+        for item in registry["provenance"]["sourceReferences"]
+    }
+    assert len(references) == len(registry["analyzers"])
+    assert references == {
+        f"{item['analyzerId']}@{item['analyzerVersion']}": item[
+            "implementationFingerprint"
+        ]
+        for item in registry["analyzers"]
+    }
+
+
+def test_arena_registry_rejects_existing_human_analyzer_semantic_drift() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    human_implementation = (
+        repository_root
+        / "python_packages/reel_factory/reel_factory/human_media_review.py"
+    )
+    base = _base_registry(repository_root)
+    base["analyzers"].append(
+        {
+            "analyzerId": "reel_factory.structured_human_media_review",
+            "analyzerVersion": "1.0.0",
+            "evidenceKinds": ["self_asserted_rating"],
+            "implementationRef": str(human_implementation.relative_to(repository_root)),
+            "implementationFingerprint": sha256_file(human_implementation),
+        }
+    )
+
+    with pytest.raises(
+        LocalQueueError,
+        match=(
+            "arena_analyzer_registration_drift:"
+            "reel_factory.structured_human_media_review@1.0.0"
+        ),
+    ):
+        arena_analyzer_registry(
+            base,
+            produced_at=PRODUCED_AT,
+            repository_root=repository_root,
+        )
+
+
 def _build(
     monkeypatch,
     tmp_path: Path,
