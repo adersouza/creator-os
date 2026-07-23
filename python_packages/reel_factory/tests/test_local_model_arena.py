@@ -48,6 +48,8 @@ from reel_factory.local_model_arena import (
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
 from reel_factory.local_video_models import local_video_model_spec
 
+from pipeline_contracts import ContractValidationError
+
 PRODUCED_AT = "2026-07-22T12:00:00Z"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -170,6 +172,37 @@ def _policy() -> dict:
         "schema": "creator_os.execution_policy.v1",
         "policyId": "local-arena-test",
         "paidProvidersAllowed": False,
+        "productionWritesAllowed": False,
+    }
+
+
+def _umt5_behavior() -> dict:
+    return {
+        "schema": "reel_factory.umt5_tokenizer_behavior.v1",
+        "dependencyId": "wan_umt5_tokenizer",
+        "repository": "google/umt5-xxl",
+        "revision": "fixture-revision",
+        "tokenizerClass": "T5Tokenizer",
+        "isFast": True,
+        "fixMistralRegex": None,
+        "preTokenizer": "fixture-pre-tokenizer",
+        "probeCorpusSha256": "5" * 64,
+        "tokenIdsSha256": "6" * 64,
+        "aliasMatchesSnapshot": True,
+        "behaviorFingerprint": "7" * 64,
+        "snapshotPath": "/fixture/models/umt5/snapshot",
+        "dependencyReceiptSha256": "8" * 64,
+        "runtimeReferencePath": "/fixture/models/umt5/refs/main",
+        "runtimeReferenceSha256": "9" * 64,
+        "probeScriptSha256": "a" * 64,
+        "isolation": {
+            "sandboxExecutable": "/usr/bin/sandbox-exec",
+            "sandboxExecutableSha256": "b" * 64,
+            "profileFingerprint": "d" * 64,
+            "networkDenied": True,
+            "writesDenied": True,
+        },
+        "providerCalls": 0,
         "productionWritesAllowed": False,
     }
 
@@ -395,6 +428,12 @@ def _build(
             "ffprobeSize": 1024,
             "ffprobeVersion": "ffprobe version fixture",
         }
+        if local_video_model_spec(model_id).family == "wan_2":
+            behavior = _umt5_behavior()
+            runtime_binding["umt5TokenizerBehavior"] = behavior
+            runtime_binding["umt5TokenizerBehaviorFingerprint"] = behavior[
+                "behaviorFingerprint"
+            ]
         model_core = {
             **deep_core,
             "modelId": model_id,
@@ -808,6 +847,53 @@ def test_arena_plan_freezes_exact_queue_and_evidence(
     assert sample["queueJobFingerprint"] == fingerprint(sample["queueJob"])
     assert validated["providerCalls"] == 0
     assert validated["productionWritesAllowed"] is False
+
+
+def test_a14b_arena_plan_accepts_exact_umt5_semantic_binding(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe A14B source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, model_id="local_wan22_i2v_a14b_q4_mlx")],
+    )
+
+    [sample] = validate_arena_plan(plan)["samples"]
+    behavior = sample["runtimeBinding"]["umt5TokenizerBehavior"]
+
+    assert behavior == _umt5_behavior()
+    assert (
+        sample["runtimeBinding"]["umt5TokenizerBehaviorFingerprint"]
+        == behavior["behaviorFingerprint"]
+    )
+    assert sample["queueJob"]["runtimeBinding"] == sample["runtimeBinding"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda binding: binding.pop("umt5TokenizerBehaviorFingerprint"),
+        lambda binding: binding["umt5TokenizerBehavior"].update(
+            {"aliasMatchesSnapshot": False}
+        ),
+    ],
+)
+def test_a14b_arena_plan_rejects_incomplete_or_failed_umt5_semantic_binding(
+    monkeypatch, tmp_path: Path, mutate
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe A14B source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, model_id="local_wan22_i2v_a14b_q4_mlx")],
+    )
+    mutate(plan["samples"][0]["runtimeBinding"])
+
+    with pytest.raises(ContractValidationError):
+        validate_arena_plan(plan)
 
 
 def test_record_builder_uses_reviewed_facts_and_exact_source_hash(

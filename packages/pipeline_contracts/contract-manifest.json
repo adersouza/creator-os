@@ -47,11 +47,11 @@
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.example.json": "7dce2362cf7107b39124360ff30a28f8dcab03377957ba8ec4882c6ada3b1d9e",
     "pipeline_contracts/schemas/kling_3_video_prompt.v1.schema.json": "0b8620e0130ee0c27bcb8461221f3886ac58b2b2b4959980f179a530c63809fd",
     "pipeline_contracts/schemas/learning_cohort.v1.schema.json": "33ee26318aebab2e5d35246d9db0969b99d45d7c237fe7c017daa41ea715485a",
-    "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "515952f6db1c91ab412e623a0f98f58a48ad30317cf853259f13f0df2d328e98",
+    "pipeline_contracts/schemas/local_model_arena_plan.v1.schema.json": "483345aba39412d63d3ec337386d2edf3f5d2d0a4d36bcbb30b49dbffaaae8a7",
     "pipeline_contracts/schemas/local_model_arena_review_packet.v1.schema.json": "55b33e7b62122bce7f64ebe07225de1eba5192becfb79a363e176f198b3ffe5f",
     "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "7d8e9a7c28c01c3dc2bf2cb862e8543d5de0b86d3d3a20ed148bb861813d28fc",
     "pipeline_contracts/schemas/local_model_arena_unblinding_receipt.v1.schema.json": "0b88a97cd99bf88bd647fa9d65f69c421be8d91415aca5da87a2c5ed599a7373",
-    "pipeline_contracts/schemas/local_model_router_decision.v1.schema.json": "1347dca3bf9bec1ada45001286177a0cbf42cc2866fb58639050eedeca760145",
+    "pipeline_contracts/schemas/local_model_router_decision.v1.schema.json": "7746dbc15d8bd5c83da7962a0dde66454dff74d049a440a0da0ec4dbdc4c1520",
     "pipeline_contracts/schemas/motion_edit_render.v1.example.json": "6cb05a01ca512f9a65c526993be108a5b8cd2b626b6e399aaca17546dc76512f",
     "pipeline_contracts/schemas/motion_edit_render.v1.schema.json": "e7f0d58dbb92675130cc30a0e240608f64ba412edc5c144936640c3760ceb59a",
     "pipeline_contracts/schemas/motion_specific_qc_receipt.v2.schema.json": "3e343bbccd69874fd89531fdd3ade08ccc08bb6c262029fa866c2feb12f0ec3d",
@@ -90,7 +90,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "c8b9d238558b737bb42ca51fe5e931b2ac8d464e93379cd4bbf7379c842c6bb5",
+    "typescript/generated-schemas.ts": "8e51ddc6de1a2a9106b70767ee9bd49cf6326335bc4d717567d3294868e398a3",
     "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }

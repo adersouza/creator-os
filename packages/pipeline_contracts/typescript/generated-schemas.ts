@@ -5557,6 +5557,126 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      }
 	    },
+	    "umt5TokenizerBehavior": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "dependencyId",
+	        "repository",
+	        "revision",
+	        "tokenizerClass",
+	        "isFast",
+	        "fixMistralRegex",
+	        "preTokenizer",
+	        "probeCorpusSha256",
+	        "tokenIdsSha256",
+	        "aliasMatchesSnapshot",
+	        "behaviorFingerprint",
+	        "snapshotPath",
+	        "dependencyReceiptSha256",
+	        "runtimeReferencePath",
+	        "runtimeReferenceSha256",
+	        "probeScriptSha256",
+	        "isolation",
+	        "providerCalls",
+	        "productionWritesAllowed"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "reel_factory.umt5_tokenizer_behavior.v1"
+	        },
+	        "dependencyId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "repository": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "revision": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "tokenizerClass": {
+	          "const": "T5Tokenizer"
+	        },
+	        "isFast": {
+	          "const": true
+	        },
+	        "fixMistralRegex": {
+	          "type": "null"
+	        },
+	        "preTokenizer": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "probeCorpusSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "tokenIdsSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "aliasMatchesSnapshot": {
+	          "const": true
+	        },
+	        "behaviorFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "snapshotPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "dependencyReceiptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "runtimeReferencePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "runtimeReferenceSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "probeScriptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "isolation": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "sandboxExecutable",
+	            "sandboxExecutableSha256",
+	            "profileFingerprint",
+	            "networkDenied",
+	            "writesDenied"
+	          ],
+	          "properties": {
+	            "sandboxExecutable": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "sandboxExecutableSha256": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "profileFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "networkDenied": {
+	              "const": true
+	            },
+	            "writesDenied": {
+	              "const": true
+	            }
+	          }
+	        },
+	        "providerCalls": {
+	          "const": 0
+	        },
+	        "productionWritesAllowed": {
+	          "const": false
+	        }
+	      }
+	    },
 	    "runtimeBinding": {
 	      "type": "object",
 	      "additionalProperties": false,
@@ -5583,6 +5703,14 @@ export const generatedPipelineContractSchemas = {
 	        "ffprobeSize",
 	        "ffprobeVersion"
 	      ],
+	      "dependentRequired": {
+	        "umt5TokenizerBehavior": [
+	          "umt5TokenizerBehaviorFingerprint"
+	        ],
+	        "umt5TokenizerBehaviorFingerprint": [
+	          "umt5TokenizerBehavior"
+	        ]
+	      },
 	      "properties": {
 	        "runtimeId": {
 	          "type": "string",
@@ -5663,6 +5791,12 @@ export const generatedPipelineContractSchemas = {
 	        "ffprobeVersion": {
 	          "type": "string",
 	          "minLength": 1
+	        },
+	        "umt5TokenizerBehavior": {
+	          "$ref": "#/$defs/umt5TokenizerBehavior"
+	        },
+	        "umt5TokenizerBehaviorFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    },
@@ -7425,6 +7559,126 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      ]
 	    },
+	    "umt5TokenizerBehavior": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "dependencyId",
+	        "repository",
+	        "revision",
+	        "tokenizerClass",
+	        "isFast",
+	        "fixMistralRegex",
+	        "preTokenizer",
+	        "probeCorpusSha256",
+	        "tokenIdsSha256",
+	        "aliasMatchesSnapshot",
+	        "behaviorFingerprint",
+	        "snapshotPath",
+	        "dependencyReceiptSha256",
+	        "runtimeReferencePath",
+	        "runtimeReferenceSha256",
+	        "probeScriptSha256",
+	        "isolation",
+	        "providerCalls",
+	        "productionWritesAllowed"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "reel_factory.umt5_tokenizer_behavior.v1"
+	        },
+	        "dependencyId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "repository": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "revision": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "tokenizerClass": {
+	          "const": "T5Tokenizer"
+	        },
+	        "isFast": {
+	          "const": true
+	        },
+	        "fixMistralRegex": {
+	          "type": "null"
+	        },
+	        "preTokenizer": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "probeCorpusSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "tokenIdsSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "aliasMatchesSnapshot": {
+	          "const": true
+	        },
+	        "behaviorFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "snapshotPath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "dependencyReceiptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "runtimeReferencePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "runtimeReferenceSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "probeScriptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "isolation": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "sandboxExecutable",
+	            "sandboxExecutableSha256",
+	            "profileFingerprint",
+	            "networkDenied",
+	            "writesDenied"
+	          ],
+	          "properties": {
+	            "sandboxExecutable": {
+	              "type": "string",
+	              "minLength": 1
+	            },
+	            "sandboxExecutableSha256": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "profileFingerprint": {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            "networkDenied": {
+	              "const": true
+	            },
+	            "writesDenied": {
+	              "const": true
+	            }
+	          }
+	        },
+	        "providerCalls": {
+	          "const": 0
+	        },
+	        "productionWritesAllowed": {
+	          "const": false
+	        }
+	      }
+	    },
 	    "runtimeBinding": {
 	      "type": "object",
 	      "additionalProperties": false,
@@ -7451,6 +7705,14 @@ export const generatedPipelineContractSchemas = {
 	        "ffprobeSize",
 	        "ffprobeVersion"
 	      ],
+	      "dependentRequired": {
+	        "umt5TokenizerBehavior": [
+	          "umt5TokenizerBehaviorFingerprint"
+	        ],
+	        "umt5TokenizerBehaviorFingerprint": [
+	          "umt5TokenizerBehavior"
+	        ]
+	      },
 	      "properties": {
 	        "runtimeId": {
 	          "type": "string",
@@ -7531,6 +7793,12 @@ export const generatedPipelineContractSchemas = {
 	        "ffprobeVersion": {
 	          "type": "string",
 	          "minLength": 1
+	        },
+	        "umt5TokenizerBehavior": {
+	          "$ref": "#/$defs/umt5TokenizerBehavior"
+	        },
+	        "umt5TokenizerBehaviorFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    },
