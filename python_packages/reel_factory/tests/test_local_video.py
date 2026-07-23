@@ -19,9 +19,15 @@ from reel_factory.local_generation_queue import (
 )
 from reel_factory.local_lora_registry import register_local_lora
 from reel_factory.local_video import (
+    _SANDBOX_ALLOWED_WRITE_PROBE,
+    _SANDBOX_DENIAL_PROBE,
     LocalVideoRequest,
     LocalVideoUnavailable,
+    _isolated_execution,
+    _preflight_allowed_sandbox_write,
+    _preflight_sandbox_execution,
     _run_generation_process,
+    _tool_evidence_for_path,
     _validate_campaign_admission,
     build_local_video_command,
     plan_local_video_job,
@@ -33,6 +39,16 @@ RUNTIME_BINDING = {
     "runtimeId": "fixture-runtime",
     "repository": "fixture/runtime",
     "revision": "runtime-revision",
+    "pythonExecutable": sys.executable,
+    "pythonExecutableResolved": str(Path(sys.executable).resolve()),
+    "ffmpegExecutable": "/fixture/bin/ffmpeg",
+    "ffmpegSha256": "3" * 64,
+    "ffmpegSize": 123,
+    "ffmpegVersion": "ffmpeg version fixture",
+    "ffprobeExecutable": "/fixture/bin/ffprobe",
+    "ffprobeSha256": "4" * 64,
+    "ffprobeSize": 456,
+    "ffprobeVersion": "ffprobe version fixture",
 }
 RUNTIME_FINGERPRINT = fingerprint(RUNTIME_BINDING)
 LICENSE_POLICY = {
@@ -50,10 +66,82 @@ LICENSE_FINGERPRINT = fingerprint(LICENSE_POLICY)
 def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("reel_factory.local_video.platform.system", lambda: "Darwin")
     monkeypatch.setattr(
+        "reel_factory.local_video._sandbox_executable",
+        lambda: Path("/usr/bin/sandbox-exec"),
+    )
+
+    def stable_isolation_preflight(**kwargs: object) -> dict[str, object]:
+        python = Path(str(kwargs["python_executable"]))
+        control_profile = "(version 1)\n(allow default)"
+        return {
+            "schema": "reel_factory.local_sandbox_preflight.v1",
+            "enforcementBinary": "/usr/bin/sandbox-exec",
+            "capabilityProbeExecutable": str(python),
+            "capabilityProbeExecutableResolved": str(python.resolve()),
+            "capabilityProbeFingerprint": fingerprint(
+                {"implementation": _SANDBOX_DENIAL_PROBE}
+            ),
+            "timeoutSeconds": 5,
+            "controlProfileFingerprint": fingerprint({"profile": control_profile}),
+            "controlProbeReturnCode": 15,
+            "denialProbeReturnCode": 0,
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "executionSucceeded": True,
+            "unscopedWriteDenied": True,
+            "tcpBindDenied": True,
+            "udpConnectDenied": True,
+            "tcpConnectDenied": True,
+            "temporaryControlWritesExpected": 1,
+            "temporaryControlWritesCleaned": True,
+            "residualArtifactWrites": 0,
+        }
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_sandbox_execution",
+        stable_isolation_preflight,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_allowed_sandbox_write",
+        lambda **kwargs: {
+            "schema": "reel_factory.local_sandbox_allowed_write_preflight.v1",
+            "capabilityProbeExecutable": str(kwargs["python_executable"]),
+            "capabilityProbeFingerprint": fingerprint(
+                {"implementation": _SANDBOX_ALLOWED_WRITE_PROBE}
+            ),
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "createSucceeded": True,
+            "fsyncSucceeded": True,
+            "deleteSucceeded": True,
+            "residualArtifacts": 0,
+        },
+    )
+    monkeypatch.setattr(
         "reel_factory.local_video.shutil.which",
-        lambda executable: (
-            "/usr/bin/sandbox-exec" if executable == "sandbox-exec" else None
-        ),
+        lambda executable, **_kwargs: {
+            "ffmpeg": "/fixture/bin/ffmpeg",
+            "ffprobe": "/fixture/bin/ffprobe",
+        }.get(executable),
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._tool_evidence_for_path",
+        lambda path, **_kwargs: {
+            "executable": str(path),
+            "sha256": (
+                RUNTIME_BINDING["ffmpegSha256"]
+                if path.name == "ffmpeg"
+                else RUNTIME_BINDING["ffprobeSha256"]
+            ),
+            "size": (
+                RUNTIME_BINDING["ffmpegSize"]
+                if path.name == "ffmpeg"
+                else RUNTIME_BINDING["ffprobeSize"]
+            ),
+            "version": (
+                RUNTIME_BINDING["ffmpegVersion"]
+                if path.name == "ffmpeg"
+                else RUNTIME_BINDING["ffprobeVersion"]
+            ),
+        },
     )
     monkeypatch.setattr(
         "reel_factory.local_generation_queue._physical_memory_bytes",
@@ -70,6 +158,15 @@ def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "reel_factory.local_video.model_status",
         lambda model_id, **_kwargs: _model_status(model_id),
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video.runtime_status",
+        lambda **_kwargs: {
+            "ready": True,
+            "issues": [],
+            "python": sys.executable,
+            "runtimeDir": "/fixture/runtime",
+        },
     )
 
 
@@ -307,6 +404,688 @@ def _rebind_arena_source(
             "bindingFingerprint": fingerprint(core),
         },
     )
+
+
+def _uv_ephemeral_path(identifier: str) -> str:
+    cache = Path.home() / ".cache" / "uv"
+    return os.pathsep.join(
+        (
+            str(cache / "builds-v0" / f".tmp{identifier}" / "bin"),
+            str(cache / "archive-v0" / "stable-environment" / "bin"),
+            "/fixture/bin",
+            "/usr/bin",
+            "/bin",
+        )
+    )
+
+
+def test_arena_plan_job_is_stable_across_uv_ephemeral_path_prefixes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    monkeypatch.setenv("UV_CACHE_DIR", str(Path.home() / ".cache/uv"))
+    monkeypatch.setenv("PATH", _uv_ephemeral_path("planner"))
+    planned = plan_local_video_job(request)
+
+    monkeypatch.setenv("PATH", _uv_ephemeral_path("apply"))
+    applied = plan_local_video_job(request)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            (
+                str(Path.home() / ".cache/uv/archive-v0/stable-environment/bin"),
+                "/fixture/bin",
+                "/usr/bin",
+                "/bin",
+            )
+        ),
+    )
+    applied_without_uv_build = plan_local_video_job(request)
+
+    assert applied == planned
+    assert applied_without_uv_build == planned
+    assert applied.job_id == planned.job_id
+    assert applied.params_fingerprint == planned.params_fingerprint
+    assert applied.task_fingerprint == planned.task_fingerprint
+
+
+def test_meaningful_path_drift_changes_exact_job_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    monkeypatch.setenv("UV_CACHE_DIR", str(Path.home() / ".cache/uv"))
+    monkeypatch.setenv("PATH", _uv_ephemeral_path("planner"))
+    planned = plan_local_video_job(request)
+
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            (
+                str(Path.home() / ".cache/uv/builds-v0/.tmpapply/bin"),
+                str(Path.home() / ".cache/uv/archive-v0/stable-environment/bin"),
+                "/tmp/unreviewed-toolchain/bin",
+                "/fixture/bin",
+                "/usr/bin",
+                "/bin",
+            )
+        ),
+    )
+    drifted = plan_local_video_job(request)
+
+    assert drifted.job_id != planned.job_id
+    assert drifted.params_fingerprint != planned.params_fingerprint
+    assert drifted.task_fingerprint != planned.task_fingerprint
+
+
+def test_uv_path_normalization_preserves_executed_environment_and_policy_evidence(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    first_path = _uv_ephemeral_path("planner")
+    second_path = _uv_ephemeral_path("apply")
+    first_command, first_environment, first_isolation = _isolated_execution(
+        request,
+        output=request.output_path.resolve(),
+        base_command=[sys.executable, "/fixture/generate.py"],
+        environ={
+            "PATH": first_path,
+            "LANG": "C.UTF-8",
+            "OPENAI_API_KEY": "must-stay-stripped",
+        },
+    )
+    second_command, second_environment, second_isolation = _isolated_execution(
+        request,
+        output=request.output_path.resolve(),
+        base_command=[sys.executable, "/fixture/generate.py"],
+        environ={
+            "PATH": second_path,
+            "LANG": "C.UTF-8",
+            "OPENAI_API_KEY": "must-stay-stripped",
+        },
+    )
+
+    expected_path = os.pathsep.join(
+        (
+            str(Path.home() / ".cache/uv/archive-v0/stable-environment/bin"),
+            "/fixture/bin",
+            "/usr/bin",
+            "/bin",
+        )
+    )
+    assert first_environment["PATH"] == expected_path
+    assert second_environment["PATH"] == expected_path
+    assert "OPENAI_API_KEY" not in first_environment
+    assert "OPENAI_API_KEY" not in second_environment
+    assert "environmentObservation" not in first_isolation
+    assert "environmentObservation" not in second_isolation
+    assert first_isolation["environmentPathPolicy"] == (
+        "allowlisted_uv_build_temp_bins_removed_v1"
+    )
+    assert (
+        first_isolation["environmentFingerprint"]
+        == second_isolation["environmentFingerprint"]
+    )
+    assert (
+        first_isolation["isolationFingerprint"]
+        == second_isolation["isolationFingerprint"]
+    )
+    assert first_isolation["networkAccess"] == "denied"
+    assert first_isolation["writeAccess"] == "explicit_artifacts_only"
+    assert first_isolation["providerActivity"]["callsObserved"] == 0
+    assert (
+        first_isolation["providerActivity"]["successfulDirectSocketCallsPossible"]
+        is False
+    )
+    assert first_isolation["providerActivity"]["measurementScope"] == (
+        "successful_direct_socket_provider_calls"
+    )
+    assert "(allow default)" in first_command[2]
+    assert "(deny network*)" in first_command[2]
+    assert "(deny file-write*" in first_command[2]
+    assert "system.sb" not in first_command[2]
+    assert first_command[4] == RUNTIME_BINDING["pythonExecutable"]
+    assert first_command == second_command
+
+
+def test_uv_path_normalization_respects_configured_cache_root(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    uv_cache = tmp_path / "configured-uv-cache"
+    stable_bin = uv_cache / "archive-v0" / "stable-environment" / "bin"
+    _, environment, _ = _isolated_execution(
+        request,
+        output=request.output_path.resolve(),
+        base_command=[sys.executable, "/fixture/generate.py"],
+        environ={
+            "PATH": os.pathsep.join(
+                (
+                    str(uv_cache / "builds-v0" / ".tmpplanner" / "bin"),
+                    str(stable_bin),
+                    "/fixture/bin",
+                    "/usr/bin",
+                    "/bin",
+                )
+            ),
+            "UV_CACHE_DIR": str(uv_cache),
+        },
+    )
+
+    assert environment["PATH"] == os.pathsep.join(
+        (str(stable_bin), "/fixture/bin", "/usr/bin", "/bin")
+    )
+
+
+def test_sandbox_preflight_proves_control_and_restrictive_capabilities(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    control_profile = "(version 1)\n(allow default)"
+
+    def successful_runner(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, dict(kwargs)))
+        if command[2] == control_profile:
+            Path(command[-1]).write_bytes(b"control")
+            return subprocess.CompletedProcess(command, 15, stdout="", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    forbidden = tmp_path / "forbidden-write.tmp"
+    evidence = _preflight_sandbox_execution(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile=("(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)"),
+        python_executable=Path(sys.executable),
+        forbidden_write_path=forbidden,
+        runner=successful_runner,
+    )
+
+    assert len(calls) == 2
+    control_command, control_kwargs = calls[0]
+    assert control_command[2] == control_profile
+    assert control_command[4:9] == [sys.executable, "-B", "-I", "-S", "-E"]
+    assert control_command[-1] == str(forbidden)
+    assert control_kwargs["timeout"] == 5
+    assert control_kwargs["env"] == {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    denial_command, denial_kwargs = calls[1]
+    assert "(deny network*)" in denial_command[2]
+    assert "(deny file-write*)" in denial_command[2]
+    assert denial_command[4:9] == [sys.executable, "-B", "-I", "-S", "-E"]
+    assert 'open(sys.argv[1], "xb")' in denial_command[-2]
+    assert 'tcp.bind(("127.0.0.1", 0))' in denial_command[-2]
+    assert 'udp.connect(("127.0.0.1", 9))' in denial_command[-2]
+    assert 'tcp_client.connect(("127.0.0.1", 9))' in denial_command[-2]
+    assert denial_kwargs == control_kwargs
+    assert evidence["controlProbeReturnCode"] == 15
+    assert evidence["denialProbeReturnCode"] == 0
+    assert evidence["executionSucceeded"] is True
+    assert evidence["unscopedWriteDenied"] is True
+    assert evidence["tcpBindDenied"] is True
+    assert evidence["udpConnectDenied"] is True
+    assert evidence["tcpConnectDenied"] is True
+    assert evidence["temporaryControlWritesCleaned"] is True
+    assert evidence["residualArtifactWrites"] == 0
+    assert evidence["capabilityProbeExecutable"] == sys.executable
+    assert not forbidden.exists()
+    assert "networkAccess" not in evidence
+    assert "writeAccess" not in evidence
+
+
+def test_sandbox_preflight_fails_closed_on_nonzero_control_exit(
+    tmp_path: Path,
+) -> None:
+    def rejected_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 71, stdout="", stderr="denied")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_isolation_control_preflight_failed:exit_71",
+    ):
+        _preflight_sandbox_execution(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile=(
+                "(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)"
+            ),
+            python_executable=Path(sys.executable),
+            forbidden_write_path=tmp_path / "forbidden-write.tmp",
+            runner=rejected_runner,
+        )
+
+
+@pytest.mark.parametrize("unexpected_mask", [1, 2, 4, 8, 15])
+def test_sandbox_preflight_fails_closed_when_any_denial_is_not_enforced(
+    tmp_path: Path,
+    unexpected_mask: int,
+) -> None:
+    calls = 0
+
+    def permissive_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            Path(command[-1]).write_bytes(b"control")
+        return subprocess.CompletedProcess(
+            command,
+            15 if calls == 1 else unexpected_mask,
+            stdout="",
+            stderr="",
+        )
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match=(f"local_video_isolation_denial_preflight_failed:exit_{unexpected_mask}"),
+    ):
+        _preflight_sandbox_execution(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)",
+            python_executable=Path(sys.executable),
+            forbidden_write_path=tmp_path / "forbidden-write.tmp",
+            runner=permissive_runner,
+        )
+
+
+def test_sandbox_preflight_rejects_outer_confinement_false_positive(
+    tmp_path: Path,
+) -> None:
+    def outer_confined_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_isolation_control_preflight_failed:exit_0",
+    ):
+        _preflight_sandbox_execution(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)",
+            python_executable=Path(sys.executable),
+            forbidden_write_path=tmp_path / "forbidden-write.tmp",
+            runner=outer_confined_runner,
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (
+            subprocess.TimeoutExpired(["sandbox-exec"], 5),
+            "local_video_isolation_denial_preflight_failed:timeout",
+        ),
+        (
+            OSError("denial probe unavailable"),
+            "local_video_isolation_denial_preflight_failed:unavailable",
+        ),
+    ],
+)
+def test_sandbox_preflight_fails_closed_on_denial_probe_errors(
+    tmp_path: Path,
+    failure: BaseException,
+    expected: str,
+) -> None:
+    calls = 0
+
+    def failing_denial_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            Path(command[-1]).write_bytes(b"control")
+            return subprocess.CompletedProcess(command, 15, stdout="", stderr="")
+        raise failure
+
+    with pytest.raises(LocalVideoUnavailable, match=expected):
+        _preflight_sandbox_execution(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)",
+            python_executable=Path(sys.executable),
+            forbidden_write_path=tmp_path / "forbidden-write.tmp",
+            runner=failing_denial_runner,
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (
+            subprocess.TimeoutExpired(["sandbox-exec"], 5),
+            "local_video_isolation_control_preflight_failed:timeout",
+        ),
+        (
+            OSError("control probe unavailable after write"),
+            "local_video_isolation_control_preflight_failed:unavailable",
+        ),
+        (KeyboardInterrupt(), None),
+    ],
+)
+def test_sandbox_preflight_cleans_probe_when_runner_raises_after_write(
+    tmp_path: Path,
+    failure: BaseException,
+    expected: str | None,
+) -> None:
+    forbidden = tmp_path / "forbidden-write.tmp"
+
+    def failing_runner(
+        _command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        forbidden.write_bytes(b"probe residue")
+        raise failure
+
+    if expected is None:
+        with pytest.raises(KeyboardInterrupt):
+            _preflight_sandbox_execution(
+                sandbox_exec=Path("/usr/bin/sandbox-exec"),
+                profile=(
+                    "(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)"
+                ),
+                python_executable=Path(sys.executable),
+                forbidden_write_path=forbidden,
+                runner=failing_runner,
+            )
+    else:
+        with pytest.raises(LocalVideoUnavailable, match=expected):
+            _preflight_sandbox_execution(
+                sandbox_exec=Path("/usr/bin/sandbox-exec"),
+                profile=(
+                    "(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)"
+                ),
+                python_executable=Path(sys.executable),
+                forbidden_write_path=forbidden,
+                runner=failing_runner,
+            )
+
+    assert not forbidden.exists()
+    assert not forbidden.is_symlink()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS sandbox policy smoke")
+def test_real_macos_sandbox_preflight_proves_active_denials(tmp_path: Path) -> None:
+    evidence = _preflight_sandbox_execution(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile="(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)",
+        python_executable=Path(sys.executable),
+        forbidden_write_path=tmp_path / "forbidden-write.tmp",
+    )
+
+    assert evidence["controlProbeReturnCode"] == 15
+    assert evidence["denialProbeReturnCode"] == 0
+    assert evidence["tcpConnectDenied"] is True
+    assert not (tmp_path / "forbidden-write.tmp").exists()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS sandbox policy smoke")
+def test_real_macos_allowed_write_preflight_accepts_only_sandbox_root(
+    tmp_path: Path,
+) -> None:
+    sandbox_root = tmp_path / "sandbox-root"
+    sandbox_root.mkdir()
+    profile = "\n".join(
+        (
+            "(version 1)",
+            "(allow default)",
+            "(deny network*)",
+            "(deny file-write*",
+            "  (require-not",
+            f"    (subpath {json.dumps(str(sandbox_root))})",
+            "  )",
+            ")",
+        )
+    )
+
+    evidence = _preflight_allowed_sandbox_write(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile=profile,
+        python_executable=Path(sys.executable),
+        sandbox_root=sandbox_root,
+    )
+
+    assert "system.sb" not in profile
+    assert "(deny network*)" in profile
+    assert "(deny file-write*" in profile
+    assert evidence["createSucceeded"] is True
+    assert evidence["fsyncSucceeded"] is True
+    assert evidence["deleteSucceeded"] is True
+    assert evidence["residualArtifacts"] == 0
+    assert not list(sandbox_root.iterdir())
+
+
+def test_allowed_sandbox_write_preflight_creates_fsyncs_and_deletes(
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+
+    def successful_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        probe = Path(command[-1])
+        probe.write_bytes(b"temporary")
+        probe.unlink()
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    evidence = _preflight_allowed_sandbox_write(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile="(version 1)\n(allow default)",
+        python_executable=Path(sys.executable),
+        sandbox_root=tmp_path,
+        runner=successful_runner,
+    )
+
+    assert len(calls) == 1
+    assert evidence["createSucceeded"] is True
+    assert evidence["fsyncSucceeded"] is True
+    assert evidence["deleteSucceeded"] is True
+    assert evidence["residualArtifacts"] == 0
+    assert not list(tmp_path.glob(".allowed_write_probe_*"))
+
+
+def test_allowed_sandbox_write_preflight_cleans_and_fails_on_residue(
+    tmp_path: Path,
+) -> None:
+    def residue_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        Path(command[-1]).write_bytes(b"residue")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_isolation_allowed_write_preflight_failed:residual_artifact",
+    ):
+        _preflight_allowed_sandbox_write(
+            sandbox_exec=Path("/usr/bin/sandbox-exec"),
+            profile="(version 1)\n(allow default)",
+            python_executable=Path(sys.executable),
+            sandbox_root=tmp_path,
+            runner=residue_runner,
+        )
+    assert not list(tmp_path.glob(".allowed_write_probe_*"))
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (
+            subprocess.TimeoutExpired(["sandbox-exec"], 5),
+            "local_video_isolation_allowed_write_preflight_failed:timeout",
+        ),
+        (
+            OSError("allowed-write probe unavailable after write"),
+            "local_video_isolation_allowed_write_preflight_failed:unavailable",
+        ),
+        (KeyboardInterrupt(), None),
+    ],
+)
+def test_allowed_write_preflight_cleans_probe_when_runner_raises_after_write(
+    tmp_path: Path,
+    failure: BaseException,
+    expected: str | None,
+) -> None:
+    def failing_runner(
+        command: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        Path(command[-1]).write_bytes(b"probe residue")
+        raise failure
+
+    if expected is None:
+        with pytest.raises(KeyboardInterrupt):
+            _preflight_allowed_sandbox_write(
+                sandbox_exec=Path("/usr/bin/sandbox-exec"),
+                profile="(version 1)\n(allow default)",
+                python_executable=Path(sys.executable),
+                sandbox_root=tmp_path,
+                runner=failing_runner,
+            )
+    else:
+        with pytest.raises(LocalVideoUnavailable, match=expected):
+            _preflight_allowed_sandbox_write(
+                sandbox_exec=Path("/usr/bin/sandbox-exec"),
+                profile="(version 1)\n(allow default)",
+                python_executable=Path(sys.executable),
+                sandbox_root=tmp_path,
+                runner=failing_runner,
+            )
+
+    assert not list(tmp_path.glob(".allowed_write_probe_*"))
+
+
+def test_dropped_uv_build_bin_cannot_supply_missing_media_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    uv_bin = str(Path.home() / ".cache/uv/builds-v0/.tmpfake-tools/bin")
+
+    def only_dropped_prefix_has_tools(executable: str, *, path: str) -> str | None:
+        if uv_bin in path:
+            return f"{uv_bin}/{executable}"
+        return None
+
+    monkeypatch.setattr(
+        "reel_factory.local_video.shutil.which", only_dropped_prefix_has_tools
+    )
+    with pytest.raises(
+        LocalVideoUnavailable, match="local_video_ffmpeg_runtime_binding_mismatch"
+    ):
+        _isolated_execution(
+            request,
+            output=request.output_path.resolve(),
+            base_command=[sys.executable, "/fixture/generate.py"],
+            environ={"PATH": os.pathsep.join((uv_bin, "/usr/bin", "/bin"))},
+        )
+
+
+def test_isolation_rejects_same_path_media_tool_content_substitution(
+    tmp_path: Path,
+) -> None:
+    tool = tmp_path / "ffmpeg"
+    marker = tmp_path / "substituted-tool-was-invoked"
+    trusted_content = b"#!/bin/sh\nprintf 'ffmpeg version trusted\\n'\n"
+    tool.write_bytes(trusted_content)
+    tool.chmod(0o755)
+    trusted_evidence = {
+        "executable": str(tool.resolve()),
+        "sha256": hashlib.sha256(trusted_content).hexdigest(),
+        "size": len(trusted_content),
+        "version": "ffmpeg version trusted",
+    }
+    substituted_content = (
+        f"#!/bin/sh\ntouch {str(marker)!r}\nprintf 'ffmpeg version trusted\\n'\n"
+    ).encode()
+    tool.write_bytes(substituted_content)
+    tool.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match="runtime_tool_content_mismatch"):
+        _tool_evidence_for_path(
+            tool,
+            expected=trusted_evidence,
+            environment={"PATH": "/usr/bin:/bin"},
+        )
+    assert not marker.exists()
+
+
+def test_isolation_rejects_python_outside_runtime_binding(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    with pytest.raises(
+        LocalVideoUnavailable, match="local_video_python_runtime_binding_mismatch"
+    ):
+        _isolated_execution(
+            request,
+            output=request.output_path.resolve(),
+            base_command=["/tmp/unreviewed-python", "/fixture/generate.py"],
+            environ={"PATH": os.pathsep.join(("/fixture/bin", "/usr/bin", "/bin"))},
+        )
+
+
+def test_isolation_rejects_substitute_launcher_with_same_resolved_target(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    substitute = tmp_path / "substitute-python"
+    substitute.symlink_to(Path(sys.executable).resolve())
+
+    with pytest.raises(
+        LocalVideoUnavailable, match="local_video_python_runtime_binding_mismatch"
+    ):
+        _isolated_execution(
+            request,
+            output=request.output_path.resolve(),
+            base_command=[str(substitute), "/fixture/generate.py"],
+            environ={"PATH": os.pathsep.join(("/fixture/bin", "/usr/bin", "/bin"))},
+        )
+
+
+def test_sandbox_preflight_failure_creates_no_queue_or_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+
+    def reject_preflight(**_kwargs: object) -> dict[str, object]:
+        raise LocalVideoUnavailable("local_video_isolation_preflight_failed:exit_71")
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_sandbox_execution",
+        reject_preflight,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video.default_local_generation_queue",
+        lambda: pytest.fail("queue must not be opened before isolation preflight"),
+    )
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_isolation_preflight_failed:exit_71",
+    ):
+        run_local_video(request, dry_run=False)
+
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
+    assert not request.output_path.with_suffix(
+        request.output_path.suffix + ".local_video.json"
+    ).exists()
+    assert not list(tmp_path.glob(".local_video_sandbox_*"))
+
+
+def test_unrelated_stripped_parent_variable_does_not_change_job_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    monkeypatch.setenv("UV_CACHE_DIR", str(Path.home() / ".cache/uv"))
+    monkeypatch.setenv("PATH", _uv_ephemeral_path("planner"))
+    monkeypatch.delenv("UNRELATED_OPERATOR_SECRET", raising=False)
+    without_secret = plan_local_video_job(request)
+
+    monkeypatch.setenv("UNRELATED_OPERATOR_SECRET", "must-not-affect-child")
+    with_secret = plan_local_video_job(request)
+
+    assert with_secret == without_secret
 
 
 def test_wan_t2v_omits_image_and_never_falls_back_to_one(tmp_path: Path) -> None:
@@ -848,10 +1627,14 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     assert isolation["writeAccess"] == "explicit_artifacts_only"
     assert isolation["providerActivity"] == {
         "callsObserved": 0,
-        "measurementScope": "isolated_generation_subprocess",
-        "observationMethod": "macos_sandbox_network_policy",
+        "attemptsObserved": None,
+        "successfulDirectSocketCallsPossible": False,
+        "measurementScope": "successful_direct_socket_provider_calls",
+        "observationMethod": "macos_sandbox_active_socket_denial_preflight",
         "enforcementStatus": "enforced",
-        "evidenceBasis": "external_network_denied_by_macos_sandbox",
+        "evidenceBasis": (
+            "tcp_bind_tcp_connect_and_udp_connect_denied_by_macos_sandbox"
+        ),
     }
     assert result["providerCalls"] == 0
     lineage = json.loads(
@@ -866,7 +1649,7 @@ def test_promotion_execution_fails_closed_without_macos_sandbox(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     request = _request(tmp_path)
-    monkeypatch.setattr("reel_factory.local_video.shutil.which", lambda _name: None)
+    monkeypatch.setattr("reel_factory.local_video._sandbox_executable", lambda: None)
 
     with pytest.raises(LocalVideoUnavailable, match="sandbox_exec_missing"):
         plan_local_video_job(request)
@@ -910,6 +1693,166 @@ def test_apply_revalidates_selected_model_immediately_before_execution(
         run_local_video(request, dry_run=False, runner=runner)
     assert runner_called is False
     assert not request.output_path.exists()
+
+
+def test_post_queue_isolation_preflight_drift_fails_terminally_before_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue_root = tmp_path / "queue"
+    monkeypatch.setenv("CREATOR_OS_LOCAL_GENERATION_QUEUE_ROOT", str(queue_root))
+    request = _request(tmp_path)
+    preflight_calls = 0
+
+    def drifting_preflight(**kwargs: object) -> dict[str, object]:
+        nonlocal preflight_calls
+        preflight_calls += 1
+        profile = str(kwargs["profile"])
+        return {
+            "schema": "reel_factory.local_sandbox_preflight.v1",
+            "enforcementBinary": str(kwargs["sandbox_exec"]),
+            "capabilityProbeExecutable": str(kwargs["python_executable"]),
+            "capabilityProbeFingerprint": fingerprint(
+                {"implementation": _SANDBOX_DENIAL_PROBE}
+            ),
+            "timeoutSeconds": 5,
+            "controlProfileFingerprint": fingerprint(
+                {"profile": "(version 1)\n(allow default)"}
+            ),
+            "controlProbeReturnCode": 15,
+            "denialProbeReturnCode": 0,
+            "profileFingerprint": fingerprint({"profile": profile}),
+            "executionSucceeded": True,
+            "unscopedWriteDenied": True,
+            "tcpBindDenied": True,
+            "udpConnectDenied": True,
+            "tcpConnectDenied": True,
+            "temporaryControlWritesExpected": 1,
+            "temporaryControlWritesCleaned": True,
+            "residualArtifactWrites": 0,
+            "probeGeneration": preflight_calls,
+        }
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_sandbox_execution",
+        drifting_preflight,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_allowed_sandbox_write",
+        lambda **_kwargs: pytest.fail(
+            "allowed-write probe must not run after isolation evidence drifts"
+        ),
+    )
+    runner_called = False
+
+    def runner(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("drifted isolation must not execute generation")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="local_video_isolation_preflight_drift",
+    ):
+        run_local_video(request, dry_run=False, runner=runner)
+
+    assert preflight_calls == 2
+    assert runner_called is False
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
+    assert not request.output_path.with_suffix(".mp4.local_video.json").exists()
+
+    states = default_local_generation_queue(queue_root).states()
+    assert len(states) == 1
+    state = next(iter(states.values()))
+    assert state.status == "failed"
+    assert state.last_event["eventType"] == "job_failed"
+    assert state.last_event["payload"]["errorType"] == "LocalVideoUnavailable"
+    assert state.last_event["payload"]["errorMessage"] == (
+        "local_video_isolation_preflight_drift"
+    )
+    assert state.last_event["payload"]["failureClass"] == (
+        "local_generation_runtime_error"
+    )
+
+
+def test_post_queue_isolation_preflight_interrupts_before_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue_root = tmp_path / "queue"
+    monkeypatch.setenv("CREATOR_OS_LOCAL_GENERATION_QUEUE_ROOT", str(queue_root))
+    request = _request(tmp_path)
+    preflight_calls = 0
+
+    def interrupted_preflight(**kwargs: object) -> dict[str, object]:
+        nonlocal preflight_calls
+        preflight_calls += 1
+        if preflight_calls == 2:
+            raise KeyboardInterrupt
+        python = Path(str(kwargs["python_executable"]))
+        return {
+            "schema": "reel_factory.local_sandbox_preflight.v1",
+            "enforcementBinary": str(kwargs["sandbox_exec"]),
+            "capabilityProbeExecutable": str(python),
+            "capabilityProbeExecutableResolved": str(python.resolve()),
+            "capabilityProbeFingerprint": fingerprint(
+                {"implementation": _SANDBOX_DENIAL_PROBE}
+            ),
+            "timeoutSeconds": 5,
+            "controlProfileFingerprint": fingerprint(
+                {"profile": "(version 1)\n(allow default)"}
+            ),
+            "controlProbeReturnCode": 15,
+            "denialProbeReturnCode": 0,
+            "profileFingerprint": fingerprint({"profile": kwargs["profile"]}),
+            "executionSucceeded": True,
+            "unscopedWriteDenied": True,
+            "tcpBindDenied": True,
+            "udpConnectDenied": True,
+            "tcpConnectDenied": True,
+            "temporaryControlWritesExpected": 1,
+            "temporaryControlWritesCleaned": True,
+            "residualArtifactWrites": 0,
+        }
+
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_sandbox_execution",
+        interrupted_preflight,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video._preflight_allowed_sandbox_write",
+        lambda **_kwargs: pytest.fail(
+            "allowed-write probe must not run after isolation preflight interruption"
+        ),
+    )
+    runner_called = False
+
+    def runner(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("interrupted isolation must not execute generation")
+
+    with pytest.raises(KeyboardInterrupt):
+        run_local_video(request, dry_run=False, runner=runner)
+
+    assert preflight_calls == 2
+    assert runner_called is False
+    assert not request.output_path.exists()
+    assert not request.output_path.with_suffix(".partial.mp4").exists()
+
+    lineage = json.loads(
+        request.output_path.with_suffix(".mp4.local_video.json").read_text()
+    )
+    assert lineage["status"] == "interrupted"
+    assert lineage["failure"] == "KeyboardInterrupt"
+    assert lineage["executionStage"] == "isolation_preflight"
+
+    states = default_local_generation_queue(queue_root).states()
+    assert len(states) == 1
+    state = next(iter(states.values()))
+    assert state.status == "interrupted"
+    assert state.last_event["eventType"] == "job_interrupted"
+    assert state.last_event["payload"]["reason"] == "isolation_preflight_interrupted"
+    assert state.last_event["payload"]["failureClass"] == "execution_interrupted"
 
 
 def test_apply_rejects_short_source_audio_before_queue_or_runner(
@@ -1078,3 +2021,9 @@ def test_interruption_keeps_honest_recoverable_state(
     )
     assert lineage["status"] == "interrupted"
     assert lineage["failure"] == "KeyboardInterrupt"
+    assert lineage["executionStage"] == "generation_process"
+    state = next(
+        iter(default_local_generation_queue(tmp_path / "queue").states().values())
+    )
+    assert state.status == "interrupted"
+    assert state.last_event["payload"]["reason"] == "generation_process_interrupted"

@@ -9,7 +9,9 @@ import platform
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -58,6 +60,7 @@ _GENERATION_LOG_TAIL_BYTES = 32 * 1024
 _GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
 _GENERATION_SIGNAL_GRACE_SECONDS = 10
 _GENERATION_KILL_GRACE_SECONDS = 30
+_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS = 5
 
 _SUBPROCESS_ENV_ALLOWLIST = frozenset(
     {
@@ -74,6 +77,76 @@ _SUBPROCESS_ENV_ALLOWLIST = frozenset(
         "VECLIB_MAXIMUM_THREADS",
     }
 )
+_ENVIRONMENT_PATH_POLICY = "allowlisted_uv_build_temp_bins_removed_v1"
+_SANDBOX_EXECUTABLE = Path("/usr/bin/sandbox-exec")
+_SANDBOX_DENIAL_PROBE = """import errno
+import socket
+import sys
+
+mask = 0
+try:
+    with open(sys.argv[1], "xb") as handle:
+        handle.write(b"x")
+except PermissionError:
+    pass
+else:
+    mask |= 1
+try:
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.bind(("127.0.0.1", 0))
+except PermissionError:
+    pass
+else:
+    mask |= 2
+finally:
+    try:
+        tcp.close()
+    except NameError:
+        pass
+try:
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.connect(("127.0.0.1", 9))
+except PermissionError:
+    pass
+else:
+    mask |= 4
+finally:
+    try:
+        udp.close()
+    except NameError:
+        pass
+try:
+    tcp_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_client.connect(("127.0.0.1", 9))
+except PermissionError:
+    pass
+except OSError as exc:
+    if exc.errno not in {errno.EPERM, errno.EACCES}:
+        mask |= 8
+else:
+    mask |= 8
+finally:
+    try:
+        tcp_client.close()
+    except NameError:
+        pass
+raise SystemExit(mask)
+"""
+_SANDBOX_ALLOWED_WRITE_PROBE = """import os
+import sys
+
+descriptor = os.open(
+    sys.argv[1],
+    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+    0o600,
+)
+try:
+    os.write(descriptor, b"creator-os-sandbox-write-probe")
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+os.unlink(sys.argv[1])
+"""
 
 DEFAULT_NEGATIVE_PROMPT = (
     "low quality, blurry, distorted face, deformed hands, extra fingers, "
@@ -668,11 +741,13 @@ def run_local_video(
         "requestedMemoryBytes": job.requested_memory_bytes,
     }
     artifacts_completed = False
+    execution_stage = "pre_queue_admission"
     try:
         with queue.worker_session(blocking=False) as lease:
             queue.submit_and_start_exact(lease, job)
             queue_terminal = False
             try:
+                execution_stage = "pre_generation_validation"
                 # Do not create the requested lineage/output namespace until
                 # the exact job owns both the machine lease and resource
                 # admission. Busy or memory-blocked attempts remain clean and
@@ -692,9 +767,49 @@ def run_local_video(
                     raise LocalVideoUnavailable(
                         "local_video_execution_capability_drift"
                     )
+                # Recompute the launcher target and complete media-tool
+                # evidence after queue admission, immediately before spawn.
+                # A same-path binary replacement must not inherit the earlier
+                # plan's approval.
+                _bind_isolated_toolchain(
+                    request,
+                    base_command=base_command,
+                    environment=offline_env,
+                )
+                current_sandbox = _sandbox_executable()
+                if (
+                    current_sandbox is None
+                    or str(current_sandbox) != command[0]
+                    or len(command) < 5
+                    or command[1] != "-p"
+                    or command[3] != "--"
+                ):
+                    raise LocalVideoUnavailable(
+                        "local_video_isolation_execution_binding_drift"
+                    )
+                execution_stage = "isolation_preflight"
+                current_isolation_preflight = _preflight_sandbox_execution(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    forbidden_write_path=_sandbox_forbidden_write_probe_path(),
+                )
+                if current_isolation_preflight != isolation["isolationPreflight"]:
+                    raise LocalVideoUnavailable("local_video_isolation_preflight_drift")
+                execution_stage = "allowed_write_preflight"
+                allowed_write_preflight = _preflight_allowed_sandbox_write(
+                    sandbox_exec=current_sandbox,
+                    profile=command[2],
+                    python_executable=Path(command[4]),
+                    sandbox_root=Path(str(isolation["sandboxRoot"])),
+                )
                 lineage["executionRevalidation"] = {
                     "modelId": request.model_id,
                     "capabilityFingerprint": current_fingerprint,
+                    "isolationPreflightFingerprint": fingerprint(
+                        current_isolation_preflight
+                    ),
+                    "allowedWritePreflight": allowed_write_preflight,
                     "deepVerified": current_capability.get("model", {}).get(
                         "deepVerified"
                     ),
@@ -706,6 +821,7 @@ def run_local_video(
                     "ready": True,
                 }
                 _persist(lineage_path, lineage)
+                execution_stage = "generation_process"
                 benchmark_timer = LocalBenchmarkTimer.start()
                 try:
                     completed = _run_generation_process(
@@ -740,6 +856,7 @@ def run_local_video(
                         ),
                     }
                     raise
+                execution_stage = "post_generation_validation"
                 lineage["executionLog"] = completed.log_evidence
                 measurement = benchmark_timer.finish()
                 lineage["executionMeasurement"] = {
@@ -809,9 +926,12 @@ def run_local_video(
                 )
                 queue_terminal = True
             except KeyboardInterrupt:
+                lineage["executionStage"] = execution_stage
                 if not queue_terminal and not artifacts_completed:
                     queue.interrupt(
-                        lease, job.job_id, reason="generation_process_interrupted"
+                        lease,
+                        job.job_id,
+                        reason=f"{execution_stage}_interrupted",
                     )
                 raise
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
@@ -891,8 +1011,8 @@ def _isolated_execution(
     environment_source = os.environ if environ is None else environ
     if platform.system() != "Darwin":
         raise LocalVideoUnavailable("local_video_isolation_unavailable:macos_required")
-    sandbox_exec = shutil.which("sandbox-exec")
-    if not sandbox_exec:
+    sandbox_exec = _sandbox_executable()
+    if sandbox_exec is None:
         raise LocalVideoUnavailable(
             "local_video_isolation_unavailable:sandbox_exec_missing"
         )
@@ -920,7 +1040,9 @@ def _isolated_execution(
     profile = "\n".join(
         [
             "(version 1)",
-            '(import "system.sb")',
+            # `system.sb` is an Apple-private profile whose execution policy
+            # changed on macOS 27. Keep this profile self-contained.
+            "(allow default)",
             "(deny network*)",
             "(deny file-write*",
             "  (require-not",
@@ -951,9 +1073,30 @@ def _isolated_execution(
             "no_proxy": "*",
         }
     )
+    environment = _sanitize_subprocess_environment(
+        environment,
+        environment_source=environment_source,
+    )
+    command = _bind_isolated_toolchain(
+        request,
+        base_command=base_command,
+        environment=environment,
+    )
+    isolation_preflight = _preflight_sandbox_execution(
+        sandbox_exec=sandbox_exec,
+        profile=profile,
+        python_executable=Path(command[0]),
+        forbidden_write_path=_sandbox_forbidden_write_probe_path(),
+    )
     isolation_core = {
         "schema": "reel_factory.local_subprocess_isolation.v1",
         "platform": "macos",
+        "hostOperatingSystem": {
+            "macVersion": platform.mac_ver()[0],
+            "kernelRelease": platform.release(),
+            "kernelVersion": platform.version(),
+            "machine": platform.machine(),
+        },
         "enforcement": "sandbox-exec",
         "enforcementBinary": str(Path(sandbox_exec).resolve()),
         "enforced": True,
@@ -964,15 +1107,19 @@ def _isolated_execution(
         "profileFingerprint": fingerprint({"profile": profile}),
         "environmentPolicy": "allowlist",
         "environmentAllowedKeys": sorted(environment),
+        "environmentPathPolicy": _ENVIRONMENT_PATH_POLICY,
         "environmentFingerprint": fingerprint(environment),
-        "environmentVariablesStripped": len(environment_source)
-        - len(set(environment_source).intersection(environment)),
+        "isolationPreflight": isolation_preflight,
         "providerActivity": {
             "callsObserved": 0,
-            "measurementScope": "isolated_generation_subprocess",
-            "observationMethod": "macos_sandbox_network_policy",
+            "attemptsObserved": None,
+            "successfulDirectSocketCallsPossible": False,
+            "measurementScope": "successful_direct_socket_provider_calls",
+            "observationMethod": "macos_sandbox_active_socket_denial_preflight",
             "enforcementStatus": "enforced",
-            "evidenceBasis": "external_network_denied_by_macos_sandbox",
+            "evidenceBasis": (
+                "tcp_bind_tcp_connect_and_udp_connect_denied_by_macos_sandbox"
+            ),
         },
     }
     isolation = {
@@ -980,10 +1127,385 @@ def _isolated_execution(
         "isolationFingerprint": fingerprint(isolation_core),
     }
     return (
-        [str(sandbox_exec), "-p", profile, "--", *base_command],
+        [str(sandbox_exec), "-p", profile, "--", *command],
         environment,
         isolation,
     )
+
+
+def _sanitize_subprocess_environment(
+    environment: Mapping[str, str],
+    *,
+    environment_source: Mapping[str, str],
+) -> dict[str, str]:
+    """Remove uv build-launcher bins from the actual child environment.
+
+    ``uv run --with-editable`` prepends a random
+    ``builds-v<digits>/.tmp<nonempty>/bin`` directory for each invocation.
+    Passing it through would let a planner and worker resolve different
+    executables. Remove only that exact lexical shape beneath uv's configured
+    cache, preserve every other entry (including order and duplicates), and
+    fingerprint the exact sanitized environment that is executed.
+    """
+
+    sanitized = dict(environment)
+    raw_path = sanitized.get("PATH")
+    if raw_path is None:
+        return sanitized
+    configured_cache = environment_source.get("UV_CACHE_DIR")
+    uv_cache = (
+        Path(configured_cache).expanduser()
+        if configured_cache
+        else (Path.home() / ".cache" / "uv")
+    )
+    uv_cache = Path(os.path.abspath(uv_cache))
+    retained = [
+        raw_entry
+        for raw_entry in raw_path.split(os.pathsep)
+        if not _is_uv_ephemeral_build_bin(raw_entry, uv_cache=uv_cache)
+    ]
+    sanitized["PATH"] = os.pathsep.join(retained)
+    return sanitized
+
+
+def _is_uv_ephemeral_build_bin(raw_entry: str, *, uv_cache: Path) -> bool:
+    if not raw_entry:
+        return False
+    candidate = Path(os.path.abspath(Path(raw_entry).expanduser()))
+    try:
+        relative = candidate.relative_to(uv_cache)
+    except ValueError:
+        return False
+    parts = relative.parts
+    if len(parts) != 3 or parts[2] != "bin":
+        return False
+    cache_format, ephemeral_id, _bin = parts
+    if cache_format.startswith("builds-v"):
+        version = cache_format.removeprefix("builds-v")
+        return (
+            version.isdigit()
+            and ephemeral_id.startswith(".tmp")
+            and len(ephemeral_id) > len(".tmp")
+        )
+    return False
+
+
+def _sandbox_executable() -> Path | None:
+    if _SANDBOX_EXECUTABLE.is_file() and os.access(_SANDBOX_EXECUTABLE, os.X_OK):
+        return _SANDBOX_EXECUTABLE
+    return None
+
+
+def _preflight_sandbox_execution(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    forbidden_write_path: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove execution plus network/write denial before queue admission.
+
+    A permissive control must first show that the probe capabilities are
+    available in the parent environment. Otherwise an outer sandbox could make
+    an ineffective inner policy look enforced.
+    """
+
+    python = python_executable.expanduser()
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise LocalVideoUnavailable("local_video_isolation_probe_python_unavailable")
+    python_resolved = python.resolve(strict=True)
+    forbidden = forbidden_write_path.expanduser()
+    if forbidden.exists() or forbidden.is_symlink():
+        raise LocalVideoUnavailable("local_video_isolation_probe_path_collision")
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    probe_arguments = [
+        str(python),
+        "-B",
+        "-I",
+        "-S",
+        "-E",
+        "-c",
+        _SANDBOX_DENIAL_PROBE,
+        str(forbidden),
+    ]
+    control_profile = "(version 1)\n(allow default)"
+    control_command = [
+        str(sandbox_exec),
+        "-p",
+        control_profile,
+        "--",
+        *probe_arguments,
+    ]
+    denial_command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        *probe_arguments,
+    ]
+    for label, command, expected_returncode in (
+        ("control", control_command, 15),
+        ("denial", denial_command, 0),
+    ):
+        error_prefix = (
+            "local_video_isolation_control_preflight_failed"
+            if label == "control"
+            else "local_video_isolation_denial_preflight_failed"
+        )
+        created_regular = False
+        residual_observed = False
+        try:
+            completed = runner(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise LocalVideoUnavailable(f"{error_prefix}:timeout") from exc
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise LocalVideoUnavailable(f"{error_prefix}:unavailable") from exc
+        finally:
+            created_regular = forbidden.is_file() and not forbidden.is_symlink()
+            residual_observed = forbidden.exists() or forbidden.is_symlink()
+            if residual_observed:
+                try:
+                    forbidden.unlink()
+                except OSError as exc:
+                    raise LocalVideoUnavailable(
+                        "local_video_isolation_probe_cleanup_failed"
+                    ) from exc
+            if forbidden.exists() or forbidden.is_symlink():
+                raise LocalVideoUnavailable(
+                    "local_video_isolation_probe_cleanup_failed"
+                )
+        if completed.returncode != expected_returncode:
+            raise LocalVideoUnavailable(f"{error_prefix}:exit_{completed.returncode}")
+        if label == "control" and not created_regular:
+            raise LocalVideoUnavailable(
+                "local_video_isolation_control_preflight_failed:"
+                "regular_write_not_observed"
+            )
+        if label == "denial" and residual_observed:
+            raise LocalVideoUnavailable(
+                "local_video_isolation_denial_preflight_failed:artifact_write_allowed"
+            )
+    return {
+        "schema": "reel_factory.local_sandbox_preflight.v1",
+        "enforcementBinary": str(Path(sandbox_exec).resolve()),
+        "capabilityProbeExecutable": str(python),
+        "capabilityProbeExecutableResolved": str(python_resolved),
+        "capabilityProbeFingerprint": fingerprint(
+            {"implementation": _SANDBOX_DENIAL_PROBE}
+        ),
+        "timeoutSeconds": _SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+        "controlProfileFingerprint": fingerprint({"profile": control_profile}),
+        "controlProbeReturnCode": 15,
+        "denialProbeReturnCode": 0,
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "executionSucceeded": True,
+        "unscopedWriteDenied": True,
+        "tcpBindDenied": True,
+        "udpConnectDenied": True,
+        "tcpConnectDenied": True,
+        "temporaryControlWritesExpected": 1,
+        "temporaryControlWritesCleaned": True,
+        "residualArtifactWrites": 0,
+    }
+
+
+def _sandbox_forbidden_write_probe_path() -> Path:
+    return Path(tempfile.gettempdir()) / (
+        f"creator_os_sandbox_probe_{os.getpid()}_{uuid.uuid4().hex}.tmp"
+    )
+
+
+def _preflight_allowed_sandbox_write(
+    *,
+    sandbox_exec: Path,
+    profile: str,
+    python_executable: Path,
+    sandbox_root: Path,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Prove a job-owned scratch write works immediately before generation."""
+
+    probe_path = sandbox_root / f".allowed_write_probe_{uuid.uuid4().hex}.tmp"
+    if probe_path.exists() or probe_path.is_symlink():
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_probe_collision"
+        )
+    command = [
+        str(sandbox_exec),
+        "-p",
+        profile,
+        "--",
+        str(python_executable),
+        "-B",
+        "-I",
+        "-S",
+        "-E",
+        "-c",
+        _SANDBOX_ALLOWED_WRITE_PROBE,
+        str(probe_path),
+    ]
+    residual = False
+    try:
+        completed = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "LANG": "C",
+                "LC_ALL": "C",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:timeout"
+        ) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:unavailable"
+        ) from exc
+    finally:
+        residual = probe_path.exists() or probe_path.is_symlink()
+        if residual:
+            try:
+                probe_path.unlink()
+            except OSError as exc:
+                raise LocalVideoUnavailable(
+                    "local_video_isolation_allowed_write_probe_cleanup_failed"
+                ) from exc
+        if probe_path.exists() or probe_path.is_symlink():
+            raise LocalVideoUnavailable(
+                "local_video_isolation_allowed_write_probe_cleanup_failed"
+            )
+    if completed.returncode != 0:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:"
+            f"exit_{completed.returncode}"
+        )
+    if residual:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_allowed_write_preflight_failed:residual_artifact"
+        )
+    return {
+        "schema": "reel_factory.local_sandbox_allowed_write_preflight.v1",
+        "capabilityProbeExecutable": str(python_executable),
+        "capabilityProbeFingerprint": fingerprint(
+            {"implementation": _SANDBOX_ALLOWED_WRITE_PROBE}
+        ),
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "createSucceeded": True,
+        "fsyncSucceeded": True,
+        "deleteSucceeded": True,
+        "residualArtifacts": 0,
+    }
+
+
+def _bind_isolated_toolchain(
+    request: LocalVideoRequest,
+    *,
+    base_command: list[str],
+    environment: Mapping[str, str],
+) -> list[str]:
+    binding = request.arena_benchmark_binding or request.local_motion_admission
+    runtime = binding.get("runtimeBinding") if isinstance(binding, Mapping) else None
+    if not isinstance(runtime, Mapping):
+        raise LocalVideoUnavailable("local_video_runtime_binding_missing")
+    expected_launcher = str(runtime.get("pythonExecutable") or "")
+    expected_resolved = str(runtime.get("pythonExecutableResolved") or "")
+    if not expected_launcher or not expected_resolved or not base_command:
+        raise LocalVideoUnavailable("local_video_python_runtime_binding_missing")
+    launcher = str(base_command[0])
+    if launcher != expected_launcher:
+        raise LocalVideoUnavailable("local_video_python_runtime_binding_mismatch")
+    if str(Path(launcher).expanduser().resolve()) != expected_resolved:
+        raise LocalVideoUnavailable("local_video_python_runtime_target_mismatch")
+    command = list(base_command)
+    path = environment.get("PATH", "")
+    for tool, field in (
+        ("ffmpeg", "ffmpegExecutable"),
+        ("ffprobe", "ffprobeExecutable"),
+    ):
+        resolved = shutil.which(tool, path=path)
+        if resolved is None:
+            raise LocalVideoUnavailable(f"local_video_{tool}_runtime_binding_mismatch")
+        expected = {
+            "executable": str(runtime.get(field) or ""),
+            "sha256": str(runtime.get(f"{tool}Sha256") or ""),
+            "size": runtime.get(f"{tool}Size"),
+            "version": str(runtime.get(f"{tool}Version") or ""),
+        }
+        try:
+            evidence = _tool_evidence_for_path(
+                Path(resolved),
+                expected=expected,
+                environment=environment,
+            )
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            raise LocalVideoUnavailable(
+                f"local_video_{tool}_runtime_binding_mismatch"
+            ) from exc
+        if evidence != expected:
+            raise LocalVideoUnavailable(f"local_video_{tool}_runtime_binding_mismatch")
+    return command
+
+
+def _tool_evidence_for_path(
+    path: Path,
+    *,
+    expected: Mapping[str, Any],
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
+    resolved = path.expanduser().resolve(strict=True)
+    if (
+        not resolved.is_file()
+        or resolved.is_symlink()
+        or not os.access(resolved, os.X_OK)
+    ):
+        raise RuntimeError(f"local_video_runtime_tool_unsafe:{resolved.name}")
+    stat = resolved.stat()
+    content_evidence = {
+        "executable": str(resolved),
+        "sha256": _sha256_file(resolved),
+        "size": stat.st_size,
+    }
+    expected_content = {
+        "executable": str(expected.get("executable") or ""),
+        "sha256": str(expected.get("sha256") or ""),
+        "size": expected.get("size"),
+    }
+    if content_evidence != expected_content:
+        raise RuntimeError(f"local_video_runtime_tool_content_mismatch:{resolved.name}")
+    completed = subprocess.run(
+        [str(resolved), "-version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=dict(environment),
+    )
+    first_line = (completed.stdout or completed.stderr).splitlines()
+    if completed.returncode != 0 or not first_line:
+        raise RuntimeError(f"local_video_runtime_tool_unreadable:{resolved.name}")
+    evidence = {**content_evidence, "version": first_line[0].strip()}
+    if evidence["version"] != str(expected.get("version") or ""):
+        raise RuntimeError(f"local_video_runtime_tool_version_mismatch:{resolved.name}")
+    return evidence
 
 
 def _prepare_isolation_workspace(isolation: Mapping[str, Any]) -> None:
