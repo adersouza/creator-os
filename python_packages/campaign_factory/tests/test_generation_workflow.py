@@ -119,6 +119,104 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert captured["analyzer_registry"] == {"registryId": "registry-1"}
     assert admission["campaign_creator"] == "stacey"
     assert admission["accepted_still_path"] == still
+    assert admission["last_image_path"] is None
+
+
+def test_local_wan_admission_binds_last_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    last_image = tmp_path / "last.png"
+    last_image.write_bytes(b"last")
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        lambda *_args, **_kwargs: {
+            "schema": "campaign_factory.motion_generation_stage_run.v1"
+        },
+    )
+    admission = _stub_local_motion_admission(monkeypatch)
+
+    run_generation_workflow(
+        _local_motion_factory(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        last_image_path=last_image,
+        local_arena_summary_path=tmp_path / "arena-summary.json",
+        motion_prompt="A smooth transition from the first frame to the last frame",
+        dry_run=True,
+        apply=False,
+    )
+
+    assert admission["last_image_path"] == last_image
+
+
+@pytest.mark.parametrize("motion_task", ["video_retake", "video_extend"])
+def test_local_video_edit_routes_source_video_without_accepted_still(
+    motion_task: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source-video")
+    captured: dict = {}
+
+    def fake_motion(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"schema": "campaign_factory.motion_generation_stage_run.v1"}
+
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        fake_motion,
+    )
+    admission = _stub_local_motion_admission(
+        monkeypatch, default_model="local_ltx23_distilled_mlx"
+    )
+    controls = (
+        {"retake_start_frame": 2, "retake_end_frame": 5, "preserve_audio": True}
+        if motion_task == "video_retake"
+        else {"extend_frames": 8, "extend_direction": "after"}
+    )
+
+    run_generation_workflow(
+        _local_motion_factory(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        source_video_path=source_video,
+        motion_task=motion_task,
+        local_arena_summary_path=tmp_path / "arena-summary.json",
+        motion_prompt="Preserve the source video while applying the exact local edit",
+        dry_run=True,
+        apply=False,
+        **controls,
+    )
+
+    assert captured["still_path"] is None
+    assert captured["source_video_path"] == source_video
+    assert captured["motion_task"] == motion_task
+    assert admission["accepted_still_path"] is None
+    assert admission["source_video_path"] == source_video
+
+
+def test_local_video_edit_rejects_an_unused_accepted_still(
+    tmp_path: Path,
+) -> None:
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source-video")
+    still = tmp_path / "unused.jpg"
+    still.write_bytes(b"unused-still")
+
+    with pytest.raises(ValueError, match="accepted_still_path is forbidden"):
+        run_generation_workflow(
+            object(),
+            mode="local_wan",
+            campaign_slug="campaign",
+            accepted_still_path=still,
+            source_video_path=source_video,
+            motion_task="video_retake",
+            motion_prompt="Preserve the source video while applying the exact local edit",
+            dry_run=True,
+            apply=False,
+        )
 
 
 @pytest.mark.parametrize("mode", ["motion_edit", "best_only_kling"])

@@ -22,7 +22,16 @@ def _bound_evidence_args(tmp_path: Path) -> list[str]:
         ("--analyzer-registry", "registry"),
     ):
         path = tmp_path / f"{name}.json"
-        payload = json.dumps({"kind": name}, sort_keys=True).encode("utf-8")
+        value = {"kind": name}
+        if name == "admission":
+            value = {
+                "schema": "campaign_factory.local_motion_admission.v1",
+                "evidenceRecords": {
+                    "creatorIdentityProfile": {"profileId": "test-profile"},
+                    "contentIntent": {"intentId": "test-intent"},
+                },
+            }
+        payload = json.dumps(value, sort_keys=True).encode("utf-8")
         path.write_bytes(payload)
         arguments.extend(
             [flag, str(path), f"{flag}-sha256", hashlib.sha256(payload).hexdigest()]

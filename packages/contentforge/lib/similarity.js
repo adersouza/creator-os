@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { readdir, access, open, mkdtemp, symlink, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import sharp from "sharp";
 import { resolveRunFinalDir, resolveUploadPath } from "./paths.js";
 import { getPythonCommand } from "./python-runtime.js";
@@ -1140,7 +1141,7 @@ async function runAppleVisionOcr(pngFrame, file, timeSec) {
   var tempDir = await mkdtemp(path.join(tmpdir(), "contentforge-vision-"));
   var imagePath = path.join(tempDir, "frame.png");
   var scriptPath = process.env.CONTENTFORGE_APPLE_VISION_SCRIPT ||
-    path.join(process.cwd(), "scripts", "apple-vision-ocr.swift");
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../scripts/apple-vision-ocr.swift");
   try {
     await writeFile(imagePath, pngFrame.data);
     return await new Promise((resolve) => {
@@ -1472,6 +1473,277 @@ function uniqueWarnings(warnings) {
     seen.add(key);
     return true;
   });
+}
+
+function trustedOverlaySampleTimes(durationSeconds, maximumSamples = 20) {
+  var duration = Number(durationSeconds);
+  if (!Number.isFinite(duration) || duration <= 0) return [0];
+  var start = Math.min(0.4, Math.max(0, duration / 4));
+  var end = Math.max(start, duration - 0.2);
+  var desiredCount = Math.max(1, Math.min(maximumSamples, Math.ceil(duration)));
+  if (desiredCount === 1) return [Math.round(start * 1000) / 1000];
+  var step = (end - start) / (desiredCount - 1);
+  return [...new Set(Array.from({ length: desiredCount }, function (_, index) {
+    return Math.round((start + (step * index)) * 1000) / 1000;
+  }))];
+}
+
+function captionLines(boxes) {
+  var ordered = [...boxes].sort(function (first, second) {
+    return first.box.y - second.box.y || first.box.x - second.box.x;
+  });
+  var lines = [];
+  for (var box of ordered) {
+    var center = box.box.y + (box.box.h / 2);
+    var existing = lines.find(function (line) {
+      var tolerance = Math.max(line.height, box.box.h) * 0.65;
+      return Math.abs(line.center - center) <= tolerance;
+    });
+    if (!existing) {
+      lines.push({ center, height: box.box.h, boxes: [box] });
+      continue;
+    }
+    existing.boxes.push(box);
+    existing.center = existing.boxes.reduce(function (sum, item) {
+      return sum + item.box.y + (item.box.h / 2);
+    }, 0) / existing.boxes.length;
+    existing.height = Math.max(existing.height, box.box.h);
+  }
+  return lines
+    .sort(function (first, second) { return first.center - second.center; })
+    .map(function (line) {
+      return line.boxes
+        .sort(function (first, second) { return first.box.x - second.box.x; })
+        .map(function (box) { return String(box.ocrText || "").trim(); })
+        .filter(Boolean)
+        .join(" ");
+    })
+    .filter(Boolean);
+}
+
+function normalizedIntersectionRatio(textBox, subjectBox) {
+  var textFrameWidth = Math.max(1, Number(textBox.frame?.width || 0));
+  var textFrameHeight = Math.max(1, Number(textBox.frame?.height || 0));
+  var subjectFrameWidth = Math.max(1, Number(subjectBox.frame?.width || 0));
+  var subjectFrameHeight = Math.max(1, Number(subjectBox.frame?.height || 0));
+  var first = {
+    x1: textBox.box.x / textFrameWidth,
+    y1: textBox.box.y / textFrameHeight,
+    x2: (textBox.box.x + textBox.box.w) / textFrameWidth,
+    y2: (textBox.box.y + textBox.box.h) / textFrameHeight,
+  };
+  var second = {
+    x1: subjectBox.box.x / subjectFrameWidth,
+    y1: subjectBox.box.y / subjectFrameHeight,
+    x2: (subjectBox.box.x + subjectBox.box.w) / subjectFrameWidth,
+    y2: (subjectBox.box.y + subjectBox.box.h) / subjectFrameHeight,
+  };
+  var intersectionWidth = Math.max(0, Math.min(first.x2, second.x2) - Math.max(first.x1, second.x1));
+  var intersectionHeight = Math.max(0, Math.min(first.y2, second.y2) - Math.max(first.y1, second.y1));
+  var textArea = Math.max(1e-9, (first.x2 - first.x1) * (first.y2 - first.y1));
+  return Math.round(((intersectionWidth * intersectionHeight) / textArea) * 10000) / 10000;
+}
+
+function nearestSubjectBox(faceTrackBoxes, timeSec) {
+  var candidates = (faceTrackBoxes || []).filter(function (item) {
+    return item && item.box && item.frame && Number.isFinite(Number(item.timeSeconds));
+  });
+  candidates.sort(function (first, second) {
+    return Math.abs(Number(first.timeSeconds) - timeSec) - Math.abs(Number(second.timeSeconds) - timeSec);
+  });
+  if (!candidates.length || Math.abs(Number(candidates[0].timeSeconds) - timeSec) > 0.75) return null;
+  return candidates[0];
+}
+
+/**
+ * Canonical pixel-level overlay producer used by trusted-media-analysis.
+ *
+ * The injectable providers exist only so the deterministic scoring and failure
+ * modes can be tested without depending on workstation OCR binaries. The
+ * authenticated trusted-media entry point always calls the default providers
+ * against its read-only media snapshot and never accepts caller observations.
+ */
+export async function runTrustedCaptionOverlayAudit({
+  filePath,
+  durationSeconds,
+  faceTrackBoxes = [],
+} = {}, {
+  frameProvider = extractFrame,
+  pngFrameProvider = extractFramePng,
+  ocrProvider = runSelectedOcr,
+  sampleTimes = null,
+} = {}) {
+  var thresholds = campaignFactoryThresholds();
+  var times = Array.isArray(sampleTimes) && sampleTimes.length
+    ? sampleTimes.map(Number).filter(Number.isFinite)
+    : trustedOverlaySampleTimes(durationSeconds);
+  if (!times.length) return { available: false, applicable: true, reason: "overlay_sampling_times_unavailable" };
+  var frames = [];
+  var unavailableFrames = [];
+  for (var timeSec of times) {
+    var [frame, pngFrame] = await Promise.all([
+      frameProvider(filePath, timeSec),
+      pngFrameProvider(filePath, timeSec),
+    ]);
+    if (!frame || !pngFrame) {
+      unavailableFrames.push({ timeSec, reason: "overlay_frame_extraction_failed" });
+      continue;
+    }
+    var ocr = await ocrProvider(pngFrame, path.basename(filePath), timeSec);
+    if (!ocr || ocr.available === false) {
+      unavailableFrames.push({
+        timeSec,
+        reason: "overlay_ocr_unavailable",
+        requestedEngine: ocr?.requestedEngine || null,
+        error: ocr?.error || ocr?.fallbackReason || "OCR unavailable",
+      });
+      continue;
+    }
+    var plausibleBoxes = (ocr.boxes || []).filter(plausibleOcrBox).map(function (box) {
+      var contrast = regionContrast(frame, box);
+      var safeZoneIssues = textBoxSafeZoneIssues(box, frame);
+      var frameHeight = Math.max(1, Number(box.frame?.height || frame.height));
+      var fontHeightRatio = Math.max(0, Number(box.box?.h || 0) / frameHeight);
+      var fontSizeScore = Math.max(0, Math.min(100, Math.round(
+        (fontHeightRatio / thresholds.captionMinHeightRatio) * 100,
+      )));
+      var readabilityScore = Math.max(0, Math.min(100, Math.round(
+        ((Number(box.confidence) || 0) * 0.55)
+        + ((Number(contrast) || 0) * 0.25)
+        + (fontSizeScore * 0.2),
+      )));
+      var subjectBox = nearestSubjectBox(faceTrackBoxes, timeSec);
+      var faceOverlapRatio = subjectBox ? normalizedIntersectionRatio(box, subjectBox) : null;
+      return {
+        text: String(box.ocrText || "").trim(),
+        confidence: Number(box.confidence) || 0,
+        box: { ...box.box },
+        frame: { ...box.frame },
+        contrast,
+        fontHeightRatio: Math.round(fontHeightRatio * 10000) / 10000,
+        readabilityScore,
+        safeZoneIssues,
+        faceOverlapRatio,
+      };
+    });
+    var lines = captionLines(plausibleBoxes.map(function (box) {
+      return { ...box, ocrText: box.text };
+    }));
+    frames.push({
+      timeSec: Math.round(timeSec * 1000) / 1000,
+      engine: ocr.engine || null,
+      engineVersion: ocr.engineVersion || null,
+      preprocessing: ocr.preprocessing || [],
+      available: true,
+      text: lines.join("\n"),
+      lines,
+      boxes: plausibleBoxes,
+      faceGeometryAvailable: nearestSubjectBox(faceTrackBoxes, timeSec) !== null,
+    });
+  }
+  if (unavailableFrames.length) {
+    return {
+      available: false,
+      applicable: true,
+      reason: unavailableFrames.some(function (item) { return item.reason === "overlay_ocr_unavailable"; })
+        ? "overlay_ocr_unavailable"
+        : "overlay_frame_extraction_failed",
+      sampling: {
+        requestedTimesSeconds: times,
+        requestedFrames: times.length,
+        analyzedFrames: frames.length,
+        coverageRatio: Math.round((frames.length / times.length) * 10000) / 10000,
+      },
+      unavailableFrames,
+      frames,
+    };
+  }
+  var detectedFrames = frames.filter(function (frame) { return frame.boxes.length > 0; });
+  var allBoxes = frames.flatMap(function (frame) {
+    return frame.boxes.map(function (box) { return { timeSec: frame.timeSec, ...box }; });
+  });
+  var detectionCoverageRatio = frames.length
+    ? Math.round((detectedFrames.length / frames.length) * 10000) / 10000
+    : 0;
+  var confidenceValues = allBoxes.map(function (box) { return box.confidence; });
+  var readabilityValues = allBoxes.map(function (box) { return box.readabilityScore; });
+  var unsafeBoxes = allBoxes.filter(function (box) { return box.safeZoneIssues.length > 0; });
+  var unreadableBoxes = allBoxes.filter(function (box) {
+    return box.confidence < thresholds.ocrLowConfidence
+      || box.contrast < thresholds.captionLowContrast
+      || box.fontHeightRatio < thresholds.captionMinHeightRatio;
+  });
+  var faceOverlapBoxes = allBoxes.filter(function (box) {
+    return box.faceOverlapRatio !== null && box.faceOverlapRatio > 0.05;
+  });
+  var blockingReasons = [];
+  if (detectionCoverageRatio < 0.6) blockingReasons.push("overlay_text_detection_coverage_insufficient");
+  if (unsafeBoxes.length) blockingReasons.push("overlay_safe_zone_violation");
+  if (unreadableBoxes.length) blockingReasons.push("overlay_readability_failed");
+  if (faceOverlapBoxes.length) blockingReasons.push("overlay_face_overlap");
+  var timedSequence = [];
+  for (var frame of detectedFrames) {
+    var prior = timedSequence[timedSequence.length - 1];
+    if (!prior || prior.text !== frame.text) {
+      timedSequence.push({
+        text: frame.text,
+        firstObservedAtSeconds: frame.timeSec,
+        lastObservedAtSeconds: frame.timeSec,
+        sampledFrameCount: 1,
+      });
+    } else {
+      prior.lastObservedAtSeconds = frame.timeSec;
+      prior.sampledFrameCount += 1;
+    }
+  }
+  return {
+    available: true,
+    applicable: true,
+    passed: blockingReasons.length === 0,
+    blockingReasons,
+    sampling: {
+      requestedTimesSeconds: times,
+      requestedFrames: times.length,
+      analyzedFrames: frames.length,
+      detectedTextFrames: detectedFrames.length,
+      coverageRatio: 1,
+      detectionCoverageRatio,
+    },
+    ocr: {
+      engines: [...new Set(frames.map(function (frame) { return frame.engine; }).filter(Boolean))],
+      engineVersions: [...new Set(frames.map(function (frame) { return frame.engineVersion; }).filter(Boolean))],
+      averageConfidence: confidenceValues.length
+        ? Math.round(confidenceValues.reduce(function (sum, value) { return sum + value; }, 0) / confidenceValues.length)
+        : null,
+      boxCount: allBoxes.length,
+    },
+    readability: {
+      passed: unreadableBoxes.length === 0 && allBoxes.length > 0,
+      averageScore: readabilityValues.length
+        ? Math.round(readabilityValues.reduce(function (sum, value) { return sum + value; }, 0) / readabilityValues.length)
+        : 0,
+      failedBoxCount: unreadableBoxes.length,
+      thresholds: {
+        minimumConfidence: thresholds.ocrLowConfidence,
+        minimumContrast: thresholds.captionLowContrast,
+        minimumFontHeightRatio: thresholds.captionMinHeightRatio,
+      },
+    },
+    safeZone: {
+      passed: unsafeBoxes.length === 0,
+      failedBoxCount: unsafeBoxes.length,
+      issueCodes: [...new Set(unsafeBoxes.flatMap(function (box) { return box.safeZoneIssues; }))],
+    },
+    subjectOverlap: {
+      faceGeometryAvailable: frames.some(function (frame) { return frame.faceGeometryAvailable; }),
+      faceOverlapPassed: faceOverlapBoxes.length === 0,
+      faceOverlapBoxCount: faceOverlapBoxes.length,
+      bodyGeometryAvailable: false,
+      bodyReason: "trusted_body_geometry_analyzer_unavailable",
+    },
+    timedSequence,
+    frames,
+  };
 }
 
 function finiteNumber(value) {

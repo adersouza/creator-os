@@ -70,6 +70,12 @@ def run_generation_workflow(
     audio_path: Path | None = None,
     generate_audio: bool = False,
     last_image_path: Path | None = None,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    preserve_audio: bool = False,
     motion_reference_image_paths: tuple[Path, ...] | list[Path] = (),
     motion_reference_video_paths: tuple[Path, ...] | list[Path] = (),
     resolution: str | None = None,
@@ -177,9 +183,17 @@ def run_generation_workflow(
     elif mode_id in {"local_wan", "best_motion"}:
         from .motion_generation_stage import run_motion_generation_stage
 
-        _require(accepted_still_path, "accepted_still_path")
+        video_edit = motion_task in {"video_retake", "video_extend"}
+        if video_edit:
+            _require(source_video_path, "source_video_path")
+            if accepted_still_path is not None:
+                raise ValueError(
+                    f"{motion_task} uses source_video_path as its only primary input; "
+                    "accepted_still_path is forbidden"
+                )
+        else:
+            _require(accepted_still_path, "accepted_still_path")
         _require(motion_prompt, "motion_prompt")
-        assert accepted_still_path is not None
         local_motion_admission = None
         if mode_id == "local_wan":
             from .local_motion_admission import build_local_motion_admission
@@ -196,6 +210,13 @@ def run_generation_workflow(
                 arena_summary_path=local_arena_summary_path,
                 accepted_still_path=accepted_still_path,
                 audio_path=audio_path,
+                last_image_path=last_image_path,
+                source_video_path=source_video_path,
+                retake_start_frame=retake_start_frame,
+                retake_end_frame=retake_end_frame,
+                extend_frames=extend_frames,
+                extend_direction=extend_direction,
+                preserve_audio=preserve_audio,
                 campaign_creator=campaign_creator,
                 task_kind=motion_task,
                 override_model_id=motion_model_id,
@@ -247,6 +268,12 @@ def run_generation_workflow(
             audio_path=audio_path,
             generate_audio=generate_audio,
             last_image_path=last_image_path,
+            source_video_path=source_video_path,
+            retake_start_frame=retake_start_frame,
+            retake_end_frame=retake_end_frame,
+            extend_frames=extend_frames,
+            extend_direction=extend_direction,
+            preserve_audio=preserve_audio,
             reference_image_paths=tuple(motion_reference_image_paths),
             reference_video_paths=tuple(motion_reference_video_paths),
             enable_prompt_expansion=enable_prompt_expansion,

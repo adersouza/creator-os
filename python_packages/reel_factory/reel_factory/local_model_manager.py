@@ -63,6 +63,34 @@ _LONGCAT_RUNTIME_REQUIREMENTS_FINGERPRINT = hashlib.sha256(
 ).hexdigest()
 
 
+def _runtime_probe_environment(
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a minimal environment for pinned-runtime import probes.
+
+    Creator OS is commonly invoked with a source-worktree ``PYTHONPATH``.  Letting
+    that path leak into a different pinned runtime can shadow its own packages and
+    report a false import failure (or, worse, make an invalid runtime appear
+    healthy).  Runtime receipts bind the installed environment, so probes must use
+    that environment rather than caller-controlled Python import paths.
+    """
+
+    source = os.environ if environment is None else environment
+    probe = {
+        key: str(source[key])
+        for key in ("HOME", "LANG", "LC_ALL", "PATH", "TMPDIR")
+        if source.get(key)
+    }
+    probe.update(
+        {
+            "HF_HUB_OFFLINE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+        }
+    )
+    return probe
+
+
 def _normalize_longcat_environment(
     values: Sequence[str], *, runtime: Path
 ) -> list[str]:
@@ -488,6 +516,7 @@ def runtime_status(
             text=True,
             check=False,
             timeout=30,
+            env=_runtime_probe_environment(),
         )
         if proc.returncode != 0:
             issues.append("mlx_video_runtime_import_failed")
@@ -737,6 +766,7 @@ def _ltx_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
             text=True,
             check=False,
             timeout=60,
+            env=_runtime_probe_environment(),
         )
         if proc.returncode != 0:
             issues.append("ltx_mlx_runtime_import_failed")
@@ -790,11 +820,21 @@ def _install_longcat_runtime(
     *, runtime_root: Path | None = None, runner: Runner = subprocess.run
 ) -> dict[str, Any]:
     runtime = _longcat_runtime_root(runtime_root)
-    receipt = runtime / ".creator-os-runtime.json"
     if runtime.exists():
         status = _longcat_runtime_status(runtime_root=runtime)
         if status["ready"]:
             return status
+        repairable = {
+            "longcat_mlx_runtime_receipt_missing_or_invalid",
+            "longcat_mlx_runtime_receipt_mismatch",
+            "longcat_mlx_python_missing",
+            "longcat_mlx_runtime_import_failed",
+            "longcat_mlx_runtime_environment_unreadable",
+            "longcat_mlx_runtime_receipt_environment_missing",
+            "longcat_mlx_runtime_environment_drift",
+        }
+        if set(status["issues"]).issubset(repairable):
+            return _repair_longcat_runtime_environment(runtime, runner=runner)
         raise RuntimeError(
             "local_longcat_runtime_exists_but_is_not_pinned: "
             + ", ".join(status["issues"])
@@ -832,9 +872,29 @@ def _install_longcat_runtime(
     python = partial / ".venv/bin/python"
     if not python.is_file():
         _run_checked(runner, ["uv", "venv", "--python", "3.12", str(partial / ".venv")])
+    # Promote the verified source before installing it. Package metadata and
+    # the durable receipt must bind the final runtime path, never the temporary
+    # bootstrap directory.
+    os.replace(partial, runtime)
+    return _repair_longcat_runtime_environment(runtime, runner=runner)
+
+
+def _repair_longcat_runtime_environment(
+    runtime: Path, *, runner: Runner = subprocess.run
+) -> dict[str, Any]:
+    observed_revision = _git_revision(runtime, runner=runner)
+    if observed_revision != LONGCAT_MLX_REVISION:
+        raise RuntimeError(
+            "local_longcat_runtime_repair_revision_mismatch: "
+            f"expected {LONGCAT_MLX_REVISION}, got "
+            f"{observed_revision or 'unreadable'}"
+        )
+    python = runtime / ".venv/bin/python"
+    if not python.is_file():
+        _run_checked(runner, ["uv", "venv", "--python", "3.12", str(runtime / ".venv")])
     _run_checked(
         runner,
-        ["uv", "pip", "install", "--python", str(python), "--no-deps", str(partial)],
+        ["uv", "pip", "install", "--python", str(python), "--no-deps", str(runtime)],
     )
     _run_checked(
         runner,
@@ -863,12 +923,17 @@ def _install_longcat_runtime(
         "capabilityStatus": "experimental",
     }
     atomic_write_text(
-        partial / receipt.name,
+        runtime / ".creator-os-runtime.json",
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    os.replace(partial, runtime)
-    return _longcat_runtime_status(runtime_root=runtime)
+    status = _longcat_runtime_status(runtime_root=runtime)
+    if not status["ready"]:
+        raise RuntimeError(
+            "local_longcat_runtime_repair_verification_failed: "
+            + ", ".join(status["issues"])
+        )
+    return status
 
 
 def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
@@ -937,6 +1002,7 @@ def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, An
             text=True,
             check=False,
             timeout=60,
+            env=_runtime_probe_environment(),
         )
         if proc.returncode != 0:
             issues.append("longcat_mlx_runtime_import_failed")
@@ -981,6 +1047,110 @@ def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, An
         "capabilityStatus": "experimental",
         "ready": not issues,
         "issues": issues,
+    }
+
+
+def _tool_evidence(executable: str) -> dict[str, Any]:
+    path = shutil.which(executable)
+    if path is None:
+        raise RuntimeError(f"local_model_runtime_tool_missing:{executable}")
+    try:
+        completed = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env=_runtime_probe_environment(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"local_model_runtime_tool_unreadable:{executable}") from exc
+    first_line = (completed.stdout or completed.stderr).splitlines()
+    if completed.returncode != 0 or not first_line:
+        raise RuntimeError(f"local_model_runtime_tool_unreadable:{executable}")
+    resolved = Path(path).resolve(strict=True)
+    return {
+        "executable": str(resolved),
+        "sha256": _sha256_file(resolved),
+        "size": resolved.stat().st_size,
+        "version": first_line[0].strip(),
+    }
+
+
+def _verified_runtime_binding(family: LocalFamily) -> dict[str, Any]:
+    status = runtime_status(family=family)
+    if status.get("ready") is not True:
+        raise RuntimeError(
+            "local_model_runtime_not_ready:"
+            + ",".join(str(issue) for issue in status.get("issues", []))
+        )
+    receipt = status.get("receipt")
+    environment = status.get("resolvedEnvironment")
+    python_path = Path(str(status.get("python") or "")).expanduser()
+    try:
+        resolved_python = python_path.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeError("local_model_runtime_evidence_incomplete") from exc
+    if (
+        not isinstance(receipt, dict)
+        or not isinstance(environment, list)
+        or not all(isinstance(item, str) for item in environment)
+        or not resolved_python.is_file()
+    ):
+        raise RuntimeError("local_model_runtime_evidence_incomplete")
+    probe_script = (
+        "import importlib.metadata,json,platform,sys;"
+        "print(json.dumps({'python':platform.python_version(),"
+        "'executable':sys.executable,'mlx':importlib.metadata.version('mlx')}))"
+    )
+    try:
+        probe = subprocess.run(
+            [str(python_path), "-c", probe_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env=_runtime_probe_environment(),
+        )
+        versions = json.loads(probe.stdout) if probe.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+        raise RuntimeError("local_model_runtime_version_probe_failed") from exc
+    if not isinstance(versions, dict):
+        raise RuntimeError("local_model_runtime_version_probe_failed")
+    runtime_id, repository, expected_revision = runtime_identity(family)
+    if (
+        status.get("runtimeId", runtime_id) != runtime_id
+        or status.get("repository") != repository
+        or status.get("observedRevision") != expected_revision
+        or Path(str(versions.get("executable") or "")).resolve() != resolved_python
+    ):
+        raise RuntimeError("local_model_runtime_identity_drift")
+    ffmpeg = _tool_evidence("ffmpeg")
+    ffprobe = _tool_evidence("ffprobe")
+    return {
+        "runtimeId": runtime_id,
+        "repository": repository,
+        "revision": expected_revision,
+        "platform": platform.system(),
+        "platformRelease": platform.release(),
+        "osBuild": platform.version(),
+        "machine": platform.machine(),
+        "python": str(versions.get("python") or ""),
+        "pythonExecutable": str(python_path),
+        "pythonExecutableResolved": str(resolved_python),
+        "mlxVersion": str(versions.get("mlx") or ""),
+        "runtimeReceiptFingerprint": _fingerprint(receipt),
+        "resolvedEnvironmentFingerprint": _fingerprint(
+            {"resolvedEnvironment": environment}
+        ),
+        "ffmpegExecutable": ffmpeg["executable"],
+        "ffmpegSha256": ffmpeg["sha256"],
+        "ffmpegSize": ffmpeg["size"],
+        "ffmpegVersion": ffmpeg["version"],
+        "ffprobeExecutable": ffprobe["executable"],
+        "ffprobeSha256": ffprobe["sha256"],
+        "ffprobeSize": ffprobe["size"],
+        "ffprobeVersion": ffprobe["version"],
     }
 
 
@@ -1068,15 +1238,15 @@ def model_status(
         and manifest_sha256 is not None
         and records is not None
     ):
-        runtime_id, runtime_repository, runtime_revision = runtime_identity(spec.family)
-        runtime_binding = {
-            "runtimeId": runtime_id,
-            "repository": runtime_repository,
-            "revision": runtime_revision,
-            "platform": platform.system(),
-            "machine": platform.machine(),
-            "python": platform.python_version(),
-        }
+        try:
+            runtime_binding = _verified_runtime_binding(spec.family)
+        except RuntimeError as exc:
+            issues.append(str(exc))
+            runtime_binding = None
+        if runtime_binding is None:
+            runtime_binding_fingerprint = None
+        else:
+            runtime_binding_fingerprint = _fingerprint(runtime_binding)
         stat_snapshot = _deep_verification_stat_snapshot(
             directory=directory,
             manifest_path=manifest_path,
@@ -1085,14 +1255,14 @@ def model_status(
             root=root,
         )
         stat_snapshot_fingerprint = _fingerprint(stat_snapshot)
-        runtime_binding_fingerprint = _fingerprint(runtime_binding)
-        deep_receipt = _load_deep_verification_cache(
-            root=root,
-            model_id=spec.model_id,
-            manifest_sha256=manifest_sha256,
-            stat_snapshot_fingerprint=stat_snapshot_fingerprint,
-            runtime_binding_fingerprint=runtime_binding_fingerprint,
-        )
+        if runtime_binding_fingerprint is not None:
+            deep_receipt = _load_deep_verification_cache(
+                root=root,
+                model_id=spec.model_id,
+                manifest_sha256=manifest_sha256,
+                stat_snapshot_fingerprint=stat_snapshot_fingerprint,
+                runtime_binding_fingerprint=runtime_binding_fingerprint,
+            )
         deep_cache_hit = deep_receipt is not None
     if deep and not issues and deep_receipt is None and records is not None:
         for record in records:
@@ -2013,6 +2183,28 @@ def _git_revision(path: Path, *, runner: Runner) -> str | None:
     return completed.stdout.strip() or None
 
 
+def _installer_owned_untracked_path(runtime: Path, relative: str) -> bool:
+    """Return whether one untracked runtime path is an expected installer output.
+
+    The receipt is validated independently by every runtime status function.
+    ``build/`` is setuptools' non-imported wheel staging tree. No other
+    untracked path is tolerated, and symlinks at or below either owned path are
+    rejected so an allowlisted name cannot escape the runtime checkout.
+    """
+
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return False
+    if relative != ".creator-os-runtime.json" and not relative.startswith("build/"):
+        return False
+    current = runtime / candidate
+    while current != runtime:
+        if current.is_symlink():
+            return False
+        current = current.parent
+    return True
+
+
 def _git_worktree_issue(path: Path) -> str | None:
     try:
         completed = subprocess.run(
@@ -2023,6 +2215,7 @@ def _git_worktree_issue(path: Path) -> str | None:
                 "status",
                 "--porcelain=v1",
                 "--untracked-files=all",
+                "-z",
             ],
             capture_output=True,
             text=True,
@@ -2033,7 +2226,13 @@ def _git_worktree_issue(path: Path) -> str | None:
         return "unreadable"
     if completed.returncode != 0:
         return "unreadable"
-    return "dirty" if completed.stdout.strip() else None
+    entries = [entry for entry in completed.stdout.split("\0") if entry]
+    for entry in entries:
+        if len(entry) < 4 or entry[:3] != "?? ":
+            return "dirty"
+        if not _installer_owned_untracked_path(path, entry[3:]):
+            return "dirty"
+    return None
 
 
 def _require_clean_git_worktree(path: Path, *, runner: Runner, error: str) -> None:

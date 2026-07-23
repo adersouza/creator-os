@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,19 +24,24 @@ from reel_factory.local_generation_queue import (
 from reel_factory.local_model_arena import (
     ArenaSampleSpec,
     LocalModelArenaStore,
+    _arena_candidate_aggregates,
     _human_review_evidence,
     _motion_qc_options,
     _promotion_design_check,
+    _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
     build_arena_plan,
+    build_arena_record_bundle,
     build_arena_review_packet,
     build_arena_unblinding_receipt,
+    finalize_arena_sample_evidence,
     validate_arena_plan,
     validate_arena_review_packet,
     validate_arena_unblinding_receipt,
 )
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
+from reel_factory.local_video_models import local_video_model_spec
 
 PRODUCED_AT = "2026-07-22T12:00:00Z"
 SHA_A = "a" * 64
@@ -90,12 +96,59 @@ def _spec(
     seed: int = 1,
     model_id: str = "local_wan22_ti2v_5b_mlx",
 ) -> ArenaSampleSpec:
+    source_sha = sha256_file(source)
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": f"identity-{creator}",
+        "creatorKey": creator,
+        "displayName": creator.title(),
+        "modelProfile": f"soul-{creator}",
+        "identityReferences": [
+            {
+                "namespace": "test.reference",
+                "externalId": f"reference-{creator}",
+                "fingerprint": source_sha,
+            }
+        ],
+        "provenance": {
+            "producer": "test",
+            "producedAt": PRODUCED_AT,
+            "sourceReferences": [
+                {"recordId": f"facts-{creator}", "fingerprint": source_sha}
+            ],
+        },
+    }
+    profile_fingerprint = fingerprint(profile)
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": "intent-subtle-motion",
+        "creatorIdentityProfileId": profile["profileId"],
+        "goal": "Benchmark subtle local motion",
+        "contentSurface": "reel",
+        "mediaKind": "video",
+        "styleLanes": ["subtle_motion"],
+        "conceptTags": [],
+        "sourceAssetFingerprints": [source_sha],
+        "provenance": {
+            "producer": "test",
+            "producedAt": PRODUCED_AT,
+            "sourceReferences": [
+                {
+                    "recordId": str(profile["profileId"]),
+                    "fingerprint": profile_fingerprint,
+                },
+                {"recordId": f"source-{source_sha[:8]}", "fingerprint": source_sha},
+            ],
+        },
+    }
     return ArenaSampleSpec(
         creator_id=creator,
-        identity_profile_id=f"identity-{creator}",
-        identity_profile_fingerprint=SHA_A,
+        identity_profile_id=str(profile["profileId"]),
+        identity_profile_fingerprint=profile_fingerprint,
+        creator_identity_profile=profile,
         content_intent_id="intent-subtle-motion",
-        content_intent_fingerprint=SHA_B,
+        content_intent_fingerprint=fingerprint(intent),
+        content_intent=intent,
         source_path=source,
         model_id=model_id,
         capability_cohort="silent_i2v",
@@ -116,6 +169,36 @@ def _policy() -> dict:
     }
 
 
+def test_candidate_aggregates_use_true_even_sample_medians() -> None:
+    rows = [
+        {
+            "modelId": "model-a",
+            "capabilityCohort": "silent_i2v",
+            "promotionEvidenceValid": True,
+            "status": "succeeded",
+            "qualityScore": 4.0,
+            "wallTimeSeconds": 10.0,
+            "peakMemoryBytes": 100,
+            "benchmarkId": "benchmark-a",
+        },
+        {
+            "modelId": "model-a",
+            "capabilityCohort": "silent_i2v",
+            "promotionEvidenceValid": True,
+            "status": "succeeded",
+            "qualityScore": 5.0,
+            "wallTimeSeconds": 30.0,
+            "peakMemoryBytes": 300,
+            "benchmarkId": "benchmark-b",
+        },
+    ]
+
+    [aggregate] = _arena_candidate_aggregates(rows)
+
+    assert aggregate["medianWallTimeSeconds"] == 20.0
+    assert aggregate["medianPeakMemoryBytes"] == 200.0
+
+
 def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
@@ -132,6 +215,10 @@ def _fake_job(request) -> LocalGenerationJob:
         owned_artifact_paths=(request.output_path,),
         benchmark_recipe=recipe,
         analyzer_registry=registry,
+        creator_identity_profile=request.creator_identity_profile,
+        content_intent=request.content_intent,
+        runtime_binding=request.arena_benchmark_binding["runtimeBinding"],
+        license_policy=request.arena_benchmark_binding["licensePolicy"],
     )
 
 
@@ -147,10 +234,20 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
         requested_memory_bytes=int(raw["requestedMemoryBytes"]),
         params_fingerprint=str(raw["paramsFingerprint"]),
         owned_artifact_paths=tuple(raw.get("ownedArtifactPaths", [])),
+        creator_identity_profile_id=str(raw["creatorIdentityProfileId"]),
+        creator_identity_profile_fingerprint=str(
+            raw["creatorIdentityProfileFingerprint"]
+        ),
+        content_intent_id=str(raw["contentIntentId"]),
+        content_intent_fingerprint=str(raw["contentIntentFingerprint"]),
         benchmark_recipe_id=str(raw["benchmarkRecipeId"]),
         benchmark_recipe_fingerprint=str(raw["benchmarkRecipeFingerprint"]),
         analyzer_registry_id=str(raw["analyzerRegistryId"]),
         analyzer_registry_fingerprint=str(raw["analyzerRegistryFingerprint"]),
+        runtime_binding=dict(raw["runtimeBinding"]),
+        runtime_binding_fingerprint=str(raw["runtimeBindingFingerprint"]),
+        license_policy=dict(raw["licensePolicy"]),
+        license_policy_fingerprint=str(raw["licensePolicyFingerprint"]),
     )
 
 
@@ -174,12 +271,45 @@ def _build(monkeypatch, tmp_path: Path, specs: list[ArenaSampleSpec]) -> dict:
     }
 
     def status(model_id: str, **_kwargs) -> dict:
-        model_core = {**deep_core, "modelId": model_id}
+        runtime_binding = {
+            "runtimeId": "mlx_video",
+            "repository": "fixture/runtime",
+            "revision": "runtime-revision",
+            "platform": "Darwin",
+            "platformRelease": "25.0",
+            "osBuild": "Darwin Kernel Version fixture",
+            "machine": "arm64",
+            "python": "3.12.0",
+            "pythonExecutable": "/fixture/runtime/python",
+            "pythonExecutableResolved": "/fixture/runtime/python3.12",
+            "mlxVersion": "0.32.0",
+            "runtimeReceiptFingerprint": "1" * 64,
+            "resolvedEnvironmentFingerprint": "2" * 64,
+            "ffmpegExecutable": "/fixture/bin/ffmpeg",
+            "ffmpegSha256": "3" * 64,
+            "ffmpegSize": 1024,
+            "ffmpegVersion": "ffmpeg version fixture",
+            "ffprobeExecutable": "/fixture/bin/ffprobe",
+            "ffprobeSha256": "4" * 64,
+            "ffprobeSize": 1024,
+            "ffprobeVersion": "ffprobe version fixture",
+        }
+        model_core = {
+            **deep_core,
+            "modelId": model_id,
+            "runtimeBinding": runtime_binding,
+            "runtimeBindingFingerprint": fingerprint(runtime_binding),
+        }
+        spec = local_video_model_spec(model_id)
         return {
             "ready": True,
             "issues": [],
             "manifestSha256": "c" * 64,
-            "manifest": {"revision": "model-revision"},
+            "manifest": {
+                "revision": "model-revision",
+                "licenseId": spec.license_id,
+                "commercialRevenueLimitUsd": spec.commercial_revenue_limit_usd,
+            },
             "deepVerified": True,
             "deepVerificationReceipt": {
                 **model_core,
@@ -220,6 +350,42 @@ def test_registry_adds_exact_reel_factory_producers() -> None:
         assert sha256_file(implementation) == registration["implementationFingerprint"]
 
 
+def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "output.mp4"
+    registry = {"schema": "creator_os.analyzer_registry.v1", "registryId": "r1"}
+    review = {"schema": "reel_factory.human_media_review.v1", "reviewId": "h1"}
+    request = _trusted_motion_qc_request(
+        {
+            "sourcePath": str(tmp_path / "source.png"),
+            "sourceSha256": SHA_A,
+            "taskKind": "image_to_video",
+            "audioMode": "none",
+            "overlaysExist": False,
+        },
+        output=output,
+        output_sha256=SHA_B,
+        produced_at=PRODUCED_AT,
+        analyzer_registry=registry,
+        human_review=review,
+    )
+
+    assert request == {
+        "mediaPath": str(output),
+        "mediaSha256": SHA_B,
+        "sourcePath": str(tmp_path / "source.png"),
+        "sourceSha256": SHA_A,
+        "producedAt": PRODUCED_AT,
+        "overlaysExist": False,
+        "analyzerRegistry": registry,
+        "humanReview": review,
+        "options": {"expectsAudio": False, "expectsSpeech": False},
+    }
+    assert "analysis" not in request
+    assert "evidence" not in request
+
+
 def test_arena_plan_freezes_exact_queue_and_evidence(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -236,6 +402,299 @@ def test_arena_plan_freezes_exact_queue_and_evidence(
     assert sample["queueJobFingerprint"] == fingerprint(sample["queueJob"])
     assert validated["providerCalls"] == 0
     assert validated["productionWritesAllowed"] is False
+
+
+def test_record_builder_uses_reviewed_facts_and_exact_source_hash(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"reviewed source")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "higgsfield-soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "higgsfield.soul",
+                        "externalId": "soul-stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator@example.test",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=source,
+        goal="Test subtle natural motion",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("subtle_motion",),
+        concept_tags=("lifestyle",),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+    assert bundle["sourceSha256"] == sha256_file(source)
+    assert bundle["identityProfileFingerprint"] == fingerprint(
+        bundle["creatorIdentityProfile"]
+    )
+    assert bundle["contentIntentFingerprint"] == fingerprint(bundle["contentIntent"])
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [sha256_file(source)]
+    assert bundle["providerCalls"] == 0
+    assert bundle["productionWrites"] == 0
+    for path in bundle["recordPaths"].values():
+        assert Path(path).is_file()
+
+
+def test_record_builder_preserves_repeatable_typed_inputs(tmp_path: Path) -> None:
+    source_video = tmp_path / "source.mp4"
+    audio = tmp_path / "source.wav"
+    source_video.write_bytes(b"source video")
+    audio.write_bytes(b"source audio")
+    facts = tmp_path / "facts.json"
+    facts.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.reviewed_creator_identity_facts.v1",
+                "creatorKey": "stacey",
+                "displayName": "Stacey",
+                "modelProfile": "soul-stacey",
+                "identityReferences": [
+                    {
+                        "namespace": "test",
+                        "externalId": "stacey",
+                        "fingerprint": "c" * 64,
+                    }
+                ],
+                "reviewedBy": "operator",
+                "reviewedAt": "2026-01-01T11:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle = build_arena_record_bundle(
+        reviewed_identity_facts_path=facts,
+        source_path=None,
+        typed_inputs=(("source-video", source_video), ("audio", audio)),
+        goal="Retake exact reviewed video",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("retake",),
+        concept_tags=(),
+        produced_at="2026-01-02T12:00:00Z",
+        output_root=tmp_path / "records",
+    )
+    assert bundle["sourcePath"] is None
+    assert [item["kind"] for item in bundle["inputAssets"]] == [
+        "source-video",
+        "audio",
+    ]
+    assert bundle["contentIntent"]["sourceAssetFingerprints"] == [
+        sha256_file(source_video),
+        sha256_file(audio),
+    ]
+
+
+def test_video_retake_uses_only_exact_source_video_and_rejects_substitution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"source video")
+    spec = replace(
+        _spec(source_video),
+        source_path=None,
+        source_video_path=source_video,
+        model_id="local_ltx23_dev_hq_mlx",
+        capability_cohort="video_retake",
+        task_kind="video_retake",
+        retake_start_frame=10,
+        retake_end_frame=30,
+        commercial_annual_revenue_usd=1_000,
+    )
+    plan = _build(monkeypatch, tmp_path, [spec])
+    [sample] = plan["samples"]
+    assert sample["sourcePath"] is None
+    assert sample["sourceSha256"] == sha256_file(source_video)
+    assert sample["sourceVideoSha256"] == sha256_file(source_video)
+    assert sample["benchmarkRecipe"]["inputFingerprints"] == [sha256_file(source_video)]
+    source_video.write_bytes(b"substituted source video")
+    with pytest.raises(LocalQueueError, match="source_missing_or_substituted"):
+        validate_arena_plan(plan)
+
+
+def test_arena_plan_rejects_profile_and_source_record_mismatch(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    spec = _spec(source)
+    with pytest.raises(
+        LocalQueueError, match="creator_identity_profile_binding_mismatch"
+    ):
+        _build(
+            monkeypatch,
+            tmp_path,
+            [replace(spec, identity_profile_fingerprint="f" * 64)],
+        )
+    wrong_intent = dict(spec.content_intent)
+    wrong_intent["sourceAssetFingerprints"] = ["e" * 64]
+    with pytest.raises(LocalQueueError, match="content_intent_source_mismatch"):
+        _build(
+            monkeypatch,
+            tmp_path,
+            [
+                replace(
+                    spec,
+                    content_intent=wrong_intent,
+                    content_intent_fingerprint=fingerprint(wrong_intent),
+                )
+            ],
+        )
+
+
+def test_arena_store_requires_content_addressed_record_snapshots(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    store = LocalModelArenaStore(tmp_path / "store")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+    snapshot = store.identity_profiles / f"{sample['identityProfileFingerprint']}.json"
+    assert store.load_plan(plan["planId"]) == plan
+    snapshot.unlink()
+    with pytest.raises(LocalQueueError, match="record_snapshot_missing_or_drifted"):
+        store.load_plan(plan["planId"])
+
+
+def test_arena_store_rejects_substituted_identity_profile_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    store = LocalModelArenaStore(tmp_path / "store")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+    snapshot = store.identity_profiles / f"{sample['identityProfileFingerprint']}.json"
+    substituted = json.loads(snapshot.read_text())
+    substituted["displayName"] = "Substituted Person"
+    snapshot.write_text(json.dumps(substituted))
+
+    with pytest.raises(LocalQueueError, match="record_snapshot_missing_or_drifted"):
+        store.load_plan(plan["planId"])
+
+
+def test_arena_finalize_passes_exact_frozen_identity_profile_to_verifier(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import reel_factory.local_model_arena as arena_module
+
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    store = LocalModelArenaStore(tmp_path / "store")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+    output = Path(sample["outputPath"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"generated-video")
+    output_sha = sha256_file(output)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    job = _job_from_sample(sample)
+    queue.submit(job)
+    measurement = {
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1024,
+        "memoryMeasurementMethod": "test-child-peak",
+    }
+    with queue.worker_session() as lease:
+        assert queue.start_next(lease).job_id == job.job_id
+        queue.verify_generated_artifacts(
+            lease,
+            job.job_id,
+            partial_output_path=output,
+            final_output_path=output,
+            output_probe={"streams": [{"codec_type": "video"}]},
+            execution_measurement=measurement,
+        )
+        queue.succeed(
+            lease,
+            job.job_id,
+            output_sha256=output_sha,
+            output_path=output,
+            execution_measurement=measurement,
+        )
+    review = SimpleNamespace(
+        operator_attestation={"attested": True},
+        arena_plan_id=plan["planId"],
+        sample_id=sample["sampleId"],
+        blinded_candidate_id=sample["blindedCandidateId"],
+        subject_sha256=output_sha,
+        source_sha256=sample["sourceSha256"],
+    )
+    monkeypatch.setattr(arena_module, "load_human_review", lambda _path: review)
+    monkeypatch.setattr(
+        arena_module, "_validate_human_review_binding", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_run_contentforge",
+        lambda *_args, **_kwargs: {
+            "subject": {"mediaSha256": output_sha},
+            "analyzerRegistry": {
+                "registryFingerprint": sample["analyzerRegistryFingerprint"]
+            },
+        },
+    )
+    captured: dict = {}
+
+    def capture_identity(*_args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "creatorIdentityProfile": {
+                "profileId": sample["identityProfileId"],
+                "profileFingerprint": sample["identityProfileFingerprint"],
+            }
+        }
+
+    class StopAfterIdentity(RuntimeError):
+        pass
+
+    monkeypatch.setattr(arena_module, "verify_identity", capture_identity)
+    monkeypatch.setattr(
+        arena_module,
+        "identity_qc_receipt",
+        lambda _result: (_ for _ in ()).throw(StopAfterIdentity()),
+    )
+
+    with pytest.raises(StopAfterIdentity):
+        finalize_arena_sample_evidence(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            review_path=tmp_path / "review.json",
+            queue=queue,
+            benchmarks=LocalModelBenchmarkStore(tmp_path / "benchmarks"),
+            human_reviews=SimpleNamespace(),
+            repository_root=Path(__file__).resolve().parents[3],
+            identity_root=tmp_path / "identity",
+            produced_at=PRODUCED_AT,
+        )
+
+    assert captured["creator_identity_profile"] == sample["creatorIdentityProfile"]
+    assert captured["identity_profile_id"] == sample["identityProfileId"]
+    assert (
+        captured["identity_profile_fingerprint"] == sample["identityProfileFingerprint"]
+    )
 
 
 def test_matched_models_share_recipe_and_task_but_keep_distinct_identity(
@@ -806,9 +1265,7 @@ def test_plan_persistence_rejects_collision(monkeypatch, tmp_path: Path) -> None
         store.persist_plan(plan)
 
 
-def test_promotion_plan_requires_two_sources_and_two_seeds(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_promotion_plan_requires_two_sources(monkeypatch, tmp_path: Path) -> None:
     source = tmp_path / "source.jpg"
     source.write_bytes(b"safe source")
     repository_root = Path(__file__).resolve().parents[3]
@@ -843,6 +1300,23 @@ def test_promotion_plan_requires_two_sources_and_two_seeds(
         )
 
 
+def test_promotion_design_requires_four_seeds_per_source(tmp_path: Path) -> None:
+    sources = [tmp_path / "source-a.jpg", tmp_path / "source-b.jpg"]
+    for index, source in enumerate(sources):
+        source.write_bytes(f"source-{index}".encode())
+    undersized = [
+        _spec(source, creator=creator, seed=seed)
+        for creator in ("stacey", "larissa", "lola")
+        for source in sources
+        for seed in (1, 2)
+    ]
+
+    with pytest.raises(
+        LocalQueueError, match="arena_promotion_requires_four_seeds_per_source"
+    ):
+        _promotion_design_check(undersized)
+
+
 def test_promotion_comparison_requires_exact_non_model_grid(tmp_path: Path) -> None:
     sources = [tmp_path / "source-a.jpg", tmp_path / "source-b.jpg"]
     for index, source in enumerate(sources):
@@ -856,7 +1330,7 @@ def test_promotion_comparison_requires_exact_non_model_grid(tmp_path: Path) -> N
         for creator in ("stacey", "larissa", "lola")
         for model_id in models
         for source in sources
-        for seed in (1, 2)
+        for seed in (1, 2, 3, 4)
     ]
     _promotion_design_check(matched)
 
@@ -866,8 +1340,10 @@ def test_promotion_comparison_requires_exact_non_model_grid(tmp_path: Path) -> N
         creator_id=changed.creator_id,
         identity_profile_id=changed.identity_profile_id,
         identity_profile_fingerprint=changed.identity_profile_fingerprint,
+        creator_identity_profile=changed.creator_identity_profile,
         content_intent_id=changed.content_intent_id,
         content_intent_fingerprint=changed.content_intent_fingerprint,
+        content_intent=changed.content_intent,
         source_path=changed.source_path,
         model_id=changed.model_id,
         capability_cohort=changed.capability_cohort,

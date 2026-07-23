@@ -57,13 +57,80 @@ def _job(
     )
 
 
+def test_queue_round_trips_exact_identity_and_intent_evidence(tmp_path: Path) -> None:
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "profile-stacey",
+    }
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": "intent-motion",
+        "creatorIdentityProfileId": profile["profileId"],
+    }
+    job = LocalGenerationJob.create(
+        job_id="record-bound",
+        model_id="wan-test",
+        model_revision="revision-1",
+        model_manifest_sha256=_sha("wan-test"),
+        task_kind="image_to_video",
+        input_sha256=_sha("input"),
+        requested_memory_bytes=GIB,
+        params={"seed": 7},
+        creator_identity_profile=profile,
+        content_intent=intent,
+    )
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    queue.submit(job)
+    replayed = (
+        LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+        .states()[job.job_id]
+        .job
+    )
+    assert replayed == job
+    assert replayed.creator_identity_profile_fingerprint == queue_fingerprint(profile)
+    assert replayed.content_intent_fingerprint == queue_fingerprint(intent)
+
+    with pytest.raises(
+        ValueError, match="identity_intent_evidence_records_must_be_paired"
+    ):
+        LocalGenerationJob.create(
+            job_id="partial-record-link",
+            model_id="wan-test",
+            model_revision="revision-1",
+            model_manifest_sha256=_sha("wan-test"),
+            task_kind="image_to_video",
+            input_sha256=_sha("input"),
+            requested_memory_bytes=GIB,
+            params={"seed": 7},
+            creator_identity_profile=profile,
+        )
+
+
 def _interrupted_recovery_fixture(
-    queue: LocalGenerationQueue, root: Path, *, job_id: str = "retry"
+    queue: LocalGenerationQueue,
+    root: Path,
+    *,
+    job_id: str = "retry",
+    owned_sandbox_override: Path | None = None,
 ) -> tuple[LocalGenerationJob, Path, Path]:
     root.mkdir(parents=True, exist_ok=True)
     output = (root / "render.mp4").resolve()
     lineage_path = output.with_suffix(output.suffix + ".local_video.json")
     partial = output.with_suffix(".partial" + output.suffix)
+    sandbox_id = queue_fingerprint(
+        {
+            "modelId": "wan-test",
+            "task": "image_to_video",
+            "outputPath": str(output),
+            "inputSha256": None,
+        }
+    )[:20]
+    sandbox = output.parent / f".local_video_sandbox_{sandbox_id}"
+    isolation_core = {"sandboxRoot": str(sandbox)}
+    isolation = {
+        **isolation_core,
+        "isolationFingerprint": queue_fingerprint(isolation_core),
+    }
     manifest_sha = _sha("wan-test")
     request = {
         "prompt": "subtle natural motion",
@@ -85,6 +152,7 @@ def _interrupted_recovery_fixture(
         "task": "image_to_video",
         "durationSeconds": 6,
         "seed": 7,
+        "executionIsolationFingerprint": isolation["isolationFingerprint"],
     }
     cohort_input_sha = queue_fingerprint(
         {"image": None, "audio": None, "lastImage": None}
@@ -96,6 +164,7 @@ def _interrupted_recovery_fixture(
         "durationSeconds": 6,
         "seed": 7,
         "audioMode": "none",
+        "executionIsolationFingerprint": isolation["isolationFingerprint"],
     }
     job = LocalGenerationJob.create(
         job_id=job_id,
@@ -115,6 +184,7 @@ def _interrupted_recovery_fixture(
             output.with_suffix(output.suffix + ".audio.wav").with_suffix(
                 ".partial.wav"
             ),
+            owned_sandbox_override or sandbox,
         ),
     )
     lineage = {
@@ -129,12 +199,15 @@ def _interrupted_recovery_fixture(
         "audio": {"mode": "none"},
         "request": request,
         "command": command,
+        "executionIsolation": isolation,
         "outputPath": str(output),
         "queue": {"jobId": job_id},
         "status": "interrupted",
     }
     lineage_path.write_text(json.dumps(lineage), encoding="utf-8")
     partial.write_bytes(b"partial evidence")
+    (sandbox / "logs").mkdir(parents=True)
+    (sandbox / "logs/generation.log").write_bytes(b"generation evidence")
     queue.submit(job)
     with queue.worker_session() as lease:
         queue.start_next(lease)
@@ -388,10 +461,17 @@ def test_interrupted_recovery_quarantines_artifacts_and_replays(
     assert (recovery.manifest_path.parent / "completed.json").is_file()
     for artifact in recovery.artifacts:
         quarantined = Path(str(artifact["quarantinePath"]))
-        assert quarantined.is_file()
-        assert (
-            hashlib.sha256(quarantined.read_bytes()).hexdigest() == artifact["sha256"]
-        )
+        if artifact.get("artifactType") == "directory":
+            assert quarantined.is_dir()
+            assert (quarantined / "logs/generation.log").read_bytes() == (
+                b"generation evidence"
+            )
+        else:
+            assert quarantined.is_file()
+            assert (
+                hashlib.sha256(quarantined.read_bytes()).hexdigest()
+                == artifact["sha256"]
+            )
 
     replayed = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
     assert replayed.states()[job.job_id].status == "queued"
@@ -399,6 +479,82 @@ def test_interrupted_recovery_quarantines_artifacts_and_replays(
         decision = replayed.submit_and_start_exact(lease, job)
         assert decision.job_id == job.job_id
         replayed.interrupt(lease, job.job_id, reason="test cleanup")
+
+
+def test_interrupted_recovery_quarantines_only_exact_owned_sandbox(
+    tmp_path: Path,
+) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    job, lineage, _partial = _interrupted_recovery_fixture(queue, tmp_path / "outputs")
+    payload = json.loads(lineage.read_text())
+    sandbox = Path(payload["executionIsolation"]["sandboxRoot"])
+    sibling = sandbox.parent / ".local_video_sandbox_ffffffffffffffffffff"
+    (sibling / "logs").mkdir(parents=True)
+    (sibling / "logs/generation.log").write_bytes(b"other job")
+
+    recovery = queue.recover_interrupted(
+        job.job_id, lineage_path=lineage, reason="quarantine exact partial attempt"
+    )
+
+    sandbox_artifact = next(
+        artifact for artifact in recovery.artifacts if artifact["kind"] == "sandbox"
+    )
+    assert sandbox_artifact["artifactType"] == "directory"
+    assert sandbox_artifact["entryCount"] == 2
+    assert sandbox_artifact["sizeBytes"] == len(b"generation evidence")
+    assert not sandbox.exists()
+    assert (sibling / "logs/generation.log").read_bytes() == b"other job"
+
+
+def test_interrupted_recovery_rejects_mismatched_owned_sandbox_without_mutation(
+    tmp_path: Path,
+) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    wrong_sandbox = (
+        tmp_path / "outputs/.local_video_sandbox_ffffffffffffffffffff"
+    ).resolve()
+    job, lineage, partial = _interrupted_recovery_fixture(
+        queue,
+        tmp_path / "outputs",
+        owned_sandbox_override=wrong_sandbox,
+    )
+    payload = json.loads(lineage.read_text())
+    expected_sandbox = Path(payload["executionIsolation"]["sandboxRoot"])
+
+    with pytest.raises(LocalQueueError, match="sandbox_binding_mismatch"):
+        queue.recover_interrupted(
+            job.job_id, lineage_path=lineage, reason="must reject wrong ownership"
+        )
+
+    assert lineage.is_file()
+    assert partial.is_file()
+    assert expected_sandbox.is_dir()
+    assert not (queue.root / "recovery").exists()
+    assert queue.states()[job.job_id].status == "interrupted"
+
+
+def test_interrupted_recovery_rejects_symlink_inside_sandbox_without_mutation(
+    tmp_path: Path,
+) -> None:
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    job, lineage, partial = _interrupted_recovery_fixture(queue, tmp_path / "outputs")
+    payload = json.loads(lineage.read_text())
+    sandbox = Path(payload["executionIsolation"]["sandboxRoot"])
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"must survive")
+    (sandbox / "unsafe-link").symlink_to(outside)
+
+    with pytest.raises(LocalQueueError, match="sandbox_tree_unsafe"):
+        queue.recover_interrupted(
+            job.job_id, lineage_path=lineage, reason="must reject symlink tree"
+        )
+
+    assert outside.read_bytes() == b"must survive"
+    assert lineage.is_file()
+    assert partial.is_file()
+    assert sandbox.is_dir()
+    assert not (queue.root / "recovery").exists()
+    assert queue.states()[job.job_id].status == "interrupted"
 
 
 def test_interrupted_recovery_rejects_forged_lineage_without_mutation(

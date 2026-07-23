@@ -175,9 +175,71 @@ def run_canary(
             ],
         },
     }
+    identity_profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "benchmark-canary-profile",
+        "creatorKey": "provider-free-canary",
+        "displayName": "Provider Free Canary",
+        "modelProfile": "synthetic-testsrc",
+        "identityReferences": [
+            {
+                "namespace": "local.canary",
+                "externalId": "ffmpeg-testsrc2",
+                "fingerprint": input_fingerprint,
+            }
+        ],
+        "provenance": {
+            "producer": "reel_factory.benchmark_evidence_canary",
+            "producedAt": "2026-07-22T12:00:00Z",
+            "sourceReferences": [
+                {
+                    "recordId": "benchmark-canary-input",
+                    "fingerprint": input_fingerprint,
+                }
+            ],
+        },
+    }
+    content_intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": recipe["contentIntentId"],
+        "creatorIdentityProfileId": identity_profile["profileId"],
+        "goal": "Measure provider-free benchmark evidence",
+        "contentSurface": "reel",
+        "mediaKind": "video",
+        "styleLanes": ["provider_free_canary"],
+        "conceptTags": [],
+        "sourceAssetFingerprints": [input_fingerprint],
+        "provenance": {
+            "producer": "reel_factory.benchmark_evidence_canary",
+            "producedAt": "2026-07-22T12:00:00Z",
+            "sourceReferences": [
+                {
+                    "recordId": identity_profile["profileId"],
+                    "fingerprint": fingerprint(identity_profile),
+                },
+                {
+                    "recordId": "benchmark-canary-input",
+                    "fingerprint": input_fingerprint,
+                },
+            ],
+        },
+    }
     queue = LocalGenerationQueue(
         canary_root / "queue", resource_limit_bytes=2 * 1024**3
     )
+    runtime_binding = {
+        "runtimeId": "provider-free-canary",
+        "repository": "creator-os/provider-free-benchmark-canary",
+        "revision": "local-canary-v1",
+    }
+    license_policy = {
+        "licenseId": "internal-test-only",
+        "commercialUse": False,
+        "declaredAnnualRevenueUsd": None,
+        "commercialRevenueLimitUsd": None,
+        "commercialUseAllowed": True,
+        "aiDisclosureRequired": False,
+    }
 
     def canary_model_status(model_id: str, *, deep: bool = True) -> dict[str, Any]:
         label = "baseline" if "baseline" in model_id else "candidate"
@@ -190,6 +252,8 @@ def run_canary(
             "manifestSha256": manifest_sha256,
             "fileBindings": [],
             "dependencyBindings": [],
+            "runtimeBinding": runtime_binding,
+            "runtimeBindingFingerprint": fingerprint(runtime_binding),
             "providerCalls": 0,
             "paidGeneration": False,
         }
@@ -212,10 +276,7 @@ def run_canary(
     )
     completed_jobs: list[tuple[LocalGenerationJob, Path]] = []
     for label, index in (
-        ("baseline", 0),
-        ("candidate", 0),
-        ("baseline", 1),
-        ("candidate", 1),
+        (label, index) for index in range(8) for label in ("baseline", "candidate")
     ):
         output = canary_root / f"{label}-{index}.mp4"
         partial = output.with_suffix(".partial.mp4")
@@ -232,6 +293,10 @@ def run_canary(
             owned_artifact_paths=(output, partial),
             benchmark_recipe=recipe,
             analyzer_registry=registry,
+            creator_identity_profile=identity_profile,
+            content_intent=content_intent,
+            runtime_binding=runtime_binding,
+            license_policy=license_policy,
         )
         queue.submit(job)
         with queue.worker_session() as lease:
@@ -338,8 +403,8 @@ def run_canary(
         candidate_benchmark_ids=tuple(receipt.benchmark_id for receipt in candidate),
         baseline_benchmark_ids=tuple(receipt.benchmark_id for receipt in baseline),
         policy=PromotionPolicy(
-            minimum_candidate_samples=2,
-            minimum_baseline_samples=2,
+            minimum_candidate_samples=8,
+            minimum_baseline_samples=8,
             maximum_wall_time_ratio=1.25,
             maximum_peak_memory_ratio=1.25,
         ),

@@ -126,9 +126,9 @@ function humanReview(analysis, overrides = {}) {
 
 function fixtureLipEnvelope() {
   var pattern = [0.01, 0.09, 0.02, 0.13, 0.03, 0.11, 0.015, 0.08];
-  return Array.from({ length: 24 }, function (_, index) {
+  return Array.from({ length: 48 }, function (_, index) {
     return {
-      timeSeconds: 0.2 + (index * 0.23),
+      timeSeconds: 0.2 + (index * 0.115),
       mouthDelta: pattern[index % pattern.length] + 0.01,
       upperFaceDelta: 0.01,
       articulationMotion: pattern[index % pattern.length],
@@ -136,7 +136,27 @@ function fixtureLipEnvelope() {
   });
 }
 
-function fixturePcm(envelope, { shiftSeconds = 0, silent = false } = {}) {
+function fixtureLipToolchain() {
+  var core = {
+    available: true,
+    schema: "contentforge.apple_vision_toolchain.v1",
+    macosProductVersion: "fixture-macos",
+    macosBuildVersion: "fixture-build",
+    machineArchitecture: "arm64",
+    swiftExecutable: "/usr/bin/swift",
+    swiftExecutableSha256: "b".repeat(64),
+    swiftVersion: "Swift fixture",
+    visionRequest: "VNDetectFaceLandmarksRequest",
+    embeddedSwiftSourceSha256: "c".repeat(64),
+  };
+  return { ...core, toolchainFingerprint: fingerprint(core) };
+}
+
+function fixturePcm(envelope, {
+  shiftSeconds = 0,
+  silent = false,
+  unrelated = false,
+} = {}) {
   var sampleRate = 16000;
   var durationSeconds = 6;
   var buffer = Buffer.alloc(sampleRate * durationSeconds * 2);
@@ -145,7 +165,11 @@ function fixturePcm(envelope, { shiftSeconds = 0, silent = false } = {}) {
     var nearest = envelope.reduce(function (best, item) {
       return Math.abs(item.timeSeconds - time) < Math.abs(best.timeSeconds - time) ? item : best;
     }, envelope[0]);
-    var amplitude = silent ? 0 : Math.round(300 + (nearest.articulationMotion * 20000));
+    var unrelatedIndex = Math.max(0, Math.floor(time / 0.115));
+    var unrelatedMotion = ((Math.imul(unrelatedIndex + 17, 2654435761) >>> 8) % 1000) / 1000;
+    var amplitude = silent
+      ? 0
+      : Math.round(300 + ((unrelated ? unrelatedMotion : nearest.articulationMotion) * 20000));
     buffer.writeInt16LE(index % 2 ? -amplitude : amplitude, index * 2);
   }
   return buffer;
@@ -155,15 +179,17 @@ function fixtureRunner({
   withAudio = true,
   lipSyncMode = "aligned",
   temporalFrameValues = null,
+  overlayMode = "none",
 } = {}) {
   var lipEnvelope = fixtureLipEnvelope();
+  var toolchain = fixtureLipToolchain();
   var exactTemporalFrameValues = temporalFrameValues || Array.from(
     { length: 48 },
     function (_, index) {
       return index <= 25 ? index * 10 : (50 - index) * 10;
     },
   );
-  return async function runner(command, args, options = {}) {
+  async function runner(command, args, options = {}) {
     if (args[0] === "-version") {
       return { ok: true, stdout: `${command} version fixture-1.0\n`, stderr: "", error: null };
     }
@@ -215,16 +241,40 @@ function fixtureRunner({
         ok: true,
         stdout: JSON.stringify({
           available: true,
-          runtime: { python: "fixture", opencv: "fixture", detector: "fixture" },
+          runtime: {
+            python: "fixture",
+            opencv: "fixture",
+            landmarkProvider: "apple_vision",
+            landmarkRequest: "VNDetectFaceLandmarksRequest",
+            toolchainFingerprint: toolchain.toolchainFingerprint,
+          },
+          toolchainEvidence: lipSyncMode === "toolchain_drift"
+            ? { ...toolchain, swiftVersion: "substituted Swift" }
+            : toolchain,
           sampling: {
             effectiveFramesPerSecond: 12,
-            sampledFrames: 25,
-            faceFrames: 25,
+            sampledFrames: 48,
+            faceFrames: 48,
             faceTrackCoverage: 1,
             multipleFaceFrames: 0,
             multipleFaceRatio: 0,
           },
-          mouthMotionEnvelope: lipEnvelope,
+          ...(lipSyncMode === "missing_landmarks" ? {} : {
+            landmarkEvidence: {
+              available: true,
+              provider: "apple_vision",
+              request: "VNDetectFaceLandmarksRequest",
+              frameCount: 48,
+              fingerprint: "a".repeat(64),
+              toolchainFingerprint: toolchain.toolchainFingerprint,
+            },
+            landmarkFrames: Array.from({ length: 48 }, function (_, index) {
+              return { timeSeconds: lipEnvelope[index].timeSeconds };
+            }),
+          }),
+          mouthMotionEnvelope: lipSyncMode === "insufficient_samples"
+            ? lipEnvelope.slice(0, 20)
+            : lipEnvelope,
         }),
         stderr: "",
         error: null,
@@ -246,6 +296,7 @@ function fixtureRunner({
         stdout: fixturePcm(lipEnvelope, {
           shiftSeconds: lipSyncMode === "misaligned" ? 0.2 : 0,
           silent: lipSyncMode === "missing_speech",
+          unrelated: lipSyncMode === "false_correlation",
         }),
         stderr: "",
         error: null,
@@ -266,7 +317,62 @@ function fixtureRunner({
       stderr: "",
       error: `unexpected command: ${command} ${args.join(" ")}`,
     };
+  }
+  runner.trustedOverlayAuditor = async function () {
+    if (overlayMode === "unavailable") {
+      return {
+        available: false,
+        applicable: true,
+        reason: "overlay_frame_extraction_failed",
+        sampling: {
+          requestedFrames: 3,
+          analyzedFrames: 0,
+          coverageRatio: 0,
+        },
+      };
+    }
+    var text = overlayMode === "unexpected_ui"
+      ? "Follow Message Share"
+      : overlayMode === "declared"
+        ? "one drink later"
+        : overlayMode === "dangling"
+          ? "men, stop doing this:"
+          : "";
+    return {
+      available: true,
+      applicable: true,
+      passed: text.length > 0,
+      blockingReasons: text.length > 0 ? [] : ["overlay_text_detection_coverage_insufficient"],
+      sampling: {
+        requestedFrames: 3,
+        analyzedFrames: 3,
+        detectedTextFrames: text.length > 0 ? 3 : 0,
+        coverageRatio: 1,
+        detectionCoverageRatio: text.length > 0 ? 1 : 0,
+      },
+      ocr: { boxCount: text.length > 0 ? 3 : 0 },
+      timedSequence: text.length > 0 ? [{ text, sampledFrameCount: 3 }] : [],
+      frames: [],
+    };
   };
+  runner.trustedOverlaySemanticEvaluator = async function (sequence) {
+    var texts = sequence.map(function (item) { return String(item.text || "").trim(); })
+      .filter(Boolean);
+    var dangling = texts.length === 1 && /(?:stop doing this:|but…)$/i.test(texts[0]);
+    var passed = texts.length > 0 && !dangling;
+    return {
+      available: true,
+      result: {
+        passed,
+        failure_reasons: passed ? [] : [
+          texts.length ? "missing_overlay_payoff_after_setup" : "missing_burned_overlay_text",
+        ],
+      },
+      implementationRef: "packages/pipeline_contracts/pipeline_contracts/overlay_semantics.py",
+      implementationSha256: "d".repeat(64),
+    };
+  };
+  return runner;
 }
 
 async function withFixture(callback) {
@@ -367,9 +473,10 @@ test("fails closed on substituted output and reports missing audio as unavailabl
         mediaPath: media,
         expectedMediaSha256: "b".repeat(64),
         producedAt: "2026-07-22T20:00:00Z",
+        overlaysExist: true,
         analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
         repositoryRoot: ROOT,
-        runner: fixtureRunner({ withAudio: false }),
+        runner: fixtureRunner({ withAudio: false, lipSyncMode: "missing_face" }),
       }),
       /trusted_media_output_sha256_mismatch/,
     );
@@ -378,7 +485,7 @@ test("fails closed on substituted output and reports missing audio as unavailabl
       producedAt: "2026-07-22T20:00:00Z",
       analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
       repositoryRoot: ROOT,
-      runner: fixtureRunner({ withAudio: false }),
+      runner: fixtureRunner({ withAudio: false, lipSyncMode: "missing_face" }),
     });
     var audio = measured.rawObservations.find(function (item) {
       return item.analyzerId === "contentforge.audio_integrity";
@@ -397,6 +504,52 @@ test("fails closed on substituted output and reports missing audio as unavailabl
     assert.equal(lipSync.status, "unavailable");
     assert.equal(lipSync.observations.reason, "audio_stream_missing");
     assert.equal(measured.unavailableMeasurements.lipSync, "audio_stream_missing");
+  });
+});
+
+test("quarantines caller-authored overlay evidence and blocks failed pixel extraction", async function () {
+  await withFixture(async function ({ media }) {
+    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    await assert.rejects(
+      analyzeTrustedMedia({
+        mediaPath: media,
+        producedAt: "2026-07-22T20:00:00Z",
+        overlaysExist: true,
+        overlayEvidence: {
+          mediaSha256: createHash("sha256").update("measured media bytes").digest("hex"),
+          passed: true,
+        },
+        analyzerRegistry: exactRegistry,
+        repositoryRoot: ROOT,
+        runner: fixtureRunner(),
+      }),
+      /trusted_media_caller_overlay_evidence_rejected/,
+    );
+    var measured = await analyzeTrustedMedia({
+      mediaPath: media,
+      producedAt: "2026-07-22T20:00:00Z",
+      overlaysExist: true,
+      analyzerRegistry: exactRegistry,
+      repositoryRoot: ROOT,
+      runner: fixtureRunner({ overlayMode: "unavailable" }),
+    });
+    var overlay = measured.rawObservations.find(function (item) {
+      return item.analyzerId === "contentforge.overlay_delivery";
+    });
+    assert.equal(overlay.status, "unavailable");
+    assert.equal(
+      overlay.observations.reason,
+      "overlay_frame_extraction_failed",
+    );
+    assert.equal(
+      measured.unavailableMeasurements.overlayDelivery,
+      "overlay_frame_extraction_failed",
+    );
+    var verdict = measured.analyzerVerdicts.find(function (item) {
+      return item.policy.id === "contentforge.overlay_delivery";
+    });
+    assert.equal(verdict.verdict, "blocked");
+    assert.equal(verdict.passed, false);
   });
 });
 
@@ -560,6 +713,126 @@ test("speaking QC fails closed without audio, speech activity, or a usable face 
   });
 });
 
+test("lip-sync measurement rejects missing landmarks, undersampling, and false correlations", async function () {
+  await withFixture(async function ({ media, source }) {
+    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    for (var scenario of [
+      { mode: "missing_landmarks", reason: "mouth_landmark_evidence_unavailable" },
+      { mode: "insufficient_samples", reason: "insufficient_lip_sync_samples" },
+      { mode: "toolchain_drift", reason: "mouth_landmark_evidence_unavailable" },
+    ]) {
+      var unavailable = await analyzeTrustedMedia({
+        mediaPath: media,
+        sourcePath: source,
+        producedAt: "2026-07-22T20:00:00Z",
+        analyzerRegistry: exactRegistry,
+        repositoryRoot: ROOT,
+        runner: fixtureRunner({ lipSyncMode: scenario.mode }),
+      });
+      var unavailableLip = unavailable.rawObservations.find(function (item) {
+        return item.analyzerId === "contentforge.local_lip_sync";
+      });
+      assert.equal(unavailableLip.status, "unavailable");
+      assert.equal(unavailableLip.observations.reason, scenario.reason);
+    }
+
+    var falseCorrelation = await analyzeTrustedMedia({
+      mediaPath: media,
+      sourcePath: source,
+      producedAt: "2026-07-22T20:00:00Z",
+      analyzerRegistry: exactRegistry,
+      repositoryRoot: ROOT,
+      runner: fixtureRunner({ lipSyncMode: "false_correlation" }),
+    });
+    var measuredLip = falseCorrelation.rawObservations.find(function (item) {
+      return item.analyzerId === "contentforge.local_lip_sync";
+    });
+    assert.equal(measuredLip.status, "measured");
+    assert.equal(measuredLip.observations.aligned, false);
+    assert.equal(
+      measuredLip.observations.correlationEvidence.confidenceLabel,
+      "unsupported",
+    );
+    assert.ok(measuredLip.observations.confidence < 0.95);
+  });
+});
+
+test("pixel OCR blocks undeclared burned UI while preserving declared-overlay identity", async function () {
+  await withFixture(async function ({ media, source }) {
+    var exactRegistry = await registry("2026-07-22T20:00:00Z");
+    var undeclared = await analyzeTrustedMedia({
+      mediaPath: media,
+      sourcePath: source,
+      producedAt: "2026-07-22T20:00:00Z",
+      overlaysExist: false,
+      analyzerRegistry: exactRegistry,
+      repositoryRoot: ROOT,
+      runner: fixtureRunner({ overlayMode: "unexpected_ui" }),
+    });
+    var unexpectedOverlay = undeclared.rawObservations.find(function (item) {
+      return item.analyzerId === "contentforge.overlay_delivery";
+    });
+    assert.equal(unexpectedOverlay.status, "measured");
+    assert.equal(unexpectedOverlay.observations.passed, false);
+    assert.equal(unexpectedOverlay.observations.declaredOverlayExpected, false);
+    assert.equal(unexpectedOverlay.observations.unexpectedTextDetected, true);
+    assert.ok(unexpectedOverlay.observations.blockingReasons.includes(
+      "undeclared_burned_text_detected",
+    ));
+    assert.ok(unexpectedOverlay.observations.blockingReasons.includes(
+      "undeclared_burned_ui_detected",
+    ));
+    var undeclaredReceipt = await buildTrustedMotionSpecificQc({
+      analysis: undeclared,
+      analyzerRegistry: exactRegistry,
+      humanReview: humanReview(undeclared),
+      repositoryRoot: ROOT,
+    });
+    assert.equal(undeclaredReceipt.verdict, "blocked");
+    assert.ok(undeclaredReceipt.reasons.some(function (reason) {
+      return reason.code === "undeclared_burned_text_detected";
+    }));
+
+    var declared = await analyzeTrustedMedia({
+      mediaPath: media,
+      sourcePath: source,
+      producedAt: "2026-07-22T20:00:00Z",
+      overlaysExist: true,
+      analyzerRegistry: exactRegistry,
+      repositoryRoot: ROOT,
+      runner: fixtureRunner({ overlayMode: "declared" }),
+    });
+    var declaredOverlay = declared.rawObservations.find(function (item) {
+      return item.analyzerId === "contentforge.overlay_delivery";
+    });
+    assert.equal(declaredOverlay.status, "measured");
+    assert.equal(declaredOverlay.observations.declaredOverlayExpected, true);
+    assert.equal(declaredOverlay.observations.unexpectedTextDetected, false);
+    assert.equal(declaredOverlay.observations.passed, true);
+    assert.equal(declaredOverlay.observations.semanticDelivery.result.passed, true);
+
+    var dangling = await analyzeTrustedMedia({
+      mediaPath: media,
+      sourcePath: source,
+      producedAt: "2026-07-22T20:00:00Z",
+      overlaysExist: true,
+      analyzerRegistry: exactRegistry,
+      repositoryRoot: ROOT,
+      runner: fixtureRunner({ overlayMode: "dangling" }),
+    });
+    var danglingReceipt = await buildTrustedMotionSpecificQc({
+      analysis: dangling,
+      analyzerRegistry: exactRegistry,
+      humanReview: humanReview(dangling),
+      repositoryRoot: ROOT,
+    });
+    assert.equal(danglingReceipt.verdict, "blocked");
+    assert.ok(danglingReceipt.reasons.some(function (reason) {
+      return reason.code === "missing_overlay_payoff_after_setup";
+    }));
+  });
+});
+
 test("speaking QC accepts measured alignment and rejects a measured lip-sync offset", async function () {
   await withFixture(async function ({ media, source }) {
     var exactRegistry = await registry("2026-07-22T20:00:00Z");
@@ -583,7 +856,7 @@ test("speaking QC accepts measured alignment and rejects a measured lip-sync off
     var aligned = await receiptFor(fixtureRunner());
     assert.equal(aligned.passed, true, JSON.stringify(aligned.reasons));
     assert.equal(aligned.measurements.lipSync.aligned, true);
-    assert.ok(aligned.measurements.lipSync.sampleCount >= 7);
+    assert.ok(aligned.measurements.lipSync.sampleCount >= 12);
     assert.ok(aligned.measurements.lipSync.faceTrackCoverage >= 0.6);
     assert.ok(aligned.measurements.lipSync.speechActivityRatio >= 0.15);
 

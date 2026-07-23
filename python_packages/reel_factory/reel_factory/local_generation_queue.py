@@ -96,6 +96,49 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _path_present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _directory_tree_evidence(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_dir():
+        raise LocalQueueError("interrupted_recovery_sandbox_unsafe")
+    entries: list[dict[str, Any]] = []
+    total_bytes = 0
+    children = sorted(
+        path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()
+    )
+    for child in children:
+        relative = child.relative_to(path).as_posix()
+        if child.is_symlink():
+            raise LocalQueueError(
+                f"interrupted_recovery_sandbox_tree_unsafe:{relative}"
+            )
+        if child.is_dir():
+            entries.append({"kind": "directory", "path": relative})
+            continue
+        if not child.is_file():
+            raise LocalQueueError(
+                f"interrupted_recovery_sandbox_tree_unsafe:{relative}"
+            )
+        size = child.stat().st_size
+        total_bytes += size
+        entries.append(
+            {
+                "kind": "file",
+                "path": relative,
+                "sha256": sha256_file(child),
+                "sizeBytes": size,
+            }
+        )
+    return {
+        "entries": entries,
+        "entryCount": len(entries),
+        "sizeBytes": total_bytes,
+        "treeFingerprint": fingerprint({"entries": entries}),
+    }
+
+
 def _physical_memory_bytes() -> int | None:
     try:
         pages = int(os.sysconf("SC_PHYS_PAGES"))
@@ -394,12 +437,63 @@ class LocalGenerationJob:
     requested_memory_bytes: int
     params_fingerprint: str
     owned_artifact_paths: tuple[str, ...] = ()
+    creator_identity_profile_id: str | None = None
+    creator_identity_profile_fingerprint: str | None = None
+    content_intent_id: str | None = None
+    content_intent_fingerprint: str | None = None
     benchmark_recipe_id: str | None = None
     benchmark_recipe_fingerprint: str | None = None
     analyzer_registry_id: str | None = None
     analyzer_registry_fingerprint: str | None = None
+    runtime_binding: Mapping[str, Any] | None = None
+    runtime_binding_fingerprint: str | None = None
+    license_policy: Mapping[str, Any] | None = None
+    license_policy_fingerprint: str | None = None
+    router_decision_id: str | None = None
+    router_decision_fingerprint: str | None = None
+    router_capability_cohort: str | None = None
+    router_cohort_fingerprint: str | None = None
+    arena_summary_fingerprint: str | None = None
+    arena_plan_fingerprint: str | None = None
+    local_motion_admission_fingerprint: str | None = None
+    selected_model_fingerprint: str | None = None
+    model_deep_verification_fingerprint: str | None = None
+    promotion_approval_event_id: str | None = None
+    promotion_approval_event_hash: str | None = None
+    promotion_hardware_fingerprint: str | None = None
+    promotion_evidence_fingerprint: str | None = None
+    promotion_benchmark_ids_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
+        record_linkage = (
+            self.creator_identity_profile_id,
+            self.creator_identity_profile_fingerprint,
+            self.content_intent_id,
+            self.content_intent_fingerprint,
+        )
+        if any(value is not None for value in record_linkage) and not all(
+            value is not None for value in record_linkage
+        ):
+            raise ValueError("job_identity_intent_linkage_must_be_complete")
+        if self.creator_identity_profile_id is not None:
+            if (
+                not self.creator_identity_profile_id.strip()
+                or self.content_intent_id is None
+                or not self.content_intent_id.strip()
+            ):
+                raise ValueError("job_identity_intent_linkage_ids_must_be_non_empty")
+            for value in (
+                self.creator_identity_profile_fingerprint,
+                self.content_intent_fingerprint,
+            ):
+                if (
+                    value is None
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError(
+                        "job_identity_intent_linkage_fingerprints_must_be_sha256"
+                    )
         linkage = (
             self.benchmark_recipe_id,
             self.benchmark_recipe_fingerprint,
@@ -429,6 +523,75 @@ class LocalGenerationJob:
                     raise ValueError(
                         "benchmark_evidence_linkage_fingerprints_must_be_sha256"
                     )
+        execution_evidence = (
+            self.runtime_binding,
+            self.runtime_binding_fingerprint,
+            self.license_policy,
+            self.license_policy_fingerprint,
+        )
+        if any(value is not None for value in execution_evidence) and not all(
+            value is not None for value in execution_evidence
+        ):
+            raise ValueError("job_runtime_license_evidence_must_be_complete")
+        if self.runtime_binding is not None:
+            if (
+                not isinstance(self.runtime_binding, Mapping)
+                or not isinstance(self.license_policy, Mapping)
+                or fingerprint(self.runtime_binding) != self.runtime_binding_fingerprint
+                or fingerprint(self.license_policy) != self.license_policy_fingerprint
+            ):
+                raise ValueError("job_runtime_license_evidence_invalid")
+        router_linkage = (
+            self.router_decision_id,
+            self.router_decision_fingerprint,
+            self.router_capability_cohort,
+            self.router_cohort_fingerprint,
+            self.arena_summary_fingerprint,
+            self.arena_plan_fingerprint,
+            self.local_motion_admission_fingerprint,
+            self.selected_model_fingerprint,
+            self.model_deep_verification_fingerprint,
+            self.promotion_approval_event_id,
+            self.promotion_approval_event_hash,
+            self.promotion_hardware_fingerprint,
+            self.promotion_evidence_fingerprint,
+            self.promotion_benchmark_ids_fingerprint,
+        )
+        if any(value is not None for value in router_linkage) and not all(
+            value is not None for value in router_linkage
+        ):
+            raise ValueError("job_router_promotion_linkage_must_be_complete")
+        if self.router_decision_id is not None:
+            if (
+                not self.router_decision_id.strip()
+                or self.router_capability_cohort is None
+                or not self.router_capability_cohort.strip()
+                or self.promotion_approval_event_id is None
+                or not self.promotion_approval_event_id.strip()
+                or self.selected_model_fingerprint != self.model_fingerprint
+            ):
+                raise ValueError("job_router_promotion_linkage_ids_must_be_non_empty")
+            for value in (
+                self.router_decision_fingerprint,
+                self.router_cohort_fingerprint,
+                self.arena_summary_fingerprint,
+                self.arena_plan_fingerprint,
+                self.local_motion_admission_fingerprint,
+                self.selected_model_fingerprint,
+                self.model_deep_verification_fingerprint,
+                self.promotion_approval_event_hash,
+                self.promotion_hardware_fingerprint,
+                self.promotion_evidence_fingerprint,
+                self.promotion_benchmark_ids_fingerprint,
+            ):
+                if (
+                    value is None
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError(
+                        "job_router_promotion_linkage_fingerprints_must_be_sha256"
+                    )
 
     @classmethod
     def create(
@@ -446,6 +609,11 @@ class LocalGenerationJob:
         owned_artifact_paths: Sequence[Path] = (),
         benchmark_recipe: EvidenceRecord | None = None,
         analyzer_registry: EvidenceRecord | None = None,
+        creator_identity_profile: EvidenceRecord | None = None,
+        content_intent: EvidenceRecord | None = None,
+        runtime_binding: Mapping[str, Any] | None = None,
+        license_policy: Mapping[str, Any] | None = None,
+        router_promotion_linkage: Mapping[str, Any] | None = None,
     ) -> LocalGenerationJob:
         for name, value in {
             "job_id": job_id,
@@ -475,6 +643,29 @@ class LocalGenerationJob:
         params_fp = fingerprint(params)
         recipe_payload: dict[str, Any] = {}
         registry_payload: dict[str, Any] = {}
+        profile_payload: dict[str, Any] = {}
+        intent_payload: dict[str, Any] = {}
+        if (creator_identity_profile is None) != (content_intent is None):
+            raise ValueError("identity_intent_evidence_records_must_be_paired")
+        if creator_identity_profile is not None and content_intent is not None:
+            profile_payload = evidence_record_payload(creator_identity_profile)
+            intent_payload = evidence_record_payload(content_intent)
+            if (
+                profile_payload.get("schema")
+                != "creator_os.creator_identity_profile.v1"
+            ):
+                raise ValueError("creator_identity_profile_schema_mismatch")
+            if intent_payload.get("schema") != "creator_os.content_intent.v1":
+                raise ValueError("content_intent_schema_mismatch")
+            if (
+                not str(profile_payload.get("profileId") or "").strip()
+                or not str(intent_payload.get("intentId") or "").strip()
+            ):
+                raise ValueError("identity_intent_evidence_ids_missing")
+            if intent_payload.get("creatorIdentityProfileId") != profile_payload.get(
+                "profileId"
+            ):
+                raise ValueError("content_intent_creator_profile_mismatch")
         if (benchmark_recipe is None) != (analyzer_registry is None):
             raise ValueError("benchmark_evidence_records_must_be_paired")
         if benchmark_recipe is not None and analyzer_registry is not None:
@@ -520,6 +711,17 @@ class LocalGenerationJob:
                 raise ValueError("benchmark_recipe_analyzer_requirement_invalid")
             if not required.issubset(registered):
                 raise ValueError("benchmark_recipe_required_analyzer_unregistered")
+        if (runtime_binding is None) != (license_policy is None):
+            raise ValueError("runtime_license_evidence_must_be_paired")
+        runtime_payload = dict(runtime_binding) if runtime_binding is not None else {}
+        license_payload = dict(license_policy) if license_policy is not None else {}
+        if runtime_binding is not None:
+            if not str(runtime_payload.get("runtimeId") or "").strip():
+                raise ValueError("runtime_binding_id_missing")
+            if not str(license_payload.get("licenseId") or "").strip():
+                raise ValueError("license_policy_id_missing")
+            if license_payload.get("commercialUseAllowed") is not True:
+                raise ValueError("license_policy_commercial_use_not_allowed")
         cohort_payload = (
             dict(cohort)
             if cohort is not None
@@ -531,6 +733,27 @@ class LocalGenerationJob:
         )
         if len(resolved_artifacts) != len(set(resolved_artifacts)):
             raise ValueError("owned_artifact_paths must be distinct")
+        router_linkage: dict[str, Any] = {}
+        if router_promotion_linkage is not None:
+            router_linkage = dict(router_promotion_linkage)
+            expected_router_keys = {
+                "routerDecisionId",
+                "routerDecisionFingerprint",
+                "capabilityCohort",
+                "cohortKeyFingerprint",
+                "arenaSummaryFingerprint",
+                "arenaPlanFingerprint",
+                "admissionFingerprint",
+                "selectedModelFingerprint",
+                "modelDeepVerificationFingerprint",
+                "promotionApprovalEventId",
+                "promotionApprovalEventHash",
+                "promotionHardwareFingerprint",
+                "promotionEvidenceFingerprint",
+                "promotionBenchmarkIdsFingerprint",
+            }
+            if set(router_linkage) != expected_router_keys:
+                raise ValueError("router_promotion_linkage_shape_invalid")
         return cls(
             job_id=job_id,
             model_id=model_id,
@@ -541,6 +764,22 @@ class LocalGenerationJob:
             requested_memory_bytes=requested_memory_bytes,
             params_fingerprint=params_fp,
             owned_artifact_paths=resolved_artifacts,
+            creator_identity_profile_id=(
+                str(profile_payload["profileId"])
+                if creator_identity_profile is not None
+                else None
+            ),
+            creator_identity_profile_fingerprint=(
+                fingerprint(profile_payload)
+                if creator_identity_profile is not None
+                else None
+            ),
+            content_intent_id=(
+                str(intent_payload["intentId"]) if content_intent is not None else None
+            ),
+            content_intent_fingerprint=(
+                fingerprint(intent_payload) if content_intent is not None else None
+            ),
             benchmark_recipe_id=(
                 str(recipe_payload["recipeId"])
                 if benchmark_recipe is not None
@@ -556,6 +795,84 @@ class LocalGenerationJob:
             ),
             analyzer_registry_fingerprint=(
                 fingerprint(registry_payload) if analyzer_registry is not None else None
+            ),
+            runtime_binding=(runtime_payload if runtime_binding is not None else None),
+            runtime_binding_fingerprint=(
+                fingerprint(runtime_payload) if runtime_binding is not None else None
+            ),
+            license_policy=(license_payload if license_policy is not None else None),
+            license_policy_fingerprint=(
+                fingerprint(license_payload) if license_policy is not None else None
+            ),
+            router_decision_id=(
+                str(router_linkage["routerDecisionId"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_decision_fingerprint=(
+                str(router_linkage["routerDecisionFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_capability_cohort=(
+                str(router_linkage["capabilityCohort"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_cohort_fingerprint=(
+                str(router_linkage["cohortKeyFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            arena_summary_fingerprint=(
+                str(router_linkage["arenaSummaryFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            arena_plan_fingerprint=(
+                str(router_linkage["arenaPlanFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            local_motion_admission_fingerprint=(
+                str(router_linkage["admissionFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            selected_model_fingerprint=(
+                str(router_linkage["selectedModelFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            model_deep_verification_fingerprint=(
+                str(router_linkage["modelDeepVerificationFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_approval_event_id=(
+                str(router_linkage["promotionApprovalEventId"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_approval_event_hash=(
+                str(router_linkage["promotionApprovalEventHash"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_hardware_fingerprint=(
+                str(router_linkage["promotionHardwareFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_evidence_fingerprint=(
+                str(router_linkage["promotionEvidenceFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_benchmark_ids_fingerprint=(
+                str(router_linkage["promotionBenchmarkIdsFingerprint"])
+                if router_promotion_linkage is not None
+                else None
             ),
         )
 
@@ -578,6 +895,43 @@ class LocalGenerationJob:
                     "benchmarkRecipeFingerprint": self.benchmark_recipe_fingerprint,
                     "analyzerRegistryId": self.analyzer_registry_id,
                     "analyzerRegistryFingerprint": self.analyzer_registry_fingerprint,
+                }
+            )
+        if self.creator_identity_profile_id is not None:
+            payload.update(
+                {
+                    "creatorIdentityProfileId": self.creator_identity_profile_id,
+                    "creatorIdentityProfileFingerprint": self.creator_identity_profile_fingerprint,
+                    "contentIntentId": self.content_intent_id,
+                    "contentIntentFingerprint": self.content_intent_fingerprint,
+                }
+            )
+        if self.runtime_binding is not None:
+            payload.update(
+                {
+                    "runtimeBinding": dict(self.runtime_binding),
+                    "runtimeBindingFingerprint": self.runtime_binding_fingerprint,
+                    "licensePolicy": dict(self.license_policy or {}),
+                    "licensePolicyFingerprint": self.license_policy_fingerprint,
+                }
+            )
+        if self.router_decision_id is not None:
+            payload.update(
+                {
+                    "routerDecisionId": self.router_decision_id,
+                    "routerDecisionFingerprint": self.router_decision_fingerprint,
+                    "routerCapabilityCohort": self.router_capability_cohort,
+                    "routerCohortFingerprint": self.router_cohort_fingerprint,
+                    "arenaSummaryFingerprint": self.arena_summary_fingerprint,
+                    "arenaPlanFingerprint": self.arena_plan_fingerprint,
+                    "localMotionAdmissionFingerprint": self.local_motion_admission_fingerprint,
+                    "selectedModelFingerprint": self.selected_model_fingerprint,
+                    "modelDeepVerificationFingerprint": self.model_deep_verification_fingerprint,
+                    "promotionApprovalEventId": self.promotion_approval_event_id,
+                    "promotionApprovalEventHash": self.promotion_approval_event_hash,
+                    "promotionHardwareFingerprint": self.promotion_hardware_fingerprint,
+                    "promotionEvidenceFingerprint": self.promotion_evidence_fingerprint,
+                    "promotionBenchmarkIdsFingerprint": self.promotion_benchmark_ids_fingerprint,
                 }
             )
         return payload
@@ -629,6 +983,26 @@ def _job_from_payload(payload: Mapping[str, Any]) -> LocalGenerationJob:
         owned_artifact_paths=tuple(
             str(value) for value in payload.get("ownedArtifactPaths", [])
         ),
+        creator_identity_profile_id=(
+            str(payload["creatorIdentityProfileId"])
+            if payload.get("creatorIdentityProfileId") is not None
+            else None
+        ),
+        creator_identity_profile_fingerprint=(
+            str(payload["creatorIdentityProfileFingerprint"])
+            if payload.get("creatorIdentityProfileFingerprint") is not None
+            else None
+        ),
+        content_intent_id=(
+            str(payload["contentIntentId"])
+            if payload.get("contentIntentId") is not None
+            else None
+        ),
+        content_intent_fingerprint=(
+            str(payload["contentIntentFingerprint"])
+            if payload.get("contentIntentFingerprint") is not None
+            else None
+        ),
         benchmark_recipe_id=(
             str(payload["benchmarkRecipeId"])
             if payload.get("benchmarkRecipeId") is not None
@@ -647,6 +1021,96 @@ def _job_from_payload(payload: Mapping[str, Any]) -> LocalGenerationJob:
         analyzer_registry_fingerprint=(
             str(payload["analyzerRegistryFingerprint"])
             if payload.get("analyzerRegistryFingerprint") is not None
+            else None
+        ),
+        runtime_binding=(
+            dict(payload["runtimeBinding"])
+            if isinstance(payload.get("runtimeBinding"), dict)
+            else None
+        ),
+        runtime_binding_fingerprint=(
+            str(payload["runtimeBindingFingerprint"])
+            if payload.get("runtimeBindingFingerprint") is not None
+            else None
+        ),
+        license_policy=(
+            dict(payload["licensePolicy"])
+            if isinstance(payload.get("licensePolicy"), dict)
+            else None
+        ),
+        license_policy_fingerprint=(
+            str(payload["licensePolicyFingerprint"])
+            if payload.get("licensePolicyFingerprint") is not None
+            else None
+        ),
+        router_decision_id=(
+            str(payload["routerDecisionId"])
+            if payload.get("routerDecisionId") is not None
+            else None
+        ),
+        router_decision_fingerprint=(
+            str(payload["routerDecisionFingerprint"])
+            if payload.get("routerDecisionFingerprint") is not None
+            else None
+        ),
+        router_capability_cohort=(
+            str(payload["routerCapabilityCohort"])
+            if payload.get("routerCapabilityCohort") is not None
+            else None
+        ),
+        router_cohort_fingerprint=(
+            str(payload["routerCohortFingerprint"])
+            if payload.get("routerCohortFingerprint") is not None
+            else None
+        ),
+        arena_summary_fingerprint=(
+            str(payload["arenaSummaryFingerprint"])
+            if payload.get("arenaSummaryFingerprint") is not None
+            else None
+        ),
+        arena_plan_fingerprint=(
+            str(payload["arenaPlanFingerprint"])
+            if payload.get("arenaPlanFingerprint") is not None
+            else None
+        ),
+        local_motion_admission_fingerprint=(
+            str(payload["localMotionAdmissionFingerprint"])
+            if payload.get("localMotionAdmissionFingerprint") is not None
+            else None
+        ),
+        selected_model_fingerprint=(
+            str(payload["selectedModelFingerprint"])
+            if payload.get("selectedModelFingerprint") is not None
+            else None
+        ),
+        model_deep_verification_fingerprint=(
+            str(payload["modelDeepVerificationFingerprint"])
+            if payload.get("modelDeepVerificationFingerprint") is not None
+            else None
+        ),
+        promotion_approval_event_id=(
+            str(payload["promotionApprovalEventId"])
+            if payload.get("promotionApprovalEventId") is not None
+            else None
+        ),
+        promotion_approval_event_hash=(
+            str(payload["promotionApprovalEventHash"])
+            if payload.get("promotionApprovalEventHash") is not None
+            else None
+        ),
+        promotion_hardware_fingerprint=(
+            str(payload["promotionHardwareFingerprint"])
+            if payload.get("promotionHardwareFingerprint") is not None
+            else None
+        ),
+        promotion_evidence_fingerprint=(
+            str(payload["promotionEvidenceFingerprint"])
+            if payload.get("promotionEvidenceFingerprint") is not None
+            else None
+        ),
+        promotion_benchmark_ids_fingerprint=(
+            str(payload["promotionBenchmarkIdsFingerprint"])
+            if payload.get("promotionBenchmarkIdsFingerprint") is not None
             else None
         ),
     )
@@ -989,30 +1453,72 @@ class LocalGenerationQueue:
                 source = Path(str(artifact["sourcePath"]))
                 destination = Path(str(artifact["quarantinePath"]))
                 expected_sha256 = str(artifact["sha256"])
-                if source.exists() and destination.exists():
+                artifact_type = str(artifact.get("artifactType") or "file")
+                if _path_present(source) and _path_present(destination):
                     raise LocalQueueError(
                         f"recovery_source_and_destination_both_exist:{artifact['kind']}"
                     )
-                if destination.exists():
-                    if (
-                        not destination.is_file()
-                        or sha256_file(destination) != expected_sha256
-                    ):
+                if _path_present(destination):
+                    if artifact_type == "directory":
+                        tree = _directory_tree_evidence(destination)
+                        destination_matches = (
+                            tree["treeFingerprint"] == expected_sha256
+                            and tree["entries"] == artifact.get("entries")
+                            and tree["entryCount"] == artifact.get("entryCount")
+                            and tree["sizeBytes"] == artifact.get("sizeBytes")
+                        )
+                    else:
+                        destination_matches = (
+                            destination.is_file()
+                            and not destination.is_symlink()
+                            and sha256_file(destination) == expected_sha256
+                        )
+                    if not destination_matches:
                         raise LocalQueueError(
                             f"recovery_quarantine_mismatch:{artifact['kind']}"
                         )
                     continue
-                if not source.is_file() or source.is_symlink():
-                    raise LocalQueueError(
-                        f"recovery_source_missing_or_unsafe:{artifact['kind']}"
-                    )
-                if sha256_file(source) != expected_sha256:
-                    raise LocalQueueError(
-                        f"recovery_source_sha256_mismatch:{artifact['kind']}"
-                    )
+                if artifact_type == "directory":
+                    if not _path_present(source):
+                        raise LocalQueueError(
+                            f"recovery_source_missing_or_unsafe:{artifact['kind']}"
+                        )
+                    tree = _directory_tree_evidence(source)
+                    if (
+                        tree["treeFingerprint"] != expected_sha256
+                        or tree["entries"] != artifact.get("entries")
+                        or tree["entryCount"] != artifact.get("entryCount")
+                        or tree["sizeBytes"] != artifact.get("sizeBytes")
+                    ):
+                        raise LocalQueueError(
+                            f"recovery_source_sha256_mismatch:{artifact['kind']}"
+                        )
+                else:
+                    if not source.is_file() or source.is_symlink():
+                        raise LocalQueueError(
+                            f"recovery_source_missing_or_unsafe:{artifact['kind']}"
+                        )
+                    if sha256_file(source) != expected_sha256:
+                        raise LocalQueueError(
+                            f"recovery_source_sha256_mismatch:{artifact['kind']}"
+                        )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, destination)
-                if sha256_file(destination) != expected_sha256:
+                if artifact_type == "directory":
+                    moved = _directory_tree_evidence(destination)
+                    move_verified = (
+                        moved["treeFingerprint"] == expected_sha256
+                        and moved["entries"] == artifact.get("entries")
+                        and moved["entryCount"] == artifact.get("entryCount")
+                        and moved["sizeBytes"] == artifact.get("sizeBytes")
+                    )
+                else:
+                    move_verified = (
+                        destination.is_file()
+                        and not destination.is_symlink()
+                        and sha256_file(destination) == expected_sha256
+                    )
+                if not move_verified:
                     raise LocalQueueError(
                         f"recovery_move_verification_failed:{artifact['kind']}"
                     )
@@ -1462,7 +1968,45 @@ class LocalGenerationQueue:
                 raise LocalQueueError(
                     f"interrupted_recovery_{label}_fingerprint_mismatch"
                 )
-        expected_paths = (
+        sandbox_path: Path | None = None
+        owned_sandboxes = [
+            Path(value)
+            for value in job.owned_artifact_paths
+            if Path(value).name.startswith(".local_video_sandbox_")
+        ]
+        if isinstance(isolation, dict):
+            claimed_isolation_fingerprint = isolation.get("isolationFingerprint")
+            isolation_core = dict(isolation)
+            isolation_core.pop("isolationFingerprint", None)
+            if (
+                not isinstance(claimed_isolation_fingerprint, str)
+                or fingerprint(isolation_core) != claimed_isolation_fingerprint
+            ):
+                raise LocalQueueError(
+                    "interrupted_recovery_sandbox_isolation_fingerprint_mismatch"
+                )
+            primary_input = lineage.get("input") or lineage.get("sourceVideo")
+            primary_input_sha = (
+                primary_input.get("sha256") if isinstance(primary_input, dict) else None
+            )
+            sandbox_id = fingerprint(
+                {
+                    "modelId": lineage.get("modelId"),
+                    "task": request.get("task"),
+                    "outputPath": str(output),
+                    "inputSha256": primary_input_sha,
+                }
+            )[:20]
+            expected_sandbox = output.parent / f".local_video_sandbox_{sandbox_id}"
+            if isolation.get("sandboxRoot") != str(
+                expected_sandbox
+            ) or owned_sandboxes != [expected_sandbox]:
+                raise LocalQueueError("interrupted_recovery_sandbox_binding_mismatch")
+            sandbox_path = expected_sandbox
+        elif owned_sandboxes:
+            raise LocalQueueError("interrupted_recovery_sandbox_binding_missing")
+
+        expected_paths = [
             ("output", output),
             ("partial_output", output.with_suffix(".partial" + output.suffix)),
             ("audio_sidecar", output.with_suffix(output.suffix + ".audio.wav")),
@@ -1473,10 +2017,10 @@ class LocalGenerationQueue:
                 ),
             ),
             ("lineage", lineage_path),
-        )
+        ]
         artifacts: list[dict[str, Any]] = []
         for index, (kind, source) in enumerate(expected_paths):
-            if not source.exists():
+            if not _path_present(source):
                 continue
             if not source.is_file() or source.is_symlink():
                 raise LocalQueueError(f"interrupted_recovery_artifact_unsafe:{kind}")
@@ -1491,7 +2035,24 @@ class LocalGenerationQueue:
                     "sizeBytes": source.stat().st_size,
                 }
             )
-        if not artifacts or artifacts[-1]["kind"] != "lineage":
+        if sandbox_path is not None and _path_present(sandbox_path):
+            tree = _directory_tree_evidence(sandbox_path)
+            artifacts.append(
+                {
+                    "kind": "sandbox",
+                    "artifactType": "directory",
+                    "sourcePath": str(sandbox_path),
+                    "quarantinePath": str(recovery_root / "05_sandbox"),
+                    "sha256": tree["treeFingerprint"],
+                    "sizeBytes": tree["sizeBytes"],
+                    "entryCount": tree["entryCount"],
+                    "entries": tree["entries"],
+                }
+            )
+        if (
+            not artifacts
+            or sum(artifact["kind"] == "lineage" for artifact in artifacts) != 1
+        ):
             raise LocalQueueError("interrupted_recovery_lineage_not_preserved")
         return {
             "schema": "reel_factory.local_generation_recovery.v1",

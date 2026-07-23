@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from reel_factory.local_generation_queue import LocalQueueError, fingerprint
+from reel_factory.local_model_arena import _arena_candidate_aggregates
 from reel_factory.local_model_router import RouterRequest, _arithmetic_mean
 from reel_factory.local_model_router import route_local_model as _route_local_model
 
@@ -20,6 +21,39 @@ MODEL_FINGERPRINT = fingerprint(
     }
 )
 DEEP_VERIFICATION_FINGERPRINT = "9" * 64
+RUNTIME_BINDING = {
+    "runtimeId": "mlx_video",
+    "repository": "fixture/runtime",
+    "revision": "runtime-revision",
+    "platform": "Darwin",
+    "platformRelease": "25.0",
+    "osBuild": "Darwin Kernel Version fixture",
+    "machine": "arm64",
+    "python": "3.12.0",
+    "pythonExecutable": "/fixture/runtime/python",
+    "pythonExecutableResolved": "/fixture/runtime/python3.12",
+    "mlxVersion": "0.32.0",
+    "runtimeReceiptFingerprint": "1" * 64,
+    "resolvedEnvironmentFingerprint": "2" * 64,
+    "ffmpegExecutable": "/fixture/bin/ffmpeg",
+    "ffmpegSha256": "3" * 64,
+    "ffmpegSize": 1024,
+    "ffmpegVersion": "ffmpeg version fixture",
+    "ffprobeExecutable": "/fixture/bin/ffprobe",
+    "ffprobeSha256": "4" * 64,
+    "ffprobeSize": 1024,
+    "ffprobeVersion": "ffprobe version fixture",
+}
+RUNTIME_FINGERPRINT = fingerprint(RUNTIME_BINDING)
+LICENSE_POLICY = {
+    "licenseId": "apache-2.0",
+    "commercialUse": True,
+    "declaredAnnualRevenueUsd": None,
+    "commercialRevenueLimitUsd": None,
+    "commercialUseAllowed": True,
+    "aiDisclosureRequired": False,
+}
+LICENSE_FINGERPRINT = fingerprint(LICENSE_POLICY)
 REVIEW_PACKET = {
     "packetId": "packet-1",
     "packetFingerprint": "8" * 64,
@@ -46,11 +80,23 @@ class FakeReceipt:
     benchmark_recipe_fingerprint: str | None = "a" * 64
     analyzer_registry_id: str = "registry-1"
     analyzer_registry_fingerprint: str | None = "b" * 64
+    creator_identity_profile_id: str | None = "identity-stacey"
+    creator_identity_profile_fingerprint: str | None = "1" * 64
+    content_intent_id: str | None = "intent-motion"
+    content_intent_fingerprint: str | None = "2" * 64
     wall_time_seconds: float = 100.0
     peak_memory_bytes: int = 20 * 1024**3
     memory_measurement_method: str = "test"
     execution_attempt_count: int = 1
     execution_retry_count: int = 0
+    runtime_binding: dict | None = None
+    runtime_binding_fingerprint: str | None = RUNTIME_FINGERPRINT
+    license_policy: dict | None = None
+    license_policy_fingerprint: str | None = LICENSE_FINGERPRINT
+
+    def __post_init__(self) -> None:
+        self.runtime_binding = dict(RUNTIME_BINDING)
+        self.license_policy = dict(LICENSE_POLICY)
 
 
 class FakeStore:
@@ -260,6 +306,10 @@ def _plan(summary: dict) -> dict:
                 "benchmarkRecipeFingerprint": "a" * 64,
                 "analyzerRegistry": {"registryId": "registry-1"},
                 "analyzerRegistryFingerprint": "b" * 64,
+                "runtimeBinding": RUNTIME_BINDING,
+                "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+                "licensePolicy": LICENSE_POLICY,
+                "licensePolicyFingerprint": LICENSE_FINGERPRINT,
             }
         )
     return {
@@ -346,7 +396,9 @@ def _ready_model(monkeypatch):
             "manifestSha256": MANIFEST_SHA,
             "manifest": {"revision": MODEL_REVISION},
             "deepVerificationReceipt": {
-                "verificationFingerprint": DEEP_VERIFICATION_FINGERPRINT
+                "verificationFingerprint": DEEP_VERIFICATION_FINGERPRINT,
+                "runtimeBinding": RUNTIME_BINDING,
+                "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
             },
         },
     )
@@ -501,20 +553,7 @@ def test_router_scores_only_exact_creator_identity_intent_task_cohort() -> None:
     summary["samples"].append(lola_sample)
     summary["expectedSampleCount"] = 2
     summary["sampleCounts"]["succeeded"] = 2
-    summary["candidateAggregates"][0].update(
-        {
-            "plannedSamples": 2,
-            "succeededSamples": 2,
-            "failedSamples": 0,
-            "failureRate": 0.0,
-            "validSamples": 2,
-            "promotionEligibleYield": 1.0,
-            "meanHumanQualityScore": 0.75,
-            "medianWallTimeSeconds": 100.0,
-            "medianPeakMemoryBytes": 20 * 1024**3,
-            "benchmarkIds": ["benchmark-1", "benchmark-lola"],
-        }
-    )
+    summary["candidateAggregates"] = _arena_candidate_aggregates(summary["samples"])
     summary["summaryFingerprint"] = fingerprint(
         {key: value for key, value in summary.items() if key != "summaryFingerprint"}
     )

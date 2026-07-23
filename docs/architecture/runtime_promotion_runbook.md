@@ -3,6 +3,13 @@
 `creator-os promote` replaces the former manual runtime checkout procedure. It
 is deliberately local-only and cannot authorize generation or publishing.
 
+The ordinary operator command sequence is `status`, `create`, `review`,
+`approve`, `export`, and `promote`. The historical `generate` and
+`draft-export` spellings remain compatibility aliases and emit deprecation
+notices. Model, queue, benchmark, Arena, Router, and analyzer diagnostics live
+under `creator-os advanced ...`; the compatibility diagnostic commands remain
+temporarily available so existing scripts fail loudly rather than disappearing.
+
 ## Approval evidence
 
 The approval JSON uses `creator_os.runtime_promotion_approval.v1` and binds the
@@ -68,6 +75,13 @@ duplicate, `WARN`, `NOT_RUN`, malformed, or empty result triggers rollback.
 
 The receipt includes exact before/after commits, backup paths/fingerprints,
 verification outcomes, failure/rollback state, and copyable rollback commands.
+The commands verify the bundle and fetch its objects before checking out the
+old commit, so recovery still works if the old object is no longer present in
+the runtime object database. Paths are shell-quoted. The final command reruns
+the exact nine-check live-read-only health policy. These commands are recovery
+information, not permission to skip the promotion lock or receipt review; the
+normal automatic rollback and authenticated interrupted-transaction recovery
+remain the preferred paths.
 Receipt and transaction records are HMAC-authenticated with
 `CREATOR_OS_EVIDENCE_AUTH_SECRET`; a missing or short secret fails closed.
 Repeated promotion to an already-receipted exact commit does not trust the old
@@ -81,3 +95,22 @@ contained directories rather than symlink aliases.
 Operational databases, model files, media libraries, ThreadsDashboard,
 providers, schedules, QStash, and social publishing are outside this command's
 authority.
+
+## Repository-external approval prerequisite
+
+Runtime promotion verifies an independent, write-capable approving review even
+if GitHub branch protection does not yet require one. Repository governance
+must also enforce that review before this workflow is considered complete. This
+setting is external state and must not be inferred from the checked-in runbook.
+Verify it live:
+
+```bash
+gh api repos/adersouza/creator-os/branches/main/protection \
+  --jq '{reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled}'
+```
+
+The required result is at least one approving review, stale approvals dismissed,
+last-push approval required, and conversation resolution enabled. A repository
+administrator must change those settings in GitHub. Do not weaken or replace
+the nine existing required checks while doing so, and re-read the complete
+protection payload afterward to prove the check inventory is unchanged.

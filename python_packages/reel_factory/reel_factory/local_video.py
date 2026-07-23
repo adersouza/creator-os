@@ -23,6 +23,7 @@ from .local_generation_queue import (
     WorkerLeaseUnavailable,
     default_local_generation_queue,
     fingerprint,
+    hardware_identity,
 )
 from .local_lora_registry import verify_local_lora
 from .local_model_benchmark import LocalBenchmarkTimer
@@ -55,6 +56,8 @@ Runner = Callable[..., subprocess.CompletedProcess[str]]
 _MAX_GENERATION_LOG_BYTES = 16 * 1024 * 1024
 _GENERATION_LOG_TAIL_BYTES = 32 * 1024
 _GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
+_GENERATION_SIGNAL_GRACE_SECONDS = 10
+_GENERATION_KILL_GRACE_SECONDS = 30
 
 _SUBPROCESS_ENV_ALLOWLIST = frozenset(
     {
@@ -86,6 +89,14 @@ class _GenerationProcessFailure(RuntimeError):
     def __init__(self, message: str, *, log_evidence: Mapping[str, Any]) -> None:
         super().__init__(message)
         self.log_evidence = dict(log_evidence)
+
+
+class _GenerationTerminationRequested(BaseException):
+    """Convert a termination signal into a recoverable interruption."""
+
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+        super().__init__(signum)
 
 
 class _OutputExpectations(TypedDict):
@@ -130,6 +141,8 @@ class LocalVideoRequest:
     tile_spatial: int = 2
     benchmark_recipe: Mapping[str, Any] | None = None
     analyzer_registry: Mapping[str, Any] | None = None
+    creator_identity_profile: Mapping[str, Any] | None = None
+    content_intent: Mapping[str, Any] | None = None
     execution_context: LocalVideoExecutionContext | None = None
     local_motion_admission: Mapping[str, Any] | None = None
     arena_benchmark_binding: Mapping[str, Any] | None = None
@@ -261,6 +274,72 @@ def _process_log_evidence(
     }
 
 
+def _wait_for_process_exit(process: subprocess.Popen[bytes], *, timeout: int) -> bool:
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
+def _terminate_isolated_process_group(
+    process: subprocess.Popen[bytes], *, initial_signal: int
+) -> None:
+    """Signal and reap only the exact child-created process group."""
+
+    try:
+        process_group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        process.wait()
+        return
+    if process_group != process.pid:
+        # start_new_session=True guarantees pid == pgid. Never signal a
+        # potentially unrelated process group if that invariant drifts.
+        process.kill()
+        process.wait()
+        raise RuntimeError("local_video_child_process_group_mismatch")
+
+    signals = [initial_signal]
+    if initial_signal not in {signal.SIGTERM, signal.SIGKILL}:
+        signals.append(signal.SIGTERM)
+    if signals[-1] != signal.SIGKILL:
+        signals.append(signal.SIGKILL)
+    for signum in signals:
+        try:
+            os.killpg(process_group, signum)
+        except ProcessLookupError:
+            process.wait()
+            return
+        timeout = (
+            _GENERATION_KILL_GRACE_SECONDS
+            if signum == signal.SIGKILL
+            else _GENERATION_SIGNAL_GRACE_SECONDS
+        )
+        if _wait_for_process_exit(process, timeout=timeout):
+            return
+    raise RuntimeError("local_video_child_process_group_not_reaped")
+
+
+def _install_termination_handlers() -> dict[int, Any]:
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+
+    previous: dict[int, Any] = {}
+
+    def requested(signum: int, _frame: Any) -> None:
+        raise _GenerationTerminationRequested(signum)
+
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        previous[signum] = signal.getsignal(signum)
+        signal.signal(signum, requested)
+    return previous
+
+
+def _restore_termination_handlers(previous: Mapping[int, Any]) -> None:
+    for signum, handler in previous.items():
+        signal.signal(signum, handler)
+
+
 def _run_generation_process(
     command: list[str],
     *,
@@ -342,14 +421,13 @@ def _run_generation_process(
             daemon=True,
         )
         drain_thread.start()
+        previous_handlers = _install_termination_handlers()
         try:
             returncode = process.wait(timeout=_GENERATION_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (OSError, ProcessLookupError):
-                process.kill()
-            process.wait()
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=signal.SIGKILL)
             drain_thread.join(timeout=30)
             evidence = _process_log_evidence(
                 log_path,
@@ -361,6 +439,35 @@ def _run_generation_process(
                 "local_video_generation_timeout: " + evidence["tail"][-3000:],
                 log_evidence=evidence,
             ) from None
+        except _GenerationTerminationRequested as exc:
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=exc.signum)
+            drain_thread.join(timeout=30)
+            interrupted = KeyboardInterrupt(
+                f"local_video_generation_terminated:{exc.signum}"
+            )
+            interrupted.log_evidence = _process_log_evidence(  # type: ignore[attr-defined]
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            )
+            raise interrupted from None
+        except KeyboardInterrupt as exc:
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=signal.SIGINT)
+            drain_thread.join(timeout=30)
+            exc.log_evidence = _process_log_evidence(  # type: ignore[attr-defined]
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            )
+            raise
+        finally:
+            _restore_termination_handlers(previous_handlers)
         drain_thread.join(timeout=30)
         if drain_thread.is_alive():
             raise RuntimeError("local_video_generation_log_drain_failed")
@@ -607,7 +714,12 @@ def run_local_video(
                         log_path=execution_log_path,
                         runner=runner,
                     )
-                except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                except (
+                    KeyboardInterrupt,
+                    OSError,
+                    RuntimeError,
+                    subprocess.SubprocessError,
+                ) as exc:
                     failed_measurement = benchmark_timer.finish()
                     failure_log = getattr(exc, "log_evidence", None)
                     if isinstance(failure_log, dict):
@@ -1623,6 +1735,47 @@ def _generation_job(
     execution_isolation: Mapping[str, Any],
 ) -> LocalGenerationJob:
     execution_binding = _validate_execution_binding(request, capability=capability)
+    current_model_status = model_status(request.model_id, deep=True)
+    deep_receipt = current_model_status.get("deepVerificationReceipt")
+    if (
+        not isinstance(deep_receipt, Mapping)
+        or execution_binding.get("modelDeepVerificationFingerprint")
+        != deep_receipt.get("verificationFingerprint")
+        or execution_binding.get("runtimeBinding") != deep_receipt.get("runtimeBinding")
+        or execution_binding.get("runtimeBindingFingerprint")
+        != deep_receipt.get("runtimeBindingFingerprint")
+    ):
+        raise LocalVideoUnavailable("local_video_execution_runtime_binding_drift")
+    router_promotion_linkage = None
+    if execution_binding.get("schema") == (
+        "reel_factory.campaign_local_motion_binding.v1"
+    ):
+        router_promotion_linkage = {
+            "routerDecisionId": execution_binding["routerDecisionId"],
+            "routerDecisionFingerprint": execution_binding["routerDecisionFingerprint"],
+            "capabilityCohort": execution_binding["capabilityCohort"],
+            "cohortKeyFingerprint": execution_binding["cohortKeyFingerprint"],
+            "arenaSummaryFingerprint": execution_binding["arenaSummaryFingerprint"],
+            "arenaPlanFingerprint": execution_binding["arenaPlanFingerprint"],
+            "admissionFingerprint": execution_binding["admissionFingerprint"],
+            "selectedModelFingerprint": execution_binding["selectedModelFingerprint"],
+            "modelDeepVerificationFingerprint": execution_binding[
+                "modelDeepVerificationFingerprint"
+            ],
+            "promotionApprovalEventId": execution_binding["promotionApprovalEventId"],
+            "promotionApprovalEventHash": execution_binding[
+                "promotionApprovalEventHash"
+            ],
+            "promotionHardwareFingerprint": execution_binding[
+                "promotionHardwareFingerprint"
+            ],
+            "promotionEvidenceFingerprint": execution_binding[
+                "promotionEvidenceFingerprint"
+            ],
+            "promotionBenchmarkIdsFingerprint": execution_binding[
+                "promotionBenchmarkIdsFingerprint"
+            ],
+        }
     manifest_sha = str(capability.get("model", {}).get("manifestSha256") or "")
     inputs = {
         "image": _optional_input(request.image_path),
@@ -1694,6 +1847,19 @@ def _generation_job(
         ),
         benchmark_recipe=request.benchmark_recipe,
         analyzer_registry=request.analyzer_registry,
+        creator_identity_profile=request.creator_identity_profile,
+        content_intent=request.content_intent,
+        runtime_binding=(
+            execution_binding.get("runtimeBinding")
+            if isinstance(execution_binding.get("runtimeBinding"), Mapping)
+            else None
+        ),
+        license_policy=(
+            execution_binding.get("licensePolicy")
+            if isinstance(execution_binding.get("licensePolicy"), Mapping)
+            else None
+        ),
+        router_promotion_linkage=router_promotion_linkage,
     )
 
 
@@ -1793,6 +1959,9 @@ def _validate_campaign_admission(
         or decision.get("legacyLocalMotionFallbackAllowed") is not False
     ):
         raise LocalVideoUnavailable("local_motion_router_fallback_not_closed")
+    decision_request = decision.get("request")
+    if not isinstance(decision_request, Mapping):
+        raise LocalVideoUnavailable("local_motion_router_request_missing")
 
     selected = [
         candidate
@@ -1845,6 +2014,49 @@ def _validate_campaign_admission(
             or len(values) != len(set(str(value) for value in values))
         ):
             raise LocalVideoUnavailable(f"local_motion_{field}_invalid")
+    cohort_key = winning.get("cohortKey")
+    expected_cohort_key = {
+        field: decision_request.get(field)
+        for field in (
+            "creatorId",
+            "identityProfileId",
+            "identityProfileFingerprint",
+            "contentIntentId",
+            "contentIntentFingerprint",
+            "taskKind",
+            "capabilityCohort",
+        )
+    }
+    approval = winning.get("promotionApproval")
+    if (
+        not isinstance(cohort_key, Mapping)
+        or dict(cohort_key) != expected_cohort_key
+        or candidate.get("capabilityCohort") != decision_request.get("capabilityCohort")
+        or candidate.get("benchmarkIds") != winning.get("benchmarkIds")
+        or candidate.get("promotionApproval") != approval
+        or not isinstance(approval, Mapping)
+        or approval.get("candidateModelFingerprint")
+        != decision.get("selectedModelFingerprint")
+        or approval.get("taskKind") != request.task
+        or approval.get("candidateBenchmarkIds") != winning.get("benchmarkIds")
+    ):
+        raise LocalVideoUnavailable("local_motion_promotion_cohort_mismatch")
+    promotion_approval_event_hash = _required_sha256(
+        approval.get("approvalEventHash"),
+        "local_motion_promotion_approval_event_hash",
+    )
+    promotion_hardware_fingerprint = _required_sha256(
+        approval.get("hardwareFingerprint"),
+        "local_motion_promotion_hardware_fingerprint",
+    )
+    promotion_evidence_fingerprint = _required_sha256(
+        approval.get("evidenceFingerprint"),
+        "local_motion_promotion_evidence_fingerprint",
+    )
+    promotion_event_id = str(approval.get("approvalEventId") or "").strip()
+    decision_id = str(decision.get("decisionId") or "").strip()
+    if not promotion_event_id or not decision_id:
+        raise LocalVideoUnavailable("local_motion_routing_identity_missing")
 
     records = payload.get("evidenceRecords")
     if not isinstance(records, Mapping) or set(records) != {
@@ -1867,9 +2079,6 @@ def _validate_campaign_admission(
         raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
     if not isinstance(registry, Mapping):
         raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
-    decision_request = decision.get("request")
-    if not isinstance(decision_request, Mapping):
-        raise LocalVideoUnavailable("local_motion_router_request_missing")
     if (
         identity.get("profileId") != decision_request.get("identityProfileId")
         or fingerprint(identity) != decision_request.get("identityProfileFingerprint")
@@ -1888,14 +2097,15 @@ def _validate_campaign_admission(
         raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
 
     input_fingerprints = payload.get("inputFingerprints")
-    exact_inputs = [
-        value
-        for value in (
-            _optional_input_sha256(request.image_path),
-            _optional_input_sha256(request.audio_path),
-        )
-        if value is not None
-    ]
+    exact_inputs: list[str] = []
+    for value in (
+        _optional_input_sha256(request.image_path),
+        _optional_input_sha256(request.audio_path),
+        _optional_input_sha256(request.last_image_path),
+        _optional_input_sha256(request.source_video_path),
+    ):
+        if value is not None and value not in exact_inputs:
+            exact_inputs.append(value)
     if (
         input_fingerprints != exact_inputs
         or list(intent.get("sourceAssetFingerprints") or []) != exact_inputs
@@ -1904,12 +2114,19 @@ def _validate_campaign_admission(
         raise LocalVideoUnavailable("local_motion_input_fingerprint_mismatch")
 
     resource = payload.get("resourceSnapshot")
+    resource_hardware = (
+        resource.get("hardware") if isinstance(resource, Mapping) else None
+    )
+    current_hardware = hardware_identity()
     if (
         not isinstance(resource, Mapping)
         or resource.get("schema")
         != "campaign_factory.local_motion_resource_snapshot.v1"
         or resource.get("routerAvailableMemoryBytes")
         != decision_request.get("availableMemoryBytes")
+        or not isinstance(resource_hardware, Mapping)
+        or dict(resource_hardware) != current_hardware
+        or current_hardware.get("fingerprint") != promotion_hardware_fingerprint
     ):
         raise LocalVideoUnavailable("local_motion_resource_snapshot_mismatch")
 
@@ -1937,9 +2154,37 @@ def _validate_campaign_admission(
         or deep.get("paidGeneration") is not False
     ):
         raise LocalVideoUnavailable("local_motion_model_deep_verification_invalid")
+    runtime_binding = winning.get("runtimeBinding")
+    runtime_binding_fingerprint = _required_sha256(
+        winning.get("runtimeBindingFingerprint"),
+        "local_motion_runtime_binding_fingerprint",
+    )
+    license_policy = winning.get("licensePolicy")
+    license_policy_fingerprint = _required_sha256(
+        winning.get("licensePolicyFingerprint"),
+        "local_motion_license_policy_fingerprint",
+    )
+    if (
+        not isinstance(runtime_binding, Mapping)
+        or fingerprint(runtime_binding) != runtime_binding_fingerprint
+        or candidate.get("runtimeBinding") != runtime_binding
+        or candidate.get("runtimeBindingFingerprint") != runtime_binding_fingerprint
+        or deep.get("runtimeBinding") != runtime_binding
+        or deep.get("runtimeBindingFingerprint") != runtime_binding_fingerprint
+        or not isinstance(license_policy, Mapping)
+        or fingerprint(license_policy) != license_policy_fingerprint
+        or candidate.get("licensePolicy") != license_policy
+        or candidate.get("licensePolicyFingerprint") != license_policy_fingerprint
+        or license_policy.get("commercialUseAllowed") is not True
+    ):
+        raise LocalVideoUnavailable("local_motion_runtime_license_binding_mismatch")
     manifest = model.get("manifest")
     if not isinstance(manifest, Mapping):
         raise LocalVideoUnavailable("local_motion_model_manifest_missing")
+    if manifest.get("licenseId") != license_policy.get("licenseId") or manifest.get(
+        "commercialRevenueLimitUsd"
+    ) != license_policy.get("commercialRevenueLimitUsd"):
+        raise LocalVideoUnavailable("local_motion_model_license_drift")
     current_model_fingerprint = fingerprint(
         {
             "modelId": request.model_id,
@@ -1955,13 +2200,28 @@ def _validate_campaign_admission(
     binding_core = {
         "schema": "reel_factory.campaign_local_motion_binding.v1",
         "admissionFingerprint": claimed,
+        "routerDecisionId": decision_id,
         "routerDecisionFingerprint": decision_claimed,
+        "capabilityCohort": decision_request.get("capabilityCohort"),
+        "cohortKey": dict(cohort_key),
+        "cohortKeyFingerprint": fingerprint(cohort_key),
         "arenaSummaryFingerprint": summary_fingerprint,
         "arenaPlanFingerprint": plan_fingerprint,
         "selectedModelFingerprint": current_model_fingerprint,
         "modelDeepVerificationFingerprint": deep_claimed,
+        "runtimeBinding": dict(runtime_binding),
+        "runtimeBindingFingerprint": runtime_binding_fingerprint,
+        "licensePolicy": dict(license_policy),
+        "licensePolicyFingerprint": license_policy_fingerprint,
         "benchmarkRecipeFingerprint": fingerprint(recipe),
         "analyzerRegistryFingerprint": fingerprint(registry),
+        "promotionApprovalEventId": promotion_event_id,
+        "promotionApprovalEventHash": promotion_approval_event_hash,
+        "promotionHardwareFingerprint": promotion_hardware_fingerprint,
+        "promotionEvidenceFingerprint": promotion_evidence_fingerprint,
+        "promotionBenchmarkIdsFingerprint": fingerprint(
+            {"candidateBenchmarkIds": approval["candidateBenchmarkIds"]}
+        ),
         "inputFingerprints": exact_inputs,
         "providerCalls": 0,
         "paidGeneration": False,
@@ -1986,6 +2246,10 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         "benchmarkRecipeFingerprint",
         "analyzerRegistryFingerprint",
         "modelDeepVerificationFingerprint",
+        "runtimeBinding",
+        "runtimeBindingFingerprint",
+        "licensePolicy",
+        "licensePolicyFingerprint",
         "providerCalls",
         "productionWritesAllowed",
         "bindingFingerprint",
@@ -2017,6 +2281,34 @@ def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, A
         != binding.get("analyzerRegistryFingerprint")
     ):
         raise LocalVideoUnavailable("arena_benchmark_binding_mismatch")
+    runtime_binding = binding.get("runtimeBinding")
+    runtime_binding_fingerprint = binding.get("runtimeBindingFingerprint")
+    license_policy = binding.get("licensePolicy")
+    license_policy_fingerprint = binding.get("licensePolicyFingerprint")
+    if (
+        not isinstance(runtime_binding, Mapping)
+        or fingerprint(runtime_binding) != runtime_binding_fingerprint
+        or not isinstance(license_policy, Mapping)
+        or fingerprint(license_policy) != license_policy_fingerprint
+        or license_policy.get("commercialUseAllowed") is not True
+    ):
+        raise LocalVideoUnavailable("arena_runtime_license_binding_invalid")
+    profile = request.creator_identity_profile
+    intent = request.content_intent
+    if not isinstance(profile, Mapping) or not isinstance(intent, Mapping):
+        raise LocalVideoUnavailable("arena_identity_intent_records_required")
+    if (
+        profile.get("schema") != "creator_os.creator_identity_profile.v1"
+        or intent.get("schema") != "creator_os.content_intent.v1"
+        or profile.get("profileId") != binding.get("identityProfileId")
+        or fingerprint(profile) != binding.get("identityProfileFingerprint")
+        or intent.get("intentId") != binding.get("contentIntentId")
+        or fingerprint(intent) != binding.get("contentIntentFingerprint")
+        or intent.get("creatorIdentityProfileId") != profile.get("profileId")
+        or binding.get("sourceSha256")
+        not in list(intent.get("sourceAssetFingerprints") or [])
+    ):
+        raise LocalVideoUnavailable("arena_identity_intent_record_binding_mismatch")
     for field in (
         "sampleId",
         "blindedCandidateId",

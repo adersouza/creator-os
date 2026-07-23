@@ -115,6 +115,15 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         local_motion_admission = _load_bound_json(
             admission_path, admission_sha, label="local_motion_admission"
         )
+        evidence_records = local_motion_admission.get("evidenceRecords")
+        if not isinstance(evidence_records, dict):
+            raise ValueError("local motion admission evidence records are missing")
+        creator_identity_profile = evidence_records.get("creatorIdentityProfile")
+        content_intent = evidence_records.get("contentIntent")
+        if not isinstance(creator_identity_profile, dict) or not isinstance(
+            content_intent, dict
+        ):
+            raise ValueError("local motion identity and intent records are missing")
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
@@ -179,6 +188,8 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
             benchmark_recipe=benchmark_recipe,
             analyzer_registry=analyzer_registry,
+            creator_identity_profile=creator_identity_profile,
+            content_intent=content_intent,
             execution_context="campaign_generation",
             local_motion_admission=local_motion_admission,
         )

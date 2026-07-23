@@ -3,12 +3,27 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 
 export const EVIDENCE_ATTESTATION_SCHEMA = "creator_os.evidence_attestation.v1";
 export const EVIDENCE_ATTESTATION_ALGORITHM = "hmac-sha256";
 export const EVIDENCE_SECRET_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET";
+export const EVIDENCE_SECRET_FILE_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET_FILE";
 export const EVIDENCE_KEY_ID_ENV = "CREATOR_OS_EVIDENCE_AUTH_KEY_ID";
+export const EVIDENCE_KEY_FILE_SCHEMA = "creator_os.evidence_key.v1";
+
+const MINIMUM_SECRET_BYTES = 32;
+const MAXIMUM_KEY_FILE_BYTES = 4096;
 
 const RFC3339_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const ATTESTATION_FIELDS = Object.freeze([
@@ -53,21 +68,106 @@ export function evidencePayloadFingerprint(payload) {
   return createHash("sha256").update(canonicalJsonDeep(payload)).digest("hex");
 }
 
-export function loadEvidenceSecret(environ = process.env) {
-  var secret = String(environ[EVIDENCE_SECRET_ENV] || "");
-  if (Buffer.byteLength(secret, "utf8") < 32) {
-    throw new Error(`${EVIDENCE_SECRET_ENV} must contain at least 32 bytes`);
+function validateSecret(secret) {
+  if (Buffer.byteLength(secret, "utf8") < MINIMUM_SECRET_BYTES) {
+    throw new Error("evidence_attestation_secret_too_short");
   }
   return secret;
 }
 
+function derivedEvidenceKeyId(secret) {
+  return `local-${createHash("sha256").update(secret).digest("hex").slice(0, 16)}`;
+}
+
+export function evidenceSecretPath(environ = process.env) {
+  var home = String(environ.HOME || homedir());
+  var configured = String(environ[EVIDENCE_SECRET_FILE_ENV] || "").trim();
+  if (configured === "~" || configured.startsWith("~/")) {
+    configured = home + configured.slice(1);
+  }
+  if (configured && !isAbsolute(configured)) {
+    throw new Error("evidence_attestation_key_path_not_absolute");
+  }
+  return resolve(configured || join(home, ".creator-os", "credentials", "evidence-auth-key.json"));
+}
+
+function validateKeyFileStat(fileStat) {
+  if (!fileStat.isFile()) throw new Error("evidence_attestation_key_file_not_regular");
+  if ((fileStat.mode & 0o077) !== 0) {
+    throw new Error("evidence_attestation_key_file_permissions_unsafe");
+  }
+  if (typeof process.geteuid === "function" && fileStat.uid !== process.geteuid()) {
+    throw new Error("evidence_attestation_key_file_owner_mismatch");
+  }
+  if (fileStat.size > MAXIMUM_KEY_FILE_BYTES) {
+    throw new Error("evidence_attestation_key_file_too_large");
+  }
+}
+
+function decodeKeyFile(raw) {
+  var decoded;
+  try {
+    decoded = JSON.parse(raw.toString("utf8"));
+  } catch {
+    throw new Error("evidence_attestation_key_file_invalid");
+  }
+  if (!validRecord(decoded)
+    || canonicalJsonDeep(Object.keys(decoded).sort()) !== canonicalJsonDeep(["keyId", "schema", "secret"])) {
+    throw new Error("evidence_attestation_key_file_invalid");
+  }
+  if (decoded.schema !== EVIDENCE_KEY_FILE_SCHEMA) {
+    throw new Error("evidence_attestation_key_file_version_invalid");
+  }
+  var secret = validateSecret(String(decoded.secret || ""));
+  var derived = derivedEvidenceKeyId(secret);
+  if (decoded.keyId !== derived) throw new Error("evidence_attestation_key_drift");
+  return { secret, keyId: derived };
+}
+
+function loadEvidenceKeyFile(path) {
+  var pathStat;
+  try {
+    pathStat = lstatSync(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") throw new Error("evidence_attestation_key_file_missing");
+    throw new Error("evidence_attestation_key_file_unreadable");
+  }
+  if (pathStat.isSymbolicLink()) throw new Error("evidence_attestation_key_file_symlink");
+  validateKeyFileStat(pathStat);
+  var descriptor;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+  } catch {
+    throw new Error("evidence_attestation_key_file_unreadable");
+  }
+  try {
+    var openedStat = fstatSync(descriptor);
+    validateKeyFileStat(openedStat);
+    if (openedStat.dev !== pathStat.dev || openedStat.ino !== pathStat.ino) {
+      throw new Error("evidence_attestation_key_file_changed");
+    }
+    return decodeKeyFile(readFileSync(descriptor));
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+export function loadEvidenceSecret(environ = process.env) {
+  if (Object.prototype.hasOwnProperty.call(environ, EVIDENCE_SECRET_ENV)) {
+    return validateSecret(String(environ[EVIDENCE_SECRET_ENV] || ""));
+  }
+  return loadEvidenceKeyFile(evidenceSecretPath(environ)).secret;
+}
+
 export function evidenceKeyId(secret, environ = process.env) {
+  validateSecret(secret);
+  var derived = derivedEvidenceKeyId(secret);
   var configured = String(environ[EVIDENCE_KEY_ID_ENV] || "").trim();
   if (configured) {
     if (configured.length > 128) throw new Error("evidence_attestation_key_id_invalid");
-    return configured;
+    if (configured !== derived) throw new Error("evidence_attestation_key_drift");
   }
-  return `local-${createHash("sha256").update(secret).digest("hex").slice(0, 16)}`;
+  return derived;
 }
 
 function requireTimestamp(value, code, now = Date.now()) {

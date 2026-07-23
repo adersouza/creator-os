@@ -14,6 +14,57 @@ def test_exact_incomplete_overlay_regression_is_blocked() -> None:
     assert result["segment_count"] == 1
 
 
+def test_contentforge_clip004_pixel_pass_still_requires_semantic_payoff() -> None:
+    """Keep pixel delivery evidence separate from semantic completeness.
+
+    This is the exact one-line sequence observed by the provider-free
+    ContentForge canary over all 14 sampled frames of preserved clip_004
+    (media SHA-256 de97f2be4753c8b68ce594f93d872e18e39ef6929516b6f92a89579e64bb1fe1).
+    OCR/readability/safe-zone passing cannot turn an unfinished setup into a
+    complete caption.
+    """
+
+    contentforge_overlay_observation = {
+        "available": True,
+        "passed": True,
+        "sampling": {
+            "requestedFrames": 14,
+            "analyzedFrames": 14,
+            "detectedTextFrames": 14,
+            "coverageRatio": 1,
+            "detectionCoverageRatio": 1,
+        },
+        "readability": {"passed": True, "averageScore": 100},
+        "safeZone": {"passed": True, "failedBoxCount": 0},
+        "timedSequence": [
+            {
+                "text": "men, stop doing this:",
+                "firstObservedAtSeconds": 0.4,
+                "lastObservedAtSeconds": 13.466,
+                "sampledFrameCount": 14,
+            }
+        ],
+    }
+
+    assert contentforge_overlay_observation["passed"] is True
+    assert contentforge_overlay_observation["readability"]["passed"] is True
+    assert contentforge_overlay_observation["safeZone"]["passed"] is True
+    result = evaluate_overlay_semantic_completeness(
+        {
+            "segments": [
+                {"text": item["text"]}
+                for item in contentforge_overlay_observation["timedSequence"]
+            ]
+        },
+        require_overlay=True,
+    )
+
+    assert result["passed"] is False
+    assert result["decision"] == "blocked"
+    assert result["failure_reasons"] == ["missing_overlay_payoff_after_setup"]
+    assert result["distinct_segment_count"] == 1
+
+
 def test_repeated_timed_setup_does_not_fake_a_payoff() -> None:
     result = evaluate_overlay_semantic_completeness(
         {

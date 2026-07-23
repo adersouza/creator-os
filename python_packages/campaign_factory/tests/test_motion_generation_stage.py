@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from campaign_asset_test_support import add_audit_report
@@ -18,6 +20,9 @@ from campaign_factory.cli_parser import build_cli_parser
 from campaign_factory.contentforge_cli import run_contentforge
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.motion_generation_stage import (
+    MotionWorkerError,
+    _ensure_motion_edit_source_asset,
+    _invoke_worker,
     _motion_request_fingerprint,
     _register_review_asset,
     _worker_command,
@@ -57,12 +62,83 @@ def _canonical_analyzer_registry() -> dict:
 
 def _local_motion_admission(model_id: str) -> dict:
     summary_fingerprint = "b" * 64
+    runtime_binding = {
+        "runtimeId": "mlx_video",
+        "repository": "https://example.invalid/mlx-video.git",
+        "revision": "runtime-revision-1",
+        "platform": "Darwin",
+        "platformRelease": "25.0.0",
+        "osBuild": "25A123",
+        "machine": "arm64",
+        "python": "3.12.10",
+        "pythonExecutable": "/opt/creator-os/bin/python",
+        "pythonExecutableResolved": "/opt/creator-os/bin/python3.12",
+        "mlxVersion": "0.29.3",
+        "runtimeReceiptFingerprint": "1" * 64,
+        "resolvedEnvironmentFingerprint": "2" * 64,
+        "ffmpegExecutable": "/opt/homebrew/bin/ffmpeg",
+        "ffmpegSha256": "3" * 64,
+        "ffmpegSize": 1_024,
+        "ffmpegVersion": "ffmpeg version 8.0",
+        "ffprobeExecutable": "/opt/homebrew/bin/ffprobe",
+        "ffprobeSha256": "4" * 64,
+        "ffprobeSize": 512,
+        "ffprobeVersion": "ffprobe version 8.0",
+    }
+    license_policy = {
+        "licenseId": "apache-2.0",
+        "commercialUse": True,
+        "declaredAnnualRevenueUsd": None,
+        "commercialRevenueLimitUsd": None,
+        "commercialUseAllowed": True,
+        "aiDisclosureRequired": False,
+    }
+    runtime_fingerprint = _fingerprint(runtime_binding)
+    license_fingerprint = _fingerprint(license_policy)
+    request = {
+        "creatorId": "stacey",
+        "identityProfileId": "profile-1",
+        "identityProfileFingerprint": "1" * 64,
+        "contentIntentId": "intent-1",
+        "contentIntentFingerprint": "2" * 64,
+        "taskKind": "image_to_video",
+        "capabilityCohort": "image_to_video",
+    }
+    cohort_key = dict(request)
+    promotion = {
+        "approvalEventId": "promotion-1",
+        "approvalEventHash": "3" * 64,
+        "hardwareFingerprint": "4" * 64,
+        "evidenceFingerprint": "5" * 64,
+        "candidateBenchmarkIds": ["benchmark-1"],
+    }
+    winning = {
+        "arenaSummaryFingerprint": summary_fingerprint,
+        "cohortKey": cohort_key,
+        "promotionApproval": promotion,
+        "runtimeBinding": runtime_binding,
+        "runtimeBindingFingerprint": runtime_fingerprint,
+        "licensePolicy": license_policy,
+        "licensePolicyFingerprint": license_fingerprint,
+    }
     decision_core = {
         "schema": "reel_factory.local_model_router_decision.v1",
+        "decisionId": "decision-1",
+        "request": request,
         "selectedModelId": model_id,
+        "selectedModelFingerprint": "6" * 64,
+        "consideredCandidates": [
+            {
+                "modelId": model_id,
+                "runtimeBinding": runtime_binding,
+                "runtimeBindingFingerprint": runtime_fingerprint,
+                "licensePolicy": license_policy,
+                "licensePolicyFingerprint": license_fingerprint,
+            }
+        ],
         "paidProviderFallbackAllowed": False,
         "legacyLocalMotionFallbackAllowed": False,
-        "winningEvidence": {"arenaSummaryFingerprint": summary_fingerprint},
+        "winningEvidence": winning,
     }
     decision = {
         **decision_core,
@@ -72,10 +148,22 @@ def _local_motion_admission(model_id: str) -> dict:
         "schema": "campaign_factory.local_motion_admission.v1",
         "routerDecision": decision,
         "arenaSummary": {
+            "summaryId": "summary-1",
             "summaryFingerprint": summary_fingerprint,
             "purpose": "promotion_eligible",
         },
-        "evidenceRecords": {"fixture": True},
+        "evidenceRecords": {
+            "creatorIdentityProfile": {
+                "profileId": "profile-1",
+                "creatorKey": "stacey",
+            },
+            "contentIntent": {
+                "intentId": "intent-1",
+                "sourceAssetFingerprints": ["c" * 64],
+            },
+            "benchmarkRecipe": {"recipeId": "recipe-1"},
+            "analyzerRegistry": {"registryId": "registry-1"},
+        },
         "inputFingerprints": ["c" * 64],
         "resourceSnapshot": {
             "schema": "campaign_factory.local_motion_resource_snapshot.v1"
@@ -1097,6 +1185,148 @@ def test_text_to_video_worker_omits_image_but_keeps_static_fallback_input(
         cf.close()
 
 
+@pytest.mark.parametrize(
+    ("motion_task", "controls"),
+    [
+        (
+            "video_retake",
+            {
+                "retake_start_frame": 2,
+                "retake_end_frame": 5,
+                "preserve_audio": True,
+            },
+        ),
+        (
+            "video_extend",
+            {"extend_frames": 8, "extend_direction": "after"},
+        ),
+    ],
+)
+def test_local_video_edit_dry_run_uses_only_the_exact_source_video(
+    motion_task: str,
+    controls: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        source_video = tmp_path / "source.mp4"
+        source_video.write_bytes(b"exact-source-video")
+        captured: dict = {}
+
+        def fake_worker(command, *, factory, log_dir, phase):
+            del factory, log_dir
+            captured["command"] = command
+            captured["phase"] = phase
+            return {
+                "schema": "reel_factory.motion_generation_result.v1",
+                "providerCalls": 0,
+                "result": {"status": "planned"},
+            }
+
+        def fake_revalidate(admission, **kwargs):
+            assert kwargs["accepted_still_path"] is None
+            assert kwargs["source_video_path"] == source_video.resolve()
+            assert kwargs["task_kind"] == motion_task
+            return dict(admission)
+
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage._invoke_worker", fake_worker
+        )
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage.revalidate_local_motion_admission",
+            fake_revalidate,
+        )
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage.run_static_mp4_stage",
+            lambda *_args, **_kwargs: pytest.fail(
+                "video edits must not create a static fallback"
+            ),
+        )
+
+        result = run_motion_generation_stage(
+            cf,
+            execution_plan=build_generation_execution_plan("local_wan"),
+            campaign_slug="may",
+            still_path=None,
+            source_video_path=source_video,
+            prompt=PROMPT,
+            model_id="local_ltx23_distilled_mlx",
+            duration_seconds=6,
+            resolution=None,
+            seed=42,
+            steps=8,
+            dry_run=True,
+            apply=False,
+            motion_task=motion_task,
+            local_motion_admission=_local_motion_admission("local_ltx23_distilled_mlx"),
+            local_arena_summary_path=tmp_path / "arena-summary.json",
+            campaign_creator="stacey",
+            benchmark_recipe={"recipeId": "fixture"},
+            analyzer_registry={"registryId": "fixture"},
+            **controls,
+        )
+
+        command = captured["command"]
+        assert captured["phase"] == "preflight"
+        assert command[command.index("--source-video") + 1] == str(
+            source_video.resolve()
+        )
+        assert "--image" not in command
+        assert result["staticFallback"] is None
+        assert result["registeredAsset"] is None
+        assert result["providerCalls"] == 0
+        job = cf.domains.events.pipeline_job(result["pipelineJobId"])
+        assert job["input"]["sourcePath"] == str(source_video.resolve())
+        assert job["input"]["sourceRole"] == "source_video_edit"
+        assert (
+            job["input"]["sourceSha256"]
+            == hashlib.sha256(source_video.read_bytes()).hexdigest()
+        )
+    finally:
+        cf.close()
+
+
+def test_local_video_edit_fails_closed_when_source_video_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        monkeypatch.setattr(
+            "campaign_factory.motion_generation_stage._invoke_worker",
+            lambda *_args, **_kwargs: pytest.fail("worker must not run"),
+        )
+        with pytest.raises(FileNotFoundError, match="source video not found"):
+            run_motion_generation_stage(
+                cf,
+                execution_plan=build_generation_execution_plan("local_wan"),
+                campaign_slug="may",
+                still_path=None,
+                source_video_path=tmp_path / "missing.mp4",
+                prompt=PROMPT,
+                model_id="local_ltx23_distilled_mlx",
+                duration_seconds=6,
+                resolution=None,
+                seed=42,
+                steps=8,
+                dry_run=True,
+                apply=False,
+                motion_task="video_retake",
+                retake_start_frame=2,
+                retake_end_frame=5,
+                local_motion_admission=_local_motion_admission(
+                    "local_ltx23_distilled_mlx"
+                ),
+                local_arena_summary_path=tmp_path / "arena-summary.json",
+                campaign_creator="stacey",
+                benchmark_recipe={"recipeId": "fixture"},
+                analyzer_registry={"registryId": "fixture"},
+            )
+    finally:
+        cf.close()
+
+
 def test_local_lora_worker_arguments_are_explicit(tmp_path: Path) -> None:
     cf = make_factory(tmp_path)
     try:
@@ -1133,6 +1363,104 @@ def test_local_lora_worker_arguments_are_explicit(tmp_path: Path) -> None:
         cf.close()
 
 
+def test_registered_video_edit_lineage_has_no_static_fallback(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source = add_source_asset(cf, tmp_path)
+        source_video = tmp_path / "source-edit.mp4"
+        source_video.write_bytes(b"source-edit-video")
+        source_sha = hashlib.sha256(source_video.read_bytes()).hexdigest()
+        output = tmp_path / "retake.mp4"
+        output.write_bytes(b"retake-output")
+        asset = _register_review_asset(
+            cf,
+            campaign=cf.domains.campaign_by_slug("may"),
+            source_asset_id=source["id"],
+            model_slug="stacey",
+            model_id="local_ltx23_distilled_mlx",
+            source_path=source_video,
+            source_hash=source_sha,
+            output_path=output,
+            worker_result={"result": {"audio": {"mode": "none"}}},
+            paid=False,
+            motion_task="video_retake",
+            request_fingerprint="7" * 64,
+            local_motion_admission=_local_motion_admission("local_ltx23_distilled_mlx"),
+            prompt=PROMPT,
+        )
+        metadata = json.loads(asset["metadata_json"])
+        expected_source = {"path": str(source_video), "sha256": source_sha}
+        assert metadata["source"] == expected_source
+        assert metadata["generationInput"] == expected_source
+        assert metadata["staticFallbackSource"] is None
+        assert metadata["sourceAssetRole"] == "generation_input_only"
+        attempt = dict(
+            cf.conn.execute(
+                "SELECT * FROM generation_attempts WHERE rendered_asset_id = ?",
+                (asset["id"],),
+            ).fetchone()
+        )
+        assert attempt["source_sha256"] == source_sha
+        assert json.loads(attempt["input_json"])["sourcePath"] == str(source_video)
+    finally:
+        cf.close()
+
+
+def test_motion_edit_source_asset_is_exact_idempotent_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        source_video = tmp_path / "source-edit.mp4"
+        source_video.write_bytes(b"exact-source-edit-video")
+        source_sha = hashlib.sha256(source_video.read_bytes()).hexdigest()
+        campaign = cf.domains.campaign_by_slug("may")
+        model_slug = cf.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+
+        first = _ensure_motion_edit_source_asset(
+            cf,
+            campaign=campaign,
+            model_slug=model_slug,
+            source_video=source_video.resolve(),
+            source_hash=source_sha,
+            motion_task="video_retake",
+        )
+        stored = Path(first["stored_path"])
+        assert first["media_type"] == "video"
+        assert first["content_hash"] == source_sha
+        assert first["original_path"] == str(source_video.resolve())
+        assert stored != source_video.resolve()
+        assert stored.read_bytes() == source_video.read_bytes()
+
+        replay = _ensure_motion_edit_source_asset(
+            cf,
+            campaign=campaign,
+            model_slug=model_slug,
+            source_video=source_video.resolve(),
+            source_hash=source_sha,
+            motion_task="video_retake",
+        )
+        assert replay["id"] == first["id"]
+
+        stored.write_bytes(b"substituted")
+        with pytest.raises(
+            RuntimeError, match="motion_edit_existing_source_asset_mismatch"
+        ):
+            _ensure_motion_edit_source_asset(
+                cf,
+                campaign=campaign,
+                model_slug=model_slug,
+                source_video=source_video.resolve(),
+                source_hash=source_sha,
+                motion_task="video_retake",
+            )
+    finally:
+        cf.close()
+
+
 def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1148,8 +1476,8 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
             assert kwargs["apply"] is True
             return {"registeredAsset": {"source_asset_id": source["id"]}}
 
-        def fake_worker(command, *, factory):
-            del factory
+        def fake_worker(command, *, factory, log_dir, phase):
+            del factory, log_dir, phase
             if "--dry-run" in command:
                 calls.append("preflight")
                 return {
@@ -1173,6 +1501,7 @@ def test_local_wan_apply_preserves_static_fallback_then_registers_review_only(
         def fake_revalidate(admission, **kwargs):
             calls.append("revalidate")
             assert kwargs["accepted_still_path"] == still
+            assert kwargs["last_image_path"] is None
             assert kwargs["task_kind"] == "text_to_video"
             assert kwargs["model_id"] == "local_wan22_ti2v_5b_mlx"
             return dict(admission)
@@ -1782,3 +2111,90 @@ def test_campaign_cli_registers_exact_motion_qc_receipt(
         assert payload["createdBy"] == "operator_1"
     finally:
         cf.close()
+
+
+def test_worker_streams_large_stderr_to_immutable_hashed_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "do-not-persist-this-worker-secret"
+    monkeypatch.setenv("WAVESPEED_API_KEY", secret)
+    factory = SimpleNamespace(settings=SimpleNamespace(reel_factory_root=tmp_path))
+    script = (
+        "import json, os, sys; "
+        "sys.stderr.write('x' * 2_000_000 + os.environ['WAVESPEED_API_KEY']); "
+        "print(json.dumps({'schema': "
+        "'reel_factory.motion_generation_result.v1', 'providerCalls': 0}))"
+    )
+
+    result = _invoke_worker(
+        [sys.executable, "-c", script],
+        factory=factory,
+        log_dir=tmp_path / "logs",
+        phase="preflight",
+    )
+
+    evidence = result.pop("_campaignExecutionLogEvidence")
+    assert result["providerCalls"] == 0
+    stderr = Path(evidence["stderr"]["path"])
+    assert evidence["stderr"]["byteLength"] == 2_000_000 + len(secret)
+    assert (
+        evidence["stderr"]["sha256"] == hashlib.sha256(stderr.read_bytes()).hexdigest()
+    )
+    assert secret.encode() not in stderr.read_bytes()
+    assert evidence["stderr"]["redactionCount"] == 1
+    assert stderr.stat().st_mode & 0o222 == 0
+
+
+def test_worker_rejects_oversized_stdout_after_streaming_complete_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.motion_worker_process._WORKER_STDOUT_CAPTURE_BYTES", 128
+    )
+    factory = SimpleNamespace(settings=SimpleNamespace(reel_factory_root=tmp_path))
+    script = "import sys; sys.stdout.write('x' * 4096)"
+
+    with pytest.raises(MotionWorkerError, match="bounded capture limit") as raised:
+        _invoke_worker(
+            [sys.executable, "-c", script],
+            factory=factory,
+            log_dir=tmp_path / "oversized-stdout-logs",
+            phase="preflight",
+        )
+
+    stdout_evidence = raised.value.log_evidence["stdout"]
+    stdout = Path(stdout_evidence["path"])
+    assert stdout_evidence["byteLength"] == 4096
+    assert stdout_evidence["sha256"] == hashlib.sha256(stdout.read_bytes()).hexdigest()
+    assert stdout.stat().st_mode & 0o222 == 0
+
+
+def test_worker_timeout_stops_process_and_preserves_bounded_log_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.motion_worker_process._WORKER_TIMEOUT_SECONDS", 0.05
+    )
+    monkeypatch.setattr(
+        "campaign_factory.motion_worker_process._WORKER_TERMINATE_GRACE_SECONDS",
+        0.1,
+    )
+    factory = SimpleNamespace(settings=SimpleNamespace(reel_factory_root=tmp_path))
+    script = (
+        "import sys, time; "
+        "sys.stderr.write('worker-started\\n'); sys.stderr.flush(); time.sleep(30)"
+    )
+
+    with pytest.raises(MotionWorkerError, match="motion worker timed out") as raised:
+        _invoke_worker(
+            [sys.executable, "-c", script],
+            factory=factory,
+            log_dir=tmp_path / "timeout-logs",
+            phase="apply",
+        )
+
+    stderr_evidence = raised.value.log_evidence["stderr"]
+    stderr = Path(stderr_evidence["path"])
+    assert stderr.read_text(encoding="utf-8") == "worker-started\n"
+    assert stderr_evidence["sha256"] == hashlib.sha256(stderr.read_bytes()).hexdigest()
+    assert stderr.stat().st_mode & 0o222 == 0

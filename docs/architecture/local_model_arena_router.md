@@ -14,12 +14,49 @@ SHA-256 values, prompt, seed, duration, resolution, model revision and manifest,
 output path, queue-job fingerprint, benchmark recipe, analyzer registry, blind
 candidate ID, and the planned denominator. Promotion-eligible designs require
 Stacey, Larissa, and Lola, at least two safe sources per creator/model/intent
-cohort, and at least two seeds per source. Smaller runs are explicitly
-exploratory.
+cohort, and at least four seeds per source: a fixed minimum of eight matched
+samples per model arm. Smaller runs are explicitly exploratory.
 
 Every competing model in a promotion-eligible comparison receives the exact
 same creator, identity, intent, source, prompt, seed, duration, and resolution
 grid. A model-specific subset is not described or analyzed as matched evidence.
+The identity and intent fingerprints are not operator assertions. Every sample
+embeds one schema-valid `CreatorIdentityProfileV1` and one schema-valid
+`ContentIntentV1`. Arena recomputes both fingerprints, requires the profile
+creator to match the sample creator, requires the intent to reference that
+profile, and requires the exact source SHA-256 in the intent. The immutable plan
+store also writes content-addressed copies under `creator_identity_profiles/`
+and `content_intents/`; missing or changed copies make the plan unloadable.
+Queue jobs, measured benchmark receipts, summaries, and Router decisions retain
+the same IDs and fingerprints. Historical entries without these links remain
+readable but cannot support promotion.
+
+Operators build these records from reviewed facts and exact media, not invented
+fingerprints:
+
+```bash
+scripts/creator-os advanced arena --root "$ARENA_ROOT" build-records \
+  --reviewed-identity-facts "$REVIEWED_FACTS_JSON" \
+  --source "$EXACT_SOURCE_IMAGE" \
+  --goal "subtle natural portrait motion" \
+  --content-surface reel \
+  --media-kind video \
+  --style-lane subtle_motion \
+  --concept-tag lifestyle \
+  --produced-at "$UTC_TIMESTAMP" \
+  --output-root "$ARENA_ROOT/record-builder"
+```
+
+`--source` remains the compatible single-image form. Keyframe, audio, Retake,
+and Extend record construction uses repeatable typed inputs so every consumed
+asset is fingerprinted in order. For example, pass `--input` once with
+`source-video=/exact/input.mp4` and again with `audio=/exact/input.wav`.
+
+The reviewed-facts file supplies the explicit creator key, display name, model
+profile, identity references, reviewer, and review timestamp. The helper hashes
+that file and source asset, validates timestamp order, emits canonical records,
+and reports zero provider calls and zero production writes.
+
 The execution plan remains private evidence because it contains the model
 mapping. Reviewers receive only a separately shuffled, HMAC-authenticated
 `local_model_arena_review_packet.v1` with model-free candidate identifiers and
@@ -46,8 +83,12 @@ recorded; `providerCalls: 0` is not accepted as a bare assertion. Worker output
 streams to an append-only bounded log (16 MiB maximum) whose path, SHA-256, and
 diagnostic tail are evidence, avoiding unbounded 12-hour stdout/stderr buffers.
 Model identity uses a content-addressed deep-verification attestation cache
-bound to the manifest, file metadata, runtime source, and environment; any
-change invalidates it, and the selected model is revalidated at execution.
+bound to the manifest, file metadata, pinned runtime executable and package
+environment, OS build, MLX version, and exact FFmpeg/FFprobe executable hashes;
+any change invalidates it, and the selected model is revalidated at execution.
+Arena samples, benchmark receipts, promotion cohorts, Router decisions, queue
+jobs, and asset lineage retain that runtime fingerprint and the evaluated model
+license policy. Mixed toolchains or noncompliant commercial use fail closed.
 
 ## Evidence production
 
@@ -76,6 +117,39 @@ face-track coverage, samples, confidence, and bounded offset; missing or
 ambiguous evidence blocks the cohort. Temporal analysis samples the full video
 at 8 fps and 180x320, binds a deterministic frame-set fingerprint, and requires
 the blinded human review to confirm the exact brief-frame outlier set.
+
+### Trusted-QC ownership and unavailable evidence
+
+The terminal QC chain deliberately does not pretend that one analyzer measures
+everything:
+
+| Evidence | Canonical producer | Terminal behavior |
+|---|---|---|
+| exact bytes, container, codec, duration, dimensions, frame rate | ContentForge trusted media analysis | measured from a read-only snapshot with FFprobe; input and snapshot are rehashed after analysis |
+| motion amount, discontinuity candidates/rate, frozen frames, loop seam, full-duration frame-set identity | ContentForge temporal analyzer | measured at 8 fps; missing coverage blocks analysis |
+| audio stream integrity and container-level A/V start/duration offsets | ContentForge audio analyzer | measured only when an audio stream exists; missing audio remains unavailable |
+| speaking lip-sync | ContentForge local face/mouth tracker plus decoded PCM | measured only with sufficient single-face coverage, speech activity, sample count, correlation, and bounded offset |
+| creator identity and face stability | Reel Factory identity verification | separate ArcFace/reference-set receipt bound into Arena; ContentForge does not duplicate or synthesize it |
+| anatomy, transient artifacts, realism, intent, conversion usefulness | authenticated blinded human review | human evidence; no automatic anatomy score is invented |
+| no declared burned overlay | ContentForge sampled-pixel overlay analyzer | still inspects sampled pixels with OCR; only a completed scan with no detected text is `not_applicable`, while undeclared text or app UI blocks |
+| declared burned overlay | ContentForge sampled-pixel overlay analyzer | caller-authored overlay JSON is rejected; canonical Apple Vision/Tesseract OCR records frame timestamps, text, boxes, confidence, full-duration sampling coverage, readability, platform safe-zone findings, timed text changes, and face overlap when canonical face geometry exists; semantic delivery is evaluated only for the declared overlay |
+
+Every implementation is named in `AnalyzerRegistryV1` with an exact repository
+path and SHA-256. The trusted analysis and final receipt are HMAC-authenticated;
+`CREATOR_OS_EVIDENCE_AUTH_SECRET` must be configured locally. Registry or
+implementation drift, a changed media hash, missing required evidence, an
+unsupported/unavailable OCR tool, incomplete sampling, or a caller-authored
+verdict fails closed. Pixel delivery/readability passing remains separate from
+overlay semantic completeness: the measured timed sequence is passed to the
+existing Pipeline Contracts semantic policy, so an unchanged setup such as
+`men, stop doing this:` still blocks for a missing payoff.
+
+An existing-media analyzer canary is allowed before model generation. It must
+read one preserved MP4, use a temporary read-only snapshot, provide the expected
+media SHA-256, and retain no canonical evidence unless the operator later
+approves the Arena plan. The canary proves analyzer execution only. It does not
+prove creator identity, anatomy, model quality, promotion eligibility, or
+publishing readiness.
 
 ## Router v1
 

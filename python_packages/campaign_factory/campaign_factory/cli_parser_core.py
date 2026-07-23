@@ -116,6 +116,8 @@ def register_core_commands(sub) -> None:
             "image_to_video",
             "audio_image_to_video",
             "keyframe_interpolation",
+            "video_retake",
+            "video_extend",
         ],
         default="image_to_video",
     )
@@ -147,6 +149,14 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--audio", type=Path)
     generation_run.add_argument("--generate-audio", action="store_true")
     generation_run.add_argument("--last-image", type=Path)
+    generation_run.add_argument("--source-video", type=Path)
+    generation_run.add_argument("--retake-start-frame", type=int)
+    generation_run.add_argument("--retake-end-frame", type=int)
+    generation_run.add_argument("--extend-frames", type=int)
+    generation_run.add_argument(
+        "--extend-direction", choices=["before", "after"], default="after"
+    )
+    generation_run.add_argument("--preserve-audio", action="store_true")
     generation_run.add_argument(
         "--motion-reference-image", type=Path, action="append", default=[]
     )
