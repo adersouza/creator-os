@@ -132,21 +132,14 @@ def test_github_workflows_have_one_monorepo_owner() -> None:
     assert (ROOT / ".github/workflows/security.yml").exists()
 
 
-def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> None:
+def test_monorepo_ci_always_runs_required_promotion_language_jobs() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
-    filters = workflow["jobs"]["changes"]["steps"][1]["with"]["filters"]
+    jobs = workflow["jobs"]
 
-    js_filters, py_filters = filters.split("\npy:\n", maxsplit=1)
-    assert "- 'packages/**'" not in js_filters
-    assert "- 'scripts/**'" not in js_filters
-    assert "- 'packages/contentforge/**'" in js_filters
-    assert "- 'packages/pipeline_contracts/**'" in js_filters
-    assert "- 'scripts/**/*.mjs'" in js_filters
-
-    assert "- 'packages/creator_os_core/**'" in py_filters
-    assert "- 'packages/pipeline_contracts/**'" in py_filters
-    assert "- 'scripts/**/*.py'" in py_filters
-    assert "- 'scripts/**/*.sh'" in py_filters
+    assert "changes" not in jobs
+    for required_job in ("javascript", "python"):
+        assert "if" not in jobs[required_job]
+        assert "needs" not in jobs[required_job]
 
 
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:
