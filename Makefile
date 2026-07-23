@@ -1,4 +1,4 @@
-.PHONY: dev test verify sync format install reel-models backup-runtime
+.PHONY: dev test verify runtime-verify sync format install reel-models backup-runtime
 
 install:
 	pnpm install
@@ -34,3 +34,11 @@ test:
 verify:
 	pnpm run check:all
 	$(MAKE) test
+
+# Runtime promotion starts from a clean detached checkout whose dependency
+# environments may belong to the prior commit. Rebuild those untracked
+# environments from the exact frozen locks before verifying the promoted tree.
+runtime-verify:
+	pnpm install --frozen-lockfile
+	uv sync --all-packages --frozen
+	$(MAKE) verify

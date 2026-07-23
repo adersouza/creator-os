@@ -923,13 +923,14 @@ def test_promoted_commands_receive_only_allowlisted_environment(
     repositories, monkeypatch
 ) -> None:
     monkeypatch.setenv("SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN", "sensitive")
+    monkeypatch.setenv("VIRTUAL_ENV", "/tmp/source-worktree-venv")
     verifier = (
         sys.executable,
         "-c",
         (
             "import os; "
             "blocked={'CREATOR_OS_EVIDENCE_AUTH_SECRET',"
-            "'SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN'}; "
+            "'SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN','VIRTUAL_ENV'}; "
             "raise SystemExit(0 if blocked.isdisjoint(os.environ) "
             "and os.environ.get('PATH') else 9)"
         ),

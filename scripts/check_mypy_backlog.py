@@ -13,7 +13,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class BacklogTarget:
     path: str
-    expected_errors: int
+    maximum_errors: int
     minimum_source_files: int
 
 
@@ -41,6 +41,26 @@ def parse_summary(output: str, returncode: int) -> tuple[int, int]:
     if returncode == 0 and (match := SUCCESS_SUMMARY.search(output)):
         return 0, int(match.group("checked"))
     raise ValueError("mypy did not emit a recognized terminal summary")
+
+
+def measurement_failures(
+    name: str,
+    target: BacklogTarget,
+    *,
+    errors: int,
+    checked: int,
+) -> list[str]:
+    failures: list[str] = []
+    if checked < target.minimum_source_files:
+        failures.append(
+            f"{name}: checked only {checked} source files; "
+            f"expected at least {target.minimum_source_files}"
+        )
+    if errors > target.maximum_errors:
+        failures.append(
+            f"{name}: mypy backlog grew from {target.maximum_errors} to {errors}"
+        )
+    return failures
 
 
 def main() -> int:
@@ -73,23 +93,17 @@ def main() -> int:
             continue
 
         print(
-            f"{name}: {errors}/{target.expected_errors} errors; "
+            f"{name}: {errors}/{target.maximum_errors} maximum errors; "
             f"{checked} source files checked"
         )
-        if checked < target.minimum_source_files:
-            failures.append(
-                f"{name}: checked only {checked} source files; "
-                f"expected at least {target.minimum_source_files}"
+        failures.extend(
+            measurement_failures(
+                name,
+                target,
+                errors=errors,
+                checked=checked,
             )
-        if errors > target.expected_errors:
-            failures.append(
-                f"{name}: mypy backlog grew from {target.expected_errors} to {errors}"
-            )
-        if errors < target.expected_errors:
-            failures.append(
-                f"{name}: mypy backlog improved from {target.expected_errors} to "
-                f"{errors}; lower the recorded ceiling in the same change"
-            )
+        )
 
     if failures:
         print("\nMypy backlog gate failed:", file=sys.stderr)

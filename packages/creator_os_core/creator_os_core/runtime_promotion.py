@@ -78,7 +78,6 @@ PROMOTED_ENV_ALLOWLIST: Final = frozenset(
         "TEMP",
         "USER",
         "UV_CACHE_DIR",
-        "VIRTUAL_ENV",
         "XDG_CACHE_HOME",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",
@@ -1532,7 +1531,7 @@ def promote_runtime(
         state_root=state_root,
         operator=operator,
         dry_run=dry_run,
-        verifier_command=("make", "verify"),
+        verifier_command=("make", "runtime-verify"),
         health_command=(
             "scripts/creator-os",
             "status",
