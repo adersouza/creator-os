@@ -2043,13 +2043,24 @@ def test_longcat_requires_image_audio_and_uses_owned_offline_adapter(
 
 
 def test_wan_quality_command_uses_q4_dual_model_profile(tmp_path: Path) -> None:
-    request = _request(tmp_path, model_id="local_wan22_i2v_a14b_q4_mlx")
+    request = replace(
+        _request(tmp_path, model_id="local_wan22_i2v_a14b_q4_mlx"),
+        duration_seconds=5,
+    )
     command = build_local_video_command(request, python_executable="python3")
+    material = local_video_task_parameter_material(request)
     assert command[command.index("--model-dir") + 1].endswith("/q4")
     assert command[command.index("--guide-scale") + 1] == "3.5,3.5"
     assert command[command.index("--tiling") + 1] == "aggressive"
     assert command[command.index("--steps") + 1] == "20"
-    assert command[command.index("--trim-first-frames") + 1] == "1"
+    assert "--trim-first-frames" not in command
+    assert material["effectiveExecution"]["trimFirstFrames"] == 0
+    assert (
+        int(command[command.index("--num-frames") + 1])
+        == (material["effectiveExecution"]["frameCount"])
+    )
+    assert material["effectiveExecution"]["frameCount"] == 81
+    assert (material["effectiveExecution"]["frameCount"] - 1) // 4 + 1 == 21
 
 
 def test_custom_model_directory_must_use_canonical_verified_layout(

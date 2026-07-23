@@ -72,6 +72,14 @@ def canonical_task_parameter_material(
         raise ValueError("task_parameter_positive_integer_required")
     if frame_count is not None and frame_count <= 0:
         raise ValueError("task_parameter_positive_integer_required")
+    if trim_first_frames < 0:
+        raise ValueError("task_parameter_trim_first_frames_invalid")
+    if pipeline in {"wan22_i2v", "wan22_ti2v"} and (
+        frame_count is None or (frame_count - 1) % 4 != 0
+    ):
+        raise ValueError("task_parameter_wan_frame_geometry_invalid")
+    if pipeline == "wan22_i2v" and trim_first_frames != 0:
+        raise ValueError("task_parameter_wan_i2v_trim_unsupported")
     if seed < 0:
         raise ValueError("task_parameter_seed_invalid")
     if not str(resolution or "").strip() or not str(pipeline or "").strip():

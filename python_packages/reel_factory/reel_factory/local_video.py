@@ -339,6 +339,23 @@ def _source_video_geometry(
     }
 
 
+def _wan_execution_geometry(
+    request: LocalVideoRequest, spec: LocalVideoModelSpec
+) -> tuple[int, int]:
+    """Return the exact frame and trim geometry accepted by pinned mlx-video."""
+
+    frame_count = 4 * round(request.duration_seconds * spec.fps / 4) + 1
+    if frame_count <= 0 or (frame_count - 1) % 4 != 0:
+        raise ValueError("local_wan_frame_geometry_invalid")
+
+    # Pinned mlx-video keeps I2V image conditioning at the requested temporal
+    # length, but --trim-first-frames expands the noise latent before sampling.
+    # That makes, for example, 81 requested frames become 22 noise latents while
+    # conditioning remains 21. I2V therefore supports no pre-sampling trim.
+    trim_first_frames = 0
+    return frame_count, trim_first_frames
+
+
 def local_video_task_parameter_material(
     request: LocalVideoRequest,
     *,
@@ -356,6 +373,7 @@ def local_video_task_parameter_material(
     is_wan = selected.family == "wan_2"
     is_ltx = selected.family == "ltx_2"
     edit_task = request.task in {"video_retake", "video_extend"}
+    trim_first_frames = 0
     if edit_task:
         if request.source_video_path is None:
             raise ValueError("task_parameter_source_video_missing")
@@ -372,13 +390,11 @@ def local_video_task_parameter_material(
         fps = geometry["fps"]
         geometry_probe = geometry["geometryProbe"]
     else:
-        frame_multiple = 8 if is_ltx else 4
         duration_seconds = request.duration_seconds
-        frame_count = (
-            frame_multiple
-            * round(request.duration_seconds * selected.fps / frame_multiple)
-            + 1
-        )
+        if is_wan:
+            frame_count, trim_first_frames = _wan_execution_geometry(request, selected)
+        else:
+            frame_count = 8 * round(request.duration_seconds * selected.fps / 8) + 1
         geometry_source = "model"
         width = selected.width
         height = selected.height
@@ -430,7 +446,7 @@ def local_video_task_parameter_material(
             if is_wan
             else None
         ),
-        trim_first_frames=1 if is_wan and "a14b" in selected.model_id else 0,
+        trim_first_frames=trim_first_frames,
         retake_start_frame=request.retake_start_frame,
         retake_end_frame=request.retake_end_frame,
         extend_frames=request.extend_frames,
@@ -1897,7 +1913,7 @@ def _build_wan_command(
     output: Path,
     prompt: str,
 ) -> list[str]:
-    frames = 4 * round(request.duration_seconds * spec.fps / 4) + 1
+    frames, trim_first_frames = _wan_execution_geometry(request, spec)
     command = [
         python,
         "-m",
@@ -1937,8 +1953,8 @@ def _build_wan_command(
                 str(request.lora_strength),
             ]
         )
-    if "a14b" in spec.model_id:
-        command.extend(["--trim-first-frames", "1"])
+    if trim_first_frames:
+        command.extend(["--trim-first-frames", str(trim_first_frames)])
     return command
 
 

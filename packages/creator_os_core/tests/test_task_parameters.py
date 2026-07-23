@@ -131,3 +131,23 @@ def test_policy_context_changes_full_identity_not_benchmark_cell() -> None:
         benchmark_task_parameter_fingerprint(baseline)
     )
     assert task_parameter_fingerprint(changed) != task_parameter_fingerprint(baseline)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "error"),
+    [
+        (
+            {"pipeline": "wan22_i2v", "frame_count": 80},
+            "task_parameter_wan_frame_geometry_invalid",
+        ),
+        (
+            {"pipeline": "wan22_i2v", "trim_first_frames": 1},
+            "task_parameter_wan_i2v_trim_unsupported",
+        ),
+    ],
+)
+def test_wan_i2v_rejects_shape_mismatched_execution_material(
+    overrides: dict[str, object], error: str
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        _material(**overrides)
