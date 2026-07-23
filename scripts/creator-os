@@ -120,10 +120,10 @@ def _runtime_promotion_command(*args: str) -> list[str]:
         "uv",
         "run",
         "--package",
-        "creator-os-core",
+        "campaign-factory",
         "python",
         "-m",
-        "creator_os_core.runtime_promotion",
+        "campaign_factory.runtime_promotion_entrypoint",
         *args,
     ]
 
@@ -197,6 +197,10 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--caption")
     generate.add_argument("--duration", type=float)
     generate.add_argument("--motion-model")
+    generate.add_argument("--local-evidence-bundle", type=Path)
+    generate.add_argument("--local-arena-summary", type=Path)
+    generate.add_argument("--router-override-operator")
+    generate.add_argument("--router-override-reason")
     generate.add_argument(
         "--motion-task",
         choices=[
@@ -266,10 +270,34 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--user-id")
 
     approve = sub.add_parser(
-        "approve", help="record one immutable fingerprint-bound creative approval"
+        "approve",
+        help="build and sign one immutable v2 approval from an exact review draft",
     )
-    approve.add_argument("--approval", type=Path, required=True)
-    approve.add_argument("--root", type=Path, required=True)
+    approve.add_argument("--campaign", required=True)
+    approve.add_argument("--rendered-asset-id", required=True)
+    approve.add_argument("--user-id", required=True)
+    approve.add_argument("--approved-by", required=True)
+    approve.add_argument("--root", type=Path)
+    approve.add_argument(
+        "--surface",
+        choices=[
+            "regular_reel",
+            "trial_reel",
+            "story",
+            "story_cta",
+            "feed_single",
+            "feed_carousel",
+        ],
+        default="regular_reel",
+    )
+    approve.add_argument("--publish-mode", choices=["auto", "notify"])
+
+    approve_import = sub.add_parser(
+        "approve-import",
+        help="compatibility-only import of a prebuilt signed creative approval",
+    )
+    approve_import.add_argument("--approval", type=Path, required=True)
+    approve_import.add_argument("--root", type=Path)
 
     draft = sub.add_parser(
         "draft-export",
@@ -449,6 +477,8 @@ def main(argv: list[str] | None = None) -> int:
             ("--audio", args.audio),
             ("--last-image", args.last_image),
             ("--local-model-dir", args.local_model_dir),
+            ("--local-evidence-bundle", args.local_evidence_bundle),
+            ("--local-arena-summary", args.local_arena_summary),
         )
         for flag, value in optional_paths:
             if value is not None:
@@ -464,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
             ("--first-frame-approval-id", args.first_frame_approval_id),
             ("--last-frame-approval-id", args.last_frame_approval_id),
             ("--motion-model", args.motion_model),
+            ("--router-override-operator", args.router_override_operator),
+            ("--router-override-reason", args.router_override_reason),
             ("--motion-task", args.motion_task),
             ("--motion-prompt", args.motion_prompt),
             ("--resolution", args.resolution),
@@ -552,14 +584,35 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--user-id", args.user_id])
         return _run(command)
     if args.command == "approve":
-        return _run(
-            _creative_approval_command(
-                "--approval",
-                str(args.approval.expanduser().resolve()),
-                "--root",
-                str(args.root.expanduser().resolve()),
-            )
+        command = _campaign_command(
+            "creative-approval-build",
+            "--campaign",
+            args.campaign,
+            "--rendered-asset-id",
+            args.rendered_asset_id,
+            "--user-id",
+            args.user_id,
+            "--approved-by",
+            args.approved_by,
+            "--surface",
+            args.surface,
         )
+        if args.publish_mode:
+            command.extend(["--publish-mode", args.publish_mode])
+        if args.root is not None:
+            command.extend(["--root", str(args.root.expanduser().resolve())])
+        return _run(command)
+    if args.command == "approve-import":
+        print(
+            "compatibility-only: importing a prebuilt approval; prefer `creator-os approve`",
+            file=sys.stderr,
+        )
+        command = _creative_approval_command(
+            "--approval", str(args.approval.expanduser().resolve())
+        )
+        if args.root is not None:
+            command.extend(["--root", str(args.root.expanduser().resolve())])
+        return _run(command)
     if args.command in {"draft-export", "export"}:
         if args.command == "draft-export":
             print(

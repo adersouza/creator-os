@@ -14,6 +14,8 @@
     "rawObservations",
     "analyzerVerdicts",
     "unavailableMeasurements",
+    "humanReviewSampling",
+    "producerAttestation",
     "analysisFingerprint"
   ],
   "properties": {
@@ -62,6 +64,33 @@
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
+    "humanReviewSampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleFps",
+        "width",
+        "height",
+        "sampledFrames",
+        "totalFrames",
+        "durationSeconds",
+        "durationCoverageRatio",
+        "frameSetFingerprint",
+        "briefFrameOutlierCount"
+      ],
+      "properties": {
+        "sampleFps": { "type": "number", "minimum": 8 },
+        "width": { "type": "integer", "minimum": 180 },
+        "height": { "type": "integer", "minimum": 320 },
+        "sampledFrames": { "type": "integer", "minimum": 1 },
+        "totalFrames": { "type": "integer", "minimum": 1 },
+        "durationSeconds": { "type": "number", "exclusiveMinimum": 0 },
+        "durationCoverageRatio": { "const": 1 },
+        "frameSetFingerprint": { "$ref": "#/$defs/sha256" },
+        "briefFrameOutlierCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "producerAttestation": { "$ref": "evidence_attestation.v1.schema.json" },
     "analysisFingerprint": { "$ref": "#/$defs/sha256" }
   },
   "$defs": {

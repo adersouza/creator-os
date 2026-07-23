@@ -433,7 +433,7 @@ def test_generation_modes_cli_lists_all_operator_paths(tmp_path: Path):
     ]
 
 
-def test_local_wan_cli_dry_run_plans_zero_cost_motion_without_db_mutation(
+def test_local_wan_cli_dry_run_requires_arena_evidence_without_db_mutation(
     tmp_path: Path,
 ):
     cf = make_factory(tmp_path)
@@ -479,17 +479,8 @@ def test_local_wan_cli_dry_run_plans_zero_cost_motion_without_db_mutation(
         },
     )
 
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["mode"] == "local_wan"
-    assert payload["publishingAllowed"] is False
-    motion = payload["result"]
-    static = motion["staticFallback"]
-    assert motion["providerCalls"] == 0
-    assert motion["worker"]["result"]["providerCalls"] == 0
-    assert motion["registeredAsset"] is None
-    assert static["paidGeneration"] is False
-    assert static["render"]["audioBurned"] is False
+    assert result.returncode != 0
+    assert "local_wan requires --local-arena-summary" in result.stderr
     conn = sqlite3.connect(tmp_path / "campaign_factory.sqlite")
     try:
         assert conn.execute("SELECT COUNT(*) FROM rendered_assets").fetchone()[0] == 0

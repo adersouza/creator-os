@@ -25,10 +25,30 @@
       "required": ["id", "fingerprint"],
       "properties": {"id": {"type": "string", "minLength": 1}, "fingerprint": {"$ref": "#/$defs/sha256"}}
     },
+    "queueJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "modelId", "modelFingerprint", "taskKind", "taskFingerprint", "inputFingerprint", "requestedMemoryBytes", "paramsFingerprint", "ownedArtifactPaths", "benchmarkRecipeId", "benchmarkRecipeFingerprint", "analyzerRegistryId", "analyzerRegistryFingerprint"],
+      "properties": {
+        "jobId": {"type": "string", "minLength": 1},
+        "modelId": {"type": "string", "minLength": 1},
+        "modelFingerprint": {"$ref": "#/$defs/sha256"},
+        "taskKind": {"type": "string", "minLength": 1},
+        "taskFingerprint": {"$ref": "#/$defs/sha256"},
+        "inputFingerprint": {"$ref": "#/$defs/sha256"},
+        "requestedMemoryBytes": {"type": "integer", "minimum": 1},
+        "paramsFingerprint": {"$ref": "#/$defs/sha256"},
+        "ownedArtifactPaths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "benchmarkRecipeId": {"type": "string", "minLength": 1},
+        "benchmarkRecipeFingerprint": {"$ref": "#/$defs/sha256"},
+        "analyzerRegistryId": {"type": "string", "minLength": 1},
+        "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "sample": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sampleId", "creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "sourcePath", "sourceSha256", "audioPath", "audioSha256", "modelId", "modelRevision", "modelManifestSha256", "modelFingerprint", "capabilityCohort", "taskKind", "prompt", "seed", "durationSeconds", "resolution", "audioMode", "overlaysExist", "outputPath", "blindedCandidateId", "queueJob", "queueJobFingerprint", "benchmarkRecipe", "benchmarkRecipeFingerprint", "analyzerRegistry", "analyzerRegistryFingerprint", "promotionEligible"],
+      "required": ["sampleId", "creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "sourcePath", "sourceSha256", "audioPath", "audioSha256", "modelId", "modelRevision", "modelManifestSha256", "modelDeepVerificationFingerprint", "modelFingerprint", "capabilityCohort", "taskKind", "prompt", "seed", "durationSeconds", "resolution", "audioMode", "overlaysExist", "outputPath", "blindedCandidateId", "queueJob", "queueJobFingerprint", "benchmarkRecipe", "benchmarkRecipeFingerprint", "analyzerRegistry", "analyzerRegistryFingerprint", "promotionEligible"],
       "properties": {
         "sampleId": {"type": "string", "minLength": 1},
         "creatorId": {"enum": ["stacey", "larissa", "lola"]},
@@ -43,6 +63,7 @@
         "modelId": {"type": "string", "minLength": 1},
         "modelRevision": {"type": "string", "minLength": 1},
         "modelManifestSha256": {"$ref": "#/$defs/sha256"},
+        "modelDeepVerificationFingerprint": {"$ref": "#/$defs/sha256"},
         "modelFingerprint": {"$ref": "#/$defs/sha256"},
         "capabilityCohort": {"type": "string", "minLength": 1},
         "taskKind": {"type": "string", "minLength": 1},
@@ -54,7 +75,7 @@
         "overlaysExist": {"type": "boolean"},
         "outputPath": {"type": "string", "minLength": 1},
         "blindedCandidateId": {"type": "string", "minLength": 1},
-        "queueJob": {"type": "object"},
+        "queueJob": {"$ref": "#/$defs/queueJob"},
         "queueJobFingerprint": {"$ref": "#/$defs/sha256"},
         "benchmarkRecipe": {"$ref": "benchmark_recipe.v1.schema.json"},
         "benchmarkRecipeFingerprint": {"$ref": "#/$defs/sha256"},

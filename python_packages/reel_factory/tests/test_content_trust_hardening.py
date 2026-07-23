@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,7 +24,13 @@ from reel_factory.identity_verification import (
     identity_qc_receipt,
     verify_identity,
 )
+from reel_factory.local_model_benchmark import _validate_identity_receipt
 from reel_factory.media_metadata import normalize_media_metadata
+
+
+@pytest.fixture(autouse=True)
+def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", "i" * 64)
 
 
 class FakeIdentityProvider:
@@ -72,9 +80,50 @@ def _write_reference_set(
 ) -> None:
     target = root / "identity_references" / f"{creator.lower()}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
+    available_images = [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        and "identity_references" not in path.parts
+    ]
+    if len(available_images) < 2:
+        extra = root / "identity_reference_fixture_2.png"
+        _write_image(extra)
+        available_images.append(extra)
+    source_images = [
+        {
+            "path": str(path.resolve()),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "status": "embedded",
+            "failureReason": "",
+            "faceCount": 1,
+            "consensusScore": 1.0,
+        }
+        for path in available_images
+    ]
+    bound_embeddings = [
+        embeddings[min(index, len(embeddings) - 1)]
+        for index in range(len(source_images))
+    ]
     target.write_text(
         json.dumps(
-            {"referenceSetId": f"{creator.lower()}_refs", "embeddings": embeddings}
+            {
+                "schema": "reel_factory.identity_reference_set.v2",
+                "creator": creator,
+                "status": "ready",
+                "referenceSetId": f"{creator.lower()}_refs",
+                "qualityPolicy": {
+                    "id": "reel_factory.identity_reference_consensus",
+                    "version": "1.0.0",
+                    "exactlyOneFacePerSource": True,
+                    "minimumAcceptedSources": 2,
+                    "outlierMinimumMedianCosine": 0.35,
+                },
+                "sourceImages": source_images,
+                "acceptedSourceCount": len(source_images),
+                "rejectedSourceCount": 0,
+                "embeddings": bound_embeddings,
+            }
         ),
         encoding="utf-8",
     )
@@ -166,12 +215,16 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
         creator="Stacey",
         root=tmp_path,
         provider=FakeIdentityProvider([1.0, 0.0]),
+        identity_profile_id="identity-stacey",
+        identity_profile_fingerprint="a" * 64,
     )
     failed = verify_identity(
         image,
         creator="Stacey",
         root=tmp_path,
         provider=FakeIdentityProvider([0.0, 1.0]),
+        identity_profile_id="identity-stacey",
+        identity_profile_fingerprint="a" * 64,
     )
     unavailable = verify_identity(
         image,
@@ -195,8 +248,66 @@ def test_identity_verification_pass_fail_and_unavailable(tmp_path: Path) -> None
     receipt = identity_qc_receipt(passed)
     assert receipt["passed"] is True
     assert receipt["subjectSha256"] == passed["subjectSha256"]
+    assert receipt["producerAttestation"]["issuer"] == (
+        "reel_factory.identity_verification"
+    )
+    assert receipt["producerAttestation"]["issuedAt"] == passed["observedAt"]
+    _validate_identity_receipt(receipt, expected_subject_sha256=passed["subjectSha256"])
+    forged_receipt = dict(receipt)
+    forged_receipt["passed"] = False
+    with pytest.raises(RuntimeError, match="identity_attestation_invalid"):
+        _validate_identity_receipt(
+            forged_receipt, expected_subject_sha256=passed["subjectSha256"]
+        )
     blocked = identity_qc_receipt(failed)
     assert blocked["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("schema", "reel_factory.identity_reference_set.v0"),
+        ("creator", "Larissa"),
+    ),
+)
+def test_identity_rejects_edited_reference_set_identity(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    image = tmp_path / "still.png"
+    _write_image(image)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+    reference = tmp_path / "identity_references/stacey.json"
+    payload = json.loads(reference.read_text())
+    payload[field] = value
+    reference.write_text(json.dumps(payload))
+
+    result = verify_identity(
+        image,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider(),
+    )
+    assert result["status"] == "unavailable"
+    assert result["failureReason"] == "reference_set_schema_or_creator_mismatch"
+
+
+def test_identity_rejects_same_size_substituted_reference_source(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "still.png"
+    _write_image(image)
+    _write_reference_set(tmp_path, "Stacey", [[1.0, 0.0]])
+    original = image.read_bytes()
+    image.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+    result = verify_identity(
+        image,
+        creator="Stacey",
+        root=tmp_path,
+        provider=FakeIdentityProvider(),
+    )
+    assert result["status"] == "unavailable"
+    assert result["failureReason"] == "reference_set_source_substituted"
 
 
 def test_video_identity_uses_worst_sampled_frame(tmp_path: Path) -> None:
@@ -221,6 +332,34 @@ def test_video_identity_uses_worst_sampled_frame(tmp_path: Path) -> None:
     assert result["status"] == "failed"
     assert result["score"] == 0.0
     assert result["frameScores"] == [1.0, 0.0]
+
+
+def test_default_video_identity_sampling_covers_full_duration_with_eleven_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import reel_factory.identity_verification as identity_module
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"video")
+    timestamps: list[float] = []
+    monkeypatch.setattr(identity_module, "_probe_duration", lambda _path: 10.0)
+    monkeypatch.setattr(
+        identity_module.shutil, "which", lambda _name: "/usr/bin/ffmpeg"
+    )
+
+    def fake_run(command, **_kwargs):
+        timestamps.append(float(command[command.index("-ss") + 1]))
+        Path(command[-1]).write_bytes(b"frame")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(identity_module.subprocess, "run", fake_run)
+
+    frames = identity_module._media_frames_for_embedding(video)
+
+    assert len(frames) == 11
+    assert timestamps[0] == pytest.approx(0.3)
+    assert timestamps[-1] == pytest.approx(9.7)
+    assert timestamps == sorted(timestamps)
 
 
 def test_video_identity_passes_when_all_sampled_frames_match(tmp_path: Path) -> None:
@@ -317,7 +456,7 @@ def test_identity_reference_build_and_health_use_provider_seam(tmp_path: Path) -
         creator="Stacey", root=tmp_path, provider=FakeIdentityProvider([1.0, 0.0])
     )
 
-    assert built["schema"] == "reel_factory.identity_reference_set.v1"
+    assert built["schema"] == "reel_factory.identity_reference_set.v2"
     assert built["status"] == "ready"
     assert len(built["embeddings"]) == 2
     assert all(item["status"] == "embedded" for item in built["sourceImages"])
@@ -351,6 +490,7 @@ def test_identity_reference_build_writes_private_file_and_delete_removes_it(
     input_dir = tmp_path / "approved_refs"
     input_dir.mkdir()
     _write_image(input_dir / "ref_a.png")
+    _write_image(input_dir / "ref_b.png")
 
     result = build_reference_set(
         creator="Stacey",
@@ -376,6 +516,7 @@ def test_identity_reference_cli_redacts_embeddings_by_default(
     input_dir = tmp_path / "approved_refs"
     input_dir.mkdir()
     _write_image(input_dir / "ref_a.png")
+    _write_image(input_dir / "ref_b.png")
     monkeypatch.setattr(
         identity_verification,
         "get_identity_provider",
@@ -417,6 +558,68 @@ def test_identity_reference_build_fails_closed_when_provider_missing(
     assert result["status"] == "failed"
     assert result["failureReason"] == "fake_unavailable"
     assert not (tmp_path / "identity_references" / "stacey.json").exists()
+
+
+def test_identity_reference_build_rejects_any_source_with_multiple_faces(
+    tmp_path: Path,
+) -> None:
+    class MultipleFaceReferenceProvider(FakeIdentityProvider):
+        def face_embeddings(self, image_path: Path) -> list[list[float]]:
+            if image_path.name == "bad.png":
+                return [[1.0, 0.0], [0.9, 0.1]]
+            return [[1.0, 0.0]]
+
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    for name in ("good_a.png", "good_b.png", "bad.png"):
+        _write_image(input_dir / name)
+
+    result = build_reference_set(
+        creator="Stacey",
+        input_dir=input_dir,
+        root=tmp_path,
+        provider=MultipleFaceReferenceProvider(),
+    )
+
+    assert result["status"] == "failed"
+    assert result["failureReason"] == "reference_source_face_count_invalid"
+    bad = next(
+        item for item in result["sourceImages"] if item["path"].endswith("bad.png")
+    )
+    assert bad["faceCount"] == 2
+    assert bad["failureReason"] == "multiple_faces_detected"
+    assert not (tmp_path / "identity_references/stacey.json").exists()
+
+
+def test_identity_reference_build_excludes_embedding_outlier_with_evidence(
+    tmp_path: Path,
+) -> None:
+    input_dir = tmp_path / "approved_refs"
+    input_dir.mkdir()
+    for name in ("good_a.png", "good_b.png", "outlier.png"):
+        _write_image(input_dir / name)
+    provider = PathIdentityProvider(
+        {
+            "good_a.png": [1.0, 0.0],
+            "good_b.png": [0.98, 0.02],
+            "outlier.png": [0.0, 1.0],
+        }
+    )
+
+    result = build_reference_set(
+        creator="Stacey", input_dir=input_dir, root=tmp_path, provider=provider
+    )
+
+    assert result["status"] == "ready"
+    assert result["acceptedSourceCount"] == 2
+    assert result["rejectedSourceCount"] == 1
+    outlier = next(
+        item for item in result["sourceImages"] if item["path"].endswith("outlier.png")
+    )
+    assert outlier["status"] == "rejected"
+    assert outlier["failureReason"] == "identity_embedding_outlier"
+    assert outlier["consensusScore"] < 0.35
+    assert len(result["embeddings"]) == 2
 
 
 def test_generated_image_qc_gates_identity_with_injected_provider(

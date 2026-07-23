@@ -4,6 +4,99 @@ import re
 import sqlite3
 
 
+def _ensure_generation_lineage_guards(conn: sqlite3.Connection) -> None:
+    """Restore indexes/triggers if a legacy FK table rebuild removed them."""
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_generation_attempts_campaign_created
+          ON generation_attempts(campaign_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_generation_attempts_blob
+          ON generation_attempts(output_blob_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_generation_attempts_request
+          ON generation_attempts(request_fingerprint);
+        CREATE INDEX IF NOT EXISTS idx_generation_lineage_rendered
+          ON generation_lineage_edges(rendered_asset_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS generation_attempts_append_only_update
+        BEFORE UPDATE ON generation_attempts
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_attempts are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS generation_output_blobs_immutable_update
+        BEFORE UPDATE ON generation_output_blobs
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_output_blobs are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS generation_output_blobs_immutable_delete
+        BEFORE DELETE ON generation_output_blobs
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_output_blobs are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS generation_attempts_append_only_delete
+        BEFORE DELETE ON generation_attempts
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_attempts are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS generation_lineage_edges_append_only_update
+        BEFORE UPDATE ON generation_lineage_edges
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_lineage_edges are append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS generation_lineage_edges_append_only_delete
+        BEFORE DELETE ON generation_lineage_edges
+        BEGIN
+          SELECT RAISE(ABORT, 'generation_lineage_edges are append-only');
+        END;
+        """
+    )
+
+
+def _backfill_generation_output_lineage(conn: sqlite3.Connection) -> None:
+    """Give legacy rendered assets content identities without changing old reads."""
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO generation_output_blobs
+        (id, content_sha256, byte_size, media_type, created_at)
+        SELECT 'blob_' || lower(content_hash), lower(content_hash), NULL,
+               COALESCE(NULLIF(media_type, ''), 'video'), created_at
+        FROM rendered_assets
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO generation_attempts
+        (id, campaign_id, pipeline_job_id, source_asset_id, rendered_asset_id,
+         output_blob_id, request_fingerprint, model_id, motion_task, prompt_sha256,
+         source_sha256, admission_fingerprint, input_json, worker_result_json,
+         attempted_output_path, duplicate_disposition, created_at)
+        SELECT 'attempt_legacy_' || id, campaign_id, NULL, source_asset_id, id,
+               'blob_' || lower(content_hash), NULL,
+               COALESCE(NULLIF(recipe, ''), 'legacy_unknown'), 'legacy_unknown',
+               NULL, NULL, NULL, '{}', '{}', output_path, 'legacy_reference', created_at
+        FROM rendered_assets
+        WHERE NOT EXISTS (
+          SELECT 1 FROM generation_attempts existing
+          WHERE existing.rendered_asset_id = rendered_assets.id
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO generation_lineage_edges
+        (id, generation_attempt_id, source_asset_id, rendered_asset_id,
+         output_blob_id, relation, lineage_json, created_at)
+        SELECT 'edge_legacy_' || id, 'attempt_legacy_' || id, source_asset_id, id,
+               'blob_' || lower(content_hash), 'generated_output',
+               '{"migration":"legacy_rendered_asset"}', created_at
+        FROM rendered_assets
+        WHERE EXISTS (
+          SELECT 1 FROM generation_attempts existing
+          WHERE existing.id = 'attempt_legacy_' || rendered_assets.id
+            AND existing.duplicate_disposition = 'legacy_reference'
+        )
+        """
+    )
+
+
 def _migrate_source_assets_hash_scope(conn: sqlite3.Connection) -> None:
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'source_assets'"

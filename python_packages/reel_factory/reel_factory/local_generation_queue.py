@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import socket
@@ -57,7 +58,11 @@ def _utc_now() -> str:
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
     return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -209,7 +214,12 @@ def _optional_execution_measurement(
         method = str(value["memoryMeasurementMethod"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("execution_measurement_invalid") from exc
-    if wall_time <= 0 or peak_memory <= 0 or not method.strip():
+    if (
+        not math.isfinite(wall_time)
+        or wall_time <= 0
+        or peak_memory <= 0
+        or not method.strip()
+    ):
         raise ValueError("execution_measurement_invalid")
     return {
         "available": True,
@@ -1363,6 +1373,8 @@ class LocalGenerationQueue:
             "lastImage": lineage.get("lastImage"),
             "lora": lineage.get("lora"),
         }
+        if "executionBinding" in lineage:
+            inputs["executionBinding"] = lineage.get("executionBinding")
         if "sourceVideo" in lineage:
             inputs["sourceVideo"] = lineage.get("sourceVideo")
         request = lineage.get("request")
@@ -1376,6 +1388,22 @@ class LocalGenerationQueue:
             "durationSeconds": request.get("durationSeconds"),
             "seed": request.get("seed"),
         }
+        if "executionContext" in lineage or "executionBinding" in lineage:
+            params.update(
+                {
+                    "executionContext": lineage.get("executionContext"),
+                    "executionBindingFingerprint": (
+                        lineage.get("executionBinding", {}).get("bindingFingerprint")
+                        if isinstance(lineage.get("executionBinding"), dict)
+                        else None
+                    ),
+                }
+            )
+        isolation = lineage.get("executionIsolation")
+        if isinstance(isolation, dict):
+            params["executionIsolationFingerprint"] = isolation.get(
+                "isolationFingerprint"
+            )
         cohort_inputs = {
             "image": inputs["image"],
             "audio": inputs["audio"],
@@ -1396,6 +1424,21 @@ class LocalGenerationQueue:
                 else None
             ),
         }
+        if "executionContext" in lineage or "executionBinding" in lineage:
+            cohort.update(
+                {
+                    "executionContext": lineage.get("executionContext"),
+                    "executionBindingFingerprint": (
+                        lineage.get("executionBinding", {}).get("bindingFingerprint")
+                        if isinstance(lineage.get("executionBinding"), dict)
+                        else None
+                    ),
+                }
+            )
+        if isinstance(isolation, dict):
+            cohort["executionIsolationFingerprint"] = isolation.get(
+                "isolationFingerprint"
+            )
         model_fingerprint = fingerprint(
             {
                 "modelId": lineage.get("modelId"),
@@ -1629,7 +1672,12 @@ class LocalGenerationQueue:
                     method = str(execution_measurement["memoryMeasurementMethod"])
                 except (KeyError, TypeError, ValueError) as exc:
                     raise ValueError("execution_measurement_invalid") from exc
-                if wall_time <= 0 or peak_memory <= 0 or not method.strip():
+                if (
+                    not math.isfinite(wall_time)
+                    or wall_time <= 0
+                    or peak_memory <= 0
+                    or not method.strip()
+                ):
                     raise ValueError("execution_measurement_invalid")
                 measurement = {
                     "wallTimeSeconds": wall_time,
@@ -1713,7 +1761,12 @@ class LocalGenerationQueue:
                 method = str(execution_measurement["memoryMeasurementMethod"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError("execution_measurement_invalid") from exc
-            if wall_time <= 0 or peak_memory <= 0 or not method.strip():
+            if (
+                not math.isfinite(wall_time)
+                or wall_time <= 0
+                or peak_memory <= 0
+                or not method.strip()
+            ):
                 raise ValueError("execution_measurement_invalid")
             payload: dict[str, Any] = {
                 "jobId": job_id,

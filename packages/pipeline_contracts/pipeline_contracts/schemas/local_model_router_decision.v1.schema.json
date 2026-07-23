@@ -8,16 +8,132 @@
   "properties": {
     "schema": {"const": "reel_factory.local_model_router_decision.v1"},
     "decisionId": {"type": "string", "minLength": 1},
-    "policy": {"type": "object", "required": ["id", "version"], "properties": {"id": {"const": "reel_factory.local_model_router"}, "version": {"const": "1.0.0"}}, "additionalProperties": false},
-    "request": {"type": "object"},
-    "consideredCandidates": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {"id": {"const": "reel_factory.local_model_router"}, "version": {"const": "1.0.0"}}
+    },
+    "request": {"$ref": "#/$defs/request"},
+    "consideredCandidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/candidate"}},
     "selectedModelId": {"type": "string", "minLength": 1},
     "selectedModelFingerprint": {"$ref": "#/$defs/sha256"},
-    "winningEvidence": {"type": "object"},
-    "operatorOverride": {"type": ["object", "null"]},
+    "winningEvidence": {"$ref": "#/$defs/winningEvidence"},
+    "operatorOverride": {"anyOf": [{"$ref": "#/$defs/override"}, {"type": "null"}]},
     "paidProviderFallbackAllowed": {"const": false},
     "legacyLocalMotionFallbackAllowed": {"const": false},
     "decisionFingerprint": {"$ref": "#/$defs/sha256"}
   },
-  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "taskKind", "capabilityCohort", "availableMemoryBytes", "observedAt", "minimumYield", "minimumQualityScore", "maximumEvidenceAgeDays"],
+      "properties": {
+        "creatorId": {"enum": ["stacey", "larissa", "lola"]},
+        "identityProfileId": {"type": "string", "minLength": 1},
+        "identityProfileFingerprint": {"$ref": "#/$defs/sha256"},
+        "contentIntentId": {"type": "string", "minLength": 1},
+        "contentIntentFingerprint": {"$ref": "#/$defs/sha256"},
+        "taskKind": {"type": "string", "minLength": 1},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "availableMemoryBytes": {"type": "integer", "minimum": 1},
+        "observedAt": {"type": "string", "format": "date-time"},
+        "minimumYield": {"type": "number", "minimum": 0.5, "maximum": 1},
+        "minimumQualityScore": {"type": "number", "minimum": 0.6, "maximum": 1},
+        "maximumEvidenceAgeDays": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["promotionEligibleYield", "meanHumanQualityScore", "medianWallTimeSeconds", "medianPeakMemoryBytes"],
+      "properties": {
+        "promotionEligibleYield": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "meanHumanQualityScore": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "medianWallTimeSeconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "medianPeakMemoryBytes": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "promotionApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evaluationId", "approvalEventId", "approvalEventHash", "approvedAt", "approvedBy", "scope", "expiresAt", "candidateModelFingerprint", "taskKind", "candidateBenchmarkIds", "hardwareFingerprint", "evidenceFingerprint"],
+      "properties": {
+        "evaluationId": {"type": "string", "minLength": 1},
+        "approvalEventId": {"type": "string", "minLength": 1},
+        "approvalEventHash": {"$ref": "#/$defs/sha256"},
+        "approvedAt": {"type": "string", "format": "date-time"},
+        "approvedBy": {"type": "string", "minLength": 1},
+        "scope": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "expiresAt": {"type": ["string", "null"], "format": "date-time"},
+        "candidateModelFingerprint": {"$ref": "#/$defs/sha256"},
+        "taskKind": {"type": "string", "minLength": 1},
+        "candidateBenchmarkIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "hardwareFingerprint": {"$ref": "#/$defs/sha256"},
+        "evidenceFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "modelFingerprint", "capabilityCohort", "requiredMemoryBytes", "benchmarkIds", "matchedArenaSampleIds", "validArenaSampleIds", "arenaSummaryFingerprint", "promotionApproval", "measurements", "score", "exclusions"],
+      "properties": {
+        "modelId": {"type": "string", "minLength": 1},
+        "modelFingerprint": {"$ref": "#/$defs/nullableSha256"},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "requiredMemoryBytes": {"type": ["integer", "null"], "minimum": 1},
+        "benchmarkIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "matchedArenaSampleIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "validArenaSampleIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "arenaSummaryFingerprint": {"$ref": "#/$defs/sha256"},
+        "promotionApproval": {"anyOf": [{"$ref": "#/$defs/promotionApproval"}, {"type": "null"}]},
+        "measurements": {"$ref": "#/$defs/measurements"},
+        "score": {"type": ["number", "null"]},
+        "exclusions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "cohortKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "taskKind", "capabilityCohort"],
+      "properties": {
+        "creatorId": {"enum": ["stacey", "larissa", "lola"]},
+        "identityProfileId": {"type": "string", "minLength": 1},
+        "identityProfileFingerprint": {"$ref": "#/$defs/sha256"},
+        "contentIntentId": {"type": "string", "minLength": 1},
+        "contentIntentFingerprint": {"$ref": "#/$defs/sha256"},
+        "taskKind": {"type": "string", "minLength": 1},
+        "capabilityCohort": {"type": "string", "minLength": 1}
+      }
+    },
+    "winningEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arenaSummaryFingerprint", "benchmarkIds", "cohortKey", "matchedArenaSampleIds", "validArenaSampleIds", "measurements", "promotionApproval", "score"],
+      "properties": {
+        "arenaSummaryFingerprint": {"$ref": "#/$defs/sha256"},
+        "benchmarkIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "cohortKey": {"$ref": "#/$defs/cohortKey"},
+        "matchedArenaSampleIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "validArenaSampleIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "measurements": {"$ref": "#/$defs/measurements"},
+        "promotionApproval": {"$ref": "#/$defs/promotionApproval"},
+        "score": {"type": "number"}
+      }
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "operator", "reason", "excludedFromBenchmarkLearning"],
+      "properties": {
+        "modelId": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "excludedFromBenchmarkLearning": {"const": true}
+      }
+    }
+  }
 }

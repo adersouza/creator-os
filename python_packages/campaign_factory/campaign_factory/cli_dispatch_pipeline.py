@@ -21,6 +21,7 @@ from .cli_support import (
     print_json,
 )
 from .control import operator_control_check
+from .creative_approval import build_and_record_creative_approval_v2
 from .creative_modes import creative_workflow_modes
 from .daily_library_production import run_daily_library_production
 from .generation_workflow import run_generation_workflow
@@ -57,6 +58,20 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "control-check":
         print_json(operator_control_check(settings))
+        return 0
+    if args.cmd == "creative-approval-build":
+        print_json(
+            build_and_record_creative_approval_v2(
+                cf,
+                campaign_slug=args.campaign,
+                rendered_asset_id=args.rendered_asset_id,
+                user_id=args.user_id,
+                approved_by=args.approved_by,
+                root=args.root or settings.creative_approvals_dir,
+                surface=args.surface,
+                publish_mode=args.publish_mode,
+            )
+        )
         return 0
     if args.cmd == "learning-cohort":
         if args.learning_cohort_cmd == "prepare":
@@ -231,6 +246,10 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     wait=args.wait,
                     download=args.download,
                     motion_model_id=args.motion_model,
+                    local_evidence_bundle_path=args.local_evidence_bundle,
+                    local_arena_summary_path=args.local_arena_summary,
+                    router_override_operator=args.router_override_operator,
+                    router_override_reason=args.router_override_reason,
                     motion_prompt=args.motion_prompt,
                     audio_path=args.audio,
                     generate_audio=args.generate_audio,

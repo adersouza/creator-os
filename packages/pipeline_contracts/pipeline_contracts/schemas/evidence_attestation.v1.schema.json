@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://creator-os.local/schemas/evidence_attestation.v1.schema.json",
+  "title": "Creator OS Evidence Attestation V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "algorithm", "issuer", "keyId", "issuedAt", "payloadFingerprint", "signature"],
+  "properties": {
+    "schema": {"const": "creator_os.evidence_attestation.v1"},
+    "algorithm": {"const": "hmac-sha256"},
+    "issuer": {"type": "string", "minLength": 1},
+    "keyId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "issuedAt": {"type": "string", "format": "date-time"},
+    "payloadFingerprint": {"$ref": "#/$defs/sha256"},
+    "signature": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

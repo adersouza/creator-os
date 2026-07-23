@@ -5,11 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import shutil
+import signal
 import subprocess
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypedDict
+
+from pipeline_contracts import validate_local_model_router_decision
 
 from .fileops import atomic_write_text
 from .local_generation_queue import (
@@ -43,7 +49,28 @@ LocalVideoTask = Literal[
     "video_retake",
     "video_extend",
 ]
+LocalVideoExecutionContext = Literal["campaign_generation", "arena_benchmark"]
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+_MAX_GENERATION_LOG_BYTES = 16 * 1024 * 1024
+_GENERATION_LOG_TAIL_BYTES = 32 * 1024
+_GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
+
+_SUBPROCESS_ENV_ALLOWLIST = frozenset(
+    {
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "OBJC_DISABLE_INITIALIZE_FORK_SAFETY",
+        "OMP_NUM_THREADS",
+        "PATH",
+        "PYTHONHASHSEED",
+        "PYTHONUNBUFFERED",
+        "SYSTEM_VERSION_COMPAT",
+        "TOKENIZERS_PARALLELISM",
+        "VECLIB_MAXIMUM_THREADS",
+    }
+)
 
 DEFAULT_NEGATIVE_PROMPT = (
     "low quality, blurry, distorted face, deformed hands, extra fingers, "
@@ -55,12 +82,24 @@ class LocalVideoUnavailable(RuntimeError):
     """Raised when local runtime, weights, or dependency proof is incomplete."""
 
 
+class _GenerationProcessFailure(RuntimeError):
+    def __init__(self, message: str, *, log_evidence: Mapping[str, Any]) -> None:
+        super().__init__(message)
+        self.log_evidence = dict(log_evidence)
+
+
 class _OutputExpectations(TypedDict):
     width: int
     height: int
     fps: int
     duration: float | None
     minimumDuration: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class _GenerationProcessResult:
+    returncode: int
+    log_evidence: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +130,9 @@ class LocalVideoRequest:
     tile_spatial: int = 2
     benchmark_recipe: Mapping[str, Any] | None = None
     analyzer_registry: Mapping[str, Any] | None = None
+    execution_context: LocalVideoExecutionContext | None = None
+    local_motion_admission: Mapping[str, Any] | None = None
+    arena_benchmark_binding: Mapping[str, Any] | None = None
 
 
 def probe_local_video(
@@ -199,6 +241,140 @@ def build_local_video_command(
     )
 
 
+def _process_log_evidence(
+    log_path: Path,
+    *,
+    observed_bytes: int,
+    tail: bytes,
+    truncated: bool,
+) -> dict[str, Any]:
+    captured_bytes = log_path.stat().st_size if log_path.is_file() else 0
+    return {
+        "schema": "reel_factory.local_generation_process_log.v1",
+        "path": str(log_path),
+        "sha256": _sha256_file(log_path) if log_path.is_file() else None,
+        "capturedBytes": captured_bytes,
+        "observedBytes": observed_bytes,
+        "maximumCapturedBytes": _MAX_GENERATION_LOG_BYTES,
+        "truncated": truncated,
+        "tail": tail.decode("utf-8", errors="replace"),
+    }
+
+
+def _run_generation_process(
+    command: list[str],
+    *,
+    environment: Mapping[str, str],
+    log_path: Path,
+    runner: Runner,
+) -> _GenerationProcessResult:
+    """Stream one process into a bounded append-only log without buffering stdout."""
+
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_APPEND
+    descriptor = os.open(log_path, flags, 0o600)
+    observed_bytes = 0
+    tail = bytearray()
+    truncated = False
+
+    def retain(chunk: bytes, handle: Any) -> None:
+        nonlocal observed_bytes, truncated
+        observed_bytes += len(chunk)
+        remaining = max(0, _MAX_GENERATION_LOG_BYTES - handle.tell())
+        if remaining:
+            handle.write(chunk[:remaining])
+        if len(chunk) > remaining:
+            truncated = True
+        tail.extend(chunk)
+        if len(tail) > _GENERATION_LOG_TAIL_BYTES:
+            del tail[: len(tail) - _GENERATION_LOG_TAIL_BYTES]
+
+    with os.fdopen(descriptor, "wb", buffering=0) as handle:
+        if runner is not subprocess.run:
+            completed = runner(
+                command,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=False,
+                check=False,
+                timeout=_GENERATION_TIMEOUT_SECONDS,
+                env=dict(environment),
+            )
+            for value in (
+                getattr(completed, "stdout", None),
+                getattr(completed, "stderr", None),
+            ):
+                if value:
+                    retain(
+                        value.encode("utf-8", errors="replace")
+                        if isinstance(value, str)
+                        else bytes(value),
+                        handle,
+                    )
+            return _GenerationProcessResult(
+                returncode=int(completed.returncode),
+                log_evidence=_process_log_evidence(
+                    log_path,
+                    observed_bytes=observed_bytes,
+                    tail=bytes(tail),
+                    truncated=truncated,
+                ),
+            )
+
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=dict(environment),
+            start_new_session=True,
+        )
+        if process.stdout is None:
+            process.kill()
+            raise RuntimeError("local_video_generation_log_pipe_missing")
+        output_stream = process.stdout
+
+        def drain() -> None:
+            for chunk in iter(lambda: output_stream.read(64 * 1024), b""):
+                retain(chunk, handle)
+
+        drain_thread = threading.Thread(
+            target=drain,
+            name="creator-os-local-video-log-drain",
+            daemon=True,
+        )
+        drain_thread.start()
+        try:
+            returncode = process.wait(timeout=_GENERATION_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                process.kill()
+            process.wait()
+            drain_thread.join(timeout=30)
+            evidence = _process_log_evidence(
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            )
+            raise _GenerationProcessFailure(
+                "local_video_generation_timeout: " + evidence["tail"][-3000:],
+                log_evidence=evidence,
+            ) from None
+        drain_thread.join(timeout=30)
+        if drain_thread.is_alive():
+            raise RuntimeError("local_video_generation_log_drain_failed")
+        return _GenerationProcessResult(
+            returncode=returncode,
+            log_evidence=_process_log_evidence(
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            ),
+        )
+
+
 def run_local_video(
     request: LocalVideoRequest,
     *,
@@ -218,6 +394,8 @@ def run_local_video(
         model_dir=request.model_dir,
         python_executable=python_executable,
     )
+    execution_binding = _validate_execution_binding(request, capability=capability)
+    capability_fingerprint = _execution_capability_fingerprint(capability)
     command = build_local_video_command(request, python_executable=python_executable)
     lineage_path = output.with_suffix(output.suffix + ".local_video.json")
     audio_sidecar = output.with_suffix(output.suffix + ".audio.wav")
@@ -235,6 +413,18 @@ def run_local_video(
         "modelRevision": spec.revision,
         "modelManifestSha256": capability.get("model", {}).get("manifestSha256"),
         "modelManifest": manifest,
+        "executionContext": request.execution_context,
+        "executionBinding": execution_binding,
+        "localMotionAdmission": (
+            dict(request.local_motion_admission)
+            if request.local_motion_admission is not None
+            else None
+        ),
+        "arenaBenchmarkBinding": (
+            dict(request.arena_benchmark_binding)
+            if request.arena_benchmark_binding is not None
+            else None
+        ),
         "input": (
             {"path": str(image), "sha256": _sha256_file(image)}
             if image is not None
@@ -275,6 +465,7 @@ def run_local_video(
             "tileSpatial": request.tile_spatial,
         },
         "capability": capability,
+        "executionCapabilityFingerprint": capability_fingerprint,
         "command": command,
         "paidGeneration": False,
         "providerCalls": 0,
@@ -287,6 +478,22 @@ def run_local_video(
         "aiDisclosureRequired": spec.ai_disclosure_required,
     }
     if dry_run:
+        planned_base_command = _build_execution_command(
+            request,
+            spec=spec,
+            output=output,
+            python_executable=python_executable,
+        )
+        planned_command, _planned_environment, planned_isolation = _isolated_execution(
+            request,
+            output=output,
+            base_command=planned_base_command,
+        )
+        lineage["command"] = planned_command
+        lineage["executionIsolation"] = planned_isolation
+        lineage["providerCalls"] = planned_isolation["providerActivity"][
+            "callsObserved"
+        ]
         return lineage
     lineage["inputPreflight"] = _preflight_local_inputs(request)
     if not capability["ready"]:
@@ -307,25 +514,37 @@ def run_local_video(
     if partial.exists() or partial_audio.exists():
         raise FileExistsError(f"local_video_partial_collision: {partial}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = _build_execution_command(
+    base_command = _build_execution_command(
         request,
         spec=spec,
         output=output,
         python_executable=python_executable,
     )
+    command, offline_env, isolation = _isolated_execution(
+        request,
+        output=output,
+        base_command=base_command,
+    )
     lineage["command"] = command
+    lineage["executionIsolation"] = isolation
+    execution_log_path = Path(str(isolation["sandboxRoot"])) / "logs" / "generation.log"
+    lineage["executionLog"] = {
+        "schema": "reel_factory.local_generation_process_log.v1",
+        "path": str(execution_log_path),
+        "sha256": None,
+        "capturedBytes": 0,
+        "observedBytes": 0,
+        "maximumCapturedBytes": _MAX_GENERATION_LOG_BYTES,
+        "truncated": False,
+        "tail": "",
+    }
+    lineage["providerCalls"] = isolation["providerActivity"]["callsObserved"]
     lineage["status"] = "running"
     lineage["lineagePath"] = str(lineage_path)
     lineage["partialOutputPath"] = str(partial)
     lineage["partialAudioPath"] = (
         str(partial_audio) if request.audio_mode != "none" else None
     )
-    offline_env = {
-        **os.environ,
-        "HF_HOME": str(hf_home()),
-        "HF_HUB_OFFLINE": "1",
-        "TRANSFORMERS_OFFLINE": "1",
-    }
     queue = default_local_generation_queue()
     job = _generation_job(
         request,
@@ -333,6 +552,7 @@ def run_local_video(
         capability=capability,
         command=command,
         output=output,
+        execution_isolation=isolation,
     )
     lineage["queue"] = {
         "jobId": job.job_id,
@@ -350,19 +570,56 @@ def run_local_video(
                 # the exact job owns both the machine lease and resource
                 # admission. Busy or memory-blocked attempts remain clean and
                 # retryable while their queue journal evidence is preserved.
+                _prepare_isolation_workspace(isolation)
+                current_capability = probe_local_video(
+                    request.model_id,
+                    python_executable=python_executable,
+                )
+                current_fingerprint = _execution_capability_fingerprint(
+                    current_capability
+                )
+                if (
+                    current_capability.get("ready") is not True
+                    or current_fingerprint != capability_fingerprint
+                ):
+                    raise LocalVideoUnavailable(
+                        "local_video_execution_capability_drift"
+                    )
+                lineage["executionRevalidation"] = {
+                    "modelId": request.model_id,
+                    "capabilityFingerprint": current_fingerprint,
+                    "deepVerified": current_capability.get("model", {}).get(
+                        "deepVerified"
+                    ),
+                    "modelDeepVerificationFingerprint": current_capability.get(
+                        "model", {}
+                    )
+                    .get("deepVerificationReceipt", {})
+                    .get("verificationFingerprint"),
+                    "ready": True,
+                }
                 _persist(lineage_path, lineage)
                 benchmark_timer = LocalBenchmarkTimer.start()
                 try:
-                    completed = runner(
+                    completed = _run_generation_process(
                         command,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                        timeout=60 * 60 * 12,
-                        env=offline_env,
+                        environment=offline_env,
+                        log_path=execution_log_path,
+                        runner=runner,
                     )
-                except (OSError, subprocess.SubprocessError):
+                except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
                     failed_measurement = benchmark_timer.finish()
+                    failure_log = getattr(exc, "log_evidence", None)
+                    if isinstance(failure_log, dict):
+                        lineage["executionLog"] = failure_log
+                    elif execution_log_path.is_file():
+                        captured = execution_log_path.read_bytes()
+                        lineage["executionLog"] = _process_log_evidence(
+                            execution_log_path,
+                            observed_bytes=len(captured),
+                            tail=captured[-_GENERATION_LOG_TAIL_BYTES:],
+                            truncated=(len(captured) >= _MAX_GENERATION_LOG_BYTES),
+                        )
                     lineage["executionMeasurement"] = {
                         "wallTimeSeconds": failed_measurement.wall_time_seconds,
                         "peakMemoryBytes": failed_measurement.peak_memory_bytes,
@@ -371,6 +628,7 @@ def run_local_video(
                         ),
                     }
                     raise
+                lineage["executionLog"] = completed.log_evidence
                 measurement = benchmark_timer.finish()
                 lineage["executionMeasurement"] = {
                     "wallTimeSeconds": measurement.wall_time_seconds,
@@ -380,7 +638,7 @@ def run_local_video(
                 if completed.returncode != 0:
                     raise RuntimeError(
                         "local_video_generation_failed: "
-                        + (completed.stderr[-3000:] or completed.stdout[-3000:])
+                        + str(completed.log_evidence["tail"])[-3000:]
                     )
                 if not partial.is_file() or partial.stat().st_size <= 0:
                     raise RuntimeError("local_video_output_missing")
@@ -489,11 +747,17 @@ def plan_local_video_job(
         model_dir=request.model_dir,
         python_executable=python_executable,
     )
-    command = _build_execution_command(
+    _validate_execution_binding(request, capability=capability)
+    base_command = _build_execution_command(
         request,
         spec=spec,
         output=output,
         python_executable=python_executable,
+    )
+    command, _environment, isolation = _isolated_execution(
+        request,
+        output=output,
+        base_command=base_command,
     )
     return _generation_job(
         request,
@@ -501,7 +765,121 @@ def plan_local_video_job(
         capability=capability,
         command=command,
         output=output,
+        execution_isolation=isolation,
     )
+
+
+def _isolated_execution(
+    request: LocalVideoRequest,
+    *,
+    output: Path,
+    base_command: list[str],
+    environ: Mapping[str, str] | None = None,
+) -> tuple[list[str], dict[str, str], dict[str, Any]]:
+    environment_source = os.environ if environ is None else environ
+    if platform.system() != "Darwin":
+        raise LocalVideoUnavailable("local_video_isolation_unavailable:macos_required")
+    sandbox_exec = shutil.which("sandbox-exec")
+    if not sandbox_exec:
+        raise LocalVideoUnavailable(
+            "local_video_isolation_unavailable:sandbox_exec_missing"
+        )
+    partial = output.with_suffix(".partial" + output.suffix)
+    partial_audio = output.with_suffix(output.suffix + ".audio.wav").with_suffix(
+        ".partial.wav"
+    )
+    sandbox_id = fingerprint(
+        {
+            "modelId": request.model_id,
+            "task": request.task,
+            "outputPath": str(output),
+            "inputSha256": _optional_input_sha256(
+                request.image_path or request.source_video_path
+            ),
+        }
+    )[:20]
+    sandbox_root = output.parent / f".local_video_sandbox_{sandbox_id}"
+    home = sandbox_root / "home"
+    temporary = sandbox_root / "tmp"
+    cache = sandbox_root / "cache"
+    allowed_write_paths = [sandbox_root, partial]
+    if request.audio_mode != "none":
+        allowed_write_paths.append(partial_audio)
+    profile = "\n".join(
+        [
+            "(version 1)",
+            '(import "system.sb")',
+            "(deny network*)",
+            "(deny file-write*",
+            "  (require-not",
+            "    (require-any",
+            *[
+                f"      ({'subpath' if path == sandbox_root else 'literal'} {json.dumps(str(path))})"
+                for path in allowed_write_paths
+            ],
+            "    )",
+            "  )",
+            ")",
+        ]
+    )
+    environment = {
+        key: str(environment_source[key])
+        for key in sorted(_SUBPROCESS_ENV_ALLOWLIST)
+        if environment_source.get(key) is not None
+    }
+    environment.update(
+        {
+            "HOME": str(home),
+            "TMPDIR": str(temporary),
+            "XDG_CACHE_HOME": str(cache),
+            "HF_HOME": str(hf_home()),
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "NO_PROXY": "*",
+            "no_proxy": "*",
+        }
+    )
+    isolation_core = {
+        "schema": "reel_factory.local_subprocess_isolation.v1",
+        "platform": "macos",
+        "enforcement": "sandbox-exec",
+        "enforcementBinary": str(Path(sandbox_exec).resolve()),
+        "enforced": True,
+        "networkAccess": "denied",
+        "writeAccess": "explicit_artifacts_only",
+        "allowedWritePaths": [str(path) for path in allowed_write_paths],
+        "sandboxRoot": str(sandbox_root),
+        "profileFingerprint": fingerprint({"profile": profile}),
+        "environmentPolicy": "allowlist",
+        "environmentAllowedKeys": sorted(environment),
+        "environmentFingerprint": fingerprint(environment),
+        "environmentVariablesStripped": len(environment_source)
+        - len(set(environment_source).intersection(environment)),
+        "providerActivity": {
+            "callsObserved": 0,
+            "measurementScope": "isolated_generation_subprocess",
+            "observationMethod": "macos_sandbox_network_policy",
+            "enforcementStatus": "enforced",
+            "evidenceBasis": "external_network_denied_by_macos_sandbox",
+        },
+    }
+    isolation = {
+        **isolation_core,
+        "isolationFingerprint": fingerprint(isolation_core),
+    }
+    return (
+        [str(sandbox_exec), "-p", profile, "--", *base_command],
+        environment,
+        isolation,
+    )
+
+
+def _prepare_isolation_workspace(isolation: Mapping[str, Any]) -> None:
+    root = Path(str(isolation.get("sandboxRoot") or "")).resolve()
+    if root.exists():
+        raise FileExistsError(f"local_video_isolation_workspace_collision:{root}")
+    for relative in ("home", "tmp", "cache", "logs"):
+        (root / relative).mkdir(parents=True, exist_ok=False)
 
 
 def _build_execution_command(
@@ -1087,7 +1465,7 @@ def _custom_model_status(spec: LocalVideoModelSpec, directory: Path) -> dict[str
                 f"expected_basename={expected.name}:actual_basename={directory.name}"
             ],
         }
-    return model_status(spec.model_id, models_root=directory.parent, deep=False)
+    return model_status(spec.model_id, models_root=directory.parent, deep=True)
 
 
 def _validate_video(
@@ -1242,7 +1620,9 @@ def _generation_job(
     capability: dict[str, Any],
     command: list[str],
     output: Path,
+    execution_isolation: Mapping[str, Any],
 ) -> LocalGenerationJob:
+    execution_binding = _validate_execution_binding(request, capability=capability)
     manifest_sha = str(capability.get("model", {}).get("manifestSha256") or "")
     inputs = {
         "image": _optional_input(request.image_path),
@@ -1252,6 +1632,7 @@ def _generation_job(
         "lora": _optional_lora(
             request.lora_path, request.lora_strength, model_id=request.model_id
         ),
+        "executionBinding": execution_binding,
     }
     input_sha = fingerprint(inputs)
     cohort_input_sha = fingerprint(
@@ -1268,6 +1649,9 @@ def _generation_job(
         "task": request.task,
         "durationSeconds": request.duration_seconds,
         "seed": request.seed,
+        "executionContext": request.execution_context,
+        "executionBindingFingerprint": execution_binding["bindingFingerprint"],
+        "executionIsolationFingerprint": execution_isolation["isolationFingerprint"],
     }
     job_id = (
         "local_video_"
@@ -1292,6 +1676,11 @@ def _generation_job(
             "durationSeconds": request.duration_seconds,
             "seed": request.seed,
             "audioMode": request.audio_mode,
+            "executionContext": request.execution_context,
+            "executionBindingFingerprint": execution_binding["bindingFingerprint"],
+            "executionIsolationFingerprint": execution_isolation[
+                "isolationFingerprint"
+            ],
         },
         owned_artifact_paths=(
             output,
@@ -1301,10 +1690,364 @@ def _generation_job(
             output.with_suffix(output.suffix + ".audio.wav").with_suffix(
                 ".partial.wav"
             ),
+            Path(str(execution_isolation["sandboxRoot"])),
         ),
         benchmark_recipe=request.benchmark_recipe,
         analyzer_registry=request.analyzer_registry,
     )
+
+
+def _validate_execution_binding(
+    request: LocalVideoRequest,
+    *,
+    capability: Mapping[str, Any],
+) -> dict[str, Any]:
+    if request.execution_context is None:
+        raise LocalVideoUnavailable("local_video_execution_context_required")
+    if request.model_dir is not None:
+        raise LocalVideoUnavailable(
+            "local_video_custom_model_dir_forbidden_for_bound_execution"
+        )
+    if request.execution_context == "campaign_generation":
+        if request.arena_benchmark_binding is not None:
+            raise LocalVideoUnavailable("local_video_mixed_execution_evidence")
+        return _validate_campaign_admission(request, capability=capability)
+    if request.execution_context == "arena_benchmark":
+        if request.local_motion_admission is not None:
+            raise LocalVideoUnavailable("local_video_mixed_execution_evidence")
+        return _validate_arena_benchmark_binding(request)
+    raise LocalVideoUnavailable("local_video_execution_context_invalid")
+
+
+def _execution_capability_fingerprint(capability: Mapping[str, Any]) -> str:
+    model = capability.get("model")
+    runtime = capability.get("runtime")
+    model_payload = model if isinstance(model, Mapping) else {}
+    runtime_payload = runtime if isinstance(runtime, Mapping) else {}
+    deep = model_payload.get("deepVerificationReceipt")
+    deep_payload = deep if isinstance(deep, Mapping) else {}
+    return fingerprint(
+        {
+            "modelId": capability.get("modelId"),
+            "ready": capability.get("ready"),
+            "manifestSha256": model_payload.get("manifestSha256"),
+            "deepVerified": model_payload.get("deepVerified"),
+            "deepVerificationFingerprint": deep_payload.get("verificationFingerprint"),
+            "runtimeId": runtime_payload.get("runtimeId"),
+            "runtimeRepository": runtime_payload.get("repository"),
+            "runtimeRevision": runtime_payload.get("observedRevision"),
+            "runtimeEnvironment": runtime_payload.get("resolvedEnvironment"),
+        }
+    )
+
+
+def _validate_campaign_admission(
+    request: LocalVideoRequest,
+    *,
+    capability: Mapping[str, Any],
+) -> dict[str, Any]:
+    admission = request.local_motion_admission
+    if not isinstance(admission, Mapping):
+        raise LocalVideoUnavailable("local_motion_admission_required")
+    payload = dict(admission)
+    expected_keys = {
+        "schema",
+        "routerDecision",
+        "arenaSummary",
+        "evidenceRecords",
+        "inputFingerprints",
+        "resourceSnapshot",
+        "admissionFingerprint",
+    }
+    if set(payload) != expected_keys or payload.get("schema") != (
+        "campaign_factory.local_motion_admission.v1"
+    ):
+        raise LocalVideoUnavailable("local_motion_admission_schema_invalid")
+    claimed = _required_sha256(
+        payload.get("admissionFingerprint"), "local_motion_admission_fingerprint"
+    )
+    core = dict(payload)
+    core.pop("admissionFingerprint")
+    if fingerprint(core) != claimed:
+        raise LocalVideoUnavailable("local_motion_admission_fingerprint_mismatch")
+
+    raw_decision = payload.get("routerDecision")
+    if not isinstance(raw_decision, Mapping):
+        raise LocalVideoUnavailable("local_motion_router_decision_missing")
+    decision = dict(raw_decision)
+    try:
+        validate_local_model_router_decision(decision)
+    except ValueError as exc:
+        raise LocalVideoUnavailable("local_motion_router_decision_invalid") from exc
+    decision_core = dict(decision)
+    decision_claimed = _required_sha256(
+        decision_core.pop("decisionFingerprint", None),
+        "local_motion_router_decision_fingerprint",
+    )
+    if fingerprint(decision_core) != decision_claimed:
+        raise LocalVideoUnavailable("local_motion_router_decision_fingerprint_mismatch")
+    if decision.get("selectedModelId") != request.model_id:
+        raise LocalVideoUnavailable("local_motion_selected_model_mismatch")
+    if (
+        decision.get("paidProviderFallbackAllowed") is not False
+        or decision.get("legacyLocalMotionFallbackAllowed") is not False
+    ):
+        raise LocalVideoUnavailable("local_motion_router_fallback_not_closed")
+
+    selected = [
+        candidate
+        for candidate in decision.get("consideredCandidates", [])
+        if isinstance(candidate, Mapping)
+        and candidate.get("modelId") == request.model_id
+    ]
+    if len(selected) != 1:
+        raise LocalVideoUnavailable("local_motion_selected_candidate_not_exactly_once")
+    candidate = selected[0]
+    if (
+        candidate.get("exclusions") != []
+        or not isinstance(candidate.get("score"), (int, float))
+        or isinstance(candidate.get("score"), bool)
+        or candidate.get("modelFingerprint") != decision.get("selectedModelFingerprint")
+    ):
+        raise LocalVideoUnavailable("local_motion_selected_candidate_ineligible")
+
+    winning = decision.get("winningEvidence")
+    summary = payload.get("arenaSummary")
+    if not isinstance(winning, Mapping) or not isinstance(summary, Mapping):
+        raise LocalVideoUnavailable("local_motion_arena_evidence_missing")
+    if set(summary) != {
+        "summaryId",
+        "summaryFingerprint",
+        "planId",
+        "planFingerprint",
+        "purpose",
+    }:
+        raise LocalVideoUnavailable("local_motion_arena_summary_binding_invalid")
+    summary_fingerprint = _required_sha256(
+        summary.get("summaryFingerprint"), "local_motion_arena_summary_fingerprint"
+    )
+    plan_fingerprint = _required_sha256(
+        summary.get("planFingerprint"), "local_motion_arena_plan_fingerprint"
+    )
+    if (
+        summary.get("purpose") != "promotion_eligible"
+        or winning.get("arenaSummaryFingerprint") != summary_fingerprint
+        or candidate.get("arenaSummaryFingerprint") != summary_fingerprint
+        or not str(summary.get("summaryId") or "").strip()
+        or not str(summary.get("planId") or "").strip()
+    ):
+        raise LocalVideoUnavailable("local_motion_arena_summary_binding_mismatch")
+    for field in ("benchmarkIds", "matchedArenaSampleIds", "validArenaSampleIds"):
+        values = winning.get(field)
+        if (
+            not isinstance(values, list)
+            or not values
+            or len(values) != len(set(str(value) for value in values))
+        ):
+            raise LocalVideoUnavailable(f"local_motion_{field}_invalid")
+
+    records = payload.get("evidenceRecords")
+    if not isinstance(records, Mapping) or set(records) != {
+        "creatorIdentityProfile",
+        "contentIntent",
+        "executionPolicy",
+        "benchmarkRecipe",
+        "analyzerRegistry",
+    }:
+        raise LocalVideoUnavailable("local_motion_evidence_record_set_invalid")
+    identity = records.get("creatorIdentityProfile")
+    intent = records.get("contentIntent")
+    recipe = records.get("benchmarkRecipe")
+    registry = records.get("analyzerRegistry")
+    if not isinstance(identity, Mapping):
+        raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
+    if not isinstance(intent, Mapping):
+        raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
+    if not isinstance(recipe, Mapping):
+        raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
+    if not isinstance(registry, Mapping):
+        raise LocalVideoUnavailable("local_motion_evidence_record_invalid")
+    decision_request = decision.get("request")
+    if not isinstance(decision_request, Mapping):
+        raise LocalVideoUnavailable("local_motion_router_request_missing")
+    if (
+        identity.get("profileId") != decision_request.get("identityProfileId")
+        or fingerprint(identity) != decision_request.get("identityProfileFingerprint")
+        or intent.get("intentId") != decision_request.get("contentIntentId")
+        or fingerprint(intent) != decision_request.get("contentIntentFingerprint")
+        or decision_request.get("taskKind") != request.task
+    ):
+        raise LocalVideoUnavailable("local_motion_evidence_router_binding_mismatch")
+    if request.benchmark_recipe is None or dict(request.benchmark_recipe) != dict(
+        recipe
+    ):
+        raise LocalVideoUnavailable("local_motion_benchmark_recipe_mismatch")
+    if request.analyzer_registry is None or dict(request.analyzer_registry) != dict(
+        registry
+    ):
+        raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
+
+    input_fingerprints = payload.get("inputFingerprints")
+    exact_inputs = [
+        value
+        for value in (
+            _optional_input_sha256(request.image_path),
+            _optional_input_sha256(request.audio_path),
+        )
+        if value is not None
+    ]
+    if (
+        input_fingerprints != exact_inputs
+        or list(intent.get("sourceAssetFingerprints") or []) != exact_inputs
+        or list(recipe.get("inputFingerprints") or []) != exact_inputs
+    ):
+        raise LocalVideoUnavailable("local_motion_input_fingerprint_mismatch")
+
+    resource = payload.get("resourceSnapshot")
+    if (
+        not isinstance(resource, Mapping)
+        or resource.get("schema")
+        != "campaign_factory.local_motion_resource_snapshot.v1"
+        or resource.get("routerAvailableMemoryBytes")
+        != decision_request.get("availableMemoryBytes")
+    ):
+        raise LocalVideoUnavailable("local_motion_resource_snapshot_mismatch")
+
+    model = capability.get("model")
+    if not isinstance(model, Mapping):
+        raise LocalVideoUnavailable("local_motion_model_capability_missing")
+    deep = model.get("deepVerificationReceipt")
+    if (
+        model.get("ready") is not True
+        or model.get("deepVerified") is not True
+        or not isinstance(deep, Mapping)
+    ):
+        raise LocalVideoUnavailable("local_motion_model_not_deep_verified")
+    deep_claimed = _required_sha256(
+        deep.get("verificationFingerprint"),
+        "local_motion_model_deep_verification_fingerprint",
+    )
+    deep_core = dict(deep)
+    deep_core.pop("verificationFingerprint", None)
+    if (
+        fingerprint(deep_core) != deep_claimed
+        or deep.get("modelId") != request.model_id
+        or deep.get("manifestSha256") != model.get("manifestSha256")
+        or deep.get("providerCalls") != 0
+        or deep.get("paidGeneration") is not False
+    ):
+        raise LocalVideoUnavailable("local_motion_model_deep_verification_invalid")
+    manifest = model.get("manifest")
+    if not isinstance(manifest, Mapping):
+        raise LocalVideoUnavailable("local_motion_model_manifest_missing")
+    current_model_fingerprint = fingerprint(
+        {
+            "modelId": request.model_id,
+            "modelRevision": str(manifest.get("revision") or ""),
+            "modelManifestSha256": str(model.get("manifestSha256") or ""),
+        }
+    )
+    if current_model_fingerprint != decision.get(
+        "selectedModelFingerprint"
+    ) or current_model_fingerprint != candidate.get("modelFingerprint"):
+        raise LocalVideoUnavailable("local_motion_model_fingerprint_drift")
+
+    binding_core = {
+        "schema": "reel_factory.campaign_local_motion_binding.v1",
+        "admissionFingerprint": claimed,
+        "routerDecisionFingerprint": decision_claimed,
+        "arenaSummaryFingerprint": summary_fingerprint,
+        "arenaPlanFingerprint": plan_fingerprint,
+        "selectedModelFingerprint": current_model_fingerprint,
+        "modelDeepVerificationFingerprint": deep_claimed,
+        "benchmarkRecipeFingerprint": fingerprint(recipe),
+        "analyzerRegistryFingerprint": fingerprint(registry),
+        "inputFingerprints": exact_inputs,
+        "providerCalls": 0,
+        "paidGeneration": False,
+    }
+    return {**binding_core, "bindingFingerprint": fingerprint(binding_core)}
+
+
+def _validate_arena_benchmark_binding(request: LocalVideoRequest) -> dict[str, Any]:
+    raw = request.arena_benchmark_binding
+    if not isinstance(raw, Mapping):
+        raise LocalVideoUnavailable("arena_benchmark_binding_required")
+    binding = dict(raw)
+    expected_keys = {
+        "schema",
+        "sampleId",
+        "blindedCandidateId",
+        "sourceSha256",
+        "identityProfileId",
+        "identityProfileFingerprint",
+        "contentIntentId",
+        "contentIntentFingerprint",
+        "benchmarkRecipeFingerprint",
+        "analyzerRegistryFingerprint",
+        "modelDeepVerificationFingerprint",
+        "providerCalls",
+        "productionWritesAllowed",
+        "bindingFingerprint",
+    }
+    if set(binding) != expected_keys or binding.get("schema") != (
+        "reel_factory.arena_benchmark_execution.v1"
+    ):
+        raise LocalVideoUnavailable("arena_benchmark_binding_schema_invalid")
+    claimed = _required_sha256(
+        binding.get("bindingFingerprint"), "arena_benchmark_binding_fingerprint"
+    )
+    core = dict(binding)
+    core.pop("bindingFingerprint")
+    if fingerprint(core) != claimed:
+        raise LocalVideoUnavailable("arena_benchmark_binding_fingerprint_mismatch")
+    if (
+        binding.get("providerCalls") != 0
+        or binding.get("productionWritesAllowed") is not False
+    ):
+        raise LocalVideoUnavailable("arena_benchmark_external_activity_not_closed")
+    if (
+        _optional_input_sha256(request.image_path or request.source_video_path)
+        != binding.get("sourceSha256")
+        or request.benchmark_recipe is None
+        or fingerprint(request.benchmark_recipe)
+        != binding.get("benchmarkRecipeFingerprint")
+        or request.analyzer_registry is None
+        or fingerprint(request.analyzer_registry)
+        != binding.get("analyzerRegistryFingerprint")
+    ):
+        raise LocalVideoUnavailable("arena_benchmark_binding_mismatch")
+    for field in (
+        "sampleId",
+        "blindedCandidateId",
+        "identityProfileId",
+        "contentIntentId",
+    ):
+        if not str(binding.get(field) or "").strip():
+            raise LocalVideoUnavailable(f"arena_benchmark_{field}_missing")
+    for field in (
+        "identityProfileFingerprint",
+        "contentIntentFingerprint",
+        "modelDeepVerificationFingerprint",
+    ):
+        _required_sha256(binding.get(field), f"arena_benchmark_{field}")
+    return binding
+
+
+def _optional_input_sha256(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.is_file() or resolved.is_symlink():
+        raise LocalVideoUnavailable(f"local_video_input_missing_or_unsafe:{resolved}")
+    return _sha256_file(resolved)
+
+
+def _required_sha256(value: Any, field: str) -> str:
+    text = str(value or "")
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        raise LocalVideoUnavailable(f"{field}_invalid")
+    return text
 
 
 def _sha256_file(path: Path) -> str:

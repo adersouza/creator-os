@@ -18,7 +18,6 @@ from .local_generation_queue import (
 )
 from .local_model_benchmark import (
     PROMOTION_MEMORY_MEASUREMENT_METHOD,
-    LocalBenchmarkTimer,
     LocalModelBenchmarkStore,
     PromotionPolicy,
 )
@@ -42,24 +41,31 @@ def _read_registry(path: Path) -> dict[str, Any]:
 def _run_measured_copy(
     *, source: Path, destination: Path, minimum_allocation_bytes: int
 ) -> tuple[dict[str, Any], subprocess.CompletedProcess[str]]:
-    timer = LocalBenchmarkTimer.start()
-    allocation_bytes = max(
-        minimum_allocation_bytes,
-        timer.child_peak_before_bytes + 16 * 1024**2,
+    # RUSAGE_CHILDREN is a process-lifetime high-water mark. Measure each sample
+    # in a fresh supervisor so baseline and candidate observations are directly
+    # comparable instead of ratcheting the allocation just to set a new maximum.
+    supervisor = (
+        "import json, subprocess, sys; "
+        "from reel_factory.local_model_benchmark import LocalBenchmarkTimer; "
+        "timer=LocalBenchmarkTimer.start(); "
+        "child=subprocess.run([sys.executable,'-c',"
+        "'from pathlib import Path; import sys; data=bytearray(int(sys.argv[3])); "
+        'data[::4096]=b\\"x\\"*len(data[::4096]); target=Path(sys.argv[2]); '
+        "target.write_bytes(Path(sys.argv[1]).read_bytes()+target.name.encode())',"
+        "sys.argv[1],sys.argv[2],sys.argv[3]],capture_output=True,text=True); "
+        "measurement=timer.finish(); "
+        "print(json.dumps({'returncode':child.returncode,'stdout':child.stdout,"
+        "'stderr':child.stderr,'wallTimeSeconds':measurement.wall_time_seconds,"
+        "'peakMemoryBytes':measurement.peak_memory_bytes,"
+        "'memoryMeasurementMethod':measurement.memory_measurement_method}))"
     )
     command = [
         sys.executable,
         "-c",
-        (
-            "from pathlib import Path; import sys; "
-            "data=bytearray(int(sys.argv[3])); "
-            "data[::4096]=b'x'*len(data[::4096]); "
-            "target=Path(sys.argv[2]); "
-            "target.write_bytes(Path(sys.argv[1]).read_bytes()+target.name.encode())"
-        ),
+        supervisor,
         str(source),
         str(destination),
-        str(allocation_bytes),
+        str(minimum_allocation_bytes),
     ]
     completed = subprocess.run(
         command,
@@ -68,14 +74,25 @@ def _run_measured_copy(
         check=False,
         timeout=60,
     )
-    measurement = timer.finish()
+    if completed.returncode != 0:
+        return ({}, completed)
+    try:
+        payload = json.loads(completed.stdout)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("canary_measurement_supervisor_invalid") from exc
+    child_completed = subprocess.CompletedProcess(
+        command,
+        int(payload["returncode"]),
+        str(payload.get("stdout") or ""),
+        str(payload.get("stderr") or ""),
+    )
     return (
         {
-            "wallTimeSeconds": measurement.wall_time_seconds,
-            "peakMemoryBytes": measurement.peak_memory_bytes,
-            "memoryMeasurementMethod": measurement.memory_measurement_method,
+            "wallTimeSeconds": float(payload["wallTimeSeconds"]),
+            "peakMemoryBytes": int(payload["peakMemoryBytes"]),
+            "memoryMeasurementMethod": str(payload["memoryMeasurementMethod"]),
         },
-        completed,
+        child_completed,
     )
 
 
@@ -161,15 +178,49 @@ def run_canary(
     queue = LocalGenerationQueue(
         canary_root / "queue", resource_limit_bytes=2 * 1024**3
     )
+
+    def canary_model_status(model_id: str, *, deep: bool = True) -> dict[str, Any]:
+        label = "baseline" if "baseline" in model_id else "candidate"
+        manifest_sha256 = hashlib.sha256(label.encode()).hexdigest()
+        deep_core = {
+            "schema": "reel_factory.local_model_deep_verification.v1",
+            "modelId": model_id,
+            "repository": "creator-os/provider-free-benchmark-canary",
+            "revision": "local-canary-v1",
+            "manifestSha256": manifest_sha256,
+            "fileBindings": [],
+            "dependencyBindings": [],
+            "providerCalls": 0,
+            "paidGeneration": False,
+        }
+        return {
+            "ready": True,
+            "deepVerified": deep,
+            "manifestSha256": manifest_sha256,
+            "deepVerificationReceipt": {
+                **deep_core,
+                "verificationFingerprint": fingerprint(deep_core),
+            }
+            if deep
+            else None,
+        }
+
     store = LocalModelBenchmarkStore(
-        canary_root / "benchmarks", implementation_root=repository_root
+        canary_root / "benchmarks",
+        implementation_root=repository_root,
+        model_status_resolver=canary_model_status,
     )
     completed_jobs: list[tuple[LocalGenerationJob, Path]] = []
-    for label in ("baseline", "candidate"):
-        output = canary_root / f"{label}.mp4"
+    for label, index in (
+        ("baseline", 0),
+        ("candidate", 0),
+        ("baseline", 1),
+        ("candidate", 1),
+    ):
+        output = canary_root / f"{label}-{index}.mp4"
         partial = output.with_suffix(".partial.mp4")
         job = LocalGenerationJob.create(
-            job_id=f"canary-{label}",
+            job_id=f"canary-{label}-{index}",
             model_id=f"canary-{label}-model",
             model_revision="local-canary-v1",
             model_manifest_sha256=hashlib.sha256(label.encode()).hexdigest(),
@@ -253,23 +304,16 @@ def run_canary(
         analysis = json.loads(completed.stdout)
         if analysis.get("subject", {}).get("mediaSha256") != output_sha256:
             raise RuntimeError("canary_contentforge_subject_mismatch")
-        verdicts = {
-            str(item.get("policy", {}).get("id")): item
-            for item in analysis.get("analyzerVerdicts", [])
-            if isinstance(item, dict)
-        }
+        analysis_path = canary_root / f"{job.job_id}.trusted-analysis.json"
+        analysis_path.write_text(json.dumps(analysis, sort_keys=True), encoding="utf-8")
         references = []
         for registration in required_registrations:
             assert registration is not None
             check_id = str(registration["analyzerId"])
-            receipt_path = canary_root / f"{job.job_id}.{check_id}.json"
-            receipt_path.write_text(
-                json.dumps(verdicts[check_id], sort_keys=True), encoding="utf-8"
-            )
             references.append(
                 store.ingest_qc_reference(
                     check_id=check_id,
-                    receipt_path=receipt_path,
+                    receipt_path=analysis_path,
                     expected_subject_sha256=output_sha256,
                 )
             )
@@ -284,19 +328,20 @@ def run_canary(
             )
         )
 
-    baseline, candidate = receipts
+    baseline = tuple(receipt for receipt in receipts if "baseline" in receipt.job_id)
+    candidate = tuple(receipt for receipt in receipts if "candidate" in receipt.job_id)
     evaluation = store.evaluate_promotion(
-        candidate_model_fingerprint=candidate.model_fingerprint,
-        baseline_model_fingerprint=baseline.model_fingerprint,
+        candidate_model_fingerprint=candidate[0].model_fingerprint,
+        baseline_model_fingerprint=baseline[0].model_fingerprint,
         task_kind=str(recipe["taskKind"]),
-        hardware_fingerprint=candidate.hardware_fingerprint,
-        candidate_benchmark_ids=(candidate.benchmark_id,),
-        baseline_benchmark_ids=(baseline.benchmark_id,),
+        hardware_fingerprint=candidate[0].hardware_fingerprint,
+        candidate_benchmark_ids=tuple(receipt.benchmark_id for receipt in candidate),
+        baseline_benchmark_ids=tuple(receipt.benchmark_id for receipt in baseline),
         policy=PromotionPolicy(
-            minimum_candidate_samples=1,
-            minimum_baseline_samples=1,
-            maximum_wall_time_ratio=100,
-            maximum_peak_memory_ratio=100,
+            minimum_candidate_samples=2,
+            minimum_baseline_samples=2,
+            maximum_wall_time_ratio=1.25,
+            maximum_peak_memory_ratio=1.25,
         ),
     )
     if not evaluation.eligible:

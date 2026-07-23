@@ -4,13 +4,28 @@
   "title": "Creator OS Runtime Promotion Approval",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "approvedCommit", "reviewedBy", "reviewedAt", "checks", "approvalFingerprint"],
+  "required": ["schema", "repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "reviewedBy", "reviewedAt", "review", "checks", "approvalFingerprint"],
   "properties": {
     "schema": {"const": "creator_os.runtime_promotion_approval.v1"},
+    "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+    "pullRequestNumber": {"type": "integer", "minimum": 1},
     "approvedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "reviewedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
     "reviewedBy": {"type": "string", "minLength": 1},
     "reviewedAt": {"type": "string", "format": "date-time"},
-    "checks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "evidenceFingerprint"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "evidenceFingerprint": {"$ref": "#/$defs/sha256"}}}},
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewId", "reviewer", "state", "submittedAt", "commitId"],
+      "properties": {
+        "reviewId": {"type": "integer", "minimum": 1},
+        "reviewer": {"type": "string", "minLength": 1},
+        "state": {"const": "APPROVED"},
+        "submittedAt": {"type": "string", "format": "date-time"},
+        "commitId": {"type": "string", "pattern": "^[a-f0-9]{40}$"}
+      }
+    },
+    "checks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "checkRunId", "detailsUrl", "completedAt", "headSha", "appId", "appSlug", "workflowRunId", "workflowName", "workflowPath"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "checkRunId": {"type": "integer", "minimum": 1}, "detailsUrl": {"type": "string", "pattern": "^https://"}, "completedAt": {"type": "string", "format": "date-time"}, "headSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"}, "appId": {"const": 15368}, "appSlug": {"const": "github-actions"}, "workflowRunId": {"type": "integer", "minimum": 1}, "workflowName": {"enum": ["Creator OS Monorepo CI", "Security"]}, "workflowPath": {"enum": [".github/workflows/monorepo-ci.yml", ".github/workflows/security.yml"]}}}},
     "approvalFingerprint": {"$ref": "#/$defs/sha256"}
   },
   "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}

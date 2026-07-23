@@ -35,6 +35,7 @@ class LocalInstallDependency:
     estimated_bytes: int
     license_id: str
     cache_only: bool = False
+    required_paths: tuple[str, ...] = ()
 
     def directory(self, root: Path | None = None) -> Path:
         return (_models_root(root) / self.directory_name).resolve()
@@ -101,6 +102,13 @@ WAN_UMT5_TOKENIZER = LocalInstallDependency(
     estimated_bytes=6_000_000,
     license_id="apache-2.0",
     cache_only=True,
+    required_paths=(
+        "config.json",
+        "special_tokens_map.json",
+        "spiece.model",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ),
 )
 
 _DEPENDENCIES = {

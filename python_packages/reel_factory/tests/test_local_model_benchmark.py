@@ -8,6 +8,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from creator_os_core.evidence_attestation import (
+    load_evidence_secret,
+    sign_evidence_attestation,
+)
 from reel_factory.local_generation_queue import LocalGenerationJob, LocalGenerationQueue
 from reel_factory.local_generation_queue import fingerprint as queue_fingerprint
 from reel_factory.local_model_benchmark import (
@@ -33,18 +37,54 @@ from pipeline_contracts import (
 
 GIB = 1024**3
 ROOT = Path(__file__).resolve().parents[3]
-MOTION_QC_IMPLEMENTATION = ROOT / "packages/contentforge/lib/motion-specific-qc.js"
+TRUSTED_ANALYSIS_IMPLEMENTATION = (
+    ROOT / "packages/contentforge/lib/trusted-media-analysis.js"
+)
 
 
 def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+@pytest.fixture(autouse=True)
+def _deep_verified_test_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "CREATOR_OS_EVIDENCE_AUTH_SECRET",
+        "benchmark-test-secret-0123456789-abcdef",
+    )
+
+    def status(model_id: str, *, deep: bool = True) -> dict:
+        core = {
+            "schema": "reel_factory.local_model_deep_verification.v1",
+            "modelId": model_id,
+            "repository": f"fixture/{model_id}",
+            "revision": "revision-1",
+            "manifestSha256": _sha(model_id),
+            "fileBindings": [],
+            "dependencyBindings": [],
+            "providerCalls": 0,
+            "paidGeneration": False,
+        }
+        return {
+            "ready": True,
+            "deepVerified": deep,
+            "manifestSha256": _sha(model_id),
+            "deepVerificationReceipt": {
+                **core,
+                "verificationFingerprint": queue_fingerprint(core),
+            }
+            if deep
+            else None,
+        }
+
+    monkeypatch.setattr("reel_factory.local_model_benchmark.model_status", status)
+
+
 def _records(
     *, input_fingerprint: str, parameter_fingerprint: str, task_kind: str
 ) -> tuple[BenchmarkRecipeV1, AnalyzerRegistryV1]:
     implementation_fingerprint = hashlib.sha256(
-        MOTION_QC_IMPLEMENTATION.read_bytes()
+        TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes()
     ).hexdigest()
     provenance = ProvenanceV1(
         producer="reel_factory.test",
@@ -66,7 +106,7 @@ def _records(
         parameter_fingerprint=parameter_fingerprint,
         required_analyzers=(
             AnalyzerRequirementV1(
-                analyzer_id="contentforge.motion_specific_qc",
+                analyzer_id="contentforge.media_integrity",
                 analyzer_version="1.0.0",
             ),
         ),
@@ -75,13 +115,13 @@ def _records(
         provenance=provenance,
     )
     registry = AnalyzerRegistryV1(
-        registry_id=f"contentforge-motion-qc-{implementation_fingerprint[:16]}",
+        registry_id=f"contentforge-media-integrity-{implementation_fingerprint[:16]}",
         analyzers=(
             AnalyzerRegistrationV1(
-                analyzer_id="contentforge.motion_specific_qc",
+                analyzer_id="contentforge.media_integrity",
                 analyzer_version="1.0.0",
-                evidence_kinds=("motion_specific_qc_receipt",),
-                implementation_ref="packages/contentforge/lib/motion-specific-qc.js",
+                evidence_kinds=("trusted_media_analysis",),
+                implementation_ref="packages/contentforge/lib/trusted-media-analysis.js",
                 implementation_fingerprint=implementation_fingerprint,
             ),
         ),
@@ -90,7 +130,7 @@ def _records(
             produced_at="2026-07-22T12:00:00Z",
             source_references=(
                 SourceReferenceV1(
-                    record_id="contentforge.motion_specific_qc@1.0.0",
+                    record_id="contentforge.media_integrity@1.0.0",
                     fingerprint=implementation_fingerprint,
                 ),
             ),
@@ -132,7 +172,7 @@ def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
 
 
 def _qc(
-    name: str = "contentforge.motion_specific_qc",
+    name: str = "contentforge.media_integrity",
     *,
     passed: bool = True,
     subject_sha256: str | None = None,
@@ -153,24 +193,90 @@ def _qc(
 def _write_qc(
     store: LocalModelBenchmarkStore,
     *,
-    job_id: str,
+    job: LocalGenerationJob,
+    analyzer_registry: dict,
     subject_sha256: str,
     passed: bool,
 ) -> tuple[QCReference, ...]:
-    relative = Path("evidence") / f"{job_id}.json"
+    relative = Path("evidence") / f"{job.job_id}.json"
     receipt = store.root / relative
     receipt.parent.mkdir(parents=True, exist_ok=True)
+    registry = analyzer_registry
+    registry_fingerprint = queue_fingerprint(registry)
+    registration = registry["analyzers"][0]
+    observation = {
+        **registration,
+        "analyzerRegistryId": registry["registryId"],
+        "analyzerRegistryFingerprint": registry_fingerprint,
+        "toolRevisions": {
+            "node": "fixture",
+            "platform": "fixture",
+            "ffmpeg": {"available": True, "version": "fixture"},
+            "ffprobe": {"available": True, "version": "fixture"},
+        },
+        "status": "measured",
+        "observations": {"available": True},
+    }
+    analysis_id = f"analysis-{job.job_id}"
+    verdict = {
+        "schema": "contentforge.trusted_analyzer_receipt.v1",
+        "policy": {
+            "id": registration["analyzerId"],
+            "version": registration["analyzerVersion"],
+        },
+        "subjectSha256": subject_sha256,
+        "analysisId": analysis_id,
+        "observationFingerprint": queue_fingerprint(observation),
+        "implementationRef": registration["implementationRef"],
+        "implementationFingerprint": registration["implementationFingerprint"],
+        "analyzerRegistryId": registry["registryId"],
+        "analyzerRegistryFingerprint": registry_fingerprint,
+        "verdict": "pass" if passed else "blocked",
+        "passed": passed,
+        "evidenceOnly": True,
+        "providerCalls": 0,
+        "reasons": [] if passed else [{"code": "fixture_block", "severity": "block"}],
+    }
+    analysis = {
+        "schema": "contentforge.trusted_media_analysis.v1",
+        "analysisId": analysis_id,
+        "subject": {
+            "mediaPath": f"/fixture/{job.job_id}.mp4",
+            "mediaSha256": subject_sha256,
+            "sourcePath": None,
+            "sourceSha256": None,
+        },
+        "producedAt": "2026-07-22T00:00:00Z",
+        "producer": "contentforge.trusted_media_analysis",
+        "humanReviewSampling": {
+            "sampleFps": 8.0,
+            "width": 180,
+            "height": 320,
+            "sampledFrames": 48,
+            "totalFrames": 180,
+            "durationSeconds": 6.0,
+            "durationCoverageRatio": 1,
+            "frameSetFingerprint": _sha(f"frames-{job.job_id}"),
+            "briefFrameOutlierCount": 0,
+        },
+        "analyzerRegistry": {
+            "registryId": registry["registryId"],
+            "registryFingerprint": registry_fingerprint,
+        },
+        "rawObservations": [observation],
+        "analyzerVerdicts": [verdict],
+        "unavailableMeasurements": {},
+    }
+    analysis["analysisFingerprint"] = queue_fingerprint(analysis)
+    signed_payload = dict(analysis)
+    analysis["producerAttestation"] = sign_evidence_attestation(
+        signed_payload,
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=analysis["producedAt"],
+        secret=load_evidence_secret(),
+    )
     receipt.write_text(
-        json.dumps(
-            {
-                "policy": {
-                    "id": "contentforge.motion_specific_qc",
-                    "version": "1.0.0",
-                },
-                "passed": passed,
-                "subjectSha256": subject_sha256,
-            }
-        ),
+        json.dumps(analysis),
         encoding="utf-8",
     )
     return _qc(
@@ -237,7 +343,8 @@ def _complete_and_benchmark(
         job_id=job.job_id,
         qc_references=_write_qc(
             store,
-            job_id=job.job_id,
+            job=job,
+            analyzer_registry=analyzer_registry.to_dict(),
             subject_sha256=output_sha256,
             passed=qc_passed,
         ),
@@ -355,7 +462,9 @@ def test_synthetic_benchmark_source_is_rejected() -> None:
         BenchmarkReceipt(
             benchmark_id="fake",
             job_id="fake",
+            model_id="wan",
             model_fingerprint="model",
+            model_deep_verification_fingerprint=_sha("deep-model"),
             task_fingerprint="task",
             task_kind="image_to_video",
             hardware_fingerprint="hardware",
@@ -373,7 +482,9 @@ def test_missing_qc_evidence_is_rejected() -> None:
         BenchmarkReceipt(
             benchmark_id="missing-qc",
             job_id="job",
+            model_id="wan",
             model_fingerprint="model",
+            model_deep_verification_fingerprint=_sha("deep-model"),
             task_fingerprint="task",
             task_kind="image_to_video",
             hardware_fingerprint="hardware",
@@ -399,7 +510,7 @@ def test_missing_or_substituted_qc_receipt_is_rejected(tmp_path: Path) -> None:
             benchmark_recipe=recipe,
             analyzer_registry=registry,
         )
-    receipt = store.root / "evidence" / "contentforge.motion_specific_qc.json"
+    receipt = store.root / "evidence" / "contentforge.media_integrity.json"
     receipt.parent.mkdir(parents=True)
     receipt.write_bytes(b"substituted")
     with pytest.raises(RuntimeError, match="qc_receipt_sha256_mismatch"):
@@ -417,30 +528,21 @@ def test_qc_caller_verdict_must_match_bound_receipt(tmp_path: Path) -> None:
     store = LocalModelBenchmarkStore(tmp_path / "evidence")
     job = _job("job", "wan", "shot-a")
     _complete_queue_job(queue, job)
-    relative = Path("evidence") / "false.json"
-    receipt_path = store.root / relative
-    receipt_path.parent.mkdir(parents=True)
-    receipt_path.write_text(
-        json.dumps(
-            {
-                "policy": {
-                    "id": "contentforge.motion_specific_qc",
-                    "version": "1.0.0",
-                },
-                "subjectSha256": _sha("output-job"),
-                "passed": False,
-            }
-        ),
-        encoding="utf-8",
+    recipe, registry = _records_for_job(job)
+    (actual,) = _write_qc(
+        store,
+        job=job,
+        analyzer_registry=registry.to_dict(),
+        subject_sha256=_sha("output-job"),
+        passed=False,
     )
     forged = QCReference(
-        check_id="contentforge.motion_specific_qc",
-        receipt_uri=str(relative),
-        receipt_sha256=hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+        check_id=actual.check_id,
+        receipt_uri=actual.receipt_uri,
+        receipt_sha256=actual.receipt_sha256,
         subject_sha256=_sha("output-job"),
         passed=True,
     )
-    recipe, registry = _records_for_job(job)
     with pytest.raises(RuntimeError, match="passed_mismatch"):
         store.record_completed_job(
             queue,
@@ -467,6 +569,76 @@ def test_operator_qc_ingest_rejects_unsupported_policy(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="policy_mismatch"):
         store.ingest_qc_reference(
             check_id="unknown.qc",
+            receipt_path=receipt,
+            expected_subject_sha256=_sha("output"),
+        )
+
+
+def test_component_qc_ingest_rejects_standalone_self_authored_verdict(
+    tmp_path: Path,
+) -> None:
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    receipt = tmp_path / "plausible-forgery.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema": "contentforge.trusted_analyzer_receipt.v1",
+                "policy": {
+                    "id": "contentforge.media_integrity",
+                    "version": "1.0.0",
+                },
+                "subjectSha256": _sha("output"),
+                "analysisId": "invented-analysis",
+                "observationFingerprint": _sha("invented-observation"),
+                "implementationRef": "packages/contentforge/lib/trusted-media-analysis.js",
+                "implementationFingerprint": _sha("invented-implementation"),
+                "analyzerRegistryId": "invented-registry",
+                "analyzerRegistryFingerprint": _sha("invented-registry"),
+                "verdict": "pass",
+                "passed": True,
+                "evidenceOnly": True,
+                "providerCalls": 0,
+                "reasons": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="trusted_analysis_required"):
+        store.ingest_qc_reference(
+            check_id="contentforge.media_integrity",
+            receipt_path=receipt,
+            expected_subject_sha256=_sha("output"),
+        )
+
+
+def test_legacy_motion_qc_v1_is_never_promotion_evidence(tmp_path: Path) -> None:
+    store = LocalModelBenchmarkStore(tmp_path / "evidence")
+    receipt = tmp_path / "legacy-motion.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "policy": {
+                    "id": "contentforge.motion_specific_qc",
+                    "version": "1.0.0",
+                },
+                "subjectSha256": _sha("output"),
+                "passed": True,
+                "evidenceOnly": True,
+                "providerCalls": 0,
+                "modelCalls": 0,
+                "requirements": {},
+                "thresholds": {},
+                "measurements": {},
+                "evidenceSources": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="policy_mismatch"):
+        store.ingest_qc_reference(
+            check_id="contentforge.motion_specific_qc",
             receipt_path=receipt,
             expected_subject_sha256=_sha("output"),
         )
@@ -518,8 +690,8 @@ def _evaluate(
         candidate_benchmark_ids=tuple(item.benchmark_id for item in candidate),
         baseline_benchmark_ids=tuple(item.benchmark_id for item in baseline),
         policy=PromotionPolicy(
-            maximum_wall_time_ratio=100,
-            maximum_peak_memory_ratio=100,
+            maximum_wall_time_ratio=1.25,
+            maximum_peak_memory_ratio=1.25,
         ),
     )
 
@@ -561,13 +733,35 @@ def test_active_promotion_honors_scope_expiry_and_revocation(tmp_path: Path) -> 
     active = store.active_promotion(
         candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
         task_kind="image_to_video",
+        candidate_benchmark_ids=evaluation.candidate_benchmark_ids,
+        hardware_fingerprint=evaluation.hardware_fingerprint,
         observed_at="2026-07-22T12:00:00Z",
     )
     assert active["scope"] == ["image_to_video"]
+    assert active["candidateBenchmarkIds"] == list(evaluation.candidate_benchmark_ids)
+    assert active["hardwareFingerprint"] == evaluation.hardware_fingerprint
     with pytest.raises(RuntimeError, match="not_found_exactly_once"):
         store.active_promotion(
             candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
             task_kind="image_to_video",
+            candidate_benchmark_ids=(evaluation.candidate_benchmark_ids[0],),
+            hardware_fingerprint=evaluation.hardware_fingerprint,
+            observed_at="2026-07-22T12:00:00Z",
+        )
+    with pytest.raises(RuntimeError, match="not_found_exactly_once"):
+        store.active_promotion(
+            candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
+            task_kind="image_to_video",
+            candidate_benchmark_ids=evaluation.candidate_benchmark_ids,
+            hardware_fingerprint="different-hardware",
+            observed_at="2026-07-22T12:00:00Z",
+        )
+    with pytest.raises(RuntimeError, match="not_found_exactly_once"):
+        store.active_promotion(
+            candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
+            task_kind="image_to_video",
+            candidate_benchmark_ids=evaluation.candidate_benchmark_ids,
+            hardware_fingerprint=evaluation.hardware_fingerprint,
             observed_at="2026-09-22T12:00:00Z",
         )
     store.revoke_promotion(
@@ -579,6 +773,8 @@ def test_active_promotion_honors_scope_expiry_and_revocation(tmp_path: Path) -> 
         store.active_promotion(
             candidate_model_fingerprint=evaluation.candidate_model_fingerprint,
             task_kind="image_to_video",
+            candidate_benchmark_ids=evaluation.candidate_benchmark_ids,
+            hardware_fingerprint=evaluation.hardware_fingerprint,
             observed_at="2026-07-22T12:00:00Z",
         )
 
@@ -628,11 +824,11 @@ def test_missing_qc_file_at_evaluation_time_blocks_promotion(tmp_path: Path) -> 
     evaluation = _evaluate(store, candidate, baseline)
     assert not evaluation.eligible
     assert (
-        "candidate_qc_evidence_unavailable:contentforge.motion_specific_qc"
+        "candidate_qc_evidence_unavailable:contentforge.media_integrity"
         in evaluation.blocking_reasons
     )
     assert (
-        "baseline_qc_evidence_unavailable:contentforge.motion_specific_qc"
+        "baseline_qc_evidence_unavailable:contentforge.media_integrity"
         in evaluation.blocking_reasons
     )
 
@@ -647,8 +843,8 @@ def test_unmatched_task_cohort_blocks_promotion(tmp_path: Path) -> None:
         candidate_benchmark_ids=(candidate[0].benchmark_id, candidate[0].benchmark_id),
         baseline_benchmark_ids=tuple(item.benchmark_id for item in baseline),
         policy=PromotionPolicy(
-            maximum_wall_time_ratio=100,
-            maximum_peak_memory_ratio=100,
+            maximum_wall_time_ratio=1.25,
+            maximum_peak_memory_ratio=1.25,
         ),
     )
     assert not evaluation.eligible
@@ -710,22 +906,16 @@ def test_operator_cli_records_output_bound_qc_receipt(
         ),
         encoding="utf-8",
     )
-    qc = tmp_path / "motion-qc.json"
-    qc.write_text(
-        json.dumps(
-            {
-                "policy": {
-                    "id": "contentforge.motion_specific_qc",
-                    "version": "1.0.0",
-                },
-                "subjectSha256": output_sha,
-                "verdict": "pass",
-                "passed": True,
-            }
-        ),
-        encoding="utf-8",
-    )
     recipe, registry = _records_for_job(job)
+    store = LocalModelBenchmarkStore(evidence_root)
+    (reference,) = _write_qc(
+        store,
+        job=job,
+        analyzer_registry=registry.to_dict(),
+        subject_sha256=output_sha,
+        passed=True,
+    )
+    qc = evidence_root / reference.receipt_uri
     recipe_path = tmp_path / "benchmark-recipe.json"
     registry_path = tmp_path / "analyzer-registry.json"
     recipe_path.write_text(json.dumps(recipe.to_dict()), encoding="utf-8")
@@ -743,7 +933,7 @@ def test_operator_cli_records_output_bound_qc_receipt(
                 "--lineage",
                 str(lineage),
                 "--qc",
-                f"contentforge.motion_specific_qc={qc}",
+                f"contentforge.media_integrity={qc}",
                 "--benchmark-id",
                 "operator-benchmark",
                 "--benchmark-recipe",
@@ -773,9 +963,9 @@ def test_operator_cli_evaluates_then_explicitly_approves(
     arguments.extend(
         [
             "--maximum-wall-time-ratio",
-            "100",
+            "1.25",
             "--maximum-peak-memory-ratio",
-            "100",
+            "1.25",
         ]
     )
     assert benchmark_main(arguments) == 0
@@ -839,11 +1029,10 @@ def test_historical_receipt_reads_without_invented_evidence_linkage() -> None:
         "source": "measured_local_execution",
     }
 
-    receipt = BenchmarkReceipt.from_dict(payload)
-
-    assert receipt.benchmark_recipe_id is None
-    assert receipt.analyzer_registry_id is None
-    assert receipt.as_dict() == payload
+    with pytest.raises(
+        ValueError, match="historical_benchmark_missing_deep_model_evidence"
+    ):
+        BenchmarkReceipt.from_dict(payload)
 
 
 def test_record_rejects_recipe_that_did_not_create_queue_job(tmp_path: Path) -> None:
@@ -859,7 +1048,8 @@ def test_record_rejects_recipe_that_did_not_create_queue_job(tmp_path: Path) -> 
             job_id=job.job_id,
             qc_references=_write_qc(
                 store,
-                job_id=job.job_id,
+                job=job,
+                analyzer_registry=registry.to_dict(),
                 subject_sha256=_sha("output-job"),
                 passed=True,
             ),
@@ -896,7 +1086,8 @@ def test_new_measurement_requires_evidence_linked_queue_job(tmp_path: Path) -> N
             job_id=job.job_id,
             qc_references=_write_qc(
                 store,
-                job_id=job.job_id,
+                job=job,
+                analyzer_registry=registry.to_dict(),
                 subject_sha256=_sha("output-unlinked"),
                 passed=True,
             ),
@@ -948,7 +1139,8 @@ def test_record_rejects_analyzer_registry_drift_from_queue_job(tmp_path: Path) -
             job_id=job.job_id,
             qc_references=_write_qc(
                 store,
-                job_id=job.job_id,
+                job=job,
+                analyzer_registry=registry.to_dict(),
                 subject_sha256=_sha("output-job"),
                 passed=True,
             ),
@@ -960,10 +1152,10 @@ def test_record_rejects_analyzer_registry_drift_from_queue_job(tmp_path: Path) -
 def test_record_rejects_changed_analyzer_implementation(tmp_path: Path) -> None:
     implementation_root = tmp_path / "implementation-root"
     implementation = (
-        implementation_root / "packages/contentforge/lib/motion-specific-qc.js"
+        implementation_root / "packages/contentforge/lib/trusted-media-analysis.js"
     )
     implementation.parent.mkdir(parents=True)
-    implementation.write_bytes(MOTION_QC_IMPLEMENTATION.read_bytes())
+    implementation.write_bytes(TRUSTED_ANALYSIS_IMPLEMENTATION.read_bytes())
     input_fingerprint = _sha("shot-a")
     params = {"frames": 81, "seed": 9}
     recipe, registry = _records(
@@ -984,7 +1176,7 @@ def test_record_rejects_changed_analyzer_implementation(tmp_path: Path) -> None:
             registry.provenance,
             source_references=(
                 SourceReferenceV1(
-                    record_id="contentforge.motion_specific_qc@1.0.0",
+                    record_id="contentforge.media_integrity@1.0.0",
                     fingerprint=implementation_fingerprint,
                 ),
             ),
@@ -1015,7 +1207,8 @@ def test_record_rejects_changed_analyzer_implementation(tmp_path: Path) -> None:
             job_id=job.job_id,
             qc_references=_write_qc(
                 store,
-                job_id=job.job_id,
+                job=job,
+                analyzer_registry=registry.to_dict(),
                 subject_sha256=_sha("output-job"),
                 passed=True,
             ),
@@ -1040,7 +1233,7 @@ def test_record_requires_exact_qc_for_every_recipe_analyzer(tmp_path: Path) -> N
         )
 
 
-def test_duplicate_benchmark_identity_fails_closed(tmp_path: Path) -> None:
+def test_exact_benchmark_replay_is_idempotent(tmp_path: Path) -> None:
     queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
     store = LocalModelBenchmarkStore(tmp_path / "evidence")
     job = _job("job", "wan", "shot-a")
@@ -1049,15 +1242,16 @@ def test_duplicate_benchmark_identity_fails_closed(tmp_path: Path) -> None:
     )
     recipe, registry = _records_for_job(job)
 
-    with pytest.raises(RuntimeError, match="duplicate_benchmark_id"):
-        store.record_completed_job(
-            queue,
-            job_id=job.job_id,
-            qc_references=receipt.qc_references,
-            benchmark_id=receipt.benchmark_id,
-            benchmark_recipe=recipe,
-            analyzer_registry=registry,
-        )
+    replay = store.record_completed_job(
+        queue,
+        job_id=job.job_id,
+        qc_references=receipt.qc_references,
+        benchmark_id=receipt.benchmark_id,
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+    )
+    assert replay == receipt
+    assert len(store.benchmarks.read().events) == 1
 
 
 def test_same_queue_job_cannot_be_counted_as_a_second_receipt(tmp_path: Path) -> None:
@@ -1067,7 +1261,7 @@ def test_same_queue_job_cannot_be_counted_as_a_second_receipt(tmp_path: Path) ->
     receipt = _complete_and_benchmark(queue, store, job, benchmark_id="first")
     recipe, registry = _records_for_job(job)
 
-    with pytest.raises(RuntimeError, match="duplicate_benchmark_job_id"):
+    with pytest.raises(RuntimeError, match="benchmark_job_collision"):
         store.record_completed_job(
             queue,
             job_id=job.job_id,
@@ -1146,8 +1340,8 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
     assert result["providerCalls"] == 0
     assert result["productionWrites"] == 0
     assert result["promotionEvaluation"]["eligible"] is True
-    assert len(result["benchmarkReceipts"]) == 2
-    assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 2
+    assert len(result["benchmarkReceipts"]) == 4
+    assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 4
     for receipt in result["benchmarkReceipts"]:
         assert receipt["benchmarkRecipeId"] == result["benchmarkRecipeId"]
         assert (

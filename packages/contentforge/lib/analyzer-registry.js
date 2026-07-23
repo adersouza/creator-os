@@ -12,6 +12,14 @@ const IMPLEMENTATION_PATH = fileURLToPath(
 const TRUSTED_MEDIA_IMPLEMENTATION_PATH = fileURLToPath(
   new URL("./trusted-media-analysis.js", import.meta.url),
 );
+const HUMAN_REVIEW_IMPLEMENTATION_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../python_packages/reel_factory/reel_factory/human_media_review.py",
+);
+const LIP_SYNC_IMPLEMENTATION_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../scripts/local-lip-sync-analyzer.py",
+);
 const DEFAULT_REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
@@ -66,6 +74,16 @@ export async function snapshotTrustedMediaAnalyzerRegistry({
       analyzerVersion: policy.version,
       evidenceKinds: ["motion_specific_qc_receipt"],
     }, IMPLEMENTATION_PATH, root),
+    registration({
+      analyzerId: "reel_factory.structured_human_media_review",
+      analyzerVersion: "1.0.0",
+      evidenceKinds: ["human_media_review"],
+    }, HUMAN_REVIEW_IMPLEMENTATION_PATH, root),
+    registration({
+      analyzerId: "contentforge.local_face_mouth_track",
+      analyzerVersion: "1.0.0",
+      evidenceKinds: ["face_mouth_track_observation"],
+    }, LIP_SYNC_IMPLEMENTATION_PATH, root),
   ]);
   analyzers.sort(function (first, second) {
     return first.analyzerId.localeCompare(second.analyzerId);

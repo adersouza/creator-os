@@ -52,6 +52,12 @@ class Settings:
             _PATHS.artifact_root / "campaign_factory" / "campaigns",
         )
     )
+    creative_approvals_dir: Path = Path(
+        os.environ.get(
+            "CAMPAIGN_FACTORY_CREATIVE_APPROVALS",
+            _PATHS.artifact_root / "campaign_factory" / "creative_approvals",
+        )
+    )
 
     def __post_init__(self) -> None:
         campaign_root_is_override = self.root != CREATOR_OS_CAMPAIGN_FACTORY_ROOT

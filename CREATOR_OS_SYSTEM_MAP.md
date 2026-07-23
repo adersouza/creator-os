@@ -181,6 +181,14 @@ unsupported, and missing samples stay in the frozen denominator. A successful
 generation whose QC fails remains measured but contributes zero
 promotion-eligible yield.
 
+Promotion comparisons use one identical creator/identity/intent/source/prompt/
+seed/duration/resolution grid across every competing model. The private plan is
+never the reviewer surface because it contains model mappings. Reviewers see a
+separately shuffled, model-free, authenticated review packet; all signed
+blinded reviews are locked before a distinct authenticated unblinding receipt
+reveals the sample/model mapping. Promotion summaries and Router decisions bind
+both packet and unblinding fingerprints.
+
 The generation journal also projects exact execution attempt count, retry count,
 admission-block count, stable failure class, measured duration/peak memory when
 available, and local-compute cost availability. Creator OS has no machine cost
@@ -193,15 +201,75 @@ implementation SHA-256. The current trusted automated producers cover media
 integrity, temporal motion/freeze/continuity, audio integrity/A-V container
 timing, and overlay delivery when applicable. Reel Factory adds the exact
 identity and structured-human-review producers. Anatomy and conversion quality
-are human evidence; dedicated lip-sync remains unavailable and therefore
-speaking-video promotion fails closed rather than receiving a synthetic score.
+remain human evidence. Speaking-video lip-sync is measured locally; it remains
+promotion-ineligible whenever that analyzer cannot produce sufficient trusted
+audio, speech, face-track, and correlation evidence.
+
+The public ContentForge `motion-qc` surface accepts only canonical trusted-media
+analysis, the exact AnalyzerRegistry snapshot, and a complete structured human
+review. Raw analyzer values remain diagnostic-only and cannot produce a
+Campaign-eligible receipt. The resulting
+`contentforge.motion_specific_qc_receipt.v2` embeds and fingerprints all three
+records. Campaign Factory independently revalidates their media/source links,
+receipt and record fingerprints, analyzer identities, and current
+implementation file hashes before storing an immutable registration. Legacy v1
+receipts remain historical evidence but are not publishability evidence.
+
+Trusted analysis operates on an immutable private snapshot, rejects symlinks
+and non-regular media, and rehashes before signing. Temporal inspection covers
+the full duration at 8 fps and 180x320, records the deterministic frame set and
+brief-frame outliers, and scores discontinuity from robust outlier candidates
+rather than ordinary high motion. Speaking-video evidence uses a local 12 fps
+face/mouth tracker plus decoded PCM speech activity and audio-visual
+correlation. Missing audio, speech, face coverage, or sufficient samples is a
+blocked measurement, never an inferred pass.
+
+Trusted analysis, structured human review, motion QC, creative approval, and
+promotion evidence are authenticated with the local
+`CREATOR_OS_EVIDENCE_AUTH_SECRET`. A missing or short secret fails closed;
+fingerprints alone establish integrity, not producer authenticity.
 
 Router v1 considers only ready local models with current manifests, exact
 linked benchmark receipts, a non-expired/non-revoked explicit promotion,
 applicable capability, sufficient measured quality/yield, fresh evidence, and
 enough memory. It never silently selects a paid provider or the retired legacy
-local-motion path. An operator override may select only an otherwise valid
-candidate and is explicitly excluded from benchmark learning.
+local-motion path. Promotion must bind the exact creator/identity/intent cohort,
+candidate benchmark IDs, and current hardware fingerprint that Router scores.
+An operator override may select only an otherwise valid candidate and is
+explicitly excluded from benchmark learning.
+
+Ordinary `creator-os create --mode local_wan` uses the same evidence gate. It
+requires an exact thin-evidence bundle plus the frozen Arena plan/summary,
+invokes Router before worker admission, and carries the full admission through
+the queue job and asset lineage. `--motion-model` is an audited override, not a
+direct bypass; it requires an operator and substantive reason and may select
+only an otherwise eligible Router candidate. Immediately before execution,
+Campaign rehashes the current still/audio and revalidates the exact task,
+recipe, registry, Arena, Router, and active-promotion evidence so a stale
+admission cannot authorize substituted inputs or a revoked model.
+
+Installed model files alone do not establish routing readiness. Until deep
+content verification, real provider-free queue jobs, output-bound QC, blinded
+reviews, benchmark receipts, and explicit promotion records exist, the Router
+must return no eligible model.
+
+Promotion-eligible local workers run under a macOS no-network sandbox with a
+minimal environment and writes restricted to the exact artifact root. They do
+not inherit provider, Supabase, deployment, publishing, `PYTHONPATH`, or DYLD
+credentials. Output is streamed to a bounded append-only log and recorded by
+path/SHA/tail. Deep model verification is cached only as a content-addressed
+attestation bound to manifest, file metadata, runtime source, and environment;
+drift invalidates it and the selected model is checked again at execution.
+
+Campaign pipeline jobs use expected-state compare-and-swap transitions. Only a
+queued job can start, only its running owner can finish/fail it, terminal rows
+cannot be rewritten, and reclaim reports success only when its conditional
+update wins. Generated output bytes live in one content-addressed blob record;
+every generation invocation still creates its own append-only attempt and
+lineage edge, so identical bytes never erase model/prompt/input/admission
+history. Local admission, recipe, and analyzer documents cross the Campaign ->
+Reel boundary as read-only content-addressed files with expected SHA-256 values,
+not process-list-visible JSON arguments.
 
 ## Ordinary Operator Surface And Runtime Promotion
 
@@ -221,21 +289,33 @@ Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
 The former top-level diagnostic commands remain compatibility aliases with
 deprecation notices.
 
-One `campaign_factory.creative_approval.v1` record binds the exact creator,
+One `campaign_factory.creative_approval.v2` record binds the exact creator,
 source, output, intent, recipe, model, QC receipt set, and export-payload
-fingerprint. It also keeps burned overlay text, Instagram post caption,
+projection. Campaign readiness and export both reload and revalidate that exact
+record; historical v1 approvals cannot authorize export. It also keeps burned
+overlay text, Instagram post caption,
 generated audio, source audio, and native Instagram audio as separate fields.
+The ordinary `creator-os approve` path generates its own content-addressed
+dry-run review manifest, snapshots the already-registered canonical motion-QC
+receipt, signs the resulting approval with the evidence-attestation secret, and
+persists it without provider or production writes. Local approvals require the
+exact Router admission; paid approvals instead require mutually exclusive
+WaveSpeed request, authorization, prediction, spend, input, output, and provider
+evidence captured at generation time. `creator-os approve-import` is retained
+only as a compatibility path for an already-signed approval.
 
 `creator-os promote` is local source/runtime management, not production
-publishing. It requires an exact clean reviewed commit and passed verification
-manifest, creates and verifies a Git bundle plus backup manifest, updates only
-the intended clean runtime checkout, runs full verification and live-read-only
-health, and writes a fingerprinted receipt with rollback instructions. The
-health command must return a non-empty JSON report whose unique checks are all
-`PASS`; exit code zero with `WARN`, `NOT_RUN`, malformed, or duplicate checks
-still fails and rolls back. A failed post-promotion check restores the exact
-prior runtime commit. It never mutates
-operational databases, ThreadsDashboard, providers, schedules, or posts.
+publishing. It requires an exact clean reviewed commit, a write-capable
+non-author approval, and live GitHub verification of trusted workflow/app
+identities. A deterministic runtime-scoped lock prevents alternate state roots
+from racing one checkout. Promotion accepts only an initially detached runtime,
+revalidates mutable authority under the lock, creates and verifies a Git bundle
+plus backup manifest, and runs verification under a credential-scrubbed
+environment. Health policy `creator_os.runtime_live_read_only_health.v1`
+requires its exact nine-check inventory, all `PASS`. Authenticated journals and
+receipts are fail-closed; recovery verifies the bundle and can re-import the
+prior commit before rollback. It never mutates operational databases,
+ThreadsDashboard, providers, schedules, or posts.
 
 ## Failure And Authority Map
 

@@ -155,6 +155,13 @@ scripts/creator-os advanced benchmarks approve \
   --reason "reviewed exact matched evidence"
 ```
 
+Treat `advanced models status --deep` as an execution preflight, not merely an
+inventory check. Cache-only Hugging Face dependencies are ready only when their
+pinned snapshot hashes and exact runtime reference verify. Apply a metadata-only
+repair only when `advanced models plan` reports `repairRequired=true`,
+`estimatedDownloadBytes=0`, and `requiredFreeBytes=0`; a conflicting, unsafe,
+substituted, or unverifiable reference remains blocked with no online fallback.
+
 Installed does not mean resource-admitted. On this 64 GiB Mac, LTX distilled
 remains canary-pending and only runs when the live memory gate passes; the
 current dev/HQ profile is an installed research tier that is not practically

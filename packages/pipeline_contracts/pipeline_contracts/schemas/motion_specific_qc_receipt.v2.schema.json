@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://creator-os.local/schemas/motion_specific_qc_receipt.v2.schema.json",
+  "title": "Trusted Motion Specific QC Receipt V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "producer", "policy", "subjectSha256", "sourceSha256", "verdict", "passed", "evidenceOnly", "modelCalls", "providerCalls", "requirements", "thresholds", "measurements", "evidenceSources", "reasons", "trustedEvidence", "bindings", "producerAttestation", "receiptFingerprint"],
+  "properties": {
+    "schema": {"const": "contentforge.motion_specific_qc_receipt.v2"},
+    "producer": {"const": "contentforge.trusted_motion_qc"},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {"id": {"const": "contentforge.motion_specific_qc"}, "version": {"const": "2.0.0"}}
+    },
+    "subjectSha256": {"$ref": "#/$defs/sha256"},
+    "sourceSha256": {"$ref": "#/$defs/sha256"},
+    "verdict": {"enum": ["pass", "fail", "blocked"]},
+    "passed": {"type": "boolean"},
+    "evidenceOnly": {"const": true},
+    "modelCalls": {"const": 0},
+    "providerCalls": {"const": 0},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["motion", "temporal", "freeze", "anatomy", "identity", "loop", "lipSync", "audioAlignment"],
+      "properties": {
+        "motion": {"type": "boolean"},
+        "temporal": {"type": "boolean"},
+        "freeze": {"type": "boolean"},
+        "anatomy": {"type": "boolean"},
+        "identity": {"type": "boolean"},
+        "loop": {"type": "boolean"},
+        "lipSync": {"type": "boolean"},
+        "audioAlignment": {"type": "boolean"}
+      }
+    },
+    "thresholds": {"$ref": "#/$defs/thresholds"},
+    "measurements": {"$ref": "#/$defs/measurements"},
+    "evidenceSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["motion", "temporal", "freeze", "anatomy", "identity", "loop", "lipSync", "audioAlignment"],
+      "properties": {
+        "motion": {"$ref": "#/$defs/evidenceSource"},
+        "temporal": {"$ref": "#/$defs/evidenceSource"},
+        "freeze": {"$ref": "#/$defs/evidenceSource"},
+        "anatomy": {"$ref": "#/$defs/evidenceSource"},
+        "identity": {"$ref": "#/$defs/evidenceSource"},
+        "loop": {"$ref": "#/$defs/evidenceSource"},
+        "lipSync": {"$ref": "#/$defs/evidenceSource"},
+        "audioAlignment": {"$ref": "#/$defs/evidenceSource"}
+      }
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["fail", "block"]},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "trustedEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis", "analyzerRegistry", "humanReview"],
+      "properties": {
+        "analysis": {"$ref": "trusted_media_analysis.v1.schema.json"},
+        "analyzerRegistry": {"$ref": "analyzer_registry.v1.schema.json"},
+        "humanReview": {"$ref": "human_media_review.v1.schema.json"}
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysisId", "analysisFingerprint", "analyzerRegistryId", "analyzerRegistryFingerprint", "humanReviewId", "humanReviewFingerprint"],
+      "properties": {
+        "analysisId": {"type": "string", "minLength": 1},
+        "analysisFingerprint": {"$ref": "#/$defs/sha256"},
+        "analyzerRegistryId": {"type": "string", "minLength": 1},
+        "analyzerRegistryFingerprint": {"$ref": "#/$defs/sha256"},
+        "humanReviewId": {"type": "string", "minLength": 1},
+        "humanReviewFingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "producerAttestation": {"$ref": "evidence_attestation.v1.schema.json"},
+    "receiptFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"passed": {"const": true}}},
+      "then": {
+        "properties": {
+          "verdict": {"const": "pass"},
+          "reasons": {"maxItems": 0}
+        }
+      },
+      "else": {
+        "properties": {
+          "verdict": {"enum": ["fail", "blocked"]},
+          "reasons": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "normalized": {"type": "number", "minimum": 0, "maximum": 1},
+    "nullableNormalized": {"oneOf": [{"$ref": "#/$defs/normalized"}, {"type": "null"}]},
+    "nullableNumber": {"type": ["number", "null"]},
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minMotionScore", "subtleMotionMax", "moderateMotionMax", "maxTemporalDiscontinuityScore", "maxFrozenFrameRatio", "maxLoopSeamScore", "maxFaceAnomalyScore", "maxHandAnomalyScore", "maxBodyAnomalyScore", "minIdentitySimilarityScore", "minLipSyncConfidence", "maxLipSyncOffsetMs", "minAudioAlignmentConfidence", "maxAudioAlignmentOffsetMs"],
+      "properties": {
+        "minMotionScore": {"const": 0.03},
+        "subtleMotionMax": {"const": 0.18},
+        "moderateMotionMax": {"const": 0.5},
+        "maxTemporalDiscontinuityScore": {"const": 0.25},
+        "maxFrozenFrameRatio": {"const": 0.2},
+        "maxLoopSeamScore": {"const": 0.25},
+        "maxFaceAnomalyScore": {"const": 0.25},
+        "maxHandAnomalyScore": {"const": 0.3},
+        "maxBodyAnomalyScore": {"const": 0.25},
+        "minIdentitySimilarityScore": {"const": 0.75},
+        "minLipSyncConfidence": {"const": 0.65},
+        "maxLipSyncOffsetMs": {"const": 120},
+        "minAudioAlignmentConfidence": {"const": 0.65},
+        "maxAudioAlignmentOffsetMs": {"const": 120}
+      }
+    },
+    "anatomyMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicable", "anomalyScore", "notApplicableReason"],
+      "properties": {
+        "applicable": {"type": ["boolean", "null"]},
+        "anomalyScore": {"$ref": "#/$defs/nullableNormalized"},
+        "notApplicableReason": {"type": ["string", "null"]}
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["motion", "temporal", "freeze", "loop", "anatomy", "identity", "lipSync", "audioAlignment"],
+      "properties": {
+        "motion": {"type": "object", "additionalProperties": false, "required": ["score", "amount"], "properties": {"score": {"$ref": "#/$defs/nullableNormalized"}, "amount": {"enum": ["none", "subtle", "moderate", "high", null]}}},
+        "temporal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["discontinuityScore", "discontinuityCandidateCount", "discontinuityComparisonCount", "discontinuityRate", "outlierThreshold"],
+          "properties": {
+            "discontinuityScore": {"$ref": "#/$defs/nullableNormalized"},
+            "discontinuityCandidateCount": {"type": "integer", "minimum": 0},
+            "discontinuityComparisonCount": {"type": "integer", "minimum": 0},
+            "discontinuityRate": {"$ref": "#/$defs/nullableNormalized"},
+            "outlierThreshold": {"$ref": "#/$defs/nullableNormalized"}
+          }
+        },
+        "freeze": {"type": "object", "additionalProperties": false, "required": ["frozenFrameRatio"], "properties": {"frozenFrameRatio": {"$ref": "#/$defs/nullableNormalized"}}},
+        "loop": {"type": "object", "additionalProperties": false, "required": ["seamScore", "loopable"], "properties": {"seamScore": {"$ref": "#/$defs/nullableNormalized"}, "loopable": {"type": ["boolean", "null"]}}},
+        "anatomy": {"type": "object", "additionalProperties": false, "required": ["face", "hands", "body"], "properties": {"face": {"$ref": "#/$defs/anatomyMeasurement"}, "hands": {"$ref": "#/$defs/anatomyMeasurement"}, "body": {"$ref": "#/$defs/anatomyMeasurement"}}},
+        "identity": {"type": "object", "additionalProperties": false, "required": ["similarityScore", "matched"], "properties": {"similarityScore": {"$ref": "#/$defs/nullableNormalized"}, "matched": {"type": ["boolean", "null"]}}},
+        "lipSync": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["confidence", "offsetMs", "aligned", "correlation", "sampleCount", "faceTrackCoverage", "speechActivityRatio"],
+          "properties": {
+            "confidence": {"$ref": "#/$defs/nullableNormalized"},
+            "offsetMs": {"$ref": "#/$defs/nullableNumber"},
+            "aligned": {"type": ["boolean", "null"]},
+            "correlation": {"oneOf": [{"type": "number", "minimum": -1, "maximum": 1}, {"type": "null"}]},
+            "sampleCount": {"type": "integer", "minimum": 0},
+            "faceTrackCoverage": {"$ref": "#/$defs/nullableNormalized"},
+            "speechActivityRatio": {"$ref": "#/$defs/nullableNormalized"}
+          }
+        },
+        "audioAlignment": {"type": "object", "additionalProperties": false, "required": ["confidence", "offsetMs", "aligned"], "properties": {"confidence": {"$ref": "#/$defs/nullableNormalized"}, "offsetMs": {"$ref": "#/$defs/nullableNumber"}, "aligned": {"type": ["boolean", "null"]}}}
+      }
+    },
+    "evidenceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available", "analyzer", "analyzerVersion", "evidenceId", "subjectSha256", "analysisFingerprint", "analyzerRegistryId", "analyzerRegistryFingerprint", "implementationRef", "implementationFingerprint", "reviewFingerprint"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "analyzer": {"type": ["string", "null"]},
+        "analyzerVersion": {"type": ["string", "null"]},
+        "evidenceId": {"type": ["string", "null"]},
+        "subjectSha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "analysisFingerprint": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "analyzerRegistryId": {"type": ["string", "null"]},
+        "analyzerRegistryFingerprint": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "implementationRef": {"type": ["string", "null"]},
+        "implementationFingerprint": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "reviewFingerprint": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    }
+  }
+}

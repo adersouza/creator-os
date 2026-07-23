@@ -180,7 +180,7 @@ def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
     ]
 
 
-def test_approve_routes_one_exact_record_to_campaign_factory(
+def test_approve_routes_exact_review_builder_to_campaign_factory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     namespace = runpy.run_path(str(CLI))
@@ -191,21 +191,52 @@ def test_approve_routes_one_exact_record_to_campaign_factory(
         return 0
 
     namespace["main"].__globals__["_run"] = fake_run
-    approval = tmp_path / "approval.json"
     root = tmp_path / "approvals"
     assert (
-        namespace["main"](["approve", "--approval", str(approval), "--root", str(root)])
+        namespace["main"](
+            [
+                "approve",
+                "--campaign",
+                "may",
+                "--rendered-asset-id",
+                "asset-1",
+                "--user-id",
+                "user-1",
+                "--approved-by",
+                "operator",
+                "--root",
+                str(root),
+            ]
+        )
         == 0
     )
+    assert "creative-approval-build" in commands[0]
     assert commands[0][-4:] == [
-        "--approval",
-        str(approval.resolve()),
+        "--surface",
+        "regular_reel",
         "--root",
         str(root.resolve()),
     ]
 
 
-def test_promote_routes_to_guarded_core_module_in_dry_run(
+def test_approve_import_is_explicitly_compatibility_labeled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    approval = tmp_path / "approval.json"
+    assert namespace["main"](["approve-import", "--approval", str(approval)]) == 0
+    assert "compatibility-only" in capsys.readouterr().err
+    assert "campaign_factory.creative_approval" in commands[0]
+
+
+def test_promote_routes_to_contract_validated_entrypoint_in_dry_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     namespace = runpy.run_path(str(CLI))
@@ -237,7 +268,7 @@ def test_promote_routes_to_guarded_core_module_in_dry_run(
         == 0
     )
     command = commands[0]
-    assert "creator_os_core.runtime_promotion" in command
+    assert "campaign_factory.runtime_promotion_entrypoint" in command
     assert command[command.index("--runtime-root") + 1] == str(runtime_root.resolve())
     assert command[-1] == "--dry-run"
 

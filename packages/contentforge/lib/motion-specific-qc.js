@@ -1,6 +1,6 @@
 const POLICY = Object.freeze({
   id: "contentforge.motion_specific_qc",
-  version: "1.0.0",
+  version: "2.0.0",
   thresholds: Object.freeze({
     minMotionScore: 0.03,
     subtleMotionMax: 0.18,
@@ -40,6 +40,10 @@ function finiteNumber(value) {
 
 function normalizedNumber(value) {
   return finiteNumber(value) && value >= 0 && value <= 1;
+}
+
+function nonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
 }
 
 function nonEmptyString(value) {
@@ -90,6 +94,16 @@ function sourceDescriptor(value) {
     analyzerVersion: nonEmptyString(value.analyzerVersion) ? value.analyzerVersion.trim() : null,
     evidenceId: nonEmptyString(value.evidenceId) ? value.evidenceId.trim() : null,
     subjectSha256: validSha256(value.subjectSha256) ? value.subjectSha256 : null,
+    analysisFingerprint: validSha256(value.analysisFingerprint) ? value.analysisFingerprint : null,
+    analyzerRegistryId: nonEmptyString(value.analyzerRegistryId) ? value.analyzerRegistryId.trim() : null,
+    analyzerRegistryFingerprint: validSha256(value.analyzerRegistryFingerprint)
+      ? value.analyzerRegistryFingerprint
+      : null,
+    implementationRef: nonEmptyString(value.implementationRef) ? value.implementationRef.trim() : null,
+    implementationFingerprint: validSha256(value.implementationFingerprint)
+      ? value.implementationFingerprint
+      : null,
+    reviewFingerprint: validSha256(value.reviewFingerprint) ? value.reviewFingerprint : null,
   };
 }
 
@@ -145,7 +159,13 @@ function validateAnatomyPart(part, name, threshold, reasons) {
 function emptyMeasurements() {
   return {
     motion: { score: null, amount: null },
-    temporal: { discontinuityScore: null },
+    temporal: {
+      discontinuityScore: null,
+      discontinuityCandidateCount: 0,
+      discontinuityComparisonCount: 0,
+      discontinuityRate: null,
+      outlierThreshold: null,
+    },
     freeze: { frozenFrameRatio: null },
     loop: { seamScore: null, loopable: null },
     anatomy: {
@@ -154,7 +174,15 @@ function emptyMeasurements() {
       body: { applicable: null, anomalyScore: null, notApplicableReason: null },
     },
     identity: { similarityScore: null, matched: null },
-    lipSync: { confidence: null, offsetMs: null, aligned: null },
+    lipSync: {
+      confidence: null,
+      offsetMs: null,
+      aligned: null,
+      correlation: null,
+      sampleCount: 0,
+      faceTrackCoverage: null,
+      speechActivityRatio: null,
+    },
     audioAlignment: { confidence: null, offsetMs: null, aligned: null },
   };
 }
@@ -207,6 +235,38 @@ export function evaluateMotionSpecificQc(evidence = {}, options = {}) {
           measurement: input.temporal.discontinuityScore,
           threshold: thresholds.maxTemporalDiscontinuityScore,
         }));
+      }
+    }
+    var candidateCount = input.temporal.discontinuityCandidateCount;
+    var comparisonCount = input.temporal.discontinuityComparisonCount;
+    var candidateRate = input.temporal.discontinuityRate;
+    var outlierThreshold = input.temporal.outlierThreshold;
+    if (!nonNegativeInteger(candidateCount)
+      || !Number.isInteger(comparisonCount)
+      || comparisonCount <= 0
+      || candidateCount > comparisonCount
+      || !normalizedNumber(candidateRate)
+      || !normalizedNumber(outlierThreshold)) {
+      reasons.push(reason(
+        "temporal_discontinuity_candidates_invalid",
+        "block",
+        "Temporal discontinuity evidence must include exact candidate counts, rate, and outlier threshold",
+        { evidence: "temporal.discontinuityCandidates" },
+      ));
+    } else {
+      var exactRate = candidateCount / comparisonCount;
+      if (Math.abs(exactRate - candidateRate) > 1e-9
+        || Math.abs(input.temporal.discontinuityScore - candidateRate) > 1e-9) {
+        reasons.push(reason(
+          "temporal_discontinuity_rate_mismatch",
+          "block",
+          "Temporal discontinuity score must equal the measured scene-cut/outlier candidate rate",
+        ));
+      } else {
+        measurements.temporal.discontinuityCandidateCount = candidateCount;
+        measurements.temporal.discontinuityComparisonCount = comparisonCount;
+        measurements.temporal.discontinuityRate = candidateRate;
+        measurements.temporal.outlierThreshold = outlierThreshold;
       }
     }
   }
@@ -301,6 +361,32 @@ export function evaluateMotionSpecificQc(evidence = {}, options = {}) {
     } else {
       measurements.lipSync.aligned = input.lipSync.aligned;
       if (!input.lipSync.aligned) reasons.push(reason("lip_sync_not_aligned", "fail", "Lip-sync analyzer reported misalignment"));
+    }
+    if (!finiteNumber(input.lipSync.correlation)
+      || input.lipSync.correlation < -1
+      || input.lipSync.correlation > 1
+      || !nonNegativeInteger(input.lipSync.sampleCount)
+      || input.lipSync.sampleCount < 7
+      || !normalizedNumber(input.lipSync.faceTrackCoverage)
+      || !normalizedNumber(input.lipSync.speechActivityRatio)) {
+      reasons.push(reason(
+        "lip_sync_supporting_evidence_invalid",
+        "block",
+        "Lip-sync evidence must include correlation, sample count, face coverage, and speech activity",
+      ));
+    } else {
+      var derivedConfidence = Math.max(0, Math.min(1, (input.lipSync.correlation + 1) / 2));
+      if (Math.abs(derivedConfidence - input.lipSync.confidence) > 1e-9) {
+        reasons.push(reason(
+          "lip_sync_confidence_mismatch",
+          "block",
+          "Lip-sync confidence must be derived from the measured audio-visual correlation",
+        ));
+      }
+      measurements.lipSync.correlation = input.lipSync.correlation;
+      measurements.lipSync.sampleCount = input.lipSync.sampleCount;
+      measurements.lipSync.faceTrackCoverage = input.lipSync.faceTrackCoverage;
+      measurements.lipSync.speechActivityRatio = input.lipSync.speechActivityRatio;
     }
   }
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -68,9 +69,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--authorization-json", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--benchmark-recipe", type=Path)
+    parser.add_argument("--benchmark-recipe-sha256")
     parser.add_argument("--analyzer-registry", type=Path)
-    parser.add_argument("--benchmark-recipe-json")
-    parser.add_argument("--analyzer-registry-json")
+    parser.add_argument("--analyzer-registry-sha256")
+    parser.add_argument("--local-motion-admission", type=Path)
+    parser.add_argument("--local-motion-admission-sha256")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -84,36 +87,34 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
     if model.backend == "local_mlx":
         recipe_path = getattr(args, "benchmark_recipe", None)
         registry_path = getattr(args, "analyzer_registry", None)
-        recipe_json = getattr(args, "benchmark_recipe_json", None)
-        registry_json = getattr(args, "analyzer_registry_json", None)
-        if recipe_path is not None and recipe_json is not None:
-            raise ValueError("benchmark recipe must use one transport")
-        if registry_path is not None and registry_json is not None:
-            raise ValueError("analyzer registry must use one transport")
-        if (recipe_path is None and recipe_json is None) != (
-            registry_path is None and registry_json is None
+        recipe_sha = getattr(args, "benchmark_recipe_sha256", None)
+        registry_sha = getattr(args, "analyzer_registry_sha256", None)
+        admission_path = getattr(args, "local_motion_admission", None)
+        admission_sha = getattr(args, "local_motion_admission_sha256", None)
+        if any(
+            value is None
+            for value in (
+                recipe_path,
+                recipe_sha,
+                registry_path,
+                registry_sha,
+                admission_path,
+                admission_sha,
+            )
         ):
             raise ValueError(
-                "--benchmark-recipe and --analyzer-registry must be provided together"
+                "local MLX generation requires path+sha evidence for admission, "
+                "benchmark recipe, and analyzer registry"
             )
-        benchmark_recipe = (
-            json.loads(recipe_path.expanduser().resolve().read_text(encoding="utf-8"))
-            if recipe_path is not None
-            else json.loads(recipe_json)
-            if recipe_json is not None
-            else None
+        benchmark_recipe = _load_bound_json(
+            recipe_path, recipe_sha, label="benchmark_recipe"
         )
-        analyzer_registry = (
-            json.loads(registry_path.expanduser().resolve().read_text(encoding="utf-8"))
-            if registry_path is not None
-            else json.loads(registry_json)
-            if registry_json is not None
-            else None
+        analyzer_registry = _load_bound_json(
+            registry_path, registry_sha, label="analyzer_registry"
         )
-        if benchmark_recipe is not None and not isinstance(benchmark_recipe, dict):
-            raise ValueError("benchmark recipe must be a JSON object")
-        if analyzer_registry is not None and not isinstance(analyzer_registry, dict):
-            raise ValueError("analyzer registry must be a JSON object")
+        local_motion_admission = _load_bound_json(
+            admission_path, admission_sha, label="local_motion_admission"
+        )
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
@@ -178,6 +179,8 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
             benchmark_recipe=benchmark_recipe,
             analyzer_registry=analyzer_registry,
+            execution_context="campaign_generation",
+            local_motion_admission=local_motion_admission,
         )
     if args.model_dir is not None:
         raise ValueError("--model-dir applies only to local MLX models")
@@ -212,9 +215,11 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         getattr(args, name, None) is not None
         for name in (
             "benchmark_recipe",
+            "benchmark_recipe_sha256",
             "analyzer_registry",
-            "benchmark_recipe_json",
-            "analyzer_registry_json",
+            "analyzer_registry_sha256",
+            "local_motion_admission",
+            "local_motion_admission_sha256",
         )
     ):
         raise ValueError("benchmark evidence applies only to local MLX models")
@@ -233,6 +238,30 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         enable_prompt_expansion=args.enable_prompt_expansion,
         shot_type=args.shot_type,
     )
+
+
+def _load_bound_json(path: Any, expected_sha256: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(path, Path):
+        raise ValueError(f"{label}_path_missing")
+    digest = str(expected_sha256 or "")
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise ValueError(f"{label}_sha256_invalid")
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label}_file_missing_or_unsafe")
+    resolved = expanded.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"{label}_file_missing_or_unsafe")
+    payload_bytes = resolved.read_bytes()
+    if hashlib.sha256(payload_bytes).hexdigest() != digest:
+        raise ValueError(f"{label}_sha256_mismatch")
+    try:
+        payload = json.loads(payload_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label}_json_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label}_json_object_required")
+    return payload
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:

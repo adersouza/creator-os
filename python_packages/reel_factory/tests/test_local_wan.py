@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from reel_factory.local_wan import (
     LocalWanRequest,
+    LocalWanUnavailable,
     build_local_wan_command,
     run_local_wan,
 )
@@ -37,15 +38,14 @@ def test_local_wan_adapter_builds_catalog_driven_portrait_command(
     assert command[command.index("--seed") + 1] == "17"
 
 
-def test_local_wan_adapter_dry_run_never_calls_runner(tmp_path: Path) -> None:
+def test_legacy_local_wan_adapter_cannot_bypass_execution_admission(
+    tmp_path: Path,
+) -> None:
     def fail_runner(*_args, **_kwargs):
         raise AssertionError("runner must not execute during dry-run")
 
-    result = run_local_wan(_request(tmp_path), dry_run=True, runner=fail_runner)
-    assert result["status"] == "planned"
-    assert result["schema"] == "reel_factory.local_video_generation.v1"
-    assert result["providerCalls"] == 0
-    assert result["paidGeneration"] is False
+    with pytest.raises(LocalWanUnavailable, match="execution_context_required"):
+        run_local_wan(_request(tmp_path), dry_run=True, runner=fail_runner)
 
 
 def test_local_wan_adapter_rejects_invalid_duration(tmp_path: Path) -> None:

@@ -1,15 +1,33 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
-from reel_factory.motion_generate import _parser, build_request
+from reel_factory.motion_generate import _load_bound_json, _parser, build_request
 from reel_factory.video_provider_models import (
     validate_model_request,
     video_model,
     video_model_catalog,
     video_model_ids,
 )
+
+
+def _bound_evidence_args(tmp_path: Path) -> list[str]:
+    arguments: list[str] = []
+    for flag, name in (
+        ("--local-motion-admission", "admission"),
+        ("--benchmark-recipe", "recipe"),
+        ("--analyzer-registry", "registry"),
+    ):
+        path = tmp_path / f"{name}.json"
+        payload = json.dumps({"kind": name}, sort_keys=True).encode("utf-8")
+        path.write_bytes(payload)
+        arguments.extend(
+            [flag, str(path), f"{flag}-sha256", hashlib.sha256(payload).hexdigest()]
+        )
+    return arguments
 
 
 def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None:
@@ -63,6 +81,26 @@ def test_unknown_model_fails_closed() -> None:
         video_model("whatever-is-cheapest-today")
 
 
+def test_motion_evidence_receiver_rejects_substitution_and_symlink(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "admission.json"
+    evidence.write_text("{}", encoding="utf-8")
+    digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    assert _load_bound_json(evidence, digest, label="admission") == {}
+    evidence.write_text('{"substituted":true}', encoding="utf-8")
+    with pytest.raises(ValueError, match="sha256_mismatch"):
+        _load_bound_json(evidence, digest, label="admission")
+    symlink = tmp_path / "linked.json"
+    symlink.symlink_to(evidence)
+    with pytest.raises(ValueError, match="missing_or_unsafe"):
+        _load_bound_json(
+            symlink,
+            hashlib.sha256(evidence.read_bytes()).hexdigest(),
+            label="admission",
+        )
+
+
 def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them(
     tmp_path: Path,
 ) -> None:
@@ -82,6 +120,7 @@ def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them
             "campaign",
             "--resolution",
             "1080p",
+            *_bound_evidence_args(tmp_path),
             "--dry-run",
         ]
     )
@@ -147,6 +186,7 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
             "--generate-audio",
             "--task",
             "image_to_video",
+            *_bound_evidence_args(tmp_path),
             "--dry-run",
         ]
     )

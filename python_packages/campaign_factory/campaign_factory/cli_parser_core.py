@@ -105,6 +105,10 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--caption")
     generation_run.add_argument("--duration", type=float)
     generation_run.add_argument("--motion-model")
+    generation_run.add_argument("--local-evidence-bundle", type=Path)
+    generation_run.add_argument("--local-arena-summary", type=Path)
+    generation_run.add_argument("--router-override-operator")
+    generation_run.add_argument("--router-override-reason")
     generation_run.add_argument(
         "--motion-task",
         choices=[
@@ -114,6 +118,30 @@ def register_core_commands(sub) -> None:
             "keyframe_interpolation",
         ],
         default="image_to_video",
+    )
+    creative_approval = sub.add_parser(
+        "creative-approval-build",
+        help="build and sign one exact v2 approval from a generated review draft",
+    )
+    creative_approval.add_argument("--campaign", required=True)
+    creative_approval.add_argument("--rendered-asset-id", required=True)
+    creative_approval.add_argument("--user-id", required=True)
+    creative_approval.add_argument("--approved-by", required=True)
+    creative_approval.add_argument("--root", type=Path)
+    creative_approval.add_argument(
+        "--surface",
+        choices=[
+            "regular_reel",
+            "trial_reel",
+            "story",
+            "story_cta",
+            "feed_single",
+            "feed_carousel",
+        ],
+        default="regular_reel",
+    )
+    creative_approval.add_argument(
+        "--publish-mode", choices=["auto", "notify"], default=None
     )
     generation_run.add_argument("--motion-prompt")
     generation_run.add_argument("--audio", type=Path)

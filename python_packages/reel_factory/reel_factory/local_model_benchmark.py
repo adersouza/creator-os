@@ -5,19 +5,40 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import resource
 import statistics
 import sys
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from creator_os_core.evidence_attestation import (
+    EvidenceAttestationError,
+    load_evidence_secret,
+    verify_evidence_attestation,
+)
+
+from pipeline_contracts import (
+    validate_human_media_review,
+    validate_motion_specific_qc_receipt_v2,
+    validate_trusted_media_analysis,
+)
+
 from .fileops import atomic_write_text, file_lock
+from .human_media_review import HumanMediaReview
+from .identity_verification import (
+    MINIMUM_REFERENCE_SOURCES,
+    REFERENCE_OUTLIER_MINIMUM_MEDIAN_COSINE,
+    REFERENCE_QUALITY_POLICY_ID,
+    REFERENCE_QUALITY_POLICY_VERSION,
+    REFERENCE_SET_SCHEMA,
+)
 from .local_generation_queue import (
     AppendOnlyJournal,
     EvidenceRecord,
@@ -30,12 +51,13 @@ from .local_generation_queue import (
     fingerprint,
     sha256_file,
 )
+from .local_model_manager import model_status
 
 BENCHMARK_SOURCE: Final = "measured_local_execution"
 BENCHMARK_SCHEMA: Final = "reel_factory.local_model_benchmark.v1"
 PROMOTION_SCHEMA: Final = "reel_factory.local_model_promotion.v1"
 SUPPORTED_QC_POLICIES: Final = {
-    "contentforge.motion_specific_qc": frozenset({"1.0.0"}),
+    "contentforge.motion_specific_qc": frozenset({"2.0.0"}),
     "contentforge.media_integrity": frozenset({"1.0.0"}),
     "contentforge.temporal_motion": frozenset({"1.0.0"}),
     "contentforge.audio_integrity": frozenset({"1.0.0"}),
@@ -43,6 +65,14 @@ SUPPORTED_QC_POLICIES: Final = {
     "reel_factory.identity_preservation": frozenset({"2.0.0"}),
     "reel_factory.structured_human_media_review": frozenset({"1.0.0"}),
 }
+CONTENTFORGE_COMPONENT_POLICIES: Final = frozenset(
+    {
+        "contentforge.media_integrity",
+        "contentforge.temporal_motion",
+        "contentforge.audio_integrity",
+        "contentforge.overlay_delivery",
+    }
+)
 DEFAULT_IMPLEMENTATION_ROOT: Final = Path(__file__).resolve().parents[3]
 
 
@@ -52,7 +82,11 @@ def _valid_sha256(value: str) -> bool:
 
 def _canonical_record_text(value: Mapping[str, Any]) -> str:
     return json.dumps(
-        dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        dict(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     )
 
 
@@ -83,6 +117,382 @@ def _qc_receipt_verdict(
                 f"benchmark_qc_receipt_verdict_inconsistent:{check_id}"
             )
     return raw_passed
+
+
+def _require_zero_external_activity(payload: Mapping[str, Any], check_id: str) -> None:
+    if (
+        payload.get("evidenceOnly") is not True
+        or payload.get("providerCalls") != 0
+        or payload.get("modelCalls", 0) != 0
+    ):
+        raise LocalQueueError(f"benchmark_qc_receipt_not_evidence_only:{check_id}")
+
+
+def _validate_trusted_analysis_payload(
+    analysis: Any, *, expected_subject_sha256: str
+) -> dict[str, Any]:
+    if not isinstance(analysis, dict):
+        raise LocalQueueError("benchmark_trusted_analysis_missing")
+    validate_trusted_media_analysis(analysis)
+    claimed = analysis.get("analysisFingerprint")
+    core = dict(analysis)
+    attestation = core.pop("producerAttestation", None)
+    core.pop("analysisFingerprint", None)
+    if not isinstance(claimed, str) or fingerprint(core) != claimed:
+        raise LocalQueueError("benchmark_trusted_analysis_fingerprint_mismatch")
+    attested_payload = {**core, "analysisFingerprint": claimed}
+    try:
+        verified = verify_evidence_attestation(
+            attestation if isinstance(attestation, dict) else {},
+            attested_payload,
+            secret=load_evidence_secret(),
+            expected_issuer="contentforge.trusted_media_analysis",
+        )
+    except EvidenceAttestationError as exc:
+        raise LocalQueueError("benchmark_trusted_analysis_attestation_invalid") from exc
+    if verified.get("issuedAt") != analysis.get("producedAt"):
+        raise LocalQueueError("benchmark_trusted_analysis_attestation_time_mismatch")
+    subject = analysis.get("subject")
+    if (
+        not isinstance(subject, dict)
+        or subject.get("mediaSha256") != expected_subject_sha256
+    ):
+        raise LocalQueueError("benchmark_trusted_analysis_subject_mismatch")
+    return analysis
+
+
+def _trusted_analysis_verdict(
+    analysis: dict[str, Any], *, check_id: str, expected_subject_sha256: str
+) -> dict[str, Any]:
+    """Select a component verdict only from its complete trusted analysis."""
+
+    _validate_trusted_analysis_payload(
+        analysis, expected_subject_sha256=expected_subject_sha256
+    )
+    verdicts = analysis.get("analyzerVerdicts")
+    observations = analysis.get("rawObservations")
+    if not isinstance(verdicts, list) or not isinstance(observations, list):
+        raise LocalQueueError("benchmark_trusted_analysis_components_missing")
+    matching_verdicts = [
+        item
+        for item in verdicts
+        if isinstance(item, dict) and item.get("policy", {}).get("id") == check_id
+    ]
+    if len(matching_verdicts) != 1:
+        raise LocalQueueError(
+            f"benchmark_trusted_analysis_verdict_count_mismatch:{check_id}"
+        )
+    verdict = matching_verdicts[0]
+    version = str(verdict.get("policy", {}).get("version") or "")
+    matching_observations = [
+        item
+        for item in observations
+        if isinstance(item, dict)
+        and item.get("analyzerId") == check_id
+        and item.get("analyzerVersion") == version
+    ]
+    if len(matching_observations) != 1:
+        raise LocalQueueError(
+            f"benchmark_trusted_analysis_observation_count_mismatch:{check_id}"
+        )
+    observation = matching_observations[0]
+    registry = analysis.get("analyzerRegistry")
+    if (
+        not isinstance(registry, dict)
+        or verdict.get("analysisId") != analysis.get("analysisId")
+        or verdict.get("observationFingerprint") != fingerprint(observation)
+        or verdict.get("implementationRef") != observation.get("implementationRef")
+        or verdict.get("implementationFingerprint")
+        != observation.get("implementationFingerprint")
+        or verdict.get("analyzerRegistryId") != registry.get("registryId")
+        or verdict.get("analyzerRegistryFingerprint")
+        != registry.get("registryFingerprint")
+        or observation.get("analyzerRegistryId") != registry.get("registryId")
+        or observation.get("analyzerRegistryFingerprint")
+        != registry.get("registryFingerprint")
+    ):
+        raise LocalQueueError(
+            f"benchmark_trusted_analysis_component_binding_mismatch:{check_id}"
+        )
+    _validate_contentforge_analyzer_receipt(
+        verdict, expected_subject_sha256=expected_subject_sha256
+    )
+    return verdict
+
+
+def _receipt_payload_for_check(
+    payload: dict[str, Any], *, check_id: str, expected_subject_sha256: str
+) -> dict[str, Any]:
+    if check_id in CONTENTFORGE_COMPONENT_POLICIES:
+        if payload.get("schema") != "contentforge.trusted_media_analysis.v1":
+            raise LocalQueueError(f"benchmark_trusted_analysis_required:{check_id}")
+        return _trusted_analysis_verdict(
+            payload,
+            check_id=check_id,
+            expected_subject_sha256=expected_subject_sha256,
+        )
+    return payload
+
+
+def _validate_contentforge_analyzer_receipt(
+    payload: dict[str, Any], *, expected_subject_sha256: str
+) -> None:
+    check_id = str(payload.get("policy", {}).get("id") or "contentforge")
+    _require_zero_external_activity(payload, check_id)
+    if payload.get("schema") != "contentforge.trusted_analyzer_receipt.v1":
+        raise LocalQueueError(f"benchmark_qc_receipt_schema_mismatch:{check_id}")
+    for field in (
+        "observationFingerprint",
+        "analyzerRegistryFingerprint",
+        "implementationFingerprint",
+    ):
+        if not _valid_sha256(str(payload.get(field) or "")):
+            raise LocalQueueError(
+                f"benchmark_qc_receipt_trusted_binding_missing:{check_id}:{field}"
+            )
+    if not str(payload.get("analysisId") or "").strip():
+        raise LocalQueueError(
+            f"benchmark_qc_receipt_trusted_binding_missing:{check_id}:analysisId"
+        )
+    if not str(payload.get("analyzerRegistryId") or "").strip():
+        raise LocalQueueError(
+            f"benchmark_qc_receipt_trusted_binding_missing:{check_id}:registryId"
+        )
+    if not str(payload.get("implementationRef") or "").strip():
+        raise LocalQueueError(
+            f"benchmark_qc_receipt_trusted_binding_missing:{check_id}:implementationRef"
+        )
+    if payload.get("subjectSha256") != expected_subject_sha256:
+        raise LocalQueueError(f"benchmark_qc_receipt_subject_mismatch:{check_id}")
+
+
+def _validate_motion_receipt(
+    payload: dict[str, Any], *, expected_subject_sha256: str
+) -> None:
+    version = str(payload.get("policy", {}).get("version") or "")
+    _require_zero_external_activity(payload, "contentforge.motion_specific_qc")
+    if version != "2.0.0":
+        raise LocalQueueError("benchmark_motion_qc_v2_required")
+    validate_motion_specific_qc_receipt_v2(payload)
+    claimed = payload.get("receiptFingerprint")
+    core = dict(payload)
+    producer_attestation = core.pop("producerAttestation", None)
+    core.pop("receiptFingerprint", None)
+    if not isinstance(claimed, str) or fingerprint(core) != claimed:
+        raise LocalQueueError("benchmark_motion_qc_receipt_fingerprint_mismatch")
+    trusted = payload.get("trustedEvidence")
+    bindings = payload.get("bindings")
+    if not isinstance(trusted, dict) or not isinstance(bindings, dict):
+        raise LocalQueueError("benchmark_motion_qc_trusted_evidence_missing")
+    analysis = _validate_trusted_analysis_payload(
+        trusted.get("analysis"), expected_subject_sha256=expected_subject_sha256
+    )
+    review = trusted.get("humanReview")
+    if not isinstance(review, dict):
+        raise LocalQueueError("benchmark_motion_qc_human_review_missing")
+    validate_human_media_review(review)
+    parsed_review = HumanMediaReview.from_dict(review)
+    review_claimed = review.get("reviewFingerprint")
+    if review_claimed != parsed_review.review_fingerprint:
+        raise LocalQueueError("benchmark_motion_qc_human_review_fingerprint_mismatch")
+    try:
+        verified_attestation = verify_evidence_attestation(
+            producer_attestation if isinstance(producer_attestation, dict) else {},
+            {**core, "receiptFingerprint": claimed},
+            secret=load_evidence_secret(),
+            expected_issuer="contentforge.trusted_motion_qc",
+        )
+    except EvidenceAttestationError as exc:
+        raise LocalQueueError("benchmark_motion_qc_attestation_invalid") from exc
+    if verified_attestation.get("issuedAt") != review.get("reviewedAt"):
+        raise LocalQueueError("benchmark_motion_qc_attestation_time_mismatch")
+    registry = trusted.get("analyzerRegistry")
+    if not isinstance(registry, dict):
+        raise LocalQueueError("benchmark_motion_qc_registry_missing")
+    if (
+        bindings.get("analysisId") != analysis.get("analysisId")
+        or bindings.get("analysisFingerprint") != analysis.get("analysisFingerprint")
+        or bindings.get("analyzerRegistryId") != registry.get("registryId")
+        or bindings.get("analyzerRegistryFingerprint") != fingerprint(registry)
+        or bindings.get("humanReviewId") != review.get("reviewId")
+        or bindings.get("humanReviewFingerprint") != review_claimed
+        or review.get("subjectSha256") != expected_subject_sha256
+        or review.get("sourceSha256") != payload.get("sourceSha256")
+    ):
+        raise LocalQueueError("benchmark_motion_qc_trusted_binding_mismatch")
+    references = review.get("provenance", {}).get("sourceReferences", [])
+    if not any(
+        isinstance(reference, dict)
+        and reference.get("recordId") == analysis.get("analysisId")
+        and reference.get("fingerprint") == analysis.get("analysisFingerprint")
+        for reference in references
+    ):
+        raise LocalQueueError("benchmark_motion_qc_analysis_reference_missing")
+
+
+def _validate_identity_receipt(
+    payload: dict[str, Any], *, expected_subject_sha256: str
+) -> None:
+    _require_zero_external_activity(payload, "reel_factory.identity_preservation")
+    if payload.get("schema") != "reel_factory.identity_qc_receipt.v1":
+        raise LocalQueueError("benchmark_identity_qc_schema_mismatch")
+    result = payload.get("identityResult")
+    if not isinstance(result, dict):
+        raise LocalQueueError("benchmark_identity_result_missing")
+    attestation = payload.get("producerAttestation")
+    attested_payload = dict(payload)
+    attested_payload.pop("producerAttestation", None)
+    try:
+        verified = verify_evidence_attestation(
+            attestation if isinstance(attestation, dict) else {},
+            attested_payload,
+            secret=load_evidence_secret(),
+            expected_issuer="reel_factory.identity_verification",
+        )
+    except EvidenceAttestationError as exc:
+        raise LocalQueueError("benchmark_identity_attestation_invalid") from exc
+    if verified.get("issuedAt") != result.get("observedAt"):
+        raise LocalQueueError("benchmark_identity_attestation_time_mismatch")
+    result_fingerprint = hashlib.sha256(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    unresolved_reference_path = Path(str(payload.get("referenceSetPath") or ""))
+    reference_path = unresolved_reference_path.resolve()
+    creator_profile = payload.get("creatorIdentityProfile")
+    analyzer = result.get("analyzer")
+    if (
+        payload.get("identityResultFingerprint") != result_fingerprint
+        or result.get("subjectSha256") != expected_subject_sha256
+        or result.get("referenceSetId") != payload.get("referenceSetId")
+        or result.get("referenceSetFingerprint")
+        != payload.get("referenceSetFingerprint")
+        or result.get("referenceSetPath") != payload.get("referenceSetPath")
+        or unresolved_reference_path.is_symlink()
+        or not reference_path.is_file()
+        or sha256_file(reference_path) != payload.get("referenceSetFingerprint")
+        or not isinstance(creator_profile, dict)
+        or creator_profile != result.get("creatorIdentityProfile")
+        or not str(creator_profile.get("profileId") or "").strip()
+        or not _valid_sha256(str(creator_profile.get("profileFingerprint") or ""))
+        or not isinstance(analyzer, dict)
+        or payload.get("arcFaceModelFingerprint") != analyzer.get("modelFingerprint")
+        or payload.get("implementationFingerprint")
+        != analyzer.get("implementationFingerprint")
+        or not _valid_sha256(str(payload.get("arcFaceModelFingerprint") or ""))
+        or not _valid_sha256(str(payload.get("implementationFingerprint") or ""))
+    ):
+        raise LocalQueueError("benchmark_identity_reference_set_binding_mismatch")
+    try:
+        reference_set = json.loads(reference_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise LocalQueueError("benchmark_identity_reference_set_invalid") from exc
+    if (
+        not isinstance(reference_set, dict)
+        or reference_set.get("schema") != REFERENCE_SET_SCHEMA
+        or reference_set.get("referenceSetId") != payload.get("referenceSetId")
+        or reference_set.get("creator") != payload.get("creator")
+        or reference_set.get("qualityPolicy")
+        != {
+            "id": REFERENCE_QUALITY_POLICY_ID,
+            "version": REFERENCE_QUALITY_POLICY_VERSION,
+            "exactlyOneFacePerSource": True,
+            "minimumAcceptedSources": MINIMUM_REFERENCE_SOURCES,
+            "outlierMinimumMedianCosine": REFERENCE_OUTLIER_MINIMUM_MEDIAN_COSINE,
+        }
+    ):
+        raise LocalQueueError("benchmark_identity_reference_set_identity_mismatch")
+    sources = reference_set.get("sourceImages")
+    if not isinstance(sources, list) or not sources:
+        raise LocalQueueError("benchmark_identity_reference_sources_missing")
+    accepted_sources = []
+    for source in sources:
+        if not isinstance(source, dict) or source.get("faceCount") != 1:
+            raise LocalQueueError("benchmark_identity_reference_source_invalid")
+        if source.get("status") != "embedded":
+            continue
+        accepted_sources.append(source)
+        unresolved_source = Path(str(source.get("path") or ""))
+        if (
+            unresolved_source.is_symlink()
+            or not unresolved_source.is_file()
+            or sha256_file(unresolved_source.resolve()) != source.get("sha256")
+        ):
+            raise LocalQueueError("benchmark_identity_reference_source_substituted")
+    if (
+        len(accepted_sources) < MINIMUM_REFERENCE_SOURCES
+        or reference_set.get("acceptedSourceCount") != len(accepted_sources)
+        or reference_set.get("rejectedSourceCount")
+        != len(sources) - len(accepted_sources)
+        or len(reference_set.get("embeddings") or []) != len(accepted_sources)
+    ):
+        raise LocalQueueError("benchmark_identity_reference_consensus_invalid")
+
+
+def _validate_human_review_receipt(
+    payload: dict[str, Any], *, expected_subject_sha256: str
+) -> None:
+    _require_zero_external_activity(
+        payload, "reel_factory.structured_human_media_review"
+    )
+    if payload.get("schema") != "reel_factory.human_media_review_qc.v1":
+        raise LocalQueueError("benchmark_human_review_qc_schema_mismatch")
+    review = payload.get("humanReview")
+    if not isinstance(review, dict):
+        raise LocalQueueError("benchmark_human_review_record_missing")
+    validate_human_media_review(review)
+    parsed_review = HumanMediaReview.from_dict(review)
+    claimed = review.get("reviewFingerprint")
+    expected_passed = bool(
+        parsed_review.decisions.creator_identity_preserved
+        and parsed_review.decisions.anatomy_acceptable
+        and parsed_review.decisions.operator_useful
+        and parsed_review.decisions.approved_for_benchmark
+    )
+    reviewed_at = datetime.fromisoformat(
+        str(review.get("reviewedAt") or "").replace("Z", "+00:00")
+    )
+    if reviewed_at.tzinfo is None or reviewed_at > datetime.now(UTC):
+        raise LocalQueueError("benchmark_human_review_timestamp_invalid")
+    if (
+        not isinstance(claimed, str)
+        or parsed_review.review_fingerprint != claimed
+        or review.get("subjectSha256") != expected_subject_sha256
+        or review.get("provenance", {}).get("reviewMode") != "blinded"
+        or payload.get("reviewFingerprint") != claimed
+        or payload.get("arenaPlanId") != review.get("arenaPlanId")
+        or payload.get("sampleId") != review.get("sampleId")
+        or payload.get("blindedCandidateId") != review.get("blindedCandidateId")
+        or payload.get("sourceSha256") != review.get("sourceSha256")
+        or payload.get("passed") is not expected_passed
+        or payload.get("verdict") != ("pass" if expected_passed else "blocked")
+    ):
+        raise LocalQueueError("benchmark_human_review_binding_mismatch")
+
+
+QC_POLICY_VALIDATORS: Final = {
+    "contentforge.media_integrity": _validate_contentforge_analyzer_receipt,
+    "contentforge.temporal_motion": _validate_contentforge_analyzer_receipt,
+    "contentforge.audio_integrity": _validate_contentforge_analyzer_receipt,
+    "contentforge.overlay_delivery": _validate_contentforge_analyzer_receipt,
+    "contentforge.motion_specific_qc": _validate_motion_receipt,
+    "reel_factory.identity_preservation": _validate_identity_receipt,
+    "reel_factory.structured_human_media_review": _validate_human_review_receipt,
+}
+
+
+def _validate_policy_specific_qc_receipt(
+    payload: dict[str, Any], *, check_id: str, expected_subject_sha256: str
+) -> None:
+    validator = QC_POLICY_VALIDATORS.get(check_id)
+    if validator is None:
+        raise LocalQueueError(f"benchmark_qc_validator_missing:{check_id}")
+    validator(payload, expected_subject_sha256=expected_subject_sha256)
 
 
 PROMOTION_MEMORY_MEASUREMENT_METHOD = (
@@ -188,6 +598,8 @@ class BenchmarkReceipt:
     task_fingerprint: str
     task_kind: str
     hardware_fingerprint: str
+    model_id: str
+    model_deep_verification_fingerprint: str
     output_sha256: str
     wall_time_seconds: float
     peak_memory_bytes: int
@@ -211,6 +623,7 @@ class BenchmarkReceipt:
             "task_fingerprint": self.task_fingerprint,
             "task_kind": self.task_kind,
             "hardware_fingerprint": self.hardware_fingerprint,
+            "model_id": self.model_id,
         }.items():
             if not value.strip():
                 raise ValueError(f"{name} must be non-empty")
@@ -218,7 +631,12 @@ class BenchmarkReceipt:
             raise ValueError("benchmark_source_must_be_measured_local_execution")
         if not _valid_sha256(self.output_sha256):
             raise ValueError("output_sha256 must be a lowercase SHA-256")
-        if self.wall_time_seconds <= 0 or self.peak_memory_bytes <= 0:
+        if (
+            not _valid_sha256(self.model_deep_verification_fingerprint)
+            or not math.isfinite(self.wall_time_seconds)
+            or self.wall_time_seconds <= 0
+            or self.peak_memory_bytes <= 0
+        ):
             raise ValueError(
                 "wall time and peak memory must be measured positive values"
             )
@@ -243,7 +661,11 @@ class BenchmarkReceipt:
             ):
                 raise ValueError("benchmark_execution_attempt_evidence_invalid")
             if self.local_cost_measurement_method == "measured":
-                if self.local_cost_usd is None or self.local_cost_usd < 0:
+                if (
+                    self.local_cost_usd is None
+                    or not math.isfinite(self.local_cost_usd)
+                    or self.local_cost_usd < 0
+                ):
                     raise ValueError("benchmark_local_cost_measurement_invalid")
             elif self.local_cost_measurement_method == "unavailable:not_metered":
                 if self.local_cost_usd is not None:
@@ -291,6 +713,8 @@ class BenchmarkReceipt:
             "taskFingerprint": self.task_fingerprint,
             "taskKind": self.task_kind,
             "hardwareFingerprint": self.hardware_fingerprint,
+            "modelId": self.model_id,
+            "modelDeepVerificationFingerprint": self.model_deep_verification_fingerprint,
             "outputSha256": self.output_sha256,
             "wallTimeSeconds": self.wall_time_seconds,
             "peakMemoryBytes": self.peak_memory_bytes,
@@ -320,6 +744,10 @@ class BenchmarkReceipt:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BenchmarkReceipt:
+        if not payload.get("modelId") or not payload.get(
+            "modelDeepVerificationFingerprint"
+        ):
+            raise ValueError("historical_benchmark_missing_deep_model_evidence")
         references = tuple(
             QCReference(
                 check_id=str(item["checkId"]),
@@ -337,6 +765,10 @@ class BenchmarkReceipt:
             task_fingerprint=str(payload["taskFingerprint"]),
             task_kind=str(payload["taskKind"]),
             hardware_fingerprint=str(payload["hardwareFingerprint"]),
+            model_id=str(payload["modelId"]),
+            model_deep_verification_fingerprint=str(
+                payload["modelDeepVerificationFingerprint"]
+            ),
             output_sha256=str(payload["outputSha256"]),
             wall_time_seconds=float(payload["wallTimeSeconds"]),
             peak_memory_bytes=int(payload["peakMemoryBytes"]),
@@ -394,10 +826,15 @@ class PromotionPolicy:
     maximum_peak_memory_ratio: float = 1.25
 
     def __post_init__(self) -> None:
-        if self.minimum_candidate_samples <= 0 or self.minimum_baseline_samples <= 0:
-            raise ValueError("promotion sample minimums must be positive")
-        if self.maximum_wall_time_ratio <= 0 or self.maximum_peak_memory_ratio <= 0:
-            raise ValueError("promotion ratios must be positive")
+        if self.minimum_candidate_samples < 2 or self.minimum_baseline_samples < 2:
+            raise ValueError("promotion sample minimums cannot weaken the fixed floor")
+        if (
+            not math.isfinite(self.maximum_wall_time_ratio)
+            or not math.isfinite(self.maximum_peak_memory_ratio)
+            or not 0 < self.maximum_wall_time_ratio <= 1.25
+            or not 0 < self.maximum_peak_memory_ratio <= 1.25
+        ):
+            raise ValueError("promotion ratios cannot weaken the fixed ceiling")
 
 
 @dataclass(frozen=True)
@@ -419,7 +856,13 @@ class PromotionEvaluation:
 class LocalModelBenchmarkStore:
     """Store real benchmark observations and manual, evidence-bound promotions."""
 
-    def __init__(self, root: Path, *, implementation_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        implementation_root: Path | None = None,
+        model_status_resolver: Callable[..., dict[str, Any]] | None = None,
+    ) -> None:
         self.root = root.resolve()
         self.implementation_root = (
             implementation_root or DEFAULT_IMPLEMENTATION_ROOT
@@ -427,6 +870,7 @@ class LocalModelBenchmarkStore:
         self.benchmarks = AppendOnlyJournal(self.root / "benchmarks.jsonl")
         self.promotions = AppendOnlyJournal(self.root / "promotions.jsonl")
         self._mutation_path = self.root / "benchmark_mutation"
+        self._model_status_resolver = model_status_resolver or model_status
 
     def all_receipts(self) -> dict[str, BenchmarkReceipt]:
         receipts: dict[str, BenchmarkReceipt] = {}
@@ -661,6 +1105,33 @@ class LocalModelBenchmarkStore:
             raise LocalQueueError("benchmark_persisted_evidence_fingerprint_mismatch")
         return payload
 
+    def _deep_model_verification(self, model_id: str) -> dict[str, Any]:
+        status = self._model_status_resolver(model_id, deep=True)
+        receipt = status.get("deepVerificationReceipt")
+        if (
+            status.get("ready") is not True
+            or status.get("deepVerified") is not True
+            or not isinstance(receipt, dict)
+        ):
+            raise LocalQueueError(f"benchmark_model_not_deep_verified:{model_id}")
+        claimed = receipt.get("verificationFingerprint")
+        core = dict(receipt)
+        core.pop("verificationFingerprint", None)
+        if not isinstance(claimed, str) or fingerprint(core) != claimed:
+            raise LocalQueueError(
+                f"benchmark_model_deep_verification_receipt_invalid:{model_id}"
+            )
+        if (
+            receipt.get("modelId") != model_id
+            or receipt.get("manifestSha256") != status.get("manifestSha256")
+            or receipt.get("providerCalls") != 0
+            or receipt.get("paidGeneration") is not False
+        ):
+            raise LocalQueueError(
+                f"benchmark_model_deep_verification_binding_mismatch:{model_id}"
+            )
+        return receipt
+
     def record_completed_job(
         self,
         queue: LocalGenerationQueue,
@@ -680,6 +1151,16 @@ class LocalModelBenchmarkStore:
             benchmark_recipe=benchmark_recipe,
             analyzer_registry=analyzer_registry,
         )
+        deep_model_receipt = self._deep_model_verification(state.job.model_id)
+        deep_model_fingerprint = fingerprint(
+            {
+                "modelId": state.job.model_id,
+                "modelRevision": deep_model_receipt["revision"],
+                "modelManifestSha256": deep_model_receipt["manifestSha256"],
+            }
+        )
+        if deep_model_fingerprint != state.job.model_fingerprint:
+            raise LocalQueueError("benchmark_deep_verified_model_job_mismatch")
         terminal_payload = state.last_event.get("payload", {})
         output_sha256 = str(terminal_payload.get("outputSha256", ""))
         output_path = Path(str(terminal_payload.get("outputPath") or "")).resolve()
@@ -710,7 +1191,11 @@ class LocalModelBenchmarkStore:
                 raise LocalQueueError(
                     "benchmark_local_cost_measurement_invalid"
                 ) from exc
-            if local_cost.get("currency") != "USD" or local_cost_usd < 0:
+            if (
+                local_cost.get("currency") != "USD"
+                or not math.isfinite(local_cost_usd)
+                or local_cost_usd < 0
+            ):
                 raise LocalQueueError("benchmark_local_cost_measurement_invalid")
             local_cost_method = "measured"
         else:
@@ -746,13 +1231,28 @@ class LocalModelBenchmarkStore:
         assert analyzer_registry is not None
         recipe_payload = evidence_record_payload(benchmark_recipe)
         registry_payload = evidence_record_payload(analyzer_registry)
+        deterministic_material = {
+            "jobId": job_id,
+            "outputSha256": output_sha256,
+            "benchmarkRecipeFingerprint": fingerprint(recipe_payload),
+            "analyzerRegistryFingerprint": fingerprint(registry_payload),
+            "qcReferences": [reference.as_dict() for reference in qc_references],
+            "modelDeepVerificationFingerprint": deep_model_receipt[
+                "verificationFingerprint"
+            ],
+        }
         receipt = BenchmarkReceipt(
-            benchmark_id=benchmark_id or str(uuid.uuid4()),
+            benchmark_id=benchmark_id
+            or f"benchmark_{fingerprint(deterministic_material)[:24]}",
             job_id=job_id,
             model_fingerprint=state.job.model_fingerprint,
             task_fingerprint=state.job.task_fingerprint,
             task_kind=state.job.task_kind,
             hardware_fingerprint=hardware_fp,
+            model_id=state.job.model_id,
+            model_deep_verification_fingerprint=str(
+                deep_model_receipt["verificationFingerprint"]
+            ),
             output_sha256=output_sha256,
             wall_time_seconds=measurement.wall_time_seconds,
             peak_memory_bytes=measurement.peak_memory_bytes,
@@ -769,13 +1269,25 @@ class LocalModelBenchmarkStore:
         )
         with file_lock(self._mutation_path):
             existing_receipts = self.all_receipts()
-            if receipt.benchmark_id in existing_receipts:
-                raise LocalQueueError(f"duplicate_benchmark_id:{receipt.benchmark_id}")
-            if any(
-                existing.job_id == receipt.job_id
-                for existing in existing_receipts.values()
-            ):
-                raise LocalQueueError(f"duplicate_benchmark_job_id:{receipt.job_id}")
+            existing_by_id = existing_receipts.get(receipt.benchmark_id)
+            if existing_by_id is not None:
+                if existing_by_id == receipt:
+                    return existing_by_id
+                raise LocalQueueError(
+                    f"benchmark_identity_collision:{receipt.benchmark_id}"
+                )
+            existing_by_job = next(
+                (
+                    existing
+                    for existing in existing_receipts.values()
+                    if existing.job_id == receipt.job_id
+                ),
+                None,
+            )
+            if existing_by_job is not None:
+                if existing_by_job == receipt:
+                    return existing_by_job
+                raise LocalQueueError(f"benchmark_job_collision:{receipt.job_id}")
             self._persist_benchmark_evidence(
                 benchmark_recipe=recipe_payload,
                 analyzer_registry=registry_payload,
@@ -802,13 +1314,28 @@ class LocalModelBenchmarkStore:
         if not isinstance(payload, dict):
             raise LocalQueueError(f"benchmark_qc_receipt_not_json:{check_id}")
         subject = (
-            payload.get("subjectSha256")
-            or payload.get("mediaSha256")
-            or payload.get("outputSha256")
+            payload.get("subject", {}).get("mediaSha256")
+            if payload.get("schema") == "contentforge.trusted_media_analysis.v1"
+            and isinstance(payload.get("subject"), dict)
+            else (
+                payload.get("subjectSha256")
+                or payload.get("mediaSha256")
+                or payload.get("outputSha256")
+            )
         )
         if subject != expected_subject_sha256:
             raise LocalQueueError(f"benchmark_qc_receipt_subject_mismatch:{check_id}")
-        passed = _qc_receipt_verdict(payload, check_id=check_id)
+        receipt_payload = _receipt_payload_for_check(
+            payload,
+            check_id=check_id,
+            expected_subject_sha256=expected_subject_sha256,
+        )
+        passed = _qc_receipt_verdict(receipt_payload, check_id=check_id)
+        _validate_policy_specific_qc_receipt(
+            receipt_payload,
+            check_id=check_id,
+            expected_subject_sha256=expected_subject_sha256,
+        )
         relative = Path("qc") / f"{digest}.json"
         destination = self.root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1153,10 +1680,20 @@ class LocalModelBenchmarkStore:
         *,
         candidate_model_fingerprint: str,
         task_kind: str,
+        candidate_benchmark_ids: tuple[str, ...],
+        hardware_fingerprint: str,
         observed_at: str | None = None,
     ) -> dict[str, Any]:
         """Return exactly one active, still-verifiable approval for routing."""
 
+        if (
+            not candidate_benchmark_ids
+            or len(candidate_benchmark_ids) != len(set(candidate_benchmark_ids))
+            or any(not item.strip() for item in candidate_benchmark_ids)
+        ):
+            raise ValueError("promotion_candidate_benchmark_ids_invalid")
+        if not hardware_fingerprint.strip():
+            raise ValueError("promotion_hardware_fingerprint_missing")
         now = (
             datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
             if observed_at is not None
@@ -1189,7 +1726,13 @@ class LocalModelBenchmarkStore:
                 if expiry.tzinfo is None or expiry <= now:
                     continue
             evaluation = self.evaluation(evaluation_id)
-            if evaluation.task_kind != task_kind or not evaluation.eligible:
+            if (
+                evaluation.task_kind != task_kind
+                or not evaluation.eligible
+                or tuple(sorted(evaluation.candidate_benchmark_ids))
+                != tuple(sorted(candidate_benchmark_ids))
+                or evaluation.hardware_fingerprint != hardware_fingerprint
+            ):
                 continue
             self._verify_evaluation_evidence(
                 next(
@@ -1211,6 +1754,8 @@ class LocalModelBenchmarkStore:
                     "expiresAt": expires_at,
                     "candidateModelFingerprint": candidate_model_fingerprint,
                     "taskKind": task_kind,
+                    "candidateBenchmarkIds": list(candidate_benchmark_ids),
+                    "hardwareFingerprint": hardware_fingerprint,
                     "evidenceFingerprint": evaluation.evidence_fingerprint,
                 }
             )
@@ -1309,7 +1854,8 @@ class LocalModelBenchmarkStore:
         except (KeyError, TypeError, ValueError) as exc:
             raise LocalQueueError("benchmark_execution_measurement_invalid") from exc
         if (
-            measurement.wall_time_seconds <= 0
+            not math.isfinite(measurement.wall_time_seconds)
+            or measurement.wall_time_seconds <= 0
             or measurement.peak_memory_bytes <= 0
             or not measurement.memory_measurement_method.strip()
         ):
@@ -1460,21 +2006,37 @@ class LocalModelBenchmarkStore:
             raise LocalQueueError(
                 f"benchmark_qc_receipt_not_json:{reference.check_id}"
             ) from exc
-        bound_subject = (
-            payload.get("subjectSha256")
-            or payload.get("mediaSha256")
-            or payload.get("outputSha256")
-            if isinstance(payload, dict)
-            else None
-        )
+        bound_subject = None
+        if isinstance(payload, dict):
+            if payload.get("schema") == "contentforge.trusted_media_analysis.v1":
+                subject = payload.get("subject")
+                bound_subject = (
+                    subject.get("mediaSha256") if isinstance(subject, dict) else None
+                )
+            else:
+                bound_subject = (
+                    payload.get("subjectSha256")
+                    or payload.get("mediaSha256")
+                    or payload.get("outputSha256")
+                )
         if bound_subject != expected_subject_sha256:
             raise LocalQueueError(
                 f"benchmark_qc_receipt_subject_mismatch:{reference.check_id}"
             )
-        receipt_passed = _qc_receipt_verdict(
+        receipt_payload = _receipt_payload_for_check(
             payload,
             check_id=reference.check_id,
+            expected_subject_sha256=expected_subject_sha256,
+        )
+        receipt_passed = _qc_receipt_verdict(
+            receipt_payload,
+            check_id=reference.check_id,
             expected_version=expected_version,
+        )
+        _validate_policy_specific_qc_receipt(
+            receipt_payload,
+            check_id=reference.check_id,
+            expected_subject_sha256=expected_subject_sha256,
         )
         if receipt_passed != reference.passed:
             raise LocalQueueError(

@@ -21,7 +21,13 @@ function evaluate(evidence, options = {}) {
 function passingEvidence() {
   return {
     motion: analyzer({ score: 0.27, evidenceId: "motion-1" }),
-    temporal: analyzer({ discontinuityScore: 0.08 }),
+    temporal: analyzer({
+      discontinuityScore: 0.08,
+      discontinuityCandidateCount: 2,
+      discontinuityComparisonCount: 25,
+      discontinuityRate: 0.08,
+      outlierThreshold: 0.24,
+    }),
     freeze: analyzer({ frozenFrameRatio: 0.04 }),
     anatomy: analyzer({
       face: { anomalyScore: 0.05 },
@@ -38,7 +44,7 @@ test("passes complete deterministic evidence without invoking models or provider
 
   assert.deepEqual(first, second);
   assert.equal(first.policy.id, "contentforge.motion_specific_qc");
-  assert.equal(first.policy.version, "1.0.0");
+  assert.equal(first.policy.version, "2.0.0");
   assert.equal(first.verdict, "pass");
   assert.equal(first.passed, true);
   assert.equal(first.evidenceOnly, true);
@@ -89,6 +95,9 @@ test("fails measured motion, temporal, freeze, anatomy, and identity defects", f
   var evidence = passingEvidence();
   evidence.motion.score = 0.01;
   evidence.temporal.discontinuityScore = 0.4;
+  evidence.temporal.discontinuityCandidateCount = 4;
+  evidence.temporal.discontinuityComparisonCount = 10;
+  evidence.temporal.discontinuityRate = 0.4;
   evidence.freeze.frozenFrameRatio = 0.3;
   evidence.anatomy.face.anomalyScore = 0.4;
   evidence.anatomy.hands.anomalyScore = 0.5;
@@ -133,7 +142,15 @@ test("requires loop, lip-sync, and audio evidence only for declared job capabili
 test("passes loop, lip-sync, and audio alignment backed by complete evidence", function () {
   var evidence = passingEvidence();
   evidence.loop = analyzer({ seamScore: 0.08, loopable: true });
-  evidence.lipSync = analyzer({ confidence: 0.91, offsetMs: -34, aligned: true });
+  evidence.lipSync = analyzer({
+    confidence: 0.91,
+    offsetMs: -34,
+    aligned: true,
+    correlation: 0.82,
+    sampleCount: 24,
+    faceTrackCoverage: 0.92,
+    speechActivityRatio: 0.75,
+  });
   evidence.audioAlignment = analyzer({ confidence: 0.87, offsetMs: 42, aligned: true });
 
   var result = evaluate(evidence, {
@@ -148,10 +165,42 @@ test("passes loop, lip-sync, and audio alignment backed by complete evidence", f
   assert.equal(result.measurements.audioAlignment.offsetMs, 42);
 });
 
+test("blocks substituted discontinuity rates and self-asserted lip-sync confidence", function () {
+  var evidence = passingEvidence();
+  evidence.temporal.discontinuityRate = 0.12;
+  evidence.lipSync = analyzer({
+    confidence: 0.99,
+    offsetMs: 20,
+    aligned: true,
+    correlation: 0.82,
+    sampleCount: 24,
+    faceTrackCoverage: 0.92,
+    speechActivityRatio: 0.75,
+  });
+
+  var result = evaluate(evidence, { expectsSpeech: true });
+
+  assert.equal(result.verdict, "blocked");
+  assert.ok(result.reasons.some(function (item) {
+    return item.code === "temporal_discontinuity_rate_mismatch";
+  }));
+  assert.ok(result.reasons.some(function (item) {
+    return item.code === "lip_sync_confidence_mismatch";
+  }));
+});
+
 test("fails visible loop seams and measured lip/audio misalignment", function () {
   var evidence = passingEvidence();
   evidence.loop = analyzer({ seamScore: 0.61, loopable: false });
-  evidence.lipSync = analyzer({ confidence: 0.3, offsetMs: 180, aligned: false });
+  evidence.lipSync = analyzer({
+    confidence: 0.3,
+    offsetMs: 180,
+    aligned: false,
+    correlation: -0.4,
+    sampleCount: 24,
+    faceTrackCoverage: 0.92,
+    speechActivityRatio: 0.75,
+  });
   evidence.audioAlignment = analyzer({ confidence: 0.4, offsetMs: -170, aligned: false });
 
   var result = evaluate(evidence, {

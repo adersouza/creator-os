@@ -1385,6 +1385,7 @@ def _draft_metadata(
                 or publishability.get("readinessChecksPass")
             ),
             "publishability_failure_reasons": failure_reasons,
+            "creative_approval": publishability.get("creativeApproval"),
             "blockingReason": publishability.get("blockingReason"),
             "rootCause": publishability.get("rootCause"),
             "nextOperatorAction": publishability.get("nextOperatorAction"),

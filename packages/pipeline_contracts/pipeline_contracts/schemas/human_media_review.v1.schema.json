@@ -15,9 +15,11 @@
     "reviewer",
     "reviewedAt",
     "rubricVersion",
+    "samplingEvidence",
     "ratings",
     "decisions",
     "provenance",
+    "operatorAttestation",
     "reviewFingerprint"
   ],
   "properties": {
@@ -31,6 +33,38 @@
     "reviewer": { "type": "string", "minLength": 1 },
     "reviewedAt": { "type": "string", "format": "date-time" },
     "rubricVersion": { "type": "string", "minLength": 1 },
+    "samplingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysisId",
+        "analysisFingerprint",
+        "sampleFps",
+        "width",
+        "height",
+        "sampledFrames",
+        "totalFrames",
+        "durationSeconds",
+        "durationCoverageRatio",
+        "frameSetFingerprint",
+        "briefFrameOutlierCount",
+        "briefFrameOutliersReviewed"
+      ],
+      "properties": {
+        "analysisId": { "type": "string", "minLength": 1 },
+        "analysisFingerprint": { "$ref": "#/$defs/sha256" },
+        "sampleFps": { "type": "number", "minimum": 8 },
+        "width": { "type": "integer", "minimum": 180 },
+        "height": { "type": "integer", "minimum": 320 },
+        "sampledFrames": { "type": "integer", "minimum": 1 },
+        "totalFrames": { "type": "integer", "minimum": 1 },
+        "durationSeconds": { "type": "number", "exclusiveMinimum": 0 },
+        "durationCoverageRatio": { "const": 1 },
+        "frameSetFingerprint": { "$ref": "#/$defs/sha256" },
+        "briefFrameOutlierCount": { "type": "integer", "minimum": 0 },
+        "briefFrameOutliersReviewed": { "const": true }
+      }
+    },
     "ratings": {
       "type": "object",
       "additionalProperties": false,
@@ -66,7 +100,14 @@
         "conversionUsefulness": { "$ref": "#/$defs/score" },
         "intentAdherence": { "$ref": "#/$defs/score" },
         "loopAcceptable": { "type": "boolean" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "handsVisible": { "const": true } } },
+          "then": { "properties": { "handArtifactScore": { "$ref": "#/$defs/score" } } },
+          "else": { "properties": { "handArtifactScore": { "type": "null" } } }
+        }
+      ]
     },
     "decisions": {
       "type": "object",
@@ -105,8 +146,16 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reviewMode": { "const": "blinded" } } },
+          "then": { "properties": { "unblindingReason": { "type": "null" } } },
+          "else": { "properties": { "unblindingReason": { "type": "string", "minLength": 1 } } }
+        }
+      ]
     },
+    "operatorAttestation": { "$ref": "evidence_attestation.v1.schema.json" },
     "reviewFingerprint": { "$ref": "#/$defs/sha256" }
   },
   "$defs": {

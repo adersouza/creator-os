@@ -542,6 +542,7 @@ class CampaignDomainServices:
             requires_operator_visual_review_for_handoff=requires_operator_visual_review_for_handoff,
             surface_report_assets=surface_report_assets,
             ig_media_type_for_surface=ig_media_type_for_surface,
+            creative_approvals_dir=settings.creative_approvals_dir,
         )
         self.distribution = DistributionRepository(
             conn,

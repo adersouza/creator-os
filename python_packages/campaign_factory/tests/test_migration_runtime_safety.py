@@ -405,6 +405,7 @@ def test_jobs_for_campaign_filters_by_status(tmp_path: Path) -> None:
             "threadsdash_export", campaign["id"], {}
         )
         cf.domains.events.start_pipeline_job(running["id"])
+        cf.domains.events.start_pipeline_job(failed["id"])
         cf.domains.events.fail_pipeline_job(failed["id"], "boom")
 
         rows = cf.domains.events.jobs_for_campaign("may", statuses=["failed"])

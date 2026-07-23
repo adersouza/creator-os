@@ -7,6 +7,8 @@ from creator_os_core.sqlite import connect_sqlite
 from creator_os_core.sqlite import ensure_columns as _ensure_columns
 
 from .db_migrations import (
+    _backfill_generation_output_lineage,
+    _ensure_generation_lineage_guards,
     _migrate_rendered_assets_hash_scope,
     _migrate_source_assets_hash_scope,
     _repair_fk_references,
@@ -51,6 +53,17 @@ def init_db(conn: sqlite3.Connection) -> None:
             "verdicts_json": "TEXT NOT NULL DEFAULT '{}'",
             "overall_verdict": "TEXT",
             "files_analyzed": "INTEGER NOT NULL DEFAULT 0",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "motion_qc_receipts",
+        {
+            "analysis_fingerprint": "TEXT",
+            "analyzer_registry_id": "TEXT",
+            "analyzer_registry_fingerprint": "TEXT",
+            "human_review_fingerprint": "TEXT",
+            "source_sha256": "TEXT",
         },
     )
     _ensure_columns(
@@ -551,4 +564,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     _repair_source_asset_fk_references(conn)
     _repair_fk_references(conn, "rendered_assets_old_global_hash", "rendered_assets")
+    _ensure_generation_lineage_guards(conn)
+    _backfill_generation_output_lineage(conn)
     conn.commit()
