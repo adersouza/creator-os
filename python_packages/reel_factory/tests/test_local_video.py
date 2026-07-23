@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -134,6 +138,61 @@ def test_generation_process_log_is_streamed_bounded_and_exclusive(
             log_path=log_path,
             runner=subprocess.run,
         )
+
+
+@pytest.mark.parametrize(
+    ("parent_signal", "expected_message"),
+    (
+        (signal.SIGINT, None),
+        (signal.SIGTERM, "local_video_generation_terminated"),
+        (signal.SIGHUP, "local_video_generation_terminated"),
+    ),
+)
+def test_generation_process_interrupt_reaps_isolated_child_group(
+    tmp_path: Path, parent_signal: int, expected_message: str | None
+) -> None:
+    pid_path = tmp_path / "child.pid"
+    log_path = tmp_path / "generation.log"
+    original_handler = signal.getsignal(parent_signal)
+
+    def interrupt_parent() -> None:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            handler_ready = (
+                parent_signal == signal.SIGINT
+                or signal.getsignal(parent_signal) != original_handler
+            )
+            if pid_path.is_file() and handler_ready:
+                os.kill(os.getpid(), parent_signal)
+                return
+            time.sleep(0.01)
+        raise AssertionError("generation child or signal handler did not become ready")
+
+    interrupter = threading.Thread(target=interrupt_parent, daemon=True)
+    interrupter.start()
+    with pytest.raises(KeyboardInterrupt, match=expected_message) as raised:
+        _run_generation_process(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os,time,pathlib;"
+                    f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()));"
+                    "time.sleep(60)"
+                ),
+            ],
+            environment={},
+            log_path=log_path,
+            runner=subprocess.run,
+        )
+    interrupter.join(timeout=10)
+    assert not interrupter.is_alive()
+    child_pid = int(pid_path.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+    assert raised.value.__class__ is KeyboardInterrupt
+    assert raised.value.log_evidence["path"] == str(log_path)  # type: ignore[attr-defined]
+    assert signal.getsignal(parent_signal) == original_handler
 
 
 def _request(

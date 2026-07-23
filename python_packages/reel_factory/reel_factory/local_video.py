@@ -56,6 +56,8 @@ Runner = Callable[..., subprocess.CompletedProcess[str]]
 _MAX_GENERATION_LOG_BYTES = 16 * 1024 * 1024
 _GENERATION_LOG_TAIL_BYTES = 32 * 1024
 _GENERATION_TIMEOUT_SECONDS = 60 * 60 * 12
+_GENERATION_SIGNAL_GRACE_SECONDS = 10
+_GENERATION_KILL_GRACE_SECONDS = 30
 
 _SUBPROCESS_ENV_ALLOWLIST = frozenset(
     {
@@ -87,6 +89,14 @@ class _GenerationProcessFailure(RuntimeError):
     def __init__(self, message: str, *, log_evidence: Mapping[str, Any]) -> None:
         super().__init__(message)
         self.log_evidence = dict(log_evidence)
+
+
+class _GenerationTerminationRequested(BaseException):
+    """Convert a termination signal into a recoverable interruption."""
+
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+        super().__init__(signum)
 
 
 class _OutputExpectations(TypedDict):
@@ -264,6 +274,72 @@ def _process_log_evidence(
     }
 
 
+def _wait_for_process_exit(process: subprocess.Popen[bytes], *, timeout: int) -> bool:
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
+
+
+def _terminate_isolated_process_group(
+    process: subprocess.Popen[bytes], *, initial_signal: int
+) -> None:
+    """Signal and reap only the exact child-created process group."""
+
+    try:
+        process_group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        process.wait()
+        return
+    if process_group != process.pid:
+        # start_new_session=True guarantees pid == pgid. Never signal a
+        # potentially unrelated process group if that invariant drifts.
+        process.kill()
+        process.wait()
+        raise RuntimeError("local_video_child_process_group_mismatch")
+
+    signals = [initial_signal]
+    if initial_signal not in {signal.SIGTERM, signal.SIGKILL}:
+        signals.append(signal.SIGTERM)
+    if signals[-1] != signal.SIGKILL:
+        signals.append(signal.SIGKILL)
+    for signum in signals:
+        try:
+            os.killpg(process_group, signum)
+        except ProcessLookupError:
+            process.wait()
+            return
+        timeout = (
+            _GENERATION_KILL_GRACE_SECONDS
+            if signum == signal.SIGKILL
+            else _GENERATION_SIGNAL_GRACE_SECONDS
+        )
+        if _wait_for_process_exit(process, timeout=timeout):
+            return
+    raise RuntimeError("local_video_child_process_group_not_reaped")
+
+
+def _install_termination_handlers() -> dict[int, Any]:
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+
+    previous: dict[int, Any] = {}
+
+    def requested(signum: int, _frame: Any) -> None:
+        raise _GenerationTerminationRequested(signum)
+
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        previous[signum] = signal.getsignal(signum)
+        signal.signal(signum, requested)
+    return previous
+
+
+def _restore_termination_handlers(previous: Mapping[int, Any]) -> None:
+    for signum, handler in previous.items():
+        signal.signal(signum, handler)
+
+
 def _run_generation_process(
     command: list[str],
     *,
@@ -345,14 +421,13 @@ def _run_generation_process(
             daemon=True,
         )
         drain_thread.start()
+        previous_handlers = _install_termination_handlers()
         try:
             returncode = process.wait(timeout=_GENERATION_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (OSError, ProcessLookupError):
-                process.kill()
-            process.wait()
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=signal.SIGKILL)
             drain_thread.join(timeout=30)
             evidence = _process_log_evidence(
                 log_path,
@@ -364,6 +439,35 @@ def _run_generation_process(
                 "local_video_generation_timeout: " + evidence["tail"][-3000:],
                 log_evidence=evidence,
             ) from None
+        except _GenerationTerminationRequested as exc:
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=exc.signum)
+            drain_thread.join(timeout=30)
+            interrupted = KeyboardInterrupt(
+                f"local_video_generation_terminated:{exc.signum}"
+            )
+            interrupted.log_evidence = _process_log_evidence(  # type: ignore[attr-defined]
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            )
+            raise interrupted from None
+        except KeyboardInterrupt as exc:
+            _restore_termination_handlers(previous_handlers)
+            previous_handlers = {}
+            _terminate_isolated_process_group(process, initial_signal=signal.SIGINT)
+            drain_thread.join(timeout=30)
+            exc.log_evidence = _process_log_evidence(  # type: ignore[attr-defined]
+                log_path,
+                observed_bytes=observed_bytes,
+                tail=bytes(tail),
+                truncated=truncated,
+            )
+            raise
+        finally:
+            _restore_termination_handlers(previous_handlers)
         drain_thread.join(timeout=30)
         if drain_thread.is_alive():
             raise RuntimeError("local_video_generation_log_drain_failed")
@@ -610,7 +714,12 @@ def run_local_video(
                         log_path=execution_log_path,
                         runner=runner,
                     )
-                except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                except (
+                    KeyboardInterrupt,
+                    OSError,
+                    RuntimeError,
+                    subprocess.SubprocessError,
+                ) as exc:
                     failed_measurement = benchmark_timer.finish()
                     failure_log = getattr(exc, "log_evidence", None)
                     if isinstance(failure_log, dict):

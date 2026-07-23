@@ -96,6 +96,49 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _path_present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _directory_tree_evidence(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_dir():
+        raise LocalQueueError("interrupted_recovery_sandbox_unsafe")
+    entries: list[dict[str, Any]] = []
+    total_bytes = 0
+    children = sorted(
+        path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()
+    )
+    for child in children:
+        relative = child.relative_to(path).as_posix()
+        if child.is_symlink():
+            raise LocalQueueError(
+                f"interrupted_recovery_sandbox_tree_unsafe:{relative}"
+            )
+        if child.is_dir():
+            entries.append({"kind": "directory", "path": relative})
+            continue
+        if not child.is_file():
+            raise LocalQueueError(
+                f"interrupted_recovery_sandbox_tree_unsafe:{relative}"
+            )
+        size = child.stat().st_size
+        total_bytes += size
+        entries.append(
+            {
+                "kind": "file",
+                "path": relative,
+                "sha256": sha256_file(child),
+                "sizeBytes": size,
+            }
+        )
+    return {
+        "entries": entries,
+        "entryCount": len(entries),
+        "sizeBytes": total_bytes,
+        "treeFingerprint": fingerprint({"entries": entries}),
+    }
+
+
 def _physical_memory_bytes() -> int | None:
     try:
         pages = int(os.sysconf("SC_PHYS_PAGES"))
@@ -1410,30 +1453,72 @@ class LocalGenerationQueue:
                 source = Path(str(artifact["sourcePath"]))
                 destination = Path(str(artifact["quarantinePath"]))
                 expected_sha256 = str(artifact["sha256"])
-                if source.exists() and destination.exists():
+                artifact_type = str(artifact.get("artifactType") or "file")
+                if _path_present(source) and _path_present(destination):
                     raise LocalQueueError(
                         f"recovery_source_and_destination_both_exist:{artifact['kind']}"
                     )
-                if destination.exists():
-                    if (
-                        not destination.is_file()
-                        or sha256_file(destination) != expected_sha256
-                    ):
+                if _path_present(destination):
+                    if artifact_type == "directory":
+                        tree = _directory_tree_evidence(destination)
+                        destination_matches = (
+                            tree["treeFingerprint"] == expected_sha256
+                            and tree["entries"] == artifact.get("entries")
+                            and tree["entryCount"] == artifact.get("entryCount")
+                            and tree["sizeBytes"] == artifact.get("sizeBytes")
+                        )
+                    else:
+                        destination_matches = (
+                            destination.is_file()
+                            and not destination.is_symlink()
+                            and sha256_file(destination) == expected_sha256
+                        )
+                    if not destination_matches:
                         raise LocalQueueError(
                             f"recovery_quarantine_mismatch:{artifact['kind']}"
                         )
                     continue
-                if not source.is_file() or source.is_symlink():
-                    raise LocalQueueError(
-                        f"recovery_source_missing_or_unsafe:{artifact['kind']}"
-                    )
-                if sha256_file(source) != expected_sha256:
-                    raise LocalQueueError(
-                        f"recovery_source_sha256_mismatch:{artifact['kind']}"
-                    )
+                if artifact_type == "directory":
+                    if not _path_present(source):
+                        raise LocalQueueError(
+                            f"recovery_source_missing_or_unsafe:{artifact['kind']}"
+                        )
+                    tree = _directory_tree_evidence(source)
+                    if (
+                        tree["treeFingerprint"] != expected_sha256
+                        or tree["entries"] != artifact.get("entries")
+                        or tree["entryCount"] != artifact.get("entryCount")
+                        or tree["sizeBytes"] != artifact.get("sizeBytes")
+                    ):
+                        raise LocalQueueError(
+                            f"recovery_source_sha256_mismatch:{artifact['kind']}"
+                        )
+                else:
+                    if not source.is_file() or source.is_symlink():
+                        raise LocalQueueError(
+                            f"recovery_source_missing_or_unsafe:{artifact['kind']}"
+                        )
+                    if sha256_file(source) != expected_sha256:
+                        raise LocalQueueError(
+                            f"recovery_source_sha256_mismatch:{artifact['kind']}"
+                        )
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, destination)
-                if sha256_file(destination) != expected_sha256:
+                if artifact_type == "directory":
+                    moved = _directory_tree_evidence(destination)
+                    move_verified = (
+                        moved["treeFingerprint"] == expected_sha256
+                        and moved["entries"] == artifact.get("entries")
+                        and moved["entryCount"] == artifact.get("entryCount")
+                        and moved["sizeBytes"] == artifact.get("sizeBytes")
+                    )
+                else:
+                    move_verified = (
+                        destination.is_file()
+                        and not destination.is_symlink()
+                        and sha256_file(destination) == expected_sha256
+                    )
+                if not move_verified:
                     raise LocalQueueError(
                         f"recovery_move_verification_failed:{artifact['kind']}"
                     )
@@ -1883,7 +1968,45 @@ class LocalGenerationQueue:
                 raise LocalQueueError(
                     f"interrupted_recovery_{label}_fingerprint_mismatch"
                 )
-        expected_paths = (
+        sandbox_path: Path | None = None
+        owned_sandboxes = [
+            Path(value)
+            for value in job.owned_artifact_paths
+            if Path(value).name.startswith(".local_video_sandbox_")
+        ]
+        if isinstance(isolation, dict):
+            claimed_isolation_fingerprint = isolation.get("isolationFingerprint")
+            isolation_core = dict(isolation)
+            isolation_core.pop("isolationFingerprint", None)
+            if (
+                not isinstance(claimed_isolation_fingerprint, str)
+                or fingerprint(isolation_core) != claimed_isolation_fingerprint
+            ):
+                raise LocalQueueError(
+                    "interrupted_recovery_sandbox_isolation_fingerprint_mismatch"
+                )
+            primary_input = lineage.get("input") or lineage.get("sourceVideo")
+            primary_input_sha = (
+                primary_input.get("sha256") if isinstance(primary_input, dict) else None
+            )
+            sandbox_id = fingerprint(
+                {
+                    "modelId": lineage.get("modelId"),
+                    "task": request.get("task"),
+                    "outputPath": str(output),
+                    "inputSha256": primary_input_sha,
+                }
+            )[:20]
+            expected_sandbox = output.parent / f".local_video_sandbox_{sandbox_id}"
+            if isolation.get("sandboxRoot") != str(
+                expected_sandbox
+            ) or owned_sandboxes != [expected_sandbox]:
+                raise LocalQueueError("interrupted_recovery_sandbox_binding_mismatch")
+            sandbox_path = expected_sandbox
+        elif owned_sandboxes:
+            raise LocalQueueError("interrupted_recovery_sandbox_binding_missing")
+
+        expected_paths = [
             ("output", output),
             ("partial_output", output.with_suffix(".partial" + output.suffix)),
             ("audio_sidecar", output.with_suffix(output.suffix + ".audio.wav")),
@@ -1894,10 +2017,10 @@ class LocalGenerationQueue:
                 ),
             ),
             ("lineage", lineage_path),
-        )
+        ]
         artifacts: list[dict[str, Any]] = []
         for index, (kind, source) in enumerate(expected_paths):
-            if not source.exists():
+            if not _path_present(source):
                 continue
             if not source.is_file() or source.is_symlink():
                 raise LocalQueueError(f"interrupted_recovery_artifact_unsafe:{kind}")
@@ -1912,7 +2035,24 @@ class LocalGenerationQueue:
                     "sizeBytes": source.stat().st_size,
                 }
             )
-        if not artifacts or artifacts[-1]["kind"] != "lineage":
+        if sandbox_path is not None and _path_present(sandbox_path):
+            tree = _directory_tree_evidence(sandbox_path)
+            artifacts.append(
+                {
+                    "kind": "sandbox",
+                    "artifactType": "directory",
+                    "sourcePath": str(sandbox_path),
+                    "quarantinePath": str(recovery_root / "05_sandbox"),
+                    "sha256": tree["treeFingerprint"],
+                    "sizeBytes": tree["sizeBytes"],
+                    "entryCount": tree["entryCount"],
+                    "entries": tree["entries"],
+                }
+            )
+        if (
+            not artifacts
+            or sum(artifact["kind"] == "lineage" for artifact in artifacts) != 1
+        ):
             raise LocalQueueError("interrupted_recovery_lineage_not_preserved")
         return {
             "schema": "reel_factory.local_generation_recovery.v1",
