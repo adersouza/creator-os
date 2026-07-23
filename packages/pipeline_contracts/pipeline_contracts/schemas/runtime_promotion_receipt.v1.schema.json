@@ -19,19 +19,45 @@
     "approvalEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "reviewId", "reviewerPermission", "trustedCheckApp", "checkRunIds", "workflowRunIds", "evidenceFingerprint"],
       "properties": {
+        "approvalMode": {"enum": ["independent_review", "single_owner_ci"]},
         "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
         "pullRequestNumber": {"type": "integer", "minimum": 1},
         "approvedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
         "reviewedCommit": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
         "reviewId": {"type": "integer", "minimum": 1},
         "reviewerPermission": {"enum": ["write", "maintain", "admin"]},
+        "operator": {"type": "string", "minLength": 1},
+        "operatorPermission": {"enum": ["write", "maintain", "admin"]},
+        "branchProtection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strictStatusChecks", "requiredStatusChecks", "requiredApprovingReviewCount", "requiredConversationResolution", "enforceAdmins"],
+          "properties": {
+            "strictStatusChecks": {"const": true},
+            "requiredStatusChecks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "requiredApprovingReviewCount": {"const": 0},
+            "requiredConversationResolution": {"const": true},
+            "enforceAdmins": {"const": true}
+          }
+        },
         "trustedCheckApp": {"const": "github-actions:15368"},
         "checkRunIds": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "workflowRunIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "evidenceFingerprint": {"$ref": "#/$defs/sha256"}
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "reviewId", "reviewerPermission", "trustedCheckApp", "checkRunIds", "workflowRunIds", "evidenceFingerprint"],
+          "properties": {"approvalMode": {"const": "independent_review"}},
+          "not": {"anyOf": [{"required": ["operator"]}, {"required": ["operatorPermission"]}, {"required": ["branchProtection"]}]}
+        },
+        {
+          "required": ["approvalMode", "repository", "pullRequestNumber", "approvedCommit", "reviewedCommit", "operator", "operatorPermission", "branchProtection", "trustedCheckApp", "checkRunIds", "workflowRunIds", "evidenceFingerprint"],
+          "properties": {"approvalMode": {"const": "single_owner_ci"}},
+          "not": {"anyOf": [{"required": ["reviewId"]}, {"required": ["reviewerPermission"]}]}
+        }
+      ]
     },
     "planFingerprint": {"$ref": "#/$defs/sha256"},
     "backupManifestPath": {"type": "string", "minLength": 1},

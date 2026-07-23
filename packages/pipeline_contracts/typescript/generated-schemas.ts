@@ -13253,15 +13253,18 @@ export const generatedPipelineContractSchemas = {
 	    "pullRequestNumber",
 	    "approvedCommit",
 	    "reviewedCommit",
-	    "reviewedBy",
-	    "reviewedAt",
-	    "review",
 	    "checks",
 	    "approvalFingerprint"
 	  ],
 	  "properties": {
 	    "schema": {
 	      "const": "creator_os.runtime_promotion_approval.v1"
+	    },
+	    "approvalMode": {
+	      "enum": [
+	        "independent_review",
+	        "single_owner_ci"
+	      ]
 	    },
 	    "repository": {
 	      "type": "string",
@@ -13316,6 +13319,52 @@ export const generatedPipelineContractSchemas = {
 	        "commitId": {
 	          "type": "string",
 	          "pattern": "^[a-f0-9]{40}$"
+	        }
+	      }
+	    },
+	    "operator": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "attestedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "attestationReason": {
+	      "type": "string",
+	      "minLength": 12
+	    },
+	    "branchProtection": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "strictStatusChecks",
+	        "requiredStatusChecks",
+	        "requiredApprovingReviewCount",
+	        "requiredConversationResolution",
+	        "enforceAdmins"
+	      ],
+	      "properties": {
+	        "strictStatusChecks": {
+	          "const": true
+	        },
+	        "requiredStatusChecks": {
+	          "type": "array",
+	          "minItems": 9,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "requiredApprovingReviewCount": {
+	          "const": 0
+	        },
+	        "requiredConversationResolution": {
+	          "const": true
+	        },
+	        "enforceAdmins": {
+	          "const": true
 	        }
 	      }
 	    },
@@ -13392,6 +13441,77 @@ export const generatedPipelineContractSchemas = {
 	      "$ref": "#/$defs/sha256"
 	    }
 	  },
+	  "oneOf": [
+	    {
+	      "required": [
+	        "reviewedBy",
+	        "reviewedAt",
+	        "review"
+	      ],
+	      "properties": {
+	        "approvalMode": {
+	          "const": "independent_review"
+	        }
+	      },
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "operator"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "attestedAt"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "attestationReason"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "branchProtection"
+	            ]
+	          }
+	        ]
+	      }
+	    },
+	    {
+	      "required": [
+	        "approvalMode",
+	        "operator",
+	        "attestedAt",
+	        "attestationReason",
+	        "branchProtection"
+	      ],
+	      "properties": {
+	        "approvalMode": {
+	          "const": "single_owner_ci"
+	        }
+	      },
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "reviewedBy"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "reviewedAt"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "review"
+	            ]
+	          }
+	        ]
+	      }
+	    }
+	  ],
 	  "$defs": {
 	    "sha256": {
 	      "type": "string",
@@ -13474,19 +13594,13 @@ export const generatedPipelineContractSchemas = {
 	    "approvalEvidence": {
 	      "type": "object",
 	      "additionalProperties": false,
-	      "required": [
-	        "repository",
-	        "pullRequestNumber",
-	        "approvedCommit",
-	        "reviewedCommit",
-	        "reviewId",
-	        "reviewerPermission",
-	        "trustedCheckApp",
-	        "checkRunIds",
-	        "workflowRunIds",
-	        "evidenceFingerprint"
-	      ],
 	      "properties": {
+	        "approvalMode": {
+	          "enum": [
+	            "independent_review",
+	            "single_owner_ci"
+	          ]
+	        },
 	        "repository": {
 	          "type": "string",
 	          "pattern": "^[^/\\s]+/[^/\\s]+$"
@@ -13514,6 +13628,51 @@ export const generatedPipelineContractSchemas = {
 	            "admin"
 	          ]
 	        },
+	        "operator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operatorPermission": {
+	          "enum": [
+	            "write",
+	            "maintain",
+	            "admin"
+	          ]
+	        },
+	        "branchProtection": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "strictStatusChecks",
+	            "requiredStatusChecks",
+	            "requiredApprovingReviewCount",
+	            "requiredConversationResolution",
+	            "enforceAdmins"
+	          ],
+	          "properties": {
+	            "strictStatusChecks": {
+	              "const": true
+	            },
+	            "requiredStatusChecks": {
+	              "type": "array",
+	              "minItems": 9,
+	              "uniqueItems": true,
+	              "items": {
+	                "type": "string",
+	                "minLength": 1
+	              }
+	            },
+	            "requiredApprovingReviewCount": {
+	              "const": 0
+	            },
+	            "requiredConversationResolution": {
+	              "const": true
+	            },
+	            "enforceAdmins": {
+	              "const": true
+	            }
+	          }
+	        },
 	        "trustedCheckApp": {
 	          "const": "github-actions:15368"
 	        },
@@ -13538,7 +13697,82 @@ export const generatedPipelineContractSchemas = {
 	        "evidenceFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        }
-	      }
+	      },
+	      "oneOf": [
+	        {
+	          "required": [
+	            "repository",
+	            "pullRequestNumber",
+	            "approvedCommit",
+	            "reviewedCommit",
+	            "reviewId",
+	            "reviewerPermission",
+	            "trustedCheckApp",
+	            "checkRunIds",
+	            "workflowRunIds",
+	            "evidenceFingerprint"
+	          ],
+	          "properties": {
+	            "approvalMode": {
+	              "const": "independent_review"
+	            }
+	          },
+	          "not": {
+	            "anyOf": [
+	              {
+	                "required": [
+	                  "operator"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "operatorPermission"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "branchProtection"
+	                ]
+	              }
+	            ]
+	          }
+	        },
+	        {
+	          "required": [
+	            "approvalMode",
+	            "repository",
+	            "pullRequestNumber",
+	            "approvedCommit",
+	            "reviewedCommit",
+	            "operator",
+	            "operatorPermission",
+	            "branchProtection",
+	            "trustedCheckApp",
+	            "checkRunIds",
+	            "workflowRunIds",
+	            "evidenceFingerprint"
+	          ],
+	          "properties": {
+	            "approvalMode": {
+	              "const": "single_owner_ci"
+	            }
+	          },
+	          "not": {
+	            "anyOf": [
+	              {
+	                "required": [
+	                  "reviewId"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "reviewerPermission"
+	                ]
+	              }
+	            ]
+	          }
+	        }
+	      ]
 	    },
 	    "planFingerprint": {
 	      "$ref": "#/$defs/sha256"
