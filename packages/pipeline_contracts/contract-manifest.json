@@ -51,7 +51,8 @@
     "pipeline_contracts/schemas/local_model_arena_review_packet.v1.schema.json": "55b33e7b62122bce7f64ebe07225de1eba5192becfb79a363e176f198b3ffe5f",
     "pipeline_contracts/schemas/local_model_arena_summary.v1.schema.json": "06dfc88aa954b803645e321c36217aa3348353b37759a704a09b5093a2ae65f3",
     "pipeline_contracts/schemas/local_model_arena_unblinding_receipt.v1.schema.json": "0b88a97cd99bf88bd647fa9d65f69c421be8d91415aca5da87a2c5ed599a7373",
-    "pipeline_contracts/schemas/local_model_rollout_gate_receipt.v1.schema.json": "a9f61bebe089ef8601b1ccd99f80576db9ab59047fc79ebe03af1f1f2714f26f",
+    "pipeline_contracts/schemas/local_model_rollout_external_activity_observation.v1.schema.json": "0c7b352f214406d4a8603343fa6b8a30defc67c51a21939cc82ae4bf99345516",
+    "pipeline_contracts/schemas/local_model_rollout_gate_receipt.v1.schema.json": "9d72c4b08e9f509d9d77960d29dbcd42616a1b04481609c236202e8324f38156",
     "pipeline_contracts/schemas/local_model_router_decision.v1.schema.json": "7746dbc15d8bd5c83da7962a0dde66454dff74d049a440a0da0ec4dbdc4c1520",
     "pipeline_contracts/schemas/motion_edit_render.v1.example.json": "6cb05a01ca512f9a65c526993be108a5b8cd2b626b6e399aaca17546dc76512f",
     "pipeline_contracts/schemas/motion_edit_render.v1.schema.json": "e7f0d58dbb92675130cc30a0e240608f64ba412edc5c144936640c3760ceb59a",
@@ -91,7 +92,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "4165e1aa2930e07501119b4a513ef14307868ebf7c3703969438f8b09b74cda3",
+    "typescript/generated-schemas.ts": "0afb9c932e6ab1fcab8e09622289fe6069ac181f7515783b02bc1cb6958e5f75",
     "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }

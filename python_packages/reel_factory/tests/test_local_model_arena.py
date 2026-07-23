@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from copy import deepcopy
 from dataclasses import replace
@@ -9,6 +11,12 @@ from types import SimpleNamespace
 
 import pytest
 import reel_factory.local_model_arena as arena_module
+from creator_os_core.evidence_attestation import (
+    canonical_json,
+    payload_fingerprint,
+)
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from reel_factory.human_media_review import (
     HumanMediaReview,
     HumanMediaReviewStore,
@@ -18,6 +26,7 @@ from reel_factory.human_media_review import (
     HumanReviewSamplingEvidence,
 )
 from reel_factory.local_generation_queue import (
+    AppendOnlyJournal,
     LocalGenerationJob,
     LocalGenerationQueue,
     LocalQueueError,
@@ -56,21 +65,192 @@ PRODUCED_AT = "2026-07-22T12:00:00Z"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 EVIDENCE_SECRET = "arena-test-evidence-" + "fixture-material-" + ("x" * 32)
+OBSERVER_PRIVATE_KEYS = {
+    kind: Ed25519PrivateKey.from_private_bytes(
+        hashlib.sha256(f"test-only-{kind}-observer-key".encode()).digest()
+    )
+    for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS
+}
+OBSERVER_PUBLIC_KEYS = {
+    kind: base64.b64encode(
+        private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+    ).decode()
+    for kind, private_key in OBSERVER_PRIVATE_KEYS.items()
+}
+
+
+@pytest.fixture(autouse=True)
+def _fixed_independent_rollout_observer_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        {
+            kind: {
+                **binding,
+                "publicKeyBase64": OBSERVER_PUBLIC_KEYS[kind],
+            }
+            for kind, binding in (
+                arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS.items()
+            )
+        },
+    )
 
 
 def _rollout_store(root: Path) -> LocalModelArenaStore:
     instant = datetime.fromisoformat(PRODUCED_AT.replace("Z", "+00:00"))
-    return LocalModelArenaStore(root, trusted_clock=lambda: instant.astimezone(UTC))
+    return LocalModelArenaStore(
+        root,
+        trusted_clock=lambda: instant.astimezone(UTC),
+        hardware_identity_provider=lambda: {"fingerprint": "9" * 64},
+    )
 
 
-def _empty_external_activity_sources(root: Path) -> dict[str, Path]:
-    sources: dict[str, Path] = {}
-    root.mkdir(parents=True, exist_ok=True)
+def _sign_external_observer_attestation(
+    payload: dict,
+    *,
+    kind: str,
+    issued_at: str,
+    private_key: Ed25519PrivateKey | None = None,
+    issuer: str | None = None,
+) -> dict:
+    binding = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+    core = {
+        "schema": "creator_os.external_observer_attestation.v1",
+        "algorithm": "ed25519",
+        "issuer": issuer or binding["issuer"],
+        "keyId": binding["keyId"],
+        "issuedAt": issued_at,
+        "payloadFingerprint": payload_fingerprint(payload),
+    }
+    signature = (private_key or OBSERVER_PRIVATE_KEYS[kind]).sign(canonical_json(core))
+    return {**core, "signature": base64.b64encode(signature).decode()}
+
+
+def _external_activity_observations(
+    root: Path,
+    *,
+    observed_at: str = PRODUCED_AT,
+    interval_start: str = PRODUCED_AT,
+    records_by_kind: dict[str, list[dict]] | None = None,
+) -> dict[str, Path]:
+    observations: dict[str, Path] = {}
+    source_root = root / "sources"
+    receipt_root = root / "receipts"
+    source_root.mkdir(parents=True, exist_ok=True)
+    receipt_root.mkdir(parents=True, exist_ok=True)
     for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
-        path = root / f"{kind}.json"
-        path.write_text("[]\n", encoding="utf-8")
-        sources[kind] = path
-    return sources
+        records = list((records_by_kind or {}).get(kind, []))
+        source_path = (source_root / f"{kind}.json").resolve()
+        source_path.write_text(
+            json.dumps(records, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        binding = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
+        identity_fingerprint = fingerprint(
+            {
+                "kind": kind,
+                "storeIdentity": binding["storeIdentity"],
+                "queryIdentity": binding["queryIdentity"],
+                "intervalStart": interval_start,
+                "intervalEnd": observed_at,
+                "sourceSha256": sha256_file(source_path),
+            }
+        )
+        core = {
+            "schema": (
+                "reel_factory.local_model_rollout_external_activity_observation.v1"
+            ),
+            "observationId": (f"rollout_external_{kind}_{identity_fingerprint[:24]}"),
+            "kind": kind,
+            "storeIdentity": binding["storeIdentity"],
+            "queryIdentity": binding["queryIdentity"],
+            "intervalStart": interval_start,
+            "intervalEnd": observed_at,
+            "observedAt": observed_at,
+            "source": {
+                "path": str(source_path),
+                "sha256": sha256_file(source_path),
+                "recordsFingerprint": fingerprint({"records": records}),
+                "recordCount": len(records),
+            },
+            "provenance": {
+                "producer": binding["issuer"],
+                "producedAt": observed_at,
+                "sourceReferences": [
+                    {
+                        "recordId": (
+                            f"{binding['storeIdentity']}:{binding['queryIdentity']}"
+                        ),
+                        "fingerprint": sha256_file(source_path),
+                    }
+                ],
+            },
+        }
+        observation_fingerprint = fingerprint(core)
+        attested = {
+            **core,
+            "observationFingerprint": observation_fingerprint,
+        }
+        receipt = {
+            **attested,
+            "producerAttestation": _sign_external_observer_attestation(
+                attested,
+                kind=kind,
+                issuer=binding["issuer"],
+                issued_at=observed_at,
+            ),
+        }
+        receipt_path = (receipt_root / f"{kind}.json").resolve()
+        receipt_path.write_text(
+            json.dumps(receipt, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        observations[kind] = receipt_path
+    return observations
+
+
+def _external_activity_source_path(observation_path: Path) -> Path:
+    receipt = json.loads(observation_path.read_text(encoding="utf-8"))
+    return Path(receipt["source"]["path"])
+
+
+def _rewrite_external_activity_observation(
+    observation_path: Path,
+    *,
+    updates: dict | None = None,
+    issuer: str | None = None,
+    signing_key: Ed25519PrivateKey | None = None,
+) -> None:
+    receipt = json.loads(observation_path.read_text(encoding="utf-8"))
+    core = {
+        key: value
+        for key, value in receipt.items()
+        if key not in {"observationFingerprint", "producerAttestation"}
+    }
+    core.update(updates or {})
+    attested = {
+        **core,
+        "observationFingerprint": fingerprint(core),
+    }
+    rewritten = {
+        **attested,
+        "producerAttestation": _sign_external_observer_attestation(
+            attested,
+            kind=core["kind"],
+            issuer=issuer or core["provenance"]["producer"],
+            issued_at=core["observedAt"],
+            private_key=signing_key,
+        ),
+    }
+    observation_path.write_text(
+        json.dumps(rewritten, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _passing_rollout_summary(summary: dict) -> dict:
@@ -560,11 +740,21 @@ def _build(
     )
 
 
-def _rollout_router_bundle(sample: dict, index: int) -> dict:
+def _rollout_router_bundle(
+    sample: dict,
+    index: int,
+    *,
+    promotion_hardware_fingerprint: str = "9" * 64,
+) -> dict:
     decision = {
         "decisionId": f"router-decision-{index}",
         "selectedModelId": sample["modelId"],
         "selectedModelFingerprint": sample["modelFingerprint"],
+        "winningEvidence": {
+            "promotionApproval": {
+                "hardwareFingerprint": promotion_hardware_fingerprint,
+            }
+        },
         "request": {
             "creatorId": sample["creatorId"],
             "identityProfileId": sample["identityProfileId"],
@@ -589,6 +779,9 @@ def _fake_rollout_router_validator(bundle: dict, **_kwargs) -> tuple[dict, dict]
     exact = deepcopy(bundle)
     decision = exact["routerDecision"]
     index = str(decision["decisionId"]).rsplit("-", 1)[-1]
+    promotion_hardware_fingerprint = decision["winningEvidence"]["promotionApproval"][
+        "hardwareFingerprint"
+    ]
     return exact, {
         "snapshotFingerprint": fingerprint(exact),
         "sampleIds": sorted(exact["rolloutSampleIds"]),
@@ -604,6 +797,7 @@ def _fake_rollout_router_validator(bundle: dict, **_kwargs) -> tuple[dict, dict]
         "promotionUnblindingReceiptFingerprint": fingerprint({"unblinding": index}),
         "promotionApprovalEventId": f"approval-{index}",
         "promotionApprovalEventHash": fingerprint({"approval": index}),
+        "promotionHardwareFingerprint": promotion_hardware_fingerprint,
         "promotionEvidenceFingerprint": fingerprint({"evidence": index}),
     }
 
@@ -2526,7 +2720,7 @@ def test_terminal_exact_replay_is_idempotent_but_changed_payload_collides(
     }
     first = store.record_terminal(**kwargs)
     assert store.record_terminal(**kwargs) == first
-    assert len(store.events.read().events) == 1
+    assert len(store.journal_events()) == 1
     with pytest.raises(LocalQueueError, match="arena_terminal_sample_collision"):
         store.record_terminal(**{**kwargs, "reason": "different_failure"})
 
@@ -2681,7 +2875,7 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
     root = tmp_path / "state"
     store = _rollout_store(root)
     store.persist_plan(plan)
-    external_sources = _empty_external_activity_sources(tmp_path / "external-activity")
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
     benchmark_store = LocalModelBenchmarkStore(root)
     reviews = HumanMediaReviewStore(root)
     bundles = [
@@ -2720,7 +2914,7 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
             router_evidence_bundles=bundles,
             benchmark_store=LocalModelBenchmarkStore(tmp_path / "backdated-state"),
             human_reviews=HumanMediaReviewStore(tmp_path / "backdated-state"),
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
     for decided_at, error in (
@@ -2738,10 +2932,13 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
                 router_evidence_bundles=bundles,
                 benchmark_store=benchmark_store,
                 human_reviews=reviews,
-                external_activity_sources=external_sources,
+                external_activity_observations=external_sources,
                 evidence_secret=EVIDENCE_SECRET,
             )
-    external_sources["provider_cost"].write_text('[{"costUsd": 1}]\n', encoding="utf-8")
+    nonzero_observations = _external_activity_observations(
+        tmp_path / "external-activity-nonzero",
+        records_by_kind={"provider_cost": [{"costUsd": 1}]},
+    )
     with pytest.raises(
         LocalQueueError, match="arena_rollout_external_activity_detected"
     ):
@@ -2755,10 +2952,9 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
             router_evidence_bundles=bundles,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=nonzero_observations,
             evidence_secret=EVIDENCE_SECRET,
         )
-    external_sources["provider_cost"].write_text("[]\n", encoding="utf-8")
     with pytest.raises(
         LocalQueueError,
         match="arena_rollout_sample_router_evidence_not_exactly_once",
@@ -2773,7 +2969,7 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
             router_evidence_bundles=bundles[:-1],
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
     with pytest.raises(
@@ -2789,7 +2985,31 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
             router_evidence_bundles=bundles,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    mixed_hardware_bundles = list(bundles)
+    mixed_hardware_bundles[-1] = _rollout_router_bundle(
+        plan["samples"][-1],
+        len(plan["samples"]) - 1,
+        promotion_hardware_fingerprint="8" * 64,
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_router_promotion_hardware_mismatch",
+    ):
+        store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-1",
+            operator_identity="operator@example.test",
+            decided_at=PRODUCED_AT,
+            reason="mixed promotion hardware must hold",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=mixed_hardware_bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
 
@@ -2803,11 +3023,12 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
         router_evidence_bundles=bundles,
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )["receipt"]
     assert approved["transition"] == "approved_to_run"
     assert len(approved["routerEvidence"]) == 10
+    assert approved["promotionHardwareFingerprint"] == "9" * 64
     assert (
         store.require_rollout_approved_to_run(
             plan["planId"],
@@ -2817,14 +3038,38 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
         )
         == approved
     )
-    external_sources["schedule"].write_text(
-        '[{"scheduleId": "unexpected"}]\n', encoding="utf-8"
+    store._trusted_clock = lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00")
+    assert (
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+        == approved
     )
+    store._trusted_clock = lambda: datetime.fromisoformat(
+        PRODUCED_AT.replace("Z", "+00:00")
+    )
+    store._hardware_identity_provider = lambda: {"fingerprint": "8" * 64}
     with pytest.raises(
-        LocalQueueError, match="arena_rollout_external_activity_snapshot_drift"
+        LocalQueueError,
+        match="arena_rollout_current_hardware_does_not_match_promotion",
+    ):
+        store.require_rollout_approved_to_run(
+            plan["planId"],
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    store._hardware_identity_provider = lambda: {"fingerprint": "9" * 64}
+    schedule_source = _external_activity_source_path(external_sources["schedule"])
+    schedule_source.write_text('[{"scheduleId": "unexpected"}]\n', encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_external_activity_source_substituted"
     ):
         store.rollout_status(plan["planId"], evidence_secret=EVIDENCE_SECRET)
-    external_sources["schedule"].write_text("[]\n", encoding="utf-8")
+    schedule_source.write_text("[]\n", encoding="utf-8")
 
     tampered = deepcopy(approved)
     tampered["reason"] = "substituted approval"
@@ -2836,6 +3081,16 @@ def test_rollout_approval_is_authenticated_exact_and_required_for_execution(
             arena_plan=plan,
             evidence_secret=EVIDENCE_SECRET,
         )
+
+    assert not hasattr(store, "events")
+    AppendOnlyJournal(root / "arena_events.jsonl").append(
+        "arena_rollout_gate_transition",
+        approved,
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_rollout_transition_sequence_invalid"
+    ):
+        store.rollout_status(plan["planId"], evidence_secret=EVIDENCE_SECRET)
 
 
 def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
@@ -2852,7 +3107,7 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
     root = tmp_path / "state"
     store = _rollout_store(root)
     store.persist_plan(plan)
-    external_sources = _empty_external_activity_sources(tmp_path / "external-activity")
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
     benchmark_store = LocalModelBenchmarkStore(root)
     reviews = HumanMediaReviewStore(root)
     queue = LocalGenerationQueue(
@@ -2877,7 +3132,7 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
         ],
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )
 
@@ -2891,7 +3146,7 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
             queue=queue,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
     with pytest.raises(
@@ -2906,7 +3161,7 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
             queue=queue,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
     for index, sample in enumerate(plan["samples"]):
@@ -2916,6 +3171,9 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
             status="missing",
             reason="evidence unavailable remains missing",
             queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
         )
         if index == 0:
             with pytest.raises(
@@ -2942,9 +3200,30 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
             queue=queue,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
+
+    store._trusted_clock = lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00")
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_interval_invalid",
+    ):
+        store.record_rollout_reconciliation(
+            plan_id=plan["planId"],
+            decision="held",
+            operator_identity="operator@example.test",
+            decided_at="2026-07-22T12:10:00Z",
+            reason="terminal transition requires a fresh observation",
+            queue=queue,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=external_sources,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+    store._trusted_clock = lambda: datetime.fromisoformat(
+        PRODUCED_AT.replace("Z", "+00:00")
+    )
 
     held = store.record_rollout_reconciliation(
         plan_id=plan["planId"],
@@ -2955,7 +3234,7 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
         queue=queue,
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )
     assert held["receipt"]["transition"] == "held"
@@ -2972,9 +3251,173 @@ def test_rollout_reconciliation_requires_explicit_terminal_evidence_and_holds(
             queue=queue,
             benchmark_store=benchmark_store,
             human_reviews=reviews,
-            external_activity_sources=external_sources,
+            external_activity_observations=external_sources,
             evidence_secret=EVIDENCE_SECRET,
         )
+
+
+def test_rollout_external_activity_requires_authentic_observer_receipts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"rollout source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=index) for index in range(1, 11)],
+        purpose="supervised_rollout",
+    )
+    store = _rollout_store(tmp_path / "state")
+    store.persist_plan(plan)
+    benchmark_store = LocalModelBenchmarkStore(tmp_path / "state")
+    reviews = HumanMediaReviewStore(tmp_path / "state")
+    bundles = [
+        _rollout_router_bundle(sample, index)
+        for index, sample in enumerate(plan["samples"])
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+
+    def attempt(
+        observations: dict[str, Path],
+        *,
+        target_store: LocalModelArenaStore = store,
+        decided_at: str = PRODUCED_AT,
+    ) -> None:
+        target_store.approve_rollout_gate(
+            plan_id=plan["planId"],
+            rollout_id="rollout-authenticity",
+            operator_identity="operator@example.test",
+            decided_at=decided_at,
+            reason="observer authenticity test",
+            mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+            router_evidence_bundles=bundles,
+            benchmark_store=benchmark_store,
+            human_reviews=reviews,
+            external_activity_observations=observations,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    for kind in arena_module.ROLLOUT_EXTERNAL_ACTIVITY_KINDS:
+        observations = _external_activity_observations(
+            tmp_path / f"forged-empty-{kind}"
+        )
+        forged = (tmp_path / f"unsigned-{kind}.json").resolve()
+        forged.write_text("[]\n", encoding="utf-8")
+        observations[kind] = forged
+        with pytest.raises(
+            LocalQueueError,
+            match=f"arena_rollout_external_activity_observation_invalid:{kind}",
+        ):
+            attempt(observations)
+
+    caller_signed = _external_activity_observations(tmp_path / "caller-signed")
+    _rewrite_external_activity_observation(
+        caller_signed["provider_cost"],
+        signing_key=Ed25519PrivateKey.from_private_bytes(
+            hashlib.sha256(EVIDENCE_SECRET.encode()).digest()
+        ),
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_attestation_invalid",
+    ):
+        attempt(caller_signed)
+
+    configured_bindings = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS
+    unavailable_bindings = deepcopy(configured_bindings)
+    unavailable_bindings["provider_cost"]["publicKeyBase64"] = None
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        unavailable_bindings,
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observer_unavailable:provider_cost",
+    ):
+        attempt(_external_activity_observations(tmp_path / "observer-unavailable"))
+    monkeypatch.setattr(
+        arena_module,
+        "ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS",
+        configured_bindings,
+    )
+
+    wrong_issuer = _external_activity_observations(tmp_path / "wrong-issuer")
+    _rewrite_external_activity_observation(
+        wrong_issuer["provider_cost"],
+        issuer="operator.self_asserted_empty_observer",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_issuer)
+
+    wrong_kind = _external_activity_observations(tmp_path / "wrong-kind")
+    _rewrite_external_activity_observation(
+        wrong_kind["provider_cost"],
+        updates={"kind": "schedule"},
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_kind)
+
+    wrong_query = _external_activity_observations(tmp_path / "wrong-query")
+    _rewrite_external_activity_observation(
+        wrong_query["provider_cost"],
+        updates={"queryIdentity": "operator_selected_empty_query.v1"},
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_invalid",
+    ):
+        attempt(wrong_query)
+
+    substituted = _external_activity_observations(tmp_path / "substituted-source")
+    _external_activity_source_path(substituted["publish"]).write_text(
+        '[{"publishId": "substituted"}]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_source_substituted:publish",
+    ):
+        attempt(substituted)
+
+    stale_store = LocalModelArenaStore(
+        tmp_path / "stale-state",
+        trusted_clock=lambda: datetime.fromisoformat("2026-07-22T12:10:00+00:00"),
+    )
+    stale_store.persist_plan(plan)
+    stale = _external_activity_observations(
+        tmp_path / "stale-observation",
+        observed_at="2026-07-22T12:04:00Z",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_interval_invalid",
+    ):
+        attempt(
+            stale,
+            target_store=stale_store,
+            decided_at="2026-07-22T12:10:00Z",
+        )
+
+    future = _external_activity_observations(
+        tmp_path / "future-observation",
+        observed_at="2026-07-22T12:00:01Z",
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_external_activity_observation_attestation_invalid",
+    ):
+        attempt(future)
 
 
 def test_rollout_terminal_status_must_match_exact_queue_evidence(
@@ -2991,7 +3434,44 @@ def test_rollout_terminal_status_must_match_exact_queue_evidence(
     store = _rollout_store(tmp_path / "state")
     store.persist_plan(plan)
     queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=1024)
+    benchmark_store = LocalModelBenchmarkStore(tmp_path / "state")
+    reviews = HumanMediaReviewStore(tmp_path / "state")
     sample = plan["samples"][0]
+
+    with pytest.raises(LocalQueueError, match="arena_rollout_gate_not_executable"):
+        store.record_terminal(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            status="missing",
+            reason="proposed plans cannot accept terminal evidence",
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
+    monkeypatch.setattr(
+        arena_module,
+        "_validate_rollout_router_bundle",
+        _fake_rollout_router_validator,
+    )
+    store.approve_rollout_gate(
+        plan_id=plan["planId"],
+        rollout_id="rollout-terminal-evidence",
+        operator_identity="operator@example.test",
+        decided_at=PRODUCED_AT,
+        reason="authorize exact terminal evidence",
+        mode_confirmation=arena_module.ROLLOUT_MODE_CONFIRMATION,
+        router_evidence_bundles=[
+            _rollout_router_bundle(item, index)
+            for index, item in enumerate(plan["samples"])
+        ],
+        benchmark_store=benchmark_store,
+        human_reviews=reviews,
+        external_activity_observations=external_sources,
+        evidence_secret=EVIDENCE_SECRET,
+    )
 
     with pytest.raises(
         LocalQueueError, match="arena_rollout_terminal_queue_state_mismatch"
@@ -3002,6 +3482,9 @@ def test_rollout_terminal_status_must_match_exact_queue_evidence(
             status="failed",
             reason="never-run cannot be disguised as failed",
             queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
         )
 
     queue.submit(_job_from_sample(sample))
@@ -3014,6 +3497,31 @@ def test_rollout_terminal_status_must_match_exact_queue_evidence(
             status="missing",
             reason="submitted work cannot be called missing",
             queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    AppendOnlyJournal(tmp_path / "state" / "arena_events.jsonl").append(
+        "arena_sample_terminal",
+        {
+            "schema": arena_module.EVENT_SCHEMA,
+            "planId": plan["planId"],
+            "planFingerprint": plan["planFingerprint"],
+            "sampleId": sample["sampleId"],
+            "status": "missing",
+        },
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="arena_rollout_terminal_event_authentication_invalid",
+    ):
+        store.summarize(
+            plan["planId"],
+            queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
         )
 
 
@@ -3061,7 +3569,7 @@ def test_rollout_approval_rechecks_promotion_before_append(
             router_evidence_bundles=bundles,
             benchmark_store=LocalModelBenchmarkStore(tmp_path / "state"),
             human_reviews=HumanMediaReviewStore(tmp_path / "state"),
-            external_activity_sources=_empty_external_activity_sources(
+            external_activity_observations=_external_activity_observations(
                 tmp_path / "external-activity"
             ),
             evidence_secret=EVIDENCE_SECRET,
@@ -3093,7 +3601,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
     store = _rollout_store(root)
     store.persist_plan(plan_10)
     store.persist_plan(plan_25)
-    external_sources = _empty_external_activity_sources(tmp_path / "external-activity")
+    external_sources = _external_activity_observations(tmp_path / "external-activity")
     queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=1)
     benchmark_store = LocalModelBenchmarkStore(root)
     reviews = HumanMediaReviewStore(root)
@@ -3115,7 +3623,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
         ],
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )["receipt"]
 
@@ -3132,7 +3640,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
         ],
         "benchmark_store": benchmark_store,
         "human_reviews": reviews,
-        "external_activity_sources": external_sources,
+        "external_activity_observations": external_sources,
         "evidence_secret": EVIDENCE_SECRET,
     }
     with pytest.raises(LocalQueueError, match="arena_rollout_predecessor_invalid"):
@@ -3157,6 +3665,9 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
             status="missing",
             reason="full-chain state-machine fixture",
             queue=queue,
+            benchmarks=benchmark_store,
+            human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
         )
     passing_summary = _passing_rollout_summary(
         store.summarize(
@@ -3164,6 +3675,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
             queue=queue,
             benchmarks=benchmark_store,
             human_reviews=reviews,
+            evidence_secret=EVIDENCE_SECRET,
         )
     )
     original_summarize = store.summarize
@@ -3185,7 +3697,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
         queue=queue,
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )["receipt"]
     assert (
@@ -3199,7 +3711,7 @@ def test_rollout_predecessor_must_be_prior_gate_escalation(
         queue=queue,
         benchmark_store=benchmark_store,
         human_reviews=reviews,
-        external_activity_sources=external_sources,
+        external_activity_observations=external_sources,
         evidence_secret=EVIDENCE_SECRET,
     )["receipt"]
 
@@ -3274,6 +3786,7 @@ def test_larger_rollout_gates_require_named_derived_criteria(
         summary,
         gate_size=gate_size,
         promotion_active=True,
+        promotion_hardware_fingerprint="9" * 64,
     )
 
     assert criteria["passed"] is False
@@ -3308,8 +3821,14 @@ def test_gate_25_requires_one_exact_hardware_cohort() -> None:
         },
         gate_size=25,
         promotion_active=True,
+        promotion_hardware_fingerprint="9" * 64,
     )
 
     assert criteria["singleHardwareCohortProven"] is False
     assert criteria["hardwareFingerprint"] is None
     assert "rollout_single_hardware_cohort_not_proven" in criteria["blockingReasons"]
+    assert criteria["executionHardwareMatchesPromotion"] is False
+    assert (
+        "rollout_execution_hardware_does_not_match_promotion"
+        in criteria["blockingReasons"]
+    )

@@ -7567,6 +7567,342 @@ export const generatedPipelineContractSchemas = {
 	    }
 	  }
 	} as const,
+	localModelRolloutExternalActivityObservation: {
+	  "$schema": "https://json-schema.org/draft/2020-12/schema",
+	  "$id": "reel_factory.local_model_rollout_external_activity_observation.v1",
+	  "title": "Authenticated Local Model Rollout External Activity Observation",
+	  "type": "object",
+	  "additionalProperties": false,
+	  "required": [
+	    "schema",
+	    "observationId",
+	    "kind",
+	    "storeIdentity",
+	    "queryIdentity",
+	    "intervalStart",
+	    "intervalEnd",
+	    "observedAt",
+	    "source",
+	    "provenance",
+	    "observationFingerprint",
+	    "producerAttestation"
+	  ],
+	  "properties": {
+	    "schema": {
+	      "const": "reel_factory.local_model_rollout_external_activity_observation.v1"
+	    },
+	    "observationId": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "kind": {
+	      "enum": [
+	        "provider_cost",
+	        "schedule",
+	        "publish",
+	        "qstash"
+	      ]
+	    },
+	    "storeIdentity": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "queryIdentity": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "intervalStart": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "intervalEnd": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "observedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "source": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "path",
+	        "sha256",
+	        "recordsFingerprint",
+	        "recordCount"
+	      ],
+	      "properties": {
+	        "path": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recordsFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recordCount": {
+	          "type": "integer",
+	          "minimum": 0
+	        }
+	      }
+	    },
+	    "provenance": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "producer",
+	        "producedAt",
+	        "sourceReferences"
+	      ],
+	      "properties": {
+	        "producer": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "producedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "sourceReferences": {
+	          "type": "array",
+	          "minItems": 1,
+	          "maxItems": 1,
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": false,
+	            "required": [
+	              "recordId",
+	              "fingerprint"
+	            ],
+	            "properties": {
+	              "recordId": {
+	                "type": "string",
+	                "minLength": 1
+	              },
+	              "fingerprint": {
+	                "$ref": "#/$defs/sha256"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    "observationFingerprint": {
+	      "$ref": "#/$defs/sha256"
+	    },
+	    "producerAttestation": {
+	      "$ref": "#/$defs/observerAttestation"
+	    }
+	  },
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "kind": {
+	            "const": "provider_cost"
+	          }
+	        },
+	        "required": [
+	          "kind"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "storeIdentity": {
+	            "const": "campaign_factory.provider_spend_ledger"
+	          },
+	          "queryIdentity": {
+	            "const": "provider_cost_events_by_interval.v1"
+	          },
+	          "producerAttestation": {
+	            "properties": {
+	              "issuer": {
+	                "const": "campaign_factory.rollout_provider_cost_observer"
+	              },
+	              "keyId": {
+	                "const": "campaign-factory-rollout-provider-cost-observer-v1"
+	              }
+	            }
+	          },
+	          "provenance": {
+	            "properties": {
+	              "producer": {
+	                "const": "campaign_factory.rollout_provider_cost_observer"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "kind": {
+	            "const": "schedule"
+	          }
+	        },
+	        "required": [
+	          "kind"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "storeIdentity": {
+	            "const": "threads_dashboard.schedule_evidence_store"
+	          },
+	          "queryIdentity": {
+	            "const": "schedule_events_by_interval.v1"
+	          },
+	          "producerAttestation": {
+	            "properties": {
+	              "issuer": {
+	                "const": "threads_dashboard.rollout_schedule_observer"
+	              },
+	              "keyId": {
+	                "const": "threads-dashboard-rollout-schedule-observer-v1"
+	              }
+	            }
+	          },
+	          "provenance": {
+	            "properties": {
+	              "producer": {
+	                "const": "threads_dashboard.rollout_schedule_observer"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "kind": {
+	            "const": "publish"
+	          }
+	        },
+	        "required": [
+	          "kind"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "storeIdentity": {
+	            "const": "threads_dashboard.publish_attempt_evidence_store"
+	          },
+	          "queryIdentity": {
+	            "const": "publish_events_by_interval.v1"
+	          },
+	          "producerAttestation": {
+	            "properties": {
+	              "issuer": {
+	                "const": "threads_dashboard.rollout_publish_observer"
+	              },
+	              "keyId": {
+	                "const": "threads-dashboard-rollout-publish-observer-v1"
+	              }
+	            }
+	          },
+	          "provenance": {
+	            "properties": {
+	              "producer": {
+	                "const": "threads_dashboard.rollout_publish_observer"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "kind": {
+	            "const": "qstash"
+	          }
+	        },
+	        "required": [
+	          "kind"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "storeIdentity": {
+	            "const": "upstash.qstash_event_evidence_store"
+	          },
+	          "queryIdentity": {
+	            "const": "qstash_events_by_interval.v1"
+	          },
+	          "producerAttestation": {
+	            "properties": {
+	              "issuer": {
+	                "const": "threads_dashboard.rollout_qstash_observer"
+	              },
+	              "keyId": {
+	                "const": "threads-dashboard-rollout-qstash-observer-v1"
+	              }
+	            }
+	          },
+	          "provenance": {
+	            "properties": {
+	              "producer": {
+	                "const": "threads_dashboard.rollout_qstash_observer"
+	              }
+	            }
+	          }
+	        }
+	      }
+	    }
+	  ],
+	  "$defs": {
+	    "sha256": {
+	      "type": "string",
+	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "observerAttestation": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "algorithm",
+	        "issuer",
+	        "keyId",
+	        "issuedAt",
+	        "payloadFingerprint",
+	        "signature"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "creator_os.external_observer_attestation.v1"
+	        },
+	        "algorithm": {
+	          "const": "ed25519"
+	        },
+	        "issuer": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "keyId": {
+	          "type": "string",
+	          "minLength": 1,
+	          "maxLength": 128
+	        },
+	        "issuedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "payloadFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "signature": {
+	          "type": "string",
+	          "pattern": "^[A-Za-z0-9+/]{86}==$"
+	        }
+	      }
+	    }
+	  }
+	} as const,
 	localModelRolloutGateReceipt: {
 	  "$schema": "https://json-schema.org/draft/2020-12/schema",
 	  "$id": "reel_factory.local_model_rollout_gate_receipt.v1",
@@ -7587,6 +7923,7 @@ export const generatedPipelineContractSchemas = {
 	    "creatorCounts",
 	    "modelCounts",
 	    "capabilityCounts",
+	    "promotionHardwareFingerprint",
 	    "routerEvidence",
 	    "modeConfirmation",
 	    "operatorIdentity",
@@ -7651,6 +7988,9 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "capabilityCounts": {
 	      "$ref": "#/$defs/countMap"
+	    },
+	    "promotionHardwareFingerprint": {
+	      "$ref": "#/$defs/sha256"
 	    },
 	    "routerEvidence": {
 	      "type": "array",
@@ -7863,6 +8203,7 @@ export const generatedPipelineContractSchemas = {
 	        "promotionUnblindingReceiptFingerprint",
 	        "promotionApprovalEventId",
 	        "promotionApprovalEventHash",
+	        "promotionHardwareFingerprint",
 	        "promotionEvidenceFingerprint"
 	      ],
 	      "properties": {
@@ -7917,6 +8258,9 @@ export const generatedPipelineContractSchemas = {
 	          "minLength": 1
 	        },
 	        "promotionApprovalEventHash": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "promotionHardwareFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        },
 	        "promotionEvidenceFingerprint": {
@@ -8071,6 +8415,8 @@ export const generatedPipelineContractSchemas = {
 	        "queueStabilityProven",
 	        "singleHardwareCohortProven",
 	        "hardwareFingerprint",
+	        "promotionHardwareFingerprint",
+	        "executionHardwareMatchesPromotion",
 	        "activePromotedRouterDistributionProven",
 	        "failureRecoveryComplete",
 	        "sustainedThroughputProven",
@@ -8117,6 +8463,12 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "hardwareFingerprint": {
 	          "$ref": "#/$defs/nullableSha256"
+	        },
+	        "promotionHardwareFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "executionHardwareMatchesPromotion": {
+	          "type": "boolean"
 	        },
 	        "activePromotedRouterDistributionProven": {
 	          "type": [
@@ -8249,8 +8601,19 @@ export const generatedPipelineContractSchemas = {
 	      "additionalProperties": false,
 	      "required": [
 	        "kind",
-	        "path",
-	        "sha256",
+	        "observationReceiptPath",
+	        "observationReceiptSha256",
+	        "observationId",
+	        "observationFingerprint",
+	        "issuer",
+	        "storeIdentity",
+	        "queryIdentity",
+	        "intervalStart",
+	        "intervalEnd",
+	        "observedAt",
+	        "sourcePath",
+	        "sourceSha256",
+	        "recordsFingerprint",
 	        "recordCount"
 	      ],
 	      "properties": {
@@ -8262,11 +8625,52 @@ export const generatedPipelineContractSchemas = {
 	            "qstash"
 	          ]
 	        },
-	        "path": {
+	        "observationReceiptPath": {
 	          "type": "string",
 	          "minLength": 1
 	        },
-	        "sha256": {
+	        "observationReceiptSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "observationId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "observationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "issuer": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "storeIdentity": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "queryIdentity": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "intervalStart": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "intervalEnd": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "observedAt": {
+	          "type": "string",
+	          "format": "date-time"
+	        },
+	        "sourcePath": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "sourceSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "recordsFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        },
 	        "recordCount": {
@@ -13938,6 +14342,7 @@ export const generatedPipelineContractSchemaManifest = [
 	{ key: "localModelArenaReviewPacket", filename: "local_model_arena_review_packet.v1.schema.json", id: "reel_factory.local_model_arena_review_packet.v1" },
 	{ key: "localModelArenaSummary", filename: "local_model_arena_summary.v1.schema.json", id: "reel_factory.local_model_arena_summary.v1" },
 	{ key: "localModelArenaUnblindingReceipt", filename: "local_model_arena_unblinding_receipt.v1.schema.json", id: "reel_factory.local_model_arena_unblinding_receipt.v1" },
+	{ key: "localModelRolloutExternalActivityObservation", filename: "local_model_rollout_external_activity_observation.v1.schema.json", id: "reel_factory.local_model_rollout_external_activity_observation.v1" },
 	{ key: "localModelRolloutGateReceipt", filename: "local_model_rollout_gate_receipt.v1.schema.json", id: "reel_factory.local_model_rollout_gate_receipt.v1" },
 	{ key: "localModelRouterDecision", filename: "local_model_router_decision.v1.schema.json", id: "reel_factory.local_model_router_decision.v1" },
 	{ key: "motionEditRender", filename: "motion_edit_render.v1.schema.json", id: "reel_factory.motion_edit_render.v1" },

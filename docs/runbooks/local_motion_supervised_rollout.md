@@ -20,7 +20,10 @@ promotion-plan, promotion-summary, authenticated review-packet, authenticated
 unblinding-receipt, and Router-decision bundle. Each bundle declares its
 `rolloutSampleIds`; those declarations must form an exact, non-overlapping
 partition of the rollout plan. Approval and execution both revalidate the
-bundle and require its promotion to be active.
+bundle and require its promotion to be active. Every bundle must name the same
+promotion hardware fingerprint. That exact fingerprint is copied into every
+sample partition reference and gate approval, must match the current local
+machine before execution, and must match every recorded queue execution.
 
 Before freezing or running a gate, execute
 `scripts/creator-os advanced models status --deep`. Cache-only Hugging Face
@@ -109,14 +112,35 @@ as zero to satisfy a gate.
 The caller's `decided-at` must be monotonic, no later than the Arena's trusted
 current clock, and no more than five minutes old. Router activation is always
 evaluated at that trusted current time, never at a caller-supplied backdated
-timestamp.
+timestamp. Every receipt read replays the complete per-plan and cross-gate state
+machine; duplicate, skipped, reordered, or directly injected transitions make
+the journal invalid. A supervised sample terminal event also requires the exact
+current `approved_to_run` receipt and revalidated active Router promotion.
+Terminal events are independently fingerprinted and authenticated, bind the
+approval and promotion-hardware fingerprints, and are replay-checked against
+the current exact queue job/event/evidence. The generic journal is not exposed
+as a mutable Arena API; a raw terminal row injected into its file fails replay.
 
-Each transition also requires four independently produced, read-only activity
-snapshots: provider cost events, schedules, publishes, and QStash events. Use
-JSON arrays, `{"events": [...]}`, or JSONL exported from the real evidence
-stores. The Arena hashes, counts, and content-addresses every snapshot, rejects
-unavailable or nonzero sources, and rehashes the original source before every
-later transition. Keep those exact files immutable for the gate.
+Each transition also requires four independently produced, signed read-only
+observation receipts: provider cost events, schedules, publishes, and QStash
+events. Each receipt binds a fixed observer issuer, store identity, query
+identity, observed interval, source fingerprint, canonical record fingerprint,
+and record count. Signatures are Ed25519 and the Arena is verifier-only: it has
+no observer private key or receipt-minting function. Campaign Factory must own
+the provider-cost observer private key; the external ThreadsDashboard
+integration must independently own the schedule, publish, and QStash observer
+private keys. Their reviewed public keys and fixed key IDs must be pinned in
+`ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS`.
+
+No canonical observer public keys are currently supplied by this repository,
+so the production bindings intentionally remain unset and every rollout
+approval fails closed as `observer_unavailable`. Do not replace those empty
+slots with operator-generated keys. The gate becomes executable only after the
+four external producers exist, keep their private keys outside Creator OS, and
+a reviewed change pins their public keys. Unsigned JSON/JSONL exports,
+self-asserted empty arrays, stale observations, and an unavailable trusted
+observer are holds. Keep the receipts and their exact source files immutable
+for the gate.
 
 ## Operator procedure
 
@@ -165,10 +189,10 @@ scripts/creator-os advanced arena --root <arena-root> rollout-approve \
   --mode-confirmation "Mode 3 — Local Wan / LTX motion — free." \
   --router-evidence <router-bundle-1.json> \
   --router-evidence <router-bundle-2.json> \
-  --external-activity-source provider_cost=<provider-cost-events.json> \
-  --external-activity-source schedule=<schedule-events.json> \
-  --external-activity-source publish=<publish-events.json> \
-  --external-activity-source qstash=<qstash-events.json> \
+  --external-activity-observation provider_cost=<provider-cost-observation.json> \
+  --external-activity-observation schedule=<schedule-observation.json> \
+  --external-activity-observation publish=<publish-observation.json> \
+  --external-activity-observation qstash=<qstash-observation.json> \
   [--predecessor-receipt-fingerprint <prior-approved-to-escalate-fingerprint>]
 ```
 
@@ -213,10 +237,10 @@ scripts/creator-os advanced arena --root <arena-root> rollout-reconcile \
   --plan-id <plan-id> --decision <terminal|held> \
   --operator-identity <operator> --decided-at <utc-timestamp> \
   --reason <reviewed-reason> \
-  --external-activity-source provider_cost=<provider-cost-events.json> \
-  --external-activity-source schedule=<schedule-events.json> \
-  --external-activity-source publish=<publish-events.json> \
-  --external-activity-source qstash=<qstash-events.json>
+  --external-activity-observation provider_cost=<provider-cost-observation.json> \
+  --external-activity-observation schedule=<schedule-observation.json> \
+  --external-activity-observation publish=<publish-observation.json> \
+  --external-activity-observation qstash=<qstash-observation.json>
 ```
 
 `terminal` is rejected when documented pass criteria are not met. `held` is
@@ -230,10 +254,10 @@ authenticate the separate escalation:
 scripts/creator-os advanced arena --root <arena-root> rollout-escalate \
   --plan-id <plan-id> --operator-identity <operator> \
   --decided-at <utc-timestamp> --reason <reviewed-reason> \
-  --external-activity-source provider_cost=<provider-cost-events.json> \
-  --external-activity-source schedule=<schedule-events.json> \
-  --external-activity-source publish=<publish-events.json> \
-  --external-activity-source qstash=<qstash-events.json>
+  --external-activity-observation provider_cost=<provider-cost-observation.json> \
+  --external-activity-observation schedule=<schedule-observation.json> \
+  --external-activity-observation publish=<publish-observation.json> \
+  --external-activity-observation qstash=<qstash-observation.json>
 scripts/creator-os advanced arena --root <arena-root> rollout-status \
   --plan-id <plan-id>
 ```
@@ -249,6 +273,8 @@ rollout gate does not silently perform a promotion or Router activation.
 For every gate record exact observed counts for provider calls, provider cost
 events, production writes, schedules, publishes, and QStash activity. Query the
 real evidence stores; do not rely on a request field that merely claims zero.
-Any nonzero or unavailable production/provider result holds the gate for
-investigation. Social rollout, export to a publishing edge, and runtime
-promotion require their own explicit approvals outside this protocol.
+Accept only the fixed signed observation receipts described above; the Arena
+cannot substitute an operator-created empty export. Any nonzero, stale,
+substituted, unsigned, or unavailable production/provider observation holds the
+gate for investigation. Social rollout, export to a publishing edge, and
+runtime promotion require their own explicit approvals outside this protocol.

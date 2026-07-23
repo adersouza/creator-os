@@ -18,6 +18,7 @@
     "creatorCounts",
     "modelCounts",
     "capabilityCounts",
+    "promotionHardwareFingerprint",
     "routerEvidence",
     "modeConfirmation",
     "operatorIdentity",
@@ -45,6 +46,7 @@
     "creatorCounts": {"$ref": "#/$defs/countMap"},
     "modelCounts": {"$ref": "#/$defs/countMap"},
     "capabilityCounts": {"$ref": "#/$defs/countMap"},
+    "promotionHardwareFingerprint": {"$ref": "#/$defs/sha256"},
     "routerEvidence": {
       "type": "array",
       "minItems": 1,
@@ -158,6 +160,7 @@
         "promotionUnblindingReceiptFingerprint",
         "promotionApprovalEventId",
         "promotionApprovalEventHash",
+        "promotionHardwareFingerprint",
         "promotionEvidenceFingerprint"
       ],
       "properties": {
@@ -180,6 +183,7 @@
         "promotionUnblindingReceiptFingerprint": {"$ref": "#/$defs/sha256"},
         "promotionApprovalEventId": {"type": "string", "minLength": 1},
         "promotionApprovalEventHash": {"$ref": "#/$defs/sha256"},
+        "promotionHardwareFingerprint": {"$ref": "#/$defs/sha256"},
         "promotionEvidenceFingerprint": {"$ref": "#/$defs/sha256"}
       }
     },
@@ -282,6 +286,8 @@
         "queueStabilityProven",
         "singleHardwareCohortProven",
         "hardwareFingerprint",
+        "promotionHardwareFingerprint",
+        "executionHardwareMatchesPromotion",
         "activePromotedRouterDistributionProven",
         "failureRecoveryComplete",
         "sustainedThroughputProven",
@@ -302,6 +308,8 @@
         "queueStabilityProven": {"type": ["boolean", "null"]},
         "singleHardwareCohortProven": {"type": ["boolean", "null"]},
         "hardwareFingerprint": {"$ref": "#/$defs/nullableSha256"},
+        "promotionHardwareFingerprint": {"$ref": "#/$defs/sha256"},
+        "executionHardwareMatchesPromotion": {"type": "boolean"},
         "activePromotedRouterDistributionProven": {
           "type": ["boolean", "null"]
         },
@@ -366,13 +374,40 @@
     "externalActivitySource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "path", "sha256", "recordCount"],
+      "required": [
+        "kind",
+        "observationReceiptPath",
+        "observationReceiptSha256",
+        "observationId",
+        "observationFingerprint",
+        "issuer",
+        "storeIdentity",
+        "queryIdentity",
+        "intervalStart",
+        "intervalEnd",
+        "observedAt",
+        "sourcePath",
+        "sourceSha256",
+        "recordsFingerprint",
+        "recordCount"
+      ],
       "properties": {
         "kind": {
           "enum": ["provider_cost", "schedule", "publish", "qstash"]
         },
-        "path": {"type": "string", "minLength": 1},
-        "sha256": {"$ref": "#/$defs/sha256"},
+        "observationReceiptPath": {"type": "string", "minLength": 1},
+        "observationReceiptSha256": {"$ref": "#/$defs/sha256"},
+        "observationId": {"type": "string", "minLength": 1},
+        "observationFingerprint": {"$ref": "#/$defs/sha256"},
+        "issuer": {"type": "string", "minLength": 1},
+        "storeIdentity": {"type": "string", "minLength": 1},
+        "queryIdentity": {"type": "string", "minLength": 1},
+        "intervalStart": {"type": "string", "format": "date-time"},
+        "intervalEnd": {"type": "string", "format": "date-time"},
+        "observedAt": {"type": "string", "format": "date-time"},
+        "sourcePath": {"type": "string", "minLength": 1},
+        "sourceSha256": {"$ref": "#/$defs/sha256"},
+        "recordsFingerprint": {"$ref": "#/$defs/sha256"},
         "recordCount": {"const": 0}
       }
     }
