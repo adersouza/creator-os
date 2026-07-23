@@ -5,8 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import stat
-import subprocess
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +30,6 @@ from pipeline_contracts import (
 
 from .core import (
     new_id,
-    reel_factory_python,
     sanitize_for_storage,
     sha256_file,
     slugify,
@@ -43,6 +40,18 @@ from .generation_execution_plan import (
     require_generation_execution_mode,
 )
 from .local_motion_admission import revalidate_local_motion_admission
+from .motion_source_assets import (
+    ensure_motion_edit_source_asset as _ensure_motion_edit_source_asset,
+)
+from .motion_worker_process import (
+    MotionWorkerError,
+)
+from .motion_worker_process import (
+    build_motion_worker_command as _worker_command,
+)
+from .motion_worker_process import (
+    invoke_motion_worker as _invoke_worker,
+)
 from .persistence import utc_now
 from .provider_spend import consume_provider_spend_authorization
 from .provider_spend_v2 import (
@@ -57,7 +66,7 @@ def run_motion_generation_stage(
     *,
     execution_plan: GenerationExecutionPlan,
     campaign_slug: str,
-    still_path: Path,
+    still_path: Path | None,
     prompt: str,
     model_id: str,
     duration_seconds: int | None,
@@ -72,6 +81,12 @@ def run_motion_generation_stage(
     audio_path: Path | None = None,
     generate_audio: bool = False,
     last_image_path: Path | None = None,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    preserve_audio: bool = False,
     reference_image_paths: tuple[Path, ...] = (),
     reference_video_paths: tuple[Path, ...] = (),
     enable_prompt_expansion: bool = False,
@@ -93,9 +108,31 @@ def run_motion_generation_stage(
     require_generation_execution_mode(execution_plan, expected_mode)
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
-    still = Path(still_path).expanduser().resolve()
-    if not still.is_file():
-        raise FileNotFoundError(f"accepted still not found: {still}")
+    video_edit = motion_task in {"video_retake", "video_extend"}
+    still: Path | None = None
+    source_video: Path | None = None
+    if video_edit:
+        if still_path is not None:
+            raise ValueError(
+                f"{motion_task} uses source_video_path as its only primary input; "
+                "still_path is forbidden"
+            )
+        if source_video_path is None:
+            raise FileNotFoundError(f"{motion_task} source video is required")
+        source_video = Path(source_video_path).expanduser().resolve()
+        if source_video.is_symlink() or not source_video.is_file():
+            raise FileNotFoundError(
+                f"{motion_task} source video not found: {source_video}"
+            )
+        source_video_path = source_video
+        primary_source = source_video
+    else:
+        if still_path is None:
+            raise FileNotFoundError("accepted still is required")
+        still = Path(still_path).expanduser().resolve()
+        if still.is_symlink() or not still.is_file():
+            raise FileNotFoundError(f"accepted still not found: {still}")
+        primary_source = still
     prompt = " ".join(str(prompt or "").split())
     if len(prompt) < 20:
         raise ValueError("motion prompt must contain at least 20 characters")
@@ -132,6 +169,13 @@ def run_motion_generation_stage(
             arena_summary_path=local_arena_summary_path,
             accepted_still_path=still,
             audio_path=audio_path,
+            last_image_path=last_image_path,
+            source_video_path=source_video_path,
+            retake_start_frame=retake_start_frame,
+            retake_end_frame=retake_end_frame,
+            extend_frames=extend_frames,
+            extend_direction=extend_direction,
+            preserve_audio=preserve_audio,
             campaign_creator=campaign_creator or model_slug,
             task_kind=motion_task,
             model_id=model_id,
@@ -140,7 +184,7 @@ def run_motion_generation_stage(
             contentforge_root=factory.settings.contentforge_root,
         )
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
-    source_hash = sha256_file(still)
+    source_hash = sha256_file(primary_source)
     request_fingerprint = _motion_request_fingerprint(
         model_id=model_id,
         prompt=prompt,
@@ -152,6 +196,12 @@ def run_motion_generation_stage(
         audio_path=audio_path,
         generate_audio=generate_audio,
         last_image_path=last_image_path,
+        source_video_path=source_video_path,
+        retake_start_frame=retake_start_frame,
+        retake_end_frame=retake_end_frame,
+        extend_frames=extend_frames,
+        extend_direction=extend_direction,
+        preserve_audio=preserve_audio,
         reference_image_paths=reference_image_paths,
         reference_video_paths=reference_video_paths,
         enable_prompt_expansion=enable_prompt_expansion,
@@ -165,7 +215,7 @@ def run_motion_generation_stage(
         local_motion_admission=local_motion_admission,
     )
     output_path = dirs["rendered"] / (
-        f"{slugify(still.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
+        f"{slugify(primary_source.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
         f"{request_fingerprint[:16]}.mp4"
     )
     evidence_dir = dirs["audits"] / "motion_generation"
@@ -183,6 +233,12 @@ def run_motion_generation_stage(
         audio_path=audio_path,
         generate_audio=generate_audio,
         last_image_path=last_image_path,
+        source_video_path=source_video_path,
+        retake_start_frame=retake_start_frame,
+        retake_end_frame=retake_end_frame,
+        extend_frames=extend_frames,
+        extend_direction=extend_direction,
+        preserve_audio=preserve_audio,
         reference_image_paths=reference_image_paths,
         reference_video_paths=reference_video_paths,
         enable_prompt_expansion=enable_prompt_expansion,
@@ -203,8 +259,9 @@ def run_motion_generation_stage(
         {
             "campaign": campaign_slug,
             "modelId": model_id,
-            "sourcePath": str(still),
+            "sourcePath": str(primary_source),
             "sourceSha256": source_hash,
+            "sourceRole": "source_video_edit" if video_edit else "accepted_still",
             "requestFingerprint": request_fingerprint,
             "outputPath": str(output_path),
             "dryRun": dry_run,
@@ -223,17 +280,44 @@ def run_motion_generation_stage(
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
+    preflight_log_evidence: dict[str, Any] | None = None
+    apply_log_evidence: dict[str, Any] | None = None
+    worker_phase = "preflight"
     try:
-        worker_plan = _invoke_worker(worker_command, factory=factory)
-        scope = worker_plan.get("spendScope")
-        static_fallback = run_static_mp4_stage(
-            factory,
-            campaign_slug=campaign_slug,
-            still_path=still,
-            duration_seconds=float(duration_seconds or 6),
-            dry_run=dry_run,
-            apply=apply,
+        worker_log_dir = evidence_dir / "worker_logs" / str(pipeline_job["id"])
+        worker_plan = _invoke_worker(
+            worker_command,
+            factory=factory,
+            log_dir=worker_log_dir,
+            phase="preflight",
         )
+        preflight_log_evidence = worker_plan.pop("_campaignExecutionLogEvidence", None)
+        scope = worker_plan.get("spendScope")
+        source_asset_id: str | None = None
+        if video_edit:
+            static_fallback = None
+            if apply:
+                source_asset = _ensure_motion_edit_source_asset(
+                    factory,
+                    campaign=campaign,
+                    model_slug=model_slug,
+                    source_video=primary_source,
+                    source_hash=source_hash,
+                    motion_task=motion_task,
+                )
+                source_asset_id = str(source_asset["id"])
+        else:
+            assert still is not None
+            static_fallback = run_static_mp4_stage(
+                factory,
+                campaign_slug=campaign_slug,
+                still_path=still,
+                duration_seconds=float(duration_seconds or 6),
+                dry_run=dry_run,
+                apply=apply,
+            )
+            if apply:
+                source_asset_id = _static_source_asset_id(static_fallback)
         authorization = None
         authorization_path: Path | None = None
         authorization_verified_at: str | None = None
@@ -245,6 +329,13 @@ def run_motion_generation_stage(
                     arena_summary_path=local_arena_summary_path,
                     accepted_still_path=still,
                     audio_path=audio_path,
+                    last_image_path=last_image_path,
+                    source_video_path=source_video_path,
+                    retake_start_frame=retake_start_frame,
+                    retake_end_frame=retake_end_frame,
+                    extend_frames=extend_frames,
+                    extend_direction=extend_direction,
+                    preserve_audio=preserve_audio,
                     campaign_creator=campaign_creator or model_slug,
                     task_kind=motion_task,
                     model_id=model_id,
@@ -266,6 +357,12 @@ def run_motion_generation_stage(
                 audio_path=audio_path,
                 generate_audio=generate_audio,
                 last_image_path=last_image_path,
+                source_video_path=source_video_path,
+                retake_start_frame=retake_start_frame,
+                retake_end_frame=retake_end_frame,
+                extend_frames=extend_frames,
+                extend_direction=extend_direction,
+                preserve_audio=preserve_audio,
                 reference_image_paths=reference_image_paths,
                 reference_video_paths=reference_video_paths,
                 enable_prompt_expansion=enable_prompt_expansion,
@@ -280,6 +377,7 @@ def run_motion_generation_stage(
                 evidence_transport_dir=evidence_dir / "worker_inputs",
                 dry_run=False,
             )
+            worker_phase = "apply"
             if paid:
                 if not paid_confirmation:
                     raise PermissionError(
@@ -334,7 +432,25 @@ def run_motion_generation_stage(
                         str(evidence_dir),
                     ]
                 )
-            worker_result = _invoke_worker(apply_command, factory=factory)
+            worker_result = _invoke_worker(
+                apply_command,
+                factory=factory,
+                log_dir=worker_log_dir,
+                phase="apply",
+            )
+            apply_log_evidence = worker_result.pop(
+                "_campaignExecutionLogEvidence", None
+            )
+            if preflight_log_evidence is not None or apply_log_evidence is not None:
+                worker_result["campaignExecutionLogEvidence"] = {
+                    "preflight": preflight_log_evidence,
+                    "apply": apply_log_evidence,
+                }
+        elif preflight_log_evidence is not None:
+            worker_result["campaignExecutionLogEvidence"] = {
+                "preflight": preflight_log_evidence,
+                "apply": None,
+            }
             if paid and authorization is not None:
                 execution = worker_result.get("result")
                 prediction_id = (
@@ -360,7 +476,7 @@ def run_motion_generation_stage(
                         authorization=authorization,
                         authorization_path=authorization_path,
                         authorization_verified_at=authorization_verified_at,
-                        source_path=still,
+                        source_path=primary_source,
                         source_sha256=source_hash,
                         output_path=output_path,
                         prediction_id=prediction_id,
@@ -370,14 +486,15 @@ def run_motion_generation_stage(
                 )
         registered_asset = None
         if apply:
-            source_asset_id = _static_source_asset_id(static_fallback)
+            if source_asset_id is None:
+                raise RuntimeError("motion generation source asset identity missing")
             registered_asset = _register_review_asset(
                 factory,
                 campaign=campaign,
                 source_asset_id=source_asset_id,
                 model_slug=model_slug,
                 model_id=model_id,
-                source_path=still,
+                source_path=primary_source,
                 source_hash=source_hash,
                 output_path=output_path,
                 worker_result=worker_result,
@@ -416,195 +533,29 @@ def run_motion_generation_stage(
         )
         return result
     except Exception as exc:
-        factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
+        failure_evidence: dict[str, Any] = {
+            "requestFingerprint": request_fingerprint,
+            "workerPhase": worker_phase,
+            "workerLogEvidence": {
+                "preflight": preflight_log_evidence,
+                "apply": apply_log_evidence,
+            },
+        }
+        if isinstance(exc, MotionWorkerError):
+            failure_evidence["workerLogEvidence"][worker_phase] = exc.log_evidence
+        factory.domains.events.fail_pipeline_job(
+            pipeline_job["id"],
+            str(exc),
+            sanitize_for_storage(failure_evidence),
+        )
         raise
-
-
-def _worker_command(
-    factory: Any,
-    *,
-    model_id: str,
-    prompt: str,
-    still: Path,
-    output_path: Path,
-    campaign_slug: str,
-    duration_seconds: int | None,
-    resolution: str | None,
-    seed: int,
-    steps: int | None,
-    audio_path: Path | None,
-    generate_audio: bool,
-    last_image_path: Path | None,
-    reference_image_paths: tuple[Path, ...],
-    reference_video_paths: tuple[Path, ...],
-    enable_prompt_expansion: bool,
-    shot_type: str,
-    local_model_dir: Path | None,
-    motion_task: str,
-    motion_lora_path: Path | None,
-    motion_lora_strength: float,
-    benchmark_recipe: Mapping[str, Any] | None = None,
-    analyzer_registry: Mapping[str, Any] | None = None,
-    local_motion_admission: Mapping[str, Any] | None = None,
-    evidence_transport_dir: Path | None = None,
-    dry_run: bool,
-) -> list[str]:
-    command = [
-        reel_factory_python(factory.settings.reel_factory_root),
-        "-m",
-        "reel_factory.motion_generate",
-        "--model",
-        model_id,
-        "--prompt",
-        prompt,
-        "--out",
-        str(output_path),
-        "--campaign",
-        campaign_slug,
-        "--cohort-id",
-        "creator_os_motion",
-        "--seed",
-        str(seed),
-        "--shot-type",
-        shot_type,
-        "--dry-run" if dry_run else "--apply",
-    ]
-    if model_id.startswith("local_"):
-        command.extend(["--task", motion_task])
-    if model_id == "wavespeed_wan27_reference":
-        command.extend(["--reference-image", str(still)])
-    elif motion_task != "text_to_video":
-        command.extend(["--image", str(still)])
-    for flag, value in (
-        ("--steps", steps),
-        ("--duration", duration_seconds),
-        ("--resolution", resolution),
-        ("--audio", audio_path),
-        ("--last-image", last_image_path),
-        ("--model-dir", local_model_dir),
-        ("--lora", motion_lora_path),
-    ):
-        if value is not None:
-            command.extend([flag, str(value)])
-    if motion_lora_strength != 1.0:
-        command.extend(["--lora-strength", str(motion_lora_strength)])
-    for path in reference_image_paths:
-        command.extend(["--reference-image", str(path)])
-    for path in reference_video_paths:
-        command.extend(["--reference-video", str(path)])
-    if enable_prompt_expansion:
-        command.append("--enable-prompt-expansion")
-    if generate_audio:
-        command.append("--generate-audio")
-    if benchmark_recipe is not None and analyzer_registry is not None:
-        recipe_path, recipe_sha256 = _materialize_worker_evidence(
-            evidence_transport_dir,
-            label="benchmark_recipe",
-            payload=benchmark_recipe,
-        )
-        registry_path, registry_sha256 = _materialize_worker_evidence(
-            evidence_transport_dir,
-            label="analyzer_registry",
-            payload=analyzer_registry,
-        )
-        command.extend(
-            [
-                "--benchmark-recipe",
-                str(recipe_path),
-                "--benchmark-recipe-sha256",
-                recipe_sha256,
-                "--analyzer-registry",
-                str(registry_path),
-                "--analyzer-registry-sha256",
-                registry_sha256,
-            ]
-        )
-    if local_motion_admission is not None:
-        admission_path, admission_sha256 = _materialize_worker_evidence(
-            evidence_transport_dir,
-            label="local_motion_admission",
-            payload=local_motion_admission,
-        )
-        command.extend(
-            [
-                "--local-motion-admission",
-                str(admission_path),
-                "--local-motion-admission-sha256",
-                admission_sha256,
-            ]
-        )
-    return command
-
-
-def _materialize_worker_evidence(
-    evidence_transport_dir: Path | None,
-    *,
-    label: str,
-    payload: Mapping[str, Any],
-) -> tuple[Path, str]:
-    if evidence_transport_dir is None:
-        raise ValueError("local motion evidence transport directory is required")
-    raw_directory = Path(evidence_transport_dir).expanduser()
-    if raw_directory.exists() and raw_directory.is_symlink():
-        raise ValueError("local motion evidence directory must not be a symlink")
-    directory = raw_directory.resolve()
-    directory.mkdir(parents=True, exist_ok=True)
-    encoded = (
-        json.dumps(
-            dict(payload),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        + "\n"
-    )
-    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-    path = directory / f"{label}.{digest}.json"
-    if path.exists() or path.is_symlink():
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            raise ValueError(
-                f"local motion evidence path is not a regular file: {path}"
-            )
-        if sha256_file(path) != digest:
-            raise ValueError(f"local motion evidence hash mismatch: {path}")
-        if info.st_mode & 0o222:
-            raise ValueError(f"local motion evidence file is mutable: {path}")
-    else:
-        atomic_write_text(path, encoded, encoding="utf-8")
-        path.chmod(0o444)
-    return path, digest
-
-
-def _invoke_worker(command: list[str], *, factory: Any) -> dict[str, Any]:
-    proc = subprocess.run(
-        command,
-        cwd=factory.settings.reel_factory_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60 * 60 * 6,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            proc.stderr[-3000:] or proc.stdout[-3000:] or "motion worker failed"
-        )
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("motion worker returned invalid JSON") from exc
-    if not isinstance(payload, dict) or payload.get("schema") != (
-        "reel_factory.motion_generation_result.v1"
-    ):
-        raise RuntimeError("motion worker returned the wrong schema")
-    return payload
 
 
 def _motion_request_fingerprint(
     *,
     model_id: str,
     prompt: str,
-    still: Path,
+    still: Path | None,
     duration_seconds: int | None,
     resolution: str | None,
     seed: int,
@@ -612,6 +563,12 @@ def _motion_request_fingerprint(
     audio_path: Path | None,
     generate_audio: bool,
     last_image_path: Path | None,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    preserve_audio: bool = False,
     reference_image_paths: tuple[Path, ...],
     reference_video_paths: tuple[Path, ...],
     enable_prompt_expansion: bool,
@@ -641,6 +598,12 @@ def _motion_request_fingerprint(
         "audio": media(audio_path),
         "generateAudio": generate_audio,
         "lastImage": media(last_image_path),
+        "sourceVideo": media(source_video_path),
+        "retakeStartFrame": retake_start_frame,
+        "retakeEndFrame": retake_end_frame,
+        "extendFrames": extend_frames,
+        "extendDirection": extend_direction,
+        "preserveAudio": preserve_audio,
         "referenceImages": [media(path) for path in reference_image_paths],
         "referenceVideos": [media(path) for path in reference_video_paths],
         "enablePromptExpansion": enable_prompt_expansion,
@@ -751,6 +714,68 @@ def _canonical_fingerprint(value: Mapping[str, Any]) -> str:
             dict(value), ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _local_routing_lineage(
+    admission: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if admission is None or admission.get("schema") != (
+        "campaign_factory.local_motion_admission.v1"
+    ):
+        return None
+    decision = admission.get("routerDecision")
+    records = admission.get("evidenceRecords")
+    summary = admission.get("arenaSummary")
+    if not all(isinstance(value, Mapping) for value in (decision, records, summary)):
+        raise RuntimeError("local_motion_asset_routing_evidence_missing")
+    assert isinstance(decision, Mapping)
+    assert isinstance(records, Mapping)
+    assert isinstance(summary, Mapping)
+    request = decision.get("request")
+    winning = decision.get("winningEvidence")
+    if not isinstance(request, Mapping) or not isinstance(winning, Mapping):
+        raise RuntimeError("local_motion_asset_router_evidence_missing")
+    cohort = winning.get("cohortKey")
+    promotion = winning.get("promotionApproval")
+    recipe = records.get("benchmarkRecipe")
+    registry = records.get("analyzerRegistry")
+    if not all(
+        isinstance(value, Mapping) for value in (cohort, promotion, recipe, registry)
+    ):
+        raise RuntimeError("local_motion_asset_promotion_evidence_missing")
+    assert isinstance(cohort, Mapping)
+    assert isinstance(promotion, Mapping)
+    assert isinstance(recipe, Mapping)
+    assert isinstance(registry, Mapping)
+    return {
+        "schema": "campaign_factory.local_motion_routing_lineage.v1",
+        "admissionFingerprint": admission.get("admissionFingerprint"),
+        "routerDecisionId": decision.get("decisionId"),
+        "routerDecisionFingerprint": decision.get("decisionFingerprint"),
+        "selectedModelId": decision.get("selectedModelId"),
+        "selectedModelFingerprint": decision.get("selectedModelFingerprint"),
+        "capabilityCohort": request.get("capabilityCohort"),
+        "cohortKey": dict(cohort),
+        "cohortKeyFingerprint": _canonical_fingerprint(cohort),
+        "runtimeBinding": winning.get("runtimeBinding"),
+        "runtimeBindingFingerprint": winning.get("runtimeBindingFingerprint"),
+        "licensePolicy": winning.get("licensePolicy"),
+        "licensePolicyFingerprint": winning.get("licensePolicyFingerprint"),
+        "arenaSummaryId": summary.get("summaryId"),
+        "arenaSummaryFingerprint": summary.get("summaryFingerprint"),
+        "benchmarkRecipeId": recipe.get("recipeId"),
+        "benchmarkRecipeFingerprint": _canonical_fingerprint(recipe),
+        "analyzerRegistryId": registry.get("registryId"),
+        "analyzerRegistryFingerprint": _canonical_fingerprint(registry),
+        "promotionApprovalEventId": promotion.get("approvalEventId"),
+        "promotionApprovalEventHash": promotion.get("approvalEventHash"),
+        "promotionHardwareFingerprint": promotion.get("hardwareFingerprint"),
+        "promotionEvidenceFingerprint": promotion.get("evidenceFingerprint"),
+        "promotionBenchmarkIdsFingerprint": _canonical_fingerprint(
+            {"candidateBenchmarkIds": promotion.get("candidateBenchmarkIds")}
+        ),
+        "operatorOverride": decision.get("operatorOverride"),
+    }
 
 
 def _verify_paid_authorization_at_call(
@@ -1226,8 +1251,10 @@ def _register_review_asset(
     )
     if generation.get("aiDisclosureRequired") is True:
         blocking_issues.append("ai_generated_media_disclosure_required")
-    fallback_source = {"path": str(source_path), "sha256": source_hash}
-    generation_source = None if motion_task == "text_to_video" else fallback_source
+    source_binding = {"path": str(source_path), "sha256": source_hash}
+    video_edit = motion_task in {"video_retake", "video_extend"}
+    static_fallback_source = None if video_edit else source_binding
+    generation_source = None if motion_task == "text_to_video" else source_binding
     paid_generation_evidence = (
         _paid_generation_evidence(
             factory,
@@ -1250,6 +1277,7 @@ def _register_review_asset(
         if paid
         else None
     )
+    local_routing_lineage = _local_routing_lineage(local_motion_admission)
     metadata = {
         "schema": "campaign_factory.motion_generation_asset.v1",
         "asset_state": "approved_but_not_publishable",
@@ -1263,11 +1291,15 @@ def _register_review_asset(
         "nativeAudioResolved": False,
         "source": generation_source,
         "generationInput": generation_source,
-        "staticFallbackSource": fallback_source,
+        "staticFallbackSource": static_fallback_source,
         "sourceAssetRole": (
             "static_fallback_only"
             if motion_task == "text_to_video"
-            else "generation_input_and_static_fallback"
+            else (
+                "generation_input_only"
+                if video_edit
+                else "generation_input_and_static_fallback"
+            )
         ),
         "identityRole": (
             "non_creator_broll"
@@ -1280,6 +1312,7 @@ def _register_review_asset(
         "localMotionAdmission": (
             dict(local_motion_admission) if local_motion_admission is not None else None
         ),
+        "localMotionRoutingLineage": local_routing_lineage,
         "paidGeneration": paid,
         "paidGenerationEvidence": paid_generation_evidence,
         "worker": worker_result,
@@ -1349,6 +1382,7 @@ def _register_review_asset(
         "source": {"assetId": source_asset_id, "sha256": source_hash},
         "output": {"blobId": blob_id, "sha256": digest},
         "admissionFingerprint": admission_fingerprint,
+        "localMotionRouting": local_routing_lineage,
     }
     with factory.conn:
         factory.conn.execute(

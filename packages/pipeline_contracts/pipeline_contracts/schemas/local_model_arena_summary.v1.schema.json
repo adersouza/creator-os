@@ -160,7 +160,7 @@
         "promotionEligibleYield": {"type": "number", "minimum": 0, "maximum": 1},
         "meanHumanQualityScore": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
         "medianWallTimeSeconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
-        "medianPeakMemoryBytes": {"type": ["integer", "null"], "minimum": 1},
+        "medianPeakMemoryBytes": {"type": ["number", "null"], "minimum": 1},
         "benchmarkIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     }

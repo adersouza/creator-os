@@ -74,6 +74,10 @@ CONTENTFORGE_COMPONENT_POLICIES: Final = frozenset(
     }
 )
 DEFAULT_IMPLEMENTATION_ROOT: Final = Path(__file__).resolve().parents[3]
+# Eight matched observations per arm is the smallest promotion cohort. Smaller
+# comparisons remain useful exploratory evidence, but are too fragile to drive
+# Router promotion decisions.
+PROMOTION_MINIMUM_SAMPLES_PER_ARM: Final = 8
 
 
 def _valid_sha256(value: str) -> bool:
@@ -613,6 +617,14 @@ class BenchmarkReceipt:
     benchmark_recipe_fingerprint: str | None = None
     analyzer_registry_id: str | None = None
     analyzer_registry_fingerprint: str | None = None
+    creator_identity_profile_id: str | None = None
+    creator_identity_profile_fingerprint: str | None = None
+    content_intent_id: str | None = None
+    content_intent_fingerprint: str | None = None
+    runtime_binding: Mapping[str, Any] | None = None
+    runtime_binding_fingerprint: str | None = None
+    license_policy: Mapping[str, Any] | None = None
+    license_policy_fingerprint: str | None = None
     source: str = BENCHMARK_SOURCE
 
     def __post_init__(self) -> None:
@@ -699,6 +711,52 @@ class BenchmarkReceipt:
                     raise ValueError(
                         "benchmark_evidence_linkage_fingerprints_must_be_sha256"
                     )
+        identity_intent_linkage = (
+            self.creator_identity_profile_id,
+            self.creator_identity_profile_fingerprint,
+            self.content_intent_id,
+            self.content_intent_fingerprint,
+        )
+        if any(value is not None for value in identity_intent_linkage) and not all(
+            value is not None for value in identity_intent_linkage
+        ):
+            raise ValueError("benchmark_identity_intent_linkage_must_be_complete")
+        if self.creator_identity_profile_id is not None:
+            if (
+                not self.creator_identity_profile_id.strip()
+                or self.content_intent_id is None
+                or not self.content_intent_id.strip()
+            ):
+                raise ValueError(
+                    "benchmark_identity_intent_linkage_ids_must_be_non_empty"
+                )
+            for linkage_fingerprint in (
+                self.creator_identity_profile_fingerprint,
+                self.content_intent_fingerprint,
+            ):
+                if linkage_fingerprint is None or not _valid_sha256(
+                    linkage_fingerprint
+                ):
+                    raise ValueError(
+                        "benchmark_identity_intent_linkage_fingerprints_must_be_sha256"
+                    )
+        runtime_license = (
+            self.runtime_binding,
+            self.runtime_binding_fingerprint,
+            self.license_policy,
+            self.license_policy_fingerprint,
+        )
+        if any(value is not None for value in runtime_license) and not all(
+            value is not None for value in runtime_license
+        ):
+            raise ValueError("benchmark_runtime_license_linkage_must_be_complete")
+        if self.runtime_binding is not None and (
+            not isinstance(self.runtime_binding, Mapping)
+            or not isinstance(self.license_policy, Mapping)
+            or fingerprint(self.runtime_binding) != self.runtime_binding_fingerprint
+            or fingerprint(self.license_policy) != self.license_policy_fingerprint
+        ):
+            raise ValueError("benchmark_runtime_license_linkage_invalid")
 
     @property
     def all_qc_passed(self) -> bool:
@@ -738,6 +796,24 @@ class BenchmarkReceipt:
                     "executionRetryCount": self.execution_retry_count,
                     "localCostUsd": self.local_cost_usd,
                     "localCostMeasurementMethod": self.local_cost_measurement_method,
+                }
+            )
+        if self.creator_identity_profile_id is not None:
+            payload.update(
+                {
+                    "creatorIdentityProfileId": self.creator_identity_profile_id,
+                    "creatorIdentityProfileFingerprint": self.creator_identity_profile_fingerprint,
+                    "contentIntentId": self.content_intent_id,
+                    "contentIntentFingerprint": self.content_intent_fingerprint,
+                }
+            )
+        if self.runtime_binding is not None:
+            payload.update(
+                {
+                    "runtimeBinding": dict(self.runtime_binding),
+                    "runtimeBindingFingerprint": self.runtime_binding_fingerprint,
+                    "licensePolicy": dict(self.license_policy or {}),
+                    "licensePolicyFingerprint": self.license_policy_fingerprint,
                 }
             )
         return payload
@@ -814,19 +890,62 @@ class BenchmarkReceipt:
                 if payload.get("analyzerRegistryFingerprint") is not None
                 else None
             ),
+            creator_identity_profile_id=(
+                str(payload["creatorIdentityProfileId"])
+                if payload.get("creatorIdentityProfileId") is not None
+                else None
+            ),
+            creator_identity_profile_fingerprint=(
+                str(payload["creatorIdentityProfileFingerprint"])
+                if payload.get("creatorIdentityProfileFingerprint") is not None
+                else None
+            ),
+            content_intent_id=(
+                str(payload["contentIntentId"])
+                if payload.get("contentIntentId") is not None
+                else None
+            ),
+            content_intent_fingerprint=(
+                str(payload["contentIntentFingerprint"])
+                if payload.get("contentIntentFingerprint") is not None
+                else None
+            ),
+            runtime_binding=(
+                dict(payload["runtimeBinding"])
+                if isinstance(payload.get("runtimeBinding"), dict)
+                else None
+            ),
+            runtime_binding_fingerprint=(
+                str(payload["runtimeBindingFingerprint"])
+                if payload.get("runtimeBindingFingerprint") is not None
+                else None
+            ),
+            license_policy=(
+                dict(payload["licensePolicy"])
+                if isinstance(payload.get("licensePolicy"), dict)
+                else None
+            ),
+            license_policy_fingerprint=(
+                str(payload["licensePolicyFingerprint"])
+                if payload.get("licensePolicyFingerprint") is not None
+                else None
+            ),
             source=str(payload["source"]),
         )
 
 
 @dataclass(frozen=True)
 class PromotionPolicy:
-    minimum_candidate_samples: int = 2
-    minimum_baseline_samples: int = 2
+    minimum_candidate_samples: int = PROMOTION_MINIMUM_SAMPLES_PER_ARM
+    minimum_baseline_samples: int = PROMOTION_MINIMUM_SAMPLES_PER_ARM
     maximum_wall_time_ratio: float = 1.25
     maximum_peak_memory_ratio: float = 1.25
 
     def __post_init__(self) -> None:
-        if self.minimum_candidate_samples < 2 or self.minimum_baseline_samples < 2:
+        if (
+            self.minimum_candidate_samples < PROMOTION_MINIMUM_SAMPLES_PER_ARM
+            or self.minimum_baseline_samples < PROMOTION_MINIMUM_SAMPLES_PER_ARM
+        ):
             raise ValueError("promotion sample minimums cannot weaken the fixed floor")
         if (
             not math.isfinite(self.maximum_wall_time_ratio)
@@ -1240,7 +1359,24 @@ class LocalModelBenchmarkStore:
             "modelDeepVerificationFingerprint": deep_model_receipt[
                 "verificationFingerprint"
             ],
+            "creatorIdentityProfileFingerprint": state.job.creator_identity_profile_fingerprint,
+            "contentIntentFingerprint": state.job.content_intent_fingerprint,
+            "runtimeBindingFingerprint": state.job.runtime_binding_fingerprint,
+            "licensePolicyFingerprint": state.job.license_policy_fingerprint,
         }
+        if (
+            state.job.runtime_binding is None
+            or state.job.runtime_binding_fingerprint is None
+            or state.job.license_policy is None
+            or state.job.license_policy_fingerprint is None
+        ):
+            raise LocalQueueError("benchmark_job_runtime_license_evidence_missing")
+        if (
+            deep_model_receipt.get("runtimeBinding") != state.job.runtime_binding
+            or deep_model_receipt.get("runtimeBindingFingerprint")
+            != state.job.runtime_binding_fingerprint
+        ):
+            raise LocalQueueError("benchmark_job_runtime_binding_drift")
         receipt = BenchmarkReceipt(
             benchmark_id=benchmark_id
             or f"benchmark_{fingerprint(deterministic_material)[:24]}",
@@ -1266,6 +1402,16 @@ class LocalModelBenchmarkStore:
             benchmark_recipe_fingerprint=fingerprint(recipe_payload),
             analyzer_registry_id=str(registry_payload["registryId"]),
             analyzer_registry_fingerprint=fingerprint(registry_payload),
+            creator_identity_profile_id=state.job.creator_identity_profile_id,
+            creator_identity_profile_fingerprint=(
+                state.job.creator_identity_profile_fingerprint
+            ),
+            content_intent_id=state.job.content_intent_id,
+            content_intent_fingerprint=state.job.content_intent_fingerprint,
+            runtime_binding=state.job.runtime_binding,
+            runtime_binding_fingerprint=state.job.runtime_binding_fingerprint,
+            license_policy=state.job.license_policy,
+            license_policy_fingerprint=state.job.license_policy_fingerprint,
         )
         with file_lock(self._mutation_path):
             existing_receipts = self.all_receipts()
@@ -1400,6 +1546,20 @@ class LocalModelBenchmarkStore:
                     blockers.append(f"{label}_execution_evidence_missing")
                 if not receipt.all_qc_passed:
                     blockers.append(f"{label}_qc_failed")
+                if (
+                    receipt.creator_identity_profile_id is None
+                    or receipt.creator_identity_profile_fingerprint is None
+                    or receipt.content_intent_id is None
+                    or receipt.content_intent_fingerprint is None
+                ):
+                    blockers.append(f"{label}_identity_intent_evidence_missing")
+                if (
+                    receipt.runtime_binding is None
+                    or receipt.runtime_binding_fingerprint is None
+                    or receipt.license_policy is None
+                    or receipt.license_policy_fingerprint is None
+                ):
+                    blockers.append(f"{label}_runtime_license_evidence_missing")
                 expected_versions: dict[str, str] = {}
                 try:
                     recipe, registry = self._load_receipt_evidence(receipt)
@@ -1439,6 +1599,34 @@ class LocalModelBenchmarkStore:
             self._registry_link(receipt) for receipt in baseline
         ):
             blockers.append("analyzer_registry_cohort_mismatch")
+
+        def identity_intent(receipt: BenchmarkReceipt) -> tuple[str, str, str, str]:
+            return (
+                receipt.creator_identity_profile_id or "",
+                receipt.creator_identity_profile_fingerprint or "",
+                receipt.content_intent_id or "",
+                receipt.content_intent_fingerprint or "",
+            )
+
+        if sorted(identity_intent(receipt) for receipt in candidate) != sorted(
+            identity_intent(receipt) for receipt in baseline
+        ):
+            blockers.append("identity_intent_cohort_mismatch")
+        for label, group in (("candidate", candidate), ("baseline", baseline)):
+            runtime_cohort = {
+                receipt.runtime_binding_fingerprint
+                for receipt in group
+                if receipt.runtime_binding_fingerprint is not None
+            }
+            license_cohort = {
+                receipt.license_policy_fingerprint
+                for receipt in group
+                if receipt.license_policy_fingerprint is not None
+            }
+            if len(runtime_cohort) != 1:
+                blockers.append(f"{label}_runtime_toolchain_cohort_mismatch")
+            if len(license_cohort) != 1:
+                blockers.append(f"{label}_license_policy_cohort_mismatch")
         wall_ratio = self._median_ratio(candidate, baseline, "wall_time_seconds")
         memory_ratio = self._median_ratio(candidate, baseline, "peak_memory_bytes")
         if wall_ratio is None:
@@ -1806,6 +1994,14 @@ class LocalModelBenchmarkStore:
             "benchmarkRecipeFingerprint": receipt.benchmark_recipe_fingerprint,
             "analyzerRegistryId": receipt.analyzer_registry_id,
             "analyzerRegistryFingerprint": receipt.analyzer_registry_fingerprint,
+            "creatorIdentityProfileId": receipt.creator_identity_profile_id,
+            "creatorIdentityProfileFingerprint": (
+                receipt.creator_identity_profile_fingerprint
+            ),
+            "contentIntentId": receipt.content_intent_id,
+            "contentIntentFingerprint": receipt.content_intent_fingerprint,
+            "runtimeBindingFingerprint": receipt.runtime_binding_fingerprint,
+            "licensePolicyFingerprint": receipt.license_policy_fingerprint,
         }
 
     @staticmethod
@@ -2086,8 +2282,16 @@ def _benchmark_parser() -> argparse.ArgumentParser:
     evaluate = sub.add_parser("evaluate")
     evaluate.add_argument("--candidate-benchmark-id", required=True, action="append")
     evaluate.add_argument("--baseline-benchmark-id", required=True, action="append")
-    evaluate.add_argument("--minimum-candidate-samples", type=int, default=2)
-    evaluate.add_argument("--minimum-baseline-samples", type=int, default=2)
+    evaluate.add_argument(
+        "--minimum-candidate-samples",
+        type=int,
+        default=PROMOTION_MINIMUM_SAMPLES_PER_ARM,
+    )
+    evaluate.add_argument(
+        "--minimum-baseline-samples",
+        type=int,
+        default=PROMOTION_MINIMUM_SAMPLES_PER_ARM,
+    )
     evaluate.add_argument("--maximum-wall-time-ratio", type=float, default=1.25)
     evaluate.add_argument("--maximum-peak-memory-ratio", type=float, default=1.25)
 

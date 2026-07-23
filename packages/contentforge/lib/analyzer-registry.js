@@ -12,6 +12,9 @@ const IMPLEMENTATION_PATH = fileURLToPath(
 const TRUSTED_MEDIA_IMPLEMENTATION_PATH = fileURLToPath(
   new URL("./trusted-media-analysis.js", import.meta.url),
 );
+const OVERLAY_IMPLEMENTATION_PATH = fileURLToPath(
+  new URL("./similarity.js", import.meta.url),
+);
 const HUMAN_REVIEW_IMPLEMENTATION_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../python_packages/reel_factory/reel_factory/human_media_review.py",
@@ -67,7 +70,13 @@ export async function snapshotTrustedMediaAnalyzerRegistry({
   var policy = motionSpecificQcPolicy();
   var analyzers = await Promise.all([
     ...TRUSTED_ANALYZERS.map(function (definition) {
-      return registration(definition, TRUSTED_MEDIA_IMPLEMENTATION_PATH, root);
+      return registration(
+        definition,
+        definition.analyzerId === "contentforge.overlay_delivery"
+          ? OVERLAY_IMPLEMENTATION_PATH
+          : TRUSTED_MEDIA_IMPLEMENTATION_PATH,
+        root,
+      );
     }),
     registration({
       analyzerId: policy.id,

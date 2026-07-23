@@ -67,8 +67,7 @@ def _local_benchmark_command(*args: str) -> list[str]:
     return [
         "uv",
         "run",
-        "--package",
-        "reel-factory",
+        "--all-packages",
         "python",
         "-m",
         "reel_factory.local_model_benchmark",
@@ -80,8 +79,7 @@ def _local_arena_command(*args: str) -> list[str]:
     return [
         "uv",
         "run",
-        "--package",
-        "reel-factory",
+        "--all-packages",
         "python",
         "-m",
         "reel_factory.local_model_arena",
@@ -93,8 +91,7 @@ def _local_router_command(*args: str) -> list[str]:
     return [
         "uv",
         "run",
-        "--package",
-        "reel-factory",
+        "--all-packages",
         "python",
         "-m",
         "reel_factory.local_model_router",
@@ -124,6 +121,19 @@ def _runtime_promotion_command(*args: str) -> list[str]:
         "python",
         "-m",
         "campaign_factory.runtime_promotion_entrypoint",
+        *args,
+    ]
+
+
+def _evidence_key_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "creator-os-core",
+        "python",
+        "-m",
+        "creator_os_core.evidence_attestation",
         *args,
     ]
 
@@ -173,8 +183,8 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     generate = sub.add_parser(
-        "generate",
-        aliases=["create"],
+        "create",
+        aliases=["generate"],
         help="choose one explicit generation mode; use --list-modes for cost and gates",
     )
     generation_choice = generate.add_mutually_exclusive_group(required=True)
@@ -208,6 +218,8 @@ def _parser() -> argparse.ArgumentParser:
             "image_to_video",
             "audio_image_to_video",
             "keyframe_interpolation",
+            "video_retake",
+            "video_extend",
         ],
         default="image_to_video",
     )
@@ -215,6 +227,14 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--audio", type=Path)
     generate.add_argument("--generate-audio", action="store_true")
     generate.add_argument("--last-image", type=Path)
+    generate.add_argument("--source-video", type=Path)
+    generate.add_argument("--retake-start-frame", type=int)
+    generate.add_argument("--retake-end-frame", type=int)
+    generate.add_argument("--extend-frames", type=int)
+    generate.add_argument(
+        "--extend-direction", choices=["before", "after"], default="after"
+    )
+    generate.add_argument("--preserve-audio", action="store_true")
     generate.add_argument(
         "--motion-reference-image", type=Path, action="append", default=[]
     )
@@ -257,14 +277,10 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--wait", action="store_true")
     generate.add_argument("--download", action="store_true")
 
-    readiness = sub.add_parser(
-        "readiness", help="read-only Campaign Factory QC/readiness decision"
-    )
-    readiness.add_argument("--campaign", required=True)
-    readiness.add_argument("--user-id")
-
     review = sub.add_parser(
-        "review", help="ordinary read-only Campaign creative/QC review"
+        "review",
+        aliases=["readiness"],
+        help="ordinary read-only Campaign creative/QC review",
     )
     review.add_argument("--campaign", required=True)
     review.add_argument("--user-id")
@@ -292,16 +308,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     approve.add_argument("--publish-mode", choices=["auto", "notify"])
 
-    approve_import = sub.add_parser(
-        "approve-import",
-        help="compatibility-only import of a prebuilt signed creative approval",
-    )
-    approve_import.add_argument("--approval", type=Path, required=True)
-    approve_import.add_argument("--root", type=Path)
-
     draft = sub.add_parser(
-        "draft-export",
-        aliases=["export"],
+        "export",
+        aliases=["draft-export"],
         help="preview or explicitly write validated drafts; never schedules or publishes",
     )
     draft_mode = draft.add_mutually_exclusive_group(required=True)
@@ -326,30 +335,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     draft.add_argument("--review-only", action="store_true")
 
-    local_models = sub.add_parser(
-        "local-models", help="plan, install, or verify pinned local MLX video models"
-    )
-    local_models.add_argument("args", nargs=argparse.REMAINDER)
-
-    local_queue = sub.add_parser(
-        "local-queue",
-        help="inspect the local generation lease journal or recover an interruption",
-    )
-    local_queue.add_argument("args", nargs=argparse.REMAINDER)
-
-    local_benchmarks = sub.add_parser(
-        "local-benchmarks",
-        help="record measured QC-bound local results and explicitly promote models",
-    )
-    local_benchmarks.add_argument("args", nargs=argparse.REMAINDER)
-
     advanced = sub.add_parser(
         "advanced",
         help="developer diagnostics for local models, queue, benchmarks, and analyzers",
     )
     advanced.add_argument(
         "surface",
-        choices=["models", "queue", "benchmarks", "arena", "router", "analyzers"],
+        choices=[
+            "models",
+            "queue",
+            "benchmarks",
+            "arena",
+            "router",
+            "analyzers",
+            "evidence-key",
+            "approval-import",
+            "motion-qc-register",
+        ],
     )
     advanced.add_argument("args", nargs=argparse.REMAINDER)
 
@@ -374,19 +376,27 @@ def _parser() -> argparse.ArgumentParser:
     promote.add_argument("--operator", required=True)
     promote.add_argument("--dry-run", action="store_true")
 
-    motion_qc_register = sub.add_parser(
-        "motion-qc-register",
-        help="register an immutable local motion-QC receipt; never publishes",
-    )
-    motion_qc_register.add_argument("--rendered-asset-id", required=True)
-    motion_qc_register.add_argument("--receipt", type=Path, required=True)
-    motion_qc_register.add_argument("--operator")
-
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    compatibility_surfaces = {
+        "local-models": "models",
+        "local-queue": "queue",
+        "local-benchmarks": "benchmarks",
+        "approve-import": "approval-import",
+        "motion-qc-register": "motion-qc-register",
+    }
+    if effective_argv and effective_argv[0] in compatibility_surfaces:
+        legacy = effective_argv[0]
+        surface = compatibility_surfaces[legacy]
+        print(
+            f"deprecated: use `creator-os advanced {surface}`; compatibility retained",
+            file=sys.stderr,
+        )
+        effective_argv = ["advanced", surface, *effective_argv[1:]]
+    args = _parser().parse_args(effective_argv)
     if args.command == "status":
         command = [sys.executable, str(ROOT / "scripts/doctor.py"), "--status"]
         if args.json:
@@ -430,11 +440,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.list_modes:
             return _run(_campaign_command("generation", "modes"))
         if not args.campaign:
-            print("generate requires --campaign", file=sys.stderr)
+            print("create requires --campaign", file=sys.stderr)
             return 2
         if args.dry_run == args.apply:
             print(
-                "generate requires exactly one of --dry-run or --apply", file=sys.stderr
+                "create requires exactly one of --dry-run or --apply", file=sys.stderr
             )
             return 2
         if args.max_credits is not None and (
@@ -476,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
             ("--folder", args.folder),
             ("--audio", args.audio),
             ("--last-image", args.last_image),
+            ("--source-video", args.source_video),
             ("--local-model-dir", args.local_model_dir),
             ("--local-evidence-bundle", args.local_evidence_bundle),
             ("--local-arena-summary", args.local_arena_summary),
@@ -503,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
             ("--steps", args.steps),
             ("--shot-type", args.shot_type),
             ("--motion-lora-strength", args.motion_lora_strength),
+            ("--retake-start-frame", args.retake_start_frame),
+            ("--retake-end-frame", args.retake_end_frame),
+            ("--extend-frames", args.extend_frames),
+            ("--extend-direction", args.extend_direction),
         )
         for flag, value in optional_values:
             if value is not None:
@@ -513,6 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         command.extend(["--format", args.format])
         if args.model:
             command.extend(["--model", args.model])
+        if args.preserve_audio:
+            command.append("--preserve-audio")
         command.extend(["--preferred-provider", args.preferred_provider])
         for provider in args.available_provider:
             command.extend(["--available-provider", provider])
@@ -541,38 +558,6 @@ def main(argv: list[str] | None = None) -> int:
             if enabled:
                 command.append(flag)
         return _run(command)
-    if args.command == "local-models":
-        print(
-            "deprecated: use `creator-os advanced models`; compatibility retained",
-            file=sys.stderr,
-        )
-        local_model_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        return _run(_reel_command(*local_model_args))
-    if args.command == "local-queue":
-        print(
-            "deprecated: use `creator-os advanced queue`; compatibility retained",
-            file=sys.stderr,
-        )
-        local_queue_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        return _run(_local_queue_command(*local_queue_args))
-    if args.command == "local-benchmarks":
-        print(
-            "deprecated: use `creator-os advanced benchmarks`; compatibility retained",
-            file=sys.stderr,
-        )
-        benchmark_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        return _run(_local_benchmark_command(*benchmark_args))
-    if args.command == "motion-qc-register":
-        command = _campaign_command(
-            "register-motion-qc-receipt",
-            "--rendered-asset-id",
-            args.rendered_asset_id,
-            "--receipt",
-            str(args.receipt.expanduser().resolve()),
-        )
-        if args.operator:
-            command.extend(["--operator", args.operator])
-        return _run(command)
     if args.command in {"readiness", "review"}:
         if args.command == "readiness":
             print(
@@ -599,17 +584,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.publish_mode:
             command.extend(["--publish-mode", args.publish_mode])
-        if args.root is not None:
-            command.extend(["--root", str(args.root.expanduser().resolve())])
-        return _run(command)
-    if args.command == "approve-import":
-        print(
-            "compatibility-only: importing a prebuilt approval; prefer `creator-os approve`",
-            file=sys.stderr,
-        )
-        command = _creative_approval_command(
-            "--approval", str(args.approval.expanduser().resolve())
-        )
         if args.root is not None:
             command.extend(["--root", str(args.root.expanduser().resolve())])
         return _run(command)
@@ -653,6 +627,58 @@ def main(argv: list[str] | None = None) -> int:
             return _run(_local_arena_command(*advanced_args))
         if args.surface == "router":
             return _run(_local_router_command(*advanced_args))
+        if args.surface == "evidence-key":
+            evidence_key = argparse.ArgumentParser(
+                prog="creator-os advanced evidence-key"
+            )
+            evidence_key_subcommands = evidence_key.add_subparsers(
+                dest="evidence_key_command", required=True
+            )
+            evidence_key_init = evidence_key_subcommands.add_parser("init")
+            evidence_key_mode = evidence_key_init.add_mutually_exclusive_group(
+                required=True
+            )
+            evidence_key_mode.add_argument("--dry-run", action="store_true")
+            evidence_key_mode.add_argument("--apply", action="store_true")
+            evidence_key_args = evidence_key.parse_args(advanced_args)
+            return _run(
+                _evidence_key_command(
+                    "init", "--apply" if evidence_key_args.apply else "--dry-run"
+                )
+            )
+        if args.surface == "approval-import":
+            compatibility = argparse.ArgumentParser(
+                prog="creator-os advanced approval-import"
+            )
+            compatibility.add_argument("--approval", type=Path, required=True)
+            compatibility.add_argument("--root", type=Path)
+            approval_args = compatibility.parse_args(advanced_args)
+            command = _creative_approval_command(
+                "--approval", str(approval_args.approval.expanduser().resolve())
+            )
+            if approval_args.root is not None:
+                command.extend(
+                    ["--root", str(approval_args.root.expanduser().resolve())]
+                )
+            return _run(command)
+        if args.surface == "motion-qc-register":
+            compatibility = argparse.ArgumentParser(
+                prog="creator-os advanced motion-qc-register"
+            )
+            compatibility.add_argument("--rendered-asset-id", required=True)
+            compatibility.add_argument("--receipt", type=Path, required=True)
+            compatibility.add_argument("--operator")
+            receipt_args = compatibility.parse_args(advanced_args)
+            command = _campaign_command(
+                "register-motion-qc-receipt",
+                "--rendered-asset-id",
+                receipt_args.rendered_asset_id,
+                "--receipt",
+                str(receipt_args.receipt.expanduser().resolve()),
+            )
+            if receipt_args.operator:
+                command.extend(["--operator", receipt_args.operator])
+            return _run(command)
         request = json.dumps({"producedAt": datetime.now(UTC).isoformat()})
         return _run(
             [

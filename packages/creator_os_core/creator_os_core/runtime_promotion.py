@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import uuid
 from collections import Counter
@@ -96,6 +97,46 @@ REQUIRED_CHECKS: Final = frozenset(
         "Trivy filesystem scan",
     }
 )
+APPROVAL_FIELDS: Final = frozenset(
+    {
+        "schema",
+        "repository",
+        "pullRequestNumber",
+        "approvedCommit",
+        "reviewedCommit",
+        "reviewedBy",
+        "reviewedAt",
+        "review",
+        "checks",
+        "approvalFingerprint",
+    }
+)
+RECEIPT_FIELDS: Final = frozenset(
+    {
+        "schema",
+        "promotionId",
+        "createdAt",
+        "operator",
+        "status",
+        "sourceCommit",
+        "destinationCommitBefore",
+        "destinationCommitAfter",
+        "approvalPath",
+        "approvalFingerprint",
+        "approvalEvidence",
+        "planFingerprint",
+        "backupManifestPath",
+        "backupManifestFingerprint",
+        "verification",
+        "rolledBack",
+        "failure",
+        "rollbackInstructions",
+        "productionStateWrites",
+        "providerCalls",
+        "receiptFingerprint",
+        "producerAttestation",
+    }
+)
 ApprovalEvidenceVerifier = Callable[[Path, dict[str, Any]], dict[str, Any]]
 ReceiptValidator = Callable[[dict[str, Any]], None]
 ApprovalValidator = Callable[[dict[str, Any]], None]
@@ -115,12 +156,51 @@ def _fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical(payload)).hexdigest()
 
 
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _is_commit(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 40
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _rollback_instructions(
+    *, runtime: Path, bundle_path: Path, destination_commit: str
+) -> list[str]:
+    """Return shell-safe recovery steps that can restore a pruned commit."""
+
+    return [
+        shlex.join(("git", "-C", str(runtime), "status", "--porcelain")),
+        shlex.join(("git", "-C", str(runtime), "bundle", "verify", str(bundle_path))),
+        shlex.join(("git", "-C", str(runtime), "fetch", str(bundle_path))),
+        shlex.join(
+            ("git", "-C", str(runtime), "checkout", "--detach", destination_commit)
+        ),
+        shlex.join(
+            (
+                str(runtime / "scripts" / "creator-os"),
+                "status",
+                "--live-read-only",
+                "--json",
+            )
+        ),
+    ]
 
 
 def _run(
@@ -263,16 +343,15 @@ def _validate_runtime_promotion_approval_payload(
     payload = copy.deepcopy(candidate)
     if not isinstance(payload, dict) or payload.get("schema") != APPROVAL_SCHEMA:
         raise RuntimePromotionError("runtime_promotion_approval_schema_mismatch")
+    if frozenset(payload) != APPROVAL_FIELDS:
+        raise RuntimePromotionError("runtime_promotion_approval_shape_invalid")
     claimed = str(payload.get("approvalFingerprint") or "")
     core = dict(payload)
     core.pop("approvalFingerprint", None)
     if claimed != _fingerprint(core):
         raise RuntimePromotionError("runtime_promotion_approval_fingerprint_mismatch")
     for field in ("approvedCommit", "reviewedCommit"):
-        commit = str(payload.get(field) or "")
-        if len(commit) != 40 or any(
-            character not in "0123456789abcdef" for character in commit
-        ):
+        if not _is_commit(payload.get(field)):
             raise RuntimePromotionError(f"runtime_promotion_approval_{field}_invalid")
     repository = str(payload.get("repository") or "")
     if repository.count("/") != 1 or any(
@@ -332,6 +411,20 @@ def _validate_runtime_promotion_approval_payload(
     ]
     if len(identities) != len(checks) or len(identities) != len(set(identities)):
         raise RuntimePromotionError("runtime_promotion_checks_duplicate_or_invalid")
+    check_run_ids = [
+        item.get("checkRunId") for item in checks if isinstance(item, dict)
+    ]
+    if (
+        len(check_run_ids) != len(checks)
+        or len(check_run_ids) != len(set(check_run_ids))
+        or any(
+            isinstance(check_run_id, bool)
+            or not isinstance(check_run_id, int)
+            or check_run_id <= 0
+            for check_run_id in check_run_ids
+        )
+    ):
+        raise RuntimePromotionError("runtime_promotion_check_run_identity_invalid")
     missing = REQUIRED_CHECKS.difference(identities)
     if missing:
         raise RuntimePromotionError(
@@ -572,24 +665,161 @@ def _owned_subroot(
     return resolved
 
 
-def _validate_receipt_file(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file() or path.suffix != ".json":
-        raise RuntimePromotionError("runtime_promotion_receipt_path_unsafe")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimePromotionError("runtime_promotion_receipt_unreadable") from exc
+def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any]:
+    """Validate the core receipt contract without importing pipeline_contracts."""
+
+    payload = copy.deepcopy(candidate)
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
-    promotion_id = str(payload.get("promotionId") or "")
+    if frozenset(payload) != RECEIPT_FIELDS:
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    promotion_id = payload.get("promotionId")
     try:
-        parsed_id = uuid.UUID(promotion_id)
+        parsed_id = uuid.UUID(str(promotion_id))
     except ValueError as exc:
         raise RuntimePromotionError(
             "runtime_promotion_receipt_identity_invalid"
         ) from exc
-    if str(parsed_id) != promotion_id or path.name != f"{promotion_id}.json":
+    if str(parsed_id) != promotion_id:
         raise RuntimePromotionError("runtime_promotion_receipt_identity_invalid")
+    try:
+        created_at = datetime.fromisoformat(
+            str(payload.get("createdAt") or "").replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid") from exc
+    if created_at.tzinfo is None:
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    if not str(payload.get("operator") or "").strip():
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    status = payload.get("status")
+    if status not in {"promoted", "already_current", "rolled_back"}:
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field in (
+        "sourceCommit",
+        "destinationCommitBefore",
+        "destinationCommitAfter",
+    ):
+        if not _is_commit(payload.get(field)):
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field in (
+        "approvalFingerprint",
+        "planFingerprint",
+        "backupManifestFingerprint",
+        "receiptFingerprint",
+    ):
+        if not _is_sha256(payload.get(field)):
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field in ("approvalPath", "backupManifestPath"):
+        if not str(payload.get(field) or "").strip():
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    approval_evidence = payload.get("approvalEvidence")
+    evidence_fields = {
+        "repository",
+        "pullRequestNumber",
+        "approvedCommit",
+        "reviewedCommit",
+        "reviewId",
+        "reviewerPermission",
+        "trustedCheckApp",
+        "checkRunIds",
+        "workflowRunIds",
+        "evidenceFingerprint",
+    }
+    if (
+        not isinstance(approval_evidence, dict)
+        or set(approval_evidence) != evidence_fields
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    repository = str(approval_evidence.get("repository") or "")
+    if repository.count("/") != 1 or any(
+        not part.strip() for part in repository.split("/")
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field in ("pullRequestNumber", "reviewId"):
+        value = approval_evidence.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field in ("approvedCommit", "reviewedCommit"):
+        if not _is_commit(approval_evidence.get(field)):
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    if (
+        approval_evidence.get("reviewerPermission") not in WRITE_PERMISSIONS
+        or approval_evidence.get("trustedCheckApp")
+        != f"{TRUSTED_CHECK_APP_SLUG}:{TRUSTED_CHECK_APP_ID}"
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    for field, minimum in (
+        ("checkRunIds", len(REQUIRED_CHECKS)),
+        ("workflowRunIds", 1),
+    ):
+        values = approval_evidence.get(field)
+        if (
+            not isinstance(values, list)
+            or len(values) < minimum
+            or len(values) != len(set(values))
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in values
+            )
+        ):
+            raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    evidence_core = dict(approval_evidence)
+    evidence_fingerprint = evidence_core.pop("evidenceFingerprint", None)
+    if not _is_sha256(evidence_fingerprint) or evidence_fingerprint != _fingerprint(
+        evidence_core
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    verification = payload.get("verification")
+    if not isinstance(verification, list) or any(
+        not isinstance(item, dict) for item in verification
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    rolled_back = payload.get("rolledBack")
+    failure = payload.get("failure")
+    if not isinstance(rolled_back, bool) or not (
+        failure is None or isinstance(failure, str)
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    rollback_instructions = payload.get("rollbackInstructions")
+    if (
+        not isinstance(rollback_instructions, list)
+        or not rollback_instructions
+        or any(
+            not isinstance(instruction, str) or not instruction.strip()
+            for instruction in rollback_instructions
+        )
+        or isinstance(payload.get("productionStateWrites"), bool)
+        or not isinstance(payload.get("productionStateWrites"), int)
+        or payload.get("productionStateWrites") != 0
+        or isinstance(payload.get("providerCalls"), bool)
+        or not isinstance(payload.get("providerCalls"), int)
+        or payload.get("providerCalls") != 0
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    source_commit = payload["sourceCommit"]
+    before = payload["destinationCommitBefore"]
+    after = payload["destinationCommitAfter"]
+    if (
+        (
+            status == "promoted"
+            and (rolled_back or failure is not None or after != source_commit)
+        )
+        or (
+            status == "already_current"
+            and (
+                rolled_back
+                or failure is not None
+                or before != source_commit
+                or after != source_commit
+            )
+        )
+        or (
+            status == "rolled_back"
+            and (not rolled_back or not failure or after != before)
+        )
+    ):
+        raise RuntimePromotionError("runtime_promotion_receipt_semantics_invalid")
     attestation = payload.get("producerAttestation")
     claimed = payload.get("receiptFingerprint")
     core = dict(payload)
@@ -608,6 +838,20 @@ def _validate_receipt_file(path: Path) -> dict[str, Any]:
         raise RuntimePromotionError(
             "runtime_promotion_receipt_attestation_invalid"
         ) from exc
+    return payload
+
+
+def _validate_receipt_file(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+        raise RuntimePromotionError("runtime_promotion_receipt_path_unsafe")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimePromotionError("runtime_promotion_receipt_unreadable") from exc
+    payload = _validate_runtime_promotion_receipt_payload(payload)
+    promotion_id = str(payload["promotionId"])
+    if path.name != f"{promotion_id}.json":
+        raise RuntimePromotionError("runtime_promotion_receipt_identity_invalid")
     return payload
 
 
@@ -1294,69 +1538,57 @@ def _promote_runtime(
                 status="rolled_back",
                 failure=failure,
             )
-        receipt_core = {
-            "schema": SCHEMA,
-            "promotionId": promotion_id,
-            "createdAt": created_at,
-            "operator": operator,
-            "status": status,
-            "sourceCommit": approved_commit,
-            "destinationCommitBefore": destination_commit,
-            "destinationCommitAfter": _clean_detached_runtime_commit(runtime),
-            "approvalPath": str(approval_path.expanduser().resolve()),
-            "approvalFingerprint": approval["approvalFingerprint"],
-            "approvalEvidence": verified_approval_evidence,
-            "planFingerprint": plan["planFingerprint"],
-            "backupManifestPath": str(manifest_path),
-            "backupManifestFingerprint": backup_manifest["manifestFingerprint"],
-            "verification": verification,
-            "rolledBack": rolled_back,
-            "failure": failure,
-            "rollbackInstructions": [
-                f"git -C {runtime} status --porcelain",
-                f"git -C {runtime} checkout --detach {destination_commit}",
-                f"git bundle verify {bundle_path}",
-            ],
-            "productionStateWrites": 0,
-            "providerCalls": 0,
-        }
-        receipt_payload = {
-            **receipt_core,
-            "receiptFingerprint": _fingerprint(receipt_core),
-        }
-        receipt = {
-            **receipt_payload,
-            "producerAttestation": sign_evidence_attestation(
-                receipt_payload,
-                issuer="creator_os.runtime_promotion",
-                issued_at=created_at,
-                secret=load_evidence_secret(),
-            ),
-        }
-        receipt_root = _owned_subroot(state, "receipts", create=True)
-        if receipt_root is None:  # pragma: no cover - create=True is total
-            raise RuntimePromotionError("runtime_promotion_receipts_path_unsafe")
-        receipt_path = receipt_root / f"{promotion_id}.json"
+        receipt_path: Path | None = None
         try:
+            receipt_core = {
+                "schema": SCHEMA,
+                "promotionId": promotion_id,
+                "createdAt": created_at,
+                "operator": operator,
+                "status": status,
+                "sourceCommit": approved_commit,
+                "destinationCommitBefore": destination_commit,
+                "destinationCommitAfter": _clean_detached_runtime_commit(runtime),
+                "approvalPath": str(approval_path.expanduser().resolve()),
+                "approvalFingerprint": approval["approvalFingerprint"],
+                "approvalEvidence": verified_approval_evidence,
+                "planFingerprint": plan["planFingerprint"],
+                "backupManifestPath": str(manifest_path),
+                "backupManifestFingerprint": backup_manifest["manifestFingerprint"],
+                "verification": verification,
+                "rolledBack": rolled_back,
+                "failure": failure,
+                "rollbackInstructions": _rollback_instructions(
+                    runtime=runtime,
+                    bundle_path=bundle_path,
+                    destination_commit=destination_commit,
+                ),
+                "productionStateWrites": 0,
+                "providerCalls": 0,
+            }
+            receipt_payload = {
+                **receipt_core,
+                "receiptFingerprint": _fingerprint(receipt_core),
+            }
+            receipt = {
+                **receipt_payload,
+                "producerAttestation": sign_evidence_attestation(
+                    receipt_payload,
+                    issuer="creator_os.runtime_promotion",
+                    issued_at=created_at,
+                    secret=load_evidence_secret(),
+                ),
+            }
+            receipt_root = _owned_subroot(state, "receipts", create=True)
+            if receipt_root is None:  # pragma: no cover - create=True is total
+                raise RuntimePromotionError("runtime_promotion_receipts_path_unsafe")
+            receipt_path = receipt_root / f"{promotion_id}.json"
+            _validate_runtime_promotion_receipt_payload(receipt)
             if receipt_validator is not None:
                 receipt_validator(receipt)
             atomic_write_json(receipt_path, receipt)
             decoded = json.loads(receipt_path.read_text(encoding="utf-8"))
-            decoded_core = dict(decoded)
-            decoded_attestation = decoded_core.pop("producerAttestation", None)
-            claimed = decoded_core.pop("receiptFingerprint", None)
-            if claimed != _fingerprint(decoded_core):
-                raise RuntimePromotionError(
-                    "runtime_promotion_receipt_verification_failed"
-                )
-            verify_evidence_attestation(
-                dict(decoded_attestation)
-                if isinstance(decoded_attestation, dict)
-                else {},
-                {**decoded_core, "receiptFingerprint": claimed},
-                secret=load_evidence_secret(),
-                expected_issuer="creator_os.runtime_promotion",
-            )
+            decoded = _validate_runtime_promotion_receipt_payload(decoded)
             if receipt_validator is not None:
                 receipt_validator(decoded)
             transaction = _transaction_update(
@@ -1381,7 +1613,8 @@ def _promote_runtime(
                 and _clean_detached_runtime_commit(runtime) == destination_commit
             )
             try:
-                receipt_path.unlink(missing_ok=True)
+                if receipt_path is not None:
+                    receipt_path.unlink(missing_ok=True)
             except OSError as cleanup_exc:
                 raise RuntimePromotionError(
                     "runtime_promotion_receipt_failed_rollback_succeeded_cleanup_failed"
@@ -1405,6 +1638,8 @@ def _promote_runtime(
                 "runtime_promotion_receipt_failed_and_rolled_back"
             ) from exc
         if status == "rolled_back":
+            if receipt_path is None:  # pragma: no cover - successful write sets this
+                raise RuntimePromotionError("runtime_promotion_receipt_path_missing")
             raise RuntimePromotionError(
                 f"runtime_promotion_rolled_back:{failure}:receipt={receipt_path}"
             )

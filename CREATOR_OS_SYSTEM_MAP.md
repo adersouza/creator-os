@@ -163,6 +163,8 @@ and benchmark journals:
 ```text
 Campaign content intent + execution policy
   -> BenchmarkRecipeV1 + exact AnalyzerRegistryV1 snapshot
+  -> typed task inputs: I2V image; keyframe first/last images; Retake source
+     video + frame range; or Extend source video + direction/frame count
   -> LocalModelArena immutable plan
   -> exact LocalGenerationQueue job (same ID and fingerprint as normal motion)
   -> local output + measured duration/memory + exact output SHA-256
@@ -197,13 +199,13 @@ meter, so local cost is recorded as unavailable with reason
 
 ContentForge's registry adapter snapshots each real analyzer ID, version,
 evidence kinds, repository-relative implementation reference, and
-implementation SHA-256. The current trusted automated producers cover media
-integrity, temporal motion/freeze/continuity, audio integrity/A-V container
-timing, and overlay delivery when applicable. Reel Factory adds the exact
-identity and structured-human-review producers. Anatomy and conversion quality
-remain human evidence. Speaking-video lip-sync is measured locally; it remains
-promotion-ineligible whenever that analyzer cannot produce sufficient trusted
-audio, speech, face-track, and correlation evidence.
+implementation SHA-256. Trusted analysis also binds the runtime/tool identity
+that can change results. The local lip analyzer records the exact macOS build,
+Swift version and executable SHA-256, embedded Vision source SHA-256, and one
+fingerprint over that toolchain. Reel Factory separately binds the exact model
+manifest/weights, pinned runtime, executable tool revisions, hardware, and
+commercial-use license policy. Mixed or drifted identities cannot share a
+promotion cohort.
 
 The public ContentForge `motion-qc` surface accepts only canonical trusted-media
 analysis, the exact AnalyzerRegistry snapshot, and a complete structured human
@@ -219,10 +221,20 @@ Trusted analysis operates on an immutable private snapshot, rejects symlinks
 and non-regular media, and rehashes before signing. Temporal inspection covers
 the full duration at 8 fps and 180x320, records the deterministic frame set and
 brief-frame outliers, and scores discontinuity from robust outlier candidates
-rather than ordinary high motion. Speaking-video evidence uses a local 12 fps
-face/mouth tracker plus decoded PCM speech activity and audio-visual
-correlation. Missing audio, speech, face coverage, or sufficient samples is a
-blocked measurement, never an inferred pass.
+rather than ordinary high motion. Speaking-video evidence uses actual Apple
+Vision inner/outer-lip landmarks at 12 fps plus decoded PCM: at least 36 usable
+samples are split into 24+ training and 12+ holdout observations, lag is chosen
+only on training data, and support is computed once on holdout with a
+one-sided Fisher statistic against the practical-null correlation. Fixed face
+rectangles, best-of-small-sample scores, and direct correlation-to-confidence
+mapping are rejected. Missing audio, speech, landmarks, face coverage, samples,
+or exact toolchain identity is a blocked measurement, never an inferred pass.
+
+Overlay OCR runs even when the plan declares no burned text. A completed scan
+with no detected text is the only no-overlay pass; undeclared text or app UI
+blocks. Declared overlays must independently pass measured pixel delivery and
+the canonical Pipeline Contracts semantic-payoff policy, so a dangling setup
+cannot pass merely because its pixels are readable.
 
 Trusted analysis, structured human review, motion QC, creative approval, and
 promotion evidence are authenticated with the local
@@ -233,8 +245,13 @@ Router v1 considers only ready local models with current manifests, exact
 linked benchmark receipts, a non-expired/non-revoked explicit promotion,
 applicable capability, sufficient measured quality/yield, fresh evidence, and
 enough memory. It never silently selects a paid provider or the retired legacy
-local-motion path. Promotion must bind the exact creator/identity/intent cohort,
-candidate benchmark IDs, and current hardware fingerprint that Router scores.
+local-motion path. Promotion must bind the exact creator/identity/intent/task
+cohort, the same benchmark IDs Router scores, the model/runtime/toolchain and
+license fingerprints, and the current hardware fingerprint.
+Each model arm requires at least eight matched measured samples. Receipts also
+bind one exact pinned-runtime/toolchain fingerprint and one exact model-license
+policy; mixed runtimes, changed FFmpeg/FFprobe binaries, or noncompliant
+commercial use are ineligible.
 An operator override may select only an otherwise valid candidate and is
 explicitly excluded from benchmark learning.
 
@@ -244,7 +261,8 @@ invokes Router before worker admission, and carries the full admission through
 the queue job and asset lineage. `--motion-model` is an audited override, not a
 direct bypass; it requires an operator and substantive reason and may select
 only an otherwise eligible Router candidate. Immediately before execution,
-Campaign rehashes the current still/audio and revalidates the exact task,
+Campaign rehashes every current image, audio, last-frame, and source-video input
+and revalidates Retake/Extend ranges, audio preservation, the exact task,
 recipe, registry, Arena, Router, and active-promotion evidence so a stale
 admission cannot authorize substituted inputs or a revoked model.
 
@@ -289,20 +307,14 @@ Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
 The former top-level diagnostic commands remain compatibility aliases with
 deprecation notices.
 
-One `campaign_factory.creative_approval.v2` record binds the exact creator,
-source, output, intent, recipe, model, QC receipt set, and export-payload
-projection. Campaign readiness and export both reload and revalidate that exact
-record; historical v1 approvals cannot authorize export. It also keeps burned
-overlay text, Instagram post caption,
-generated audio, source audio, and native Instagram audio as separate fields.
-The ordinary `creator-os approve` path generates its own content-addressed
-dry-run review manifest, snapshots the already-registered canonical motion-QC
-receipt, signs the resulting approval with the evidence-attestation secret, and
-persists it without provider or production writes. Local approvals require the
-exact Router admission; paid approvals instead require mutually exclusive
-WaveSpeed request, authorization, prediction, spend, input, output, and provider
-evidence captured at generation time. `creator-os approve-import` is retained
-only as a compatibility path for an already-signed approval.
+Creative Approval v2 and AI-disclosure policy remain owned by `origin/main`;
+this local-motion trust-chain work does not duplicate or replace them. They
+arrive here only through the reviewed rebase. After that rebase, the upstream
+approval binds the exact creator, source, output, intent, model admission, QC
+receipt set, export projection, and disclosure decision, and Campaign readiness
+and export reload it rather than trusting local-motion metadata. Until those
+upstream tests pass on the rebased commit, this branch is motion-evidence
+complete but not approval/export complete.
 
 `creator-os promote` is local source/runtime management, not production
 publishing. It requires an exact clean reviewed commit, a write-capable

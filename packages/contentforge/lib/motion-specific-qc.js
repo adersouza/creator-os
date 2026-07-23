@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const POLICY = Object.freeze({
   id: "contentforge.motion_specific_qc",
   version: "2.0.0",
@@ -50,8 +52,35 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function standardNormalCdf(value) {
+  var absolute = Math.abs(value);
+  var t = 1 / (1 + (0.2316419 * absolute));
+  var density = Math.exp(-0.5 * absolute * absolute) / Math.sqrt(2 * Math.PI);
+  var tail = density * t * (
+    0.319381530
+    + t * (-0.356563782
+      + t * (1.781477937
+        + t * (-1.821255978 + (t * 1.330274429))))
+  );
+  return value >= 0 ? 1 - tail : tail;
+}
+
 function validSha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
+  if (isRecord(value)) {
+    return "{" + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ":" + canonicalJson(value[key]);
+    }).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+
+function evidenceFingerprint(value) {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 function reason(code, severity, message, details = {}) {
@@ -366,7 +395,7 @@ export function evaluateMotionSpecificQc(evidence = {}, options = {}) {
       || input.lipSync.correlation < -1
       || input.lipSync.correlation > 1
       || !nonNegativeInteger(input.lipSync.sampleCount)
-      || input.lipSync.sampleCount < 7
+      || input.lipSync.sampleCount < 12
       || !normalizedNumber(input.lipSync.faceTrackCoverage)
       || !normalizedNumber(input.lipSync.speechActivityRatio)) {
       reasons.push(reason(
@@ -375,18 +404,100 @@ export function evaluateMotionSpecificQc(evidence = {}, options = {}) {
         "Lip-sync evidence must include correlation, sample count, face coverage, and speech activity",
       ));
     } else {
-      var derivedConfidence = Math.max(0, Math.min(1, (input.lipSync.correlation + 1) / 2));
-      if (Math.abs(derivedConfidence - input.lipSync.confidence) > 1e-9) {
-        reasons.push(reason(
-          "lip_sync_confidence_mismatch",
-          "block",
-          "Lip-sync confidence must be derived from the measured audio-visual correlation",
-        ));
-      }
       measurements.lipSync.correlation = input.lipSync.correlation;
       measurements.lipSync.sampleCount = input.lipSync.sampleCount;
       measurements.lipSync.faceTrackCoverage = input.lipSync.faceTrackCoverage;
       measurements.lipSync.speechActivityRatio = input.lipSync.speechActivityRatio;
+    }
+    var landmarkToolchain = input.lipSync.landmarkToolchain;
+    var landmarkToolchainCore = isRecord(landmarkToolchain)
+      ? { ...landmarkToolchain }
+      : null;
+    if (landmarkToolchainCore) delete landmarkToolchainCore.toolchainFingerprint;
+    var trustedLandmarkRuntime = validSha256(input.lipSync.landmarkEvidenceFingerprint)
+      && validSha256(input.lipSync.landmarkToolchainFingerprint)
+      && isRecord(landmarkToolchain)
+      && landmarkToolchain.schema === "contentforge.apple_vision_toolchain.v1"
+      && landmarkToolchain.toolchainFingerprint
+        === input.lipSync.landmarkToolchainFingerprint
+      && evidenceFingerprint(landmarkToolchainCore)
+        === input.lipSync.landmarkToolchainFingerprint
+      && nonEmptyString(landmarkToolchain.macosBuildVersion)
+      && nonEmptyString(landmarkToolchain.swiftVersion)
+      && validSha256(landmarkToolchain.swiftExecutableSha256)
+      && validSha256(landmarkToolchain.embeddedSwiftSourceSha256);
+    if (!trustedLandmarkRuntime) {
+      reasons.push(reason(
+        "lip_sync_landmark_runtime_invalid",
+        "block",
+        "Lip-sync evidence requires exact content-bound Apple Vision and Swift runtime identity",
+      ));
+    }
+    var correlationEvidence = input.lipSync.correlationEvidence;
+    var trustedCorrelationDesign = input.lipSync.analyzerMethod
+        === "audio_energy_to_apple_vision_lip_landmarks_train_holdout"
+      && isRecord(correlationEvidence)
+      && correlationEvidence.design
+        === "offset_selected_on_training_evaluated_once_on_interleaved_holdout"
+      && correlationEvidence.confidenceMethod
+        === "one_sided_fisher_z_against_practical_null"
+      && correlationEvidence.candidateOffsetCount === 13
+      && nonNegativeInteger(correlationEvidence.trainingSampleCount)
+      && correlationEvidence.trainingSampleCount >= 24
+      && nonNegativeInteger(correlationEvidence.holdoutSampleCount)
+      && correlationEvidence.holdoutSampleCount >= 12
+      && correlationEvidence.holdoutSampleCount === input.lipSync.sampleCount
+      && finiteNumber(correlationEvidence.trainingCorrelation)
+      && correlationEvidence.trainingCorrelation >= -1
+      && correlationEvidence.trainingCorrelation <= 1
+      && finiteNumber(correlationEvidence.holdoutCorrelation)
+      && correlationEvidence.holdoutCorrelation >= -1
+      && correlationEvidence.holdoutCorrelation <= 1
+      && finiteNumber(correlationEvidence.holdoutCorrelationLower95)
+      && Math.abs(
+        correlationEvidence.holdoutCorrelationLower95 - input.lipSync.correlation,
+      ) <= 1e-9
+      && correlationEvidence.nullCorrelation === 0.20
+      && finiteNumber(correlationEvidence.fisherStatistic)
+      && normalizedNumber(correlationEvidence.oneSidedPValue)
+      && normalizedNumber(correlationEvidence.statisticalConfidence)
+      && Math.abs(
+        correlationEvidence.oneSidedPValue
+          + correlationEvidence.statisticalConfidence - 1,
+      ) <= 1e-9
+      && ["supported", "weak", "unsupported"].includes(
+        correlationEvidence.confidenceLabel,
+      );
+    if (!trustedCorrelationDesign) {
+      reasons.push(reason(
+        "lip_sync_correlation_design_invalid",
+        "block",
+        "Lip-sync evidence requires Apple Vision mouth landmarks and a fixed train/holdout lag design",
+      ));
+    } else {
+      var expectedStatistic = (
+        Math.atanh(Math.max(
+          -0.999999,
+          Math.min(0.999999, correlationEvidence.holdoutCorrelation),
+        )) - Math.atanh(correlationEvidence.nullCorrelation)
+      ) * Math.sqrt(correlationEvidence.holdoutSampleCount - 3);
+      var expectedConfidence = standardNormalCdf(expectedStatistic);
+      if (Math.abs(expectedStatistic - correlationEvidence.fisherStatistic) > 1e-9
+        || Math.abs(expectedConfidence - input.lipSync.confidence) > 1e-9) {
+        reasons.push(reason(
+          "lip_sync_confidence_mismatch",
+          "block",
+          "Lip-sync confidence must be the declared holdout Fisher-z evidence probability",
+        ));
+      }
+    }
+    if (trustedCorrelationDesign && input.lipSync.aligned
+      && correlationEvidence.confidenceLabel !== "supported") {
+      reasons.push(reason(
+        "lip_sync_alignment_support_mismatch",
+        "block",
+        "Lip-sync cannot be marked aligned without supported holdout evidence",
+      ));
     }
   }
 

@@ -3,6 +3,10 @@
 This is a later operator-approved media rollout. It does not authorize social
 publishing.
 
+Immediately before the first local generation in a gate, the operator must
+confirm exactly: **“Mode 3 — Local Wan / LTX motion — free.”** A confirmation
+from an earlier gate or task does not carry forward.
+
 At every gate, freeze a new Arena plan containing exact source/intent/model/
 recipe/analyzer/seed/output fingerprints. No silent retry, sample replacement,
 provider fallback, or escalation is allowed.
@@ -39,3 +43,85 @@ assignments, sample count, intended capability cohorts, and prior-gate receipt.
 Escalation requires a recorded approval tied to that gate's plan and summary
 fingerprints. Any model/implementation/recipe/analyzer change starts a new plan
 and invalidates comparison with the old cohort.
+
+## Gate state machine
+
+Use the existing Arena, queue, benchmark, and human-review stores. Do not create
+a rollout database or a second scheduler. Each gate moves through these states:
+
+1. **proposed** — prepare the exact request and verify its intended sample count
+   is exactly 10, 25, 50, or 100;
+2. **frozen** — persist one `promotion_eligible` Arena plan and record its
+   `planId` and `planFingerprint`; no inputs or assignments may change;
+3. **approved-to-run** — the operator reviews the exact sample list and records
+   approval tied to that plan fingerprint;
+4. **executing** — run only sample IDs in the frozen plan through the local
+   queue; an interrupted lease may resume the same immutable job, but a new
+   seed, model, source, output, or sample ID is a new plan rather than a retry;
+5. **reviewing** — finalize actual-media evidence, create the model-free blinded
+   review packet, lock every signed review, then create the unblinding receipt;
+6. **terminal** — build the Arena summary only after every planned sample has an
+   honest terminal classification;
+7. **approved-to-escalate** or **held** — record the decision against the exact
+   plan, review packet, unblinding receipt, and summary fingerprints. A held gate
+   cannot be bypassed by starting a larger cohort.
+
+The operator record for states 3 and 7 must contain the gate size, plan ID and
+fingerprint, predecessor-gate receipt fingerprint (null only for gate 10), exact
+creator/model/capability counts, operator identity, UTC timestamp, decision,
+and reason. The terminal record additionally contains the summary fingerprint,
+review-packet fingerprint, unblinding-receipt fingerprint, terminal counts,
+promotion-eligible yield, explicit failed/held sample IDs and classifications,
+and the observed provider-call and production-write totals. Missing values stay
+missing; they are never serialized as zero to satisfy a gate.
+
+## Operator procedure
+
+All diagnostic commands use the explicit advanced surface:
+
+```bash
+scripts/creator-os advanced models status --deep
+scripts/creator-os advanced arena --root <arena-root> plan \
+  --request <gate-request.json> \
+  --contentforge-registry <analyzer-registry.json> \
+  --repository-root <exact-clean-source-root>
+```
+
+Read the returned immutable plan before approving it. Then execute each exact
+sample ID; do not loop over a directory that can change underneath the run:
+
+```bash
+scripts/creator-os advanced arena --root <arena-root> generate \
+  --plan-id <plan-id> --sample-id <sample-id> --mode local_wan --apply
+scripts/creator-os advanced arena --root <arena-root> finalize \
+  --plan-id <plan-id> --sample-id <sample-id> --review <signed-review.json> \
+  --repository-root <exact-clean-source-root> --identity-root <identity-root> \
+  --produced-at <utc-timestamp>
+```
+
+After every sample is terminal, preserve blinding order:
+
+```bash
+scripts/creator-os advanced arena --root <arena-root> review-packet \
+  --plan-id <plan-id> --created-at <utc-timestamp>
+# Complete and lock every signed blinded review before the next command.
+scripts/creator-os advanced arena --root <arena-root> unblind \
+  --plan-id <plan-id> --created-at <later-utc-timestamp>
+scripts/creator-os advanced arena --root <arena-root> summary --plan-id <plan-id>
+```
+
+Before escalation, re-read the plan and summary from their canonical stores,
+verify every bound fingerprint, compare the result with the gate table above,
+and have the operator sign the terminal decision. The 25 gate must cite the 10
+terminal record, the 50 gate must cite the 25 record, and the 100 gate must cite
+the 50 record. Model benchmark promotion and Router activation remain separate,
+evidence-gated decisions; passing a rollout gate does not silently perform either.
+
+## Final zero-write reconciliation
+
+For every gate record exact observed counts for provider calls, provider cost
+events, production writes, schedules, publishes, and QStash activity. Query the
+real evidence stores; do not rely on a request field that merely claims zero.
+Any nonzero or unavailable production/provider result holds the gate for
+investigation. Social rollout, export to a publishing edge, and runtime
+promotion require their own explicit approvals outside this protocol.

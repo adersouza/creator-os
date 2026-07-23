@@ -7,10 +7,15 @@ from pathlib import Path
 
 import pytest
 from creator_os_core.fileops import file_lock
+from reel_factory.local_generation_queue import fingerprint
 from reel_factory.local_model_manager import (
     _dependency_ready,
+    _git_worktree_issue,
     _install_dependency,
+    _load_deep_verification_cache,
     _longcat_runtime_status,
+    _runtime_probe_environment,
+    _write_deep_verification_cache,
     all_model_status,
     install_models,
     install_plan,
@@ -72,6 +77,65 @@ def _cache_only_dependency_fixture(
 
 def _cache_dependency_receipt(root: Path) -> Path:
     return root / ".receipts" / "wan_umt5_tokenizer.json"
+
+
+def test_deep_cache_is_invalidated_by_toolchain_fingerprint_change(
+    tmp_path: Path,
+) -> None:
+    runtime_binding = {
+        "runtimeId": "fixture",
+        "ffmpegSha256": "a" * 64,
+        "ffprobeSha256": "b" * 64,
+    }
+    runtime_fingerprint = fingerprint(runtime_binding)
+    core = {
+        "manifestSha256": "c" * 64,
+        "statSnapshotFingerprint": "d" * 64,
+        "runtimeBindingFingerprint": runtime_fingerprint,
+    }
+    receipt = {**core, "verificationFingerprint": fingerprint(core)}
+    _write_deep_verification_cache(
+        root=tmp_path, model_id="fixture-model", receipt=receipt
+    )
+    assert (
+        _load_deep_verification_cache(
+            root=tmp_path,
+            model_id="fixture-model",
+            manifest_sha256="c" * 64,
+            stat_snapshot_fingerprint="d" * 64,
+            runtime_binding_fingerprint=runtime_fingerprint,
+        )
+        == receipt
+    )
+    changed_toolchain = fingerprint({**runtime_binding, "ffmpegSha256": "e" * 64})
+    assert (
+        _load_deep_verification_cache(
+            root=tmp_path,
+            model_id="fixture-model",
+            manifest_sha256="c" * 64,
+            stat_snapshot_fingerprint="d" * 64,
+            runtime_binding_fingerprint=changed_toolchain,
+        )
+        is None
+    )
+
+
+def test_runtime_probe_environment_strips_caller_python_paths_and_secrets() -> None:
+    environment = _runtime_probe_environment(
+        {
+            "HOME": "/tmp/home",
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": "/tmp/substituted-source",
+            "CREATOR_OS_EVIDENCE_AUTH_SECRET": "must-not-leak",
+        }
+    )
+
+    assert environment["HOME"] == "/tmp/home"
+    assert environment["PATH"] == "/usr/bin:/bin"
+    assert environment["PYTHONNOUSERSITE"] == "1"
+    assert environment["HF_HUB_OFFLINE"] == "1"
+    assert "PYTHONPATH" not in environment
+    assert "CREATOR_OS_EVIDENCE_AUTH_SECRET" not in environment
 
 
 def test_all_model_plan_deduplicates_quantized_ltx_dependencies(tmp_path: Path) -> None:
@@ -833,6 +897,10 @@ def test_longcat_runtime_install_is_separate_pinned_and_records_environment(
 
     def runner(command, **_kwargs):
         commands.append(command)
+        if command[:2] == ["git", "-C"] and command[3:] == ["rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(
+                command, 0, LONGCAT_MLX_REVISION + "\n", ""
+            )
         if command[:2] == ["uv", "venv"]:
             python = partial / ".venv/bin/python"
             python.parent.mkdir(parents=True)
@@ -862,6 +930,135 @@ def test_longcat_runtime_install_is_separate_pinned_and_records_environment(
     assert receipt["revision"] == LONGCAT_MLX_REVISION
     assert receipt["requirements"]
     assert len(receipt["requirementsFingerprint"]) == 64
+    assert [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(runtime / ".venv/bin/python"),
+        "--no-deps",
+        str(runtime),
+    ] in commands
+
+
+def test_longcat_runtime_install_repairs_historical_partial_path_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "longcat-avatar-mlx"
+    python = runtime / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("runtime")
+    (runtime / ".creator-os-runtime.json").write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.local_mlx_runtime_installation.v1",
+                "runtimeId": "longcat_avatar",
+                "repository": LONGCAT_MLX_REPOSITORY,
+                "revision": LONGCAT_MLX_REVISION,
+                "python": str(python),
+                "requirements": ["historical"],
+                "resolvedEnvironment": [
+                    "longcat-video-avatar-mlx @ "
+                    + runtime.with_name("longcat-avatar-mlx.partial").as_uri()
+                ],
+                "capabilityStatus": "experimental",
+            }
+        )
+    )
+    statuses = iter(
+        [
+            {"ready": False, "issues": ["longcat_mlx_runtime_receipt_mismatch"]},
+            {"ready": True, "issues": []},
+        ]
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager._longcat_runtime_status",
+        lambda **_kwargs: next(statuses),
+    )
+    commands: list[list[str]] = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if command[:2] == ["git", "-C"]:
+            return subprocess.CompletedProcess(
+                command, 0, LONGCAT_MLX_REVISION + "\n", ""
+            )
+        if command[:3] == ["uv", "pip", "freeze"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                f"longcat-video-avatar-mlx @ {runtime.as_uri()}\nmlx==0.32.0\n",
+                "",
+            )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    status = install_runtime(
+        runtime_root=runtime, family="longcat_avatar", runner=runner
+    )
+
+    assert status["ready"] is True
+    receipt = json.loads((runtime / ".creator-os-runtime.json").read_text())
+    assert receipt["requirementsFingerprint"]
+    assert receipt["resolvedEnvironment"] == [
+        f"longcat-video-avatar-mlx @ creator-os-pinned-source:{LONGCAT_MLX_REVISION}",
+        "mlx==0.32.0",
+    ]
+    assert all(".partial" not in value for value in receipt["resolvedEnvironment"])
+    assert [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(python),
+        "--no-deps",
+        str(runtime),
+    ] in commands
+
+
+def test_runtime_worktree_allows_only_valid_installer_owned_paths(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    subprocess.run(["git", "init", "-q", str(runtime)], check=True)
+    subprocess.run(
+        ["git", "-C", str(runtime), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(runtime), "config", "user.name", "Test"], check=True
+    )
+    source = runtime / "runtime.py"
+    source.write_text("PINNED = True\n")
+    subprocess.run(["git", "-C", str(runtime), "add", "runtime.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(runtime), "commit", "-q", "-m", "fixture"], check=True
+    )
+
+    (runtime / ".creator-os-runtime.json").write_text("{}\n")
+    build = runtime / "build/lib"
+    build.mkdir(parents=True)
+    (build / "runtime.py").write_text("PINNED = True\n")
+    assert _git_worktree_issue(runtime) is None
+
+    unexpected = runtime / "unexpected.py"
+    unexpected.write_text("drift\n")
+    assert _git_worktree_issue(runtime) == "dirty"
+    unexpected.unlink()
+
+    source.write_text("PINNED = False\n")
+    assert _git_worktree_issue(runtime) == "dirty"
+
+
+def test_runtime_worktree_rejects_symlinked_installer_artifact(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    subprocess.run(["git", "init", "-q", str(runtime)], check=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (runtime / "build").symlink_to(outside, target_is_directory=True)
+
+    assert _git_worktree_issue(runtime) == "dirty"
 
 
 def test_longcat_runtime_status_rejects_resolved_environment_drift(

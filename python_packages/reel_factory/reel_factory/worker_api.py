@@ -13,6 +13,7 @@ from .local_generation_queue import (
     _macos_available_memory_bytes,
     default_local_generation_queue,
     fingerprint,
+    hardware_identity,
 )
 from .local_model_arena import LocalModelArenaStore
 from .local_model_benchmark import default_local_model_benchmark_store
@@ -154,6 +155,16 @@ def admit_local_motion(
             plan_id, human_reviews=human_reviews
         ),
     )
+    winning = decision.get("winningEvidence")
+    approval = (
+        winning.get("promotionApproval") if isinstance(winning, Mapping) else None
+    )
+    current_hardware = hardware_identity()
+    if not isinstance(approval, Mapping) or approval.get(
+        "hardwareFingerprint"
+    ) != current_hardware.get("fingerprint"):
+        raise ValueError("local_motion_promotion_hardware_mismatch")
+    resource_snapshot["hardware"] = current_hardware
     summary_binding = {
         "summaryId": summary.get("summaryId"),
         "summaryFingerprint": summary.get("summaryFingerprint"),

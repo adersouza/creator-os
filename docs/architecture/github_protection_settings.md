@@ -10,6 +10,8 @@ GitHub before treating the monorepo as production runtime source.
 - Require the latest successful CI run on the merge commit.
 - Require at least one approving review from a code owner or trusted maintainer.
 - Dismiss stale approvals when the head branch changes.
+- Require approval of the most recent reviewable push by someone other than the
+  pusher.
 - Require conversation resolution before merge.
 - Require signed commits if it does not block existing automation.
 - Require linear history or squash merges.
@@ -50,8 +52,15 @@ Verification:
 
 ```bash
 gh api repos/adersouza/creator-os/rulesets --jq '.[] | {name,enforcement}'
-gh api repos/adersouza/creator-os/branches/main/protection
+gh api repos/adersouza/creator-os/branches/main/protection \
+  --jq '{reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled, checks: [.required_status_checks.checks[].context]}'
 ```
+
+The live payload, not this checklist, is the authority. Require `reviews >= 1`
+and `stale`, `last_push`, and `conversations` all true while preserving the full
+required-check inventory above. Changing these repository settings requires a
+GitHub administrator; a checked-in documentation change is not proof that the
+control is active.
 
 ## Protected Environments
 

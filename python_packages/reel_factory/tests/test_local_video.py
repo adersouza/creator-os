@@ -18,11 +18,28 @@ from reel_factory.local_video import (
     LocalVideoRequest,
     LocalVideoUnavailable,
     _run_generation_process,
+    _validate_campaign_admission,
     build_local_video_command,
     plan_local_video_job,
     probe_local_video,
     run_local_video,
 )
+
+RUNTIME_BINDING = {
+    "runtimeId": "fixture-runtime",
+    "repository": "fixture/runtime",
+    "revision": "runtime-revision",
+}
+RUNTIME_FINGERPRINT = fingerprint(RUNTIME_BINDING)
+LICENSE_POLICY = {
+    "licenseId": "apache-2.0",
+    "commercialUse": True,
+    "declaredAnnualRevenueUsd": None,
+    "commercialRevenueLimitUsd": None,
+    "commercialUseAllowed": True,
+    "aiDisclosureRequired": False,
+}
+LICENSE_FINGERPRINT = fingerprint(LICENSE_POLICY)
 
 
 @pytest.fixture(autouse=True)
@@ -48,16 +65,36 @@ def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "reel_factory.local_video.model_status",
-        lambda model_id, **_kwargs: {
-            "ready": True,
-            "issues": [],
-            "modelId": model_id,
-            "manifest": {"modelId": model_id, "revision": "fixture-revision"},
-            "manifestSha256": "c" * 64,
-            "deepVerified": True,
-            "deepVerificationReceipt": None,
-        },
+        lambda model_id, **_kwargs: _model_status(model_id),
     )
+
+
+def _model_status(model_id: str) -> dict:
+    deep_core = {
+        "modelId": model_id,
+        "manifestSha256": "c" * 64,
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+        "providerCalls": 0,
+        "paidGeneration": False,
+    }
+    return {
+        "ready": True,
+        "issues": [],
+        "modelId": model_id,
+        "manifest": {
+            "modelId": model_id,
+            "revision": "fixture-revision",
+            "licenseId": LICENSE_POLICY["licenseId"],
+            "commercialRevenueLimitUsd": None,
+        },
+        "manifestSha256": "c" * 64,
+        "deepVerified": True,
+        "deepVerificationReceipt": {
+            **deep_core,
+            "verificationFingerprint": fingerprint(deep_core),
+        },
+    }
 
 
 def _image(tmp_path: Path, name: str = "still.jpg") -> Path:
@@ -128,18 +165,35 @@ def _request(
         "registryId": "fixture-registry",
         "analyzers": [{"analyzerId": "fixture.motion", "analyzerVersion": "1.0.0"}],
     }
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "fixture-identity",
+    }
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": "fixture-intent",
+        "creatorIdentityProfileId": profile["profileId"],
+        "sourceAssetFingerprints": [source_sha256],
+    }
+    model_deep_fingerprint = _model_status(model_id)["deepVerificationReceipt"][
+        "verificationFingerprint"
+    ]
     binding_core = {
         "schema": "reel_factory.arena_benchmark_execution.v1",
         "sampleId": "fixture-sample",
         "blindedCandidateId": "fixture-candidate",
         "sourceSha256": source_sha256,
         "identityProfileId": "fixture-identity",
-        "identityProfileFingerprint": "a" * 64,
+        "identityProfileFingerprint": fingerprint(profile),
         "contentIntentId": "fixture-intent",
-        "contentIntentFingerprint": "b" * 64,
+        "contentIntentFingerprint": fingerprint(intent),
         "benchmarkRecipeFingerprint": fingerprint(recipe),
         "analyzerRegistryFingerprint": fingerprint(registry),
-        "modelDeepVerificationFingerprint": "d" * 64,
+        "modelDeepVerificationFingerprint": model_deep_fingerprint,
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+        "licensePolicy": LICENSE_POLICY,
+        "licensePolicyFingerprint": LICENSE_FINGERPRINT,
         "providerCalls": 0,
         "productionWritesAllowed": False,
     }
@@ -157,6 +211,8 @@ def _request(
         lora_path=lora_path,
         benchmark_recipe=recipe,
         analyzer_registry=registry,
+        creator_identity_profile=profile,
+        content_intent=intent,
         execution_context="arena_benchmark",
         arena_benchmark_binding={
             **binding_core,
@@ -174,13 +230,19 @@ def _rebind_arena_source(
         "inputFingerprints": [source_sha256],
         "taskKind": request.task,
     }
+    intent = {
+        **dict(request.content_intent or {}),
+        "sourceAssetFingerprints": [source_sha256],
+    }
     core = dict(request.arena_benchmark_binding or {})
     core.pop("bindingFingerprint", None)
     core["sourceSha256"] = source_sha256
     core["benchmarkRecipeFingerprint"] = fingerprint(recipe)
+    core["contentIntentFingerprint"] = fingerprint(intent)
     return replace(
         request,
         benchmark_recipe=recipe,
+        content_intent=intent,
         arena_benchmark_binding={
             **core,
             "bindingFingerprint": fingerprint(core),
@@ -200,6 +262,198 @@ def test_wan_t2v_omits_image_and_never_falls_back_to_one(tmp_path: Path) -> None
     command = build_local_video_command(request, python_executable="python3")
     assert "--image" not in command
     assert command[command.index("--prompt") + 1] == request.prompt
+
+
+def test_campaign_admission_rehashes_last_image_before_flf_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _image(tmp_path, "first.png")
+    last = _image(tmp_path, "last.png")
+    inputs = [hashlib.sha256(path.read_bytes()).hexdigest() for path in (first, last)]
+    model_id = "local_wan21_flf2v_14b_cuda"
+    manifest_sha = "c" * 64
+    revision = "fixture-revision"
+    model_fingerprint = fingerprint(
+        {
+            "modelId": model_id,
+            "modelRevision": revision,
+            "modelManifestSha256": manifest_sha,
+        }
+    )
+    identity = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "profile-stacey",
+    }
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": "intent-flf",
+        "creatorIdentityProfileId": identity["profileId"],
+        "sourceAssetFingerprints": inputs,
+    }
+    recipe = {
+        "schema": "creator_os.benchmark_recipe.v1",
+        "recipeId": "recipe-flf",
+        "inputFingerprints": inputs,
+    }
+    registry = {
+        "schema": "creator_os.analyzer_registry.v1",
+        "registryId": "registry-flf",
+    }
+    summary_fingerprint = "f" * 64
+    decision_request = {
+        "creatorId": "stacey",
+        "identityProfileId": identity["profileId"],
+        "identityProfileFingerprint": fingerprint(identity),
+        "contentIntentId": intent["intentId"],
+        "contentIntentFingerprint": fingerprint(intent),
+        "taskKind": "first_last_frame_to_video",
+        "capabilityCohort": "first_last_frame",
+        "availableMemoryBytes": 48 * 1024**3,
+    }
+    approval = {
+        "approvalEventId": "approval-flf",
+        "approvalEventHash": "7" * 64,
+        "candidateModelFingerprint": model_fingerprint,
+        "candidateBenchmarkIds": ["benchmark-flf"],
+        "taskKind": "first_last_frame_to_video",
+        "hardwareFingerprint": "8" * 64,
+        "evidenceFingerprint": "9" * 64,
+    }
+    cohort_key = {
+        field: decision_request.get(field)
+        for field in (
+            "creatorId",
+            "identityProfileId",
+            "identityProfileFingerprint",
+            "contentIntentId",
+            "contentIntentFingerprint",
+            "taskKind",
+            "capabilityCohort",
+        )
+    }
+    winning = {
+        "arenaSummaryFingerprint": summary_fingerprint,
+        "benchmarkIds": ["benchmark-flf"],
+        "matchedArenaSampleIds": ["sample-flf"],
+        "validArenaSampleIds": ["sample-flf"],
+        "cohortKey": cohort_key,
+        "promotionApproval": approval,
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+        "licensePolicy": LICENSE_POLICY,
+        "licensePolicyFingerprint": LICENSE_FINGERPRINT,
+    }
+    decision_core = {
+        "schema": "reel_factory.local_model_router_decision.v1",
+        "request": decision_request,
+        "consideredCandidates": [
+            {
+                "modelId": model_id,
+                "modelFingerprint": model_fingerprint,
+                "capabilityCohort": "first_last_frame",
+                "benchmarkIds": ["benchmark-flf"],
+                "arenaSummaryFingerprint": summary_fingerprint,
+                "promotionApproval": approval,
+                "runtimeBinding": RUNTIME_BINDING,
+                "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+                "licensePolicy": LICENSE_POLICY,
+                "licensePolicyFingerprint": LICENSE_FINGERPRINT,
+                "score": 1.0,
+                "exclusions": [],
+            }
+        ],
+        "selectedModelId": model_id,
+        "selectedModelFingerprint": model_fingerprint,
+        "decisionId": "decision-flf",
+        "winningEvidence": winning,
+        "paidProviderFallbackAllowed": False,
+        "legacyLocalMotionFallbackAllowed": False,
+    }
+    decision = {
+        **decision_core,
+        "decisionFingerprint": fingerprint(decision_core),
+    }
+    admission_core = {
+        "schema": "campaign_factory.local_motion_admission.v1",
+        "routerDecision": decision,
+        "arenaSummary": {
+            "summaryId": "summary-flf",
+            "summaryFingerprint": summary_fingerprint,
+            "planId": "plan-flf",
+            "planFingerprint": "e" * 64,
+            "purpose": "promotion_eligible",
+        },
+        "evidenceRecords": {
+            "creatorIdentityProfile": identity,
+            "contentIntent": intent,
+            "executionPolicy": {
+                "schema": "creator_os.execution_policy.v1",
+                "policyId": "policy-flf",
+            },
+            "benchmarkRecipe": recipe,
+            "analyzerRegistry": registry,
+        },
+        "inputFingerprints": inputs,
+        "resourceSnapshot": {
+            "schema": "campaign_factory.local_motion_resource_snapshot.v1",
+            "routerAvailableMemoryBytes": decision_request["availableMemoryBytes"],
+            "hardware": {"fingerprint": approval["hardwareFingerprint"]},
+        },
+    }
+    admission = {
+        **admission_core,
+        "admissionFingerprint": fingerprint(admission_core),
+    }
+    request = LocalVideoRequest(
+        model_id=model_id,
+        image_path=first,
+        last_image_path=last,
+        prompt="Move naturally between the exact endpoint frames",
+        output_path=tmp_path / "out.mp4",
+        task="first_last_frame_to_video",
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+        execution_context="campaign_generation",
+        local_motion_admission=admission,
+    )
+    deep_core = {
+        "modelId": model_id,
+        "manifestSha256": manifest_sha,
+        "providerCalls": 0,
+        "paidGeneration": False,
+        "runtimeBinding": RUNTIME_BINDING,
+        "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
+    }
+    capability = {
+        "model": {
+            "ready": True,
+            "deepVerified": True,
+            "manifest": {
+                "revision": revision,
+                "licenseId": LICENSE_POLICY["licenseId"],
+                "commercialRevenueLimitUsd": None,
+            },
+            "manifestSha256": manifest_sha,
+            "deepVerificationReceipt": {
+                **deep_core,
+                "verificationFingerprint": fingerprint(deep_core),
+            },
+        }
+    }
+    monkeypatch.setattr(
+        "reel_factory.local_video.validate_local_model_router_decision",
+        lambda _decision: None,
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video.hardware_identity",
+        lambda: {"fingerprint": approval["hardwareFingerprint"]},
+    )
+    binding = _validate_campaign_admission(request, capability=capability)
+    assert binding["inputFingerprints"] == inputs
+
+    last.write_bytes(b"substituted-last-frame")
+    with pytest.raises(LocalVideoUnavailable, match="input_fingerprint_mismatch"):
+        _validate_campaign_admission(request, capability=capability)
 
 
 def test_explicit_lora_is_hashed_input_and_passed_to_supported_runtime(

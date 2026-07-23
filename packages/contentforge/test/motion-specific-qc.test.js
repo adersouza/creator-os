@@ -1,8 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { evaluateMotionSpecificQc, motionSpecificQcPolicy } from "../lib/motion-specific-qc.js";
 
 const SUBJECT_SHA256 = "a".repeat(64);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ":" + canonicalJson(value[key]);
+    }).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+
+function fingerprint(value) {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
 
 function analyzer(extra = {}) {
   return {
@@ -36,6 +51,89 @@ function passingEvidence() {
     }),
     identity: analyzer({ similarityScore: 0.93, matched: true }),
   };
+}
+
+function lipSyncEvidence(overrides = {}) {
+  var {
+    correlation = 0.82,
+    holdoutCorrelation: exactHoldoutCorrelation = null,
+    holdoutSampleCount = 16,
+    confidence: exactConfidence = null,
+    confidenceLabel: exactConfidenceLabel = null,
+    ...rest
+  } = overrides;
+  var holdoutCorrelation = exactHoldoutCorrelation === null
+    ? Math.max(-1, Math.min(1, correlation + 0.08))
+    : exactHoldoutCorrelation;
+  var nullCorrelation = 0.20;
+  var fisherStatistic = (
+    Math.atanh(Math.max(-0.999999, Math.min(0.999999, holdoutCorrelation)))
+    - Math.atanh(nullCorrelation)
+  ) * Math.sqrt(holdoutSampleCount - 3);
+  var t = 1 / (1 + (0.2316419 * Math.abs(fisherStatistic)));
+  var density = Math.exp(-0.5 * fisherStatistic * fisherStatistic)
+    / Math.sqrt(2 * Math.PI);
+  var tail = density * t * (
+    0.319381530
+    + t * (-0.356563782
+      + t * (1.781477937
+        + t * (-1.821255978 + (t * 1.330274429))))
+  );
+  var statisticalConfidence = fisherStatistic >= 0 ? 1 - tail : tail;
+  var confidence = exactConfidence ?? statisticalConfidence;
+  var confidenceLabel = exactConfidenceLabel ?? (
+    statisticalConfidence >= 0.95 && correlation > nullCorrelation
+      ? "supported"
+      : statisticalConfidence >= 0.80 && holdoutCorrelation > nullCorrelation
+        ? "weak"
+        : "unsupported"
+  );
+  var toolchainCore = {
+    available: true,
+    schema: "contentforge.apple_vision_toolchain.v1",
+    macosProductVersion: "fixture-macos",
+    macosBuildVersion: "fixture-build",
+    machineArchitecture: "arm64",
+    swiftExecutable: "/usr/bin/swift",
+    swiftExecutableSha256: "b".repeat(64),
+    swiftVersion: "Swift fixture",
+    visionRequest: "VNDetectFaceLandmarksRequest",
+    embeddedSwiftSourceSha256: "c".repeat(64),
+  };
+  var toolchain = {
+    ...toolchainCore,
+    toolchainFingerprint: fingerprint(toolchainCore),
+  };
+  return analyzer({
+    analyzerMethod: "audio_energy_to_apple_vision_lip_landmarks_train_holdout",
+    landmarkEvidenceFingerprint: "d".repeat(64),
+    landmarkToolchain: toolchain,
+    landmarkToolchainFingerprint: toolchain.toolchainFingerprint,
+    confidence,
+    offsetMs: rest.offsetMs ?? -34,
+    aligned: confidenceLabel === "supported",
+    correlation,
+    sampleCount: holdoutSampleCount,
+    faceTrackCoverage: 0.92,
+    speechActivityRatio: 0.75,
+    correlationEvidence: {
+      design: "offset_selected_on_training_evaluated_once_on_interleaved_holdout",
+      candidateOffsetCount: 13,
+      trainingSampleCount: 32,
+      holdoutSampleCount,
+      trainingCorrelation: Math.max(-1, Math.min(1, correlation + 0.04)),
+      holdoutCorrelation: Math.max(-1, Math.min(1, correlation + 0.08)),
+      holdoutCorrelationLower95: correlation,
+      confidenceMethod: "one_sided_fisher_z_against_practical_null",
+      nullCorrelation,
+      fisherStatistic,
+      oneSidedPValue: 1 - statisticalConfidence,
+      statisticalConfidence,
+      confidenceLabel,
+      selectionMargin: 0.03,
+    },
+    ...rest,
+  });
 }
 
 test("passes complete deterministic evidence without invoking models or providers", function () {
@@ -142,15 +240,7 @@ test("requires loop, lip-sync, and audio evidence only for declared job capabili
 test("passes loop, lip-sync, and audio alignment backed by complete evidence", function () {
   var evidence = passingEvidence();
   evidence.loop = analyzer({ seamScore: 0.08, loopable: true });
-  evidence.lipSync = analyzer({
-    confidence: 0.91,
-    offsetMs: -34,
-    aligned: true,
-    correlation: 0.82,
-    sampleCount: 24,
-    faceTrackCoverage: 0.92,
-    speechActivityRatio: 0.75,
-  });
+  evidence.lipSync = lipSyncEvidence();
   evidence.audioAlignment = analyzer({ confidence: 0.87, offsetMs: 42, aligned: true });
 
   var result = evaluate(evidence, {
@@ -168,14 +258,11 @@ test("passes loop, lip-sync, and audio alignment backed by complete evidence", f
 test("blocks substituted discontinuity rates and self-asserted lip-sync confidence", function () {
   var evidence = passingEvidence();
   evidence.temporal.discontinuityRate = 0.12;
-  evidence.lipSync = analyzer({
+  evidence.lipSync = lipSyncEvidence({
     confidence: 0.99,
     offsetMs: 20,
     aligned: true,
     correlation: 0.82,
-    sampleCount: 24,
-    faceTrackCoverage: 0.92,
-    speechActivityRatio: 0.75,
   });
 
   var result = evaluate(evidence, { expectsSpeech: true });
@@ -192,14 +279,11 @@ test("blocks substituted discontinuity rates and self-asserted lip-sync confiden
 test("fails visible loop seams and measured lip/audio misalignment", function () {
   var evidence = passingEvidence();
   evidence.loop = analyzer({ seamScore: 0.61, loopable: false });
-  evidence.lipSync = analyzer({
-    confidence: 0.3,
+  evidence.lipSync = lipSyncEvidence({
     offsetMs: 180,
     aligned: false,
     correlation: -0.4,
-    sampleCount: 24,
-    faceTrackCoverage: 0.92,
-    speechActivityRatio: 0.75,
+    confidenceLabel: "unsupported",
   });
   evidence.audioAlignment = analyzer({ confidence: 0.4, offsetMs: -170, aligned: false });
 
@@ -220,6 +304,41 @@ test("fails visible loop seams and measured lip/audio misalignment", function ()
     "audio_alignment_offset_excessive",
     "audio_not_aligned",
   ]);
+});
+
+test("blocks legacy lip evidence and does not promote weak-n moderate correlation", function () {
+  var legacy = passingEvidence();
+  legacy.lipSync = lipSyncEvidence();
+  delete legacy.lipSync.landmarkToolchain;
+  delete legacy.lipSync.landmarkToolchainFingerprint;
+  delete legacy.lipSync.correlationEvidence;
+  var legacyResult = evaluate(legacy, { expectsSpeech: true });
+  assert.equal(legacyResult.verdict, "blocked");
+  assert.ok(legacyResult.reasons.some(function (item) {
+    return item.code === "lip_sync_landmark_runtime_invalid";
+  }));
+  assert.ok(legacyResult.reasons.some(function (item) {
+    return item.code === "lip_sync_correlation_design_invalid";
+  }));
+
+  var holdoutCorrelation = 0.5;
+  var holdoutSampleCount = 12;
+  var lowerBound = Math.tanh(
+    Math.atanh(holdoutCorrelation) - (1.645 / Math.sqrt(holdoutSampleCount - 3)),
+  );
+  var weak = passingEvidence();
+  weak.lipSync = lipSyncEvidence({
+    correlation: lowerBound,
+    holdoutCorrelation,
+    holdoutSampleCount,
+  });
+  var weakResult = evaluate(weak, { expectsSpeech: true });
+  assert.equal(weak.lipSync.correlationEvidence.confidenceLabel, "weak");
+  assert.ok(weak.lipSync.confidence < 0.95);
+  assert.equal(weakResult.passed, false);
+  assert.ok(weakResult.reasons.some(function (item) {
+    return item.code === "lip_sync_not_aligned";
+  }));
 });
 
 test("accepts explicit anatomy non-applicability but blocks an unexplained omission", function () {

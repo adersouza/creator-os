@@ -279,6 +279,10 @@ def route_local_model(
                         str(item.get("sampleId") or "") for item in valid_task_samples
                     ),
                     "arenaSummaryFingerprint": summary["summaryFingerprint"],
+                    "runtimeBinding": None,
+                    "runtimeBindingFingerprint": None,
+                    "licensePolicy": None,
+                    "licensePolicyFingerprint": None,
                     "promotionApproval": None,
                     "measurements": {
                         "promotionEligibleYield": None,
@@ -303,6 +307,94 @@ def route_local_model(
             or not isinstance(deep_verification, dict)
         ):
             exclusions.append("model_unavailable_or_drifted")
+        current_runtime_binding = (
+            deep_verification.get("runtimeBinding")
+            if isinstance(deep_verification, dict)
+            else None
+        )
+        current_runtime_fingerprint = (
+            deep_verification.get("runtimeBindingFingerprint")
+            if isinstance(deep_verification, dict)
+            else None
+        )
+        planned_samples = [
+            planned_by_sample.get(str(item.get("sampleId") or ""))
+            for item in valid_task_samples
+        ]
+        runtime_bindings = {
+            fingerprint(item["runtimeBinding"]): item["runtimeBinding"]
+            for item in planned_samples
+            if isinstance(item, dict) and isinstance(item.get("runtimeBinding"), dict)
+        }
+        runtime_fingerprints = {
+            str(item.get("runtimeBindingFingerprint") or "")
+            for item in planned_samples
+            if isinstance(item, dict)
+        }
+        selected_runtime_binding = (
+            next(iter(runtime_bindings.values()))
+            if len(runtime_bindings) == 1
+            else None
+        )
+        selected_runtime_fingerprint = (
+            next(iter(runtime_fingerprints)) if len(runtime_fingerprints) == 1 else None
+        )
+        if (
+            len(planned_samples) != len(valid_task_samples)
+            or any(not isinstance(item, dict) for item in planned_samples)
+            or any(
+                not isinstance(item.get("runtimeBinding"), dict)
+                or not str(item.get("runtimeBindingFingerprint") or "")
+                for item in planned_samples
+                if isinstance(item, dict)
+            )
+            or selected_runtime_binding is None
+            or selected_runtime_fingerprint is None
+            or not selected_runtime_fingerprint
+            or fingerprint(selected_runtime_binding) != selected_runtime_fingerprint
+            or selected_runtime_binding != current_runtime_binding
+            or selected_runtime_fingerprint != current_runtime_fingerprint
+        ):
+            exclusions.append("runtime_toolchain_cohort_mismatch")
+        license_policies = {
+            fingerprint(item["licensePolicy"]): item["licensePolicy"]
+            for item in planned_samples
+            if isinstance(item, dict) and isinstance(item.get("licensePolicy"), dict)
+        }
+        license_fingerprints = {
+            str(item.get("licensePolicyFingerprint") or "")
+            for item in planned_samples
+            if isinstance(item, dict)
+        }
+        selected_license_policy = (
+            next(iter(license_policies.values()))
+            if len(license_policies) == 1
+            else None
+        )
+        selected_license_fingerprint = (
+            next(iter(license_fingerprints)) if len(license_fingerprints) == 1 else None
+        )
+        if (
+            len(planned_samples) != len(valid_task_samples)
+            or any(not isinstance(item, dict) for item in planned_samples)
+            or any(
+                not isinstance(item.get("licensePolicy"), dict)
+                or not str(item.get("licensePolicyFingerprint") or "")
+                for item in planned_samples
+                if isinstance(item, dict)
+            )
+            or selected_license_policy is None
+            or selected_license_fingerprint is None
+            or not selected_license_fingerprint
+            or fingerprint(selected_license_policy) != selected_license_fingerprint
+            or selected_license_policy.get("licenseId") != spec.license_id
+            or selected_license_policy.get("commercialRevenueLimitUsd")
+            != spec.commercial_revenue_limit_usd
+            or selected_license_policy.get("aiDisclosureRequired")
+            is not spec.ai_disclosure_required
+            or selected_license_policy.get("commercialUseAllowed") is not True
+        ):
+            exclusions.append("model_license_cohort_noncompliant")
         try:
             expected_model_fingerprint = _model_fingerprint(model_id, status)
         except LocalQueueError:
@@ -386,6 +478,22 @@ def route_local_model(
                 "registry": (
                     receipt.analyzer_registry_fingerprint,
                     planned_sample["analyzerRegistryFingerprint"],
+                ),
+                "identity_profile_id": (
+                    receipt.creator_identity_profile_id,
+                    planned_sample["identityProfileId"],
+                ),
+                "identity_profile": (
+                    receipt.creator_identity_profile_fingerprint,
+                    planned_sample["identityProfileFingerprint"],
+                ),
+                "content_intent_id": (
+                    receipt.content_intent_id,
+                    planned_sample["contentIntentId"],
+                ),
+                "content_intent": (
+                    receipt.content_intent_fingerprint,
+                    planned_sample["contentIntentFingerprint"],
                 ),
                 "wall_time": (
                     receipt.wall_time_seconds,
@@ -545,6 +653,10 @@ def route_local_model(
                     str(item.get("sampleId") or "") for item in valid_task_samples
                 ),
                 "arenaSummaryFingerprint": summary["summaryFingerprint"],
+                "runtimeBinding": selected_runtime_binding,
+                "runtimeBindingFingerprint": selected_runtime_fingerprint,
+                "licensePolicy": selected_license_policy,
+                "licensePolicyFingerprint": selected_license_fingerprint,
                 "promotionApproval": approval,
                 "measurements": {
                     "promotionEligibleYield": measured_yield,
@@ -618,6 +730,10 @@ def route_local_model(
             },
             "matchedArenaSampleIds": winner["matchedArenaSampleIds"],
             "validArenaSampleIds": winner["validArenaSampleIds"],
+            "runtimeBinding": winner["runtimeBinding"],
+            "runtimeBindingFingerprint": winner["runtimeBindingFingerprint"],
+            "licensePolicy": winner["licensePolicy"],
+            "licensePolicyFingerprint": winner["licensePolicyFingerprint"],
             "measurements": winner["measurements"],
             "promotionApproval": winner["promotionApproval"],
             "score": winner["score"],
@@ -674,6 +790,10 @@ def validate_router_decision(
         },
         "matchedArenaSampleIds": winner["matchedArenaSampleIds"],
         "validArenaSampleIds": winner["validArenaSampleIds"],
+        "runtimeBinding": winner["runtimeBinding"],
+        "runtimeBindingFingerprint": winner["runtimeBindingFingerprint"],
+        "licensePolicy": winner["licensePolicy"],
+        "licensePolicyFingerprint": winner["licensePolicyFingerprint"],
         "measurements": winner["measurements"],
         "promotionApproval": winner["promotionApproval"],
         "score": winner["score"],

@@ -63,6 +63,17 @@ test("snapshots the exact deterministic motion-QC implementation", async functio
     lipSync.implementationRef,
     "packages/contentforge/lib/trusted-media-analysis.js",
   );
+  var overlay = trusted.find(function (item) {
+    return item.analyzerId === "contentforge.overlay_delivery";
+  });
+  assert.equal(
+    overlay.implementationRef,
+    "packages/contentforge/lib/similarity.js",
+  );
+  assert.equal(
+    overlay.implementationFingerprint,
+    createHash("sha256").update(await readFile(path.join(ROOT, overlay.implementationRef))).digest("hex"),
+  );
   var faceTrack = first.analyzers.find(function (item) {
     return item.analyzerId === "contentforge.local_face_mouth_track";
   });
@@ -72,7 +83,7 @@ test("snapshots the exact deterministic motion-QC implementation", async functio
   );
   assert.match(faceTrack.implementationFingerprint, /^[a-f0-9]{64}$/);
   assert.ok(trusted.filter(function (item) {
-    return item.analyzerId !== "contentforge.local_face_mouth_track";
+    return !["contentforge.local_face_mouth_track", "contentforge.overlay_delivery"].includes(item.analyzerId);
   }).every(function (item) {
     return item.implementationRef === "packages/contentforge/lib/trusted-media-analysis.js";
   }));

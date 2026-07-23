@@ -5552,6 +5552,156 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      }
 	    },
+	    "runtimeBinding": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "runtimeId",
+	        "repository",
+	        "revision",
+	        "platform",
+	        "platformRelease",
+	        "osBuild",
+	        "machine",
+	        "python",
+	        "pythonExecutable",
+	        "pythonExecutableResolved",
+	        "mlxVersion",
+	        "runtimeReceiptFingerprint",
+	        "resolvedEnvironmentFingerprint",
+	        "ffmpegExecutable",
+	        "ffmpegSha256",
+	        "ffmpegSize",
+	        "ffmpegVersion",
+	        "ffprobeExecutable",
+	        "ffprobeSha256",
+	        "ffprobeSize",
+	        "ffprobeVersion"
+	      ],
+	      "properties": {
+	        "runtimeId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "repository": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "revision": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "platform": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "platformRelease": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "osBuild": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "machine": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "python": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pythonExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pythonExecutableResolved": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "mlxVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "runtimeReceiptFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "resolvedEnvironmentFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpegExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffmpegSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpegSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "ffmpegVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffprobeExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffprobeSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffprobeSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "ffprobeVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "licensePolicy": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "licenseId",
+	        "commercialUse",
+	        "declaredAnnualRevenueUsd",
+	        "commercialRevenueLimitUsd",
+	        "commercialUseAllowed",
+	        "aiDisclosureRequired"
+	      ],
+	      "properties": {
+	        "licenseId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "commercialUse": {
+	          "type": "boolean"
+	        },
+	        "declaredAnnualRevenueUsd": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 0
+	        },
+	        "commercialRevenueLimitUsd": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "commercialUseAllowed": {
+	          "const": true
+	        },
+	        "aiDisclosureRequired": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
 	    "queueJob": {
 	      "type": "object",
 	      "additionalProperties": false,
@@ -5565,10 +5715,18 @@ export const generatedPipelineContractSchemas = {
 	        "requestedMemoryBytes",
 	        "paramsFingerprint",
 	        "ownedArtifactPaths",
+	        "creatorIdentityProfileId",
+	        "creatorIdentityProfileFingerprint",
+	        "contentIntentId",
+	        "contentIntentFingerprint",
 	        "benchmarkRecipeId",
 	        "benchmarkRecipeFingerprint",
 	        "analyzerRegistryId",
-	        "analyzerRegistryFingerprint"
+	        "analyzerRegistryFingerprint",
+	        "runtimeBinding",
+	        "runtimeBindingFingerprint",
+	        "licensePolicy",
+	        "licensePolicyFingerprint"
 	      ],
 	      "properties": {
 	        "jobId": {
@@ -5608,6 +5766,20 @@ export const generatedPipelineContractSchemas = {
 	            "minLength": 1
 	          }
 	        },
+	        "creatorIdentityProfileId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "creatorIdentityProfileFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "contentIntentId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "contentIntentFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
 	        "benchmarkRecipeId": {
 	          "type": "string",
 	          "minLength": 1
@@ -5621,6 +5793,18 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "analyzerRegistryFingerprint": {
 	          "$ref": "#/$defs/sha256"
+	        },
+	        "runtimeBinding": {
+	          "$ref": "#/$defs/runtimeBinding"
+	        },
+	        "runtimeBindingFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "licensePolicy": {
+	          "$ref": "#/$defs/licensePolicy"
+	        },
+	        "licensePolicyFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        }
 	      }
 	    },
@@ -5632,16 +5816,31 @@ export const generatedPipelineContractSchemas = {
 	        "creatorId",
 	        "identityProfileId",
 	        "identityProfileFingerprint",
+	        "creatorIdentityProfile",
 	        "contentIntentId",
 	        "contentIntentFingerprint",
+	        "contentIntent",
 	        "sourcePath",
 	        "sourceSha256",
 	        "audioPath",
 	        "audioSha256",
+	        "lastImagePath",
+	        "lastImageSha256",
+	        "sourceVideoPath",
+	        "sourceVideoSha256",
+	        "retakeStartFrame",
+	        "retakeEndFrame",
+	        "extendFrames",
+	        "extendDirection",
+	        "preserveAudio",
 	        "modelId",
 	        "modelRevision",
 	        "modelManifestSha256",
 	        "modelDeepVerificationFingerprint",
+	        "runtimeBinding",
+	        "runtimeBindingFingerprint",
+	        "licensePolicy",
+	        "licensePolicyFingerprint",
 	        "modelFingerprint",
 	        "capabilityCohort",
 	        "taskKind",
@@ -5650,6 +5849,8 @@ export const generatedPipelineContractSchemas = {
 	        "durationSeconds",
 	        "resolution",
 	        "audioMode",
+	        "commercialUse",
+	        "commercialAnnualRevenueUsd",
 	        "overlaysExist",
 	        "outputPath",
 	        "blindedCandidateId",
@@ -5680,6 +5881,9 @@ export const generatedPipelineContractSchemas = {
 	        "identityProfileFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        },
+	        "creatorIdentityProfile": {
+	          "$ref": "creator_identity_profile.v1.schema.json"
+	        },
 	        "contentIntentId": {
 	          "type": "string",
 	          "minLength": 1
@@ -5687,8 +5891,14 @@ export const generatedPipelineContractSchemas = {
 	        "contentIntentFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        },
+	        "contentIntent": {
+	          "$ref": "content_intent.v1.schema.json"
+	        },
 	        "sourcePath": {
-	          "type": "string",
+	          "type": [
+	            "string",
+	            "null"
+	          ],
 	          "minLength": 1
 	        },
 	        "sourceSha256": {
@@ -5710,6 +5920,68 @@ export const generatedPipelineContractSchemas = {
 	            }
 	          ]
 	        },
+	        "lastImagePath": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "lastImageSha256": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "sourceVideoPath": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "sourceVideoSha256": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/sha256"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "retakeStartFrame": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 0
+	        },
+	        "retakeEndFrame": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "extendFrames": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "extendDirection": {
+	          "enum": [
+	            "before",
+	            "after"
+	          ]
+	        },
+	        "preserveAudio": {
+	          "type": "boolean"
+	        },
 	        "modelId": {
 	          "type": "string",
 	          "minLength": 1
@@ -5722,6 +5994,18 @@ export const generatedPipelineContractSchemas = {
 	          "$ref": "#/$defs/sha256"
 	        },
 	        "modelDeepVerificationFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "runtimeBinding": {
+	          "$ref": "#/$defs/runtimeBinding"
+	        },
+	        "runtimeBindingFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "licensePolicy": {
+	          "$ref": "#/$defs/licensePolicy"
+	        },
+	        "licensePolicyFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        },
 	        "modelFingerprint": {
@@ -5754,8 +6038,19 @@ export const generatedPipelineContractSchemas = {
 	          "enum": [
 	            "none",
 	            "source",
-	            "generated"
+	            "generated",
+	            "preserved"
 	          ]
+	        },
+	        "commercialUse": {
+	          "type": "boolean"
+	        },
+	        "commercialAnnualRevenueUsd": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 0
 	        },
 	        "overlaysExist": {
 	          "type": "boolean"
@@ -6464,7 +6759,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "medianPeakMemoryBytes": {
 	          "type": [
-	            "integer",
+	            "number",
 	            "null"
 	          ],
 	          "minimum": 1
@@ -6712,6 +7007,156 @@ export const generatedPipelineContractSchemas = {
 	        }
 	      ]
 	    },
+	    "runtimeBinding": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "runtimeId",
+	        "repository",
+	        "revision",
+	        "platform",
+	        "platformRelease",
+	        "osBuild",
+	        "machine",
+	        "python",
+	        "pythonExecutable",
+	        "pythonExecutableResolved",
+	        "mlxVersion",
+	        "runtimeReceiptFingerprint",
+	        "resolvedEnvironmentFingerprint",
+	        "ffmpegExecutable",
+	        "ffmpegSha256",
+	        "ffmpegSize",
+	        "ffmpegVersion",
+	        "ffprobeExecutable",
+	        "ffprobeSha256",
+	        "ffprobeSize",
+	        "ffprobeVersion"
+	      ],
+	      "properties": {
+	        "runtimeId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "repository": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "revision": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "platform": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "platformRelease": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "osBuild": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "machine": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "python": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pythonExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "pythonExecutableResolved": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "mlxVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "runtimeReceiptFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "resolvedEnvironmentFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpegExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffmpegSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffmpegSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "ffmpegVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffprobeExecutable": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "ffprobeSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "ffprobeSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "ffprobeVersion": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "licensePolicy": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "licenseId",
+	        "commercialUse",
+	        "declaredAnnualRevenueUsd",
+	        "commercialRevenueLimitUsd",
+	        "commercialUseAllowed",
+	        "aiDisclosureRequired"
+	      ],
+	      "properties": {
+	        "licenseId": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "commercialUse": {
+	          "type": "boolean"
+	        },
+	        "declaredAnnualRevenueUsd": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 0
+	        },
+	        "commercialRevenueLimitUsd": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ],
+	          "minimum": 1
+	        },
+	        "commercialUseAllowed": {
+	          "const": true
+	        },
+	        "aiDisclosureRequired": {
+	          "type": "boolean"
+	        }
+	      }
+	    },
 	    "request": {
 	      "type": "object",
 	      "additionalProperties": false,
@@ -6914,6 +7359,10 @@ export const generatedPipelineContractSchemas = {
 	        "matchedArenaSampleIds",
 	        "validArenaSampleIds",
 	        "arenaSummaryFingerprint",
+	        "runtimeBinding",
+	        "runtimeBindingFingerprint",
+	        "licensePolicy",
+	        "licensePolicyFingerprint",
 	        "promotionApproval",
 	        "measurements",
 	        "score",
@@ -6964,6 +7413,32 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "arenaSummaryFingerprint": {
 	          "$ref": "#/$defs/sha256"
+	        },
+	        "runtimeBinding": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/runtimeBinding"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "runtimeBindingFingerprint": {
+	          "$ref": "#/$defs/nullableSha256"
+	        },
+	        "licensePolicy": {
+	          "anyOf": [
+	            {
+	              "$ref": "#/$defs/licensePolicy"
+	            },
+	            {
+	              "type": "null"
+	            }
+	          ]
+	        },
+	        "licensePolicyFingerprint": {
+	          "$ref": "#/$defs/nullableSha256"
 	        },
 	        "promotionApproval": {
 	          "anyOf": [
@@ -7047,6 +7522,10 @@ export const generatedPipelineContractSchemas = {
 	        "cohortKey",
 	        "matchedArenaSampleIds",
 	        "validArenaSampleIds",
+	        "runtimeBinding",
+	        "runtimeBindingFingerprint",
+	        "licensePolicy",
+	        "licensePolicyFingerprint",
 	        "measurements",
 	        "promotionApproval",
 	        "score"
@@ -7084,6 +7563,18 @@ export const generatedPipelineContractSchemas = {
 	            "type": "string",
 	            "minLength": 1
 	          }
+	        },
+	        "runtimeBinding": {
+	          "$ref": "#/$defs/runtimeBinding"
+	        },
+	        "runtimeBindingFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "licensePolicy": {
+	          "$ref": "#/$defs/licensePolicy"
+	        },
+	        "licensePolicyFingerprint": {
+	          "$ref": "#/$defs/sha256"
 	        },
 	        "measurements": {
 	          "$ref": "#/$defs/measurements"

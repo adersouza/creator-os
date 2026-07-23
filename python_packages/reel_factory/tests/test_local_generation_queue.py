@@ -57,6 +57,55 @@ def _job(
     )
 
 
+def test_queue_round_trips_exact_identity_and_intent_evidence(tmp_path: Path) -> None:
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "profile-stacey",
+    }
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": "intent-motion",
+        "creatorIdentityProfileId": profile["profileId"],
+    }
+    job = LocalGenerationJob.create(
+        job_id="record-bound",
+        model_id="wan-test",
+        model_revision="revision-1",
+        model_manifest_sha256=_sha("wan-test"),
+        task_kind="image_to_video",
+        input_sha256=_sha("input"),
+        requested_memory_bytes=GIB,
+        params={"seed": 7},
+        creator_identity_profile=profile,
+        content_intent=intent,
+    )
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+    queue.submit(job)
+    replayed = (
+        LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
+        .states()[job.job_id]
+        .job
+    )
+    assert replayed == job
+    assert replayed.creator_identity_profile_fingerprint == queue_fingerprint(profile)
+    assert replayed.content_intent_fingerprint == queue_fingerprint(intent)
+
+    with pytest.raises(
+        ValueError, match="identity_intent_evidence_records_must_be_paired"
+    ):
+        LocalGenerationJob.create(
+            job_id="partial-record-link",
+            model_id="wan-test",
+            model_revision="revision-1",
+            model_manifest_sha256=_sha("wan-test"),
+            task_kind="image_to_video",
+            input_sha256=_sha("input"),
+            requested_memory_bytes=GIB,
+            params={"seed": 7},
+            creator_identity_profile=profile,
+        )
+
+
 def _interrupted_recovery_fixture(
     queue: LocalGenerationQueue, root: Path, *, job_id: str = "retry"
 ) -> tuple[LocalGenerationJob, Path, Path]:

@@ -91,13 +91,285 @@ def _normalized_override(
     return str(model_id).strip(), str(operator).strip(), normalized_reason
 
 
+def _execution_input_fingerprints(
+    *,
+    accepted_still_path: Path | None,
+    audio_path: Path | None,
+    last_image_path: Path | None,
+    source_video_path: Path | None,
+    task_kind: str,
+    error_prefix: str,
+) -> list[str]:
+    """Hash every file a supported local motion request can consume, in CLI order."""
+
+    fingerprints: list[str] = []
+    accepted_input = (
+        None if task_kind in {"video_retake", "video_extend"} else accepted_still_path
+    )
+    for field, raw_path in (
+        ("accepted_still", accepted_input),
+        ("audio", audio_path),
+        ("last_image", last_image_path),
+        ("source_video", source_video_path),
+    ):
+        if raw_path is None:
+            continue
+        path = raw_path.expanduser().resolve()
+        if not path.is_file() or path.is_symlink():
+            raise LocalMotionAdmissionError(
+                f"local_motion_{error_prefix}{field}_missing_or_unsafe"
+            )
+        digest = sha256_file(path)
+        if digest not in fingerprints:
+            fingerprints.append(digest)
+    return fingerprints
+
+
+def _motion_edit_binding(
+    *,
+    task_kind: str,
+    source_video_path: Path | None,
+    retake_start_frame: int | None,
+    retake_end_frame: int | None,
+    extend_frames: int | None,
+    extend_direction: str,
+    preserve_audio: bool,
+    error_prefix: str,
+) -> dict[str, Any]:
+    """Bind every LTX edit control and the current source-video bytes."""
+
+    source_video = None
+    if source_video_path is not None:
+        path = source_video_path.expanduser().resolve()
+        if not path.is_file() or path.is_symlink():
+            raise LocalMotionAdmissionError(
+                f"local_motion_{error_prefix}source_video_missing_or_unsafe"
+            )
+        source_video = {"path": str(path), "sha256": sha256_file(path)}
+    edit_task = task_kind in {"video_retake", "video_extend"}
+    if edit_task != (source_video is not None):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}source_video_task_binding_invalid"
+        )
+    if not isinstance(preserve_audio, bool):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}preserve_audio_invalid"
+        )
+    if task_kind == "video_retake":
+        if (
+            not isinstance(retake_start_frame, int)
+            or isinstance(retake_start_frame, bool)
+            or not isinstance(retake_end_frame, int)
+            or isinstance(retake_end_frame, bool)
+            or not 0 <= retake_start_frame < retake_end_frame
+            or extend_frames is not None
+        ):
+            raise LocalMotionAdmissionError(
+                f"local_motion_{error_prefix}retake_binding_invalid"
+            )
+    elif task_kind == "video_extend":
+        if (
+            retake_start_frame is not None
+            or retake_end_frame is not None
+            or not isinstance(extend_frames, int)
+            or isinstance(extend_frames, bool)
+            or not 1 <= extend_frames <= 24
+            or preserve_audio
+        ):
+            raise LocalMotionAdmissionError(
+                f"local_motion_{error_prefix}extend_binding_invalid"
+            )
+    elif (
+        any(
+            value is not None
+            for value in (retake_start_frame, retake_end_frame, extend_frames)
+        )
+        or preserve_audio
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}edit_controls_without_edit_task"
+        )
+    if extend_direction not in {"before", "after"}:
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}extend_direction_invalid"
+        )
+    return {
+        "taskKind": task_kind,
+        "sourceVideo": source_video,
+        "retakeStartFrame": retake_start_frame,
+        "retakeEndFrame": retake_end_frame,
+        "extendFrames": extend_frames,
+        "extendDirection": extend_direction,
+        "preserveAudio": preserve_audio,
+    }
+
+
+def _validated_router_execution_policy(
+    decision: Mapping[str, Any], *, model_id: str, error_prefix: str
+) -> dict[str, Any]:
+    """Validate exact runtime and commercial-license evidence for one winner."""
+
+    candidates = decision.get("consideredCandidates")
+    selected = [
+        item
+        for item in candidates or []
+        if isinstance(item, Mapping) and item.get("modelId") == model_id
+    ]
+    if len(selected) != 1:
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}selected_candidate_not_exactly_once"
+        )
+    candidate = selected[0]
+    winning = decision.get("winningEvidence")
+    if not isinstance(winning, Mapping):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}winning_evidence_missing"
+        )
+
+    runtime = winning.get("runtimeBinding")
+    runtime_fingerprint = winning.get("runtimeBindingFingerprint")
+    runtime_text_keys = {
+        "runtimeId",
+        "repository",
+        "revision",
+        "platform",
+        "platformRelease",
+        "osBuild",
+        "machine",
+        "python",
+        "pythonExecutable",
+        "pythonExecutableResolved",
+        "mlxVersion",
+        "runtimeReceiptFingerprint",
+        "resolvedEnvironmentFingerprint",
+        "ffmpegExecutable",
+        "ffmpegSha256",
+        "ffmpegVersion",
+        "ffprobeExecutable",
+        "ffprobeSha256",
+        "ffprobeVersion",
+    }
+    runtime_size_keys = {"ffmpegSize", "ffprobeSize"}
+    runtime_keys = runtime_text_keys | runtime_size_keys
+    if (
+        not isinstance(runtime, Mapping)
+        or set(runtime) != runtime_keys
+        or any(
+            not isinstance(runtime.get(key), str) or not runtime.get(key)
+            for key in runtime_text_keys
+        )
+        or any(
+            not isinstance(runtime.get(key), int)
+            or isinstance(runtime.get(key), bool)
+            or int(runtime[key]) <= 0
+            for key in runtime_size_keys
+        )
+        or any(
+            not isinstance(runtime.get(key), str)
+            or len(str(runtime[key])) != 64
+            or any(char not in "0123456789abcdef" for char in str(runtime[key]))
+            for key in {
+                "runtimeReceiptFingerprint",
+                "resolvedEnvironmentFingerprint",
+                "ffmpegSha256",
+                "ffprobeSha256",
+            }
+        )
+        or any(
+            not Path(str(runtime.get(key) or "")).is_absolute()
+            for key in {
+                "pythonExecutable",
+                "pythonExecutableResolved",
+                "ffmpegExecutable",
+                "ffprobeExecutable",
+            }
+        )
+        or not isinstance(runtime_fingerprint, str)
+        or _fingerprint(runtime) != runtime_fingerprint
+        or candidate.get("runtimeBinding") != runtime
+        or candidate.get("runtimeBindingFingerprint") != runtime_fingerprint
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}runtime_binding_invalid"
+        )
+
+    license_policy = winning.get("licensePolicy")
+    license_fingerprint = winning.get("licensePolicyFingerprint")
+    license_keys = {
+        "licenseId",
+        "commercialUse",
+        "declaredAnnualRevenueUsd",
+        "commercialRevenueLimitUsd",
+        "commercialUseAllowed",
+        "aiDisclosureRequired",
+    }
+    if (
+        not isinstance(license_policy, Mapping)
+        or set(license_policy) != license_keys
+        or not isinstance(license_policy.get("licenseId"), str)
+        or not str(license_policy.get("licenseId") or "").strip()
+        or not isinstance(license_policy.get("aiDisclosureRequired"), bool)
+        or not isinstance(license_fingerprint, str)
+        or _fingerprint(license_policy) != license_fingerprint
+        or candidate.get("licensePolicy") != license_policy
+        or candidate.get("licensePolicyFingerprint") != license_fingerprint
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}license_policy_invalid"
+        )
+    if (
+        license_policy.get("commercialUse") is not True
+        or license_policy.get("commercialUseAllowed") is not True
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}commercial_use_attestation_required"
+        )
+    declared_revenue = license_policy.get("declaredAnnualRevenueUsd")
+    revenue_limit = license_policy.get("commercialRevenueLimitUsd")
+    if declared_revenue is not None and (
+        not isinstance(declared_revenue, int)
+        or isinstance(declared_revenue, bool)
+        or declared_revenue < 0
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}commercial_revenue_attestation_invalid"
+        )
+    if revenue_limit is not None and (
+        not isinstance(revenue_limit, int)
+        or isinstance(revenue_limit, bool)
+        or revenue_limit <= 0
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}commercial_revenue_limit_invalid"
+        )
+    if revenue_limit is not None and (
+        declared_revenue is None or declared_revenue >= revenue_limit
+    ):
+        raise LocalMotionAdmissionError(
+            f"local_motion_{error_prefix}commercial_revenue_not_licensed"
+        )
+    return {
+        "runtimeBinding": dict(runtime),
+        "runtimeBindingFingerprint": runtime_fingerprint,
+        "licensePolicy": dict(license_policy),
+        "licensePolicyFingerprint": license_fingerprint,
+    }
+
+
 def build_local_motion_admission(
     *,
     evidence_bundle_path: Path | None,
     evidence_bundle: Mapping[str, Any] | None = None,
     arena_summary_path: Path,
-    accepted_still_path: Path,
+    accepted_still_path: Path | None,
     audio_path: Path | None,
+    last_image_path: Path | None = None,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    preserve_audio: bool = False,
     campaign_creator: str,
     task_kind: str,
     override_model_id: str | None = None,
@@ -129,15 +401,24 @@ def build_local_motion_admission(
     if not normalized_creator or evidence_creator != normalized_creator:
         raise LocalMotionAdmissionError("local_motion_campaign_creator_mismatch")
 
-    still = accepted_still_path.expanduser().resolve()
-    if not still.is_file() or still.is_symlink():
-        raise LocalMotionAdmissionError("local_motion_accepted_still_missing_or_unsafe")
-    input_fingerprints = [sha256_file(still)]
-    if audio_path is not None:
-        audio = audio_path.expanduser().resolve()
-        if not audio.is_file() or audio.is_symlink():
-            raise LocalMotionAdmissionError("local_motion_audio_missing_or_unsafe")
-        input_fingerprints.append(sha256_file(audio))
+    input_fingerprints = _execution_input_fingerprints(
+        accepted_still_path=accepted_still_path,
+        audio_path=audio_path,
+        last_image_path=last_image_path,
+        source_video_path=source_video_path,
+        task_kind=task_kind,
+        error_prefix="",
+    )
+    edit_binding = _motion_edit_binding(
+        task_kind=task_kind,
+        source_video_path=source_video_path,
+        retake_start_frame=retake_start_frame,
+        retake_end_frame=retake_end_frame,
+        extend_frames=extend_frames,
+        extend_direction=extend_direction,
+        preserve_audio=preserve_audio,
+        error_prefix="",
+    )
     if list(intent.get("sourceAssetFingerprints") or []) != input_fingerprints:
         raise LocalMotionAdmissionError("local_motion_content_intent_input_mismatch")
     if list(recipe.get("inputFingerprints") or []) != input_fingerprints:
@@ -175,6 +456,21 @@ def build_local_motion_admission(
         ) from exc
     if not isinstance(admission, dict):
         raise LocalMotionAdmissionError("local_motion_router_admission_invalid")
+    decision = admission.get("routerDecision")
+    if not isinstance(decision, Mapping):
+        raise LocalMotionAdmissionError("local_motion_router_decision_missing")
+    _validated_router_execution_policy(
+        decision,
+        model_id=str(decision.get("selectedModelId") or ""),
+        error_prefix="",
+    )
+    resource = admission.get("resourceSnapshot")
+    if not isinstance(resource, dict):
+        raise LocalMotionAdmissionError("local_motion_resource_snapshot_missing")
+    resource["motionEditBinding"] = edit_binding
+    admission_core = dict(admission)
+    admission_core.pop("admissionFingerprint", None)
+    admission["admissionFingerprint"] = _fingerprint(admission_core)
     return admission
 
 
@@ -182,8 +478,15 @@ def revalidate_local_motion_admission(
     admission: Mapping[str, Any] | None,
     *,
     arena_summary_path: Path | None,
-    accepted_still_path: Path,
+    accepted_still_path: Path | None,
     audio_path: Path | None,
+    last_image_path: Path | None = None,
+    source_video_path: Path | None = None,
+    retake_start_frame: int | None = None,
+    retake_end_frame: int | None = None,
+    extend_frames: int | None = None,
+    extend_direction: str = "after",
+    preserve_audio: bool = False,
     campaign_creator: str,
     task_kind: str,
     model_id: str,
@@ -244,6 +547,28 @@ def revalidate_local_motion_admission(
         raise LocalMotionAdmissionError(
             "local_motion_execution_router_fallback_not_closed"
         )
+    original_execution_policy = _validated_router_execution_policy(
+        decision, model_id=model_id, error_prefix="execution_"
+    )
+    resource = original.get("resourceSnapshot")
+    if not isinstance(resource, Mapping):
+        raise LocalMotionAdmissionError(
+            "local_motion_execution_resource_snapshot_missing"
+        )
+    current_edit_binding = _motion_edit_binding(
+        task_kind=task_kind,
+        source_video_path=source_video_path,
+        retake_start_frame=retake_start_frame,
+        retake_end_frame=retake_end_frame,
+        extend_frames=extend_frames,
+        extend_direction=extend_direction,
+        preserve_audio=preserve_audio,
+        error_prefix="execution_",
+    )
+    if resource.get("motionEditBinding") != current_edit_binding:
+        raise LocalMotionAdmissionError(
+            "local_motion_execution_motion_edit_binding_mismatch"
+        )
 
     records_raw = original.get("evidenceRecords")
     if not isinstance(records_raw, Mapping):
@@ -268,19 +593,14 @@ def revalidate_local_motion_admission(
         raise LocalMotionAdmissionError(
             "local_motion_execution_campaign_creator_mismatch"
         )
-    still = accepted_still_path.expanduser().resolve()
-    if not still.is_file() or still.is_symlink():
-        raise LocalMotionAdmissionError(
-            "local_motion_execution_accepted_still_missing_or_unsafe"
-        )
-    input_fingerprints = [sha256_file(still)]
-    if audio_path is not None:
-        audio = audio_path.expanduser().resolve()
-        if not audio.is_file() or audio.is_symlink():
-            raise LocalMotionAdmissionError(
-                "local_motion_execution_audio_missing_or_unsafe"
-            )
-        input_fingerprints.append(sha256_file(audio))
+    input_fingerprints = _execution_input_fingerprints(
+        accepted_still_path=accepted_still_path,
+        audio_path=audio_path,
+        last_image_path=last_image_path,
+        source_video_path=source_video_path,
+        task_kind=task_kind,
+        error_prefix="execution_",
+    )
     if (
         original.get("inputFingerprints") != input_fingerprints
         or list(intent.get("sourceAssetFingerprints") or []) != input_fingerprints
@@ -338,6 +658,13 @@ def revalidate_local_motion_admission(
         raise LocalMotionAdmissionError(
             "local_motion_execution_readmission_decision_missing"
         )
+    current_execution_policy = _validated_router_execution_policy(
+        current_decision, model_id=model_id, error_prefix="execution_current_"
+    )
+    if current_execution_policy != original_execution_policy:
+        raise LocalMotionAdmissionError(
+            "local_motion_execution_runtime_or_license_policy_drift"
+        )
     for field in (
         "selectedModelId",
         "selectedModelFingerprint",
@@ -364,6 +691,10 @@ def revalidate_local_motion_admission(
         "matchedArenaSampleIds",
         "validArenaSampleIds",
         "promotionApproval",
+        "runtimeBinding",
+        "runtimeBindingFingerprint",
+        "licensePolicy",
+        "licensePolicyFingerprint",
     ):
         if current_winning.get(field) != original_winning.get(field):
             raise LocalMotionAdmissionError(

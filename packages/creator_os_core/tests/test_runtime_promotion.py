@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import shlex
 import subprocess
 import sys
 import threading
@@ -11,20 +12,30 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
 from creator_os_core.runtime_promotion import (
     REQUIRED_CHECKS,
     REQUIRED_LIVE_HEALTH_CHECKS,
     TRUSTED_CHECK_APP_ID,
     TRUSTED_CHECK_APP_SLUG,
+    TRUSTED_CHECK_WORKFLOWS,
     RuntimePromotionError,
     _promote_runtime,
+    _rollback_instructions,
     _runtime_lock_target,
+    _validate_runtime_promotion_receipt_payload,
     _verify_github_approval_evidence,
     load_runtime_promotion_approval,
     promote_runtime,
 )
 
+from pipeline_contracts import (
+    validate_runtime_promotion_approval,
+    validate_runtime_promotion_receipt,
+)
+
 EVIDENCE_SECRET = "runtime-promotion-evidence-secret-longer-than-thirty-two-bytes"
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _health_script() -> str:
@@ -32,6 +43,63 @@ def _health_script() -> str:
         {"name": name, "status": "PASS"} for name in sorted(REQUIRED_LIVE_HEALTH_CHECKS)
     ]
     return f"import json; print(json.dumps({rows!r}))"
+
+
+def test_required_promotion_checks_match_canonical_workflow_provenance() -> None:
+    monorepo = yaml.safe_load(
+        (ROOT / ".github/workflows/monorepo-ci.yml").read_text(encoding="utf-8")
+    )
+    security = yaml.safe_load(
+        (ROOT / ".github/workflows/security.yml").read_text(encoding="utf-8")
+    )
+
+    for check in {"contracts", "hygiene", "architecture", "python", "javascript"}:
+        assert check in monorepo["jobs"]
+        assert TRUSTED_CHECK_WORKFLOWS[check] == (
+            monorepo["name"],
+            ".github/workflows/monorepo-ci.yml",
+        )
+    assert security["jobs"]["secrets"]["name"] == "Secret scan"
+    assert security["jobs"]["trivy"]["name"] == "Trivy filesystem scan"
+    assert security["jobs"]["codeql"]["name"] == "CodeQL (${{ matrix.language }})"
+    for check in {
+        "Secret scan",
+        "CodeQL (javascript-typescript)",
+        "CodeQL (python)",
+        "Trivy filesystem scan",
+    }:
+        assert TRUSTED_CHECK_WORKFLOWS[check] == (
+            security["name"],
+            ".github/workflows/security.yml",
+        )
+    assert set(TRUSTED_CHECK_WORKFLOWS) == REQUIRED_CHECKS
+
+
+def test_rollback_instructions_are_shell_safe_and_restore_bundle_before_checkout(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime with spaces"
+    bundle = tmp_path / "backup with spaces.bundle"
+    commit = "a" * 40
+
+    instructions = _rollback_instructions(
+        runtime=runtime,
+        bundle_path=bundle,
+        destination_commit=commit,
+    )
+
+    assert [shlex.split(command) for command in instructions] == [
+        ["git", "-C", str(runtime), "status", "--porcelain"],
+        ["git", "-C", str(runtime), "bundle", "verify", str(bundle)],
+        ["git", "-C", str(runtime), "fetch", str(bundle)],
+        ["git", "-C", str(runtime), "checkout", "--detach", commit],
+        [
+            str(runtime / "scripts" / "creator-os"),
+            "status",
+            "--live-read-only",
+            "--json",
+        ],
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -123,7 +191,15 @@ def repositories(tmp_path: Path):
     _run("git", "config", "user.email", "test@example.com", cwd=source)
     _run("git", "config", "user.name", "Test", cwd=source)
     (source / "value.txt").write_text("one", encoding="utf-8")
-    _run("git", "add", "value.txt", cwd=source)
+    scripts = source / "scripts"
+    scripts.mkdir()
+    health_script = scripts / "creator-os"
+    health_script.write_text(
+        "#!/usr/bin/env python3\n" + _health_script() + "\n",
+        encoding="utf-8",
+    )
+    health_script.chmod(0o755)
+    _run("git", "add", "value.txt", "scripts/creator-os", cwd=source)
     _run("git", "commit", "-m", "first", cwd=source)
     _run("git", "push", "origin", "HEAD:main", cwd=source)
     first = _run("git", "rev-parse", "HEAD", cwd=source)
@@ -253,7 +329,59 @@ def test_promotion_creates_verified_backup_receipt_and_runtime(repositories) -> 
     assert receipt["productionStateWrites"] == 0
     assert receipt["producerAttestation"]["issuer"] == "creator_os.runtime_promotion"
     assert Path(receipt["backupManifestPath"]).is_file()
+    validate_runtime_promotion_receipt(receipt)
+    assert _validate_runtime_promotion_receipt_payload(receipt) == receipt
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == second
+
+
+def test_receipt_rollback_instructions_execute_and_finish_with_live_health(
+    repositories,
+) -> None:
+    _source, runtime, first, *_rest = repositories
+    receipt = _promote(repositories)
+    outputs: list[subprocess.CompletedProcess[str]] = []
+
+    for instruction in receipt["rollbackInstructions"]:
+        outputs.append(
+            subprocess.run(
+                shlex.split(instruction),
+                cwd=runtime.parent,
+                capture_output=True,
+                check=True,
+                text=True,
+            )
+        )
+
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+    report = json.loads(outputs[-1].stdout)
+    assert {item["name"] for item in report} == REQUIRED_LIVE_HEALTH_CHECKS
+    assert {item["status"] for item in report} == {"PASS"}
+
+
+def test_core_approval_validation_matches_canonical_contract(repositories) -> None:
+    approval = load_runtime_promotion_approval(repositories[4])
+
+    validate_runtime_promotion_approval(approval)
+
+    approval["untrustedField"] = "not canonical"
+    core = dict(approval)
+    core.pop("approvalFingerprint")
+    approval["approvalFingerprint"] = _fingerprint(core)
+    repositories[4].write_text(json.dumps(approval), encoding="utf-8")
+    with pytest.raises(RuntimePromotionError, match="approval_shape_invalid"):
+        load_runtime_promotion_approval(repositories[4])
+    with pytest.raises(ValueError):
+        validate_runtime_promotion_approval(approval)
+
+
+def test_core_receipt_validation_rejects_noncanonical_extra_field(repositories) -> None:
+    receipt = _promote(repositories)
+    receipt["untrustedField"] = "not canonical"
+
+    with pytest.raises(RuntimePromotionError, match="receipt_shape_invalid"):
+        _validate_runtime_promotion_receipt_payload(receipt)
+    with pytest.raises(ValueError):
+        validate_runtime_promotion_receipt(receipt)
 
 
 def test_dry_run_does_not_change_runtime_or_create_state(repositories) -> None:
@@ -264,6 +392,41 @@ def test_dry_run_does_not_change_runtime_or_create_state(repositories) -> None:
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
     assert not state.exists()
     assert _run("git", "show-ref", cwd=source) == refs_before
+
+
+def test_dry_run_never_fetches_or_mutates_git_refs(repositories, monkeypatch) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    source, runtime, *_rest = repositories
+    source_refs = _run("git", "show-ref", cwd=source)
+    runtime_refs = _run("git", "show-ref", cwd=runtime)
+    commands: list[tuple[str, ...]] = []
+    original = promotion._run
+
+    def record(command, *, cwd, environment=None):
+        commands.append(tuple(command))
+        return original(command, cwd=cwd, environment=environment)
+
+    monkeypatch.setattr(promotion, "_run", record)
+    _promote(repositories, dry_run=True)
+
+    assert not any("fetch" in command or "pull" in command for command in commands)
+    assert _run("git", "show-ref", cwd=source) == source_refs
+    assert _run("git", "show-ref", cwd=runtime) == runtime_refs
+    assert not repositories[-1].exists()
+
+
+def test_approval_rejects_duplicate_check_run_identity(repositories) -> None:
+    approval_path = repositories[4]
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["checks"][1]["checkRunId"] = approval["checks"][0]["checkRunId"]
+    core = dict(approval)
+    core.pop("approvalFingerprint")
+    approval["approvalFingerprint"] = _fingerprint(core)
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    with pytest.raises(RuntimePromotionError, match="check_run_identity_invalid"):
+        load_runtime_promotion_approval(approval_path)
 
 
 def test_exact_approval_payload_handoff_does_not_reread_path(
@@ -418,6 +581,16 @@ def test_live_github_evidence_binds_merge_review_and_checks(
     }
     workflow_path_override["value"] = ".github/workflows/lookalike.yml"
     with pytest.raises(RuntimePromotionError, match="workflow_not_live_verified"):
+        _verify_github_approval_evidence(source, approval)
+    workflow_path_override["value"] = None
+    approval["checks"][0]["checkRunId"] = 999_999
+    with pytest.raises(RuntimePromotionError, match="check_not_live_verified"):
+        _verify_github_approval_evidence(source, approval)
+    approval["checks"][0]["checkRunId"] = checks[0]["id"]
+    approval["review"]["reviewId"] = 999_999
+    with pytest.raises(
+        RuntimePromotionError, match="review_not_independent_or_current"
+    ):
         _verify_github_approval_evidence(source, approval)
 
 
@@ -710,6 +883,71 @@ def test_receipt_write_failure_rolls_runtime_back(repositories, monkeypatch) -> 
     with pytest.raises(RuntimePromotionError, match="receipt_failed_and_rolled_back"):
         _promote(repositories)
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+
+
+def test_terminal_journal_failure_after_receipt_write_rolls_back_and_cleans_receipt(
+    repositories, monkeypatch
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    _source, runtime, first, *_rest, state = repositories
+    original = promotion._transaction_update
+    failed = {"committed": False}
+
+    def fail_committed(path, record, *, status, failure=None, receipt_fingerprint=None):
+        if status == "committed" and not failed["committed"]:
+            failed["committed"] = True
+            raise OSError("transaction journal disk unavailable")
+        return original(
+            path,
+            record,
+            status=status,
+            failure=failure,
+            receipt_fingerprint=receipt_fingerprint,
+        )
+
+    monkeypatch.setattr(promotion, "_transaction_update", fail_committed)
+    with pytest.raises(RuntimePromotionError, match="receipt_failed_and_rolled_back"):
+        _promote(repositories)
+
+    assert failed["committed"] is True
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+    assert not list((state / "receipts").glob("*.json"))
+    transactions = list((state / "transactions").glob("*.json"))
+    assert len(transactions) == 1
+    assert promotion._load_transaction_journal(transactions[0])["status"] == (
+        "rolled_back"
+    )
+
+
+def test_receipt_construction_failure_after_checkout_rolls_runtime_back(
+    repositories, monkeypatch
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    _source, runtime, first, *_rest, state = repositories
+    original = promotion.sign_evidence_attestation
+
+    def fail_receipt(payload, *, issuer, issued_at, secret):
+        if issuer == "creator_os.runtime_promotion":
+            raise OSError("receipt signer unavailable")
+        return original(
+            payload,
+            issuer=issuer,
+            issued_at=issued_at,
+            secret=secret,
+        )
+
+    monkeypatch.setattr(promotion, "sign_evidence_attestation", fail_receipt)
+    with pytest.raises(RuntimePromotionError, match="receipt_failed_and_rolled_back"):
+        _promote(repositories)
+
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+    assert not list((state / "receipts").glob("*.json"))
+    transaction_path = next((state / "transactions").glob("*.json"))
+    assert promotion._load_transaction_journal(transaction_path)["status"] == (
+        "rolled_back"
+    )
 
 
 def test_incomplete_transaction_is_recovered_before_new_promotion(

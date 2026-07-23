@@ -46,6 +46,22 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+RUNTIME_BINDING = {
+    "runtimeId": "fixture-runtime",
+    "repository": "fixture/runtime",
+    "revision": "runtime-revision",
+}
+RUNTIME_FINGERPRINT = queue_fingerprint(RUNTIME_BINDING)
+LICENSE_POLICY = {
+    "licenseId": "apache-2.0",
+    "commercialUse": True,
+    "declaredAnnualRevenueUsd": None,
+    "commercialRevenueLimitUsd": None,
+    "commercialUseAllowed": True,
+    "aiDisclosureRequired": False,
+}
+
+
 @pytest.fixture(autouse=True)
 def _deep_verified_test_models(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
@@ -62,6 +78,8 @@ def _deep_verified_test_models(monkeypatch: pytest.MonkeyPatch) -> None:
             "manifestSha256": _sha(model_id),
             "fileBindings": [],
             "dependencyBindings": [],
+            "runtimeBinding": RUNTIME_BINDING,
+            "runtimeBindingFingerprint": RUNTIME_FINGERPRINT,
             "providerCalls": 0,
             "paidGeneration": False,
         }
@@ -157,6 +175,16 @@ def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
         parameter_fingerprint=queue_fingerprint(params),
         task_kind="image_to_video",
     )
+    profile = {
+        "schema": "creator_os.creator_identity_profile.v1",
+        "profileId": "profile-benchmark-fixture",
+    }
+    intent = {
+        "schema": "creator_os.content_intent.v1",
+        "intentId": recipe.content_intent_id,
+        "creatorIdentityProfileId": profile["profileId"],
+        "sourceAssetFingerprints": [input_fingerprint],
+    }
     return LocalGenerationJob.create(
         job_id=job_id,
         model_id=model,
@@ -168,6 +196,10 @@ def _job(job_id: str, model: str, task_input: str) -> LocalGenerationJob:
         params=params,
         benchmark_recipe=recipe,
         analyzer_registry=registry,
+        creator_identity_profile=profile,
+        content_intent=intent,
+        runtime_binding=RUNTIME_BINDING,
+        license_policy=LICENSE_POLICY,
     )
 
 
@@ -655,7 +687,7 @@ def _matched_evidence(
     store = LocalModelBenchmarkStore(tmp_path / "evidence")
     candidate: list[BenchmarkReceipt] = []
     baseline: list[BenchmarkReceipt] = []
-    for index in range(2):
+    for index in range(8):
         task_input = f"shot-{index}"
         baseline.append(
             _complete_and_benchmark(
@@ -702,6 +734,28 @@ def test_eligible_evaluation_never_auto_promotes(tmp_path: Path) -> None:
     assert evaluation.eligible
     event_types = [event["eventType"] for event in store.promotions.read().events]
     assert event_types == ["promotion_evaluated"]
+
+
+def test_tiny_four_per_arm_cohort_is_not_promotion_eligible(tmp_path: Path) -> None:
+    store, candidate, baseline = _matched_evidence(tmp_path)
+
+    evaluation = store.evaluate_promotion(
+        candidate_model_fingerprint=candidate[0].model_fingerprint,
+        baseline_model_fingerprint=baseline[0].model_fingerprint,
+        task_kind="image_to_video",
+        hardware_fingerprint=candidate[0].hardware_fingerprint,
+        candidate_benchmark_ids=tuple(item.benchmark_id for item in candidate[:4]),
+        baseline_benchmark_ids=tuple(item.benchmark_id for item in baseline[:4]),
+    )
+
+    assert not evaluation.eligible
+    assert "insufficient_candidate_samples" in evaluation.blocking_reasons
+    assert "insufficient_baseline_samples" in evaluation.blocking_reasons
+
+
+def test_promotion_policy_cannot_weaken_eight_per_arm_floor() -> None:
+    with pytest.raises(ValueError, match="cannot weaken the fixed floor"):
+        PromotionPolicy(minimum_candidate_samples=4, minimum_baseline_samples=4)
 
 
 def test_promotion_requires_explicit_operator_approval(tmp_path: Path) -> None:
@@ -1035,6 +1089,39 @@ def test_historical_receipt_reads_without_invented_evidence_linkage() -> None:
         BenchmarkReceipt.from_dict(payload)
 
 
+def test_prior_deep_verified_receipt_without_identity_intent_remains_readable() -> None:
+    payload = {
+        "schema": "reel_factory.local_model_benchmark.v1",
+        "benchmarkId": "prior-deep-receipt",
+        "jobId": "prior-deep-job",
+        "modelFingerprint": "prior-model",
+        "taskFingerprint": "prior-task",
+        "taskKind": "image_to_video",
+        "hardwareFingerprint": "prior-hardware",
+        "modelId": "prior-model-id",
+        "modelDeepVerificationFingerprint": "d" * 64,
+        "outputSha256": _sha("prior-output"),
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1,
+        "memoryMeasurementMethod": PROMOTION_MEMORY_MEASUREMENT_METHOD,
+        "qcReferences": [
+            {
+                "checkId": "contentforge.motion_specific_qc",
+                "receiptUri": "qc/prior.json",
+                "receiptSha256": _sha("prior-qc"),
+                "subjectSha256": _sha("prior-output"),
+                "passed": True,
+            }
+        ],
+        "source": "measured_local_execution",
+    }
+
+    receipt = BenchmarkReceipt.from_dict(payload)
+
+    assert receipt.creator_identity_profile_id is None
+    assert receipt.content_intent_id is None
+
+
 def test_record_rejects_recipe_that_did_not_create_queue_job(tmp_path: Path) -> None:
     queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=2 * GIB)
     store = LocalModelBenchmarkStore(tmp_path / "evidence")
@@ -1340,8 +1427,8 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
     assert result["providerCalls"] == 0
     assert result["productionWrites"] == 0
     assert result["promotionEvaluation"]["eligible"] is True
-    assert len(result["benchmarkReceipts"]) == 4
-    assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 4
+    assert len(result["benchmarkReceipts"]) == 16
+    assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 16
     for receipt in result["benchmarkReceipts"]:
         assert receipt["benchmarkRecipeId"] == result["benchmarkRecipeId"]
         assert (

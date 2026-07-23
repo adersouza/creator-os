@@ -22,6 +22,7 @@ import {
 } from "./evidence-attestation.js";
 import { evaluateMotionSpecificQc } from "./motion-specific-qc.js";
 import { getPythonCommand } from "./python-runtime.js";
+import { runTrustedCaptionOverlayAudit } from "./similarity.js";
 
 export const TRUSTED_ANALYZERS = Object.freeze([
   Object.freeze({
@@ -61,7 +62,9 @@ const DISCONTINUITY_ABSOLUTE_THRESHOLD = 0.18;
 const DISCONTINUITY_MAD_SCALE = 6;
 const DISCONTINUITY_MIN_EXCESS = 0.05;
 const LIP_SYNC_SAMPLE_RATE = 16000;
-const LIP_SYNC_MIN_SAMPLES = 7;
+const LIP_SYNC_MIN_SAMPLES = 36;
+const LIP_SYNC_MIN_TRAINING_SAMPLES = 24;
+const LIP_SYNC_MIN_HOLDOUT_SAMPLES = 12;
 const LIP_SYNC_MIN_FACE_COVERAGE = 0.60;
 const LIP_SYNC_MIN_AUDIO_ACTIVITY_RATIO = 0.15;
 const LIP_SYNC_MIN_VISUAL_SPREAD = 0.001;
@@ -72,6 +75,15 @@ const LIP_SYNC_ANALYZER_PATH = path.join(
   REPOSITORY_ROOT,
   "packages/contentforge/scripts/local-lip-sync-analyzer.py",
 );
+const OVERLAY_SEMANTIC_BRIDGE = [
+  "import hashlib, inspect, json, sys",
+  "from pathlib import Path",
+  "from pipeline_contracts.overlay_semantics import evaluate_overlay_semantic_completeness",
+  "payload = json.loads(sys.argv[1])",
+  "result = evaluate_overlay_semantic_completeness(payload, require_overlay=True)",
+  "implementation = Path(inspect.getsourcefile(evaluate_overlay_semantic_completeness)).resolve()",
+  "print(json.dumps({'available': True, 'result': result, 'implementationRef': str(implementation), 'implementationSha256': hashlib.sha256(implementation.read_bytes()).hexdigest()}, sort_keys=True, separators=(',', ':')))"
+].join("\n");
 const SCHEMA_ROOT = path.join(REPOSITORY_ROOT, "packages/pipeline_contracts/pipeline_contracts/schemas");
 const ajv = new Ajv2020({ allErrors: true, strict: false, formats: { "date-time": true } });
 const evidenceProvenanceSchema = JSON.parse(readFileSync(path.join(SCHEMA_ROOT, "evidence_provenance.v1.schema.json"), "utf8"));
@@ -199,7 +211,14 @@ function validateAnalysisRecord(analysis) {
   if (verdicts.size !== observations.size) throw new Error("trusted_media_analysis_verdict_set_mismatch");
   for (var [identity, observation] of observations) {
     var verdict = verdicts.get(identity);
-    var expectedPass = observation.status === "measured" || observation.status === "not_applicable";
+    var expectedPass = (observation.status === "measured" && observation.observations?.passed !== false)
+      || observation.status === "not_applicable";
+    var expectedReasonCodes = expectedPass
+      ? []
+      : Array.isArray(observation.observations?.blockingReasons)
+        && observation.observations.blockingReasons.length
+        ? observation.observations.blockingReasons
+        : [observation.observations.reason || "measurement_unavailable"];
     if (!verdict
       || verdict.subjectSha256 !== analysis.subject.mediaSha256
       || verdict.analysisId !== analysis.analysisId
@@ -211,9 +230,10 @@ function validateAnalysisRecord(analysis) {
       || verdict.passed !== expectedPass
       || verdict.verdict !== (expectedPass ? "pass" : "blocked")
       || (expectedPass && verdict.reasons.length !== 0)
-      || (!expectedPass && (verdict.reasons.length !== 1
-        || verdict.reasons[0].severity !== "block"
-        || verdict.reasons[0].code !== observation.observations.reason))) {
+      || (!expectedPass && (verdict.reasons.length !== expectedReasonCodes.length
+        || verdict.reasons.some(function (reason, index) {
+          return reason.severity !== "block" || reason.code !== expectedReasonCodes[index];
+        })))) {
       throw new Error(`trusted_media_analysis_verdict_mismatch:${identity}`);
     }
   }
@@ -381,6 +401,29 @@ function correlation(first, second) {
   }
   var denominator = Math.sqrt(firstSquare * secondSquare);
   return denominator > 0 ? numerator / denominator : null;
+}
+
+function fisherCorrelationLowerBound(value, sampleCount) {
+  if (!Number.isFinite(value) || sampleCount <= 3) return null;
+  var bounded = Math.max(-0.999999, Math.min(0.999999, value));
+  var fisherZ = Math.atanh(bounded);
+  var standardError = 1 / Math.sqrt(sampleCount - 3);
+  return Math.tanh(fisherZ - (1.645 * standardError));
+}
+
+function standardNormalCdf(value) {
+  // Abramowitz-Stegun 7.1.26; deterministic and accurate enough for an
+  // evidence threshold (maximum absolute error below 7.5e-8).
+  var absolute = Math.abs(value);
+  var t = 1 / (1 + (0.2316419 * absolute));
+  var density = Math.exp(-0.5 * absolute * absolute) / Math.sqrt(2 * Math.PI);
+  var tail = density * t * (
+    0.319381530
+    + t * (-0.356563782
+      + t * (1.781477937
+        + t * (-1.821255978 + (t * 1.330274429))))
+  );
+  return value >= 0 ? 1 - tail : tail;
 }
 
 function longestRun(values, predicate) {
@@ -640,6 +683,9 @@ function lipSyncFailure(reason, details = {}) {
 }
 
 async function lipSyncObservations(mediaPath, probe, runner, visualRegistration) {
+  if (!probe.audio) {
+    return lipSyncFailure("audio_stream_missing");
+  }
   var visualResult = await runner(getPythonCommand(), [LIP_SYNC_ANALYZER_PATH, mediaPath], {
     timeout: 60000,
     maxBuffer: 8 * 1024 * 1024,
@@ -662,8 +708,36 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
       visualAnalysis: visual,
     });
   }
-  if (!probe.audio) {
-    return lipSyncFailure("audio_stream_missing", { visualAnalysis: visual });
+  var landmarkEvidence = visual.landmarkEvidence;
+  var landmarkToolchain = visual.toolchainEvidence;
+  var landmarkToolchainCore = landmarkToolchain && typeof landmarkToolchain === "object"
+    ? { ...landmarkToolchain }
+    : null;
+  if (landmarkToolchainCore) delete landmarkToolchainCore.toolchainFingerprint;
+  if (!landmarkEvidence
+    || landmarkEvidence.available !== true
+    || landmarkEvidence.provider !== "apple_vision"
+    || landmarkEvidence.request !== "VNDetectFaceLandmarksRequest"
+    || !Number.isInteger(landmarkEvidence.frameCount)
+    || landmarkEvidence.frameCount < LIP_SYNC_MIN_SAMPLES
+    || !/^[a-f0-9]{64}$/.test(landmarkEvidence.fingerprint || "")
+    || !landmarkToolchainCore
+    || landmarkToolchain.schema !== "contentforge.apple_vision_toolchain.v1"
+    || !/^[a-f0-9]{64}$/.test(landmarkToolchain.toolchainFingerprint || "")
+    || fingerprint(landmarkToolchainCore) !== landmarkToolchain.toolchainFingerprint
+    || landmarkEvidence.toolchainFingerprint !== landmarkToolchain.toolchainFingerprint
+    || visual.runtime?.toolchainFingerprint !== landmarkToolchain.toolchainFingerprint
+    || typeof landmarkToolchain.macosBuildVersion !== "string"
+    || !landmarkToolchain.macosBuildVersion.trim()
+    || typeof landmarkToolchain.swiftVersion !== "string"
+    || !landmarkToolchain.swiftVersion.trim()
+    || !/^[a-f0-9]{64}$/.test(landmarkToolchain.swiftExecutableSha256 || "")
+    || !/^[a-f0-9]{64}$/.test(landmarkToolchain.embeddedSwiftSourceSha256 || "")
+    || !Array.isArray(visual.landmarkFrames)
+    || visual.landmarkFrames.length !== landmarkEvidence.frameCount) {
+    return lipSyncFailure("mouth_landmark_evidence_unavailable", {
+      visualAnalysis: visual,
+    });
   }
   var pcmResult = await runner("ffmpeg", [
     "-hide_banner", "-loglevel", "error",
@@ -699,12 +773,14 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
   if (!Number.isFinite(faceCoverage) || faceCoverage < LIP_SYNC_MIN_FACE_COVERAGE) {
     return lipSyncFailure("face_track_incomplete", {
       faceTrackCoverage: Number.isFinite(faceCoverage) ? faceCoverage : null,
+      visualAnalysis: visual,
     });
   }
   if (samples.length < LIP_SYNC_MIN_SAMPLES) {
     return lipSyncFailure("insufficient_lip_sync_samples", {
       sampleCount: samples.length,
       faceTrackCoverage: faceCoverage,
+      visualAnalysis: visual,
     });
   }
   var visualEnvelope = samples.map(function (item) { return item.articulationMotion; });
@@ -714,6 +790,7 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
       sampleCount: samples.length,
       faceTrackCoverage: faceCoverage,
       visualSpread,
+      visualAnalysis: visual,
     });
   }
   var baselineAudio = samples.map(function (item) {
@@ -723,6 +800,7 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
     return lipSyncFailure("insufficient_audio_samples", {
       sampleCount: baselineAudio.length,
       faceTrackCoverage: faceCoverage,
+      visualAnalysis: visual,
     });
   }
   var audioP10 = percentile(baselineAudio, 0.10);
@@ -738,6 +816,25 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
       speechActivityRatio,
       audioRmsP10: audioP10,
       audioRmsP90: audioP90,
+      visualAnalysis: visual,
+    });
+  }
+
+  var trainingSamples = samples.filter(function (_sample, index) {
+    return index % 3 !== 2;
+  });
+  var holdoutSamples = samples.filter(function (_sample, index) {
+    return index % 3 === 2;
+  });
+  if (trainingSamples.length < LIP_SYNC_MIN_TRAINING_SAMPLES
+    || holdoutSamples.length < LIP_SYNC_MIN_HOLDOUT_SAMPLES) {
+    return lipSyncFailure("insufficient_lip_sync_holdout_samples", {
+      sampleCount: samples.length,
+      trainingSampleCount: trainingSamples.length,
+      holdoutSampleCount: holdoutSamples.length,
+      faceTrackCoverage: faceCoverage,
+      speechActivityRatio,
+      visualAnalysis: visual,
     });
   }
 
@@ -747,14 +844,15 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
     offsetMs += LIP_SYNC_OFFSET_STEP_MS) {
     var matchedVisual = [];
     var matchedAudio = [];
-    for (var sample of samples) {
+    for (var sample of trainingSamples) {
       var rms = pcmRmsAt(pcmResult.stdout, sample.timeSeconds + (offsetMs / 1000));
       if (!Number.isFinite(rms)) continue;
       matchedVisual.push(sample.articulationMotion);
       matchedAudio.push(rms);
     }
     var exactCorrelation = correlation(matchedVisual, matchedAudio);
-    if (exactCorrelation !== null && matchedVisual.length >= LIP_SYNC_MIN_SAMPLES) {
+    if (exactCorrelation !== null
+      && matchedVisual.length >= LIP_SYNC_MIN_TRAINING_SAMPLES) {
       candidates.push({
         offsetMs,
         correlation: Math.max(-1, Math.min(1, exactCorrelation)),
@@ -767,6 +865,7 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
       sampleCount: samples.length,
       faceTrackCoverage: faceCoverage,
       speechActivityRatio,
+      visualAnalysis: visual,
     });
   }
   candidates.sort(function (first, second) {
@@ -775,21 +874,71 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
       || first.offsetMs - second.offsetMs;
   });
   var best = candidates[0];
-  var confidence = Math.max(0, Math.min(1, (best.correlation + 1) / 2));
+  var holdoutVisual = [];
+  var holdoutAudio = [];
+  for (var holdoutSample of holdoutSamples) {
+    var holdoutRms = pcmRmsAt(
+      pcmResult.stdout,
+      holdoutSample.timeSeconds + (best.offsetMs / 1000),
+    );
+    if (!Number.isFinite(holdoutRms)) continue;
+    holdoutVisual.push(holdoutSample.articulationMotion);
+    holdoutAudio.push(holdoutRms);
+  }
+  var holdoutCorrelation = correlation(holdoutVisual, holdoutAudio);
+  if (holdoutCorrelation === null
+    || holdoutVisual.length < LIP_SYNC_MIN_HOLDOUT_SAMPLES) {
+    return lipSyncFailure("insufficient_correlation_holdout_evidence", {
+      sampleCount: samples.length,
+      trainingSampleCount: best.sampleCount,
+      holdoutSampleCount: holdoutVisual.length,
+      selectedOffsetMs: best.offsetMs,
+      faceTrackCoverage: faceCoverage,
+      speechActivityRatio,
+      visualAnalysis: visual,
+    });
+  }
+  var lowerBound = fisherCorrelationLowerBound(
+    holdoutCorrelation,
+    holdoutVisual.length,
+  );
+  if (lowerBound === null) {
+    return lipSyncFailure("correlation_confidence_unavailable", {
+      holdoutSampleCount: holdoutVisual.length,
+      visualAnalysis: visual,
+    });
+  }
+  var nullCorrelation = 0.20;
+  var fisherStatistic = (
+    Math.atanh(Math.max(-0.999999, Math.min(0.999999, holdoutCorrelation)))
+    - Math.atanh(nullCorrelation)
+  ) * Math.sqrt(holdoutVisual.length - 3);
+  var confidence = Math.max(0, Math.min(1, standardNormalCdf(fisherStatistic)));
+  var oneSidedPValue = 1 - confidence;
+  var runnerUp = candidates[1] || null;
+  var selectionMargin = runnerUp ? best.correlation - runnerUp.correlation : null;
+  var confidenceLabel = confidence >= 0.95 && lowerBound > nullCorrelation
+    ? "supported"
+    : confidence >= 0.80 && holdoutCorrelation > nullCorrelation
+      ? "weak"
+      : "unsupported";
   return {
     available: true,
-    analyzerMethod: "audio_energy_to_local_face_tracked_mouth_articulation",
+    analyzerMethod: "audio_energy_to_apple_vision_lip_landmarks_train_holdout",
     visualAnalyzer: {
       analyzerId: visualRegistration.analyzerId,
       analyzerVersion: visualRegistration.analyzerVersion,
       implementationRef: visualRegistration.implementationRef,
       implementationFingerprint: visualRegistration.implementationFingerprint,
     },
+    landmarkEvidenceFingerprint: landmarkEvidence.fingerprint,
+    landmarkToolchain,
+    landmarkToolchainFingerprint: landmarkToolchain.toolchainFingerprint,
     confidence,
     offsetMs: best.offsetMs,
-    aligned: confidence >= 0.65 && Math.abs(best.offsetMs) <= 120,
-    correlation: best.correlation,
-    sampleCount: best.sampleCount,
+    aligned: confidenceLabel === "supported" && Math.abs(best.offsetMs) <= 120,
+    correlation: lowerBound,
+    sampleCount: holdoutVisual.length,
     faceTrackCoverage: faceCoverage,
     speechActivityRatio,
     speechActivityConfirmed: true,
@@ -798,23 +947,151 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
     audioRmsP90: audioP90,
     activityThreshold,
     testedOffsetsMs: candidates.map(function (item) { return item.offsetMs; }),
+    correlationEvidence: {
+      design: "offset_selected_on_training_evaluated_once_on_interleaved_holdout",
+      candidateOffsetCount: candidates.length,
+      trainingSampleCount: best.sampleCount,
+      holdoutSampleCount: holdoutVisual.length,
+      trainingCorrelation: best.correlation,
+      holdoutCorrelation,
+      holdoutCorrelationLower95: lowerBound,
+      confidenceMethod: "one_sided_fisher_z_against_practical_null",
+      nullCorrelation,
+      fisherStatistic,
+      oneSidedPValue,
+      statisticalConfidence: confidence,
+      confidenceLabel,
+      selectionMargin,
+    },
     visualAnalysis: visual,
   };
 }
 
-function overlayObservations(overlayEvidence, mediaSha256, overlaysExist) {
-  if (!overlaysExist) return { available: false, reason: "overlay_not_present", applicable: false };
-  if (!overlayEvidence || typeof overlayEvidence !== "object" || Array.isArray(overlayEvidence)) {
-    return { available: false, reason: "overlay_evidence_missing", applicable: true };
+async function runCanonicalOverlaySemanticEvaluation(timedSequence, runner) {
+  var payload = {
+    segments: (timedSequence || []).map(function (item) {
+      return { text: String(item.text || "").trim() };
+    }).filter(function (item) { return item.text.length > 0; }),
+  };
+  var execution = await runner(
+    getPythonCommand(),
+    ["-c", OVERLAY_SEMANTIC_BRIDGE, JSON.stringify(payload)],
+    { timeout: 15000, maxBuffer: 1024 * 1024 },
+  );
+  if (!execution.ok) {
+    return { available: false, reason: "overlay_semantic_policy_execution_failed" };
   }
-  var subject = overlayEvidence.subjectSha256 || overlayEvidence.mediaSha256 || null;
-  if (subject !== mediaSha256) return { available: false, reason: "overlay_subject_mismatch", applicable: true };
+  try {
+    var decoded = JSON.parse(String(execution.stdout || "{}"));
+    if (decoded.available !== true
+      || !decoded.result
+      || typeof decoded.result.passed !== "boolean"
+      || !/^[a-f0-9]{64}$/.test(decoded.implementationSha256 || "")) {
+      return { available: false, reason: "overlay_semantic_policy_output_invalid" };
+    }
+    return decoded;
+  } catch {
+    return { available: false, reason: "overlay_semantic_policy_output_invalid" };
+  }
+}
+
+function detectedOverlayText(measured) {
+  return (measured.timedSequence || [])
+    .map(function (item) { return String(item.text || "").trim(); })
+    .filter(Boolean);
+}
+
+function burnedUiText(detectedText) {
+  var uiPattern = /(?:^|\b)(?:follow|following|message|share|comment|like|reels|home|search|for you|battery|wifi|[345]g)(?:\b|$)/i;
+  return detectedText.filter(function (text) { return uiPattern.test(text); });
+}
+
+async function overlayObservations({
+  overlaysExist,
+  mediaPath,
+  durationSeconds,
+  faceTrackBoxes = [],
+  auditor = runTrustedCaptionOverlayAudit,
+  semanticEvaluator = runCanonicalOverlaySemanticEvaluation,
+  runner = runTool,
+}) {
+  var measured = await auditor({
+    filePath: mediaPath,
+    durationSeconds,
+    faceTrackBoxes,
+  });
+  if (overlaysExist) {
+    var detectedText = detectedOverlayText(measured);
+    var uiText = burnedUiText(detectedText);
+    var semanticEvidence = measured.available === true
+      ? await semanticEvaluator(measured.timedSequence || [], runner)
+      : { available: false, reason: "overlay_pixel_measurement_unavailable" };
+    var semanticResult = semanticEvidence.result || null;
+    var blockingReasons = [
+      ...(measured.blockingReasons || []),
+      ...(uiText.length ? ["burned_ui_detected"] : []),
+      ...(semanticEvidence.available !== true
+        ? [semanticEvidence.reason || "overlay_semantic_evidence_unavailable"]
+        : semanticResult.passed === true
+          ? []
+          : semanticResult.failure_reasons || ["overlay_semantic_qc_failed"]),
+    ].filter(function (reason, index, values) {
+      return values.indexOf(reason) === index;
+    });
+    return {
+      ...measured,
+      passed: measured.available === true
+        && measured.passed === true
+        && semanticEvidence.available === true
+        && semanticResult.passed === true
+        && uiText.length === 0,
+      blockingReasons,
+      declaredOverlayExpected: true,
+      unexpectedTextDetected: false,
+      burnedUiDetected: uiText.length > 0,
+      burnedUiText: uiText,
+      semanticDelivery: semanticEvidence,
+    };
+  }
+  if (measured.available !== true) {
+    return {
+      ...measured,
+      applicable: true,
+      declaredOverlayExpected: false,
+      unexpectedTextDetected: null,
+    };
+  }
+  var detectedTextFrames = Number(measured.sampling?.detectedTextFrames || 0);
+  var boxCount = Number(measured.ocr?.boxCount || 0);
+  var detectedText = detectedOverlayText(measured);
+  if (detectedTextFrames === 0 && boxCount === 0 && detectedText.length === 0) {
+    return {
+      ...measured,
+      available: true,
+      applicable: false,
+      passed: true,
+      reason: "no_burned_text_detected",
+      blockingReasons: [],
+      declaredOverlayExpected: false,
+      unexpectedTextDetected: false,
+    };
+  }
+  var uiText = burnedUiText(detectedText);
   return {
+    ...measured,
     available: true,
     applicable: true,
-    subjectSha256: subject,
-    evidenceFingerprint: fingerprint(overlayEvidence),
-    evidence: overlayEvidence,
+    passed: false,
+    blockingReasons: [
+      "undeclared_burned_text_detected",
+      ...(uiText.length ? ["undeclared_burned_ui_detected"] : []),
+      ...(measured.blockingReasons || []),
+    ].filter(function (reason, index, values) {
+      return values.indexOf(reason) === index;
+    }),
+    declaredOverlayExpected: false,
+    unexpectedTextDetected: true,
+    unexpectedUiText: uiText,
   };
 }
 
@@ -849,7 +1126,12 @@ function analyzerResult(definition, registration, registry, observations, toolRe
 }
 
 function analyzerVerdict(record, subjectSha256, analysisId) {
-  var passed = record.status === "measured" || record.status === "not_applicable";
+  var measurementPassed = record.status === "measured"
+    && record.observations?.passed !== false;
+  var passed = measurementPassed || record.status === "not_applicable";
+  var blockingReasons = Array.isArray(record.observations?.blockingReasons)
+    ? record.observations.blockingReasons
+    : [];
   return {
     schema: "contentforge.trusted_analyzer_receipt.v1",
     policy: { id: record.analyzerId, version: record.analyzerVersion },
@@ -864,10 +1146,12 @@ function analyzerVerdict(record, subjectSha256, analysisId) {
     passed,
     evidenceOnly: true,
     providerCalls: 0,
-    reasons: passed ? [] : [{
-      code: record.observations.reason || "measurement_unavailable",
-      severity: "block",
-    }],
+    reasons: passed ? [] : (blockingReasons.length
+      ? blockingReasons.map(function (code) { return { code, severity: "block" }; })
+      : [{
+          code: record.observations.reason || "measurement_unavailable",
+          severity: "block",
+        }]),
   };
 }
 
@@ -948,6 +1232,9 @@ export async function analyzeTrustedMedia({
   runner = runTool,
 } = {}) {
   requireCurrentTimestamp(producedAt, "trusted_media_analysis_timestamp");
+  if (overlayEvidence !== null) {
+    throw new Error("trusted_media_caller_overlay_evidence_rejected");
+  }
   var registry = await verifiedRegistry(analyzerRegistry, repositoryRoot);
   var resolvedMedia = path.resolve(String(mediaPath || ""));
   await requireRegularNonSymlink(resolvedMedia, "trusted_media_input");
@@ -1000,6 +1287,19 @@ export async function analyzeTrustedMedia({
       registry.registrations.get("contentforge.local_face_mouth_track@1.0.0"),
     ),
   ]);
+  var overlay = await overlayObservations({
+    overlaysExist,
+    mediaPath: snapshot.path,
+    durationSeconds: probe.duration,
+    faceTrackBoxes: lipSync?.visualAnalysis?.faceTrackBoxes || [],
+    auditor: typeof runner.trustedOverlayAuditor === "function"
+      ? runner.trustedOverlayAuditor
+      : runTrustedCaptionOverlayAudit,
+    semanticEvaluator: typeof runner.trustedOverlaySemanticEvaluator === "function"
+      ? runner.trustedOverlaySemanticEvaluator
+      : runCanonicalOverlaySemanticEvaluation,
+    runner,
+  });
   var media = {
     available: true,
     bytes: mediaStat.size,
@@ -1028,7 +1328,7 @@ export async function analyzeTrustedMedia({
           ? audio
           : definition.analyzerId.endsWith("local_lip_sync")
             ? lipSync
-            : overlayObservations(overlayEvidence, mediaSha256, overlaysExist);
+            : overlay;
     var registration = registry.registrations.get(`${definition.analyzerId}@${definition.analyzerVersion}`);
     return analyzerResult(definition, registration, registry, observations, tools);
   });
@@ -1046,6 +1346,9 @@ export async function analyzeTrustedMedia({
     }
   }
   var analysisId = "analysis_" + fingerprint({ mediaSha256, sourceSha256, registryFingerprint: registry.registryFingerprint, analyzers: analyzerResults }).slice(0, 24);
+  var overlayResult = analyzerResults.find(function (record) {
+    return record.analyzerId === "contentforge.overlay_delivery";
+  });
   var core = {
     schema: ANALYSIS_SCHEMA,
     analysisId,
@@ -1069,6 +1372,9 @@ export async function analyzeTrustedMedia({
       creatorIdentity: "requires_identity_analyzer_or_structured_human_review",
       faceStability: "requires_face_tracking_analyzer_or_structured_human_review",
       anatomyArtifacts: "requires_anatomy_analyzer_or_structured_human_review",
+      ...(overlayResult?.status === "unavailable" ? {
+        overlayDelivery: overlayResult?.observations?.reason || "trusted_overlay_measurement_unavailable",
+      } : {}),
       ...(lipSync.available === true ? {} : {
         lipSync: lipSync.reason || "local_lip_sync_measurement_unavailable",
       }),
@@ -1194,6 +1500,10 @@ export function motionEvidenceFromTrustedAnalysis(
       body: { applicable: true, anomalyScore: review?.ratings?.bodyArtifactScore },
     }, "anatomy_review_unavailable"),
     lipSync: descriptor(lipSync, {
+      analyzerMethod: lipSync?.observations?.analyzerMethod,
+      landmarkEvidenceFingerprint: lipSync?.observations?.landmarkEvidenceFingerprint,
+      landmarkToolchain: lipSync?.observations?.landmarkToolchain,
+      landmarkToolchainFingerprint: lipSync?.observations?.landmarkToolchainFingerprint,
       confidence: lipSync?.observations?.confidence,
       offsetMs: lipSync?.observations?.offsetMs,
       aligned: lipSync?.observations?.aligned,
@@ -1201,6 +1511,7 @@ export function motionEvidenceFromTrustedAnalysis(
       sampleCount: lipSync?.observations?.sampleCount,
       faceTrackCoverage: lipSync?.observations?.faceTrackCoverage,
       speechActivityRatio: lipSync?.observations?.speechActivityRatio,
+      correlationEvidence: lipSync?.observations?.correlationEvidence,
     }),
     audioAlignment: technicalConfidence === null
       ? { available: false, reason: "audio_stream_timing_unavailable", subjectSha256 }
@@ -1231,6 +1542,61 @@ export async function buildTrustedMotionSpecificQc({
     mediaSha256: analysis.subject.mediaSha256,
   });
   var reasons = [...evaluation.reasons];
+  function addOverlayBlock(code, message) {
+    if (!reasons.some(function (item) { return item.code === code; })) {
+      reasons.push({ code, severity: "block", message });
+    }
+  }
+  var overlayRecord = analysis.rawObservations.find(function (record) {
+    return record.analyzerId === "contentforge.overlay_delivery";
+  });
+  var overlayObservation = overlayRecord?.observations || {};
+  if (!overlayRecord || overlayRecord.status === "unavailable") {
+    addOverlayBlock(
+      "overlay_pixel_scan_unavailable",
+      "Final motion QC requires a completed trusted pixel/OCR scan for unexpected text and UI",
+    );
+  } else if (overlayObservation.declaredOverlayExpected === true) {
+    if (overlayObservation.passed !== true) {
+      for (var overlayReason of overlayObservation.blockingReasons || []) {
+        addOverlayBlock(overlayReason, "Declared burned overlay failed trusted delivery or semantic QC");
+      }
+    }
+    var semantic = overlayObservation.semanticDelivery;
+    if (!semantic
+      || semantic.available !== true
+      || semantic.result?.passed !== true
+      || !/^[a-f0-9]{64}$/.test(semantic.implementationSha256 || "")) {
+      addOverlayBlock(
+        "declared_overlay_semantic_evidence_invalid",
+        "Declared burned overlays require canonical Pipeline Contracts semantic evidence",
+      );
+    }
+    if (overlayObservation.burnedUiDetected === true) {
+      addOverlayBlock("burned_ui_detected", "Burned application UI is not an allowed declared overlay");
+    }
+  } else if (overlayRecord.status === "not_applicable") {
+    if (overlayObservation.reason !== "no_burned_text_detected"
+      || overlayObservation.unexpectedTextDetected !== false) {
+      addOverlayBlock(
+        "unexpected_text_scan_inconsistent",
+        "No-overlay evidence must be a completed OCR scan with no detected text",
+      );
+    }
+  } else {
+    if (overlayObservation.unexpectedTextDetected !== false) {
+      addOverlayBlock(
+        "undeclared_burned_text_detected",
+        "Trusted OCR detected burned text that was not declared by the generation plan",
+      );
+    }
+    if ((overlayObservation.unexpectedUiText || []).length > 0) {
+      addOverlayBlock(
+        "undeclared_burned_ui_detected",
+        "Trusted OCR detected undeclared application UI in the generated media",
+      );
+    }
+  }
   if (!review.decisions.anatomyAcceptable) {
     reasons.push({
       code: "human_review_anatomy_rejected",

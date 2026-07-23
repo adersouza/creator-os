@@ -394,12 +394,63 @@ class LocalGenerationJob:
     requested_memory_bytes: int
     params_fingerprint: str
     owned_artifact_paths: tuple[str, ...] = ()
+    creator_identity_profile_id: str | None = None
+    creator_identity_profile_fingerprint: str | None = None
+    content_intent_id: str | None = None
+    content_intent_fingerprint: str | None = None
     benchmark_recipe_id: str | None = None
     benchmark_recipe_fingerprint: str | None = None
     analyzer_registry_id: str | None = None
     analyzer_registry_fingerprint: str | None = None
+    runtime_binding: Mapping[str, Any] | None = None
+    runtime_binding_fingerprint: str | None = None
+    license_policy: Mapping[str, Any] | None = None
+    license_policy_fingerprint: str | None = None
+    router_decision_id: str | None = None
+    router_decision_fingerprint: str | None = None
+    router_capability_cohort: str | None = None
+    router_cohort_fingerprint: str | None = None
+    arena_summary_fingerprint: str | None = None
+    arena_plan_fingerprint: str | None = None
+    local_motion_admission_fingerprint: str | None = None
+    selected_model_fingerprint: str | None = None
+    model_deep_verification_fingerprint: str | None = None
+    promotion_approval_event_id: str | None = None
+    promotion_approval_event_hash: str | None = None
+    promotion_hardware_fingerprint: str | None = None
+    promotion_evidence_fingerprint: str | None = None
+    promotion_benchmark_ids_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
+        record_linkage = (
+            self.creator_identity_profile_id,
+            self.creator_identity_profile_fingerprint,
+            self.content_intent_id,
+            self.content_intent_fingerprint,
+        )
+        if any(value is not None for value in record_linkage) and not all(
+            value is not None for value in record_linkage
+        ):
+            raise ValueError("job_identity_intent_linkage_must_be_complete")
+        if self.creator_identity_profile_id is not None:
+            if (
+                not self.creator_identity_profile_id.strip()
+                or self.content_intent_id is None
+                or not self.content_intent_id.strip()
+            ):
+                raise ValueError("job_identity_intent_linkage_ids_must_be_non_empty")
+            for value in (
+                self.creator_identity_profile_fingerprint,
+                self.content_intent_fingerprint,
+            ):
+                if (
+                    value is None
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError(
+                        "job_identity_intent_linkage_fingerprints_must_be_sha256"
+                    )
         linkage = (
             self.benchmark_recipe_id,
             self.benchmark_recipe_fingerprint,
@@ -429,6 +480,75 @@ class LocalGenerationJob:
                     raise ValueError(
                         "benchmark_evidence_linkage_fingerprints_must_be_sha256"
                     )
+        execution_evidence = (
+            self.runtime_binding,
+            self.runtime_binding_fingerprint,
+            self.license_policy,
+            self.license_policy_fingerprint,
+        )
+        if any(value is not None for value in execution_evidence) and not all(
+            value is not None for value in execution_evidence
+        ):
+            raise ValueError("job_runtime_license_evidence_must_be_complete")
+        if self.runtime_binding is not None:
+            if (
+                not isinstance(self.runtime_binding, Mapping)
+                or not isinstance(self.license_policy, Mapping)
+                or fingerprint(self.runtime_binding) != self.runtime_binding_fingerprint
+                or fingerprint(self.license_policy) != self.license_policy_fingerprint
+            ):
+                raise ValueError("job_runtime_license_evidence_invalid")
+        router_linkage = (
+            self.router_decision_id,
+            self.router_decision_fingerprint,
+            self.router_capability_cohort,
+            self.router_cohort_fingerprint,
+            self.arena_summary_fingerprint,
+            self.arena_plan_fingerprint,
+            self.local_motion_admission_fingerprint,
+            self.selected_model_fingerprint,
+            self.model_deep_verification_fingerprint,
+            self.promotion_approval_event_id,
+            self.promotion_approval_event_hash,
+            self.promotion_hardware_fingerprint,
+            self.promotion_evidence_fingerprint,
+            self.promotion_benchmark_ids_fingerprint,
+        )
+        if any(value is not None for value in router_linkage) and not all(
+            value is not None for value in router_linkage
+        ):
+            raise ValueError("job_router_promotion_linkage_must_be_complete")
+        if self.router_decision_id is not None:
+            if (
+                not self.router_decision_id.strip()
+                or self.router_capability_cohort is None
+                or not self.router_capability_cohort.strip()
+                or self.promotion_approval_event_id is None
+                or not self.promotion_approval_event_id.strip()
+                or self.selected_model_fingerprint != self.model_fingerprint
+            ):
+                raise ValueError("job_router_promotion_linkage_ids_must_be_non_empty")
+            for value in (
+                self.router_decision_fingerprint,
+                self.router_cohort_fingerprint,
+                self.arena_summary_fingerprint,
+                self.arena_plan_fingerprint,
+                self.local_motion_admission_fingerprint,
+                self.selected_model_fingerprint,
+                self.model_deep_verification_fingerprint,
+                self.promotion_approval_event_hash,
+                self.promotion_hardware_fingerprint,
+                self.promotion_evidence_fingerprint,
+                self.promotion_benchmark_ids_fingerprint,
+            ):
+                if (
+                    value is None
+                    or len(value) != 64
+                    or any(char not in "0123456789abcdef" for char in value)
+                ):
+                    raise ValueError(
+                        "job_router_promotion_linkage_fingerprints_must_be_sha256"
+                    )
 
     @classmethod
     def create(
@@ -446,6 +566,11 @@ class LocalGenerationJob:
         owned_artifact_paths: Sequence[Path] = (),
         benchmark_recipe: EvidenceRecord | None = None,
         analyzer_registry: EvidenceRecord | None = None,
+        creator_identity_profile: EvidenceRecord | None = None,
+        content_intent: EvidenceRecord | None = None,
+        runtime_binding: Mapping[str, Any] | None = None,
+        license_policy: Mapping[str, Any] | None = None,
+        router_promotion_linkage: Mapping[str, Any] | None = None,
     ) -> LocalGenerationJob:
         for name, value in {
             "job_id": job_id,
@@ -475,6 +600,29 @@ class LocalGenerationJob:
         params_fp = fingerprint(params)
         recipe_payload: dict[str, Any] = {}
         registry_payload: dict[str, Any] = {}
+        profile_payload: dict[str, Any] = {}
+        intent_payload: dict[str, Any] = {}
+        if (creator_identity_profile is None) != (content_intent is None):
+            raise ValueError("identity_intent_evidence_records_must_be_paired")
+        if creator_identity_profile is not None and content_intent is not None:
+            profile_payload = evidence_record_payload(creator_identity_profile)
+            intent_payload = evidence_record_payload(content_intent)
+            if (
+                profile_payload.get("schema")
+                != "creator_os.creator_identity_profile.v1"
+            ):
+                raise ValueError("creator_identity_profile_schema_mismatch")
+            if intent_payload.get("schema") != "creator_os.content_intent.v1":
+                raise ValueError("content_intent_schema_mismatch")
+            if (
+                not str(profile_payload.get("profileId") or "").strip()
+                or not str(intent_payload.get("intentId") or "").strip()
+            ):
+                raise ValueError("identity_intent_evidence_ids_missing")
+            if intent_payload.get("creatorIdentityProfileId") != profile_payload.get(
+                "profileId"
+            ):
+                raise ValueError("content_intent_creator_profile_mismatch")
         if (benchmark_recipe is None) != (analyzer_registry is None):
             raise ValueError("benchmark_evidence_records_must_be_paired")
         if benchmark_recipe is not None and analyzer_registry is not None:
@@ -520,6 +668,17 @@ class LocalGenerationJob:
                 raise ValueError("benchmark_recipe_analyzer_requirement_invalid")
             if not required.issubset(registered):
                 raise ValueError("benchmark_recipe_required_analyzer_unregistered")
+        if (runtime_binding is None) != (license_policy is None):
+            raise ValueError("runtime_license_evidence_must_be_paired")
+        runtime_payload = dict(runtime_binding) if runtime_binding is not None else {}
+        license_payload = dict(license_policy) if license_policy is not None else {}
+        if runtime_binding is not None:
+            if not str(runtime_payload.get("runtimeId") or "").strip():
+                raise ValueError("runtime_binding_id_missing")
+            if not str(license_payload.get("licenseId") or "").strip():
+                raise ValueError("license_policy_id_missing")
+            if license_payload.get("commercialUseAllowed") is not True:
+                raise ValueError("license_policy_commercial_use_not_allowed")
         cohort_payload = (
             dict(cohort)
             if cohort is not None
@@ -531,6 +690,27 @@ class LocalGenerationJob:
         )
         if len(resolved_artifacts) != len(set(resolved_artifacts)):
             raise ValueError("owned_artifact_paths must be distinct")
+        router_linkage: dict[str, Any] = {}
+        if router_promotion_linkage is not None:
+            router_linkage = dict(router_promotion_linkage)
+            expected_router_keys = {
+                "routerDecisionId",
+                "routerDecisionFingerprint",
+                "capabilityCohort",
+                "cohortKeyFingerprint",
+                "arenaSummaryFingerprint",
+                "arenaPlanFingerprint",
+                "admissionFingerprint",
+                "selectedModelFingerprint",
+                "modelDeepVerificationFingerprint",
+                "promotionApprovalEventId",
+                "promotionApprovalEventHash",
+                "promotionHardwareFingerprint",
+                "promotionEvidenceFingerprint",
+                "promotionBenchmarkIdsFingerprint",
+            }
+            if set(router_linkage) != expected_router_keys:
+                raise ValueError("router_promotion_linkage_shape_invalid")
         return cls(
             job_id=job_id,
             model_id=model_id,
@@ -541,6 +721,22 @@ class LocalGenerationJob:
             requested_memory_bytes=requested_memory_bytes,
             params_fingerprint=params_fp,
             owned_artifact_paths=resolved_artifacts,
+            creator_identity_profile_id=(
+                str(profile_payload["profileId"])
+                if creator_identity_profile is not None
+                else None
+            ),
+            creator_identity_profile_fingerprint=(
+                fingerprint(profile_payload)
+                if creator_identity_profile is not None
+                else None
+            ),
+            content_intent_id=(
+                str(intent_payload["intentId"]) if content_intent is not None else None
+            ),
+            content_intent_fingerprint=(
+                fingerprint(intent_payload) if content_intent is not None else None
+            ),
             benchmark_recipe_id=(
                 str(recipe_payload["recipeId"])
                 if benchmark_recipe is not None
@@ -556,6 +752,84 @@ class LocalGenerationJob:
             ),
             analyzer_registry_fingerprint=(
                 fingerprint(registry_payload) if analyzer_registry is not None else None
+            ),
+            runtime_binding=(runtime_payload if runtime_binding is not None else None),
+            runtime_binding_fingerprint=(
+                fingerprint(runtime_payload) if runtime_binding is not None else None
+            ),
+            license_policy=(license_payload if license_policy is not None else None),
+            license_policy_fingerprint=(
+                fingerprint(license_payload) if license_policy is not None else None
+            ),
+            router_decision_id=(
+                str(router_linkage["routerDecisionId"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_decision_fingerprint=(
+                str(router_linkage["routerDecisionFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_capability_cohort=(
+                str(router_linkage["capabilityCohort"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            router_cohort_fingerprint=(
+                str(router_linkage["cohortKeyFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            arena_summary_fingerprint=(
+                str(router_linkage["arenaSummaryFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            arena_plan_fingerprint=(
+                str(router_linkage["arenaPlanFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            local_motion_admission_fingerprint=(
+                str(router_linkage["admissionFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            selected_model_fingerprint=(
+                str(router_linkage["selectedModelFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            model_deep_verification_fingerprint=(
+                str(router_linkage["modelDeepVerificationFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_approval_event_id=(
+                str(router_linkage["promotionApprovalEventId"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_approval_event_hash=(
+                str(router_linkage["promotionApprovalEventHash"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_hardware_fingerprint=(
+                str(router_linkage["promotionHardwareFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_evidence_fingerprint=(
+                str(router_linkage["promotionEvidenceFingerprint"])
+                if router_promotion_linkage is not None
+                else None
+            ),
+            promotion_benchmark_ids_fingerprint=(
+                str(router_linkage["promotionBenchmarkIdsFingerprint"])
+                if router_promotion_linkage is not None
+                else None
             ),
         )
 
@@ -578,6 +852,43 @@ class LocalGenerationJob:
                     "benchmarkRecipeFingerprint": self.benchmark_recipe_fingerprint,
                     "analyzerRegistryId": self.analyzer_registry_id,
                     "analyzerRegistryFingerprint": self.analyzer_registry_fingerprint,
+                }
+            )
+        if self.creator_identity_profile_id is not None:
+            payload.update(
+                {
+                    "creatorIdentityProfileId": self.creator_identity_profile_id,
+                    "creatorIdentityProfileFingerprint": self.creator_identity_profile_fingerprint,
+                    "contentIntentId": self.content_intent_id,
+                    "contentIntentFingerprint": self.content_intent_fingerprint,
+                }
+            )
+        if self.runtime_binding is not None:
+            payload.update(
+                {
+                    "runtimeBinding": dict(self.runtime_binding),
+                    "runtimeBindingFingerprint": self.runtime_binding_fingerprint,
+                    "licensePolicy": dict(self.license_policy or {}),
+                    "licensePolicyFingerprint": self.license_policy_fingerprint,
+                }
+            )
+        if self.router_decision_id is not None:
+            payload.update(
+                {
+                    "routerDecisionId": self.router_decision_id,
+                    "routerDecisionFingerprint": self.router_decision_fingerprint,
+                    "routerCapabilityCohort": self.router_capability_cohort,
+                    "routerCohortFingerprint": self.router_cohort_fingerprint,
+                    "arenaSummaryFingerprint": self.arena_summary_fingerprint,
+                    "arenaPlanFingerprint": self.arena_plan_fingerprint,
+                    "localMotionAdmissionFingerprint": self.local_motion_admission_fingerprint,
+                    "selectedModelFingerprint": self.selected_model_fingerprint,
+                    "modelDeepVerificationFingerprint": self.model_deep_verification_fingerprint,
+                    "promotionApprovalEventId": self.promotion_approval_event_id,
+                    "promotionApprovalEventHash": self.promotion_approval_event_hash,
+                    "promotionHardwareFingerprint": self.promotion_hardware_fingerprint,
+                    "promotionEvidenceFingerprint": self.promotion_evidence_fingerprint,
+                    "promotionBenchmarkIdsFingerprint": self.promotion_benchmark_ids_fingerprint,
                 }
             )
         return payload
@@ -629,6 +940,26 @@ def _job_from_payload(payload: Mapping[str, Any]) -> LocalGenerationJob:
         owned_artifact_paths=tuple(
             str(value) for value in payload.get("ownedArtifactPaths", [])
         ),
+        creator_identity_profile_id=(
+            str(payload["creatorIdentityProfileId"])
+            if payload.get("creatorIdentityProfileId") is not None
+            else None
+        ),
+        creator_identity_profile_fingerprint=(
+            str(payload["creatorIdentityProfileFingerprint"])
+            if payload.get("creatorIdentityProfileFingerprint") is not None
+            else None
+        ),
+        content_intent_id=(
+            str(payload["contentIntentId"])
+            if payload.get("contentIntentId") is not None
+            else None
+        ),
+        content_intent_fingerprint=(
+            str(payload["contentIntentFingerprint"])
+            if payload.get("contentIntentFingerprint") is not None
+            else None
+        ),
         benchmark_recipe_id=(
             str(payload["benchmarkRecipeId"])
             if payload.get("benchmarkRecipeId") is not None
@@ -647,6 +978,96 @@ def _job_from_payload(payload: Mapping[str, Any]) -> LocalGenerationJob:
         analyzer_registry_fingerprint=(
             str(payload["analyzerRegistryFingerprint"])
             if payload.get("analyzerRegistryFingerprint") is not None
+            else None
+        ),
+        runtime_binding=(
+            dict(payload["runtimeBinding"])
+            if isinstance(payload.get("runtimeBinding"), dict)
+            else None
+        ),
+        runtime_binding_fingerprint=(
+            str(payload["runtimeBindingFingerprint"])
+            if payload.get("runtimeBindingFingerprint") is not None
+            else None
+        ),
+        license_policy=(
+            dict(payload["licensePolicy"])
+            if isinstance(payload.get("licensePolicy"), dict)
+            else None
+        ),
+        license_policy_fingerprint=(
+            str(payload["licensePolicyFingerprint"])
+            if payload.get("licensePolicyFingerprint") is not None
+            else None
+        ),
+        router_decision_id=(
+            str(payload["routerDecisionId"])
+            if payload.get("routerDecisionId") is not None
+            else None
+        ),
+        router_decision_fingerprint=(
+            str(payload["routerDecisionFingerprint"])
+            if payload.get("routerDecisionFingerprint") is not None
+            else None
+        ),
+        router_capability_cohort=(
+            str(payload["routerCapabilityCohort"])
+            if payload.get("routerCapabilityCohort") is not None
+            else None
+        ),
+        router_cohort_fingerprint=(
+            str(payload["routerCohortFingerprint"])
+            if payload.get("routerCohortFingerprint") is not None
+            else None
+        ),
+        arena_summary_fingerprint=(
+            str(payload["arenaSummaryFingerprint"])
+            if payload.get("arenaSummaryFingerprint") is not None
+            else None
+        ),
+        arena_plan_fingerprint=(
+            str(payload["arenaPlanFingerprint"])
+            if payload.get("arenaPlanFingerprint") is not None
+            else None
+        ),
+        local_motion_admission_fingerprint=(
+            str(payload["localMotionAdmissionFingerprint"])
+            if payload.get("localMotionAdmissionFingerprint") is not None
+            else None
+        ),
+        selected_model_fingerprint=(
+            str(payload["selectedModelFingerprint"])
+            if payload.get("selectedModelFingerprint") is not None
+            else None
+        ),
+        model_deep_verification_fingerprint=(
+            str(payload["modelDeepVerificationFingerprint"])
+            if payload.get("modelDeepVerificationFingerprint") is not None
+            else None
+        ),
+        promotion_approval_event_id=(
+            str(payload["promotionApprovalEventId"])
+            if payload.get("promotionApprovalEventId") is not None
+            else None
+        ),
+        promotion_approval_event_hash=(
+            str(payload["promotionApprovalEventHash"])
+            if payload.get("promotionApprovalEventHash") is not None
+            else None
+        ),
+        promotion_hardware_fingerprint=(
+            str(payload["promotionHardwareFingerprint"])
+            if payload.get("promotionHardwareFingerprint") is not None
+            else None
+        ),
+        promotion_evidence_fingerprint=(
+            str(payload["promotionEvidenceFingerprint"])
+            if payload.get("promotionEvidenceFingerprint") is not None
+            else None
+        ),
+        promotion_benchmark_ids_fingerprint=(
+            str(payload["promotionBenchmarkIdsFingerprint"])
+            if payload.get("promotionBenchmarkIdsFingerprint") is not None
             else None
         ),
     )

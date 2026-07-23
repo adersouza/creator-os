@@ -20,6 +20,46 @@ def _fingerprint(value: dict) -> str:
     ).hexdigest()
 
 
+def _runtime_and_license_policy() -> tuple[dict, dict, str, str]:
+    runtime = {
+        "runtimeId": "mlx_video",
+        "repository": "https://example.invalid/mlx-video.git",
+        "revision": "runtime-revision-1",
+        "platform": "Darwin",
+        "platformRelease": "25.0.0",
+        "osBuild": "25A123",
+        "machine": "arm64",
+        "python": "3.12.10",
+        "pythonExecutable": "/opt/creator-os/bin/python",
+        "pythonExecutableResolved": "/opt/creator-os/bin/python3.12",
+        "mlxVersion": "0.29.3",
+        "runtimeReceiptFingerprint": "1" * 64,
+        "resolvedEnvironmentFingerprint": "2" * 64,
+        "ffmpegExecutable": "/opt/homebrew/bin/ffmpeg",
+        "ffmpegSha256": "3" * 64,
+        "ffmpegSize": 1_024,
+        "ffmpegVersion": "ffmpeg version 8.0",
+        "ffprobeExecutable": "/opt/homebrew/bin/ffprobe",
+        "ffprobeSha256": "4" * 64,
+        "ffprobeSize": 512,
+        "ffprobeVersion": "ffprobe version 8.0",
+    }
+    license_policy = {
+        "licenseId": "ltx-2-community-license-agreement",
+        "commercialUse": True,
+        "declaredAnnualRevenueUsd": 500_000,
+        "commercialRevenueLimitUsd": 10_000_000,
+        "commercialUseAllowed": True,
+        "aiDisclosureRequired": True,
+    }
+    return (
+        runtime,
+        license_policy,
+        _fingerprint(runtime),
+        _fingerprint(license_policy),
+    )
+
+
 def _fixture(tmp_path: Path) -> tuple[Path, Path, dict]:
     still = tmp_path / "accepted.png"
     still.write_bytes(b"accepted-still")
@@ -79,6 +119,7 @@ def _patch_admission_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     *,
     failure: str | None = None,
+    admission_mutator=None,
 ) -> dict:
     captured: dict = {}
 
@@ -86,9 +127,30 @@ def _patch_admission_dependencies(
         captured.update(kwargs)
         if failure is not None:
             raise RuntimeError(failure)
-        return {
+        runtime, license_policy, runtime_fingerprint, license_fingerprint = (
+            _runtime_and_license_policy()
+        )
+        decision = {
+            "selectedModelId": "local_wan22_i2v_a14b_q4_mlx",
+            "consideredCandidates": [
+                {
+                    "modelId": "local_wan22_i2v_a14b_q4_mlx",
+                    "runtimeBinding": runtime,
+                    "runtimeBindingFingerprint": runtime_fingerprint,
+                    "licensePolicy": license_policy,
+                    "licensePolicyFingerprint": license_fingerprint,
+                }
+            ],
+            "winningEvidence": {
+                "runtimeBinding": runtime,
+                "runtimeBindingFingerprint": runtime_fingerprint,
+                "licensePolicy": license_policy,
+                "licensePolicyFingerprint": license_fingerprint,
+            },
+        }
+        result = {
             "schema": "campaign_factory.local_motion_admission.v1",
-            "routerDecision": {"selectedModelId": "local_wan22_i2v_a14b_q4_mlx"},
+            "routerDecision": decision,
             "arenaSummary": {"summaryId": kwargs["arena_summary"]["summaryId"]},
             "evidenceRecords": dict(kwargs["evidence_records"]),
             "inputFingerprints": list(kwargs["input_fingerprints"]),
@@ -98,6 +160,9 @@ def _patch_admission_dependencies(
             },
             "admissionFingerprint": "f" * 64,
         }
+        if admission_mutator is not None:
+            admission_mutator(result)
+        return result
 
     monkeypatch.setattr(
         "campaign_factory.local_motion_admission.validate_compiled_thin_evidence_records",
@@ -139,6 +204,34 @@ def test_admission_binds_exact_inputs_and_calls_only_public_worker_api(
     assert result["resourceSnapshot"]["routerAvailableMemoryBytes"] == 24_000
 
 
+def test_admission_binds_first_and_last_frame_fingerprints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+    last_image = tmp_path / "last-frame.png"
+    last_image.write_bytes(b"approved-last-frame")
+    last_sha = hashlib.sha256(last_image.read_bytes()).hexdigest()
+    records["contentIntent"]["sourceAssetFingerprints"].append(last_sha)
+    records["benchmarkRecipe"]["inputFingerprints"].append(last_sha)
+    captured = _patch_admission_dependencies(monkeypatch)
+
+    build_local_motion_admission(
+        evidence_bundle_path=None,
+        evidence_bundle=records,
+        arena_summary_path=summary_path,
+        accepted_still_path=still,
+        audio_path=None,
+        last_image_path=last_image,
+        campaign_creator="stacey",
+        task_kind="image_to_video",
+    )
+
+    assert captured["input_fingerprints"] == [
+        hashlib.sha256(still.read_bytes()).hexdigest(),
+        last_sha,
+    ]
+
+
 def test_admission_fails_closed_without_current_memory_measurement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -160,6 +253,87 @@ def test_admission_fails_closed_without_current_memory_measurement(
             task_kind="image_to_video",
         )
     assert captured["creator_id"] == "stacey"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("commercialUse", False, "commercial_use_attestation_required"),
+        ("declaredAnnualRevenueUsd", None, "commercial_revenue_not_licensed"),
+        (
+            "declaredAnnualRevenueUsd",
+            10_000_000,
+            "commercial_revenue_not_licensed",
+        ),
+        ("aiDisclosureRequired", "yes", "license_policy_invalid"),
+    ],
+)
+def test_admission_rejects_invalid_commercial_revenue_or_disclosure_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+
+    def mutate(admission: dict) -> None:
+        decision = admission["routerDecision"]
+        policy = {**decision["winningEvidence"]["licensePolicy"], field: value}
+        policy_fingerprint = _fingerprint(policy)
+        decision["winningEvidence"]["licensePolicy"] = policy
+        decision["winningEvidence"]["licensePolicyFingerprint"] = policy_fingerprint
+        decision["consideredCandidates"][0]["licensePolicy"] = policy
+        decision["consideredCandidates"][0]["licensePolicyFingerprint"] = (
+            policy_fingerprint
+        )
+
+    _patch_admission_dependencies(monkeypatch, admission_mutator=mutate)
+    with pytest.raises(LocalMotionAdmissionError, match=error):
+        build_local_motion_admission(
+            evidence_bundle_path=None,
+            evidence_bundle=records,
+            arena_summary_path=summary_path,
+            accepted_still_path=still,
+            audio_path=None,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+        )
+
+
+@pytest.mark.parametrize("failure", ["missing", "mixed"])
+def test_admission_rejects_missing_or_mixed_runtime_toolchain_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+
+    def mutate(admission: dict) -> None:
+        decision = admission["routerDecision"]
+        if failure == "missing":
+            decision["winningEvidence"]["runtimeBinding"] = None
+        else:
+            replacement = {
+                **decision["winningEvidence"]["runtimeBinding"],
+                "python": "3.13.0",
+            }
+            decision["winningEvidence"]["runtimeBinding"] = replacement
+            decision["winningEvidence"]["runtimeBindingFingerprint"] = _fingerprint(
+                replacement
+            )
+
+    _patch_admission_dependencies(monkeypatch, admission_mutator=mutate)
+    with pytest.raises(LocalMotionAdmissionError, match="runtime_binding_invalid"):
+        build_local_motion_admission(
+            evidence_bundle_path=None,
+            evidence_bundle=records,
+            arena_summary_path=summary_path,
+            accepted_still_path=still,
+            audio_path=None,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+        )
 
 
 def test_admission_rejects_model_only_or_placeholder_override(
@@ -246,6 +420,17 @@ def _execution_admission_fixture(
         "validArenaSampleIds": ["sample-1"],
         "promotionApproval": {"approvalEventId": "promotion-1"},
     }
+    runtime, license_policy, runtime_fingerprint, license_fingerprint = (
+        _runtime_and_license_policy()
+    )
+    winning.update(
+        {
+            "runtimeBinding": runtime,
+            "runtimeBindingFingerprint": runtime_fingerprint,
+            "licensePolicy": license_policy,
+            "licensePolicyFingerprint": license_fingerprint,
+        }
+    )
     decision_core = {
         "schema": "reel_factory.local_model_router_decision.v1",
         "request": {
@@ -257,6 +442,15 @@ def _execution_admission_fixture(
         },
         "selectedModelId": "local_wan22_i2v_a14b_q4_mlx",
         "selectedModelFingerprint": "d" * 64,
+        "consideredCandidates": [
+            {
+                "modelId": "local_wan22_i2v_a14b_q4_mlx",
+                "runtimeBinding": runtime,
+                "runtimeBindingFingerprint": runtime_fingerprint,
+                "licensePolicy": license_policy,
+                "licensePolicyFingerprint": license_fingerprint,
+            }
+        ],
         "winningEvidence": winning,
         "operatorOverride": None,
         "paidProviderFallbackAllowed": False,
@@ -282,7 +476,16 @@ def _execution_admission_fixture(
         "evidenceRecords": records,
         "inputFingerprints": [hashlib.sha256(still.read_bytes()).hexdigest()],
         "resourceSnapshot": {
-            "schema": "campaign_factory.local_motion_resource_snapshot.v1"
+            "schema": "campaign_factory.local_motion_resource_snapshot.v1",
+            "motionEditBinding": {
+                "taskKind": "image_to_video",
+                "sourceVideo": None,
+                "retakeStartFrame": None,
+                "retakeEndFrame": None,
+                "extendFrames": None,
+                "extendDirection": "after",
+                "preserveAudio": False,
+            },
         },
     }
     admission = {
@@ -343,6 +546,138 @@ def test_execution_revalidation_rehashes_current_input_and_rechecks_promotion(
         )
         == admission
     )
+
+
+def _retake_execution_fixture(
+    tmp_path: Path,
+) -> tuple[dict, Path, Path, Path, dict, dict]:
+    admission, still, summary, recipe, registry = _execution_admission_fixture(tmp_path)
+    source_video = tmp_path / "source.mp4"
+    source_video.write_bytes(b"approved-source-video")
+    source_sha = hashlib.sha256(source_video.read_bytes()).hexdigest()
+    records = admission["evidenceRecords"]
+    records["contentIntent"]["sourceAssetFingerprints"] = [source_sha]
+    records["benchmarkRecipe"]["inputFingerprints"] = [source_sha]
+    records["benchmarkRecipe"]["taskKind"] = "video_retake"
+    admission["inputFingerprints"] = [source_sha]
+    decision = admission["routerDecision"]
+    decision["request"]["taskKind"] = "video_retake"
+    decision["winningEvidence"]["cohortKey"]["taskKind"] = "video_retake"
+    decision_core = dict(decision)
+    decision_core.pop("decisionFingerprint")
+    decision["decisionFingerprint"] = _fingerprint(decision_core)
+    admission["resourceSnapshot"]["motionEditBinding"] = {
+        "taskKind": "video_retake",
+        "sourceVideo": {"path": str(source_video), "sha256": source_sha},
+        "retakeStartFrame": 2,
+        "retakeEndFrame": 8,
+        "extendFrames": None,
+        "extendDirection": "after",
+        "preserveAudio": True,
+    }
+    admission_core = dict(admission)
+    admission_core.pop("admissionFingerprint")
+    admission["admissionFingerprint"] = _fingerprint(admission_core)
+    return admission, still, source_video, summary, recipe, registry
+
+
+def test_retake_revalidation_binds_source_range_and_preserved_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admission, still, source, summary, recipe, registry = _retake_execution_fixture(
+        tmp_path
+    )
+    _patch_execution_revalidation(monkeypatch, admission)
+    assert (
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=None,
+            source_video_path=source,
+            retake_start_frame=2,
+            retake_end_frame=8,
+            preserve_audio=True,
+            campaign_creator="stacey",
+            task_kind="video_retake",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+        == admission
+    )
+
+
+@pytest.mark.parametrize(
+    "substitution",
+    ["source", "range", "preserve_audio"],
+)
+def test_retake_revalidation_rejects_execution_substitution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    substitution: str,
+) -> None:
+    admission, still, source, summary, recipe, registry = _retake_execution_fixture(
+        tmp_path
+    )
+    _patch_execution_revalidation(monkeypatch, admission)
+    if substitution == "source":
+        source.write_bytes(b"substituted-source-video")
+    with pytest.raises(
+        LocalMotionAdmissionError,
+        match="execution_motion_edit_binding_mismatch",
+    ):
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=None,
+            source_video_path=source,
+            retake_start_frame=3 if substitution == "range" else 2,
+            retake_end_frame=8,
+            preserve_audio=substitution != "preserve_audio",
+            campaign_creator="stacey",
+            task_kind="video_retake",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+@pytest.mark.parametrize(
+    ("frames", "direction"),
+    [(0, "after"), (25, "after"), (8, "sideways")],
+)
+def test_extend_admission_rejects_invalid_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frames: int,
+    direction: str,
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source-video")
+    source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    records["contentIntent"]["sourceAssetFingerprints"] = [source_sha]
+    records["benchmarkRecipe"]["inputFingerprints"] = [source_sha]
+    records["benchmarkRecipe"]["taskKind"] = "video_extend"
+    _patch_admission_dependencies(monkeypatch)
+    with pytest.raises(
+        LocalMotionAdmissionError,
+        match="extend_binding_invalid|extend_direction_invalid",
+    ):
+        build_local_motion_admission(
+            evidence_bundle_path=None,
+            evidence_bundle=records,
+            arena_summary_path=summary_path,
+            accepted_still_path=still,
+            audio_path=None,
+            source_video_path=source,
+            extend_frames=frames,
+            extend_direction=direction,
+            campaign_creator="stacey",
+            task_kind="video_extend",
+        )
 
 
 def test_execution_revalidation_rejects_still_substitution_before_readmission(
@@ -429,6 +764,57 @@ def test_execution_revalidation_rejects_audio_substitution_before_readmission(
     assert called is False
 
 
+def test_execution_revalidation_rejects_last_frame_substitution_before_readmission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admission, still, summary, recipe, registry = _execution_admission_fixture(tmp_path)
+    last_image = tmp_path / "last-frame.png"
+    last_image.write_bytes(b"approved-last-frame")
+    last_sha = hashlib.sha256(last_image.read_bytes()).hexdigest()
+    records = admission["evidenceRecords"]
+    intent = records["contentIntent"]
+    recipe["inputFingerprints"].append(last_sha)
+    intent["sourceAssetFingerprints"].append(last_sha)
+    admission["inputFingerprints"].append(last_sha)
+    decision = admission["routerDecision"]
+    decision["request"]["contentIntentFingerprint"] = _fingerprint(intent)
+    decision_core = dict(decision)
+    decision_core.pop("decisionFingerprint")
+    decision["decisionFingerprint"] = _fingerprint(decision_core)
+    admission_core = dict(admission)
+    admission_core.pop("admissionFingerprint")
+    admission["admissionFingerprint"] = _fingerprint(admission_core)
+    called = False
+
+    def unexpected_readmit(**_kwargs):
+        nonlocal called
+        called = True
+        return admission
+
+    _patch_execution_revalidation(monkeypatch, admission)
+    monkeypatch.setattr(
+        "campaign_factory.local_motion_admission.admit_local_motion",
+        unexpected_readmit,
+    )
+    last_image.write_bytes(b"substituted-after-admission")
+    with pytest.raises(
+        LocalMotionAdmissionError, match="execution_input_fingerprint_mismatch"
+    ):
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=None,
+            last_image_path=last_image,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+    assert called is False
+
+
 def test_execution_revalidation_rejects_revoked_promotion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -437,6 +823,41 @@ def test_execution_revalidation_rejects_revoked_promotion(
         monkeypatch, admission, failure="active_promotion_not_found_exactly_once"
     )
     with pytest.raises(LocalMotionAdmissionError, match="execution_readmission_failed"):
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=None,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "router_no_valid_model:model_unavailable_or_drifted",
+        "router_no_valid_model:model_license_cohort_noncompliant",
+    ],
+)
+def test_execution_revalidation_rejects_revoked_deep_verification_or_license(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    admission, still, summary, recipe, registry = _execution_admission_fixture(tmp_path)
+    _patch_execution_revalidation(
+        monkeypatch,
+        admission,
+        failure=failure,
+    )
+    with pytest.raises(
+        LocalMotionAdmissionError,
+        match="model_unavailable_or_drifted|model_license_cohort_noncompliant",
+    ):
         revalidate_local_motion_admission(
             admission,
             arena_summary_path=summary,
@@ -462,6 +883,62 @@ def test_execution_revalidation_rejects_replaced_promotion_evidence(
     with pytest.raises(
         LocalMotionAdmissionError,
         match="execution_winning_evidence_drift:promotionApproval",
+    ):
+        revalidate_local_motion_admission(
+            admission,
+            arena_summary_path=summary,
+            accepted_still_path=still,
+            audio_path=None,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+            model_id="local_wan22_i2v_a14b_q4_mlx",
+            benchmark_recipe=recipe,
+            analyzer_registry=registry,
+        )
+
+
+@pytest.mark.parametrize("binding", ["runtime", "license", "disclosure"])
+def test_execution_revalidation_rejects_runtime_or_license_policy_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    binding: str,
+) -> None:
+    admission, still, summary, recipe, registry = _execution_admission_fixture(tmp_path)
+    current = deepcopy(admission)
+    decision = current["routerDecision"]
+    winning = decision["winningEvidence"]
+    candidate = decision["consideredCandidates"][0]
+    if binding == "runtime":
+        replacement = {**winning["runtimeBinding"], "revision": "runtime-revision-2"}
+        fingerprint = _fingerprint(replacement)
+        winning["runtimeBinding"] = replacement
+        winning["runtimeBindingFingerprint"] = fingerprint
+        candidate["runtimeBinding"] = replacement
+        candidate["runtimeBindingFingerprint"] = fingerprint
+    else:
+        replacement = {
+            **winning["licensePolicy"],
+            (
+                "aiDisclosureRequired"
+                if binding == "disclosure"
+                else "declaredAnnualRevenueUsd"
+            ): False if binding == "disclosure" else 750_000,
+        }
+        fingerprint = _fingerprint(replacement)
+        winning["licensePolicy"] = replacement
+        winning["licensePolicyFingerprint"] = fingerprint
+        candidate["licensePolicy"] = replacement
+        candidate["licensePolicyFingerprint"] = fingerprint
+    decision_core = dict(decision)
+    decision_core.pop("decisionFingerprint")
+    decision["decisionFingerprint"] = _fingerprint(decision_core)
+    admission_core = dict(current)
+    admission_core.pop("admissionFingerprint")
+    current["admissionFingerprint"] = _fingerprint(admission_core)
+    _patch_execution_revalidation(monkeypatch, current)
+
+    with pytest.raises(
+        LocalMotionAdmissionError, match="runtime_or_license_policy_drift"
     ):
         revalidate_local_motion_admission(
             admission,

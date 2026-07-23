@@ -27,10 +27,18 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert result.returncode == 0
     assert "component" not in result.stdout
     assert "campaign-prepare" not in result.stdout
-    assert "generate" in result.stdout
-    assert "draft-export" in result.stdout
+    assert "create (generate)" in result.stdout
+    assert "export (draft-export)" in result.stdout
     for ordinary in ("create", "review", "approve", "export", "promote", "advanced"):
         assert ordinary in result.stdout
+    for compatibility_diagnostic in (
+        "local-models",
+        "local-queue",
+        "local-benchmarks",
+        "approve-import",
+        "motion-qc-register",
+    ):
+        assert compatibility_diagnostic not in result.stdout
     assert "paid-generation" not in result.stdout
     assert "static-reel" not in result.stdout
 
@@ -139,8 +147,9 @@ def test_generate_list_modes_uses_read_only_campaign_catalog(
     ]
 
 
-def test_create_alias_routes_to_the_existing_campaign_control_plane(
+def test_create_routes_to_the_existing_campaign_control_plane_without_deprecation(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []
@@ -152,6 +161,50 @@ def test_create_alias_routes_to_the_existing_campaign_control_plane(
     namespace["main"].__globals__["_run"] = fake_run
     assert namespace["main"](["create", "--list-modes"]) == 0
     assert commands[0][-2:] == ["generation", "modes"]
+    assert "deprecated" not in capsys.readouterr().err
+
+
+def test_generate_alias_is_explicitly_deprecated(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert namespace["main"](["generate", "--list-modes"]) == 0
+    assert commands[0][-2:] == ["generation", "modes"]
+    assert "deprecated: use `creator-os create`" in capsys.readouterr().err
+
+
+def test_export_is_canonical_and_draft_export_remains_deprecated(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    common = [
+        "--dry-run",
+        "--campaign",
+        "campaign",
+        "--user-id",
+        "user",
+        "--max-drafts",
+        "1",
+    ]
+    assert namespace["main"](["export", *common]) == 0
+    assert "deprecated" not in capsys.readouterr().err
+    assert namespace["main"](["draft-export", *common]) == 0
+    assert "deprecated: use `creator-os export`" in capsys.readouterr().err
+    assert len(commands) == 2
 
 
 def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
@@ -176,6 +229,35 @@ def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
             "-m",
             "reel_factory.local_generation_queue",
             "status",
+        ]
+    ]
+
+
+@pytest.mark.parametrize("mode", ["--dry-run", "--apply"])
+def test_advanced_evidence_key_routes_only_to_core_initializer(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"](["advanced", "evidence-key", "init", mode]) == 0
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "creator-os-core",
+            "python",
+            "-m",
+            "creator_os_core.evidence_attestation",
+            "init",
+            mode,
         ]
     ]
 
@@ -232,7 +314,9 @@ def test_approve_import_is_explicitly_compatibility_labeled(
     namespace["main"].__globals__["_run"] = fake_run
     approval = tmp_path / "approval.json"
     assert namespace["main"](["approve-import", "--approval", str(approval)]) == 0
-    assert "compatibility-only" in capsys.readouterr().err
+    assert "deprecated: use `creator-os advanced approval-import`" in (
+        capsys.readouterr().err
+    )
     assert "campaign_factory.creative_approval" in commands[0]
 
 
@@ -292,25 +376,29 @@ def test_promote_requires_an_explicit_runtime_checkout() -> None:
 
 
 @pytest.mark.parametrize(
-    ("operator_command", "module", "forwarded"),
+    ("operator_command", "module", "forwarded", "uv_scope"),
     [
         (
             "local-queue",
             "reel_factory.local_generation_queue",
             ["status"],
+            ["--package", "reel-factory"],
         ),
         (
             "local-benchmarks",
             "reel_factory.local_model_benchmark",
             ["status"],
+            ["--all-packages"],
         ),
     ],
 )
 def test_local_operator_surfaces_route_only_to_reel_factory_modules(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
     operator_command: str,
     module: str,
     forwarded: list[str],
+    uv_scope: list[str],
 ) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []
@@ -327,18 +415,57 @@ def test_local_operator_surfaces_route_only_to_reel_factory_modules(
         [
             "uv",
             "run",
-            "--package",
-            "reel-factory",
+            *uv_scope,
             "python",
             "-m",
             module,
             *forwarded,
         ]
     ]
+    assert "deprecated: use `creator-os advanced" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("surface", "module"),
+    [
+        ("benchmarks", "reel_factory.local_model_benchmark"),
+        ("arena", "reel_factory.local_model_arena"),
+        ("router", "reel_factory.local_model_router"),
+    ],
+)
+def test_contract_aware_advanced_surfaces_use_the_full_workspace_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+    module: str,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"](["advanced", surface, "--help"]) == 0
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--all-packages",
+            "python",
+            "-m",
+            module,
+            "--help",
+        ]
+    ]
 
 
 def test_motion_qc_register_routes_exact_asset_and_receipt_to_campaign_factory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []
@@ -381,6 +508,9 @@ def test_motion_qc_register_routes_exact_asset_and_receipt_to_campaign_factory(
             "operator_1",
         ]
     ]
+    assert "deprecated: use `creator-os advanced motion-qc-register`" in (
+        capsys.readouterr().err
+    )
 
 
 def test_generate_requires_explicit_mode() -> None:
@@ -481,3 +611,47 @@ def test_generate_forwards_exact_wavespeed_model_and_spend_inputs(
     assert command[command.index("--seed") + 1] == "71"
     assert "--dry-run" in command
     assert "publish" not in " ".join(command)
+
+
+def test_generate_forwards_exact_local_retake_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    monkeypatch.setitem(namespace, "_run", fake_run)
+    namespace["main"].__globals__["_run"] = fake_run
+    source = tmp_path / "source.mp4"
+    assert (
+        namespace["main"](
+            [
+                "generate",
+                "--mode",
+                "local_wan",
+                "--dry-run",
+                "--campaign",
+                "campaign",
+                "--source-video",
+                str(source),
+                "--motion-task",
+                "video_retake",
+                "--retake-start-frame",
+                "10",
+                "--retake-end-frame",
+                "30",
+                "--preserve-audio",
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert command[command.index("--source-video") + 1] == str(source.resolve())
+    assert command[command.index("--motion-task") + 1] == "video_retake"
+    assert command[command.index("--retake-start-frame") + 1] == "10"
+    assert command[command.index("--retake-end-frame") + 1] == "30"
+    assert "--preserve-audio" in command
+    assert "--accepted-still" not in command

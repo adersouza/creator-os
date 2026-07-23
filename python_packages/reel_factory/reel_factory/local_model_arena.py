@@ -13,6 +13,7 @@ import json
 import math
 import os
 import secrets
+import statistics
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -30,6 +31,11 @@ from creator_os_core.evidence_attestation import (
 )
 
 from pipeline_contracts import (
+    ContentIntentV1,
+    CreatorIdentityProfileV1,
+    IdentityReferenceV1,
+    ProvenanceV1,
+    SourceReferenceV1,
     validate_local_model_arena_plan,
     validate_local_model_arena_review_packet,
     validate_local_model_arena_summary,
@@ -59,6 +65,7 @@ from .local_video import (
     plan_local_video_job,
     run_local_video,
 )
+from .local_video_models import local_video_model_spec
 from .video_provider_models import video_model
 
 PLAN_SCHEMA: Final = "reel_factory.local_model_arena_plan.v1"
@@ -251,9 +258,11 @@ class ArenaSampleSpec:
     creator_id: str
     identity_profile_id: str
     identity_profile_fingerprint: str
+    creator_identity_profile: dict[str, Any]
     content_intent_id: str
     content_intent_fingerprint: str
-    source_path: Path
+    content_intent: dict[str, Any]
+    source_path: Path | None
     model_id: str
     capability_cohort: str
     task_kind: str
@@ -261,13 +270,32 @@ class ArenaSampleSpec:
     seed: int
     duration_seconds: int
     resolution: str
-    audio_mode: Literal["none", "source", "generated"] = "none"
+    audio_mode: Literal["none", "source", "generated", "preserved"] = "none"
     audio_path: Path | None = None
+    last_image_path: Path | None = None
+    source_video_path: Path | None = None
+    retake_start_frame: int | None = None
+    retake_end_frame: int | None = None
+    extend_frames: int | None = None
+    extend_direction: Literal["before", "after"] = "after"
+    preserve_audio: bool = False
+    commercial_use: bool = True
+    commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> ArenaSampleSpec:
         audio_path = value.get("audioPath")
+        last_image_path = value.get("lastImagePath")
+        source_video_path = value.get("sourceVideoPath")
+        raw_profile = value.get("creatorIdentityProfile")
+        raw_intent = value.get("contentIntent")
+        if not isinstance(raw_profile, dict):
+            raise ValueError("arena_creator_identity_profile_missing")
+        if not isinstance(raw_intent, dict):
+            raise ValueError("arena_content_intent_record_missing")
+        profile = CreatorIdentityProfileV1.from_dict(dict(raw_profile)).to_dict()
+        intent = ContentIntentV1.from_dict(dict(raw_intent)).to_dict()
         return cls(
             creator_id=_required_text(value.get("creatorId"), "creator_id").lower(),
             identity_profile_id=_required_text(
@@ -277,6 +305,7 @@ class ArenaSampleSpec:
                 value.get("identityProfileFingerprint"),
                 "identity_profile_fingerprint",
             ),
+            creator_identity_profile=profile,
             content_intent_id=_required_text(
                 value.get("contentIntentId"), "content_intent_id"
             ),
@@ -284,9 +313,12 @@ class ArenaSampleSpec:
                 value.get("contentIntentFingerprint"),
                 "content_intent_fingerprint",
             ),
-            source_path=Path(_required_text(value.get("sourcePath"), "source_path"))
-            .expanduser()
-            .resolve(),
+            content_intent=intent,
+            source_path=(
+                Path(str(value["sourcePath"])).expanduser().resolve()
+                if value.get("sourcePath") is not None
+                else None
+            ),
             model_id=_required_text(value.get("modelId"), "model_id"),
             capability_cohort=_required_text(
                 value.get("capabilityCohort"), "capability_cohort"
@@ -304,6 +336,42 @@ class ArenaSampleSpec:
                 if audio_path is not None
                 else None
             ),
+            last_image_path=(
+                Path(str(last_image_path)).expanduser().resolve()
+                if last_image_path is not None
+                else None
+            ),
+            source_video_path=(
+                Path(str(source_video_path)).expanduser().resolve()
+                if source_video_path is not None
+                else None
+            ),
+            retake_start_frame=(
+                _required_int(value.get("retakeStartFrame"), "retake_start_frame")
+                if value.get("retakeStartFrame") is not None
+                else None
+            ),
+            retake_end_frame=(
+                _required_int(value.get("retakeEndFrame"), "retake_end_frame")
+                if value.get("retakeEndFrame") is not None
+                else None
+            ),
+            extend_frames=(
+                _required_int(value.get("extendFrames"), "extend_frames")
+                if value.get("extendFrames") is not None
+                else None
+            ),
+            extend_direction=str(value.get("extendDirection") or "after"),  # type: ignore[arg-type]
+            preserve_audio=value.get("preserveAudio") is True,
+            commercial_use=value.get("commercialUse") is not False,
+            commercial_annual_revenue_usd=(
+                _required_int(
+                    value.get("commercialAnnualRevenueUsd"),
+                    "commercial_annual_revenue_usd",
+                )
+                if value.get("commercialAnnualRevenueUsd") is not None
+                else None
+            ),
             overlays_exist=value.get("overlaysExist") is True,
         )
 
@@ -318,43 +386,147 @@ def _required_analyzers(spec: ArenaSampleSpec) -> tuple[tuple[str, str], ...]:
     ]
     if spec.audio_mode != "none":
         required.append(("contentforge.audio_integrity", "1.0.0"))
-    if spec.overlays_exist:
-        required.append(("contentforge.overlay_delivery", "1.0.0"))
+    # Pixel-integrity/overlay analysis is mandatory even when the operator
+    # declares no semantic overlay. That is how undeclared UI, watermarks, and
+    # accidental burned text are detected rather than trusted as absent.
+    required.append(("contentforge.overlay_delivery", "1.0.0"))
     return tuple(required)
+
+
+def _spec_input_paths(spec: ArenaSampleSpec) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for path in (
+        spec.source_path,
+        spec.audio_path,
+        spec.last_image_path,
+        spec.source_video_path,
+    ):
+        if path is not None and path not in paths:
+            paths.append(path)
+    return tuple(paths)
+
+
+def _primary_source_path(spec: ArenaSampleSpec) -> Path:
+    if spec.task_kind in {"video_retake", "video_extend"}:
+        if spec.source_video_path is None:
+            raise ValueError("arena_video_task_source_video_missing")
+        return spec.source_video_path
+    if spec.source_path is None:
+        raise ValueError("arena_image_task_source_missing")
+    return spec.source_path
 
 
 def _validate_spec(spec: ArenaSampleSpec) -> None:
     if spec.creator_id not in CREATORS:
         raise ValueError(f"arena_creator_unsupported:{spec.creator_id}")
-    if not spec.source_path.is_file() or spec.source_path.is_symlink():
-        raise LocalQueueError(f"arena_source_missing_or_unsafe:{spec.source_path}")
     model = video_model(spec.model_id)
     if model.backend != "local_mlx" or model.paid:
         raise LocalQueueError(f"arena_model_not_local_free:{spec.model_id}")
     if spec.task_kind not in (model.supported_tasks or (model.task,)):
         raise LocalQueueError(f"arena_model_capability_mismatch:{spec.model_id}")
+    if spec.task_kind in {"video_retake", "video_extend"}:
+        if spec.source_path is not None:
+            raise ValueError("arena_video_task_unused_source_image")
+    elif spec.source_path is None:
+        raise ValueError("arena_image_task_source_missing")
+    primary_source = _primary_source_path(spec)
+    if not primary_source.is_file() or primary_source.is_symlink():
+        raise LocalQueueError(f"arena_source_missing_or_unsafe:{primary_source}")
     if spec.audio_mode == "none" and spec.audio_path is not None:
         raise ValueError("arena_audio_path_without_audio_mode")
     if spec.audio_mode == "source" and spec.audio_path is None:
         raise ValueError("arena_source_audio_missing")
+    if spec.preserve_audio is not (spec.audio_mode == "preserved"):
+        raise ValueError("arena_preserve_audio_mode_mismatch")
+    if spec.audio_mode == "preserved" and spec.source_video_path is None:
+        raise ValueError("arena_preserve_audio_source_video_missing")
     if spec.audio_path is not None and (
         not spec.audio_path.is_file() or spec.audio_path.is_symlink()
     ):
         raise LocalQueueError("arena_source_audio_missing_or_unsafe")
+    for label, path in (
+        ("last_image", spec.last_image_path),
+        ("source_video", spec.source_video_path),
+    ):
+        if path is not None and (not path.is_file() or path.is_symlink()):
+            raise LocalQueueError(f"arena_{label}_missing_or_unsafe")
+    retake = (spec.retake_start_frame, spec.retake_end_frame)
+    if any(value is not None for value in retake) and not all(
+        value is not None for value in retake
+    ):
+        raise ValueError("arena_retake_range_must_be_complete")
+    if (
+        spec.retake_start_frame is not None
+        and spec.retake_end_frame is not None
+        and (
+            spec.retake_start_frame < 0
+            or spec.retake_end_frame <= spec.retake_start_frame
+            or spec.source_video_path is None
+        )
+    ):
+        raise ValueError("arena_retake_range_invalid")
+    if spec.extend_frames is not None and (
+        spec.extend_frames <= 0 or spec.source_video_path is None
+    ):
+        raise ValueError("arena_extend_request_invalid")
+    if spec.extend_direction not in {"before", "after"}:
+        raise ValueError("arena_extend_direction_invalid")
+    if spec.commercial_annual_revenue_usd is not None and (
+        spec.commercial_annual_revenue_usd < 0
+    ):
+        raise ValueError("arena_commercial_revenue_invalid")
+    revenue_limit = local_video_model_spec(spec.model_id).commercial_revenue_limit_usd
+    if spec.commercial_use and revenue_limit is not None:
+        if spec.commercial_annual_revenue_usd is None:
+            raise LocalQueueError("arena_commercial_revenue_attestation_required")
+        if spec.commercial_annual_revenue_usd >= revenue_limit:
+            raise LocalQueueError("arena_model_license_commercial_use_forbidden")
     if spec.duration_seconds <= 0:
         raise ValueError("arena_duration_must_be_positive")
+    profile = CreatorIdentityProfileV1.from_dict(
+        dict(spec.creator_identity_profile)
+    ).to_dict()
+    intent = ContentIntentV1.from_dict(dict(spec.content_intent)).to_dict()
+    if (
+        profile["profileId"] != spec.identity_profile_id
+        or fingerprint(profile) != spec.identity_profile_fingerprint
+    ):
+        raise LocalQueueError("arena_creator_identity_profile_binding_mismatch")
+    if str(profile["creatorKey"]).lower() != spec.creator_id:
+        raise LocalQueueError("arena_creator_identity_profile_creator_mismatch")
+    if (
+        intent["intentId"] != spec.content_intent_id
+        or fingerprint(intent) != spec.content_intent_fingerprint
+    ):
+        raise LocalQueueError("arena_content_intent_binding_mismatch")
+    if intent["creatorIdentityProfileId"] != spec.identity_profile_id:
+        raise LocalQueueError("arena_content_intent_profile_mismatch")
+    exact_input_fingerprints = [sha256_file(path) for path in _spec_input_paths(spec)]
+    if list(intent["sourceAssetFingerprints"]) != exact_input_fingerprints:
+        raise LocalQueueError("arena_content_intent_source_mismatch")
 
 
 def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
     if {spec.creator_id for spec in specs} != CREATORS:
         raise LocalQueueError("arena_promotion_requires_all_creators")
     source_sha_by_path = {
-        spec.source_path: sha256_file(spec.source_path) for spec in specs
+        _primary_source_path(spec): sha256_file(_primary_source_path(spec))
+        for spec in specs
     }
     audio_sha_by_path = {
         spec.audio_path: sha256_file(spec.audio_path)
         for spec in specs
         if spec.audio_path is not None
+    }
+    last_image_sha_by_path = {
+        spec.last_image_path: sha256_file(spec.last_image_path)
+        for spec in specs
+        if spec.last_image_path is not None
+    }
+    source_video_sha_by_path = {
+        spec.source_video_path: sha256_file(spec.source_video_path)
+        for spec in specs
+        if spec.source_video_path is not None
     }
     grouped: dict[tuple[str, str, str, str], list[ArenaSampleSpec]] = defaultdict(list)
     for spec in specs:
@@ -367,7 +539,7 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
             )
         ].append(spec)
     for key, rows in grouped.items():
-        sources = {source_sha_by_path[row.source_path] for row in rows}
+        sources = {source_sha_by_path[_primary_source_path(row)] for row in rows}
         if len(sources) < 2:
             raise LocalQueueError(
                 "arena_promotion_requires_two_sources:" + ":".join(key)
@@ -376,11 +548,11 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
             seeds = {
                 row.seed
                 for row in rows
-                if source_sha_by_path[row.source_path] == source_sha
+                if source_sha_by_path[_primary_source_path(row)] == source_sha
             }
-            if len(seeds) < 2:
+            if len(seeds) < 4:
                 raise LocalQueueError(
-                    "arena_promotion_requires_two_seeds_per_source:" + ":".join(key)
+                    "arena_promotion_requires_four_seeds_per_source:" + ":".join(key)
                 )
 
     # A promotion comparison is matched only when every competing model sees the
@@ -397,10 +569,20 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
                 spec.identity_profile_fingerprint,
                 spec.content_intent_id,
                 spec.content_intent_fingerprint,
-                source_sha_by_path[spec.source_path],
+                source_sha_by_path[_primary_source_path(spec)],
                 (
                     audio_sha_by_path[spec.audio_path]
                     if spec.audio_path is not None
+                    else None
+                ),
+                (
+                    last_image_sha_by_path[spec.last_image_path]
+                    if spec.last_image_path is not None
+                    else None
+                ),
+                (
+                    source_video_sha_by_path[spec.source_video_path]
+                    if spec.source_video_path is not None
                     else None
                 ),
                 spec.task_kind,
@@ -409,6 +591,13 @@ def _promotion_design_check(specs: Sequence[ArenaSampleSpec]) -> None:
                 spec.duration_seconds,
                 spec.resolution,
                 spec.audio_mode,
+                spec.retake_start_frame,
+                spec.retake_end_frame,
+                spec.extend_frames,
+                spec.extend_direction,
+                spec.preserve_audio,
+                spec.commercial_use,
+                spec.commercial_annual_revenue_usd,
                 spec.overlays_exist,
             )
         )
@@ -447,11 +636,17 @@ def build_arena_plan(
     for spec in sample_specs:
         _validate_spec(spec)
     source_pairs = [
-        (spec.creator_id, sha256_file(spec.source_path)) for spec in sample_specs
+        (spec.creator_id, sha256_file(_primary_source_path(spec)))
+        for spec in sample_specs
     ]
     if len(source_pairs) != len(set(source_pairs)) and len(
         {
-            (spec.creator_id, spec.model_id, spec.seed, sha256_file(spec.source_path))
+            (
+                spec.creator_id,
+                spec.model_id,
+                spec.seed,
+                sha256_file(_primary_source_path(spec)),
+            )
             for spec in sample_specs
         }
     ) != len(sample_specs):
@@ -478,9 +673,19 @@ def build_arena_plan(
     policy_fingerprint = fingerprint(execution_policy)
     samples: list[dict[str, Any]] = []
     for spec in sample_specs:
-        source_sha = sha256_file(spec.source_path)
+        source_sha = sha256_file(_primary_source_path(spec))
         audio_sha = (
             sha256_file(spec.audio_path) if spec.audio_path is not None else None
+        )
+        last_image_sha = (
+            sha256_file(spec.last_image_path)
+            if spec.last_image_path is not None
+            else None
+        )
+        source_video_sha = (
+            sha256_file(spec.source_video_path)
+            if spec.source_video_path is not None
+            else None
         )
         required = _required_analyzers(spec)
         if not set(required).issubset(registered):
@@ -495,6 +700,15 @@ def build_arena_plan(
             "resolution": spec.resolution,
             "audioMode": spec.audio_mode,
             "audioSha256": audio_sha,
+            "lastImageSha256": last_image_sha,
+            "sourceVideoSha256": source_video_sha,
+            "retakeStartFrame": spec.retake_start_frame,
+            "retakeEndFrame": spec.retake_end_frame,
+            "extendFrames": spec.extend_frames,
+            "extendDirection": spec.extend_direction,
+            "preserveAudio": spec.preserve_audio,
+            "commercialUse": spec.commercial_use,
+            "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
             "overlaysExist": spec.overlays_exist,
         }
         recipe_identity = {
@@ -516,7 +730,7 @@ def build_arena_plan(
             "executionPolicyFingerprint": policy_fingerprint,
             "taskKind": spec.task_kind,
             "inputFingerprints": [
-                value for value in (source_sha, audio_sha) if value is not None
+                sha256_file(path) for path in _spec_input_paths(spec)
             ],
             "parameterFingerprint": fingerprint(recipe_parameters),
             "requiredAnalyzers": [
@@ -564,9 +778,41 @@ def build_arena_plan(
         deep_core.pop("verificationFingerprint", None)
         if fingerprint(deep_core) != deep_verification_fingerprint:
             raise LocalQueueError("arena_model_deep_verification_receipt_invalid")
+        runtime_binding = deep_verification.get("runtimeBinding")
+        runtime_binding_fingerprint = _valid_sha256(
+            deep_verification.get("runtimeBindingFingerprint"),
+            "runtime_binding_fingerprint",
+        )
+        if (
+            not isinstance(runtime_binding, dict)
+            or fingerprint(runtime_binding) != runtime_binding_fingerprint
+        ):
+            raise LocalQueueError("arena_runtime_binding_invalid")
+        model_spec = local_video_model_spec(spec.model_id)
+        manifest = status.get("manifest")
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("licenseId") != model_spec.license_id
+            or manifest.get("commercialRevenueLimitUsd")
+            != model_spec.commercial_revenue_limit_usd
+        ):
+            raise LocalQueueError("arena_model_license_manifest_drift")
+        license_policy = {
+            "licenseId": model_spec.license_id,
+            "commercialUse": spec.commercial_use,
+            "declaredAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
+            "commercialRevenueLimitUsd": model_spec.commercial_revenue_limit_usd,
+            "commercialUseAllowed": True,
+            "aiDisclosureRequired": model_spec.ai_disclosure_required,
+        }
+        license_policy_fingerprint = fingerprint(license_policy)
         request = LocalVideoRequest(
             model_id=spec.model_id,
-            image_path=spec.source_path,
+            image_path=(
+                None
+                if spec.task_kind in {"video_retake", "video_extend"}
+                else spec.source_path
+            ),
             prompt=spec.prompt,
             output_path=output_path,
             duration_seconds=spec.duration_seconds,
@@ -574,9 +820,17 @@ def build_arena_plan(
             seed=spec.seed,
             audio_mode=spec.audio_mode,
             audio_path=spec.audio_path,
+            last_image_path=spec.last_image_path,
             task=spec.task_kind,  # type: ignore[arg-type]
+            source_video_path=spec.source_video_path,
+            retake_start_frame=spec.retake_start_frame,
+            retake_end_frame=spec.retake_end_frame,
+            extend_frames=spec.extend_frames,
+            extend_direction=spec.extend_direction,
             benchmark_recipe=recipe,
             analyzer_registry=registry_payload,
+            creator_identity_profile=spec.creator_identity_profile,
+            content_intent=spec.content_intent,
             execution_context="arena_benchmark",
             arena_benchmark_binding=_arena_benchmark_binding(
                 sample_id=sample_id,
@@ -591,6 +845,10 @@ def build_arena_plan(
                 benchmark_recipe_fingerprint=fingerprint(recipe),
                 analyzer_registry_fingerprint=fingerprint(registry_payload),
                 model_deep_verification_fingerprint=(deep_verification_fingerprint),
+                runtime_binding=runtime_binding,
+                runtime_binding_fingerprint=runtime_binding_fingerprint,
+                license_policy=license_policy,
+                license_policy_fingerprint=license_policy_fingerprint,
             ),
         )
         job = plan_local_video_job(request)
@@ -603,16 +861,35 @@ def build_arena_plan(
                 "creatorId": spec.creator_id,
                 "identityProfileId": spec.identity_profile_id,
                 "identityProfileFingerprint": spec.identity_profile_fingerprint,
+                "creatorIdentityProfile": spec.creator_identity_profile,
                 "contentIntentId": spec.content_intent_id,
                 "contentIntentFingerprint": spec.content_intent_fingerprint,
-                "sourcePath": str(spec.source_path),
+                "contentIntent": spec.content_intent,
+                "sourcePath": str(spec.source_path) if spec.source_path else None,
                 "sourceSha256": source_sha,
                 "audioPath": str(spec.audio_path) if spec.audio_path else None,
                 "audioSha256": audio_sha,
+                "lastImagePath": (
+                    str(spec.last_image_path) if spec.last_image_path else None
+                ),
+                "lastImageSha256": last_image_sha,
+                "sourceVideoPath": (
+                    str(spec.source_video_path) if spec.source_video_path else None
+                ),
+                "sourceVideoSha256": source_video_sha,
+                "retakeStartFrame": spec.retake_start_frame,
+                "retakeEndFrame": spec.retake_end_frame,
+                "extendFrames": spec.extend_frames,
+                "extendDirection": spec.extend_direction,
+                "preserveAudio": spec.preserve_audio,
                 "modelId": spec.model_id,
                 "modelRevision": str(status["manifest"]["revision"]),
                 "modelManifestSha256": manifest_sha,
                 "modelDeepVerificationFingerprint": (deep_verification_fingerprint),
+                "runtimeBinding": runtime_binding,
+                "runtimeBindingFingerprint": runtime_binding_fingerprint,
+                "licensePolicy": license_policy,
+                "licensePolicyFingerprint": license_policy_fingerprint,
                 "modelFingerprint": job.model_fingerprint,
                 "capabilityCohort": spec.capability_cohort,
                 "taskKind": spec.task_kind,
@@ -621,6 +898,8 @@ def build_arena_plan(
                 "durationSeconds": spec.duration_seconds,
                 "resolution": spec.resolution,
                 "audioMode": spec.audio_mode,
+                "commercialUse": spec.commercial_use,
+                "commercialAnnualRevenueUsd": spec.commercial_annual_revenue_usd,
                 "overlaysExist": spec.overlays_exist,
                 "outputPath": str(output_path),
                 "blindedCandidateId": f"candidate_{fingerprint({'sample': sample_id})[:16]}",
@@ -705,6 +984,26 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             owned_artifact_paths=tuple(
                 str(item) for item in queue_job.get("ownedArtifactPaths", [])
             ),
+            creator_identity_profile_id=(
+                str(queue_job["creatorIdentityProfileId"])
+                if queue_job.get("creatorIdentityProfileId") is not None
+                else None
+            ),
+            creator_identity_profile_fingerprint=(
+                str(queue_job["creatorIdentityProfileFingerprint"])
+                if queue_job.get("creatorIdentityProfileFingerprint") is not None
+                else None
+            ),
+            content_intent_id=(
+                str(queue_job["contentIntentId"])
+                if queue_job.get("contentIntentId") is not None
+                else None
+            ),
+            content_intent_fingerprint=(
+                str(queue_job["contentIntentFingerprint"])
+                if queue_job.get("contentIntentFingerprint") is not None
+                else None
+            ),
             benchmark_recipe_id=(
                 str(queue_job["benchmarkRecipeId"])
                 if queue_job.get("benchmarkRecipeId") is not None
@@ -725,12 +1024,36 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 if queue_job.get("analyzerRegistryFingerprint") is not None
                 else None
             ),
+            runtime_binding=(
+                dict(queue_job["runtimeBinding"])
+                if isinstance(queue_job.get("runtimeBinding"), dict)
+                else None
+            ),
+            runtime_binding_fingerprint=(
+                str(queue_job["runtimeBindingFingerprint"])
+                if queue_job.get("runtimeBindingFingerprint") is not None
+                else None
+            ),
+            license_policy=(
+                dict(queue_job["licensePolicy"])
+                if isinstance(queue_job.get("licensePolicy"), dict)
+                else None
+            ),
+            license_policy_fingerprint=(
+                str(queue_job["licensePolicyFingerprint"])
+                if queue_job.get("licensePolicyFingerprint") is not None
+                else None
+            ),
         )
         if job.job_id in jobs:
             raise LocalQueueError("arena_duplicate_queue_job_identity")
         jobs.add(job.job_id)
         recipe = dict(raw["benchmarkRecipe"])
         registry = dict(raw["analyzerRegistry"])
+        profile = CreatorIdentityProfileV1.from_dict(
+            dict(raw["creatorIdentityProfile"])
+        ).to_dict()
+        intent = ContentIntentV1.from_dict(dict(raw["contentIntent"])).to_dict()
         if recipe.get("schema") != "creator_os.benchmark_recipe.v1":
             raise ValueError("arena_benchmark_recipe_schema_mismatch")
         if registry.get("schema") != "creator_os.analyzer_registry.v1":
@@ -740,10 +1063,31 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         if fingerprint(registry) != raw.get("analyzerRegistryFingerprint"):
             raise LocalQueueError("arena_analyzer_registry_fingerprint_mismatch")
         if (
+            raw.get("identityProfileId") != profile.get("profileId")
+            or raw.get("identityProfileFingerprint") != fingerprint(profile)
+            or str(profile.get("creatorKey") or "").lower()
+            != str(raw.get("creatorId") or "").lower()
+        ):
+            raise LocalQueueError("arena_creator_identity_profile_binding_mismatch")
+        if (
+            raw.get("contentIntentId") != intent.get("intentId")
+            or raw.get("contentIntentFingerprint") != fingerprint(intent)
+            or intent.get("creatorIdentityProfileId") != profile.get("profileId")
+        ):
+            raise LocalQueueError("arena_content_intent_binding_mismatch")
+        if (
             job.benchmark_recipe_id != recipe.get("recipeId")
             or job.benchmark_recipe_fingerprint != fingerprint(recipe)
             or job.analyzer_registry_id != registry.get("registryId")
             or job.analyzer_registry_fingerprint != fingerprint(registry)
+            or job.creator_identity_profile_id != profile.get("profileId")
+            or job.creator_identity_profile_fingerprint != fingerprint(profile)
+            or job.content_intent_id != intent.get("intentId")
+            or job.content_intent_fingerprint != fingerprint(intent)
+            or job.runtime_binding != raw.get("runtimeBinding")
+            or job.runtime_binding_fingerprint != raw.get("runtimeBindingFingerprint")
+            or job.license_policy != raw.get("licensePolicy")
+            or job.license_policy_fingerprint != raw.get("licensePolicyFingerprint")
         ):
             raise LocalQueueError("arena_queue_evidence_linkage_mismatch")
         expected_model_fingerprint = fingerprint(
@@ -783,12 +1127,52 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             or deep_claimed != raw.get("modelDeepVerificationFingerprint")
         ):
             raise LocalQueueError("arena_model_deep_verification_missing_or_drifted")
+        runtime_binding = deep_receipt.get("runtimeBinding")
+        runtime_binding_fingerprint = deep_receipt.get("runtimeBindingFingerprint")
+        if (
+            not isinstance(runtime_binding, dict)
+            or fingerprint(runtime_binding) != runtime_binding_fingerprint
+            or raw.get("runtimeBinding") != runtime_binding
+            or raw.get("runtimeBindingFingerprint") != runtime_binding_fingerprint
+        ):
+            raise LocalQueueError("arena_runtime_binding_missing_or_drifted")
+        model_spec = local_video_model_spec(model_id)
+        manifest = current_model.get("manifest")
+        expected_license_policy = {
+            "licenseId": model_spec.license_id,
+            "commercialUse": raw.get("commercialUse"),
+            "declaredAnnualRevenueUsd": raw.get("commercialAnnualRevenueUsd"),
+            "commercialRevenueLimitUsd": model_spec.commercial_revenue_limit_usd,
+            "commercialUseAllowed": True,
+            "aiDisclosureRequired": model_spec.ai_disclosure_required,
+        }
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("licenseId") != model_spec.license_id
+            or manifest.get("commercialRevenueLimitUsd")
+            != model_spec.commercial_revenue_limit_usd
+            or raw.get("licensePolicy") != expected_license_policy
+            or raw.get("licensePolicyFingerprint")
+            != fingerprint(expected_license_policy)
+        ):
+            raise LocalQueueError("arena_model_license_evidence_drift")
         if raw.get("promotionEligible") is not (
             payload.get("purpose") == "promotion_eligible"
         ):
             raise LocalQueueError("arena_sample_promotion_eligibility_mismatch")
-        source = Path(str(raw["sourcePath"])).resolve()
-        if not source.is_file() or sha256_file(source) != raw.get("sourceSha256"):
+        source_path = raw.get("sourcePath")
+        source_video_path = raw.get("sourceVideoPath")
+        if raw.get("taskKind") in {"video_retake", "video_extend"}:
+            if source_path is not None or source_video_path is None:
+                raise LocalQueueError("arena_video_task_primary_source_invalid")
+            primary_source = Path(str(source_video_path)).resolve()
+        else:
+            if source_path is None:
+                raise LocalQueueError("arena_image_task_primary_source_missing")
+            primary_source = Path(str(source_path)).resolve()
+        if not primary_source.is_file() or sha256_file(primary_source) != raw.get(
+            "sourceSha256"
+        ):
             raise LocalQueueError("arena_source_missing_or_substituted")
         audio_path = raw.get("audioPath")
         audio_sha = raw.get("audioSha256")
@@ -803,6 +1187,35 @@ def validate_arena_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 or sha256_file(audio) != audio_sha
             ):
                 raise LocalQueueError("arena_audio_missing_or_substituted")
+        extra_media: list[tuple[str, str]] = []
+        for prefix in ("lastImage", "sourceVideo"):
+            raw_path = raw.get(f"{prefix}Path")
+            raw_sha = raw.get(f"{prefix}Sha256")
+            if raw_path is None:
+                if raw_sha is not None:
+                    raise LocalQueueError(f"arena_{prefix.lower()}_binding_incomplete")
+                continue
+            path = Path(str(raw_path)).resolve()
+            if not path.is_file() or raw_sha is None or sha256_file(path) != raw_sha:
+                raise LocalQueueError(f"arena_{prefix.lower()}_missing_or_substituted")
+            extra_media.append((str(path), str(raw_sha)))
+        exact_inputs: list[str] = []
+        for value in (
+            raw.get("sourceSha256"),
+            raw.get("audioSha256"),
+            *(sha for _path, sha in extra_media),
+        ):
+            if isinstance(value, str) and value not in exact_inputs:
+                exact_inputs.append(value)
+        if (
+            recipe.get("inputFingerprints") != exact_inputs
+            or intent.get("sourceAssetFingerprints") != exact_inputs
+        ):
+            raise LocalQueueError("arena_extended_input_fingerprint_mismatch")
+        if raw.get("preserveAudio") is not (raw.get("audioMode") == "preserved"):
+            raise LocalQueueError("arena_preserve_audio_binding_mismatch")
+        if raw.get("audioMode") == "preserved" and raw.get("sourceVideoPath") is None:
+            raise LocalQueueError("arena_preserve_audio_source_video_missing")
     return {**payload, "planFingerprint": claimed}
 
 
@@ -965,12 +1378,12 @@ def _arena_candidate_aggregates(
                     else None
                 ),
                 "medianWallTimeSeconds": (
-                    sorted(latency)[len(latency) // 2]
+                    statistics.median(latency)
                     if len(latency) == len(valid) and latency
                     else None
                 ),
                 "medianPeakMemoryBytes": (
-                    sorted(memory)[len(memory) // 2]
+                    statistics.median(memory)
                     if len(memory) == len(valid) and memory
                     else None
                 ),
@@ -1338,6 +1751,8 @@ class LocalModelArenaStore:
     def __init__(self, root: Path) -> None:
         self.root = root.expanduser().resolve()
         self.plans = self.root / "arena_plans"
+        self.identity_profiles = self.root / "creator_identity_profiles"
+        self.content_intents = self.root / "content_intents"
         self.review_packets = self.root / "arena_review_packets"
         self.unblinding_receipts = self.root / "arena_unblinding_receipts"
         self.events = AppendOnlyJournal(self.root / "arena_events.jsonl")
@@ -1349,6 +1764,17 @@ class LocalModelArenaStore:
         path = self.plans / f"{plan_id}.json"
         encoded = _canonical(payload)
         with file_lock(self._mutation):
+            for sample in payload["samples"]:
+                self._persist_record_snapshot(
+                    self.identity_profiles,
+                    dict(sample["creatorIdentityProfile"]),
+                    str(sample["identityProfileFingerprint"]),
+                )
+                self._persist_record_snapshot(
+                    self.content_intents,
+                    dict(sample["contentIntent"]),
+                    str(sample["contentIntentFingerprint"]),
+                )
             if path.exists():
                 if (
                     not path.is_file()
@@ -1366,11 +1792,45 @@ class LocalModelArenaStore:
                 raise LocalQueueError("arena_plan_persistence_failed")
         return path
 
+    @staticmethod
+    def _persist_record_snapshot(
+        directory: Path, payload: Mapping[str, Any], expected_fingerprint: str
+    ) -> Path:
+        if fingerprint(payload) != expected_fingerprint:
+            raise LocalQueueError("arena_record_snapshot_fingerprint_mismatch")
+        path = directory / f"{expected_fingerprint}.json"
+        _write_exact_json(path, payload)
+        if sha256_file(path) != expected_fingerprint:
+            raise LocalQueueError("arena_record_snapshot_persistence_failed")
+        return path
+
+    def _verify_record_snapshots(self, plan: Mapping[str, Any]) -> None:
+        for sample in plan["samples"]:
+            for directory, field, fingerprint_field in (
+                (
+                    self.identity_profiles,
+                    "creatorIdentityProfile",
+                    "identityProfileFingerprint",
+                ),
+                (self.content_intents, "contentIntent", "contentIntentFingerprint"),
+            ):
+                expected = str(sample[fingerprint_field])
+                path = directory / f"{expected}.json"
+                if (
+                    not path.is_file()
+                    or path.is_symlink()
+                    or sha256_file(path) != expected
+                    or json.loads(path.read_text(encoding="utf-8")) != sample[field]
+                ):
+                    raise LocalQueueError("arena_record_snapshot_missing_or_drifted")
+
     def load_plan(self, plan_id: str) -> dict[str, Any]:
         path = self.plans / f"{plan_id}.json"
         if not path.is_file() or path.is_symlink():
             raise LocalQueueError("arena_plan_not_found")
-        return validate_arena_plan(json.loads(path.read_text(encoding="utf-8")))
+        plan = validate_arena_plan(json.loads(path.read_text(encoding="utf-8")))
+        self._verify_record_snapshots(plan)
+        return plan
 
     def persist_review_packet(
         self, packet: Mapping[str, Any], *, evidence_secret: str | None = None
@@ -1691,6 +2151,16 @@ class LocalModelArenaStore:
                     ):
                         blockers.append("benchmark_analyzer_registry_drift")
                     if (
+                        receipt.creator_identity_profile_id
+                        != sample["identityProfileId"]
+                        or receipt.creator_identity_profile_fingerprint
+                        != sample["identityProfileFingerprint"]
+                        or receipt.content_intent_id != sample["contentIntentId"]
+                        or receipt.content_intent_fingerprint
+                        != sample["contentIntentFingerprint"]
+                    ):
+                        blockers.append("benchmark_identity_intent_mismatch")
+                    if (
                         receipt.model_deep_verification_fingerprint
                         != sample["modelDeepVerificationFingerprint"]
                     ):
@@ -1983,9 +2453,10 @@ def _sample(plan: Mapping[str, Any], sample_id: str) -> dict[str, Any]:
 
 
 def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
+    source_path = sample.get("sourcePath")
     return LocalVideoRequest(
         model_id=str(sample["modelId"]),
-        image_path=Path(str(sample["sourcePath"])),
+        image_path=(Path(str(source_path)) if source_path is not None else None),
         prompt=str(sample["prompt"]),
         output_path=Path(str(sample["outputPath"])),
         duration_seconds=int(sample["durationSeconds"]),
@@ -1997,9 +2468,37 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             if sample.get("audioPath") is not None
             else None
         ),
+        last_image_path=(
+            Path(str(sample["lastImagePath"]))
+            if sample.get("lastImagePath") is not None
+            else None
+        ),
         task=str(sample["taskKind"]),  # type: ignore[arg-type]
+        source_video_path=(
+            Path(str(sample["sourceVideoPath"]))
+            if sample.get("sourceVideoPath") is not None
+            else None
+        ),
+        retake_start_frame=(
+            int(sample["retakeStartFrame"])
+            if sample.get("retakeStartFrame") is not None
+            else None
+        ),
+        retake_end_frame=(
+            int(sample["retakeEndFrame"])
+            if sample.get("retakeEndFrame") is not None
+            else None
+        ),
+        extend_frames=(
+            int(sample["extendFrames"])
+            if sample.get("extendFrames") is not None
+            else None
+        ),
+        extend_direction=str(sample.get("extendDirection") or "after"),  # type: ignore[arg-type]
         benchmark_recipe=dict(sample["benchmarkRecipe"]),
         analyzer_registry=dict(sample["analyzerRegistry"]),
+        creator_identity_profile=dict(sample["creatorIdentityProfile"]),
+        content_intent=dict(sample["contentIntent"]),
         execution_context="arena_benchmark",
         arena_benchmark_binding=_arena_benchmark_binding(
             sample_id=str(sample["sampleId"]),
@@ -2014,6 +2513,10 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
             model_deep_verification_fingerprint=str(
                 sample["modelDeepVerificationFingerprint"]
             ),
+            runtime_binding=dict(sample["runtimeBinding"]),
+            runtime_binding_fingerprint=str(sample["runtimeBindingFingerprint"]),
+            license_policy=dict(sample["licensePolicy"]),
+            license_policy_fingerprint=str(sample["licensePolicyFingerprint"]),
         ),
     )
 
@@ -2030,6 +2533,10 @@ def _arena_benchmark_binding(
     benchmark_recipe_fingerprint: str,
     analyzer_registry_fingerprint: str,
     model_deep_verification_fingerprint: str,
+    runtime_binding: Mapping[str, Any],
+    runtime_binding_fingerprint: str,
+    license_policy: Mapping[str, Any],
+    license_policy_fingerprint: str,
 ) -> dict[str, Any]:
     core = {
         "schema": "reel_factory.arena_benchmark_execution.v1",
@@ -2043,6 +2550,10 @@ def _arena_benchmark_binding(
         "benchmarkRecipeFingerprint": benchmark_recipe_fingerprint,
         "analyzerRegistryFingerprint": analyzer_registry_fingerprint,
         "modelDeepVerificationFingerprint": model_deep_verification_fingerprint,
+        "runtimeBinding": dict(runtime_binding),
+        "runtimeBindingFingerprint": runtime_binding_fingerprint,
+        "licensePolicy": dict(license_policy),
+        "licensePolicyFingerprint": license_policy_fingerprint,
         "providerCalls": 0,
         "productionWritesAllowed": False,
     }
@@ -2096,6 +2607,35 @@ def _motion_qc_options(sample: Mapping[str, Any]) -> dict[str, bool]:
         "expectsAudio": str(sample.get("audioMode") or "none") != "none"
         or expects_speech,
         "expectsSpeech": expects_speech,
+    }
+
+
+def _trusted_motion_qc_request(
+    sample: Mapping[str, Any],
+    *,
+    output: Path,
+    output_sha256: str,
+    produced_at: str,
+    analyzer_registry: Mapping[str, Any],
+    human_review: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the only production-trusted ContentForge motion-QC request.
+
+    ContentForge intentionally reruns its canonical analysis from immutable
+    media/source inputs. Passing the earlier diagnostic analysis back across
+    this boundary would be caller-supplied evidence and must remain impossible.
+    """
+
+    return {
+        "mediaPath": str(output),
+        "mediaSha256": output_sha256,
+        "sourcePath": sample["sourcePath"],
+        "sourceSha256": sample["sourceSha256"],
+        "producedAt": produced_at,
+        "overlaysExist": sample["overlaysExist"],
+        "analyzerRegistry": dict(analyzer_registry),
+        "humanReview": dict(human_review),
+        "options": _motion_qc_options(sample),
     }
 
 
@@ -2229,6 +2769,7 @@ def finalize_arena_sample_evidence(
         root=identity_root,
         identity_profile_id=str(sample["identityProfileId"]),
         identity_profile_fingerprint=str(sample["identityProfileFingerprint"]),
+        creator_identity_profile=dict(sample["creatorIdentityProfile"]),
     )
     if identity_result.get("creatorIdentityProfile") != {
         "profileId": sample["identityProfileId"],
@@ -2239,13 +2780,14 @@ def finalize_arena_sample_evidence(
     human_receipt = review.qc_receipt()
     motion_receipt = _run_contentforge(
         "motion-qc",
-        {
-            "mediaPath": str(output),
-            "mediaSha256": output_sha,
-            "analysis": analysis,
-            "humanReview": review.as_dict(),
-            "options": _motion_qc_options(sample),
-        },
+        _trusted_motion_qc_request(
+            sample,
+            output=output,
+            output_sha256=output_sha,
+            produced_at=produced_at,
+            analyzer_registry=registry,
+            human_review=review.as_dict(),
+        ),
         evidence_root=evidence_root,
         repository_root=repository_root,
         node_executable=node_executable,
@@ -2322,6 +2864,178 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def build_arena_record_bundle(
+    *,
+    reviewed_identity_facts_path: Path,
+    source_path: Path | None,
+    typed_inputs: Sequence[tuple[str, Path]] = (),
+    goal: str,
+    content_surface: str,
+    media_kind: str,
+    style_lanes: Sequence[str],
+    concept_tags: Sequence[str],
+    produced_at: str,
+    output_root: Path,
+) -> dict[str, Any]:
+    """Build exact Arena records only from reviewed facts and hashed source media."""
+
+    facts_path = reviewed_identity_facts_path.expanduser().resolve()
+    source = source_path.expanduser().resolve() if source_path is not None else None
+    if not facts_path.is_file() or facts_path.is_symlink():
+        raise LocalQueueError("arena_reviewed_identity_facts_missing_or_unsafe")
+    inputs: list[tuple[str, Path]] = []
+    if source is not None:
+        inputs.append(("image", source))
+    for input_kind, input_path in typed_inputs:
+        if input_kind not in {"image", "audio", "last-image", "source-video"}:
+            raise ValueError(f"arena_record_input_kind_invalid:{input_kind}")
+        resolved_input = input_path.expanduser().resolve()
+        if (input_kind, resolved_input) not in inputs:
+            inputs.append((input_kind, resolved_input))
+    if not inputs:
+        raise LocalQueueError("arena_record_source_missing_or_unsafe")
+    for _input_kind, input_path in inputs:
+        if not input_path.is_file() or input_path.is_symlink():
+            raise LocalQueueError("arena_record_source_missing_or_unsafe")
+    facts = _read_json(facts_path)
+    expected_fact_keys = {
+        "schema",
+        "creatorKey",
+        "displayName",
+        "modelProfile",
+        "identityReferences",
+        "reviewedBy",
+        "reviewedAt",
+    }
+    if set(facts) != expected_fact_keys or facts.get("schema") != (
+        "reel_factory.reviewed_creator_identity_facts.v1"
+    ):
+        raise ValueError("arena_reviewed_identity_facts_schema_invalid")
+    creator_key = _required_text(facts.get("creatorKey"), "creator_key").lower()
+    if creator_key not in CREATORS:
+        raise ValueError(f"arena_creator_unsupported:{creator_key}")
+    reviewed_by = _required_text(facts.get("reviewedBy"), "reviewed_by")
+    reviewed_at = _required_text(facts.get("reviewedAt"), "reviewed_at")
+    reviewed_timestamp = datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
+    produced_timestamp = datetime.fromisoformat(produced_at.replace("Z", "+00:00"))
+    if reviewed_timestamp.tzinfo is None or produced_timestamp.tzinfo is None:
+        raise ValueError("arena_record_timestamp_timezone_required")
+    if reviewed_timestamp > produced_timestamp or produced_timestamp > datetime.now(
+        UTC
+    ):
+        raise ValueError("arena_record_timestamp_order_invalid")
+    raw_references = facts.get("identityReferences")
+    if not isinstance(raw_references, list) or not raw_references:
+        raise ValueError("arena_reviewed_identity_references_missing")
+    references = tuple(
+        IdentityReferenceV1.from_dict(dict(item))
+        for item in raw_references
+        if isinstance(item, dict)
+    )
+    if len(references) != len(raw_references):
+        raise ValueError("arena_reviewed_identity_reference_invalid")
+    facts_sha = sha256_file(facts_path)
+    profile_material = {
+        "factsSha256": facts_sha,
+        "creatorKey": creator_key,
+        "reviewedBy": reviewed_by,
+        "reviewedAt": reviewed_at,
+    }
+    profile = CreatorIdentityProfileV1(
+        profile_id=f"creator_profile_{creator_key}_{fingerprint(profile_material)[:24]}",
+        creator_key=creator_key,
+        display_name=_required_text(facts.get("displayName"), "display_name"),
+        model_profile=_required_text(facts.get("modelProfile"), "model_profile"),
+        identity_references=references,
+        provenance=ProvenanceV1(
+            producer="reel_factory.local_model_arena.record_builder",
+            produced_at=produced_at,
+            source_references=(
+                SourceReferenceV1(
+                    record_id=f"reviewed_identity_facts:{facts_sha[:24]}",
+                    fingerprint=facts_sha,
+                ),
+            ),
+        ),
+    ).to_dict()
+    profile_fingerprint = fingerprint(profile)
+    input_assets = [
+        {"kind": input_kind, "path": str(path), "sha256": sha256_file(path)}
+        for input_kind, path in inputs
+    ]
+    source_sha = str(input_assets[0]["sha256"])
+    exact_input_fingerprints = tuple(
+        dict.fromkeys(str(item["sha256"]) for item in input_assets)
+    )
+    normalized_lanes = tuple(
+        dict.fromkeys(_required_text(value, "style_lane") for value in style_lanes)
+    )
+    normalized_tags = tuple(
+        dict.fromkeys(_required_text(value, "concept_tag") for value in concept_tags)
+    )
+    intent_material = {
+        "creatorIdentityProfileFingerprint": profile_fingerprint,
+        "sourceSha256": source_sha,
+        "goal": _required_text(goal, "goal"),
+        "contentSurface": content_surface,
+        "mediaKind": media_kind,
+        "styleLanes": normalized_lanes,
+        "conceptTags": normalized_tags,
+    }
+    intent = ContentIntentV1(
+        intent_id=f"content_intent_{fingerprint(intent_material)[:24]}",
+        creator_identity_profile_id=str(profile["profileId"]),
+        goal=str(intent_material["goal"]),
+        content_surface=content_surface,  # type: ignore[arg-type]
+        media_kind=media_kind,  # type: ignore[arg-type]
+        style_lanes=normalized_lanes,
+        concept_tags=normalized_tags,
+        source_asset_fingerprints=exact_input_fingerprints,
+        provenance=ProvenanceV1(
+            producer="reel_factory.local_model_arena.record_builder",
+            produced_at=produced_at,
+            source_references=(
+                SourceReferenceV1(
+                    record_id=str(profile["profileId"]),
+                    fingerprint=profile_fingerprint,
+                ),
+                *(
+                    SourceReferenceV1(
+                        record_id=f"source_asset:{value[:24]}",
+                        fingerprint=value,
+                    )
+                    for value in exact_input_fingerprints
+                ),
+            ),
+        ),
+    ).to_dict()
+    intent_fingerprint = fingerprint(intent)
+    destination = output_root.expanduser().resolve()
+    profile_path = (
+        destination / "creator_identity_profiles" / (f"{profile_fingerprint}.json")
+    )
+    intent_path = destination / "content_intents" / f"{intent_fingerprint}.json"
+    _write_exact_json(profile_path, profile)
+    _write_exact_json(intent_path, intent)
+    return {
+        "creatorIdentityProfile": profile,
+        "identityProfileId": profile["profileId"],
+        "identityProfileFingerprint": profile_fingerprint,
+        "contentIntent": intent,
+        "contentIntentId": intent["intentId"],
+        "contentIntentFingerprint": intent_fingerprint,
+        "sourcePath": str(source) if source is not None else None,
+        "sourceSha256": source_sha,
+        "inputAssets": input_assets,
+        "recordPaths": {
+            "creatorIdentityProfile": str(profile_path),
+            "contentIntent": str(intent_path),
+        },
+        "providerCalls": 0,
+        "productionWrites": 0,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -2339,6 +3053,29 @@ def main(argv: list[str] | None = None) -> int:
     plan_command.add_argument("--request", type=Path, required=True)
     plan_command.add_argument("--contentforge-registry", type=Path, required=True)
     plan_command.add_argument("--repository-root", type=Path, required=True)
+    records_command = sub.add_parser("build-records")
+    records_command.add_argument("--reviewed-identity-facts", type=Path, required=True)
+    records_command.add_argument("--source", type=Path)
+    records_command.add_argument(
+        "--input",
+        action="append",
+        default=[],
+        metavar="KIND=PATH",
+        help="Repeatable typed input: image, audio, last-image, or source-video",
+    )
+    records_command.add_argument("--goal", required=True)
+    records_command.add_argument(
+        "--content-surface",
+        choices=["reel", "story", "feed_post", "thread"],
+        required=True,
+    )
+    records_command.add_argument(
+        "--media-kind", choices=["image", "video", "carousel"], required=True
+    )
+    records_command.add_argument("--style-lane", action="append", required=True)
+    records_command.add_argument("--concept-tag", action="append", default=[])
+    records_command.add_argument("--produced-at", required=True)
+    records_command.add_argument("--output-root", type=Path, required=True)
     generate = sub.add_parser("generate")
     generate.add_argument("--plan-id", required=True)
     generate.add_argument("--sample-id", required=True)
@@ -2365,7 +3102,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     store = LocalModelArenaStore(args.root)
     try:
-        if args.command == "plan":
+        if args.command == "build-records":
+            typed_inputs: list[tuple[str, Path]] = []
+            for raw_input in args.input:
+                input_kind, separator, raw_path = str(raw_input).partition("=")
+                if not separator or not raw_path.strip():
+                    raise ValueError("arena_record_input_must_be_kind_equals_path")
+                typed_inputs.append((input_kind.strip(), Path(raw_path.strip())))
+            result = build_arena_record_bundle(
+                reviewed_identity_facts_path=args.reviewed_identity_facts,
+                source_path=args.source,
+                typed_inputs=typed_inputs,
+                goal=args.goal,
+                content_surface=args.content_surface,
+                media_kind=args.media_kind,
+                style_lanes=args.style_lane,
+                concept_tags=args.concept_tag,
+                produced_at=args.produced_at,
+                output_root=args.output_root,
+            )
+        elif args.command == "plan":
             request = _read_json(args.request)
             registry = arena_analyzer_registry(
                 _read_json(args.contentforge_registry),
@@ -2382,7 +3138,7 @@ def main(argv: list[str] | None = None) -> int:
                 execution_policy=dict(request["executionPolicy"]),
                 analyzer_registry=registry,
             )
-            result: Any = {
+            result = {
                 "plan": plan,
                 "path": str(store.persist_plan(plan)),
             }
