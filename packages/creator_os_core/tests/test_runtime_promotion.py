@@ -845,6 +845,40 @@ def test_failed_verifier_rolls_back_and_preserves_receipt(repositories) -> None:
     receipts = list((state / "receipts").glob("*.json"))
     assert len(receipts) == 1
     assert json.loads(receipts[0].read_text())["status"] == "rolled_back"
+    transactions = list((state / "transactions").glob("*.json"))
+    assert len(transactions) == 1
+    assert json.loads(transactions[0].read_text())["status"] == "rolled_back"
+
+
+def test_legacy_committed_journal_with_rolled_back_receipt_is_recovered(
+    repositories,
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    _source, runtime, first, _second, _approval_path, state = repositories
+    with pytest.raises(RuntimePromotionError, match="runtime_promotion_rolled_back"):
+        _promote(
+            repositories,
+            verifier=(sys.executable, "-c", "raise SystemExit(7)"),
+        )
+    transaction_path = next((state / "transactions").glob("*.json"))
+    transaction = promotion._load_transaction_journal(transaction_path)
+    promotion._transaction_update(
+        transaction_path,
+        transaction,
+        status="committed",
+        receipt_fingerprint=str(transaction["receiptFingerprint"]),
+    )
+
+    receipt = _promote(repositories)
+
+    recovered = promotion._load_transaction_journal(transaction_path)
+    assert recovered["status"] == "rolled_back"
+    assert recovered["failure"] == (
+        "RuntimePromotionError:runtime_post_promotion_full_verify_failed"
+    )
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == receipt["sourceCommit"]
+    assert receipt["destinationCommitBefore"] == first
 
 
 def test_failed_health_rolls_back(repositories) -> None:
