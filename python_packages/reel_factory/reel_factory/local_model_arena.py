@@ -50,7 +50,13 @@ from pipeline_contracts import (
 from .fileops import atomic_write_text, file_lock
 from .human_media_review import HumanMediaReviewStore, HumanReviewSamplingEvidence
 from .human_media_review import load_review as load_human_review
-from .identity_verification import identity_qc_receipt, verify_identity
+from .identity_verification import (
+    _load_reference_embeddings,
+    get_identity_provider,
+    identity_health,
+    identity_qc_receipt,
+    verify_identity,
+)
 from .local_generation_queue import (
     AppendOnlyJournal,
     LocalGenerationJob,
@@ -105,6 +111,94 @@ HUMAN_ANALYZER: Final = (
     "reel_factory.structured_human_media_review",
     "1.0.0",
 )
+
+
+def _require_promotion_identity_ready(
+    *,
+    purpose: str,
+    bindings: Sequence[tuple[str, str, str, Mapping[str, Any]]],
+    identity_root: Path | None,
+) -> None:
+    """Fail before Arena work when exact promotion identity evidence is unusable.
+
+    The identity analyzer remains optional for general Reel Factory rendering,
+    but it is mandatory for a promotion-eligible Arena.  The operator launcher
+    selects the locked ``reel-factory[identity]`` extra; this boundary also
+    verifies the current provider, ArcFace weights, v4 reference set, analyzer
+    implementation, and exact CreatorIdentityProfile binding before a plan,
+    generation, or finalization can proceed.
+    """
+
+    if purpose != "promotion_eligible":
+        return
+    if identity_root is None:
+        raise LocalQueueError("arena_promotion_identity_root_required")
+    root = identity_root.expanduser().resolve()
+    provider = get_identity_provider()
+    seen: set[tuple[str, str, str]] = set()
+    for creator, profile_id, profile_fingerprint, raw_profile in sorted(
+        bindings, key=lambda item: (item[0], item[1], item[2])
+    ):
+        identity = (creator, profile_id, profile_fingerprint)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        health = identity_health(creator=creator, root=root, provider=provider)
+        blocking = [
+            str(reason)
+            for reason in health.get("blockingReasons", [])
+            if str(reason).strip()
+        ]
+        if (
+            health.get("status") != "ready"
+            or health.get("promotionEligible") is not True
+        ):
+            reasons = ",".join(sorted(set(blocking))) or "identity_unavailable"
+            raise LocalQueueError(
+                f"arena_promotion_identity_preflight_failed:{creator}:{reasons}"
+            )
+        reference_path = Path(str(health["referenceSetPath"])).expanduser().resolve()
+        loaded = _load_reference_embeddings(reference_path, creator=creator)
+        expected_profile = dict(raw_profile)
+        if (
+            loaded.error is not None
+            or loaded.promotion_eligible is not True
+            or loaded.creator_identity_profile != expected_profile
+            or expected_profile.get("profileId") != profile_id
+            or fingerprint(expected_profile) != profile_fingerprint
+        ):
+            reason = loaded.error or "identity_profile_binding_mismatch"
+            raise LocalQueueError(
+                f"arena_promotion_identity_preflight_failed:{creator}:{reason}"
+            )
+
+
+def _spec_identity_bindings(
+    sample_specs: Sequence[ArenaSampleSpec],
+) -> tuple[tuple[str, str, str, Mapping[str, Any]], ...]:
+    return tuple(
+        (
+            spec.creator_id,
+            spec.identity_profile_id,
+            spec.identity_profile_fingerprint,
+            spec.creator_identity_profile,
+        )
+        for spec in sample_specs
+    )
+
+
+def _plan_identity_bindings(
+    plan: Mapping[str, Any],
+) -> tuple[tuple[str, str, str, Mapping[str, Any]], ...]:
+    return tuple(
+        (
+            str(sample["creatorId"]),
+            str(sample["identityProfileId"]),
+            str(sample["identityProfileFingerprint"]),
+            dict(sample["creatorIdentityProfile"]),
+        )
+        for sample in plan["samples"]
+    )
 
 
 def _canonical(value: Mapping[str, Any]) -> str:
@@ -729,6 +823,7 @@ def build_arena_plan(
     output_root: Path,
     execution_policy: Mapping[str, Any],
     analyzer_registry: Mapping[str, Any],
+    identity_root: Path | None = None,
 ) -> dict[str, Any]:
     if purpose not in PURPOSES:
         raise ValueError("arena_purpose_invalid")
@@ -767,6 +862,11 @@ def build_arena_plan(
         raise LocalQueueError("arena_duplicate_sample_identity")
     if purpose == "promotion_eligible":
         _promotion_design_check(sample_specs)
+        _require_promotion_identity_ready(
+            purpose=purpose,
+            bindings=_spec_identity_bindings(sample_specs),
+            identity_root=identity_root,
+        )
 
     output_directory = output_root.expanduser().resolve()
     if analyzer_registry.get("schema") != "creator_os.analyzer_registry.v1":
@@ -2756,11 +2856,17 @@ def execute_arena_sample_generation(
     plan_id: str,
     sample_id: str,
     dry_run: bool,
+    identity_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run one exact planned sample through the normal local queue path."""
 
     plan = store.load_plan(plan_id)
     sample = _sample(plan, sample_id)
+    _require_promotion_identity_ready(
+        purpose=str(plan["purpose"]),
+        bindings=_plan_identity_bindings(plan),
+        identity_root=identity_root,
+    )
     if not isinstance(sample.get("taskParameterMaterial"), dict) or not isinstance(
         sample.get("taskParameterFingerprint"), str
     ):
@@ -2916,6 +3022,11 @@ def finalize_arena_sample_evidence(
 
     plan = store.load_plan(plan_id)
     sample = _sample(plan, sample_id)
+    _require_promotion_identity_ready(
+        purpose=str(plan["purpose"]),
+        bindings=_plan_identity_bindings(plan),
+        identity_root=identity_root,
+    )
     review_packet = (
         store.load_review_packet(plan_id)
         if plan["purpose"] == "promotion_eligible"
@@ -3371,6 +3482,11 @@ def main(argv: list[str] | None = None) -> int:
     plan_command.add_argument("--request", type=Path, required=True)
     plan_command.add_argument("--contentforge-registry", type=Path, required=True)
     plan_command.add_argument("--repository-root", type=Path, required=True)
+    plan_command.add_argument(
+        "--identity-root",
+        type=Path,
+        help="required for promotion-eligible plans; contains signed v4 reference sets",
+    )
     records_command = sub.add_parser("build-records")
     records_command.add_argument("--reviewed-identity-facts", type=Path, required=True)
     records_command.add_argument("--source", type=Path)
@@ -3427,6 +3543,11 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--plan-id", required=True)
     generate.add_argument("--sample-id", required=True)
     generate.add_argument("--mode", choices=["local_wan"], required=True)
+    generate.add_argument(
+        "--identity-root",
+        type=Path,
+        help="required when generating a promotion-eligible Arena plan",
+    )
     execution = generate.add_mutually_exclusive_group(required=True)
     execution.add_argument("--dry-run", action="store_true")
     execution.add_argument("--apply", action="store_true")
@@ -3487,6 +3608,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_root=Path(str(request["outputRoot"])),
                 execution_policy=dict(request["executionPolicy"]),
                 analyzer_registry=registry,
+                identity_root=args.identity_root,
             )
             result = {
                 "plan": plan,
@@ -3498,6 +3620,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_id=args.plan_id,
                 sample_id=args.sample_id,
                 dry_run=args.dry_run,
+                identity_root=args.identity_root,
             )
         elif args.command == "finalize":
             benchmark_store = default_local_model_benchmark_store(args.root)

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import reel_factory.local_model_arena as arena_module
 from reel_factory.human_media_review import (
     HumanMediaReview,
     HumanMediaReviewStore,
@@ -30,6 +31,7 @@ from reel_factory.local_model_arena import (
     _motion_qc_options,
     _promotion_design_check,
     _request_from_sample,
+    _require_promotion_identity_ready,
     _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
@@ -37,6 +39,7 @@ from reel_factory.local_model_arena import (
     build_arena_record_bundle,
     build_arena_review_packet,
     build_arena_unblinding_receipt,
+    execute_arena_sample_generation,
     finalize_arena_sample_evidence,
     validate_arena_plan,
     validate_arena_review_packet,
@@ -356,6 +359,13 @@ def _build(
             },
         },
     )
+    identity_root = None
+    if purpose == "promotion_eligible":
+        identity_root = tmp_path / "identity"
+        monkeypatch.setattr(
+            "reel_factory.local_model_arena._require_promotion_identity_ready",
+            lambda **_kwargs: None,
+        )
     return build_arena_plan(
         sample_specs=specs,
         purpose=purpose,
@@ -363,6 +373,7 @@ def _build(
         output_root=tmp_path / "arena",
         execution_policy=_policy(),
         analyzer_registry=registry,
+        identity_root=identity_root,
     )
 
 
@@ -380,6 +391,215 @@ def test_registry_adds_exact_reel_factory_producers() -> None:
     for registration in registry["analyzers"]:
         implementation = root / registration["implementationRef"]
         assert sha256_file(implementation) == registration["implementationFingerprint"]
+
+
+def test_promotion_identity_preflight_requires_supported_extra_and_exact_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    spec = _spec(source)
+    binding = (
+        spec.creator_id,
+        spec.identity_profile_id,
+        spec.identity_profile_fingerprint,
+        spec.creator_identity_profile,
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_promotion_identity_root_required"):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=None,
+        )
+
+    provider = SimpleNamespace(name="unavailable")
+    monkeypatch.setattr(arena_module, "get_identity_provider", lambda: provider)
+    monkeypatch.setattr(
+        arena_module,
+        "identity_health",
+        lambda **_kwargs: {
+            "status": "unavailable",
+            "promotionEligible": False,
+            "blockingReasons": ["identity_provider_unavailable:ModuleNotFoundError"],
+        },
+    )
+    with pytest.raises(
+        LocalQueueError,
+        match="identity_provider_unavailable:ModuleNotFoundError",
+    ):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=tmp_path,
+        )
+
+    reference_path = tmp_path / "identity_references" / "stacey.json"
+    monkeypatch.setattr(
+        arena_module,
+        "identity_health",
+        lambda **_kwargs: {
+            "status": "ready",
+            "promotionEligible": True,
+            "blockingReasons": [],
+            "referenceSetPath": str(reference_path),
+        },
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_load_reference_embeddings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            error=None,
+            promotion_eligible=True,
+            creator_identity_profile={
+                **spec.creator_identity_profile,
+                "profileId": "substituted-profile",
+            },
+        ),
+    )
+    with pytest.raises(LocalQueueError, match="identity_profile_binding_mismatch"):
+        _require_promotion_identity_ready(
+            purpose="promotion_eligible",
+            bindings=(binding,),
+            identity_root=tmp_path,
+        )
+
+    monkeypatch.setattr(
+        arena_module,
+        "_load_reference_embeddings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            error=None,
+            promotion_eligible=True,
+            creator_identity_profile=spec.creator_identity_profile,
+        ),
+    )
+    _require_promotion_identity_ready(
+        purpose="promotion_eligible",
+        bindings=(binding, binding),
+        identity_root=tmp_path,
+    )
+
+
+def test_promotion_plan_preflights_identity_before_model_planning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    repository_root = Path(__file__).resolve().parents[3]
+    registry = arena_analyzer_registry(
+        _base_registry(repository_root),
+        produced_at=PRODUCED_AT,
+        repository_root=repository_root,
+    )
+    monkeypatch.setattr(arena_module, "_promotion_design_check", lambda _specs: None)
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "model_status",
+        lambda *_args, **_kwargs: pytest.fail(
+            "model planning ran before identity preflight"
+        ),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        build_arena_plan(
+            sample_specs=[_spec(source)],
+            purpose="promotion_eligible",
+            produced_at=PRODUCED_AT,
+            output_root=tmp_path / "arena",
+            execution_policy=_policy(),
+            analyzer_registry=registry,
+            identity_root=tmp_path / "identity",
+        )
+
+
+def test_generation_preflights_promotion_identity_before_queue_planning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sample = {
+        "sampleId": "sample-1",
+        "creatorId": "stacey",
+        "identityProfileId": "profile-1",
+        "identityProfileFingerprint": SHA_A,
+        "creatorIdentityProfile": {"profileId": "profile-1"},
+    }
+    store = SimpleNamespace(
+        load_plan=lambda _plan_id: {
+            "purpose": "promotion_eligible",
+            "samples": [sample],
+        }
+    )
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "plan_local_video_job",
+        lambda *_args, **_kwargs: pytest.fail("queue planning ran before preflight"),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        execute_arena_sample_generation(
+            store,  # type: ignore[arg-type]
+            plan_id="plan-1",
+            sample_id="sample-1",
+            dry_run=False,
+            identity_root=tmp_path,
+        )
+
+
+def test_finalization_preflights_promotion_identity_before_qc_writes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sample = {
+        "sampleId": "sample-1",
+        "creatorId": "stacey",
+        "identityProfileId": "profile-1",
+        "identityProfileFingerprint": SHA_A,
+        "creatorIdentityProfile": {"profileId": "profile-1"},
+    }
+    store = SimpleNamespace(
+        load_plan=lambda _plan_id: {
+            "purpose": "promotion_eligible",
+            "samples": [sample],
+        }
+    )
+
+    def fail_preflight(**_kwargs):
+        raise LocalQueueError("identity-preflight-sentinel")
+
+    monkeypatch.setattr(
+        arena_module, "_require_promotion_identity_ready", fail_preflight
+    )
+    monkeypatch.setattr(
+        arena_module,
+        "_run_contentforge",
+        lambda *_args, **_kwargs: pytest.fail("QC ran before identity preflight"),
+    )
+
+    with pytest.raises(LocalQueueError, match="identity-preflight-sentinel"):
+        finalize_arena_sample_evidence(
+            store,  # type: ignore[arg-type]
+            plan_id="plan-1",
+            sample_id="sample-1",
+            review_path=tmp_path / "review.json",
+            queue=SimpleNamespace(),  # type: ignore[arg-type]
+            benchmarks=SimpleNamespace(),  # type: ignore[arg-type]
+            human_reviews=SimpleNamespace(),  # type: ignore[arg-type]
+            repository_root=tmp_path,
+            identity_root=tmp_path,
+            produced_at=PRODUCED_AT,
+        )
 
 
 def test_motion_qc_request_requires_canonical_contentforge_rerun_inputs(

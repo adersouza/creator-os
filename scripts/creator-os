@@ -79,10 +79,32 @@ def _local_arena_command(*args: str) -> list[str]:
     return [
         "uv",
         "run",
+        "--isolated",
+        "--offline",
+        "--locked",
         "--all-packages",
+        "--extra",
+        "identity",
         "python",
         "-m",
         "reel_factory.local_model_arena",
+        *args,
+    ]
+
+
+def _identity_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--isolated",
+        "--offline",
+        "--locked",
+        "--all-packages",
+        "--extra",
+        "identity",
+        "python",
+        "-m",
+        "reel_factory.identity_verification",
         *args,
     ]
 
@@ -346,6 +368,7 @@ def _parser() -> argparse.ArgumentParser:
             "queue",
             "benchmarks",
             "arena",
+            "identity",
             "router",
             "analyzers",
             "evidence-key",
@@ -625,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run(_local_benchmark_command(*advanced_args))
         if args.surface == "arena":
             return _run(_local_arena_command(*advanced_args))
+        if args.surface == "identity":
+            return _run(_identity_command(*advanced_args))
         if args.surface == "router":
             return _run(_local_router_command(*advanced_args))
         if args.surface == "evidence-key":

@@ -95,19 +95,44 @@ missing; they are never serialized as zero to satisfy a gate.
 All diagnostic commands use the explicit advanced surface:
 
 ```bash
+# Explicit one-time Python dependency bootstrap on a new machine. This may
+# download only lockfile-pinned packages into uv's cache, does not change the
+# workspace environment, and does not download model weights.
+uv run --isolated --locked --all-packages --extra identity \
+  python -c "import cv2, insightface, onnxruntime"
+
+# The operator launcher selects an isolated, locked, offline identity
+# environment for every identity/Arena command after bootstrap.
+
 scripts/creator-os advanced models status --deep
+scripts/creator-os advanced identity identity-health \
+  --creator <creator> --root <identity-root>
+# If health reports a missing reference set, build it only from the exact
+# reviewed profile and its fingerprint:
+scripts/creator-os advanced identity identity-reference-build \
+  --creator <creator> --input-dir <reviewed-reference-directory> \
+  --root <identity-root> --identity-profile <identity-profile.json> \
+  --identity-profile-fingerprint <sha256>
 scripts/creator-os advanced arena --root <arena-root> plan \
   --request <gate-request.json> \
   --contentforge-registry <analyzer-registry.json> \
-  --repository-root <exact-clean-source-root>
+  --repository-root <exact-clean-source-root> \
+  --identity-root <identity-root>
 ```
+
+For a promotion-eligible plan, the plan command completes only when every
+creator's current signed v4 identity reference set is ready. Arena repeats the
+same exact profile/provider/analyzer check before generation and finalization;
+never work around `arena_promotion_identity_preflight_failed` with the default
+uv environment or a historical reference set.
 
 Read the returned immutable plan before approving it. Then execute each exact
 sample ID; do not loop over a directory that can change underneath the run:
 
 ```bash
 scripts/creator-os advanced arena --root <arena-root> generate \
-  --plan-id <plan-id> --sample-id <sample-id> --mode local_wan --apply
+  --plan-id <plan-id> --sample-id <sample-id> --mode local_wan \
+  --identity-root <identity-root> --apply
 scripts/creator-os advanced arena --root <arena-root> finalize \
   --plan-id <plan-id> --sample-id <sample-id> --review <signed-review.json> \
   --repository-root <exact-clean-source-root> --identity-root <identity-root> \

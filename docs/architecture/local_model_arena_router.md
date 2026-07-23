@@ -225,15 +225,43 @@ bypass.
 
 ## Commands
 
+Use the operator launcher for Arena work. It selects an isolated, locked,
+offline `reel-factory[identity]` environment (`insightface`, `onnxruntime`, and
+OpenCV) instead of contaminating the default workspace environment. On a new
+machine, the explicit one-time bootstrap below may download only the
+lockfile-pinned Python packages into uv's cache without modifying the workspace
+environment:
+
+```bash
+uv run --isolated --locked --all-packages --extra identity \
+  python -c "import cv2, insightface, onnxruntime"
+```
+
+The launcher itself is offline and cannot fetch dependencies or model weights;
+promotion-eligible commands must go through `scripts/creator-os`.
+
 ```bash
 scripts/creator-os advanced analyzers
-scripts/creator-os advanced arena --root <evidence-root> plan ...
+scripts/creator-os advanced identity identity-health \
+  --creator <creator> --root <identity-root>
+scripts/creator-os advanced arena --root <evidence-root> plan \
+  --identity-root <identity-root> ...
 scripts/creator-os advanced arena --root <evidence-root> generate \
-  --plan-id <id> --sample-id <id> --mode local_wan --dry-run
-scripts/creator-os advanced arena --root <evidence-root> finalize ...
+  --plan-id <id> --sample-id <id> --mode local_wan \
+  --identity-root <identity-root> --dry-run
+scripts/creator-os advanced arena --root <evidence-root> finalize \
+  --identity-root <identity-root> ...
 scripts/creator-os advanced arena --root <evidence-root> summary --plan-id <id>
 scripts/creator-os advanced router --request <json> --arena-summary <json>
 ```
+
+Before a promotion-eligible plan is created, and again before each generation
+and finalization, Arena initializes the real identity provider and verifies the
+current ArcFace weights, signed v4 reference set, analyzer implementation, and
+exact CreatorIdentityProfile binding for every creator in the plan. Missing
+extras, missing or historical reference evidence, implementation drift, and
+profile substitution therefore fail before queue or QC work. Exploratory plans
+remain usable without identity setup but never become promotion evidence.
 
 No command above schedules, publishes, downloads a model, or permits a provider
 fallback.

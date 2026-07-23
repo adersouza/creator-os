@@ -426,17 +426,49 @@ def test_local_operator_surfaces_route_only_to_reel_factory_modules(
 
 
 @pytest.mark.parametrize(
-    ("surface", "module"),
+    ("surface", "module", "uv_options"),
     [
-        ("benchmarks", "reel_factory.local_model_benchmark"),
-        ("arena", "reel_factory.local_model_arena"),
-        ("router", "reel_factory.local_model_router"),
+        (
+            "benchmarks",
+            "reel_factory.local_model_benchmark",
+            ["--all-packages"],
+        ),
+        (
+            "arena",
+            "reel_factory.local_model_arena",
+            [
+                "--isolated",
+                "--offline",
+                "--locked",
+                "--all-packages",
+                "--extra",
+                "identity",
+            ],
+        ),
+        (
+            "identity",
+            "reel_factory.identity_verification",
+            [
+                "--isolated",
+                "--offline",
+                "--locked",
+                "--all-packages",
+                "--extra",
+                "identity",
+            ],
+        ),
+        (
+            "router",
+            "reel_factory.local_model_router",
+            ["--all-packages"],
+        ),
     ],
 )
 def test_contract_aware_advanced_surfaces_use_the_full_workspace_environment(
     monkeypatch: pytest.MonkeyPatch,
     surface: str,
     module: str,
+    uv_options: list[str],
 ) -> None:
     namespace = runpy.run_path(str(CLI))
     commands: list[list[str]] = []
@@ -453,7 +485,7 @@ def test_contract_aware_advanced_surfaces_use_the_full_workspace_environment(
         [
             "uv",
             "run",
-            "--all-packages",
+            *uv_options,
             "python",
             "-m",
             module,
