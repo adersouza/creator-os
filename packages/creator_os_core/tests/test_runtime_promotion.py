@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 import yaml
 from creator_os_core.runtime_promotion import (
+    DIAGNOSTIC_TAIL_MAX_CHARS,
     PROMOTED_ENV_BLOCKLIST,
     PROMOTED_REQUIRED_EXECUTABLES,
     REQUIRED_CHECKS,
@@ -26,6 +27,7 @@ from creator_os_core.runtime_promotion import (
     RuntimePromotionError,
     _promote_runtime,
     _promoted_subprocess_environment,
+    _resolved_promoted_toolchain_evidence,
     _rollback_instructions,
     _runtime_lock_target,
     _validate_runtime_promotion_receipt_payload,
@@ -222,6 +224,10 @@ def repositories(tmp_path: Path):
     _run("git", "clone", str(origin), str(source), cwd=tmp_path)
     _run("git", "config", "user.email", "test@example.com", cwd=source)
     _run("git", "config", "user.name", "Test", cwd=source)
+    (source / "package.json").write_text(
+        json.dumps({"engines": {"node": ">=1"}}),
+        encoding="utf-8",
+    )
     (source / "value.txt").write_text("one", encoding="utf-8")
     scripts = source / "scripts"
     scripts.mkdir()
@@ -231,7 +237,7 @@ def repositories(tmp_path: Path):
         encoding="utf-8",
     )
     health_script.chmod(0o755)
-    _run("git", "add", "value.txt", "scripts/creator-os", cwd=source)
+    _run("git", "add", "package.json", "value.txt", "scripts/creator-os", cwd=source)
     _run("git", "commit", "-m", "first", cwd=source)
     _run("git", "push", "origin", "HEAD:main", cwd=source)
     first = _run("git", "rev-parse", "HEAD", cwd=source)
@@ -361,6 +367,12 @@ def test_promotion_creates_verified_backup_receipt_and_runtime(repositories) -> 
     assert receipt["providerCalls"] == 0
     assert receipt["productionStateWrites"] == 0
     assert receipt["producerAttestation"]["issuer"] == "creator_os.runtime_promotion"
+    toolchain = receipt["verification"][0]
+    assert toolchain["name"] == "toolchain_preflight"
+    assert toolchain["passed"] is True
+    assert toolchain["toolchainEvidence"]["schema"] == (
+        "creator_os.runtime_toolchain_evidence.v1"
+    )
     assert Path(receipt["backupManifestPath"]).is_file()
     validate_runtime_promotion_receipt(receipt)
     assert _validate_runtime_promotion_receipt_payload(receipt) == receipt
@@ -422,6 +434,9 @@ def test_dry_run_does_not_change_runtime_or_create_state(repositories) -> None:
     refs_before = _run("git", "show-ref", cwd=source)
     plan = _promote(repositories, dry_run=True)
     assert plan["status"] == "planned"
+    assert plan["toolchainEvidence"]["schema"] == (
+        "creator_os.runtime_toolchain_evidence.v1"
+    )
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
     assert not state.exists()
     assert _run("git", "show-ref", cwd=source) == refs_before
@@ -855,6 +870,45 @@ def test_failed_verifier_rolls_back_and_preserves_receipt(repositories) -> None:
     assert json.loads(transactions[0].read_text())["status"] == "rolled_back"
 
 
+def test_failed_verifier_receipt_has_only_bounded_redacted_diagnostics(
+    repositories,
+    monkeypatch,
+) -> None:
+    _source, _runtime, _first, _second, _approval_path, state = repositories
+    secret = "unit-test-secret-value-that-must-not-survive"
+    monkeypatch.setenv("UNIT_TEST_API_TOKEN", secret)
+    verifier = state.parent / "failing-verifier.py"
+    verifier.write_text(
+        "import sys\n"
+        "print('x' * 5000)\n"
+        f"print({secret!r})\n"
+        f"print('Authorization: Bearer {secret}', file=sys.stderr)\n"
+        "raise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimePromotionError, match="runtime_promotion_rolled_back"):
+        _promote(
+            repositories,
+            verifier=(sys.executable, str(verifier)),
+        )
+
+    receipt = json.loads(next((state / "receipts").glob("*.json")).read_text())
+    validate_runtime_promotion_receipt(receipt)
+    full_verify = next(
+        item for item in receipt["verification"] if item["name"] == "full_verify"
+    )
+    assert full_verify["returnCode"] == 7
+    assert full_verify["passed"] is False
+    assert full_verify["diagnosticTailLimit"] == DIAGNOSTIC_TAIL_MAX_CHARS
+    assert len(full_verify["stdoutTail"]) <= DIAGNOSTIC_TAIL_MAX_CHARS
+    assert len(full_verify["stderrTail"]) <= DIAGNOSTIC_TAIL_MAX_CHARS
+    assert secret not in full_verify["stdoutTail"]
+    assert secret not in full_verify["stderrTail"]
+    assert "<redacted>" in full_verify["stdoutTail"]
+    assert "<redacted>" in full_verify["stderrTail"]
+
+
 def test_legacy_committed_journal_with_rolled_back_receipt_is_recovered(
     repositories,
 ) -> None:
@@ -1019,6 +1073,68 @@ def test_promoted_environment_preserves_unrelated_node_and_system_paths(
     )
 
 
+def _fake_toolchain(
+    tmp_path: Path,
+    *,
+    node_version: str,
+) -> tuple[Path, dict[str, str]]:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "package.json").write_text(
+        json.dumps({"engines": {"node": "22.x || 24.x || >=26"}}),
+        encoding="utf-8",
+    )
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    versions = {
+        "git": "git version 2.50.0",
+        "make": "GNU Make 3.81",
+        "node": node_version,
+        "pnpm": "11.6.0",
+        "python3": "Python 3.12.11",
+        "uv": "uv 0.11.7",
+    }
+    for name, version in versions.items():
+        path = tools / name
+        path.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(version)}\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+    return source, {"PATH": str(tools)}
+
+
+def test_promoted_toolchain_accepts_supported_node_24_path(
+    tmp_path: Path,
+) -> None:
+    source, environment = _fake_toolchain(tmp_path, node_version="v24.14.0")
+
+    evidence = _resolved_promoted_toolchain_evidence(
+        source_root=source,
+        environment=environment,
+    )
+
+    assert evidence["nodeEngine"] == "22.x || 24.x || >=26"
+    assert evidence["nodeMajor"] == 24
+    assert {tool["name"] for tool in evidence["tools"]} == set(
+        PROMOTED_REQUIRED_EXECUTABLES
+    )
+    assert len(evidence["evidenceFingerprint"]) == 64
+
+
+def test_promoted_toolchain_rejects_node_25(tmp_path: Path) -> None:
+    source, environment = _fake_toolchain(tmp_path, node_version="v25.9.0")
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match=r"node_version_unsupported:v25\.9\.0",
+    ):
+        _resolved_promoted_toolchain_evidence(
+            source_root=source,
+            environment=environment,
+        )
+
+
 def test_promoted_environment_fails_closed_when_required_tool_is_missing(
     tmp_path: Path,
 ) -> None:
@@ -1079,6 +1195,31 @@ def test_promoted_environment_is_validated_before_runtime_mutation(
     with pytest.raises(
         RuntimePromotionError,
         match="runtime_promotion_required_executable_missing:uv",
+    ):
+        _promote(repositories)
+
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+
+
+def test_promoted_toolchain_is_validated_before_runtime_mutation(
+    repositories, monkeypatch
+) -> None:
+    _source, runtime, first, *_rest = repositories
+
+    def reject_toolchain(*, source_root, environment):
+        raise RuntimePromotionError(
+            "runtime_promotion_node_version_unsupported:v25.9.0:"
+            "required=22.x || 24.x || >=26"
+        )
+
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._resolved_promoted_toolchain_evidence",
+        reject_toolchain,
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="runtime_promotion_node_version_unsupported",
     ):
         _promote(repositories)
 

@@ -64,15 +64,17 @@ Without `--dry-run`, the command:
    transaction journal;
 5. writes an authenticated transaction journal before changing the checkout;
 6. detaches only the configured runtime checkout at the approved commit;
-7. removes the source worktree virtualenv from the subprocess environment,
-   reconstructs the destination runtime's Node and workspace-package Python
-   environments from the exact frozen locks (without optional model/vision
-   extras), then runs `make verify` and
+7. removes source-worktree environments from the subprocess path, resolves and
+   fingerprints the exact Git, Make, Node, pnpm, Python, and uv executables,
+   and rejects a Node version outside `package.json#engines.node` before any
+   checkout mutation;
+8. reconstructs the destination runtime's Node environment and every frozen
+   workspace Python extra, then runs `make runtime-verify` and
    `creator-os status --live-read-only --json` there under an allowlisted
    environment that excludes signing secrets and credentials;
-8. validates, atomically writes, re-reads, and authenticates the canonical
+9. validates, atomically writes, re-reads, and authenticates the canonical
    receipt before marking the transaction committed;
-9. restores the previous commit if a post-check, receipt validation, receipt
+10. restores the previous commit if a post-check, receipt validation, receipt
    write, or journal-finalization step fails.
 
 An interrupted nonterminal journal is reconciled under the same lock before a
@@ -91,7 +93,10 @@ unique checks: `repository`, `venv-entrypoints`, `contracts`, `local-config`,
 duplicate, `WARN`, `NOT_RUN`, malformed, or empty result triggers rollback.
 
 The receipt includes exact before/after commits, backup paths/fingerprints,
-verification outcomes, failure/rollback state, and copyable rollback commands.
+resolved toolchain evidence, verification outcomes, failure/rollback state,
+and copyable rollback commands. A failed verifier also preserves a bounded,
+credential-redacted stdout/stderr tail beside full-output SHA-256 hashes; a
+successful verifier retains no output tail.
 The commands verify the bundle and fetch its objects before checking out the
 old commit, so recovery still works if the old object is no longer present in
 the runtime object database. Paths are shell-quoted. The final command reruns

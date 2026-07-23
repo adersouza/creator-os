@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -102,6 +103,30 @@ PROMOTED_REQUIRED_EXECUTABLES: Final = (
     "pnpm",
     "python3",
     "uv",
+)
+PROMOTED_TOOL_VERSION_ARGS: Final = {
+    "git": ("--version",),
+    "make": ("--version",),
+    "node": ("--version",),
+    "pnpm": ("--version",),
+    "python3": ("--version",),
+    "uv": ("--version",),
+}
+PROMOTED_TOOLCHAIN_SCHEMA: Final = "creator_os.runtime_toolchain_evidence.v1"
+DIAGNOSTIC_TAIL_MAX_CHARS: Final = 4_000
+_SENSITIVE_ENV_KEY = re.compile(
+    r"(?:auth|cookie|credential|key|password|passwd|secret|signature|token)",
+    re.IGNORECASE,
+)
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)\b(api[_-]?key|authorization|cookie|credential|password|passwd|"
+    r"private[_-]?key|secret|signature|token)\b(\s*[:=]\s*)"
+    r"(?:bearer\s+)?[^\s,;]+"
+)
+_SENSITIVE_TOKEN = re.compile(
+    r"\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\."
+    r"[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"
 )
 REQUIRED_CHECKS: Final = frozenset(
     {
@@ -348,6 +373,130 @@ def _promoted_subprocess_environment(
         }
     )
     return environment
+
+
+def _node_major_matches_engine(major: int, engine: str) -> bool:
+    """Evaluate the deliberately narrow major-only Node engine policy."""
+
+    clauses = [clause.strip() for clause in engine.split("||")]
+    if not clauses or any(not clause for clause in clauses):
+        raise RuntimePromotionError("runtime_promotion_node_engine_invalid")
+    for clause in clauses:
+        exact = re.fullmatch(r"(\d+)(?:\.x){0,2}", clause)
+        minimum = re.fullmatch(r">=\s*(\d+)(?:\.\d+){0,2}", clause)
+        if exact is not None:
+            if major == int(exact.group(1)):
+                return True
+            continue
+        if minimum is not None:
+            if major >= int(minimum.group(1)):
+                return True
+            continue
+        raise RuntimePromotionError(
+            "runtime_promotion_node_engine_expression_unsupported"
+        )
+    return False
+
+
+def _resolved_promoted_toolchain_evidence(
+    *,
+    source_root: Path,
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
+    package_json = source_root / "package.json"
+    if package_json.is_symlink() or not package_json.is_file():
+        raise RuntimePromotionError("runtime_promotion_package_json_missing_or_unsafe")
+    try:
+        package_payload = json.loads(package_json.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimePromotionError("runtime_promotion_package_json_invalid") from exc
+    node_engine = (
+        package_payload.get("engines", {}).get("node")
+        if isinstance(package_payload, dict)
+        and isinstance(package_payload.get("engines"), dict)
+        else None
+    )
+    if not isinstance(node_engine, str) or not node_engine.strip():
+        raise RuntimePromotionError("runtime_promotion_node_engine_missing")
+
+    tools: list[dict[str, str]] = []
+    node_version = ""
+    for name in PROMOTED_REQUIRED_EXECUTABLES:
+        command_path = shutil.which(name, path=environment.get("PATH", ""))
+        if command_path is None:
+            raise RuntimePromotionError(
+                f"runtime_promotion_required_executable_missing:{name}"
+            )
+        resolved_path = Path(command_path).resolve()
+        completed = _run(
+            (command_path, *PROMOTED_TOOL_VERSION_ARGS[name]),
+            cwd=source_root,
+            environment=environment,
+        )
+        version_output = (completed.stdout or completed.stderr).strip()
+        version = version_output.splitlines()[0].strip() if version_output else ""
+        if completed.returncode != 0 or not version:
+            raise RuntimePromotionError(
+                f"runtime_promotion_required_executable_version_unreadable:{name}"
+            )
+        tools.append(
+            {
+                "name": name,
+                "commandPath": command_path,
+                "resolvedPath": str(resolved_path),
+                "version": version,
+            }
+        )
+        if name == "node":
+            node_version = version
+
+    node_match = re.fullmatch(r"v?(\d+)(?:\.\d+){1,2}", node_version)
+    if node_match is None:
+        raise RuntimePromotionError("runtime_promotion_node_version_invalid")
+    node_major = int(node_match.group(1))
+    if not _node_major_matches_engine(node_major, node_engine):
+        raise RuntimePromotionError(
+            f"runtime_promotion_node_version_unsupported:{node_version}:"
+            f"required={node_engine}"
+        )
+
+    core = {
+        "schema": PROMOTED_TOOLCHAIN_SCHEMA,
+        "packageJsonPath": str(package_json.resolve()),
+        "packageJsonSha256": _sha256_file(package_json),
+        "nodeEngine": node_engine,
+        "nodeMajor": node_major,
+        "tools": tools,
+    }
+    return {**core, "evidenceFingerprint": _fingerprint(core)}
+
+
+def _redacted_diagnostic_tail(
+    output: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Return a bounded diagnostic tail with credential-shaped values removed."""
+
+    redacted = output.replace("\x00", "\N{REPLACEMENT CHARACTER}")
+    source = os.environ if environ is None else environ
+    sensitive_values = sorted(
+        {
+            value
+            for key, value in source.items()
+            if _SENSITIVE_ENV_KEY.search(key) and len(value) >= 4
+        },
+        key=len,
+        reverse=True,
+    )
+    for value in sensitive_values:
+        redacted = redacted.replace(value, "<redacted>")
+    redacted = _SENSITIVE_ASSIGNMENT.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
+        redacted,
+    )
+    redacted = _SENSITIVE_TOKEN.sub("<redacted>", redacted)
+    return redacted[-DIAGNOSTIC_TAIL_MAX_CHARS:]
 
 
 def _git(repo: Path, *args: str, code: str) -> str:
@@ -1563,6 +1712,7 @@ def _promotion_plan(
     destination_commit: str,
     approval: dict[str, Any],
     approval_evidence: dict[str, Any],
+    toolchain_evidence: dict[str, Any],
     operator: str,
     verifier_command: Sequence[str],
     health_command: Sequence[str],
@@ -1588,6 +1738,7 @@ def _promotion_plan(
         "changedFiles": list(changed_files),
         "approvalFingerprint": approval["approvalFingerprint"],
         "approvalEvidenceFingerprint": approval_evidence["evidenceFingerprint"],
+        "toolchainEvidence": copy.deepcopy(toolchain_evidence),
         "operator": operator,
         "verifierCommand": list(verifier_command),
         "healthCommand": list(health_command),
@@ -1682,6 +1833,11 @@ def _promote_runtime(
         and approval.get("operator") != operator
     ):
         raise RuntimePromotionError("runtime_promotion_operator_identity_mismatch")
+    promoted_environment = _promoted_subprocess_environment(source_root=source)
+    toolchain_evidence = _resolved_promoted_toolchain_evidence(
+        source_root=source,
+        environment=promoted_environment,
+    )
     if dry_run:
         verified_approval_evidence = _verify_promotion_authority(
             source,
@@ -1697,6 +1853,7 @@ def _promote_runtime(
             destination_commit=destination_commit,
             approval=approval,
             approval_evidence=verified_approval_evidence,
+            toolchain_evidence=toolchain_evidence,
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
@@ -1722,7 +1879,6 @@ def _promote_runtime(
             _owned_subroot(state, subroot, create=True)
         _recover_incomplete_transactions(state, runtime)
         destination_commit = _clean_detached_runtime_commit(runtime)
-        promoted_environment = _promoted_subprocess_environment(source_root=source)
         plan = _promotion_plan(
             source=source,
             runtime=runtime,
@@ -1730,6 +1886,7 @@ def _promote_runtime(
             destination_commit=destination_commit,
             approval=approval,
             approval_evidence=verified_approval_evidence,
+            toolchain_evidence=toolchain_evidence,
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
@@ -1825,6 +1982,7 @@ def _promote_runtime(
             destination_commit=destination_commit,
             approval=approval,
             approval_evidence=verified_approval_evidence,
+            toolchain_evidence=toolchain_evidence,
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
@@ -1854,7 +2012,13 @@ def _promote_runtime(
         )
 
         rolled_back = False
-        verification: list[dict[str, Any]] = []
+        verification: list[dict[str, Any]] = [
+            {
+                "name": "toolchain_preflight",
+                "passed": True,
+                "toolchainEvidence": copy.deepcopy(toolchain_evidence),
+            }
+        ]
         failure: str | None = None
         try:
             _git(runtime, "fetch", "origin", code="runtime_fetch_failed")
@@ -1906,6 +2070,14 @@ def _promote_runtime(
                     "reportSummary": report_summary,
                     "reportError": report_error,
                 }
+                if not passed:
+                    record.update(
+                        {
+                            "stdoutTail": _redacted_diagnostic_tail(completed.stdout),
+                            "stderrTail": _redacted_diagnostic_tail(completed.stderr),
+                            "diagnosticTailLimit": DIAGNOSTIC_TAIL_MAX_CHARS,
+                        }
+                    )
                 verification.append(record)
                 if not passed:
                     raise RuntimePromotionError(f"runtime_post_promotion_{name}_failed")
