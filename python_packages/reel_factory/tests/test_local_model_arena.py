@@ -115,7 +115,7 @@ def _sign_external_observer_attestation(
     *,
     kind: str,
     issued_at: str,
-    private_key: Ed25519PrivateKey | None = None,
+    signer: Ed25519PrivateKey | None = None,
     issuer: str | None = None,
 ) -> dict:
     binding = arena_module.ROLLOUT_EXTERNAL_ACTIVITY_OBSERVER_BINDINGS[kind]
@@ -127,7 +127,7 @@ def _sign_external_observer_attestation(
         "issuedAt": issued_at,
         "payloadFingerprint": payload_fingerprint(payload),
     }
-    signature = (private_key or OBSERVER_PRIVATE_KEYS[kind]).sign(canonical_json(core))
+    signature = (signer or OBSERVER_PRIVATE_KEYS[kind]).sign(canonical_json(core))
     return {**core, "signature": base64.b64encode(signature).decode()}
 
 
@@ -224,7 +224,7 @@ def _rewrite_external_activity_observation(
     *,
     updates: dict | None = None,
     issuer: str | None = None,
-    signing_key: Ed25519PrivateKey | None = None,
+    observer_signer: Ed25519PrivateKey | None = None,
 ) -> None:
     receipt = json.loads(observation_path.read_text(encoding="utf-8"))
     core = {
@@ -244,7 +244,7 @@ def _rewrite_external_activity_observation(
             kind=core["kind"],
             issuer=issuer or core["provenance"]["producer"],
             issued_at=core["observedAt"],
-            private_key=signing_key,
+            signer=observer_signer,
         ),
     }
     observation_path.write_text(
@@ -3317,7 +3317,7 @@ def test_rollout_external_activity_requires_authentic_observer_receipts(
     caller_signed = _external_activity_observations(tmp_path / "caller-signed")
     _rewrite_external_activity_observation(
         caller_signed["provider_cost"],
-        signing_key=Ed25519PrivateKey.from_private_bytes(
+        observer_signer=Ed25519PrivateKey.from_private_bytes(
             hashlib.sha256(EVIDENCE_SECRET.encode()).digest()
         ),
     )
