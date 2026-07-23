@@ -29,6 +29,7 @@ APPROVAL_SCHEMA: Final = "creator_os.runtime_promotion_approval.v1"
 TRANSACTION_SCHEMA: Final = "creator_os.runtime_promotion_transaction.v1"
 TRANSACTION_ISSUER: Final = "creator_os.runtime_promotion_transaction"
 LIVE_HEALTH_POLICY: Final = "creator_os.runtime_live_read_only_health.v1"
+RUNTIME_VERIFIER_COMMAND: Final = ("make", "runtime-verify")
 REQUIRED_LIVE_HEALTH_CHECKS: Final = frozenset(
     {
         "repository",
@@ -1531,7 +1532,7 @@ def promote_runtime(
         state_root=state_root,
         operator=operator,
         dry_run=dry_run,
-        verifier_command=("make", "runtime-verify"),
+        verifier_command=RUNTIME_VERIFIER_COMMAND,
         health_command=(
             "scripts/creator-os",
             "status",
@@ -1551,7 +1552,7 @@ def _promote_runtime(
     state_root: Path,
     operator: str,
     dry_run: bool,
-    verifier_command: Sequence[str] = ("make", "verify"),
+    verifier_command: Sequence[str] = RUNTIME_VERIFIER_COMMAND,
     health_command: Sequence[str] = (
         "scripts/creator-os",
         "status",
