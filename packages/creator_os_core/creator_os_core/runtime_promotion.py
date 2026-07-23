@@ -1350,16 +1350,37 @@ def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
                     "runtime_promotion_committed_receipt_missing"
                 )
             receipt = _validate_receipt_file(receipt_path)
-            if (
+            receipt_identity_mismatch = (
                 receipt.get("receiptFingerprint") != record.get("receiptFingerprint")
                 or receipt.get("promotionId") != record.get("promotionId")
                 or receipt.get("sourceCommit") != record.get("sourceCommit")
-                or receipt.get("status") not in {"promoted", "already_current"}
-            ):
+            )
+            if receipt_identity_mismatch:
                 raise RuntimePromotionError(
                     "runtime_promotion_committed_receipt_mismatch"
                 )
-            continue
+            receipt_status = str(receipt.get("status") or "")
+            if receipt_status in {"promoted", "already_current"}:
+                continue
+            if (
+                receipt_status == "rolled_back"
+                and receipt.get("rolledBack") is True
+                and receipt.get("destinationCommitBefore")
+                == record.get("destinationCommitBefore")
+                and receipt.get("destinationCommitAfter")
+                == record.get("destinationCommitBefore")
+                and _clean_detached_runtime_commit(runtime)
+                == record.get("destinationCommitBefore")
+            ):
+                _transaction_update(
+                    path,
+                    record,
+                    status="rolled_back",
+                    failure=str(receipt.get("failure") or "promotion_rolled_back"),
+                    receipt_fingerprint=str(receipt["receiptFingerprint"]),
+                )
+                continue
+            raise RuntimePromotionError("runtime_promotion_committed_receipt_mismatch")
         if status in terminal:
             continue
         before = str(record.get("destinationCommitBefore") or "")
@@ -1886,10 +1907,16 @@ def _promote_runtime(
             decoded = _validate_runtime_promotion_receipt_payload(decoded)
             if receipt_validator is not None:
                 receipt_validator(decoded)
+            transaction_status = (
+                "committed"
+                if status in {"promoted", "already_current"}
+                else "rolled_back"
+            )
             transaction = _transaction_update(
                 transaction_path,
                 transaction,
-                status="committed",
+                status=transaction_status,
+                failure=failure,
                 receipt_fingerprint=str(decoded["receiptFingerprint"]),
             )
         except BaseException as exc:
