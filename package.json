@@ -32,9 +32,9 @@
     "security:secrets": "bash scripts/security/secret-scan.sh"
   },
   "devDependencies": {
-    "dependency-cruiser": "^18.0.0",
-    "knip": "^6.25.0",
+    "dependency-cruiser": "^18.1.0",
+    "knip": "^6.29.0",
     "promptfoo": "0.121.19",
-    "turbo": "^2.10.4"
+    "turbo": "^2.10.6"
   }
 }
