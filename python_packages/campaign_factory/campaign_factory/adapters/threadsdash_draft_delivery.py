@@ -27,6 +27,11 @@ from ..core import (
     normalize_content_surface,
     utc_now,
 )
+from ..creative_approval import (
+    CreativeApprovalError,
+    asset_requires_creative_approval,
+    validate_approval_for_draft,
+)
 
 VALID_PUBLISH_MODES = {"auto", "notify"}
 SAFE_NATIVE_AUDIO_STATUSES = {"attached", "verified", "skipped", "not_required"}
@@ -115,6 +120,7 @@ def _campaign_factory_manifest_blockers(
             or meta.get("content_surface")
             or draft.get("contentSurface")
         )
+        required: tuple[str, ...]
         if manifest_version == 2:
             required = (
                 "manifest_version",
@@ -476,6 +482,9 @@ def export_threadsdash(
         validate_threadsdash_draft_payload_strict(payload)
         contract_negotiation: dict[str, Any] | None = None
         if uses_dashboard_ingest:
+            _validate_exact_creative_approvals(
+                factory, payload, campaign_slug=campaign_slug
+            )
             contract_negotiation = _negotiate_threadsdash_draft_payload(
                 payload_schema=str(payload.get("schema") or ""),
                 ingest_url=threadsdash_ingest_url,
@@ -483,6 +492,9 @@ def export_threadsdash(
             )
         dashboard_ingest_media: list[dict[str, Any]] = []
         if uses_dashboard_ingest:
+            _validate_exact_creative_approvals(
+                factory, payload, campaign_slug=campaign_slug
+            )
             dashboard_ingest_media = _upload_media_for_dashboard_ingest(
                 factory,
                 payload,
@@ -534,6 +546,9 @@ def export_threadsdash(
             return result
 
         assert pipeline_job is not None
+        _validate_exact_creative_approvals(
+            factory, payload, campaign_slug=campaign_slug
+        )
         result["dashboardIngest"] = _post_threadsdash_draft_ingest(
             payload,
             ingest_url=threadsdash_ingest_url,
@@ -689,6 +704,34 @@ def export_threadsdash(
         )
         factory.domains.events.fail_pipeline_job(pipeline_job["id"], str(exc))
         raise
+
+
+def _validate_exact_creative_approvals(
+    factory: CampaignFactory,
+    payload: dict[str, Any],
+    *,
+    campaign_slug: str,
+) -> None:
+    for draft in payload.get("drafts") or []:
+        if not isinstance(draft, dict):
+            raise ValueError("creative approval draft must be an object")
+        rendered_asset_id = str(draft.get("renderedAssetId") or "")
+        asset = factory.domains.publishability.rendered_asset(rendered_asset_id)
+        if not asset_requires_creative_approval(asset):
+            continue
+        status = factory.domains.publishability.creative_approval_for_asset(
+            rendered_asset_id
+        )
+        approval = status.get("approval")
+        if not isinstance(approval, dict):
+            raise ValueError(
+                f"{rendered_asset_id}:"
+                + str(status.get("blockingReason") or "creative_approval_missing")
+            )
+        try:
+            validate_approval_for_draft(approval, draft, campaign_slug=campaign_slug)
+        except CreativeApprovalError as exc:
+            raise ValueError(f"{rendered_asset_id}:{exc}") from exc
 
 
 def _negotiate_threadsdash_draft_payload(

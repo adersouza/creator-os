@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.creative_approval.v2",
+  "title": "Campaign Creative Approval v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "approvalId", "approvedBy", "approvedAt", "campaign", "renderedAsset", "creatorIdentity", "contentIntent", "generationRecipe", "model", "executionEvidence", "input", "output", "qcEvidence", "reviewManifest", "exportProjection", "contentSemantics", "operatorAttestation", "approvalFingerprint"],
+  "properties": {
+    "schema": {"const": "campaign_factory.creative_approval.v2"},
+    "approvalId": {"type": "string", "minLength": 1},
+    "approvedBy": {"type": "string", "minLength": 1},
+    "approvedAt": {"type": "string", "format": "date-time"},
+    "campaign": {"$ref": "#/$defs/campaign"},
+    "renderedAsset": {"$ref": "#/$defs/binding"},
+    "creatorIdentity": {"$ref": "#/$defs/binding"},
+    "contentIntent": {"$ref": "#/$defs/binding"},
+    "generationRecipe": {"$ref": "#/$defs/binding"},
+    "model": {"$ref": "#/$defs/binding"},
+    "executionEvidence": {
+      "oneOf": [
+        {"$ref": "#/$defs/localExecutionEvidence"},
+        {"$ref": "#/$defs/paidExecutionEvidence"}
+      ]
+    },
+    "input": {"$ref": "#/$defs/file"},
+    "output": {"$ref": "#/$defs/file"},
+    "qcEvidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/qc"}},
+    "reviewManifest": {"$ref": "#/$defs/file"},
+    "exportProjection": {"$ref": "#/$defs/exportProjection"},
+    "contentSemantics": {"$ref": "#/$defs/contentSemantics"},
+    "operatorAttestation": {"$ref": "evidence_attestation.v1.schema.json"},
+    "approvalFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "campaign": {"type": "object", "additionalProperties": false, "required": ["id", "slug"], "properties": {"id": {"type": "string", "minLength": 1}, "slug": {"type": "string", "minLength": 1}}},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["id", "fingerprint"], "properties": {"id": {"type": "string", "minLength": 1}, "fingerprint": {"$ref": "#/$defs/sha256"}}},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "localExecutionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "admission"],
+      "properties": {
+        "class": {"const": "local_model"},
+        "admission": {"$ref": "#/$defs/binding"}
+      }
+    },
+    "paidExecutionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "provider", "providerModel", "requestFingerprint", "authorization", "authorizationEvidence", "prediction", "providerEvidence", "spendRecord", "executionReceipt", "executionReceiptEvidence"],
+      "properties": {
+        "class": {"const": "paid_provider"},
+        "provider": {"const": "wavespeed"},
+        "providerModel": {"type": "string", "minLength": 1},
+        "requestFingerprint": {"$ref": "#/$defs/sha256"},
+        "authorization": {"$ref": "#/$defs/binding"},
+        "authorizationEvidence": {"$ref": "#/$defs/file"},
+        "prediction": {"$ref": "#/$defs/binding"},
+        "providerEvidence": {"$ref": "#/$defs/file"},
+        "spendRecord": {"$ref": "#/$defs/binding"},
+        "executionReceipt": {"$ref": "#/$defs/binding"},
+        "executionReceiptEvidence": {"$ref": "#/$defs/file"}
+      }
+    },
+    "qc": {"type": "object", "additionalProperties": false, "required": ["checkId", "receiptPath", "receiptSha256", "subjectSha256", "passed"], "properties": {"checkId": {"type": "string", "minLength": 1}, "receiptPath": {"type": "string", "minLength": 1}, "receiptSha256": {"$ref": "#/$defs/sha256"}, "subjectSha256": {"$ref": "#/$defs/sha256"}, "passed": {"const": true}}},
+    "exportProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "campaignId", "campaignSlug", "renderedAssetId", "sourceAssetId", "contentSha256", "accountId", "instagramAccountId", "distributionPlanId", "distributionSurface", "contentSurface", "content", "instagramPostCaption", "instagramPostCaptionHash", "burnedCaptionText", "burnedCaptionHash", "overlaySemanticQcFingerprint", "captionTimingQcFingerprint", "publishMode", "instagramTrialReels", "trialGraduationStrategy", "shareToFeed", "collaborators", "audioIntentFingerprint", "variationAssignmentFingerprint", "fingerprint"],
+      "properties": {
+        "schema": {"const": "campaign_factory.creative_export_projection.v1"},
+        "campaignId": {"type": ["string", "null"]},
+        "campaignSlug": {"type": "string", "minLength": 1},
+        "renderedAssetId": {"type": ["string", "null"]},
+        "sourceAssetId": {"type": ["string", "null"]},
+        "contentSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "accountId": {"type": ["string", "null"]},
+        "instagramAccountId": {"type": ["string", "null"]},
+        "distributionPlanId": {"type": ["string", "null"]},
+        "distributionSurface": {"type": ["string", "null"]},
+        "contentSurface": {"type": ["string", "null"]},
+        "content": {"type": "string"},
+        "instagramPostCaption": {"type": "string"},
+        "instagramPostCaptionHash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "burnedCaptionText": {"type": ["string", "null"]},
+        "burnedCaptionHash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "overlaySemanticQcFingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "captionTimingQcFingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "publishMode": {"type": ["string", "null"]},
+        "instagramTrialReels": {"type": "boolean"},
+        "trialGraduationStrategy": {"type": ["string", "null"]},
+        "shareToFeed": {"type": "boolean"},
+        "collaborators": {"type": "array", "items": {"type": "string"}},
+        "audioIntentFingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "variationAssignmentFingerprint": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "fingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "contentSemantics": {"type": "object", "additionalProperties": false, "required": ["burnedOverlayText", "instagramPostCaption", "generatedAudio", "sourceAudio", "nativeInstagramAudio"], "properties": {"burnedOverlayText": {}, "instagramPostCaption": {}, "generatedAudio": {}, "sourceAudio": {}, "nativeInstagramAudio": {}}}
+  }
+}

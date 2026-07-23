@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "creator_os.evidence_provenance.v1",
+  "$id": "https://creator-os.local/schemas/evidence_provenance.v1.schema.json",
   "title": "Creator OS Thin Evidence Provenance",
   "type": "object",
   "additionalProperties": false,

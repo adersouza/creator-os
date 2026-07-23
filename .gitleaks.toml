@@ -26,6 +26,7 @@ paths = [
   '''(^|/)test-results/''',
 ]
 regexes = [
+  '''creativeApprovalV2''',
   '''juno33-cmdk-recents''',
   '''juno33:ask-history:v1''',
   '''juno33-pending-plan''',

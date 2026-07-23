@@ -177,6 +177,88 @@ def test_threadsdash_export_readiness_blockers_prevent_all_external_writes(
         cf.close()
 
 
+def test_generated_motion_without_draft_marker_blocks_before_every_external_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cf = make_factory(tmp_path)
+    calls = {"handshake": 0, "upload": 0, "ingest": 0}
+    try:
+        add_rendered_asset(cf, tmp_path)
+        cf.conn.execute(
+            "UPDATE rendered_assets SET frame_type = 'generated_motion' WHERE id = 'asset_1'"
+        )
+        cf.conn.commit()
+        payload = {
+            "schema": "campaign_factory.threadsdash_drafts.v3",
+            "campaign": "may",
+            "drafts": [
+                {
+                    "renderedAssetId": "asset_1",
+                    # Deliberately omit the old, untrusted creativeApprovalRequired
+                    # marker. Canonical stored generation lineage must still gate it.
+                }
+            ],
+        }
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter._draft_payload,
+            "build_draft_payloads",
+            lambda *_args, **_kwargs: payload,
+        )
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter,
+            "evaluate_export_readiness",
+            lambda *_args, **_kwargs: {
+                "liveExportAllowed": True,
+                "blockingReasons": [],
+                "warnings": [],
+            },
+        )
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter,
+            "validate_threadsdash_draft_payload_strict",
+            lambda *_args, **_kwargs: None,
+        )
+
+        def unexpected_handshake(**_kwargs):
+            calls["handshake"] += 1
+            raise AssertionError("handshake must not run without creative approval")
+
+        def unexpected_upload(*_args, **_kwargs):
+            calls["upload"] += 1
+            raise AssertionError("upload must not run without creative approval")
+
+        def unexpected_ingest(*_args, **_kwargs):
+            calls["ingest"] += 1
+            raise AssertionError("ingest must not run without creative approval")
+
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter,
+            "_negotiate_threadsdash_draft_payload",
+            unexpected_handshake,
+        )
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter,
+            "_upload_media_for_dashboard_ingest",
+            unexpected_upload,
+        )
+        monkeypatch.setattr(
+            threadsdash_delivery_adapter,
+            "_post_threadsdash_draft_ingest",
+            unexpected_ingest,
+        )
+
+        with pytest.raises(ValueError, match="creative_approval"):
+            export_threadsdash(
+                cf,
+                campaign_slug="may",
+                user_id="user_1",
+                dry_run=False,
+            )
+        assert calls == {"handshake": 0, "upload": 0, "ingest": 0}
+    finally:
+        cf.close()
+
+
 def test_threadsdash_export_warnings_require_explicit_operator_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

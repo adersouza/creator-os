@@ -34,31 +34,31 @@ the static fallback survives a local or remote generation failure.
 Use the monorepo command for normal work:
 
 ```bash
-scripts/creator-os generate --mode soul_static --dry-run \
+scripts/creator-os create --mode soul_static --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png
 
-scripts/creator-os generate --mode soul_static --apply --confirm-paid \
+scripts/creator-os create --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
   --reference-image /path/to/reference.png --max-credits 2 --wait --download
 
-scripts/creator-os generate --mode local_wan --dry-run \
+scripts/creator-os create --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_wan22_ti2v_5b_mlx \
   --motion-prompt "Natural breathing and a gentle camera push"
 
-scripts/creator-os generate --mode local_wan --dry-run \
+scripts/creator-os create --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_ltx23_distilled_mlx \
   --motion-task image_to_video --generate-audio \
   --motion-prompt "Natural movement with synchronized room sound"
 
-scripts/creator-os generate --mode local_wan --dry-run \
+scripts/creator-os create --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/portrait.png \
   --motion-model local_longcat_avatar15_q4_mlx \
   --motion-task audio_image_to_video --audio /path/to/dialogue.wav \
   --motion-prompt "Natural direct-to-camera delivery with stable identity"
 
-scripts/creator-os generate --mode best_motion --dry-run \
+scripts/creator-os create --mode best_motion --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model wavespeed_wan27_i2v_pro --resolution 1080p --duration 5 \
   --motion-prompt "Natural breathing and a gentle camera push"
@@ -117,43 +117,50 @@ and verifies publishable native audio.
 Local model setup is explicit and never occurs during generation:
 
 ```bash
-scripts/creator-os local-models plan
-scripts/creator-os local-models install --apply \
+scripts/creator-os advanced models plan
+scripts/creator-os advanced models install --apply \
   --accept-license ltx-2-community-license-agreement \
   --accept-license gemma
-scripts/creator-os local-models status --deep
+scripts/creator-os advanced models status --deep
 
-scripts/creator-os local-queue status
-scripts/creator-os local-queue cancel-queued \
+scripts/creator-os advanced queue status
+scripts/creator-os advanced queue cancel-queued \
   --job-id LOCAL_JOB_ID \
   --reason "operator retired the resource-blocked request"
-scripts/creator-os local-queue recover-interrupted \
+scripts/creator-os advanced queue recover-interrupted \
   --job-id LOCAL_JOB_ID \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified exact source and request"
-scripts/creator-os local-queue recover-empty-interruption \
+scripts/creator-os advanced queue recover-empty-interruption \
   --job-id LOCAL_JOB_ID \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified crash occurred before any artifact write"
-scripts/creator-os local-queue recover-completed-interruption \
+scripts/creator-os advanced queue recover-completed-interruption \
   --job-id LOCAL_JOB_ID \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --reason "operator verified completed output and lineage after power loss"
 
-scripts/creator-os local-benchmarks record \
+scripts/creator-os advanced benchmarks record \
   --job-id LOCAL_JOB_ID \
   --lineage /absolute/path/reel.mp4.local_video.json \
   --qc contentforge.motion_specific_qc=/absolute/path/motion-qc.json
-scripts/creator-os local-benchmarks evaluate \
+scripts/creator-os advanced benchmarks evaluate \
   --candidate-benchmark-id CANDIDATE_A \
   --candidate-benchmark-id CANDIDATE_B \
   --baseline-benchmark-id BASELINE_A \
   --baseline-benchmark-id BASELINE_B
-scripts/creator-os local-benchmarks approve \
+scripts/creator-os advanced benchmarks approve \
   --evaluation-id EVALUATION_ID \
   --approved-by operator@example.com \
   --reason "reviewed exact matched evidence"
 ```
+
+Treat `advanced models status --deep` as an execution preflight, not merely an
+inventory check. Cache-only Hugging Face dependencies are ready only when their
+pinned snapshot hashes and exact runtime reference verify. Apply a metadata-only
+repair only when `advanced models plan` reports `repairRequired=true`,
+`estimatedDownloadBytes=0`, and `requiredFreeBytes=0`; a conflicting, unsafe,
+substituted, or unverifiable reference remains blocked with no online fallback.
 
 Installed does not mean resource-admitted. On this 64 GiB Mac, LTX distilled
 remains canary-pending and only runs when the live memory gate passes; the

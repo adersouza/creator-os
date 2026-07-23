@@ -198,53 +198,99 @@ class EventRepository:
 
     def start_pipeline_job(self, job_id: str) -> dict[str, Any]:
         now = self._utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'running', attempt_count = attempt_count + 1, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?",
-            (now, now, job_id),
-        )
-        self.conn.commit()
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = 'running', attempt_count = attempt_count + 1,
+                    started_at = ?, finished_at = NULL, updated_at = ?
+                WHERE id = ? AND status = 'queued'
+                """,
+                (now, now, job_id),
+            )
+            self._require_pipeline_job_transition(
+                job_id, cursor, expected=("queued",), target="running"
+            )
         return self.pipeline_job(job_id)
 
     def finish_pipeline_job(
         self, job_id: str, result_payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         now = self._utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'succeeded', result_json = ?, error = NULL, finished_at = ?, updated_at = ? WHERE id = ?",
-            (
-                json.dumps(
-                    self._sanitize_for_storage(result_payload or {}),
-                    ensure_ascii=False,
-                    sort_keys=True,
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = 'succeeded', result_json = ?, error = NULL,
+                    finished_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'running'
+                """,
+                (
+                    json.dumps(
+                        self._sanitize_for_storage(result_payload or {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    now,
+                    now,
+                    job_id,
                 ),
-                now,
-                now,
-                job_id,
-            ),
-        )
-        self.conn.commit()
+            )
+            self._require_pipeline_job_transition(
+                job_id, cursor, expected=("running",), target="succeeded"
+            )
         return self.pipeline_job(job_id)
 
     def fail_pipeline_job(
         self, job_id: str, error: str, result_payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         now = self._utc_now()
-        self.conn.execute(
-            "UPDATE pipeline_jobs SET status = 'failed', result_json = ?, error = ?, finished_at = ?, updated_at = ? WHERE id = ?",
-            (
-                json.dumps(
-                    self._sanitize_for_storage(result_payload or {}),
-                    ensure_ascii=False,
-                    sort_keys=True,
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                UPDATE pipeline_jobs
+                SET status = 'failed', result_json = ?, error = ?,
+                    finished_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'running'
+                """,
+                (
+                    json.dumps(
+                        self._sanitize_for_storage(result_payload or {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    error,
+                    now,
+                    now,
+                    job_id,
                 ),
-                error,
-                now,
-                now,
-                job_id,
-            ),
-        )
-        self.conn.commit()
+            )
+            self._require_pipeline_job_transition(
+                job_id, cursor, expected=("running",), target="failed"
+            )
         return self.pipeline_job(job_id)
+
+    def _require_pipeline_job_transition(
+        self,
+        job_id: str,
+        cursor: sqlite3.Cursor,
+        *,
+        expected: tuple[str, ...],
+        target: str,
+    ) -> None:
+        if cursor.rowcount == 1:
+            return
+        row = self.conn.execute(
+            "SELECT status FROM pipeline_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"pipeline job not found: {job_id}")
+        current = str(row["status"])
+        allowed = ", ".join(expected)
+        raise RuntimeError(
+            f"pipeline_job_transition_conflict: {job_id} is {current}; "
+            f"expected {allowed} before {target}"
+        )
 
     def set_pipeline_job_campaign(
         self, job_id: str, campaign_id: str
@@ -273,54 +319,76 @@ class EventRepository:
             raise ValueError("stuck_hours must be positive")
         if action not in {"fail", "requeue"}:
             raise ValueError(f"unsupported reclaim action: {action}")
-        rows = self.conn.execute(
-            "SELECT * FROM pipeline_jobs WHERE status IN ('queued', 'running')"
-        ).fetchall()
         now = self._utc_now()
         reclaimed: list[dict[str, Any]] = []
-        for raw in rows:
-            row = dict(raw)
-            stuck, age_hours = _pipeline_job_stuck_status(row, stuck_hours)
-            if not stuck:
-                continue
-            attempts = int(row.get("attempt_count") or 0)
-            requeue = action == "requeue" and (
-                max_attempts is None or attempts < max_attempts
-            )
-            if requeue:
-                self.conn.execute(
-                    "UPDATE pipeline_jobs SET status = 'queued', error = NULL, started_at = NULL, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
-                    (now, row["id"]),
+        with self.conn:
+            rows = self.conn.execute(
+                "SELECT * FROM pipeline_jobs WHERE status IN ('queued', 'running')"
+            ).fetchall()
+            for raw in rows:
+                row = dict(raw)
+                stuck, age_hours = _pipeline_job_stuck_status(row, stuck_hours)
+                if not stuck:
+                    continue
+                attempts = int(row.get("attempt_count") or 0)
+                requeue = action == "requeue" and (
+                    max_attempts is None or attempts < max_attempts
                 )
-                outcome = "requeued"
-            else:
-                if age_hours is None:
-                    error = (
-                        "reclaimed as stale: unparseable updated_at/created_at "
-                        f"timestamps (threshold {stuck_hours}h)"
+                expected_status = str(row["status"])
+                expected_updated_at = str(row["updated_at"])
+                if requeue:
+                    cursor = self.conn.execute(
+                        """
+                        UPDATE pipeline_jobs
+                        SET status = 'queued', error = NULL, started_at = NULL,
+                            finished_at = NULL, updated_at = ?
+                        WHERE id = ? AND status = ? AND updated_at = ?
+                        """,
+                        (now, row["id"], expected_status, expected_updated_at),
                     )
+                    outcome = "requeued"
                 else:
-                    error = (
-                        f"reclaimed as stale after {round(age_hours, 3)}h "
-                        f"(threshold {stuck_hours}h)"
+                    if age_hours is None:
+                        error = (
+                            "reclaimed as stale: unparseable updated_at/created_at "
+                            f"timestamps (threshold {stuck_hours}h)"
+                        )
+                    else:
+                        error = (
+                            f"reclaimed as stale after {round(age_hours, 3)}h "
+                            f"(threshold {stuck_hours}h)"
+                        )
+                    cursor = self.conn.execute(
+                        """
+                        UPDATE pipeline_jobs
+                        SET status = 'failed', error = ?, finished_at = ?, updated_at = ?
+                        WHERE id = ? AND status = ? AND updated_at = ?
+                        """,
+                        (
+                            error,
+                            now,
+                            now,
+                            row["id"],
+                            expected_status,
+                            expected_updated_at,
+                        ),
                     )
-                self.conn.execute(
-                    "UPDATE pipeline_jobs SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued', 'running')",
-                    (error, now, now, row["id"]),
+                    outcome = "failed"
+                if cursor.rowcount != 1:
+                    continue
+                reclaimed.append(
+                    {
+                        "id": row["id"],
+                        "jobType": row["job_type"],
+                        "campaignId": row["campaign_id"],
+                        "previousStatus": expected_status,
+                        "attemptCount": attempts,
+                        "ageHours": (
+                            round(age_hours, 3) if age_hours is not None else None
+                        ),
+                        "outcome": outcome,
+                    }
                 )
-                outcome = "failed"
-            reclaimed.append(
-                {
-                    "id": row["id"],
-                    "jobType": row["job_type"],
-                    "campaignId": row["campaign_id"],
-                    "previousStatus": row["status"],
-                    "attemptCount": attempts,
-                    "ageHours": round(age_hours, 3) if age_hours is not None else None,
-                    "outcome": outcome,
-                }
-            )
-        self.conn.commit()
         return {
             "stuckThresholdHours": stuck_hours,
             "action": action,

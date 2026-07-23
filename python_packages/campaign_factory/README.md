@@ -12,17 +12,17 @@ the product UI, scheduling, or publishing.
 Use the repository command from the monorepo root:
 
 ```bash
-scripts/creator-os generate --mode library_reuse --apply \
+scripts/creator-os create --mode library_reuse --apply \
   --folder /path/to/media --campaign campaign_slug --model model_slug
 
-scripts/creator-os generate --list-modes
+scripts/creator-os create --list-modes
 
-scripts/creator-os generate --mode soul_static --dry-run \
+scripts/creator-os create --mode soul_static --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png
 
-scripts/creator-os readiness --campaign campaign_slug --user-id user_id
+scripts/creator-os review --campaign campaign_slug --user-id user_id
 
-scripts/creator-os draft-export --dry-run \
+scripts/creator-os export --dry-run \
   --campaign campaign_slug --user-id user_id --max-drafts 10
 ```
 

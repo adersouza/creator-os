@@ -18,7 +18,6 @@ from .local_generation_queue import (
 )
 from .local_model_benchmark import (
     PROMOTION_MEMORY_MEASUREMENT_METHOD,
-    LocalBenchmarkTimer,
     LocalModelBenchmarkStore,
     PromotionPolicy,
 )
@@ -39,48 +38,34 @@ def _read_registry(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _passing_motion_evidence(subject_sha256: str) -> dict[str, Any]:
-    common = {
-        "available": True,
-        "analyzer": "creator_os.canary.measured_fixture",
-        "analyzerVersion": "1.0.0",
-        "subjectSha256": subject_sha256,
-    }
-    return {
-        "motion": {**common, "score": 0.27, "evidenceId": "motion-canary"},
-        "temporal": {**common, "discontinuityScore": 0.08},
-        "freeze": {**common, "frozenFrameRatio": 0.04},
-        "anatomy": {
-            **common,
-            "face": {"anomalyScore": 0.05},
-            "hands": {"anomalyScore": 0.08},
-            "body": {"anomalyScore": 0.04},
-        },
-        "identity": {**common, "similarityScore": 0.93, "matched": True},
-    }
-
-
 def _run_measured_copy(
     *, source: Path, destination: Path, minimum_allocation_bytes: int
 ) -> tuple[dict[str, Any], subprocess.CompletedProcess[str]]:
-    timer = LocalBenchmarkTimer.start()
-    allocation_bytes = max(
-        minimum_allocation_bytes,
-        timer.child_peak_before_bytes + 16 * 1024**2,
+    # RUSAGE_CHILDREN is a process-lifetime high-water mark. Measure each sample
+    # in a fresh supervisor so baseline and candidate observations are directly
+    # comparable instead of ratcheting the allocation just to set a new maximum.
+    supervisor = (
+        "import json, subprocess, sys; "
+        "from reel_factory.local_model_benchmark import LocalBenchmarkTimer; "
+        "timer=LocalBenchmarkTimer.start(); "
+        "child=subprocess.run([sys.executable,'-c',"
+        "'from pathlib import Path; import sys; data=bytearray(int(sys.argv[3])); "
+        'data[::4096]=b\\"x\\"*len(data[::4096]); target=Path(sys.argv[2]); '
+        "target.write_bytes(Path(sys.argv[1]).read_bytes()+target.name.encode())',"
+        "sys.argv[1],sys.argv[2],sys.argv[3]],capture_output=True,text=True); "
+        "measurement=timer.finish(); "
+        "print(json.dumps({'returncode':child.returncode,'stdout':child.stdout,"
+        "'stderr':child.stderr,'wallTimeSeconds':measurement.wall_time_seconds,"
+        "'peakMemoryBytes':measurement.peak_memory_bytes,"
+        "'memoryMeasurementMethod':measurement.memory_measurement_method}))"
     )
     command = [
         sys.executable,
         "-c",
-        (
-            "from pathlib import Path; import sys; "
-            "data=bytearray(int(sys.argv[3])); "
-            "data[::4096]=b'x'*len(data[::4096]); "
-            "target=Path(sys.argv[2]); "
-            "target.write_bytes(Path(sys.argv[1]).read_bytes()+target.name.encode())"
-        ),
+        supervisor,
         str(source),
         str(destination),
-        str(allocation_bytes),
+        str(minimum_allocation_bytes),
     ]
     completed = subprocess.run(
         command,
@@ -89,14 +74,25 @@ def _run_measured_copy(
         check=False,
         timeout=60,
     )
-    measurement = timer.finish()
+    if completed.returncode != 0:
+        return ({}, completed)
+    try:
+        payload = json.loads(completed.stdout)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("canary_measurement_supervisor_invalid") from exc
+    child_completed = subprocess.CompletedProcess(
+        command,
+        int(payload["returncode"]),
+        str(payload.get("stdout") or ""),
+        str(payload.get("stderr") or ""),
+    )
     return (
         {
-            "wallTimeSeconds": measurement.wall_time_seconds,
-            "peakMemoryBytes": measurement.peak_memory_bytes,
-            "memoryMeasurementMethod": measurement.memory_measurement_method,
+            "wallTimeSeconds": float(payload["wallTimeSeconds"]),
+            "peakMemoryBytes": int(payload["peakMemoryBytes"]),
+            "memoryMeasurementMethod": str(payload["memoryMeasurementMethod"]),
         },
-        completed,
+        child_completed,
     )
 
 
@@ -116,12 +112,35 @@ def run_canary(
         for registration in raw_registrations
         if isinstance(registration, dict)
     }
-    motion_registration = registrations.get("contentforge.motion_specific_qc")
-    if motion_registration is None:
-        raise RuntimeError("canary_motion_qc_registration_missing")
+    required_registrations = [
+        registrations.get("contentforge.media_integrity"),
+        registrations.get("contentforge.temporal_motion"),
+    ]
+    if any(item is None for item in required_registrations):
+        raise RuntimeError("canary_trusted_media_registration_missing")
 
-    source = canary_root / "input.bin"
-    source.write_bytes(b"creator-os-provider-free-benchmark-canary")
+    source = canary_root / "input.mp4"
+    generated = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x576:rate=24:duration=1",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if generated.returncode != 0 or not source.is_file():
+        raise RuntimeError("canary_ffmpeg_source_generation_failed")
     input_fingerprint = sha256_file(source)
     params = {"operation": "provider_free_measured_copy", "version": 1}
     recipe = {
@@ -137,9 +156,11 @@ def run_canary(
         "parameterFingerprint": fingerprint(params),
         "requiredAnalyzers": [
             {
-                "analyzerId": motion_registration.get("analyzerId"),
-                "analyzerVersion": motion_registration.get("analyzerVersion"),
+                "analyzerId": registration.get("analyzerId"),
+                "analyzerVersion": registration.get("analyzerVersion"),
             }
+            for registration in required_registrations
+            if registration is not None
         ],
         "expectedProviderCalls": 0,
         "productionWritesAllowed": False,
@@ -157,15 +178,49 @@ def run_canary(
     queue = LocalGenerationQueue(
         canary_root / "queue", resource_limit_bytes=2 * 1024**3
     )
+
+    def canary_model_status(model_id: str, *, deep: bool = True) -> dict[str, Any]:
+        label = "baseline" if "baseline" in model_id else "candidate"
+        manifest_sha256 = hashlib.sha256(label.encode()).hexdigest()
+        deep_core = {
+            "schema": "reel_factory.local_model_deep_verification.v1",
+            "modelId": model_id,
+            "repository": "creator-os/provider-free-benchmark-canary",
+            "revision": "local-canary-v1",
+            "manifestSha256": manifest_sha256,
+            "fileBindings": [],
+            "dependencyBindings": [],
+            "providerCalls": 0,
+            "paidGeneration": False,
+        }
+        return {
+            "ready": True,
+            "deepVerified": deep,
+            "manifestSha256": manifest_sha256,
+            "deepVerificationReceipt": {
+                **deep_core,
+                "verificationFingerprint": fingerprint(deep_core),
+            }
+            if deep
+            else None,
+        }
+
     store = LocalModelBenchmarkStore(
-        canary_root / "benchmarks", implementation_root=repository_root
+        canary_root / "benchmarks",
+        implementation_root=repository_root,
+        model_status_resolver=canary_model_status,
     )
     completed_jobs: list[tuple[LocalGenerationJob, Path]] = []
-    for label in ("baseline", "candidate"):
-        output = canary_root / f"{label}.mp4"
+    for label, index in (
+        ("baseline", 0),
+        ("candidate", 0),
+        ("baseline", 1),
+        ("candidate", 1),
+    ):
+        output = canary_root / f"{label}-{index}.mp4"
         partial = output.with_suffix(".partial.mp4")
         job = LocalGenerationJob.create(
-            job_id=f"canary-{label}",
+            job_id=f"canary-{label}-{index}",
             model_id=f"canary-{label}-model",
             model_revision="local-canary-v1",
             model_manifest_sha256=hashlib.sha256(label.encode()).hexdigest(),
@@ -218,20 +273,23 @@ def run_canary(
     contentforge_cli = repository_root / "packages/contentforge/cli.mjs"
     for job, output in completed_jobs:
         output_sha256 = sha256_file(output)
-        request_path = canary_root / f"{job.job_id}.motion-qc-request.json"
-        receipt_path = canary_root / f"{job.job_id}.motion-qc.json"
+        request_path = canary_root / f"{job.job_id}.trusted-analysis-request.json"
         request_path.write_text(
             json.dumps(
                 {
                     "mediaPath": str(output),
                     "mediaSha256": output_sha256,
-                    "evidence": _passing_motion_evidence(output_sha256),
+                    "sourcePath": str(source),
+                    "sourceSha256": input_fingerprint,
+                    "producedAt": "2026-07-22T12:00:00Z",
+                    "overlaysExist": False,
+                    "analyzerRegistry": registry,
                 }
             ),
             encoding="utf-8",
         )
         completed = subprocess.run(
-            ["node", str(contentforge_cli), "motion-qc", str(request_path)],
+            ["node", str(contentforge_cli), "analyze-media", str(request_path)],
             cwd=repository_root,
             capture_output=True,
             text=True,
@@ -239,44 +297,51 @@ def run_canary(
             timeout=60,
         )
         if completed.returncode != 0:
-            raise RuntimeError("canary_contentforge_motion_qc_failed")
-        receipt_path.write_text(completed.stdout.strip(), encoding="utf-8")
-        qc_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-        if (
-            qc_payload.get("passed") is not True
-            or qc_payload.get("providerCalls") != 0
-            or qc_payload.get("modelCalls") != 0
-        ):
-            raise RuntimeError("canary_contentforge_motion_qc_not_provider_free")
-        reference = store.ingest_qc_reference(
-            check_id="contentforge.motion_specific_qc",
-            receipt_path=receipt_path,
-            expected_subject_sha256=output_sha256,
-        )
+            raise RuntimeError(
+                "canary_contentforge_trusted_analysis_failed:"
+                + (completed.stderr[-2000:] or completed.stdout[-2000:])
+            )
+        analysis = json.loads(completed.stdout)
+        if analysis.get("subject", {}).get("mediaSha256") != output_sha256:
+            raise RuntimeError("canary_contentforge_subject_mismatch")
+        analysis_path = canary_root / f"{job.job_id}.trusted-analysis.json"
+        analysis_path.write_text(json.dumps(analysis, sort_keys=True), encoding="utf-8")
+        references = []
+        for registration in required_registrations:
+            assert registration is not None
+            check_id = str(registration["analyzerId"])
+            references.append(
+                store.ingest_qc_reference(
+                    check_id=check_id,
+                    receipt_path=analysis_path,
+                    expected_subject_sha256=output_sha256,
+                )
+            )
         receipts.append(
             store.record_completed_job(
                 queue,
                 job_id=job.job_id,
-                qc_references=(reference,),
+                qc_references=tuple(references),
                 benchmark_id=f"benchmark-{job.job_id}",
                 benchmark_recipe=recipe,
                 analyzer_registry=registry,
             )
         )
 
-    baseline, candidate = receipts
+    baseline = tuple(receipt for receipt in receipts if "baseline" in receipt.job_id)
+    candidate = tuple(receipt for receipt in receipts if "candidate" in receipt.job_id)
     evaluation = store.evaluate_promotion(
-        candidate_model_fingerprint=candidate.model_fingerprint,
-        baseline_model_fingerprint=baseline.model_fingerprint,
+        candidate_model_fingerprint=candidate[0].model_fingerprint,
+        baseline_model_fingerprint=baseline[0].model_fingerprint,
         task_kind=str(recipe["taskKind"]),
-        hardware_fingerprint=candidate.hardware_fingerprint,
-        candidate_benchmark_ids=(candidate.benchmark_id,),
-        baseline_benchmark_ids=(baseline.benchmark_id,),
+        hardware_fingerprint=candidate[0].hardware_fingerprint,
+        candidate_benchmark_ids=tuple(receipt.benchmark_id for receipt in candidate),
+        baseline_benchmark_ids=tuple(receipt.benchmark_id for receipt in baseline),
         policy=PromotionPolicy(
-            minimum_candidate_samples=1,
-            minimum_baseline_samples=1,
-            maximum_wall_time_ratio=100,
-            maximum_peak_memory_ratio=100,
+            minimum_candidate_samples=2,
+            minimum_baseline_samples=2,
+            maximum_wall_time_ratio=1.25,
+            maximum_peak_memory_ratio=1.25,
         ),
     )
     if not evaluation.eligible:

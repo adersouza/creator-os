@@ -7,7 +7,7 @@
     "contentforge": "./cli.mjs"
   },
   "scripts": {
-    "build": "node --check cli.mjs && node --check lib/similarity.js && node --check lib/motion-specific-qc.js && node --check lib/analyzer-registry.js",
+    "build": "node --check cli.mjs && node --check lib/similarity.js && node --check lib/trusted-media-analysis.js && node --check lib/motion-specific-qc.js && node --check lib/analyzer-registry.js && node --check lib/evidence-attestation.js && python3 -c \"compile(open('scripts/local-lip-sync-analyzer.py', encoding='utf-8').read(), 'local-lip-sync-analyzer.py', 'exec')\"",
     "judge": "node cli.mjs similarity",
     "test": "node --test --test-concurrency=1",
     "fixtures:campaign-factory": "node scripts/generate-campaign-fixtures.mjs",

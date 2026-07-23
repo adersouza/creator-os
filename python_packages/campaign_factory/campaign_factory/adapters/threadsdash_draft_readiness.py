@@ -14,6 +14,11 @@ from ..core import (
     _normalize_schedule_mode,
     utc_now,
 )
+from ..creative_approval import (
+    CreativeApprovalError,
+    asset_requires_creative_approval,
+    validate_approval_for_draft,
+)
 from ..readiness_finding import (
     make_readiness_finding,
     readiness_finding_payloads,
@@ -356,6 +361,27 @@ def evaluate_export_readiness(
                 )
                 if not compatible and mismatch_reason:
                     blocking.append(mismatch_reason)
+                if asset_requires_creative_approval(asset):
+                    approval_status = (
+                        factory.domains.publishability.creative_approval_for_asset(
+                            asset["id"]
+                        )
+                    )
+                    approval = approval_status.get("approval")
+                    if not isinstance(approval, dict):
+                        blocking.append(
+                            str(
+                                approval_status.get("blockingReason")
+                                or "creative_approval_missing"
+                            )
+                        )
+                    else:
+                        try:
+                            validate_approval_for_draft(
+                                approval, draft, campaign_slug=campaign_slug
+                            )
+                        except CreativeApprovalError as exc:
+                            blocking.append(str(exc))
             if asset["id"] in draft_asset_ids and usage_error:
                 blocking.append("usage_check_unavailable")
             state = "blocked" if blocking else ("warning" if warnings else "ready")

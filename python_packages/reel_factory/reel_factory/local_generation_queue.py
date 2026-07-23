@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import socket
@@ -57,7 +58,11 @@ def _utc_now() -> str:
 
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
     return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -163,6 +168,65 @@ def hardware_identity() -> dict[str, Any]:
     }
     payload["fingerprint"] = fingerprint(payload)
     return payload
+
+
+def _local_cost_observation() -> dict[str, Any]:
+    """Describe local compute cost honestly when no meter is installed."""
+
+    return {
+        "available": False,
+        "currency": "USD",
+        "reason": "local_compute_cost_not_metered",
+        "value": None,
+    }
+
+
+def _failure_class(error: BaseException) -> str:
+    """Return a stable local-execution failure class without hiding details."""
+
+    message = str(error)
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "subprocess_timeout"
+    if isinstance(error, MemoryError):
+        return "memory_exhausted"
+    if isinstance(error, OSError):
+        return "operating_system_error"
+    if message.startswith("local_video_generation_failed"):
+        return "model_process_nonzero_exit"
+    if message.startswith("local_video_output_missing"):
+        return "generated_output_missing"
+    if "validation" in message or "probe" in message or "duration" in message:
+        return "generated_output_validation_failed"
+    return "local_generation_runtime_error"
+
+
+def _optional_execution_measurement(
+    value: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if value is None:
+        return {
+            "available": False,
+            "reason": "execution_measurement_unavailable",
+        }
+    try:
+        wall_time = float(value["wallTimeSeconds"])
+        peak_memory = int(value["peakMemoryBytes"])
+        method = str(value["memoryMeasurementMethod"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("execution_measurement_invalid") from exc
+    if (
+        not math.isfinite(wall_time)
+        or wall_time <= 0
+        or peak_memory <= 0
+        or not method.strip()
+    ):
+        raise ValueError("execution_measurement_invalid")
+    return {
+        "available": True,
+        "wallTimeSeconds": wall_time,
+        "peakMemoryBytes": peak_memory,
+        "memoryMeasurementMethod": method,
+    }
 
 
 @dataclass(frozen=True)
@@ -697,6 +761,78 @@ class LocalGenerationQueue:
             states[job_id] = JobState(job=prior.job, status=status, last_event=event)
         return states
 
+    def execution_evidence(self, job_id: str) -> dict[str, Any]:
+        """Project append-only execution facts without inventing measurements."""
+
+        state = self.states().get(job_id)
+        if state is None:
+            raise LocalQueueError(f"unknown_job:{job_id}")
+        events = [
+            event
+            for event in self.journal.read().events
+            if event.get("payload", {}).get("jobId") == job_id
+        ]
+        starts = [event for event in events if event.get("eventType") == "job_started"]
+        admission_blocks = [
+            event
+            for event in events
+            if event.get("eventType") == "job_admission_blocked"
+        ]
+        terminal = next(
+            (
+                event
+                for event in reversed(events)
+                if event.get("eventType")
+                in {
+                    "job_succeeded",
+                    "job_recovered_succeeded",
+                    "job_failed",
+                    "job_interrupted",
+                    "job_cancelled",
+                }
+            ),
+            None,
+        )
+        terminal_payload = (
+            dict(terminal.get("payload", {})) if terminal is not None else {}
+        )
+        attempt_count = len(starts)
+        failure_class = terminal_payload.get("failureClass")
+        if failure_class is None and admission_blocks and state.status == "queued":
+            failure_class = "resource_admission_blocked"
+        measurement = terminal_payload.get("executionMeasurement")
+        if not isinstance(measurement, dict):
+            measurement = {
+                "available": False,
+                "reason": "execution_measurement_unavailable",
+            }
+        local_cost = terminal_payload.get("localCost")
+        if not isinstance(local_cost, dict):
+            local_cost = _local_cost_observation()
+        return {
+            "status": state.status,
+            "attemptCount": attempt_count,
+            "retryCount": max(0, attempt_count - 1),
+            "admissionBlockCount": len(admission_blocks),
+            "failureClass": failure_class,
+            "executionMeasurement": measurement,
+            "localCost": local_cost,
+        }
+
+    def _attempt_metadata(self, job_id: str) -> dict[str, int]:
+        attempt_count = sum(
+            1
+            for event in self.journal.read().events
+            if event.get("eventType") == "job_started"
+            and event.get("payload", {}).get("jobId") == job_id
+        )
+        if attempt_count <= 0:
+            raise JournalCorruptionError("job_start_event_missing")
+        return {
+            "attemptNumber": attempt_count,
+            "retryCount": attempt_count - 1,
+        }
+
     def submit(self, job: LocalGenerationJob) -> JobState:
         with file_lock(self._mutation_path):
             existing = self.states().get(job.job_id)
@@ -1149,6 +1285,9 @@ class LocalGenerationQueue:
                     "outputProbe": output_probe,
                     "executionMeasurement": measurement,
                     "reason": reason,
+                    **self._attempt_metadata(job_id),
+                    "failureClass": None,
+                    "localCost": _local_cost_observation(),
                 },
             )
             return self.states()[job_id]
@@ -1234,6 +1373,8 @@ class LocalGenerationQueue:
             "lastImage": lineage.get("lastImage"),
             "lora": lineage.get("lora"),
         }
+        if "executionBinding" in lineage:
+            inputs["executionBinding"] = lineage.get("executionBinding")
         if "sourceVideo" in lineage:
             inputs["sourceVideo"] = lineage.get("sourceVideo")
         request = lineage.get("request")
@@ -1247,6 +1388,22 @@ class LocalGenerationQueue:
             "durationSeconds": request.get("durationSeconds"),
             "seed": request.get("seed"),
         }
+        if "executionContext" in lineage or "executionBinding" in lineage:
+            params.update(
+                {
+                    "executionContext": lineage.get("executionContext"),
+                    "executionBindingFingerprint": (
+                        lineage.get("executionBinding", {}).get("bindingFingerprint")
+                        if isinstance(lineage.get("executionBinding"), dict)
+                        else None
+                    ),
+                }
+            )
+        isolation = lineage.get("executionIsolation")
+        if isinstance(isolation, dict):
+            params["executionIsolationFingerprint"] = isolation.get(
+                "isolationFingerprint"
+            )
         cohort_inputs = {
             "image": inputs["image"],
             "audio": inputs["audio"],
@@ -1267,6 +1424,21 @@ class LocalGenerationQueue:
                 else None
             ),
         }
+        if "executionContext" in lineage or "executionBinding" in lineage:
+            cohort.update(
+                {
+                    "executionContext": lineage.get("executionContext"),
+                    "executionBindingFingerprint": (
+                        lineage.get("executionBinding", {}).get("bindingFingerprint")
+                        if isinstance(lineage.get("executionBinding"), dict)
+                        else None
+                    ),
+                }
+            )
+        if isinstance(isolation, dict):
+            cohort["executionIsolationFingerprint"] = isolation.get(
+                "isolationFingerprint"
+            )
         model_fingerprint = fingerprint(
             {
                 "modelId": lineage.get("modelId"),
@@ -1450,6 +1622,13 @@ class LocalGenerationQueue:
                 "requestedMemoryBytes": requested,
                 "currentAvailableMemoryBytes": current_available,
                 "memoryReserveBytes": self.memory_reserve_bytes,
+                "attemptNumber": sum(
+                    1
+                    for event in self.journal.read().events
+                    if event.get("eventType") == "job_started"
+                    and event.get("payload", {}).get("jobId") == state.job.job_id
+                )
+                + 1,
             },
         )
         return AdmissionDecision(
@@ -1493,7 +1672,12 @@ class LocalGenerationQueue:
                     method = str(execution_measurement["memoryMeasurementMethod"])
                 except (KeyError, TypeError, ValueError) as exc:
                     raise ValueError("execution_measurement_invalid") from exc
-                if wall_time <= 0 or peak_memory <= 0 or not method.strip():
+                if (
+                    not math.isfinite(wall_time)
+                    or wall_time <= 0
+                    or peak_memory <= 0
+                    or not method.strip()
+                ):
                     raise ValueError("execution_measurement_invalid")
                 measurement = {
                     "wallTimeSeconds": wall_time,
@@ -1536,6 +1720,9 @@ class LocalGenerationQueue:
                     "outputSha256": output_sha256,
                     "outputPath": str(resolved_output),
                     "executionMeasurement": measurement,
+                    **self._attempt_metadata(job_id),
+                    "failureClass": None,
+                    "localCost": _local_cost_observation(),
                 },
             )
             return self.states()[job_id]
@@ -1574,7 +1761,12 @@ class LocalGenerationQueue:
                 method = str(execution_measurement["memoryMeasurementMethod"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError("execution_measurement_invalid") from exc
-            if wall_time <= 0 or peak_memory <= 0 or not method.strip():
+            if (
+                not math.isfinite(wall_time)
+                or wall_time <= 0
+                or peak_memory <= 0
+                or not method.strip()
+            ):
                 raise ValueError("execution_measurement_invalid")
             payload: dict[str, Any] = {
                 "jobId": job_id,
@@ -1616,9 +1808,18 @@ class LocalGenerationQueue:
             return dict(event["payload"])
 
     def fail(
-        self, lease: WorkerLease, job_id: str, *, error: BaseException
+        self,
+        lease: WorkerLease,
+        job_id: str,
+        *,
+        error: BaseException,
+        execution_measurement: Mapping[str, Any] | None = None,
+        failure_class: str | None = None,
     ) -> JobState:
         message = str(error).strip() or type(error).__name__
+        classified = failure_class or _failure_class(error)
+        if not classified.strip():
+            raise ValueError("failure_class must be non-empty")
         with file_lock(self._mutation_path):
             self._require_running_for_lease(lease, job_id)
             self.journal.append(
@@ -1628,6 +1829,12 @@ class LocalGenerationQueue:
                     "workerToken": lease.token,
                     "errorType": type(error).__name__,
                     "errorMessage": message[:1000],
+                    "failureClass": classified,
+                    "executionMeasurement": _optional_execution_measurement(
+                        execution_measurement
+                    ),
+                    **self._attempt_metadata(job_id),
+                    "localCost": _local_cost_observation(),
                 },
             )
             return self.states()[job_id]
@@ -1639,7 +1846,15 @@ class LocalGenerationQueue:
             self._require_running_for_lease(lease, job_id)
             self.journal.append(
                 "job_interrupted",
-                {"jobId": job_id, "workerToken": lease.token, "reason": reason},
+                {
+                    "jobId": job_id,
+                    "workerToken": lease.token,
+                    "reason": reason,
+                    "failureClass": "execution_interrupted",
+                    "executionMeasurement": _optional_execution_measurement(None),
+                    **self._attempt_metadata(job_id),
+                    "localCost": _local_cost_observation(),
+                },
             )
             return self.states()[job_id]
 
@@ -1657,6 +1872,10 @@ class LocalGenerationQueue:
                         "reason": "previous_worker_released_without_terminal_event",
                         "abandonedWorkerToken": prior_payload.get("workerToken"),
                         "abandonedWorkerPid": prior_payload.get("workerPid"),
+                        "failureClass": "worker_lease_abandoned",
+                        "executionMeasurement": _optional_execution_measurement(None),
+                        **self._attempt_metadata(state.job.job_id),
+                        "localCost": _local_cost_observation(),
                     },
                 )
 

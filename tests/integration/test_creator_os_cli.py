@@ -29,6 +29,8 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert "campaign-prepare" not in result.stdout
     assert "generate" in result.stdout
     assert "draft-export" in result.stdout
+    for ordinary in ("create", "review", "approve", "export", "promote", "advanced"):
+        assert ordinary in result.stdout
     assert "paid-generation" not in result.stdout
     assert "static-reel" not in result.stdout
 
@@ -135,6 +137,158 @@ def test_generate_list_modes_uses_read_only_campaign_catalog(
             "modes",
         ]
     ]
+
+
+def test_create_alias_routes_to_the_existing_campaign_control_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert namespace["main"](["create", "--list-modes"]) == 0
+    assert commands[0][-2:] == ["generation", "modes"]
+
+
+def test_advanced_queue_keeps_diagnostics_without_a_second_control_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    assert namespace["main"](["advanced", "queue", "status"]) == 0
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "reel-factory",
+            "python",
+            "-m",
+            "reel_factory.local_generation_queue",
+            "status",
+        ]
+    ]
+
+
+def test_approve_routes_exact_review_builder_to_campaign_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    root = tmp_path / "approvals"
+    assert (
+        namespace["main"](
+            [
+                "approve",
+                "--campaign",
+                "may",
+                "--rendered-asset-id",
+                "asset-1",
+                "--user-id",
+                "user-1",
+                "--approved-by",
+                "operator",
+                "--root",
+                str(root),
+            ]
+        )
+        == 0
+    )
+    assert "creative-approval-build" in commands[0]
+    assert commands[0][-4:] == [
+        "--surface",
+        "regular_reel",
+        "--root",
+        str(root.resolve()),
+    ]
+
+
+def test_approve_import_is_explicitly_compatibility_labeled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    approval = tmp_path / "approval.json"
+    assert namespace["main"](["approve-import", "--approval", str(approval)]) == 0
+    assert "compatibility-only" in capsys.readouterr().err
+    assert "campaign_factory.creative_approval" in commands[0]
+
+
+def test_promote_routes_to_contract_validated_entrypoint_in_dry_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+    commit = "a" * 40
+    approval = tmp_path / "approval.json"
+    runtime_root = tmp_path / "creator-os-runtime"
+    assert (
+        namespace["main"](
+            [
+                "promote",
+                "--runtime-root",
+                str(runtime_root),
+                "--approved-commit",
+                commit,
+                "--approval",
+                str(approval),
+                "--operator",
+                "operator",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert "campaign_factory.runtime_promotion_entrypoint" in command
+    assert command[command.index("--runtime-root") + 1] == str(runtime_root.resolve())
+    assert command[-1] == "--dry-run"
+
+
+def test_promote_requires_an_explicit_runtime_checkout() -> None:
+    namespace = runpy.run_path(str(CLI))
+
+    with pytest.raises(SystemExit, match="2"):
+        namespace["main"](
+            [
+                "promote",
+                "--approved-commit",
+                "a" * 40,
+                "--approval",
+                "/tmp/approval.json",
+                "--operator",
+                "operator",
+                "--dry-run",
+            ]
+        )
 
 
 @pytest.mark.parametrize(

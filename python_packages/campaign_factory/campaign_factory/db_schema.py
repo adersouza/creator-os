@@ -232,6 +232,100 @@ CREATE TABLE IF NOT EXISTS rendered_assets (
   FOREIGN KEY(render_job_id) REFERENCES render_jobs(id)
 );
 
+CREATE TABLE IF NOT EXISTS generation_output_blobs (
+  id TEXT PRIMARY KEY,
+  content_sha256 TEXT NOT NULL UNIQUE,
+  byte_size INTEGER,
+  media_type TEXT NOT NULL DEFAULT 'video',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS generation_attempts (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL,
+  pipeline_job_id TEXT,
+  source_asset_id TEXT,
+  rendered_asset_id TEXT NOT NULL,
+  output_blob_id TEXT NOT NULL,
+  request_fingerprint TEXT,
+  model_id TEXT NOT NULL,
+  motion_task TEXT NOT NULL,
+  prompt_sha256 TEXT,
+  source_sha256 TEXT,
+  admission_fingerprint TEXT,
+  input_json TEXT NOT NULL DEFAULT '{}',
+  worker_result_json TEXT NOT NULL DEFAULT '{}',
+  attempted_output_path TEXT NOT NULL,
+  duplicate_disposition TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id) ON UPDATE CASCADE,
+  FOREIGN KEY(pipeline_job_id) REFERENCES pipeline_jobs(id) ON UPDATE CASCADE,
+  FOREIGN KEY(source_asset_id) REFERENCES source_assets(id) ON UPDATE CASCADE,
+  FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id) ON UPDATE CASCADE,
+  FOREIGN KEY(output_blob_id) REFERENCES generation_output_blobs(id) ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS generation_lineage_edges (
+  id TEXT PRIMARY KEY,
+  generation_attempt_id TEXT NOT NULL,
+  source_asset_id TEXT,
+  rendered_asset_id TEXT NOT NULL,
+  output_blob_id TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  lineage_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(generation_attempt_id, relation),
+  FOREIGN KEY(generation_attempt_id) REFERENCES generation_attempts(id) ON UPDATE CASCADE,
+  FOREIGN KEY(source_asset_id) REFERENCES source_assets(id) ON UPDATE CASCADE,
+  FOREIGN KEY(rendered_asset_id) REFERENCES rendered_assets(id) ON UPDATE CASCADE,
+  FOREIGN KEY(output_blob_id) REFERENCES generation_output_blobs(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_generation_attempts_campaign_created
+  ON generation_attempts(campaign_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_generation_attempts_blob
+  ON generation_attempts(output_blob_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_generation_attempts_request
+  ON generation_attempts(request_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_generation_lineage_rendered
+  ON generation_lineage_edges(rendered_asset_id, created_at);
+
+CREATE TRIGGER IF NOT EXISTS generation_attempts_append_only_update
+BEFORE UPDATE ON generation_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'generation_attempts are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS generation_output_blobs_immutable_update
+BEFORE UPDATE ON generation_output_blobs
+BEGIN
+  SELECT RAISE(ABORT, 'generation_output_blobs are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS generation_output_blobs_immutable_delete
+BEFORE DELETE ON generation_output_blobs
+BEGIN
+  SELECT RAISE(ABORT, 'generation_output_blobs are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS generation_attempts_append_only_delete
+BEFORE DELETE ON generation_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'generation_attempts are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS generation_lineage_edges_append_only_update
+BEFORE UPDATE ON generation_lineage_edges
+BEGIN
+  SELECT RAISE(ABORT, 'generation_lineage_edges are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS generation_lineage_edges_append_only_delete
+BEFORE DELETE ON generation_lineage_edges
+BEGIN
+  SELECT RAISE(ABORT, 'generation_lineage_edges are append-only');
+END;
+
 CREATE TABLE IF NOT EXISTS concepts (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -407,6 +501,11 @@ CREATE TABLE IF NOT EXISTS motion_qc_receipts (
   policy_version TEXT NOT NULL,
   receipt_path TEXT NOT NULL,
   receipt_sha256 TEXT NOT NULL,
+  analysis_fingerprint TEXT,
+  analyzer_registry_id TEXT,
+  analyzer_registry_fingerprint TEXT,
+  human_review_fingerprint TEXT,
+  source_sha256 TEXT,
   receipt_json TEXT NOT NULL,
   requirements_json TEXT NOT NULL,
   media_size_bytes INTEGER NOT NULL,
@@ -625,6 +724,32 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
   updated_at TEXT NOT NULL,
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id)
 );
+
+CREATE TRIGGER IF NOT EXISTS pipeline_jobs_terminal_immutable_update
+BEFORE UPDATE ON pipeline_jobs
+WHEN OLD.status IN ('succeeded', 'failed')
+BEGIN
+  SELECT RAISE(ABORT, 'terminal pipeline jobs are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS pipeline_jobs_terminal_immutable_delete
+BEFORE DELETE ON pipeline_jobs
+WHEN OLD.status IN ('succeeded', 'failed')
+BEGIN
+  SELECT RAISE(ABORT, 'terminal pipeline jobs are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS pipeline_jobs_status_transition_guard
+BEFORE UPDATE OF status ON pipeline_jobs
+WHEN OLD.status NOT IN ('succeeded', 'failed')
+ AND NOT (
+   OLD.status = NEW.status
+   OR (OLD.status = 'queued' AND NEW.status IN ('running', 'failed'))
+   OR (OLD.status = 'running' AND NEW.status IN ('queued', 'succeeded', 'failed'))
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'invalid pipeline job status transition');
+END;
 
 CREATE TABLE IF NOT EXISTS activity_events (
   id TEXT PRIMARY KEY,

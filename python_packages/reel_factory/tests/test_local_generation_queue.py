@@ -264,6 +264,16 @@ def test_fifo_start_and_success_preserve_exact_output_fingerprint(
         )
     assert completed.status == "succeeded"
     assert completed.last_event["payload"]["outputSha256"] == output_sha
+    evidence = queue.execution_evidence("first")
+    assert evidence["attemptCount"] == 1
+    assert evidence["retryCount"] == 0
+    assert evidence["failureClass"] is None
+    assert evidence["localCost"] == {
+        "available": False,
+        "currency": "USD",
+        "reason": "local_compute_cost_not_metered",
+        "value": None,
+    }
     assert queue.states()["second"].status == "queued"
 
 
@@ -313,6 +323,35 @@ def test_failed_job_records_honest_error_and_is_terminal(tmp_path: Path) -> None
     assert failed.status == "failed"
     assert failed.last_event["payload"]["errorType"] == "RuntimeError"
     assert failed.last_event["payload"]["errorMessage"] == "model exploded"
+    evidence = queue.execution_evidence("broken")
+    assert evidence["attemptCount"] == 1
+    assert evidence["retryCount"] == 0
+    assert evidence["failureClass"] == "local_generation_runtime_error"
+    assert evidence["executionMeasurement"] == {
+        "available": False,
+        "reason": "execution_measurement_unavailable",
+    }
+
+
+def test_admission_block_is_counted_without_inventing_execution_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue = LocalGenerationQueue(
+        tmp_path, resource_limit_bytes=2 * GIB, memory_reserve_bytes=GIB
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_generation_queue._macos_available_memory_bytes",
+        lambda: GIB,
+    )
+    queue.submit(_job("blocked"))
+    with queue.worker_session() as lease:
+        decision = queue.start_next(lease)
+    assert not decision.admitted
+    evidence = queue.execution_evidence("blocked")
+    assert evidence["attemptCount"] == 0
+    assert evidence["retryCount"] == 0
+    assert evidence["admissionBlockCount"] == 1
+    assert evidence["failureClass"] == "resource_admission_blocked"
 
 
 def test_abandoned_running_job_becomes_interrupted_on_next_lease(

@@ -18,17 +18,64 @@ test("snapshots the exact deterministic motion-QC implementation", async functio
     producedAt: PRODUCED_AT,
     repositoryRoot: ROOT,
   });
-  var registration = first.analyzers[0];
+  var registration = first.analyzers.find(function (item) {
+    return item.analyzerId === "contentforge.motion_specific_qc";
+  });
   var implementation = path.join(ROOT, registration.implementationRef);
   var actual = createHash("sha256").update(await readFile(implementation)).digest("hex");
 
   assert.deepEqual(first, second);
   assert.equal(first.schema, "creator_os.analyzer_registry.v1");
+  assert.equal(first.analyzers.length, 8);
   assert.equal(registration.analyzerId, "contentforge.motion_specific_qc");
-  assert.equal(registration.analyzerVersion, "1.0.0");
+  assert.equal(registration.analyzerVersion, "2.0.0");
   assert.deepEqual(registration.evidenceKinds, ["motion_specific_qc_receipt"]);
   assert.equal(registration.implementationFingerprint, actual);
-  assert.equal(first.provenance.sourceReferences[0].fingerprint, actual);
+  assert.ok(first.provenance.sourceReferences.some(function (item) {
+    return item.recordId === "contentforge.motion_specific_qc@2.0.0" && item.fingerprint === actual;
+  }));
+  var humanReview = first.analyzers.find(function (item) {
+    return item.analyzerId === "reel_factory.structured_human_media_review";
+  });
+  assert.equal(humanReview.analyzerVersion, "1.0.0");
+  assert.deepEqual(humanReview.evidenceKinds, ["human_media_review"]);
+  assert.equal(
+    humanReview.implementationRef,
+    "python_packages/reel_factory/reel_factory/human_media_review.py",
+  );
+  assert.match(humanReview.implementationFingerprint, /^[a-f0-9]{64}$/);
+  var trusted = first.analyzers.filter(function (item) {
+    return item.analyzerId.startsWith("contentforge.")
+      && item.analyzerId !== "contentforge.motion_specific_qc";
+  });
+  assert.deepEqual(trusted.map(function (item) { return item.analyzerId; }), [
+    "contentforge.audio_integrity",
+    "contentforge.local_face_mouth_track",
+    "contentforge.local_lip_sync",
+    "contentforge.media_integrity",
+    "contentforge.overlay_delivery",
+    "contentforge.temporal_motion",
+  ]);
+  var lipSync = trusted.find(function (item) {
+    return item.analyzerId === "contentforge.local_lip_sync";
+  });
+  assert.equal(
+    lipSync.implementationRef,
+    "packages/contentforge/lib/trusted-media-analysis.js",
+  );
+  var faceTrack = first.analyzers.find(function (item) {
+    return item.analyzerId === "contentforge.local_face_mouth_track";
+  });
+  assert.equal(
+    faceTrack.implementationRef,
+    "packages/contentforge/scripts/local-lip-sync-analyzer.py",
+  );
+  assert.match(faceTrack.implementationFingerprint, /^[a-f0-9]{64}$/);
+  assert.ok(trusted.filter(function (item) {
+    return item.analyzerId !== "contentforge.local_face_mouth_track";
+  }).every(function (item) {
+    return item.implementationRef === "packages/contentforge/lib/trusted-media-analysis.js";
+  }));
 });
 
 test("requires an explicit snapshot timestamp", async function () {

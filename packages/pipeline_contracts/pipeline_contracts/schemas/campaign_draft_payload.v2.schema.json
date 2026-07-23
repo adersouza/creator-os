@@ -168,7 +168,9 @@
                         "visual_qc_unavailable",
                         "visual_qc_failed",
                         "identity_verification_unavailable",
-                        "identity_verification_failed"
+                        "identity_verification_failed",
+                        "creative_approval_missing",
+                        "missing_audit"
                       ]
                     }
                   },

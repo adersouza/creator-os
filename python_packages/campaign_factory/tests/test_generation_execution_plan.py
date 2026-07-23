@@ -33,6 +33,8 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
     assert plans["local_wan"].provider_authorization == "forbidden"
     assert plans["soul_static"].motion_strategy == "static_mp4_only"
     assert plans["best_motion"].motion_strategy == "best_paid_motion"
+    assert "creative_approval_v2" in plans["local_wan"].required_approvals
+    assert "creative_approval_v2" in plans["best_motion"].required_approvals
     assert plans["reference_video_remix"].motion_strategy == "seedance_or_kling_remix"
     assert all(
         plan.static_fallback_required

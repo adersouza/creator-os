@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "creator_os.analyzer_registry.v1",
+  "$id": "https://creator-os.local/schemas/analyzer_registry.v1.schema.json",
   "title": "Creator OS Analyzer Registry Snapshot",
   "type": "object",
   "additionalProperties": false,

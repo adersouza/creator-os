@@ -5,11 +5,30 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
+from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.evidence_attestation import (
+    load_evidence_secret,
+    payload_fingerprint,
+    sign_evidence_attestation,
+)
 from creator_os_core.fileops import atomic_write_text
+from creator_os_core.provider_spend import verify_authorization_v2
+
+from pipeline_contracts import (
+    ContentIntentV1,
+    CreatorIdentityProfileV1,
+    IdentityReferenceV1,
+    ProvenanceV1,
+    SourceReferenceV1,
+    validate_paid_motion_execution_receipt,
+    validate_provider_spend_authorization_v2,
+)
 
 from .core import (
     new_id,
@@ -23,6 +42,7 @@ from .generation_execution_plan import (
     authorize_paid_generation,
     require_generation_execution_mode,
 )
+from .local_motion_admission import revalidate_local_motion_admission
 from .persistence import utc_now
 from .provider_spend import consume_provider_spend_authorization
 from .provider_spend_v2 import (
@@ -60,6 +80,11 @@ def run_motion_generation_stage(
     motion_task: str = "image_to_video",
     motion_lora_path: Path | None = None,
     motion_lora_strength: float = 1.0,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
+    local_motion_admission: Mapping[str, Any] | None = None,
+    local_arena_summary_path: Path | None = None,
+    campaign_creator: str | None = None,
 ) -> dict[str, Any]:
     """Generate one review-only motion asset with a preserved static fallback."""
     expected_mode = execution_plan.creative_mode
@@ -90,9 +115,30 @@ def run_motion_generation_stage(
         )
     elif expected_mode != "local_wan":
         raise PermissionError("best_motion requires an explicit paid provider model")
+    if (benchmark_recipe is None) != (analyzer_registry is None):
+        raise ValueError("benchmark evidence records must be provided together")
+    if paid and benchmark_recipe is not None:
+        raise ValueError("benchmark evidence applies only to local models")
+    if paid and local_motion_admission is not None:
+        raise ValueError("local motion admission applies only to local models")
+    if not paid:
+        _validate_local_motion_admission(local_motion_admission, model_id=model_id)
 
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
+    if not paid:
+        local_motion_admission = revalidate_local_motion_admission(
+            local_motion_admission,
+            arena_summary_path=local_arena_summary_path,
+            accepted_still_path=still,
+            audio_path=audio_path,
+            campaign_creator=campaign_creator or model_slug,
+            task_kind=motion_task,
+            model_id=model_id,
+            benchmark_recipe=benchmark_recipe,
+            analyzer_registry=analyzer_registry,
+            contentforge_root=factory.settings.contentforge_root,
+        )
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
     source_hash = sha256_file(still)
     request_fingerprint = _motion_request_fingerprint(
@@ -114,6 +160,9 @@ def run_motion_generation_stage(
         motion_task=motion_task,
         motion_lora_path=motion_lora_path,
         motion_lora_strength=motion_lora_strength,
+        benchmark_recipe=benchmark_recipe,
+        analyzer_registry=analyzer_registry,
+        local_motion_admission=local_motion_admission,
     )
     output_path = dirs["rendered"] / (
         f"{slugify(still.stem)}_{source_hash[:12]}_{slugify(model_id)}_"
@@ -142,6 +191,10 @@ def run_motion_generation_stage(
         motion_task=motion_task,
         motion_lora_path=motion_lora_path,
         motion_lora_strength=motion_lora_strength,
+        benchmark_recipe=benchmark_recipe,
+        analyzer_registry=analyzer_registry,
+        local_motion_admission=local_motion_admission,
+        evidence_transport_dir=evidence_dir / "worker_inputs",
         dry_run=True,
     )
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -157,6 +210,16 @@ def run_motion_generation_stage(
             "dryRun": dry_run,
             "apply": apply,
             "paidGeneration": paid,
+            "benchmarkRecipeId": (
+                benchmark_recipe.get("recipeId")
+                if benchmark_recipe is not None
+                else None
+            ),
+            "localMotionAdmissionFingerprint": (
+                local_motion_admission.get("admissionFingerprint")
+                if local_motion_admission is not None
+                else None
+            ),
         },
     )
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
@@ -172,8 +235,23 @@ def run_motion_generation_stage(
             apply=apply,
         )
         authorization = None
+        authorization_path: Path | None = None
+        authorization_verified_at: str | None = None
         worker_result = worker_plan
         if apply:
+            if not paid:
+                local_motion_admission = revalidate_local_motion_admission(
+                    local_motion_admission,
+                    arena_summary_path=local_arena_summary_path,
+                    accepted_still_path=still,
+                    audio_path=audio_path,
+                    campaign_creator=campaign_creator or model_slug,
+                    task_kind=motion_task,
+                    model_id=model_id,
+                    benchmark_recipe=benchmark_recipe,
+                    analyzer_registry=analyzer_registry,
+                    contentforge_root=factory.settings.contentforge_root,
+                )
             apply_command = _worker_command(
                 factory,
                 model_id=model_id,
@@ -196,6 +274,10 @@ def run_motion_generation_stage(
                 motion_task=motion_task,
                 motion_lora_path=motion_lora_path,
                 motion_lora_strength=motion_lora_strength,
+                benchmark_recipe=benchmark_recipe,
+                analyzer_registry=analyzer_registry,
+                local_motion_admission=local_motion_admission,
+                evidence_transport_dir=evidence_dir / "worker_inputs",
                 dry_run=False,
             )
             if paid:
@@ -231,6 +313,16 @@ def run_motion_generation_stage(
                     json.dumps(authorization, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
+                authorization_path = auth_path
+                authorization_verified_at = utc_now()
+                _verify_paid_authorization_at_call(
+                    authorization,
+                    expected_scope=scope,
+                    secret=secret,
+                    now=datetime.fromisoformat(
+                        authorization_verified_at.replace("Z", "+00:00")
+                    ),
+                )
                 consume_provider_spend_authorization(
                     factory.conn, authorization["authorizationId"]
                 )
@@ -261,6 +353,21 @@ def run_motion_generation_stage(
                     actual_usd=execution.get("providerCostUsd"),
                 )
                 worker_result["campaignCostEventId"] = cost_event_id
+                worker_result["paidExecutionReceipt"] = (
+                    _record_paid_motion_execution_receipt(
+                        factory,
+                        evidence_dir=evidence_dir,
+                        authorization=authorization,
+                        authorization_path=authorization_path,
+                        authorization_verified_at=authorization_verified_at,
+                        source_path=still,
+                        source_sha256=source_hash,
+                        output_path=output_path,
+                        prediction_id=prediction_id,
+                        provider_result=execution,
+                        cost_event_id=cost_event_id,
+                    )
+                )
         registered_asset = None
         if apply:
             source_asset_id = _static_source_asset_id(static_fallback)
@@ -277,6 +384,11 @@ def run_motion_generation_stage(
                 paid=paid,
                 motion_task=motion_task,
                 request_fingerprint=request_fingerprint,
+                local_motion_admission=local_motion_admission,
+                prompt=prompt,
+                pipeline_job_id=pipeline_job["id"],
+                paid_authorization=authorization,
+                paid_authorization_path=authorization_path,
             )
         result = {
             "schema": "campaign_factory.motion_generation_stage_run.v1",
@@ -290,6 +402,11 @@ def run_motion_generation_stage(
             "worker": worker_result,
             "registeredAsset": registered_asset,
             "pipelineJobId": pipeline_job["id"],
+            "localMotionAdmission": (
+                dict(local_motion_admission)
+                if local_motion_admission is not None
+                else None
+            ),
             "humanReviewRequired": True,
             "schedulingAllowed": False,
             "publishingAllowed": False,
@@ -326,6 +443,10 @@ def _worker_command(
     motion_task: str,
     motion_lora_path: Path | None,
     motion_lora_strength: float,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
+    local_motion_admission: Mapping[str, Any] | None = None,
+    evidence_transport_dir: Path | None = None,
     dry_run: bool,
 ) -> list[str]:
     command = [
@@ -375,7 +496,84 @@ def _worker_command(
         command.append("--enable-prompt-expansion")
     if generate_audio:
         command.append("--generate-audio")
+    if benchmark_recipe is not None and analyzer_registry is not None:
+        recipe_path, recipe_sha256 = _materialize_worker_evidence(
+            evidence_transport_dir,
+            label="benchmark_recipe",
+            payload=benchmark_recipe,
+        )
+        registry_path, registry_sha256 = _materialize_worker_evidence(
+            evidence_transport_dir,
+            label="analyzer_registry",
+            payload=analyzer_registry,
+        )
+        command.extend(
+            [
+                "--benchmark-recipe",
+                str(recipe_path),
+                "--benchmark-recipe-sha256",
+                recipe_sha256,
+                "--analyzer-registry",
+                str(registry_path),
+                "--analyzer-registry-sha256",
+                registry_sha256,
+            ]
+        )
+    if local_motion_admission is not None:
+        admission_path, admission_sha256 = _materialize_worker_evidence(
+            evidence_transport_dir,
+            label="local_motion_admission",
+            payload=local_motion_admission,
+        )
+        command.extend(
+            [
+                "--local-motion-admission",
+                str(admission_path),
+                "--local-motion-admission-sha256",
+                admission_sha256,
+            ]
+        )
     return command
+
+
+def _materialize_worker_evidence(
+    evidence_transport_dir: Path | None,
+    *,
+    label: str,
+    payload: Mapping[str, Any],
+) -> tuple[Path, str]:
+    if evidence_transport_dir is None:
+        raise ValueError("local motion evidence transport directory is required")
+    raw_directory = Path(evidence_transport_dir).expanduser()
+    if raw_directory.exists() and raw_directory.is_symlink():
+        raise ValueError("local motion evidence directory must not be a symlink")
+    directory = raw_directory.resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    encoded = (
+        json.dumps(
+            dict(payload),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    path = directory / f"{label}.{digest}.json"
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise ValueError(
+                f"local motion evidence path is not a regular file: {path}"
+            )
+        if sha256_file(path) != digest:
+            raise ValueError(f"local motion evidence hash mismatch: {path}")
+        if info.st_mode & 0o222:
+            raise ValueError(f"local motion evidence file is mutable: {path}")
+    else:
+        atomic_write_text(path, encoded, encoding="utf-8")
+        path.chmod(0o444)
+    return path, digest
 
 
 def _invoke_worker(command: list[str], *, factory: Any) -> dict[str, Any]:
@@ -422,6 +620,9 @@ def _motion_request_fingerprint(
     motion_task: str,
     motion_lora_path: Path | None,
     motion_lora_strength: float,
+    benchmark_recipe: Mapping[str, Any] | None = None,
+    analyzer_registry: Mapping[str, Any] | None = None,
+    local_motion_admission: Mapping[str, Any] | None = None,
 ) -> str:
     def media(path: Path | None) -> dict[str, str] | None:
         if path is None:
@@ -452,6 +653,35 @@ def _motion_request_fingerprint(
         "motionTask": motion_task,
         "lora": media(motion_lora_path),
         "loraStrength": motion_lora_strength,
+        "benchmarkRecipeFingerprint": (
+            hashlib.sha256(
+                json.dumps(
+                    dict(benchmark_recipe),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if benchmark_recipe is not None
+            else None
+        ),
+        "analyzerRegistryFingerprint": (
+            hashlib.sha256(
+                json.dumps(
+                    dict(analyzer_registry),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if analyzer_registry is not None
+            else None
+        ),
+        "localMotionAdmissionFingerprint": (
+            local_motion_admission.get("admissionFingerprint")
+            if local_motion_admission is not None
+            else None
+        ),
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -459,11 +689,485 @@ def _motion_request_fingerprint(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _validate_local_motion_admission(
+    admission: Mapping[str, Any] | None, *, model_id: str
+) -> None:
+    if admission is None:
+        raise PermissionError("local_motion_router_admission_required")
+    if admission.get("schema") != "campaign_factory.local_motion_admission.v1":
+        raise PermissionError("local_motion_admission_schema_mismatch")
+    core = dict(admission)
+    claimed = str(core.pop("admissionFingerprint", ""))
+    actual = hashlib.sha256(
+        json.dumps(
+            core, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    ).hexdigest()
+    if claimed != actual:
+        raise PermissionError("local_motion_admission_fingerprint_mismatch")
+    decision = admission.get("routerDecision")
+    summary = admission.get("arenaSummary")
+    if not isinstance(decision, Mapping) or not isinstance(summary, Mapping):
+        raise PermissionError("local_motion_admission_evidence_missing")
+    if decision.get("schema") != "reel_factory.local_model_router_decision.v1":
+        raise PermissionError("local_motion_router_decision_schema_mismatch")
+    decision_core = dict(decision)
+    decision_claimed = str(decision_core.pop("decisionFingerprint", ""))
+    decision_actual = hashlib.sha256(
+        json.dumps(
+            decision_core,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    if decision_claimed != decision_actual:
+        raise PermissionError("local_motion_router_decision_fingerprint_mismatch")
+    if decision.get("selectedModelId") != model_id:
+        raise PermissionError("local_motion_router_selected_model_mismatch")
+    if decision.get("paidProviderFallbackAllowed") is not False:
+        raise PermissionError("local_motion_paid_provider_fallback_forbidden")
+    if decision.get("legacyLocalMotionFallbackAllowed") is not False:
+        raise PermissionError("local_motion_legacy_fallback_forbidden")
+    winning = decision.get("winningEvidence")
+    if not isinstance(winning, Mapping) or (
+        winning.get("arenaSummaryFingerprint") != summary.get("summaryFingerprint")
+    ):
+        raise PermissionError("local_motion_arena_summary_binding_mismatch")
+    if summary.get("purpose") != "promotion_eligible":
+        raise PermissionError("local_motion_arena_not_promotion_eligible")
+
+
 def _static_source_asset_id(static_fallback: dict[str, Any]) -> str:
     registered = static_fallback.get("registeredAsset")
     if not isinstance(registered, dict) or not registered.get("source_asset_id"):
         raise RuntimeError("static fallback omitted source asset identity")
     return str(registered["source_asset_id"])
+
+
+def _canonical_fingerprint(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            dict(value), ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _verify_paid_authorization_at_call(
+    authorization: Mapping[str, Any],
+    *,
+    expected_scope: Mapping[str, Any],
+    secret: str,
+    now: datetime,
+) -> dict[str, Any]:
+    """Validate the canonical contract and live HMAC immediately before provider I/O."""
+
+    validate_provider_spend_authorization_v2(dict(authorization))
+    return verify_authorization_v2(
+        authorization,
+        expected_scope=expected_scope,
+        secret=secret,
+        now=now,
+    )
+
+
+def _record_paid_motion_execution_receipt(
+    factory: Any,
+    *,
+    evidence_dir: Path,
+    authorization: Mapping[str, Any],
+    authorization_path: Path | None,
+    authorization_verified_at: str | None,
+    source_path: Path,
+    source_sha256: str,
+    output_path: Path,
+    prediction_id: str,
+    provider_result: Mapping[str, Any],
+    cost_event_id: str,
+) -> dict[str, Any]:
+    if authorization_path is None or authorization_verified_at is None:
+        raise RuntimeError("paid_execution_authorization_verification_missing")
+    auth_path = authorization_path.expanduser().resolve()
+    resolved_source = source_path.expanduser().resolve()
+    resolved_output = output_path.expanduser().resolve()
+    provider_path = Path(str(provider_result.get("evidencePath") or "")).expanduser()
+    if (
+        auth_path.is_symlink()
+        or resolved_source.is_symlink()
+        or resolved_output.is_symlink()
+        or provider_path.is_symlink()
+    ):
+        raise RuntimeError("paid_execution_provider_evidence_unsafe")
+    provider_path = provider_path.resolve()
+    if not all(
+        path.is_file()
+        for path in (auth_path, resolved_source, resolved_output, provider_path)
+    ):
+        raise RuntimeError("paid_execution_evidence_missing")
+    try:
+        stored_authorization = json.loads(auth_path.read_text(encoding="utf-8"))
+        provider_evidence = json.loads(provider_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("paid_execution_evidence_invalid") from exc
+    if stored_authorization != dict(authorization) or not isinstance(
+        provider_evidence, dict
+    ):
+        raise RuntimeError("paid_execution_evidence_substituted")
+    scope = authorization.get("scope")
+    if not isinstance(scope, Mapping):
+        raise RuntimeError("paid_execution_scope_missing")
+    if sha256_file(resolved_source) != source_sha256:
+        raise RuntimeError("paid_execution_input_substituted")
+    output_sha256 = sha256_file(resolved_output)
+    provider_model = str(scope.get("providerModel") or "")
+    request_fingerprint = str(scope.get("requestFingerprint") or "")
+    expected_provider_fields = {
+        "schema": "reel_factory.wavespeed_submission.v1",
+        "authorizationId": authorization.get("authorizationId"),
+        "requestFingerprint": request_fingerprint,
+        "providerModel": provider_model,
+        "status": "completed",
+        "predictionId": prediction_id,
+        "outputSha256": output_sha256,
+    }
+    if any(
+        provider_result.get(key) != value or provider_evidence.get(key) != value
+        for key, value in expected_provider_fields.items()
+    ):
+        raise RuntimeError("paid_execution_provider_evidence_mismatch")
+    cost_row = factory.conn.execute(
+        "SELECT * FROM ai_cost_events WHERE id = ?", (cost_event_id,)
+    ).fetchone()
+    if cost_row is None:
+        raise RuntimeError("paid_execution_cost_record_missing")
+    cost_snapshot = dict(cost_row)
+    try:
+        cost_metadata = json.loads(cost_snapshot.get("metadata_json") or "{}")
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("paid_execution_cost_record_invalid") from exc
+    if (
+        cost_snapshot.get("provider") != "wavespeed"
+        or cost_metadata.get("authorizationId") != authorization.get("authorizationId")
+        or cost_metadata.get("predictionId") != prediction_id
+        or cost_metadata.get("requestFingerprint") != request_fingerprint
+    ):
+        raise RuntimeError("paid_execution_cost_record_mismatch")
+    prediction_fingerprint = _canonical_fingerprint(
+        {
+            "provider": "wavespeed",
+            "providerModel": provider_model,
+            "predictionId": prediction_id,
+            "requestFingerprint": request_fingerprint,
+            "inputSha256": source_sha256,
+            "outputSha256": output_sha256,
+        }
+    )
+    recorded_at = utc_now()
+    verified_at = datetime.fromisoformat(
+        authorization_verified_at.replace("Z", "+00:00")
+    )
+    recorded_timestamp = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+    if verified_at > recorded_timestamp:
+        raise RuntimeError("paid_execution_authorization_verification_future")
+    core = {
+        "schema": "campaign_factory.paid_motion_execution_receipt.v1",
+        "receiptId": "paid-motion-exec-"
+        + _canonical_fingerprint(
+            {
+                "authorizationId": authorization.get("authorizationId"),
+                "predictionId": prediction_id,
+                "outputSha256": output_sha256,
+            }
+        )[:24],
+        "issuer": "campaign_factory.motion_generation_stage",
+        "recordedAt": recorded_at,
+        "authorizationVerifiedAt": authorization_verified_at,
+        "authorization": {
+            "id": str(authorization.get("authorizationId") or ""),
+            "fingerprint": payload_fingerprint(authorization),
+        },
+        "authorizationEvidence": {
+            "path": str(auth_path),
+            "sha256": sha256_file(auth_path),
+        },
+        "scope": dict(scope),
+        "requestFingerprint": request_fingerprint,
+        "providerModel": provider_model,
+        "input": {"path": str(resolved_source), "sha256": source_sha256},
+        "output": {"path": str(resolved_output), "sha256": output_sha256},
+        "prediction": {"id": prediction_id, "fingerprint": prediction_fingerprint},
+        "providerEvidence": {
+            "path": str(provider_path),
+            "sha256": sha256_file(provider_path),
+        },
+        "costRecord": {
+            "id": cost_event_id,
+            "fingerprint": payload_fingerprint(cost_snapshot),
+            "snapshot": cost_snapshot,
+        },
+    }
+    attested = {**core, "receiptFingerprint": payload_fingerprint(core)}
+    receipt = {
+        **attested,
+        "attestation": sign_evidence_attestation(
+            attested,
+            issuer="campaign_factory.motion_generation_stage",
+            issued_at=recorded_at,
+            secret=load_evidence_secret(),
+        ),
+    }
+    validate_paid_motion_execution_receipt(receipt)
+    directory = evidence_dir.expanduser().resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(
+        receipt, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    path = directory / f"{receipt['receiptId']}.json"
+    if path.exists() or path.is_symlink():
+        if not path.is_file() or path.is_symlink() or path.read_text() != encoded:
+            raise RuntimeError("paid_execution_receipt_identity_collision")
+    else:
+        atomic_write_text(path, encoded, encoding="utf-8")
+        path.chmod(0o444)
+    return {
+        "id": receipt["receiptId"],
+        "fingerprint": receipt["receiptFingerprint"],
+        "path": str(path),
+        "sha256": sha256_file(path),
+    }
+
+
+def _paid_generation_evidence(
+    factory: Any,
+    *,
+    campaign: Mapping[str, Any],
+    model_slug: str,
+    model_id: str,
+    motion_task: str,
+    source_asset_id: str,
+    source_path: Path,
+    source_hash: str,
+    output_path: Path,
+    output_hash: str,
+    request_fingerprint: str | None,
+    prompt: str | None,
+    worker_result: Mapping[str, Any],
+    authorization: Mapping[str, Any] | None,
+    authorization_path: Path | None,
+    produced_at: str,
+) -> dict[str, Any]:
+    """Snapshot exact paid execution lineage while the provider result is present."""
+
+    if authorization is None or authorization_path is None:
+        raise RuntimeError("paid_generation_authorization_evidence_missing")
+    auth_path = Path(authorization_path).expanduser().resolve()
+    if not auth_path.is_file() or auth_path.is_symlink():
+        raise RuntimeError("paid_generation_authorization_evidence_unsafe")
+    try:
+        stored_authorization = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("paid_generation_authorization_evidence_invalid") from exc
+    if stored_authorization != dict(authorization):
+        raise RuntimeError("paid_generation_authorization_evidence_mismatch")
+    scope = authorization.get("scope")
+    generation = worker_result.get("result")
+    if not isinstance(scope, Mapping) or not isinstance(generation, Mapping):
+        raise RuntimeError("paid_generation_execution_evidence_missing")
+    provider_request_fingerprint = str(scope.get("requestFingerprint") or "")
+    provider_model = str(scope.get("providerModel") or "")
+    prediction_id = str(generation.get("predictionId") or "")
+    evidence_path = Path(str(generation.get("evidencePath") or "")).expanduser()
+    if evidence_path.is_symlink():
+        raise RuntimeError("paid_generation_provider_evidence_unsafe")
+    evidence_path = evidence_path.resolve()
+    if not evidence_path.is_file():
+        raise RuntimeError("paid_generation_provider_evidence_missing")
+    try:
+        provider_evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("paid_generation_provider_evidence_invalid") from exc
+    if (
+        not request_fingerprint
+        or len(request_fingerprint) != 64
+        or scope.get("provider") != "wavespeed"
+        or not provider_model
+        or not prediction_id
+        or generation.get("status") != "completed"
+        or generation.get("authorizationId") != authorization.get("authorizationId")
+        or generation.get("requestFingerprint") != provider_request_fingerprint
+        or generation.get("providerModel") != provider_model
+        or generation.get("outputSha256") != output_hash
+        or any(
+            provider_evidence.get(key) != generation.get(key)
+            for key in (
+                "schema",
+                "requestFingerprint",
+                "authorizationId",
+                "providerModel",
+                "status",
+                "predictionId",
+                "outputSha256",
+            )
+        )
+    ):
+        raise RuntimeError("paid_generation_provider_evidence_mismatch")
+    cost_event_id = str(worker_result.get("campaignCostEventId") or "")
+    cost_row = factory.conn.execute(
+        "SELECT * FROM ai_cost_events WHERE id = ?", (cost_event_id,)
+    ).fetchone()
+    if cost_row is None:
+        raise RuntimeError("paid_generation_spend_record_missing")
+    cost_record = dict(cost_row)
+    metadata = json.loads(cost_record.get("metadata_json") or "{}")
+    if (
+        cost_record.get("provider") != "wavespeed"
+        or metadata.get("authorizationId") != authorization.get("authorizationId")
+        or metadata.get("predictionId") != prediction_id
+        or metadata.get("requestFingerprint") != provider_request_fingerprint
+    ):
+        raise RuntimeError("paid_generation_spend_record_mismatch")
+    execution_receipt = worker_result.get("paidExecutionReceipt")
+    if not isinstance(execution_receipt, Mapping):
+        raise RuntimeError("paid_generation_execution_receipt_missing")
+    receipt_path = Path(str(execution_receipt.get("path") or "")).expanduser()
+    if receipt_path.is_symlink():
+        raise RuntimeError("paid_generation_execution_receipt_unsafe")
+    receipt_path = receipt_path.resolve()
+    if not receipt_path.is_file() or sha256_file(receipt_path) != execution_receipt.get(
+        "sha256"
+    ):
+        raise RuntimeError("paid_generation_execution_receipt_mismatch")
+
+    campaign_record = {
+        "id": str(campaign.get("id") or ""),
+        "slug": str(campaign.get("slug") or ""),
+        "modelSlug": model_slug,
+    }
+    campaign_fingerprint = _canonical_fingerprint(campaign_record)
+    identity = CreatorIdentityProfileV1(
+        profile_id=f"campaign-creator-{model_slug}",
+        creator_key=model_slug,
+        display_name=model_slug,
+        model_profile=model_slug,
+        identity_references=(
+            IdentityReferenceV1(
+                namespace="campaign_source_still",
+                external_id=source_asset_id,
+                fingerprint=source_hash,
+            ),
+        ),
+        provenance=ProvenanceV1(
+            producer="campaign_factory.motion_generation_stage",
+            produced_at=produced_at,
+            source_references=(
+                SourceReferenceV1(
+                    record_id=str(campaign["id"]),
+                    fingerprint=campaign_fingerprint,
+                ),
+                SourceReferenceV1(
+                    record_id=source_asset_id,
+                    fingerprint=source_hash,
+                ),
+            ),
+        ),
+    ).to_dict()
+    intent = ContentIntentV1(
+        intent_id=f"paid-motion-intent-{request_fingerprint[:24]}",
+        creator_identity_profile_id=str(identity["profileId"]),
+        goal="create one creator-conditioned motion asset for human review",
+        content_surface="reel",
+        media_kind="video",
+        style_lanes=("creator_conditioned_motion",),
+        concept_tags=tuple(sorted({motion_task, model_id})),
+        source_asset_fingerprints=(source_hash,),
+        provenance=ProvenanceV1(
+            producer="campaign_factory.motion_generation_stage",
+            produced_at=produced_at,
+            source_references=(
+                SourceReferenceV1(
+                    record_id=source_asset_id,
+                    fingerprint=source_hash,
+                ),
+                SourceReferenceV1(
+                    record_id=f"provider-request-{provider_request_fingerprint[:24]}",
+                    fingerprint=provider_request_fingerprint,
+                ),
+            ),
+        ),
+    ).to_dict()
+    normalized_prompt = " ".join(str(prompt or "").split())
+    recipe = {
+        "schema": "campaign_factory.paid_motion_recipe.v1",
+        "recipeId": f"paid-motion-recipe-{request_fingerprint[:24]}",
+        "motionTask": motion_task,
+        "creatorOsModelId": model_id,
+        "providerModel": provider_model,
+        "campaignRequestFingerprint": request_fingerprint,
+        "providerRequestFingerprint": provider_request_fingerprint,
+        "sourceSha256": source_hash,
+        "promptSha256": hashlib.sha256(normalized_prompt.encode("utf-8")).hexdigest(),
+    }
+    prediction_fingerprint = _canonical_fingerprint(
+        {
+            "provider": "wavespeed",
+            "providerModel": provider_model,
+            "predictionId": prediction_id,
+            "requestFingerprint": provider_request_fingerprint,
+            "inputSha256": source_hash,
+            "outputSha256": output_hash,
+        }
+    )
+    execution_evidence = {
+        "class": "paid_provider",
+        "provider": "wavespeed",
+        "providerModel": provider_model,
+        "requestFingerprint": provider_request_fingerprint,
+        "authorization": {
+            "id": str(authorization["authorizationId"]),
+            "fingerprint": payload_fingerprint(authorization),
+        },
+        "authorizationEvidence": {
+            "path": str(auth_path),
+            "sha256": sha256_file(auth_path),
+        },
+        "prediction": {
+            "id": prediction_id,
+            "fingerprint": prediction_fingerprint,
+        },
+        "providerEvidence": {
+            "path": str(evidence_path),
+            "sha256": sha256_file(evidence_path),
+        },
+        "spendRecord": {
+            "id": cost_event_id,
+            "fingerprint": payload_fingerprint(cost_record),
+        },
+        "executionReceipt": {
+            "id": str(execution_receipt.get("id") or ""),
+            "fingerprint": str(execution_receipt.get("fingerprint") or ""),
+        },
+        "executionReceiptEvidence": {
+            "path": str(receipt_path),
+            "sha256": str(execution_receipt.get("sha256") or ""),
+        },
+    }
+    return {
+        "creatorIdentityProfile": identity,
+        "contentIntent": intent,
+        "generationRecipe": recipe,
+        "modelFingerprint": _canonical_fingerprint(
+            {
+                "provider": "wavespeed",
+                "providerModel": provider_model,
+                "creatorOsModelId": model_id,
+            }
+        ),
+        "executionEvidence": execution_evidence,
+        "spendRecord": cost_record,
+        "campaignRequestFingerprint": request_fingerprint,
+        "input": {"path": str(source_path), "sha256": source_hash},
+        "output": {"path": str(output_path), "sha256": output_hash},
+    }
 
 
 def _register_review_asset(
@@ -480,6 +1184,11 @@ def _register_review_asset(
     paid: bool,
     motion_task: str = "image_to_video",
     request_fingerprint: str | None = None,
+    local_motion_admission: Mapping[str, Any] | None = None,
+    prompt: str | None = None,
+    pipeline_job_id: str | None = None,
+    paid_authorization: Mapping[str, Any] | None = None,
+    paid_authorization_path: Path | None = None,
 ) -> dict[str, Any]:
     if not output_path.is_file() or output_path.stat().st_size <= 0:
         raise FileNotFoundError(f"motion output missing: {output_path}")
@@ -489,9 +1198,7 @@ def _register_review_asset(
         WHERE campaign_id = ? AND content_hash = ? ORDER BY created_at, id LIMIT 1""",
         (campaign["id"], digest),
     ).fetchone()
-    if existing:
-        return dict(existing)
-    rendered_id = new_id("asset")
+    rendered_id = str(existing["id"]) if existing else new_id("asset")
     now = utc_now()
     caption_hash = factory.domains.publishability.text_hash("")
     generation = worker_result.get("result")
@@ -504,6 +1211,7 @@ def _register_review_asset(
         "contentforge_audit_required",
         "motion_specific_qc_required",
         "human_final_review_required",
+        "creative_approval_v2_required",
     ]
     if motion_task == "text_to_video":
         blocking_issues.append("text_to_video_identity_assignment_forbidden")
@@ -520,10 +1228,33 @@ def _register_review_asset(
         blocking_issues.append("ai_generated_media_disclosure_required")
     fallback_source = {"path": str(source_path), "sha256": source_hash}
     generation_source = None if motion_task == "text_to_video" else fallback_source
+    paid_generation_evidence = (
+        _paid_generation_evidence(
+            factory,
+            campaign=campaign,
+            model_slug=model_slug,
+            model_id=model_id,
+            motion_task=motion_task,
+            source_asset_id=source_asset_id,
+            source_path=source_path,
+            source_hash=source_hash,
+            output_path=output_path,
+            output_hash=digest,
+            request_fingerprint=request_fingerprint,
+            prompt=prompt,
+            worker_result=worker_result,
+            authorization=paid_authorization,
+            authorization_path=paid_authorization_path,
+            produced_at=now,
+        )
+        if paid
+        else None
+    )
     metadata = {
         "schema": "campaign_factory.motion_generation_asset.v1",
         "asset_state": "approved_but_not_publishable",
         "humanReviewRequired": True,
+        "creativeApprovalRequired": True,
         "contentforgeAuditRequired": True,
         "captionBurned": False,
         "audioBurned": embedded_audio,
@@ -546,7 +1277,11 @@ def _register_review_asset(
         "output": {"path": str(output_path), "sha256": digest},
         "modelId": model_id,
         "requestFingerprint": request_fingerprint,
+        "localMotionAdmission": (
+            dict(local_motion_admission) if local_motion_admission is not None else None
+        ),
         "paidGeneration": paid,
+        "paidGenerationEvidence": paid_generation_evidence,
         "worker": worker_result,
         "publishability": {
             "status": "blocked",
@@ -571,41 +1306,151 @@ def _register_review_asset(
             "text_prompt_only" if motion_task == "text_to_video" else source_path.name
         ),
     }
-    factory.conn.execute(
-        """
-        INSERT INTO rendered_assets
-        (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path,
-         filename, media_type, content_surface, caption, caption_hash, caption_bank,
-         caption_banks_json, creator_mix, creator_model, frame_type, length_class,
-         format_class, caption_fit_version, suitability_decision, suitability_reason,
-         source_clip, caption_outcome_context_json, caption_generation_json, recipe,
-         target_ratio, metadata_json, audit_status, review_state, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'video', 'reel', '', ?, 'none', '[]', ?, ?,
-                'generated_motion', 'short', 'video', 'none', 'review_required', ?, ?,
-                ?, ?, ?, '9:16', ?, 'pending', 'review_ready', ?, ?)
-        """,
-        (
-            rendered_id,
-            campaign["id"],
-            source_asset_id,
-            digest,
-            str(output_path),
-            str(output_path),
-            output_path.name,
-            caption_hash,
-            model_slug,
-            model_slug,
-            outcome_context["suitability_reason"],
-            source_path.name,
-            json.dumps(outcome_context, sort_keys=True),
-            json.dumps(sanitize_for_storage(metadata), sort_keys=True),
-            model_id,
-            json.dumps(sanitize_for_storage(metadata), sort_keys=True),
-            now,
-            now,
-        ),
+    blob_id = f"blob_{digest.lower()}"
+    attempt_id = new_id("generation_attempt")
+    lineage_edge_id = new_id("generation_edge")
+    attempted_output_path = str(output_path)
+    duplicate_disposition = "canonical_output"
+    remove_duplicate = False
+    if existing:
+        canonical_path = Path(str(existing["output_path"])).expanduser().resolve()
+        if not canonical_path.is_file():
+            raise FileNotFoundError(
+                f"canonical generation output missing for digest {digest}: "
+                f"{canonical_path}"
+            )
+        if sha256_file(canonical_path) != digest:
+            raise RuntimeError(
+                f"canonical generation output hash mismatch for digest {digest}: "
+                f"{canonical_path}"
+            )
+        if output_path.resolve() == canonical_path:
+            duplicate_disposition = "reused_canonical_path"
+        else:
+            duplicate_disposition = "removed_unreferenced_duplicate"
+            remove_duplicate = True
+    normalized_prompt = " ".join(str(prompt or "").split())
+    prompt_sha256 = (
+        hashlib.sha256(normalized_prompt.encode("utf-8")).hexdigest()
+        if normalized_prompt
+        else None
     )
-    factory.conn.commit()
+    admission_fingerprint = None
+    if local_motion_admission is not None:
+        admission_fingerprint = (
+            str(local_motion_admission.get("admissionFingerprint") or "") or None
+        )
+    lineage = {
+        "schema": "campaign_factory.generation_lineage_edge.v1",
+        "modelId": model_id,
+        "motionTask": motion_task,
+        "requestFingerprint": request_fingerprint,
+        "promptSha256": prompt_sha256,
+        "source": {"assetId": source_asset_id, "sha256": source_hash},
+        "output": {"blobId": blob_id, "sha256": digest},
+        "admissionFingerprint": admission_fingerprint,
+    }
+    with factory.conn:
+        factory.conn.execute(
+            """
+            INSERT OR IGNORE INTO generation_output_blobs
+            (id, content_sha256, byte_size, media_type, created_at)
+            VALUES (?, ?, ?, 'video', ?)
+            """,
+            (blob_id, digest.lower(), output_path.stat().st_size, now),
+        )
+        if not existing:
+            factory.conn.execute(
+                """
+                INSERT INTO rendered_assets
+                (id, campaign_id, source_asset_id, content_hash, output_path, campaign_path,
+                 filename, media_type, content_surface, caption, caption_hash, caption_bank,
+                 caption_banks_json, creator_mix, creator_model, frame_type, length_class,
+                 format_class, caption_fit_version, suitability_decision, suitability_reason,
+                 source_clip, caption_outcome_context_json, caption_generation_json, recipe,
+                 target_ratio, metadata_json, audit_status, review_state, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'video', 'reel', '', ?, 'none', '[]', ?, ?,
+                        'generated_motion', 'short', 'video', 'none', 'review_required', ?, ?,
+                        ?, ?, ?, '9:16', ?, 'pending', 'review_ready', ?, ?)
+                """,
+                (
+                    rendered_id,
+                    campaign["id"],
+                    source_asset_id,
+                    digest,
+                    str(output_path),
+                    str(output_path),
+                    output_path.name,
+                    caption_hash,
+                    model_slug,
+                    model_slug,
+                    outcome_context["suitability_reason"],
+                    source_path.name,
+                    json.dumps(outcome_context, sort_keys=True),
+                    json.dumps(sanitize_for_storage(metadata), sort_keys=True),
+                    model_id,
+                    json.dumps(sanitize_for_storage(metadata), sort_keys=True),
+                    now,
+                    now,
+                ),
+            )
+        factory.conn.execute(
+            """
+            INSERT INTO generation_attempts
+            (id, campaign_id, pipeline_job_id, source_asset_id, rendered_asset_id,
+             output_blob_id, request_fingerprint, model_id, motion_task, prompt_sha256,
+             source_sha256, admission_fingerprint, input_json, worker_result_json,
+             attempted_output_path, duplicate_disposition, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                attempt_id,
+                campaign["id"],
+                pipeline_job_id,
+                source_asset_id,
+                rendered_id,
+                blob_id,
+                request_fingerprint,
+                model_id,
+                motion_task,
+                prompt_sha256,
+                source_hash,
+                admission_fingerprint,
+                json.dumps(
+                    sanitize_for_storage(
+                        {
+                            "sourcePath": str(source_path),
+                            "sourceSha256": source_hash,
+                            "motionTask": motion_task,
+                        }
+                    ),
+                    sort_keys=True,
+                ),
+                json.dumps(sanitize_for_storage(worker_result), sort_keys=True),
+                attempted_output_path,
+                duplicate_disposition,
+                now,
+            ),
+        )
+        factory.conn.execute(
+            """
+            INSERT INTO generation_lineage_edges
+            (id, generation_attempt_id, source_asset_id, rendered_asset_id,
+             output_blob_id, relation, lineage_json, created_at)
+            VALUES (?, ?, ?, ?, ?, 'generated_output', ?, ?)
+            """,
+            (
+                lineage_edge_id,
+                attempt_id,
+                source_asset_id,
+                rendered_id,
+                blob_id,
+                json.dumps(sanitize_for_storage(lineage), sort_keys=True),
+                now,
+            ),
+        )
+        if remove_duplicate:
+            output_path.unlink()
     return dict(
         factory.conn.execute(
             "SELECT * FROM rendered_assets WHERE id = ?", (rendered_id,)

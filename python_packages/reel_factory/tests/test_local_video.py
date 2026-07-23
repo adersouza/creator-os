@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -8,11 +11,15 @@ import pytest
 from reel_factory.local_generation_queue import (
     WorkerLeaseUnavailable,
     default_local_generation_queue,
+    fingerprint,
 )
 from reel_factory.local_lora_registry import register_local_lora
 from reel_factory.local_video import (
     LocalVideoRequest,
+    LocalVideoUnavailable,
+    _run_generation_process,
     build_local_video_command,
+    plan_local_video_job,
     probe_local_video,
     run_local_video,
 )
@@ -20,6 +27,13 @@ from reel_factory.local_video import (
 
 @pytest.fixture(autouse=True)
 def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("reel_factory.local_video.platform.system", lambda: "Darwin")
+    monkeypatch.setattr(
+        "reel_factory.local_video.shutil.which",
+        lambda executable: (
+            "/usr/bin/sandbox-exec" if executable == "sandbox-exec" else None
+        ),
+    )
     monkeypatch.setattr(
         "reel_factory.local_generation_queue._physical_memory_bytes",
         lambda: 64 * 1024**3,
@@ -32,12 +46,57 @@ def _stable_available_memory(monkeypatch: pytest.MonkeyPatch) -> None:
         "reel_factory.local_video._preflight_local_inputs",
         lambda _request: {"images": [], "sourceAudio": None},
     )
+    monkeypatch.setattr(
+        "reel_factory.local_video.model_status",
+        lambda model_id, **_kwargs: {
+            "ready": True,
+            "issues": [],
+            "modelId": model_id,
+            "manifest": {"modelId": model_id, "revision": "fixture-revision"},
+            "manifestSha256": "c" * 64,
+            "deepVerified": True,
+            "deepVerificationReceipt": None,
+        },
+    )
 
 
 def _image(tmp_path: Path, name: str = "still.jpg") -> Path:
     path = tmp_path / name
     path.write_bytes(f"image:{name}".encode())
     return path
+
+
+def test_generation_process_log_is_streamed_bounded_and_exclusive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("reel_factory.local_video._MAX_GENERATION_LOG_BYTES", 2048)
+    log_path = tmp_path / "generation.log"
+    result = _run_generation_process(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.write('x'*4096); sys.stderr.write('TAIL_MARK')",
+        ],
+        environment={},
+        log_path=log_path,
+        runner=subprocess.run,
+    )
+    assert result.returncode == 0
+    assert log_path.stat().st_size == 2048
+    assert result.log_evidence["observedBytes"] == 4105
+    assert result.log_evidence["truncated"] is True
+    assert result.log_evidence["tail"].endswith("TAIL_MARK")
+    assert (
+        result.log_evidence["sha256"]
+        == hashlib.sha256(log_path.read_bytes()).hexdigest()
+    )
+    with pytest.raises(FileExistsError):
+        _run_generation_process(
+            [sys.executable, "-c", "print('second')"],
+            environment={},
+            log_path=log_path,
+            runner=subprocess.run,
+        )
 
 
 def _request(
@@ -51,9 +110,42 @@ def _request(
     image_path: Path | None = None,
     lora_path: Path | None = None,
 ) -> LocalVideoRequest:
+    selected_image = image_path if image_path is not None else _image(tmp_path)
+    source_sha256 = hashlib.sha256(selected_image.read_bytes()).hexdigest()
+    recipe = {
+        "schema": "creator_os.benchmark_recipe.v1",
+        "recipeId": "fixture-recipe",
+        "taskKind": task,
+        "inputFingerprints": [source_sha256],
+        "requiredAnalyzers": [
+            {"analyzerId": "fixture.motion", "analyzerVersion": "1.0.0"}
+        ],
+        "expectedProviderCalls": 0,
+        "productionWritesAllowed": False,
+    }
+    registry = {
+        "schema": "creator_os.analyzer_registry.v1",
+        "registryId": "fixture-registry",
+        "analyzers": [{"analyzerId": "fixture.motion", "analyzerVersion": "1.0.0"}],
+    }
+    binding_core = {
+        "schema": "reel_factory.arena_benchmark_execution.v1",
+        "sampleId": "fixture-sample",
+        "blindedCandidateId": "fixture-candidate",
+        "sourceSha256": source_sha256,
+        "identityProfileId": "fixture-identity",
+        "identityProfileFingerprint": "a" * 64,
+        "contentIntentId": "fixture-intent",
+        "contentIntentFingerprint": "b" * 64,
+        "benchmarkRecipeFingerprint": fingerprint(recipe),
+        "analyzerRegistryFingerprint": fingerprint(registry),
+        "modelDeepVerificationFingerprint": "d" * 64,
+        "providerCalls": 0,
+        "productionWritesAllowed": False,
+    }
     return LocalVideoRequest(
         model_id=model_id,
-        image_path=image_path if image_path is not None else _image(tmp_path),
+        image_path=selected_image,
         prompt="Subtle natural movement with a steady portrait camera composition",
         output_path=tmp_path / "out.mp4",
         duration_seconds=6,
@@ -63,6 +155,36 @@ def _request(
         last_image_path=last_image_path,
         task=task,  # type: ignore[arg-type]
         lora_path=lora_path,
+        benchmark_recipe=recipe,
+        analyzer_registry=registry,
+        execution_context="arena_benchmark",
+        arena_benchmark_binding={
+            **binding_core,
+            "bindingFingerprint": fingerprint(binding_core),
+        },
+    )
+
+
+def _rebind_arena_source(
+    request: LocalVideoRequest, source_path: Path
+) -> LocalVideoRequest:
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    recipe = {
+        **dict(request.benchmark_recipe or {}),
+        "inputFingerprints": [source_sha256],
+        "taskKind": request.task,
+    }
+    core = dict(request.arena_benchmark_binding or {})
+    core.pop("bindingFingerprint", None)
+    core["sourceSha256"] = source_sha256
+    core["benchmarkRecipeFingerprint"] = fingerprint(recipe)
+    return replace(
+        request,
+        benchmark_recipe=recipe,
+        arena_benchmark_binding={
+            **core,
+            "bindingFingerprint": fingerprint(core),
+        },
     )
 
 
@@ -152,6 +274,18 @@ def test_custom_model_directory_must_use_canonical_verified_layout(
         issue.startswith("custom_model_directory_layout_mismatch:")
         for issue in capability["issues"]
     )
+
+
+def test_bound_execution_forbids_custom_model_directory_even_if_probe_passes(
+    tmp_path: Path,
+) -> None:
+    request = replace(_request(tmp_path), model_dir=tmp_path / "custom-model")
+
+    with pytest.raises(
+        LocalVideoUnavailable,
+        match="custom_model_dir_forbidden_for_bound_execution",
+    ):
+        plan_local_video_job(request)
 
 
 def test_ltx_q8_supports_source_audio_and_first_last_frame(
@@ -248,15 +382,18 @@ def test_ltx_keyframe_retake_and_extend_are_explicit_q8_tasks(
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
-    retake = replace(
-        keyframe,
-        image_path=None,
-        last_image_path=None,
-        source_video_path=source,
-        task="video_retake",
-        audio_mode="preserved",
-        retake_start_frame=2,
-        retake_end_frame=5,
+    retake = _rebind_arena_source(
+        replace(
+            keyframe,
+            image_path=None,
+            last_image_path=None,
+            source_video_path=source,
+            task="video_retake",
+            audio_mode="preserved",
+            retake_start_frame=2,
+            retake_end_frame=5,
+        ),
+        source,
     )
     retake_command = build_local_video_command(retake, python_executable="python3")
     assert retake_command[3] == "retake"
@@ -328,6 +465,9 @@ def test_dry_run_records_exact_inputs_without_runner_or_provider_call(
 def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-local-model")
+    monkeypatch.setenv("PYTHONPATH", "/tmp/untrusted-python-imports")
+    monkeypatch.setenv("DYLD_LIBRARY_PATH", "/tmp/untrusted-dylibs")
     monkeypatch.setenv(
         "CREATOR_OS_LOCAL_GENERATION_QUEUE_ROOT", str(tmp_path / "queue")
     )
@@ -370,22 +510,93 @@ def test_apply_is_offline_atomic_and_preserves_audio_lineage(
     def runner(command, **kwargs):
         assert kwargs["env"]["HF_HUB_OFFLINE"] == "1"
         assert kwargs["env"]["TRANSFORMERS_OFFLINE"] == "1"
+        assert "OPENAI_API_KEY" not in kwargs["env"]
+        assert "PYTHONPATH" not in kwargs["env"]
+        assert "DYLD_LIBRARY_PATH" not in kwargs["env"]
+        assert command[:2] == ["/usr/bin/sandbox-exec", "-p"]
+        assert "(deny network*)" in command[2]
+        assert "(deny file-write*" in command[2]
         assert command[command.index("--audio") + 1] == str(audio.resolve())
         video = Path(command[command.index("--output") + 1])
         assert video.name.endswith(".partial.mp4")
         video.write_bytes(b"generated-video")
         return Completed()
 
+    planned_job = plan_local_video_job(request)
     result = run_local_video(request, dry_run=False, runner=runner)
     assert request.output_path.read_bytes() == b"generated-video"
     assert result["status"] == "completed"
     assert result["audio"]["mode"] == "source"
     assert result["audio"]["nativePlatformAudio"] is False
     assert result["audio"]["sidecarSha256"]
+    isolation = result["executionIsolation"]
+    assert isolation["enforced"] is True
+    assert isolation["networkAccess"] == "denied"
+    assert isolation["writeAccess"] == "explicit_artifacts_only"
+    assert isolation["providerActivity"] == {
+        "callsObserved": 0,
+        "measurementScope": "isolated_generation_subprocess",
+        "observationMethod": "macos_sandbox_network_policy",
+        "enforcementStatus": "enforced",
+        "evidenceBasis": "external_network_denied_by_macos_sandbox",
+    }
+    assert result["providerCalls"] == 0
     lineage = json.loads(
         request.output_path.with_suffix(".mp4.local_video.json").read_text()
     )
     assert lineage["status"] == "completed"
+    queue = default_local_generation_queue(tmp_path / "queue")
+    assert queue.states()[planned_job.job_id].job == planned_job
+
+
+def test_promotion_execution_fails_closed_without_macos_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    monkeypatch.setattr("reel_factory.local_video.shutil.which", lambda _name: None)
+
+    with pytest.raises(LocalVideoUnavailable, match="sandbox_exec_missing"):
+        plan_local_video_job(request)
+
+
+def test_apply_revalidates_selected_model_immediately_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "CREATOR_OS_LOCAL_GENERATION_QUEUE_ROOT", str(tmp_path / "queue")
+    )
+    request = _request(tmp_path)
+    capabilities = iter(
+        [
+            {
+                "ready": True,
+                "issues": [],
+                "modelId": request.model_id,
+                "model": {"manifestSha256": "a" * 64},
+            },
+            {
+                "ready": True,
+                "issues": [],
+                "modelId": request.model_id,
+                "model": {"manifestSha256": "b" * 64},
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        "reel_factory.local_video.probe_local_video",
+        lambda *_args, **_kwargs: next(capabilities),
+    )
+    runner_called = False
+
+    def runner(*_args, **_kwargs):
+        nonlocal runner_called
+        runner_called = True
+        raise AssertionError("drifted model must not execute")
+
+    with pytest.raises(LocalVideoUnavailable, match="execution_capability_drift"):
+        run_local_video(request, dry_run=False, runner=runner)
+    assert runner_called is False
+    assert not request.output_path.exists()
 
 
 def test_apply_rejects_short_source_audio_before_queue_or_runner(

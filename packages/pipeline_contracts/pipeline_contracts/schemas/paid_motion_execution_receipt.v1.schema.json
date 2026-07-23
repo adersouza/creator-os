@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign_factory.paid_motion_execution_receipt.v1",
+  "title": "Campaign Factory Paid Motion Execution Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "receiptId", "issuer", "recordedAt", "authorizationVerifiedAt", "authorization", "authorizationEvidence", "scope", "requestFingerprint", "providerModel", "input", "output", "prediction", "providerEvidence", "costRecord", "receiptFingerprint", "attestation"],
+  "properties": {
+    "schema": {"const": "campaign_factory.paid_motion_execution_receipt.v1"},
+    "receiptId": {"type": "string", "minLength": 1},
+    "issuer": {"const": "campaign_factory.motion_generation_stage"},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "authorizationVerifiedAt": {"type": "string", "format": "date-time"},
+    "authorization": {"$ref": "#/$defs/binding"},
+    "authorizationEvidence": {"$ref": "#/$defs/file"},
+    "scope": {"$ref": "provider_spend_authorization.v2.schema.json#/properties/scope"},
+    "requestFingerprint": {"$ref": "#/$defs/sha256"},
+    "providerModel": {"type": "string", "minLength": 1},
+    "input": {"$ref": "#/$defs/file"},
+    "output": {"$ref": "#/$defs/file"},
+    "prediction": {"$ref": "#/$defs/binding"},
+    "providerEvidence": {"$ref": "#/$defs/file"},
+    "costRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fingerprint", "snapshot"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "fingerprint": {"$ref": "#/$defs/sha256"},
+        "snapshot": {"type": "object"}
+      }
+    },
+    "receiptFingerprint": {"$ref": "#/$defs/sha256"},
+    "attestation": {"$ref": "evidence_attestation.v1.schema.json"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fingerprint"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "fingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

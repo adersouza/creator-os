@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from .caption_outcome import load_context_json
+from .creative_approval import (
+    CreativeApprovalStore,
+    asset_requires_creative_approval,
+)
 from .motion_qc_publishability import MotionQcPublishabilityMixin
 from .persistence import json_load
 from .readiness_finding import (
@@ -107,13 +111,16 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         requires_operator_visual_review_for_handoff: Callable[[dict[str, Any]], bool],
         surface_report_assets: Callable[..., list[dict[str, Any]]],
         ig_media_type_for_surface: Callable[[str, str], str],
+        creative_approvals_dir: Path,
     ) -> None:
         self.conn = conn
         self._utc_now = utc_now
         self._sanitize_for_storage = sanitize_for_storage
         self._normalize_content_surface = normalize_content_surface
+        self._creative_approval_store = CreativeApprovalStore(creative_approvals_dir)
         self.rendered_asset = rendered_asset
         self.record_event = record_event
+
         self._distribution_plan_payload = distribution_plan_payload
         self._audit_report_payload = audit_report_payload
         self._latest_audit_for_asset = latest_audit_for_asset
@@ -140,6 +147,11 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         )
         self._surface_report_assets = surface_report_assets
         self._ig_media_type_for_surface = ig_media_type_for_surface
+
+    def creative_approval_for_asset(self, rendered_asset_id: str) -> dict[str, Any]:
+        return self._creative_approval_store.status_for_asset(
+            self.rendered_asset(rendered_asset_id)
+        )
 
     def latest_audit_for_asset(self, rendered_asset_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
@@ -942,6 +954,18 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         distribution_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         caption_text = str(asset.get("caption") or "").strip()
+        raw_asset_metadata = asset.get("metadata")
+        if not isinstance(raw_asset_metadata, dict):
+            try:
+                raw_asset_metadata = json.loads(asset.get("metadata_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                raw_asset_metadata = {}
+        creative_approval_required = asset_requires_creative_approval(asset)
+        creative_approval = (
+            self._creative_approval_store.status_for_asset(asset)
+            if creative_approval_required
+            else {"state": "not_required"}
+        )
         output_path = str(
             asset.get("campaign_path")
             or asset.get("output_path")
@@ -1123,6 +1147,8 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
             == "passed",
             "readiness_checks_pass": bool(latest_audit) and not readiness_blockers,
             "quarantine_clear": not bool(quarantine),
+            "creative_approval_valid": creative_approval.get("state")
+            in {"approved", "not_required"},
             **motion_gate["checks"],
         }
         failures: list[str] = []
@@ -1164,6 +1190,13 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
         if is_reel_surface and not checks["operator_visual_review_passed"]:
             failures.append("operator_visual_review_required")
         failures.extend(motion_gate["failures"])
+        if not checks["creative_approval_valid"]:
+            failures.append(
+                str(
+                    creative_approval.get("blockingReason")
+                    or "creative_approval_missing"
+                )
+            )
         failures.extend(trust_blockers)
         if not checks["readiness_checks_pass"]:
             failures.append("missing_audit" if not latest_audit else "readiness_failed")
@@ -1403,6 +1436,11 @@ class PublishabilityRepository(MotionQcPublishabilityMixin):
             "cover_frame": cover_frame,
             "motionSpecificQcRequirements": motion_gate["requirements"],
             "motionSpecificQcReceipt": motion_gate["receipt"],
+            "creativeApproval": {
+                key: value
+                for key, value in creative_approval.items()
+                if key != "approval"
+            },
             "checks": checks,
             "failureReasons": failures,
             "publishability_failure_reasons": failures,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -67,6 +68,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--lora-strength", type=float, default=1.0)
     parser.add_argument("--authorization-json", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--benchmark-recipe", type=Path)
+    parser.add_argument("--benchmark-recipe-sha256")
+    parser.add_argument("--analyzer-registry", type=Path)
+    parser.add_argument("--analyzer-registry-sha256")
+    parser.add_argument("--local-motion-admission", type=Path)
+    parser.add_argument("--local-motion-admission-sha256")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -78,6 +85,36 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
     resolution = args.resolution or model.default_resolution
     duration = args.duration if args.duration is not None else model.default_duration
     if model.backend == "local_mlx":
+        recipe_path = getattr(args, "benchmark_recipe", None)
+        registry_path = getattr(args, "analyzer_registry", None)
+        recipe_sha = getattr(args, "benchmark_recipe_sha256", None)
+        registry_sha = getattr(args, "analyzer_registry_sha256", None)
+        admission_path = getattr(args, "local_motion_admission", None)
+        admission_sha = getattr(args, "local_motion_admission_sha256", None)
+        if any(
+            value is None
+            for value in (
+                recipe_path,
+                recipe_sha,
+                registry_path,
+                registry_sha,
+                admission_path,
+                admission_sha,
+            )
+        ):
+            raise ValueError(
+                "local MLX generation requires path+sha evidence for admission, "
+                "benchmark recipe, and analyzer registry"
+            )
+        benchmark_recipe = _load_bound_json(
+            recipe_path, recipe_sha, label="benchmark_recipe"
+        )
+        analyzer_registry = _load_bound_json(
+            registry_path, registry_sha, label="analyzer_registry"
+        )
+        local_motion_admission = _load_bound_json(
+            admission_path, admission_sha, label="local_motion_admission"
+        )
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
@@ -140,6 +177,10 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             low_ram=not args.no_low_ram,
             tile_frames=args.tile_frames if args.tile_frames is not None else 1,
             tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
+            benchmark_recipe=benchmark_recipe,
+            analyzer_registry=analyzer_registry,
+            execution_context="campaign_generation",
+            local_motion_admission=local_motion_admission,
         )
     if args.model_dir is not None:
         raise ValueError("--model-dir applies only to local MLX models")
@@ -170,6 +211,18 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         raise ValueError("local MLX editing and memory controls require a local model")
     if args.steps is not None:
         raise ValueError("--steps applies only to local MLX models")
+    if any(
+        getattr(args, name, None) is not None
+        for name in (
+            "benchmark_recipe",
+            "benchmark_recipe_sha256",
+            "analyzer_registry",
+            "analyzer_registry_sha256",
+            "local_motion_admission",
+            "local_motion_admission_sha256",
+        )
+    ):
+        raise ValueError("benchmark evidence applies only to local MLX models")
     return WaveSpeedRequest(
         model_id=model.id,
         prompt=args.prompt,
@@ -185,6 +238,30 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         enable_prompt_expansion=args.enable_prompt_expansion,
         shot_type=args.shot_type,
     )
+
+
+def _load_bound_json(path: Any, expected_sha256: Any, *, label: str) -> dict[str, Any]:
+    if not isinstance(path, Path):
+        raise ValueError(f"{label}_path_missing")
+    digest = str(expected_sha256 or "")
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise ValueError(f"{label}_sha256_invalid")
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label}_file_missing_or_unsafe")
+    resolved = expanded.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"{label}_file_missing_or_unsafe")
+    payload_bytes = resolved.read_bytes()
+    if hashlib.sha256(payload_bytes).hexdigest() != digest:
+        raise ValueError(f"{label}_sha256_mismatch")
+    try:
+        payload = json.loads(payload_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label}_json_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label}_json_object_required")
+    return payload
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:

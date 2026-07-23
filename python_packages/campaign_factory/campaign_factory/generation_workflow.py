@@ -62,6 +62,10 @@ def run_generation_workflow(
     download: bool = False,
     structural_seams: ReferenceVideoRemixSeams | None = None,
     motion_model_id: str | None = None,
+    local_evidence_bundle_path: Path | None = None,
+    local_arena_summary_path: Path | None = None,
+    router_override_operator: str | None = None,
+    router_override_reason: str | None = None,
     motion_prompt: str | None = None,
     audio_path: Path | None = None,
     generate_audio: bool = False,
@@ -176,11 +180,49 @@ def run_generation_workflow(
         _require(accepted_still_path, "accepted_still_path")
         _require(motion_prompt, "motion_prompt")
         assert accepted_still_path is not None
-        selected_model = motion_model_id or (
-            "local_wan22_ti2v_5b_mlx"
-            if mode_id == "local_wan"
-            else "wavespeed_wan27_i2v_pro"
-        )
+        local_motion_admission = None
+        if mode_id == "local_wan":
+            from .local_motion_admission import build_local_motion_admission
+
+            if local_arena_summary_path is None:
+                raise ValueError("local_wan requires --local-arena-summary")
+            campaign = factory.domains.campaign_by_slug(campaign_slug)
+            campaign_creator = factory.domains.reel_execution.model_slug_for_campaign(
+                campaign["id"]
+            )
+            local_motion_admission = build_local_motion_admission(
+                evidence_bundle_path=local_evidence_bundle_path,
+                evidence_bundle=evidence_records,
+                arena_summary_path=local_arena_summary_path,
+                accepted_still_path=accepted_still_path,
+                audio_path=audio_path,
+                campaign_creator=campaign_creator,
+                task_kind=motion_task,
+                override_model_id=motion_model_id,
+                override_operator=router_override_operator,
+                override_reason=router_override_reason,
+                contentforge_root=factory.settings.contentforge_root,
+            )
+            selected_model = str(
+                local_motion_admission["routerDecision"]["selectedModelId"]
+            )
+            admitted_records = local_motion_admission["evidenceRecords"]
+            local_benchmark_recipe = admitted_records["benchmarkRecipe"]
+            local_analyzer_registry = admitted_records["analyzerRegistry"]
+        else:
+            if any(
+                value is not None
+                for value in (
+                    local_evidence_bundle_path,
+                    local_arena_summary_path,
+                    router_override_operator,
+                    router_override_reason,
+                )
+            ):
+                raise ValueError("local Router evidence applies only to local_wan")
+            selected_model = motion_model_id or "wavespeed_wan27_i2v_pro"
+            local_benchmark_recipe = None
+            local_analyzer_registry = None
         selected_duration = None
         if duration_seconds is not None:
             if not float(duration_seconds).is_integer():
@@ -213,6 +255,13 @@ def run_generation_workflow(
             motion_task=motion_task,
             motion_lora_path=motion_lora_path,
             motion_lora_strength=motion_lora_strength,
+            local_motion_admission=local_motion_admission,
+            local_arena_summary_path=(
+                local_arena_summary_path if mode_id == "local_wan" else None
+            ),
+            campaign_creator=(campaign_creator if mode_id == "local_wan" else None),
+            benchmark_recipe=local_benchmark_recipe,
+            analyzer_registry=local_analyzer_registry,
         )
     else:
         # Reference-video remix carries optional OpenCV/PySceneDetect dependencies.

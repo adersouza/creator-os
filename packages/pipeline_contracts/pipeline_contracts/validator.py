@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
@@ -15,6 +16,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 AUDIO_INTENT_SCHEMA = "audio_intent.v1.schema.json"
 ANALYZER_REGISTRY_SCHEMA = "analyzer_registry.v1.schema.json"
+EVIDENCE_ATTESTATION_SCHEMA = "evidence_attestation.v1.schema.json"
 BENCHMARK_RECIPE_SCHEMA = "benchmark_recipe.v1.schema.json"
 CONTENT_INTENT_SCHEMA = "content_intent.v1.schema.json"
 CREATOR_IDENTITY_PROFILE_SCHEMA = "creator_identity_profile.v1.schema.json"
@@ -59,9 +61,26 @@ PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA = "provider_spend_authorization.v2.schema
 CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA = (
     "contentforge_campaign_audit_response.v1.schema.json"
 )
+LOCAL_MODEL_ARENA_PLAN_SCHEMA = "local_model_arena_plan.v1.schema.json"
+LOCAL_MODEL_ARENA_SUMMARY_SCHEMA = "local_model_arena_summary.v1.schema.json"
+LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA = (
+    "local_model_arena_review_packet.v1.schema.json"
+)
+LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA = (
+    "local_model_arena_unblinding_receipt.v1.schema.json"
+)
+LOCAL_MODEL_ROUTER_DECISION_SCHEMA = "local_model_router_decision.v1.schema.json"
+TRUSTED_MEDIA_ANALYSIS_SCHEMA = "trusted_media_analysis.v1.schema.json"
+HUMAN_MEDIA_REVIEW_SCHEMA = "human_media_review.v1.schema.json"
+MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA = "motion_specific_qc_receipt.v2.schema.json"
+CREATIVE_APPROVAL_V2_SCHEMA = "creative_approval.v2.schema.json"
+PAID_MOTION_EXECUTION_RECEIPT_SCHEMA = "paid_motion_execution_receipt.v1.schema.json"
+RUNTIME_PROMOTION_APPROVAL_SCHEMA = "runtime_promotion_approval.v1.schema.json"
+RUNTIME_PROMOTION_RECEIPT_SCHEMA = "runtime_promotion_receipt.v1.schema.json"
 
 SCHEMA_NAMES = {
     "analyzer_registry": ANALYZER_REGISTRY_SCHEMA,
+    "evidence_attestation": EVIDENCE_ATTESTATION_SCHEMA,
     "audio_intent": AUDIO_INTENT_SCHEMA,
     "benchmark_recipe": BENCHMARK_RECIPE_SCHEMA,
     "content_intent": CONTENT_INTENT_SCHEMA,
@@ -116,6 +135,18 @@ SCHEMA_NAMES = {
     "provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
     "campaign_factory_provider_spend_authorization_v2": PROVIDER_SPEND_AUTHORIZATION_V2_SCHEMA,
     "contentforge_campaign_audit_response": CONTENTFORGE_CAMPAIGN_AUDIT_RESPONSE_SCHEMA,
+    "local_model_arena_plan": LOCAL_MODEL_ARENA_PLAN_SCHEMA,
+    "local_model_arena_summary": LOCAL_MODEL_ARENA_SUMMARY_SCHEMA,
+    "local_model_arena_review_packet": LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA,
+    "local_model_arena_unblinding_receipt": LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA,
+    "local_model_router_decision": LOCAL_MODEL_ROUTER_DECISION_SCHEMA,
+    "trusted_media_analysis": TRUSTED_MEDIA_ANALYSIS_SCHEMA,
+    "human_media_review": HUMAN_MEDIA_REVIEW_SCHEMA,
+    "motion_specific_qc_receipt_v2": MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA,
+    "creative_approval_v2": CREATIVE_APPROVAL_V2_SCHEMA,
+    "paid_motion_execution_receipt": PAID_MOTION_EXECUTION_RECEIPT_SCHEMA,
+    "runtime_promotion_approval": RUNTIME_PROMOTION_APPROVAL_SCHEMA,
+    "runtime_promotion_receipt": RUNTIME_PROMOTION_RECEIPT_SCHEMA,
 }
 
 
@@ -125,6 +156,10 @@ class ContractValidationError(ValueError):
 
 def validate_analyzer_registry(value: Any) -> None:
     validate_contract(value, ANALYZER_REGISTRY_SCHEMA)
+
+
+def validate_evidence_attestation(value: Any) -> None:
+    validate_contract(value, EVIDENCE_ATTESTATION_SCHEMA)
 
 
 def validate_benchmark_recipe(value: Any) -> None:
@@ -137,6 +172,114 @@ def validate_content_intent(value: Any) -> None:
 
 def validate_creator_identity_profile(value: Any) -> None:
     validate_contract(value, CREATOR_IDENTITY_PROFILE_SCHEMA)
+
+
+def validate_local_model_arena_plan(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ARENA_PLAN_SCHEMA)
+
+
+def validate_local_model_arena_summary(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ARENA_SUMMARY_SCHEMA)
+
+
+def validate_local_model_arena_review_packet(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ARENA_REVIEW_PACKET_SCHEMA)
+    candidates = value["candidates"]
+    _validate_declared_record_count(
+        value,
+        count_field="expectedCandidateCount",
+        records_field="candidates",
+    )
+    _validate_unique_record_fields(
+        candidates,
+        collection_path="$.candidates",
+        fields=("reviewOrdinal", "blindedCandidateId", "subjectSha256"),
+    )
+    ordinals = sorted(candidate["reviewOrdinal"] for candidate in candidates)
+    expected_ordinals = list(range(1, len(candidates) + 1))
+    if ordinals != expected_ordinals:
+        raise ContractValidationError(
+            "$.candidates.reviewOrdinal: values must be contiguous from 1 through "
+            "expectedCandidateCount"
+        )
+
+
+def validate_local_model_arena_unblinding_receipt(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ARENA_UNBLINDING_RECEIPT_SCHEMA)
+    _validate_declared_record_count(
+        value,
+        count_field="expectedReviewCount",
+        records_field="bindings",
+    )
+    _validate_unique_record_fields(
+        value["bindings"],
+        collection_path="$.bindings",
+        fields=(
+            "blindedCandidateId",
+            "subjectSha256",
+            "humanReviewId",
+            "sampleId",
+        ),
+    )
+
+
+def _validate_declared_record_count(
+    value: dict[str, Any], *, count_field: str, records_field: str
+) -> None:
+    if value[count_field] != len(value[records_field]):
+        raise ContractValidationError(
+            f"$.{count_field}: must equal the number of $.{records_field} records"
+        )
+
+
+def _validate_unique_record_fields(
+    records: list[dict[str, Any]],
+    *,
+    collection_path: str,
+    fields: tuple[str, ...],
+) -> None:
+    for field in fields:
+        seen: dict[Any, int] = {}
+        for index, record in enumerate(records):
+            item = record[field]
+            if item in seen:
+                raise ContractValidationError(
+                    f"{collection_path}[{index}].{field}: duplicates "
+                    f"{collection_path}[{seen[item]}].{field}"
+                )
+            seen[item] = index
+
+
+def validate_local_model_router_decision(value: Any) -> None:
+    validate_contract(value, LOCAL_MODEL_ROUTER_DECISION_SCHEMA)
+
+
+def validate_trusted_media_analysis(value: Any) -> None:
+    validate_contract(value, TRUSTED_MEDIA_ANALYSIS_SCHEMA)
+
+
+def validate_human_media_review(value: Any) -> None:
+    validate_contract(value, HUMAN_MEDIA_REVIEW_SCHEMA)
+
+
+def validate_motion_specific_qc_receipt_v2(value: Any) -> None:
+    validate_contract(value, MOTION_SPECIFIC_QC_RECEIPT_V2_SCHEMA)
+
+
+def validate_creative_approval_v2(value: Any) -> None:
+    validate_contract(value, CREATIVE_APPROVAL_V2_SCHEMA)
+
+
+def validate_paid_motion_execution_receipt(value: Any) -> None:
+    validate_contract(value, PAID_MOTION_EXECUTION_RECEIPT_SCHEMA)
+
+
+def validate_runtime_promotion_approval(value: Any) -> None:
+    validate_contract(value, RUNTIME_PROMOTION_APPROVAL_SCHEMA)
+
+
+def validate_runtime_promotion_receipt(value: Any) -> None:
+    validate_contract(value, RUNTIME_PROMOTION_RECEIPT_SCHEMA)
 
 
 def schema_path(name: str) -> Path:
@@ -163,6 +306,17 @@ def example_names() -> list[str]:
 
 
 def validate_contract(value: Any, schema_name: str) -> None:
+    def reject_non_finite(item: Any, path: str = "$") -> None:
+        if isinstance(item, float) and not math.isfinite(item):
+            raise ContractValidationError(f"{path}: non-finite numbers are not JSON")
+        if isinstance(item, dict):
+            for key, nested in item.items():
+                reject_non_finite(nested, f"{path}.{key}")
+        elif isinstance(item, (list, tuple)):
+            for index, nested in enumerate(item):
+                reject_non_finite(nested, f"{path}[{index}]")
+
+    reject_non_finite(value)
     validator = _validator_for(schema_name)
     errors = sorted(
         validator.iter_errors(value),
@@ -475,7 +629,11 @@ def _schema_registry() -> Registry:
 def _validator_for(schema_name: str) -> Draft202012Validator:
     schema = load_schema(schema_name)
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema, registry=_schema_registry())
+    return Draft202012Validator(
+        schema,
+        registry=_schema_registry(),
+        format_checker=FormatChecker(),
+    )
 
 
 def _format_error(error: Any) -> str:

@@ -13,13 +13,15 @@ import json
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .fileops import atomic_write_text
+from .fileops import atomic_write_text, file_lock
 from .local_lora_registry import register_local_lora
 from .local_video_models import (
     LONGCAT_MLX_REPOSITORY,
@@ -56,6 +58,9 @@ _LONGCAT_RUNTIME_REQUIREMENTS = (
     "imageio==2.37.4",
     "imageio-ffmpeg==0.6.0",
 )
+_LONGCAT_RUNTIME_REQUIREMENTS_FINGERPRINT = hashlib.sha256(
+    "\n".join(_LONGCAT_RUNTIME_REQUIREMENTS).encode("utf-8")
+).hexdigest()
 
 
 def _normalize_longcat_environment(
@@ -152,7 +157,7 @@ def install_plan(
         material_issues = [
             issue
             for issue in status["issues"]
-            if not str(issue).startswith("local_model_dependency_missing:")
+            if not str(issue).startswith("local_model_dependency_")
         ]
         installed = not material_issues
         if not installed:
@@ -168,11 +173,27 @@ def install_plan(
     dependency_entries = []
     missing_dependency_bytes = 0
     for dependency in dependencies:
-        installed = _dependency_ready(dependency, root)
+        ready = _dependency_ready(dependency, root)
+        repair_required = bool(
+            dependency.cache_only
+            and not ready
+            and _dependency_ready(
+                dependency,
+                root,
+                deep=True,
+                require_runtime_reference=False,
+            )
+        )
+        installed = ready or repair_required
         if not installed:
             missing_dependency_bytes += dependency.estimated_bytes
         dependency_entries.append(
-            {**_dependency_payload(dependency, root), "installed": installed}
+            {
+                **_dependency_payload(dependency, root),
+                "installed": installed,
+                "ready": ready,
+                "repairRequired": repair_required,
+            }
         )
     selected_artifact_bytes = sum(spec.estimated_bytes for spec in specs) + sum(
         value.estimated_bytes for value in dependencies
@@ -204,6 +225,32 @@ def install_models(
     longcat_runtime_root: Path | None = None,
     accepted_licenses: Sequence[str] = (),
     runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    root = _models_root(models_root)
+    try:
+        with file_lock(root / ".creator-os-model-installer", blocking=False):
+            return _install_models_locked(
+                model_ids,
+                models_root=root,
+                runtime_root=runtime_root,
+                ltx_runtime_root=ltx_runtime_root,
+                longcat_runtime_root=longcat_runtime_root,
+                accepted_licenses=accepted_licenses,
+                runner=runner,
+            )
+    except BlockingIOError as exc:
+        raise RuntimeError("local_model_installer_busy") from exc
+
+
+def _install_models_locked(
+    model_ids: Sequence[str],
+    *,
+    models_root: Path,
+    runtime_root: Path | None,
+    ltx_runtime_root: Path | None,
+    longcat_runtime_root: Path | None,
+    accepted_licenses: Sequence[str],
+    runner: Runner,
 ) -> dict[str, Any]:
     specs = _selected_specs(model_ids)
     plan = install_plan([spec.model_id for spec in specs], models_root=models_root)
@@ -273,6 +320,28 @@ def install_runtime(
     family: LocalFamily = "wan_2",
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
+    selected_root = {
+        "wan_2": _runtime_root,
+        "ltx_2": _ltx_runtime_root,
+        "longcat_avatar": _longcat_runtime_root,
+    }[family](runtime_root)
+    try:
+        with file_lock(
+            selected_root.parent / f".{selected_root.name}-installer", blocking=False
+        ):
+            return _install_runtime_locked(
+                runtime_root=selected_root, family=family, runner=runner
+            )
+    except BlockingIOError as exc:
+        raise RuntimeError("local_runtime_installer_busy") from exc
+
+
+def _install_runtime_locked(
+    *,
+    runtime_root: Path,
+    family: LocalFamily,
+    runner: Runner,
+) -> dict[str, Any]:
     if family == "longcat_avatar":
         return _install_longcat_runtime(runtime_root=runtime_root, runner=runner)
     if family == "ltx_2":
@@ -316,6 +385,9 @@ def install_runtime(
             runner,
             ["git", "-C", str(partial), "checkout", "--detach", MLX_VIDEO_REVISION],
         )
+    _require_clean_git_worktree(
+        partial, runner=runner, error="local_mlx_runtime_partial_worktree_dirty"
+    )
     _run_checked(
         runner,
         [
@@ -387,6 +459,11 @@ def runtime_status(
             issues.append("mlx_video_runtime_revision_unreadable")
         if revision != MLX_VIDEO_REVISION:
             issues.append("mlx_video_runtime_revision_mismatch")
+        worktree_issue = _git_worktree_issue(runtime)
+        if worktree_issue == "unreadable":
+            issues.append("mlx_video_runtime_worktree_unreadable")
+        elif worktree_issue == "dirty":
+            issues.append("mlx_video_runtime_worktree_dirty")
     try:
         decoded = json.loads((runtime / ".creator-os-runtime.json").read_text())
     except (OSError, json.JSONDecodeError):
@@ -547,6 +624,9 @@ def _install_ltx_runtime(
             runner,
             ["git", "-C", str(partial), "checkout", "--detach", LTX_MLX_REVISION],
         )
+    _require_clean_git_worktree(
+        partial, runner=runner, error="local_ltx_runtime_partial_worktree_dirty"
+    )
     _run_checked(
         runner,
         ["uv", "sync", "--frozen", "--no-dev", "--directory", str(partial)],
@@ -627,6 +707,11 @@ def _ltx_runtime_status(*, runtime_root: Path | None = None) -> dict[str, Any]:
             issues.append("ltx_mlx_runtime_revision_unreadable")
         if revision != LTX_MLX_REVISION:
             issues.append("ltx_mlx_runtime_revision_mismatch")
+        worktree_issue = _git_worktree_issue(runtime)
+        if worktree_issue == "unreadable":
+            issues.append("ltx_mlx_runtime_worktree_unreadable")
+        elif worktree_issue == "dirty":
+            issues.append("ltx_mlx_runtime_worktree_dirty")
     try:
         decoded = json.loads(receipt.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -739,6 +824,11 @@ def _install_longcat_runtime(
             runner,
             ["git", "-C", str(partial), "checkout", "--detach", LONGCAT_MLX_REVISION],
         )
+    _require_clean_git_worktree(
+        partial,
+        runner=runner,
+        error="local_longcat_runtime_partial_worktree_dirty",
+    )
     python = partial / ".venv/bin/python"
     if not python.is_file():
         _run_checked(runner, ["uv", "venv", "--python", "3.12", str(partial / ".venv")])
@@ -768,6 +858,7 @@ def _install_longcat_runtime(
         "revision": LONGCAT_MLX_REVISION,
         "python": str(runtime / ".venv/bin/python"),
         "requirements": list(_LONGCAT_RUNTIME_REQUIREMENTS),
+        "requirementsFingerprint": _LONGCAT_RUNTIME_REQUIREMENTS_FINGERPRINT,
         "resolvedEnvironment": _normalize_longcat_environment(frozen, runtime=runtime),
         "capabilityStatus": "experimental",
     }
@@ -806,6 +897,11 @@ def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, An
             issues.append("longcat_mlx_runtime_revision_unreadable")
         if revision != LONGCAT_MLX_REVISION:
             issues.append("longcat_mlx_runtime_revision_mismatch")
+        worktree_issue = _git_worktree_issue(runtime)
+        if worktree_issue == "unreadable":
+            issues.append("longcat_mlx_runtime_worktree_unreadable")
+        elif worktree_issue == "dirty":
+            issues.append("longcat_mlx_runtime_worktree_dirty")
     try:
         decoded = json.loads(receipt.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -821,6 +917,8 @@ def _longcat_runtime_status(*, runtime_root: Path | None = None) -> dict[str, An
             or payload.get("revision") != LONGCAT_MLX_REVISION
             or payload.get("python") != str(python)
             or payload.get("requirements") != list(_LONGCAT_RUNTIME_REQUIREMENTS)
+            or payload.get("requirementsFingerprint")
+            != _LONGCAT_RUNTIME_REQUIREMENTS_FINGERPRINT
         ):
             issues.append("longcat_mlx_runtime_receipt_mismatch")
     if not python.is_file():
@@ -890,7 +988,7 @@ def model_status(
     model_id: str,
     *,
     models_root: Path | None = None,
-    deep: bool = False,
+    deep: bool = True,
 ) -> dict[str, Any]:
     spec = local_video_model_spec(model_id)
     root = _models_root(models_root)
@@ -898,6 +996,7 @@ def model_status(
     manifest_path = directory / MODEL_MANIFEST
     issues: list[str] = []
     manifest: dict[str, Any] | None = None
+    records: list[dict[str, Any]] | None = None
     if not manifest_path.is_file():
         issues.append("local_model_manifest_missing")
     else:
@@ -924,47 +1023,324 @@ def model_status(
         for key, value in expected.items():
             if manifest.get(key) != value:
                 issues.append(f"local_model_manifest_mismatch:{key}")
-        records = manifest.get("files")
-        if not isinstance(records, list):
+        records = _validated_dependency_records(
+            manifest.get("files"), required_paths=spec.required_paths
+        )
+        if records is None:
             issues.append("local_model_file_manifest_missing")
         else:
             for record in records:
-                if not isinstance(record, dict):
-                    issues.append("local_model_file_manifest_invalid")
-                    continue
-                relative = str(record.get("path") or "")
+                relative = str(record["path"])
                 path = directory / relative
-                if not path.is_file():
+                if path.is_symlink() or not path.is_file():
                     issues.append(f"local_model_file_missing:{relative}")
                     continue
-                if path.stat().st_size != int(record.get("size") or -1):
+                if path.stat().st_size != int(record["size"]):
                     issues.append(f"local_model_file_size_mismatch:{relative}")
-                    continue
-                if deep and _sha256_file(path) != record.get("sha256"):
-                    issues.append(f"local_model_file_hash_mismatch:{relative}")
     for relative in spec.required_paths:
         if not (directory / relative).is_file():
             issues.append(f"local_model_required_file_missing:{relative}")
     for dependency_id in spec.dependency_ids:
         dependency = local_install_dependency(dependency_id)
-        if not _dependency_ready(dependency, root, deep=deep):
-            issues.append(f"local_model_dependency_missing:{dependency_id}")
+        if not _dependency_ready(dependency, root, deep=False):
+            if dependency.cache_only and _dependency_ready(
+                dependency,
+                root,
+                deep=False,
+                require_runtime_reference=False,
+            ):
+                reference_issue = _cache_runtime_reference_issue(dependency, root)
+                issues.append(
+                    f"local_model_dependency_{reference_issue}:{dependency_id}"
+                )
+            else:
+                issues.append(f"local_model_dependency_missing:{dependency_id}")
+    manifest_sha256 = _sha256_file(manifest_path) if manifest_path.is_file() else None
+    deep_receipt: dict[str, Any] | None = None
+    deep_cache_hit = False
+    stat_snapshot_fingerprint: str | None = None
+    runtime_binding: dict[str, Any] | None = None
+    runtime_binding_fingerprint: str | None = None
+    if (
+        deep
+        and not issues
+        and manifest is not None
+        and manifest_sha256 is not None
+        and records is not None
+    ):
+        runtime_id, runtime_repository, runtime_revision = runtime_identity(spec.family)
+        runtime_binding = {
+            "runtimeId": runtime_id,
+            "repository": runtime_repository,
+            "revision": runtime_revision,
+            "platform": platform.system(),
+            "machine": platform.machine(),
+            "python": platform.python_version(),
+        }
+        stat_snapshot = _deep_verification_stat_snapshot(
+            directory=directory,
+            manifest_path=manifest_path,
+            records=records,
+            dependency_ids=spec.dependency_ids,
+            root=root,
+        )
+        stat_snapshot_fingerprint = _fingerprint(stat_snapshot)
+        runtime_binding_fingerprint = _fingerprint(runtime_binding)
+        deep_receipt = _load_deep_verification_cache(
+            root=root,
+            model_id=spec.model_id,
+            manifest_sha256=manifest_sha256,
+            stat_snapshot_fingerprint=stat_snapshot_fingerprint,
+            runtime_binding_fingerprint=runtime_binding_fingerprint,
+        )
+        deep_cache_hit = deep_receipt is not None
+    if deep and not issues and deep_receipt is None and records is not None:
+        for record in records:
+            relative = str(record["path"])
+            if _sha256_file(directory / relative) != record["sha256"]:
+                issues.append(f"local_model_file_hash_mismatch:{relative}")
+        for dependency_id in spec.dependency_ids:
+            dependency = local_install_dependency(dependency_id)
+            if not _dependency_ready(dependency, root, deep=True):
+                issues.append(f"local_model_dependency_missing:{dependency_id}")
+    if (
+        deep
+        and not issues
+        and deep_receipt is None
+        and manifest is not None
+        and manifest_sha256 is not None
+        and records is not None
+        and stat_snapshot_fingerprint is not None
+        and runtime_binding is not None
+        and runtime_binding_fingerprint is not None
+    ):
+        deep_core = {
+            "schema": "reel_factory.local_model_deep_verification.v1",
+            "modelId": spec.model_id,
+            "repository": spec.repository,
+            "revision": spec.revision,
+            "manifestSha256": manifest_sha256,
+            "fileBindings": [
+                {
+                    "path": str(record["path"]),
+                    "size": int(record["size"]),
+                    "sha256": str(record["sha256"]),
+                }
+                for record in records
+            ],
+            "dependencyBindings": [
+                {
+                    "dependencyId": dependency_id,
+                    "receiptSha256": _sha256_file(
+                        _dependency_receipt_path(
+                            local_install_dependency(dependency_id), root
+                        )
+                    ),
+                }
+                for dependency_id in spec.dependency_ids
+            ],
+            "statSnapshotFingerprint": stat_snapshot_fingerprint,
+            "runtimeBinding": runtime_binding,
+            "runtimeBindingFingerprint": runtime_binding_fingerprint,
+            "verifiedAt": datetime.now(UTC).isoformat(),
+            "providerCalls": 0,
+            "paidGeneration": False,
+        }
+        deep_receipt = {
+            **deep_core,
+            "verificationFingerprint": _fingerprint(deep_core),
+        }
+        _write_deep_verification_cache(
+            root=root,
+            model_id=spec.model_id,
+            receipt=deep_receipt,
+        )
     return {
         "schema": "reel_factory.local_model_capability.v1",
         "modelId": spec.model_id,
         "modelDir": str(directory),
         "runtimeModelDir": str(runtime_model_dir(spec, directory)),
         "manifestPath": str(manifest_path),
-        "manifestSha256": (
-            _sha256_file(manifest_path) if manifest_path.is_file() else None
-        ),
+        "manifestSha256": manifest_sha256,
         "manifest": manifest,
-        "deepVerified": deep,
+        "deepVerified": deep_receipt is not None,
+        "deepVerificationReceipt": deep_receipt,
+        "deepVerificationCacheHit": deep_cache_hit,
         "ready": not issues,
         "issues": issues,
         "providerCalls": 0,
         "paidGeneration": False,
     }
+
+
+def _deep_verification_cache_path(root: Path, model_id: str) -> Path:
+    return root / ".verification-cache" / f"{model_id}.json"
+
+
+def _safe_stat_binding(path: Path, *, allowed_root: Path) -> dict[str, Any]:
+    allowed = allowed_root.resolve()
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(allowed)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"local_model_verification_path_unsafe:{path}") from exc
+    link_stat = path.lstat()
+    target_stat = resolved.stat()
+    if not stat.S_ISREG(target_stat.st_mode):
+        raise RuntimeError(f"local_model_verification_path_not_regular:{path}")
+    return {
+        "path": str(path),
+        "resolvedPath": str(resolved),
+        "isSymlink": path.is_symlink(),
+        "link": {
+            "mode": link_stat.st_mode,
+            "size": link_stat.st_size,
+            "mtimeNs": link_stat.st_mtime_ns,
+            "ctimeNs": link_stat.st_ctime_ns,
+            "inode": link_stat.st_ino,
+            "device": link_stat.st_dev,
+        },
+        "target": {
+            "mode": target_stat.st_mode,
+            "size": target_stat.st_size,
+            "mtimeNs": target_stat.st_mtime_ns,
+            "ctimeNs": target_stat.st_ctime_ns,
+            "inode": target_stat.st_ino,
+            "device": target_stat.st_dev,
+        },
+    }
+
+
+def _deep_verification_stat_snapshot(
+    *,
+    directory: Path,
+    manifest_path: Path,
+    records: Sequence[Mapping[str, Any]],
+    dependency_ids: Sequence[str],
+    root: Path,
+) -> dict[str, Any]:
+    model_bindings = [
+        _safe_stat_binding(directory / str(record["path"]), allowed_root=directory)
+        for record in records
+    ]
+    dependency_bindings: list[dict[str, Any]] = []
+    for dependency_id in dependency_ids:
+        dependency = local_install_dependency(dependency_id)
+        receipt_path = _dependency_receipt_path(dependency, root)
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"local_model_dependency_receipt_invalid:{dependency_id}"
+            ) from exc
+        dependency_records = _validated_dependency_records(
+            receipt.get("files") if isinstance(receipt, dict) else None,
+            required_paths=dependency.required_paths,
+        )
+        if dependency_records is None:
+            raise RuntimeError(
+                f"local_model_dependency_receipt_invalid:{dependency_id}"
+            )
+        dependency_directory = (
+            Path(str(receipt.get("resolvedPath") or "")).resolve()
+            if dependency.cache_only
+            else dependency.directory(root)
+        )
+        allowed_root = (
+            _cache_repository_root(dependency, root)
+            if dependency.cache_only
+            else dependency_directory
+        )
+        dependency_bindings.append(
+            {
+                "dependencyId": dependency_id,
+                "receipt": _safe_stat_binding(
+                    receipt_path, allowed_root=receipt_path.parent
+                ),
+                "files": [
+                    _safe_stat_binding(
+                        dependency_directory / str(record["path"]),
+                        allowed_root=allowed_root,
+                    )
+                    for record in dependency_records
+                ],
+                "runtimeReference": (
+                    _safe_stat_binding(
+                        _cache_runtime_reference_path(dependency, root),
+                        allowed_root=_cache_repository_root(dependency, root),
+                    )
+                    if dependency.cache_only
+                    else None
+                ),
+            }
+        )
+    return {
+        "schema": "reel_factory.local_model_stat_snapshot.v1",
+        "manifest": _safe_stat_binding(
+            manifest_path, allowed_root=manifest_path.parent
+        ),
+        "modelFiles": model_bindings,
+        "dependencies": dependency_bindings,
+    }
+
+
+def _load_deep_verification_cache(
+    *,
+    root: Path,
+    model_id: str,
+    manifest_sha256: str,
+    stat_snapshot_fingerprint: str,
+    runtime_binding_fingerprint: str,
+) -> dict[str, Any] | None:
+    path = _deep_verification_cache_path(root, model_id)
+    if not path.is_file() or path.is_symlink():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    receipt = payload.get("receipt")
+    if not isinstance(receipt, dict):
+        return None
+    claimed = receipt.get("verificationFingerprint")
+    core = dict(receipt)
+    core.pop("verificationFingerprint", None)
+    if (
+        payload.get("schema") != "reel_factory.local_model_verification_cache.v1"
+        or payload.get("modelId") != model_id
+        or payload.get("manifestSha256") != manifest_sha256
+        or payload.get("statSnapshotFingerprint") != stat_snapshot_fingerprint
+        or payload.get("runtimeBindingFingerprint") != runtime_binding_fingerprint
+        or claimed != _fingerprint(core)
+        or receipt.get("statSnapshotFingerprint") != stat_snapshot_fingerprint
+        or receipt.get("runtimeBindingFingerprint") != runtime_binding_fingerprint
+    ):
+        return None
+    return receipt
+
+
+def _write_deep_verification_cache(
+    *, root: Path, model_id: str, receipt: Mapping[str, Any]
+) -> None:
+    path = _deep_verification_cache_path(root, model_id)
+    if path.parent.exists() and path.parent.is_symlink():
+        raise RuntimeError("local_model_verification_cache_unsafe")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "reel_factory.local_model_verification_cache.v1",
+        "modelId": model_id,
+        "manifestSha256": receipt["manifestSha256"],
+        "statSnapshotFingerprint": receipt["statSnapshotFingerprint"],
+        "runtimeBindingFingerprint": receipt["runtimeBindingFingerprint"],
+        "receipt": dict(receipt),
+    }
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def all_model_status(
@@ -1038,28 +1414,99 @@ def legacy_storage_report(*, models_root: Path | None = None) -> dict[str, Any]:
         "LTX-2.3-shared-MLX",
         "LTX-Gemma3-12B",
     )
-    candidates = []
+    candidates: list[dict[str, Any]] = []
+    observed: set[Path] = set()
+
+    def add_candidate(path: Path, classification: str, reason: str) -> None:
+        resolved = path.resolve()
+        if resolved in observed:
+            return
+        observed.add(resolved)
+        candidates.append(
+            {
+                "path": str(resolved),
+                "estimatedBytes": _directory_size(path) if path.is_dir() else 0,
+                "classification": classification,
+                "deletionAllowed": False,
+                "reason": reason,
+            }
+        )
+
     for name in names:
         path = root / name
         if not path.exists():
             continue
-        candidates.append(
-            {
-                "path": str(path.resolve()),
-                "estimatedBytes": _directory_size(path),
-                "classification": "superseded_ltx_runtime_artifact",
-                "deletionAllowed": False,
-                "reason": (
-                    "preserve until quantized replacements pass deep verification, "
-                    "a visual canary, and an operator reference audit"
-                ),
-            }
+        add_candidate(
+            path,
+            "superseded_ltx_runtime_artifact",
+            "preserve until quantized replacements pass deep verification, "
+            "a visual canary, and an operator reference audit",
         )
+    if root.is_dir():
+        for path in sorted(root.iterdir()):
+            if path.name.endswith(".partial") or ".partial." in path.name:
+                add_candidate(
+                    path,
+                    "incomplete_model_install_staging",
+                    "inspect installer evidence before any operator-approved removal",
+                )
+            elif ".orphan." in path.name:
+                add_candidate(
+                    path,
+                    "preserved_model_install_orphan",
+                    "preserved recovery evidence; never remove automatically",
+                )
+    expected_dependency_revisions = {
+        value.revision for value in local_install_dependencies()
+    }
+    snapshot_root = hf_home(root) / "hub"
+    if snapshot_root.is_dir():
+        for path in sorted(snapshot_root.glob("models--*/snapshots/*")):
+            if path.name not in expected_dependency_revisions:
+                add_candidate(
+                    path,
+                    "unreferenced_huggingface_snapshot_revision",
+                    "revision is not pinned by the current Creator OS catalog",
+                )
+    runtime_roots = {
+        "wan": _runtime_root(None),
+        "ltx": _ltx_runtime_root(None),
+        "longcat": _longcat_runtime_root(None),
+    }
+    for runtime in runtime_roots.values():
+        for path in sorted(runtime.parent.glob(runtime.name + ".partial*")):
+            add_candidate(
+                path,
+                "incomplete_runtime_install_staging",
+                "inspect pinned revision and installer evidence before removal",
+            )
+        for path in sorted(runtime.parent.glob(runtime.name + ".orphan.*")):
+            add_candidate(
+                path,
+                "preserved_runtime_install_orphan",
+                "preserved recovery evidence; never remove automatically",
+            )
     return {
         "schema": "reel_factory.local_model_legacy_storage_report.v1",
         "modelsRoot": str(root),
         "candidates": candidates,
         "candidateBytes": sum(value["estimatedBytes"] for value in candidates),
+        "configuredRoots": {
+            "models": str(root),
+            "runtimes": {key: str(value) for key, value in runtime_roots.items()},
+            "huggingFaceHome": str(hf_home(root)),
+            "environmentOverrides": {
+                key: os.environ.get(key)
+                for key in (
+                    "CREATOR_OS_LOCAL_MODELS_ROOT",
+                    "CREATOR_OS_LOCAL_MLX_RUNTIME",
+                    "CREATOR_OS_LOCAL_LTX_RUNTIME",
+                    "CREATOR_OS_LOCAL_LONGCAT_RUNTIME",
+                    "HF_HOME",
+                )
+                if os.environ.get(key)
+            },
+        },
         "deletionPerformed": False,
         "destructiveActionAvailable": False,
     }
@@ -1071,6 +1518,28 @@ def _install_dependency(
     if _dependency_ready(dependency, root):
         return {**_dependency_payload(dependency, root), "status": "already_installed"}
     if dependency.cache_only:
+        # ``hf download --revision <commit>`` creates the immutable snapshot but
+        # does not necessarily create ``refs/main``.  The pinned mlx-video
+        # runtime asks Transformers for the repository name without a revision,
+        # so offline execution cannot resolve an otherwise complete snapshot
+        # without that reference.  Repair only this cache metadata after a deep
+        # verification of the already-recorded snapshot; never use repair as a
+        # reason to download or accept substituted files.
+        if _dependency_ready(
+            dependency,
+            root,
+            deep=True,
+            require_runtime_reference=False,
+        ):
+            _write_cache_runtime_reference(dependency, root)
+            if not _dependency_ready(dependency, root, deep=True):
+                raise RuntimeError(
+                    f"local_model_dependency_reference_repair_failed:{dependency.id}"
+                )
+            return {
+                **_dependency_payload(dependency, root),
+                "status": "repaired_runtime_reference",
+            }
         cache = hf_home(root) / "hub"
         cache.mkdir(parents=True, exist_ok=True)
         command = [
@@ -1087,6 +1556,12 @@ def _install_dependency(
             command.extend(["--include", pattern])
         completed = _run_checked(runner, command)
         resolved_path = completed.stdout.strip().splitlines()[-1]
+        expected_snapshot = _cache_snapshot_path(dependency, root)
+        if Path(resolved_path).expanduser().resolve() != expected_snapshot.resolve():
+            raise RuntimeError(
+                f"local_model_dependency_snapshot_mismatch:{dependency.id}"
+            )
+        _write_cache_runtime_reference(dependency, root)
         receipt = _dependency_receipt_path(dependency, root)
         receipt.parent.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -1102,25 +1577,35 @@ def _install_dependency(
         return {**payload, "status": "installed"}
 
     directory = dependency.directory(root)
-    directory.mkdir(parents=True, exist_ok=True)
+    if directory.exists() or directory.is_symlink():
+        raise FileExistsError(
+            f"local_model_dependency_destination_requires_recovery:{dependency.id}"
+        )
+    partial = directory.with_name(directory.name + ".partial")
+    if partial.exists() or partial.is_symlink():
+        raise FileExistsError(
+            f"local_model_dependency_partial_requires_recovery:{dependency.id}"
+        )
+    partial.mkdir(parents=True, exist_ok=False)
     _hf_download(
         dependency.repository,
         dependency.revision,
         dependency.includes,
-        directory,
+        partial,
         runner=runner,
     )
-    records = _file_records(directory)
+    records = _file_records(partial)
     payload = {
         **_dependency_payload(dependency, root),
         "schema": "reel_factory.local_model_dependency.v1",
         "files": records,
     }
     atomic_write_text(
-        directory / MODEL_MANIFEST,
+        partial / MODEL_MANIFEST,
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    os.replace(partial, directory)
     return {**payload, "status": "installed"}
 
 
@@ -1131,15 +1616,22 @@ def _install_model(
     if existing["ready"]:
         return {**existing, "status": "already_installed"}
     directory = spec.directory(root)
-    directory.mkdir(parents=True, exist_ok=True)
+    if directory.exists() or directory.is_symlink():
+        raise FileExistsError(
+            f"local_model_destination_requires_recovery:{spec.model_id}"
+        )
+    partial = directory.with_name(directory.name + ".partial")
+    if partial.exists() or partial.is_symlink():
+        raise FileExistsError(f"local_model_partial_requires_recovery:{spec.model_id}")
+    partial.mkdir(parents=True, exist_ok=False)
     _hf_download(
         spec.repository,
         spec.revision,
         spec.includes,
-        directory,
+        partial,
         runner=runner,
     )
-    records = _file_records(directory)
+    records = _file_records(partial)
     runtime_id, runtime_repository, runtime_revision = runtime_identity(spec.family)
     payload = {
         "schema": _RECEIPT_SCHEMA,
@@ -1161,10 +1653,11 @@ def _install_model(
         "dependencies": list(spec.dependency_ids),
     }
     atomic_write_text(
-        directory / MODEL_MANIFEST,
+        partial / MODEL_MANIFEST,
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    os.replace(partial, directory)
     verified = model_status(spec.model_id, models_root=root, deep=False)
     if not verified["ready"]:
         raise RuntimeError(
@@ -1196,10 +1689,14 @@ def _hf_download(
 
 
 def _dependency_ready(
-    dependency: LocalInstallDependency, root: Path, *, deep: bool = False
+    dependency: LocalInstallDependency,
+    root: Path,
+    *,
+    deep: bool = False,
+    require_runtime_reference: bool = True,
 ) -> bool:
     receipt = _dependency_receipt_path(dependency, root)
-    if not receipt.is_file():
+    if not receipt.is_file() or receipt.is_symlink():
         return False
     try:
         payload = json.loads(receipt.read_text(encoding="utf-8"))
@@ -1211,28 +1708,76 @@ def _dependency_ready(
     )
     if not identity_matches:
         return False
-    records = payload.get("files")
-    if not isinstance(records, list) or not records:
+    records = _validated_dependency_records(
+        payload.get("files"), required_paths=dependency.required_paths
+    )
+    if records is None:
         return False
     directory = (
         Path(str(payload.get("resolvedPath") or ""))
         if dependency.cache_only
         else dependency.directory(root)
     )
-    if not directory.is_dir():
+    if not directory.is_dir() or directory.is_symlink():
         return False
+    if dependency.cache_only:
+        if (
+            directory.expanduser().resolve()
+            != _cache_snapshot_path(dependency, root).resolve()
+        ):
+            return False
+        if require_runtime_reference and not _cache_runtime_reference_ready(
+            dependency, root
+        ):
+            return False
     return all(
-        isinstance(record, dict)
-        and (directory / str(record.get("path") or "")).is_file()
-        and (directory / str(record.get("path") or "")).stat().st_size
-        == int(record.get("size") or -1)
-        and (
-            not deep
-            or _sha256_file(directory / str(record.get("path") or ""))
-            == record.get("sha256")
-        )
+        (directory / record["path"]).is_file()
+        and (directory / record["path"]).stat().st_size == record["size"]
+        and (not deep or _sha256_file(directory / record["path"]) == record["sha256"])
         for record in records
     )
+
+
+def _validated_dependency_records(
+    raw_records: Any, *, required_paths: Sequence[str]
+) -> list[dict[str, Any]] | None:
+    """Validate receipt paths before they can authorize cache metadata repair."""
+
+    if not isinstance(raw_records, list) or not raw_records:
+        return None
+    records: list[dict[str, Any]] = []
+    observed_paths: set[str] = set()
+    for raw in raw_records:
+        if not isinstance(raw, dict):
+            return None
+        relative_text = raw.get("path")
+        if not isinstance(relative_text, str) or not relative_text:
+            return None
+        relative = Path(relative_text)
+        if (
+            relative.is_absolute()
+            or "\\" in relative_text
+            or ".." in relative.parts
+            or relative.as_posix() != relative_text
+            or relative_text in observed_paths
+        ):
+            return None
+        size = raw.get("size")
+        digest = raw.get("sha256")
+        if (
+            isinstance(size, bool)
+            or not isinstance(size, int)
+            or size < 0
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            return None
+        observed_paths.add(relative_text)
+        records.append({"path": relative_text, "size": size, "sha256": digest})
+    if not set(required_paths).issubset(observed_paths):
+        return None
+    return records
 
 
 def _dependency_receipt_path(dependency: LocalInstallDependency, root: Path) -> Path:
@@ -1244,21 +1789,126 @@ def _dependency_receipt_path(dependency: LocalInstallDependency, root: Path) -> 
 def _dependency_payload(
     dependency: LocalInstallDependency, root: Path
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "id": dependency.id,
         "repository": dependency.repository,
         "revision": dependency.revision,
         "directory": str(dependency.directory(root)),
         "includes": list(dependency.includes),
+        "requiredPaths": list(dependency.required_paths),
         "estimatedBytes": dependency.estimated_bytes,
         "licenseId": dependency.license_id,
         "cacheOnly": dependency.cache_only,
     }
+    if dependency.cache_only:
+        payload["runtimeReference"] = {
+            "name": "main",
+            "path": str(_cache_runtime_reference_path(dependency, root)),
+            "revision": dependency.revision,
+        }
+    return payload
+
+
+def _cache_repository_root(dependency: LocalInstallDependency, root: Path) -> Path:
+    parts = dependency.repository.split("/")
+    if len(parts) != 2 or not all(part.strip() for part in parts):
+        raise ValueError(f"local_model_dependency_repository_invalid:{dependency.id}")
+    owner, name = parts
+    return hf_home(root) / "hub" / f"models--{owner}--{name}"
+
+
+def _cache_snapshot_path(dependency: LocalInstallDependency, root: Path) -> Path:
+    return _cache_repository_root(dependency, root) / "snapshots" / dependency.revision
+
+
+def _cache_runtime_reference_path(
+    dependency: LocalInstallDependency, root: Path
+) -> Path:
+    return _cache_repository_root(dependency, root) / "refs" / "main"
+
+
+def _cache_runtime_reference_ready(
+    dependency: LocalInstallDependency, root: Path
+) -> bool:
+    return _cache_runtime_reference_issue(dependency, root) is None
+
+
+def _cache_runtime_reference_issue(
+    dependency: LocalInstallDependency, root: Path
+) -> str | None:
+    reference = _cache_runtime_reference_path(dependency, root)
+    repository_root = _cache_repository_root(dependency, root)
+    references_root = reference.parent
+    if (
+        repository_root.is_symlink()
+        or (repository_root.exists() and not repository_root.is_dir())
+        or references_root.is_symlink()
+        or (references_root.exists() and not references_root.is_dir())
+        or reference.is_symlink()
+        or (reference.exists() and not reference.is_file())
+    ):
+        return "runtime_reference_unsafe"
+    if not reference.exists():
+        return "runtime_reference_missing"
+    try:
+        observed = reference.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "runtime_reference_unsafe"
+    if observed != dependency.revision:
+        return "runtime_reference_drift"
+    return None
+
+
+def _write_cache_runtime_reference(
+    dependency: LocalInstallDependency, root: Path
+) -> Path:
+    reference = _cache_runtime_reference_path(dependency, root)
+    repository_root = _cache_repository_root(dependency, root)
+    references_root = reference.parent
+    if (
+        repository_root.is_symlink()
+        or (repository_root.exists() and not repository_root.is_dir())
+        or references_root.is_symlink()
+        or (references_root.exists() and not references_root.is_dir())
+    ):
+        raise RuntimeError(f"local_model_dependency_reference_unsafe:{dependency.id}")
+    if reference.exists() or reference.is_symlink():
+        if not reference.is_file() or reference.is_symlink():
+            raise RuntimeError(
+                f"local_model_dependency_reference_unsafe:{dependency.id}"
+            )
+        try:
+            observed = reference.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError(
+                f"local_model_dependency_reference_unsafe:{dependency.id}"
+            ) from exc
+        if observed == dependency.revision:
+            return reference
+        if observed.strip() != dependency.revision:
+            raise RuntimeError(
+                f"local_model_dependency_reference_conflict:{dependency.id}"
+            )
+        atomic_write_text(reference, dependency.revision, encoding="utf-8")
+        if not _cache_runtime_reference_ready(dependency, root):
+            raise RuntimeError(
+                f"local_model_dependency_reference_write_failed:{dependency.id}"
+            )
+        return reference
+    reference.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(reference, dependency.revision, encoding="utf-8")
+    if not _cache_runtime_reference_ready(dependency, root):
+        raise RuntimeError(
+            f"local_model_dependency_reference_write_failed:{dependency.id}"
+        )
+    return reference
 
 
 def _file_records(directory: Path) -> list[dict[str, object]]:
     records = []
     for path in sorted(directory.rglob("*")):
+        if path.is_symlink():
+            raise RuntimeError(f"local_model_download_symlink_forbidden:{path}")
         if not path.is_file() or path.name == MODEL_MANIFEST or ".cache" in path.parts:
             continue
         relative = str(path.relative_to(directory))
@@ -1330,6 +1980,17 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _fingerprint(value: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        dict(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _run_checked(
     runner: Runner, command: list[str]
 ) -> subprocess.CompletedProcess[str]:
@@ -1350,6 +2011,47 @@ def _git_revision(path: Path, *, runner: Runner) -> str | None:
     if completed.returncode != 0:
         return None
     return completed.stdout.strip() or None
+
+
+def _git_worktree_issue(path: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(path),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unreadable"
+    if completed.returncode != 0:
+        return "unreadable"
+    return "dirty" if completed.stdout.strip() else None
+
+
+def _require_clean_git_worktree(path: Path, *, runner: Runner, error: str) -> None:
+    completed = runner(
+        [
+            "git",
+            "-C",
+            str(path),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or completed.stdout.strip():
+        raise RuntimeError(error)
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -30,7 +30,6 @@ def test_reclaim_fails_stale_running_jobs(tmp_path: Path):
         done = cf.domains.events.create_pipeline_job("render", campaign["id"])
         cf.domains.events.start_pipeline_job(done["id"])
         cf.domains.events.finish_pipeline_job(done["id"], {"ok": True})
-        _backdate_job(cf, done["id"], 10)
 
         summary = cf.domains.events.reclaim_stale_pipeline_jobs(2.0)
         assert summary["action"] == "fail"
@@ -62,8 +61,12 @@ def test_reclaim_requeue_respects_max_attempts(tmp_path: Path):
         _backdate_job(cf, retryable["id"], 5)
 
         exhausted = cf.domains.events.create_pipeline_job("render", campaign["id"])
-        for _ in range(3):
-            cf.domains.events.start_pipeline_job(exhausted["id"])  # attempt_count = 3
+        cf.domains.events.start_pipeline_job(exhausted["id"])
+        cf.conn.execute(
+            "UPDATE pipeline_jobs SET attempt_count = 3 WHERE id = ?",
+            (exhausted["id"],),
+        )
+        cf.conn.commit()
         _backdate_job(cf, exhausted["id"], 5)
 
         summary = cf.domains.events.reclaim_stale_pipeline_jobs(

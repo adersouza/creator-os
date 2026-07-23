@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reel_factory.local_model_arena_summary.v1",
+  "title": "Local Model Arena Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summaryId", "planId", "planFingerprint", "purpose", "expectedSampleCount", "sampleCounts", "promotionEligibleYield", "samples", "candidateAggregates", "reviewEvidence", "providerCalls", "productionWrites", "summaryFingerprint"],
+  "properties": {
+    "schema": {"const": "reel_factory.local_model_arena_summary.v1"},
+    "summaryId": {"type": "string", "minLength": 1},
+    "planId": {"type": "string", "minLength": 1},
+    "planFingerprint": {"$ref": "#/$defs/sha256"},
+    "purpose": {"enum": ["exploratory", "promotion_eligible"]},
+    "expectedSampleCount": {"type": "integer", "minimum": 1},
+    "sampleCounts": {"$ref": "#/$defs/sampleCounts"},
+    "promotionEligibleYield": {"type": "number", "minimum": 0, "maximum": 1},
+    "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sample"}},
+    "candidateAggregates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/aggregate"}},
+    "reviewEvidence": {"$ref": "#/$defs/reviewEvidence"},
+    "providerCalls": {"const": 0},
+    "productionWrites": {"const": 0},
+    "summaryFingerprint": {"$ref": "#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"purpose": {"const": "promotion_eligible"}}},
+      "then": {
+        "properties": {
+          "reviewEvidence": {
+            "properties": {
+              "reviewPacketId": {"type": "string", "minLength": 1},
+              "reviewPacketFingerprint": {"$ref": "#/$defs/sha256"},
+              "unblindingReceiptId": {"type": "string", "minLength": 1},
+              "unblindingReceiptFingerprint": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "reviewEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewPacketId", "reviewPacketFingerprint", "unblindingReceiptId", "unblindingReceiptFingerprint"],
+      "properties": {
+        "reviewPacketId": {"type": ["string", "null"]},
+        "reviewPacketFingerprint": {"$ref": "#/$defs/nullableSha256"},
+        "unblindingReceiptId": {"type": ["string", "null"]},
+        "unblindingReceiptFingerprint": {"$ref": "#/$defs/nullableSha256"}
+      }
+    },
+    "sampleCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cancelled", "failed", "interrupted", "missing", "resource_blocked", "succeeded", "unsupported"],
+      "properties": {
+        "cancelled": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "interrupted": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0},
+        "resource_blocked": {"type": "integer", "minimum": 0},
+        "succeeded": {"type": "integer", "minimum": 0},
+        "unsupported": {"type": "integer", "minimum": 0}
+      }
+    },
+    "executionMeasurement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "reason"],
+          "properties": {"available": {"const": false}, "reason": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "wallTimeSeconds", "peakMemoryBytes", "memoryMeasurementMethod"],
+          "properties": {
+            "available": {"const": true},
+            "wallTimeSeconds": {"type": "number", "exclusiveMinimum": 0},
+            "peakMemoryBytes": {"type": "integer", "minimum": 1},
+            "memoryMeasurementMethod": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "executionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "attemptCount", "retryCount", "admissionBlockCount", "failureClass", "executionMeasurement", "localCost"],
+      "properties": {
+        "status": {"enum": ["missing", "queued", "running", "succeeded", "failed", "interrupted", "cancelled"]},
+        "attemptCount": {"type": "integer", "minimum": 0},
+        "retryCount": {"type": "integer", "minimum": 0},
+        "admissionBlockCount": {"type": "integer", "minimum": 0},
+        "failureClass": {"type": ["string", "null"]},
+        "executionMeasurement": {"$ref": "#/$defs/executionMeasurement"},
+        "localCost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "currency", "reason", "value"],
+          "properties": {
+            "available": {"const": false},
+            "currency": {"const": "USD"},
+            "reason": {"type": "string", "minLength": 1},
+            "value": {"type": "null"}
+          }
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sampleId", "creatorId", "identityProfileId", "identityProfileFingerprint", "contentIntentId", "contentIntentFingerprint", "modelId", "capabilityCohort", "taskKind", "status", "reason", "outputSha256", "benchmarkId", "humanReviewId", "qualityScore", "wallTimeSeconds", "peakMemoryBytes", "executionEvidence", "blockingReasons", "promotionEvidenceValid"],
+      "properties": {
+        "sampleId": {"type": "string", "minLength": 1},
+        "creatorId": {"enum": ["stacey", "larissa", "lola"]},
+        "identityProfileId": {"type": "string", "minLength": 1},
+        "identityProfileFingerprint": {"$ref": "#/$defs/sha256"},
+        "contentIntentId": {"type": "string", "minLength": 1},
+        "contentIntentFingerprint": {"$ref": "#/$defs/sha256"},
+        "modelId": {"type": "string", "minLength": 1},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "taskKind": {"type": "string", "minLength": 1},
+        "status": {"enum": ["cancelled", "failed", "interrupted", "missing", "resource_blocked", "succeeded", "unsupported"]},
+        "reason": {"type": "string", "minLength": 1},
+        "outputSha256": {"$ref": "#/$defs/nullableSha256"},
+        "benchmarkId": {"type": ["string", "null"]},
+        "humanReviewId": {"type": ["string", "null"]},
+        "qualityScore": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "wallTimeSeconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "peakMemoryBytes": {"type": ["integer", "null"], "minimum": 1},
+        "executionEvidence": {"$ref": "#/$defs/executionEvidence"},
+        "blockingReasons": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "promotionEvidenceValid": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "succeeded"}}},
+          "then": {"properties": {"outputSha256": {"$ref": "#/$defs/sha256"}, "benchmarkId": {"type": "string", "minLength": 1}, "humanReviewId": {"type": "string", "minLength": 1}}},
+          "else": {"properties": {"outputSha256": {"type": "null"}, "benchmarkId": {"type": "null"}, "humanReviewId": {"type": "null"}, "promotionEvidenceValid": {"const": false}}}
+        }
+      ]
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "capabilityCohort", "plannedSamples", "succeededSamples", "failedSamples", "failureRate", "validSamples", "promotionEligibleYield", "meanHumanQualityScore", "medianWallTimeSeconds", "medianPeakMemoryBytes", "benchmarkIds"],
+      "properties": {
+        "modelId": {"type": "string", "minLength": 1},
+        "capabilityCohort": {"type": "string", "minLength": 1},
+        "plannedSamples": {"type": "integer", "minimum": 1},
+        "succeededSamples": {"type": "integer", "minimum": 0},
+        "failedSamples": {"type": "integer", "minimum": 0},
+        "failureRate": {"type": "number", "minimum": 0, "maximum": 1},
+        "validSamples": {"type": "integer", "minimum": 0},
+        "promotionEligibleYield": {"type": "number", "minimum": 0, "maximum": 1},
+        "meanHumanQualityScore": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "medianWallTimeSeconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "medianPeakMemoryBytes": {"type": ["integer", "null"], "minimum": 1},
+        "benchmarkIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

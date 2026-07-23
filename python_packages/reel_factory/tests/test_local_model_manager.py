@@ -6,7 +6,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from creator_os_core.fileops import file_lock
 from reel_factory.local_model_manager import (
+    _dependency_ready,
+    _install_dependency,
     _longcat_runtime_status,
     all_model_status,
     install_models,
@@ -24,9 +27,51 @@ from reel_factory.local_video_models import (
     MLX_VIDEO_REPOSITORY,
     MLX_VIDEO_REVISION,
     MODEL_MANIFEST,
+    LocalInstallDependency,
     local_install_dependency,
     local_video_model_spec,
 )
+
+
+def _cache_only_dependency_fixture(
+    root: Path,
+) -> tuple[LocalInstallDependency, Path, Path]:
+    dependency = local_install_dependency("wan_umt5_tokenizer")
+    repository_root = root / ".hf-home/hub/models--google--umt5-xxl"
+    snapshot = repository_root / "snapshots" / dependency.revision
+    snapshot.mkdir(parents=True)
+    files = []
+    tokenizer = snapshot / "tokenizer.json"
+    for relative in dependency.required_paths:
+        path = snapshot / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(
+            b"original" if relative == "tokenizer.json" else relative.encode()
+        )
+        files.append(
+            {
+                "path": relative,
+                "size": path.stat().st_size,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+        )
+    receipt = root / ".receipts" / "wan_umt5_tokenizer.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "repository": dependency.repository,
+                "revision": dependency.revision,
+                "resolvedPath": str(snapshot),
+                "files": files,
+            }
+        )
+    )
+    return dependency, tokenizer, repository_root / "refs/main"
+
+
+def _cache_dependency_receipt(root: Path) -> Path:
+    return root / ".receipts" / "wan_umt5_tokenizer.json"
 
 
 def test_all_model_plan_deduplicates_quantized_ltx_dependencies(tmp_path: Path) -> None:
@@ -58,6 +103,29 @@ def test_legacy_ltx_storage_report_is_non_destructive(tmp_path: Path) -> None:
     assert report["destructiveActionAvailable"] is False
     assert report["candidates"][0]["deletionAllowed"] is False
     assert (legacy / "weights.safetensors").read_bytes() == b"legacy"
+
+
+def test_storage_report_covers_partial_orphan_and_unpinned_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    partial = tmp_path / "Wan2.2-TI2V-5B.partial"
+    orphan = tmp_path / "LTX-2.3.orphan.123"
+    snapshot = tmp_path / ".hf-home/hub/models--example--model/snapshots/unpinned"
+    for directory in (partial, orphan, snapshot):
+        directory.mkdir(parents=True)
+        (directory / "artifact.bin").write_bytes(b"evidence")
+    monkeypatch.setenv("CREATOR_OS_LOCAL_MODELS_ROOT", str(tmp_path))
+
+    report = legacy_storage_report(models_root=tmp_path)
+
+    classifications = {value["classification"] for value in report["candidates"]}
+    assert "incomplete_model_install_staging" in classifications
+    assert "preserved_model_install_orphan" in classifications
+    assert "unreferenced_huggingface_snapshot_revision" in classifications
+    assert report["configuredRoots"]["environmentOverrides"][
+        "CREATOR_OS_LOCAL_MODELS_ROOT"
+    ] == str(tmp_path)
+    assert report["deletionPerformed"] is False
 
 
 def test_install_plan_does_not_charge_installed_artifacts_again(
@@ -130,6 +198,28 @@ def test_ltx_install_requires_explicit_license_ack_before_any_command(
     assert called is False
 
 
+def test_model_installer_process_lock_fails_closed_before_commands(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "models"
+    called = False
+
+    def runner(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("contended installer must not execute commands")
+
+    with file_lock(root / ".creator-os-model-installer", blocking=False):
+        with pytest.raises(RuntimeError, match="local_model_installer_busy"):
+            install_models(
+                ["local_wan22_ti2v_5b_mlx"],
+                models_root=root,
+                accepted_licenses=(),
+                runner=runner,
+            )
+    assert called is False
+
+
 def test_model_status_fails_closed_on_revision_substitution(tmp_path: Path) -> None:
     spec = local_video_model_spec("local_wan22_ti2v_5b_mlx")
     directory = spec.directory(tmp_path)
@@ -176,7 +266,7 @@ def test_model_status_detects_file_collision_or_truncation(tmp_path: Path) -> No
         {
             "path": relative,
             "size": (directory / relative).stat().st_size,
-            "sha256": "unused",
+            "sha256": "0" * 64,
         }
         for relative in spec.required_paths
     ]
@@ -226,30 +316,40 @@ def test_deep_model_status_hashes_cache_only_dependencies(tmp_path: Path) -> Non
             }
         )
     )
-    dependency = local_install_dependency("wan_umt5_tokenizer")
-    snapshot = tmp_path / "tokenizer-snapshot"
-    snapshot.mkdir()
-    tokenizer = snapshot / "tokenizer.json"
-    tokenizer.write_bytes(b"original")
-    receipt = tmp_path / ".receipts" / "wan_umt5_tokenizer.json"
-    receipt.parent.mkdir(parents=True)
-    receipt.write_text(
-        json.dumps(
-            {
-                "repository": dependency.repository,
-                "revision": dependency.revision,
-                "resolvedPath": str(snapshot),
-                "files": [
-                    {
-                        "path": tokenizer.name,
-                        "size": tokenizer.stat().st_size,
-                        "sha256": hashlib.sha256(tokenizer.read_bytes()).hexdigest(),
-                    }
-                ],
-            }
-        )
+    dependency, tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    missing_reference = model_status(spec.model_id, models_root=tmp_path, deep=True)
+    assert missing_reference["ready"] is False
+    assert (
+        "local_model_dependency_runtime_reference_missing:wan_umt5_tokenizer"
+        in missing_reference["issues"]
     )
+    repair_plan = install_plan([spec.model_id], models_root=tmp_path)
+    assert repair_plan["models"][0]["installed"] is True
+    assert repair_plan["dependencies"][0]["repairRequired"] is True
+    assert repair_plan["estimatedDownloadBytes"] == 0
+    reference.parent.mkdir(parents=True)
+    reference.write_text(dependency.revision)
 
+    first_verified = model_status(spec.model_id, models_root=tmp_path, deep=True)
+    assert first_verified["ready"]
+    assert first_verified["deepVerificationCacheHit"] is False
+    cached = model_status(spec.model_id, models_root=tmp_path, deep=True)
+    assert cached["ready"]
+    assert cached["deepVerificationCacheHit"] is True
+    assert (
+        cached["deepVerificationReceipt"]["verificationFingerprint"]
+        == first_verified["deepVerificationReceipt"]["verificationFingerprint"]
+    )
+    model_file = directory / spec.required_paths[0]
+    original_model_bytes = model_file.read_bytes()
+    model_file.write_bytes(b"x" * len(original_model_bytes))
+    substituted = model_status(spec.model_id, models_root=tmp_path, deep=True)
+    assert substituted["ready"] is False
+    assert (
+        f"local_model_file_hash_mismatch:{spec.required_paths[0]}"
+        in substituted["issues"]
+    )
+    model_file.write_bytes(original_model_bytes)
     assert model_status(spec.model_id, models_root=tmp_path, deep=True)["ready"]
     tokenizer.write_bytes(b"changed!")  # Same size, different fingerprint.
 
@@ -258,6 +358,183 @@ def test_deep_model_status_hashes_cache_only_dependencies(tmp_path: Path) -> Non
     assert shallow["ready"] is True
     assert deep["ready"] is False
     assert "local_model_dependency_missing:wan_umt5_tokenizer" in deep["issues"]
+
+
+def test_cache_only_dependency_requires_runtime_reference(tmp_path: Path) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+
+    assert not reference.exists()
+    assert _dependency_ready(dependency, tmp_path, deep=True) is False
+    assert (
+        _dependency_ready(
+            dependency,
+            tmp_path,
+            deep=True,
+            require_runtime_reference=False,
+        )
+        is True
+    )
+
+
+def test_cache_only_dependency_rejects_incomplete_receipt_before_reference_repair(
+    tmp_path: Path,
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    receipt = _cache_dependency_receipt(tmp_path)
+    payload = json.loads(receipt.read_text())
+    payload["files"] = payload["files"][1:]
+    receipt.write_text(json.dumps(payload))
+
+    assert not _dependency_ready(
+        dependency, tmp_path, deep=True, require_runtime_reference=False
+    )
+    with pytest.raises(AssertionError, match="incomplete receipt must download"):
+        _install_dependency(
+            dependency,
+            root=tmp_path,
+            runner=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("incomplete receipt must download")
+            ),
+        )
+    assert not reference.exists()
+
+
+@pytest.mark.parametrize("unsafe_path", ("/tmp/tokenizer.json", "../tokenizer.json"))
+def test_cache_only_dependency_rejects_unsafe_receipt_paths(
+    tmp_path: Path, unsafe_path: str
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    receipt = _cache_dependency_receipt(tmp_path)
+    payload = json.loads(receipt.read_text())
+    payload["files"][0]["path"] = unsafe_path
+    receipt.write_text(json.dumps(payload))
+
+    assert not _dependency_ready(
+        dependency, tmp_path, deep=True, require_runtime_reference=False
+    )
+    assert not reference.exists()
+
+
+def test_cache_only_dependency_rejects_duplicate_receipt_paths(
+    tmp_path: Path,
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    receipt = _cache_dependency_receipt(tmp_path)
+    payload = json.loads(receipt.read_text())
+    payload["files"].append(dict(payload["files"][0]))
+    receipt.write_text(json.dumps(payload))
+
+    assert not _dependency_ready(
+        dependency, tmp_path, deep=True, require_runtime_reference=False
+    )
+    assert not reference.exists()
+
+
+def test_cache_only_dependency_rejects_symlink_receipt(tmp_path: Path) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    receipt = _cache_dependency_receipt(tmp_path)
+    target = tmp_path / "receipt-target.json"
+    target.write_text(receipt.read_text())
+    receipt.unlink()
+    receipt.symlink_to(target)
+
+    assert not _dependency_ready(
+        dependency, tmp_path, deep=True, require_runtime_reference=False
+    )
+    assert not reference.exists()
+
+
+def test_cache_only_dependency_repairs_reference_without_download(
+    tmp_path: Path,
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+
+    def runner(*_args, **_kwargs):
+        raise AssertionError("verified cache-reference repair must not download")
+
+    result = _install_dependency(dependency, root=tmp_path, runner=runner)
+
+    assert result["status"] == "repaired_runtime_reference"
+    assert reference.read_text() == dependency.revision
+    assert _dependency_ready(dependency, tmp_path, deep=True) is True
+
+
+def test_cache_only_dependency_canonicalizes_matching_reference_whitespace(
+    tmp_path: Path,
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    reference.write_text(dependency.revision + "\n")
+
+    result = _install_dependency(
+        dependency,
+        root=tmp_path,
+        runner=lambda *_args, **_kwargs: pytest.fail("repair must not download"),
+    )
+
+    assert result["status"] == "repaired_runtime_reference"
+    assert reference.read_text() == dependency.revision
+    assert _dependency_ready(dependency, tmp_path, deep=True) is True
+
+
+def test_install_plan_classifies_verified_reference_repair_as_zero_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cache_only_dependency_fixture(tmp_path)
+    monkeypatch.setattr(
+        "reel_factory.local_model_manager.model_status",
+        lambda *_args, **_kwargs: {"ready": True, "issues": []},
+    )
+
+    plan = install_plan(["local_wan22_ti2v_5b_mlx"], models_root=tmp_path)
+
+    [dependency] = plan["dependencies"]
+    assert dependency["installed"] is True
+    assert dependency["ready"] is False
+    assert dependency["repairRequired"] is True
+    assert plan["estimatedDownloadBytes"] == 0
+
+
+def test_cache_only_dependency_rejects_conflicting_reference(
+    tmp_path: Path,
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    reference.write_text("0" * 40 + "\n")
+
+    def runner(*_args, **_kwargs):
+        raise AssertionError("conflicting reference must not download")
+
+    with pytest.raises(RuntimeError, match="local_model_dependency_reference_conflict"):
+        _install_dependency(
+            dependency,
+            root=tmp_path,
+            runner=runner,
+        )
+
+    assert reference.read_text() == "0" * 40 + "\n"
+
+
+@pytest.mark.parametrize("reference_kind", ("directory", "symlink", "broken_symlink"))
+def test_cache_only_dependency_rejects_unsafe_runtime_reference(
+    tmp_path: Path, reference_kind: str
+) -> None:
+    dependency, _tokenizer, reference = _cache_only_dependency_fixture(tmp_path)
+    reference.parent.mkdir(parents=True)
+    if reference_kind == "directory":
+        reference.mkdir()
+    else:
+        target = tmp_path / "reference-target"
+        if reference_kind == "symlink":
+            target.write_text(dependency.revision)
+        reference.symlink_to(target)
+
+    with pytest.raises(RuntimeError, match="local_model_dependency_reference_unsafe"):
+        _install_dependency(
+            dependency,
+            root=tmp_path,
+            runner=lambda *_args, **_kwargs: pytest.fail("repair must not download"),
+        )
 
 
 def test_runtime_install_resumes_exact_partial_with_frozen_lock(
@@ -495,6 +772,7 @@ def test_ltx_runtime_status_rejects_temporary_path_receipt(
 
     assert status["ready"] is False
     assert "ltx_mlx_runtime_receipt_temporary_path" in status["issues"]
+    assert "ltx_mlx_runtime_worktree_dirty" in status["issues"]
 
 
 def test_mlx_runtime_status_rejects_resolved_environment_drift(
@@ -543,6 +821,7 @@ def test_mlx_runtime_status_rejects_resolved_environment_drift(
     status = runtime_status(runtime_root=runtime)
     assert status["ready"] is False
     assert "mlx_video_runtime_environment_drift" in status["issues"]
+    assert "mlx_video_runtime_worktree_dirty" in status["issues"]
 
 
 def test_longcat_runtime_install_is_separate_pinned_and_records_environment(
@@ -582,6 +861,7 @@ def test_longcat_runtime_install_is_separate_pinned_and_records_environment(
     assert receipt["runtimeId"] == "longcat_avatar"
     assert receipt["revision"] == LONGCAT_MLX_REVISION
     assert receipt["requirements"]
+    assert len(receipt["requirementsFingerprint"]) == 64
 
 
 def test_longcat_runtime_status_rejects_resolved_environment_drift(
@@ -647,3 +927,4 @@ def test_longcat_runtime_status_rejects_resolved_environment_drift(
     status = _longcat_runtime_status(runtime_root=runtime)
     assert status["ready"] is False
     assert "longcat_mlx_runtime_environment_drift" in status["issues"]
+    assert "longcat_mlx_runtime_worktree_dirty" in status["issues"]
