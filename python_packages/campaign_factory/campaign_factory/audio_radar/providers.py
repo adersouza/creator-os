@@ -146,6 +146,7 @@ class SocialCrawlInstagramProvider:
             timeout=30,
         )
         if response.status_code != 200:
+            self.last_metadata = _provider_failure_metadata(response)
             raise ProviderError(
                 f"socialcrawl trending request failed: HTTP {response.status_code}"
             )
@@ -280,6 +281,7 @@ class SocialCrawlTikTokProvider:
             timeout=30,
         )
         if response.status_code != 200:
+            self.last_metadata = _provider_failure_metadata(response)
             raise ProviderError(
                 "socialcrawl TikTok trending request failed: "
                 f"HTTP {response.status_code}"
@@ -1121,6 +1123,29 @@ def _provider_metadata(
         "creditsUsed": used,
         "creditsRemaining": remaining,
     }
+
+
+def _provider_failure_metadata(response: Any) -> dict[str, Any]:
+    try:
+        decoded = response.json()
+    except (TypeError, ValueError):
+        decoded = {}
+    payload = decoded if isinstance(decoded, Mapping) else {}
+    error = _first_mapping(payload.get("error"))
+    error_message = _string(error.get("message") or payload.get("message"))
+    return _without_none(
+        {
+            **_provider_metadata(payload, getattr(response, "headers", {})),
+            "status": "unavailable",
+            "requests": 1,
+            "httpStatus": _integer(getattr(response, "status_code", None)),
+            "providerErrorType": _optional_string(error.get("type")),
+            "providerErrorStatus": _integer(error.get("status")),
+            "creditsRefunded": (
+                "refund" in error_message.lower() if error_message else None
+            ),
+        }
+    )
 
 
 def _first_defined(*values: object) -> object | None:

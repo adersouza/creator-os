@@ -447,10 +447,14 @@ def _discover_source(
             "candidateCount": 0,
         }
     except (ProviderError, requests.RequestException, OSError):
+        metadata = _redact(getattr(provider, "last_metadata", {}))
+        if not isinstance(metadata, dict):
+            metadata = {}
         return [], {
+            **metadata,
             "status": "unavailable",
             "reason": "provider_or_public_page_unavailable",
-            "requests": getattr(provider, "last_metadata", {}).get("requests", 1),
+            "requests": metadata.get("requests", 1),
             "candidateCount": 0,
         }
     metadata = _redact(getattr(provider, "last_metadata", {}))

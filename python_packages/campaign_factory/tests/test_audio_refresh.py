@@ -188,6 +188,48 @@ def test_socialcrawl_authentication_and_metadata_parsing(
     assert provider.last_metadata["creditsUsed"] == 1
 
 
+def test_socialcrawl_upstream_error_preserves_safe_billing_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOCIALCRAWL_API_KEY", "fixture-social-key")
+    provider = SocialCrawlInstagramProvider(
+        session=RecordingSession(
+            FakeResponse(
+                {
+                    "success": False,
+                    "error": {
+                        "type": "UPSTREAM_ERROR",
+                        "message": (
+                            "The upstream data provider returned an error. "
+                            "Your credits have been refunded."
+                        ),
+                        "status": 502,
+                    },
+                    "credits_used": 0,
+                    "credits_remaining": 95,
+                    "request_id": "req_refunded_fixture",
+                },
+                status_code=502,
+            )
+        )
+    )
+
+    with pytest.raises(ProviderError, match="HTTP 502"):
+        provider.discover(region="US", limit=10)
+
+    assert provider.last_metadata == {
+        "requestId": "req_refunded_fixture",
+        "creditsUsed": 0.0,
+        "creditsRemaining": 95.0,
+        "status": "unavailable",
+        "requests": 1,
+        "httpStatus": 502,
+        "providerErrorType": "UPSTREAM_ERROR",
+        "providerErrorStatus": 502,
+        "creditsRefunded": True,
+    }
+
+
 def test_socialcrawl_tiktok_uses_real_schema_and_aggregates_music_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -821,6 +863,49 @@ def test_dry_run_and_provider_failures_do_not_leak_secrets_or_mutate(
     assert not (tmp_path / "campaign.sqlite").exists()
     assert not (tmp_path / "cache").exists()
     assert not (tmp_path / "receipts").exists()
+
+
+def test_refresh_preserves_refunded_provider_metadata_in_receipt(
+    tmp_path: Path,
+) -> None:
+    social = FailingProvider()
+    social.last_metadata = {
+        "requests": 1,
+        "httpStatus": 502,
+        "providerErrorType": "UPSTREAM_ERROR",
+        "creditsUsed": 0.0,
+        "creditsRemaining": 95.0,
+        "creditsRefunded": True,
+    }
+
+    receipt = refresh_audio_library(
+        region="US",
+        max_new=10,
+        max_active=30,
+        apply=False,
+        paths=_paths(tmp_path),
+        social_provider=social,
+        tiktok_social_provider=StaticProvider(
+            [
+                _candidate(
+                    provider="socialcrawl_tiktok",
+                    platform="tiktok",
+                    sound_id="tt_sound_202",
+                )
+            ]
+        ),
+        creative_provider=StaticProvider([]),
+        tiklive_resolver=object(),
+        now="2026-07-24T12:00:00Z",
+    )
+
+    instagram = receipt["sourceStatus"]["socialcrawlInstagram"]
+    assert instagram["status"] == "unavailable"
+    assert instagram["httpStatus"] == 502
+    assert instagram["providerErrorType"] == "UPSTREAM_ERROR"
+    assert instagram["creditsRefunded"] is True
+    assert receipt["credits"]["socialcrawlInstagramUsed"] == 0.0
+    assert receipt["credits"]["socialcrawlRemaining"] == 95.0
 
 
 def test_machine_local_schedule_is_configurable_and_never_publishes() -> None:
