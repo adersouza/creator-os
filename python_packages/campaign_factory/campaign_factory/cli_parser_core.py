@@ -32,6 +32,7 @@ def register_core_commands(sub) -> None:
         "--audio",
         dest="audio_preference",
         choices=[
+            "embedded_trending",
             "embedded_trending_required",
             "native_trending_required",
             "original_embedded",
@@ -39,7 +40,7 @@ def register_core_commands(sub) -> None:
             "royalty_free",
             "silent_allowed",
         ],
-        default="native_trending_required",
+        default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
     sub.add_parser(

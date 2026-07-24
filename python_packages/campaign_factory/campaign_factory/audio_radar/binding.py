@@ -184,7 +184,13 @@ def _bound_metadata(
         for value in (publishability.get("blockingIssues") or [])
         if str(value) not in {"NEEDS_EMBEDDED_AUDIO", "native_audio_unresolved"}
     ]
-    if "audio_creative_approval_required" not in blocking:
+    production_recipe = _json_record(metadata.get("productionMotionRecipe"))
+    autonomous_production = (
+        production_recipe.get("status") == "active"
+        and metadata.get("humanReviewRequired") is False
+        and metadata.get("creativeApprovalRequired") is False
+    )
+    if not autonomous_production and "audio_creative_approval_required" not in blocking:
         blocking.append("audio_creative_approval_required")
     publishability.update(
         {

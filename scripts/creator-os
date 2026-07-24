@@ -250,6 +250,7 @@ def _parser() -> argparse.ArgumentParser:
         "--audio",
         dest="audio_preference",
         choices=[
+            "embedded_trending",
             "embedded_trending_required",
             "native_trending_required",
             "original_embedded",
@@ -257,7 +258,7 @@ def _parser() -> argparse.ArgumentParser:
             "royalty_free",
             "silent_allowed",
         ],
-        default="native_trending_required",
+        default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
 
