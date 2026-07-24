@@ -71,6 +71,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 accounts=args.accounts,
                 audio_preference=args.audio_preference,
                 apply=args.apply,
+                max_total_usd=args.max_usd,
+                max_concurrency=args.concurrency,
             )
         )
         return 0

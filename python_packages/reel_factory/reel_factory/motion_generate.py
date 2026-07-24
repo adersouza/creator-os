@@ -305,6 +305,19 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         )
     ):
         raise ValueError("benchmark evidence applies only to local MLX models")
+    production_path = getattr(args, "production_motion_recipe", None)
+    production_sha = getattr(args, "production_motion_recipe_sha256", None)
+    if (production_path is None) != (production_sha is None):
+        raise ValueError("production motion recipe binding is incomplete")
+    production_context = (
+        _load_bound_json(
+            production_path,
+            production_sha,
+            label="production_motion_recipe",
+        )
+        if production_path is not None
+        else None
+    )
     return WaveSpeedRequest(
         model_id=model.id,
         prompt=args.prompt,
@@ -319,6 +332,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         seed=args.seed,
         enable_prompt_expansion=args.enable_prompt_expansion,
         shot_type=args.shot_type,
+        production_context=production_context,
     )
 
 

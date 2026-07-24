@@ -1,4 +1,4 @@
-"""Exact local source-video registration for Retake and Extend tasks."""
+"""Exact source-asset resolution and local video registration for motion tasks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,42 @@ from typing import Any
 
 from .core import new_id, sha256_file, slugify
 from .persistence import utc_now
+
+
+def production_direct_source_asset(
+    factory: Any,
+    *,
+    campaign_id: str,
+    still_path: Path,
+    still_fingerprint: str,
+) -> dict[str, Any] | None:
+    """Resolve one exact approved production still without creating a fallback."""
+
+    rows = factory.conn.execute(
+        """
+        SELECT * FROM source_assets
+        WHERE campaign_id = ? AND media_type = 'image' AND content_hash = ?
+          AND lower(COALESCE(status, 'imported')) NOT IN ('rejected', 'quarantined')
+        ORDER BY created_at, id
+        """,
+        (campaign_id, still_fingerprint),
+    ).fetchall()
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        source = dict(row)
+        raw_path = Path(str(source.get("stored_path") or "")).expanduser()
+        if raw_path.is_symlink():
+            continue
+        path = raw_path.resolve()
+        if (
+            path == still_path
+            and path.is_file()
+            and sha256_file(path) == still_fingerprint
+        ):
+            matches.append(source)
+    if len(matches) > 1:
+        raise ValueError("production source lineage is ambiguous")
+    return matches[0] if matches else None
 
 
 def ensure_motion_edit_source_asset(

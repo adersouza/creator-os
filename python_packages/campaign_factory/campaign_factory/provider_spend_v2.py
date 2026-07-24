@@ -19,6 +19,7 @@ from creator_os_core.provider_spend import (
     SpendAuthorizationError,
     canonical_json,
     sign_authorization,
+    verify_authorization_v2,
 )
 from creator_os_core.runtime_guards import global_kill_switch_active
 
@@ -37,6 +38,7 @@ _REFERENCE_PRICES = {
     (10, "1080p"): 2.40,
 }
 _SPEECH_PER_FIVE_SECONDS = {"480p": 0.15, "720p": 0.30}
+_WAN22_I2V_5B_PER_VIDEO = 0.05
 
 
 class BalanceProvider(Protocol):
@@ -49,6 +51,24 @@ class ModelCatalogProvider(Protocol):
 
 class PricingProvider(Protocol):
     def quote(self, scope: dict[str, Any]) -> float | None: ...
+
+
+def verify_wavespeed_authorization_at_call(
+    authorization: dict[str, Any],
+    *,
+    expected_scope: dict[str, Any],
+    secret: str,
+    now: datetime.datetime,
+) -> dict[str, Any]:
+    """Validate the contract and live HMAC immediately before provider I/O."""
+
+    validate_provider_spend_authorization_v2(authorization)
+    return verify_authorization_v2(
+        authorization,
+        expected_scope=expected_scope,
+        secret=secret,
+        now=now,
+    )
 
 
 @dataclass
@@ -146,7 +166,11 @@ def quote_wavespeed_scope(scope: dict[str, Any]) -> dict[str, Any]:
         if model == "wavespeed-ai/wan-2.2/speech-to-video"
         else _duration_int(duration)
     )
-    if model == "alibaba/wan-2.7/image-to-video":
+    if model == "wavespeed-ai/wan-2.2/i2v-5b-720p":
+        if resolution != "720p" or duration_value != 5:
+            raise ValueError("unsupported Wan 2.2 I2V 5B pricing parameters")
+        amount = _WAN22_I2V_5B_PER_VIDEO
+    elif model == "alibaba/wan-2.7/image-to-video":
         if resolution not in _I2V_PER_SECOND or duration_value not in {5, 10, 15}:
             raise ValueError("unsupported Wan 2.7 image-to-video pricing parameters")
         amount = _I2V_PER_SECOND[resolution] * duration_value
@@ -452,6 +476,12 @@ def _pricing_inputs(scope: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(parameters, dict):
         raise ValueError("WaveSpeed pricing scope parameters are missing")
     model = str(scope.get("providerModel") or "")
+    if model == "wavespeed-ai/wan-2.2/i2v-5b-720p":
+        return {
+            "prompt": "Creator OS exact pricing preflight",
+            "image": "https://pricing.invalid/source.jpg",
+            "seed": parameters.get("seed"),
+        }
     inputs: dict[str, Any] = {
         "prompt": "Creator OS exact pricing preflight",
         "resolution": parameters.get("resolution"),

@@ -43,6 +43,20 @@ scripts/creator-os create \
   --apply
 ```
 
+Production cloud motion uses the exact WaveSpeed Wan 2.2 I2V 5B endpoint with
+internal source rotation, Qwen-VL prompt expansion, bounded two-job
+concurrency, per-call spend authorization, and a $0.25 default batch cap:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent passive_selfie \
+  --count 3 \
+  --execution cloud \
+  --audio embedded_trending \
+  --apply
+```
+
 Use `creator-os review` for calibration exceptions, `creator-os export` for the
 validated draft boundary, and ThreadsDashboard for account health, scheduling,
 publishing, and results. Arena, Router, benchmark evidence, seeds, paths, and

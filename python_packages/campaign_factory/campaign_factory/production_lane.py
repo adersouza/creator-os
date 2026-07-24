@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
+import shutil
+import subprocess
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -15,8 +20,10 @@ from .audio_policy import (
 )
 from .audio_radar import (
     AudioCache,
+    AudioLocator,
     AudioMatchContext,
     NeedsEmbeddedAudioError,
+    PlatformSoundId,
     TrendCandidate,
     bind_embedding_receipt,
     fulfill_embedded_trending,
@@ -32,6 +39,9 @@ from .generation_workflow import run_generation_workflow
 
 SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 BATCH_SCHEMA: Final = "campaign_factory.production_batch.v1"
+DEFAULT_CLOUD_BATCH_MAX_USD: Final = 0.25
+DEFAULT_CLOUD_CONCURRENCY: Final = 2
+WAVESPEED_WAN22_I2V_5B_PRICE_USD: Final = 0.05
 
 _INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
@@ -65,7 +75,7 @@ _INTENT_PROMPTS: Final[dict[str, str]] = {
 
 _PRODUCTION_MODELS: Final[dict[str, tuple[str, str]]] = {
     "local": ("local_wan", "local_wan22_ti2v_5b_mlx"),
-    "cloud": ("best_motion", "wavespeed_wan27_i2v_pro"),
+    "cloud": ("best_motion", "wavespeed_wan22_i2v_5b_720p"),
 }
 
 _AUDIO_ALIASES: Final = {
@@ -79,6 +89,14 @@ def _fingerprint(payload: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _audio_policy(value: str) -> str:
     resolved = _AUDIO_ALIASES.get(value, value)
     if resolved not in AUDIO_POLICIES:
@@ -90,6 +108,9 @@ def discover_production_audio_candidates() -> list[TrendCandidate]:
     """Discover candidates internally; missing providers never widen to silence."""
 
     candidates: list[TrendCandidate] = []
+    fixture = _approved_audio_fixture_candidate()
+    if fixture is not None:
+        return normalize_candidates([fixture])
     for provider in (
         SocialCrawlInstagramProvider(),
         TokchartTrendProvider(),
@@ -99,6 +120,42 @@ def discover_production_audio_candidates() -> list[TrendCandidate]:
         except ProviderError:
             continue
     return normalize_candidates(candidates)
+
+
+def _approved_audio_fixture_candidate() -> TrendCandidate | None:
+    raw = os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE", "").strip()
+    if not raw:
+        return None
+    expanded = Path(raw).expanduser()
+    if expanded.is_symlink():
+        raise ValueError("approved embedded-audio fixture must not be a symlink")
+    path = expanded.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"approved embedded-audio fixture is missing: {path}")
+    digest = _sha256_file(path)
+    observed_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
+    return TrendCandidate(
+        candidate_id=f"approved-local-fixture:{digest}",
+        provider="operator_approved_fixture",
+        title=os.environ.get("CREATOR_OS_EMBEDDED_AUDIO_FIXTURE_TITLE", path.stem),
+        artist="approved local fixture",
+        platform_sound_ids=(
+            PlatformSoundId(platform="local_fixture", sound_id=digest[:24]),
+        ),
+        observed_at=observed_at,
+        current_rank=1,
+        usage_velocity=1_000_000,
+        trend_score=1.0,
+        canonical_track_id=f"local_fixture:{digest}",
+        locator=AudioLocator(
+            provider="operator_approved_fixture",
+            platform="local_fixture",
+            track_id=digest,
+            kind="local_file",
+            value=str(path),
+        ),
+        advisory_labels={"operatorApprovedFixture": True},
+    )
 
 
 def fulfill_production_audio(
@@ -114,7 +171,8 @@ def fulfill_production_audio(
     policy = _audio_policy(str(job.get("audioPolicy") or ""))
     if policy != "embedded_trending_required":
         return {"policy": policy, "requiredStage": "separate_optional_path"}
-    registered = generation_result.get("registeredAsset")
+    stage = _motion_stage_result(generation_result)
+    registered = stage.get("registeredAsset")
     if not isinstance(registered, dict):
         raise RuntimeError("production generated asset registration missing")
     rendered_asset_id = str(registered.get("id") or "")
@@ -183,7 +241,7 @@ def fulfill_production_audio(
         "SELECT * FROM rendered_assets WHERE id = ?",
         (rendered_asset_id,),
     ).fetchone()
-    generation_result["registeredAsset"] = dict(refreshed) if refreshed else registered
+    stage["registeredAsset"] = dict(refreshed) if refreshed else registered
     return {
         "policy": policy,
         "status": "verified",
@@ -193,6 +251,16 @@ def fulfill_production_audio(
         "finalVideoSha256": binding["finalVideoSha256"],
         "outputPath": binding["outputPath"],
     }
+
+
+def _motion_stage_result(generation_result: dict[str, Any]) -> dict[str, Any]:
+    nested = generation_result.get("result")
+    if isinstance(nested, dict) and (
+        nested.get("schema") == "campaign_factory.motion_generation_stage_run.v1"
+        or "registeredAsset" in nested
+    ):
+        return nested
+    return generation_result
 
 
 def build_production_motion_recipe(
@@ -220,6 +288,32 @@ def build_production_motion_recipe(
         "paidProviderFallbackAllowed": False,
         "researchSelectionRequired": False,
     }
+    return {**core, "recipeFingerprint": _fingerprint(core)}
+
+
+def bind_production_prompt_expansion(
+    recipe: Mapping[str, Any],
+    *,
+    original_prompt: str,
+    expansion: Mapping[str, Any],
+) -> dict[str, Any]:
+    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
+    if len(expanded_prompt) < 20:
+        raise ValueError("Qwen Wan prompt expansion did not return a usable prompt")
+    core = {
+        key: value for key, value in dict(recipe).items() if key != "recipeFingerprint"
+    }
+    core.update(
+        {
+            "originalPromptSha256": hashlib.sha256(
+                " ".join(original_prompt.split()).encode("utf-8")
+            ).hexdigest(),
+            "expandedPromptSha256": hashlib.sha256(
+                expanded_prompt.encode("utf-8")
+            ).hexdigest(),
+            "promptExpansion": dict(expansion),
+        }
+    )
     return {**core, "recipeFingerprint": _fingerprint(core)}
 
 
@@ -257,6 +351,18 @@ def bind_production_motion_recipe(
     return True
 
 
+def _deterministic_seed(
+    *, creator: str, intent: str, index: int, source_sha256: str, used: set[int]
+) -> int:
+    nonce = 0
+    while True:
+        material = f"{creator}:{intent}:{index}:{source_sha256}:{nonce}".encode()
+        seed = int(hashlib.sha256(material).hexdigest()[:8], 16) % 2_147_483_648
+        if seed not in used:
+            return seed
+        nonce += 1
+
+
 def plan_production_batch(
     factory: Any,
     *,
@@ -283,23 +389,65 @@ def plan_production_batch(
         """,
         (creator_slug,),
     ).fetchall()
-    sources = [
-        dict(row)
-        for row in rows
-        if Path(str(row["stored_path"])).expanduser().resolve().is_file()
-    ]
+    sources: list[dict[str, Any]] = []
+    seen_source_hashes: set[str] = set()
+    substituted_sources = 0
+    incompatible_sources = 0
+    for row in rows:
+        source = dict(row)
+        raw_path = Path(str(source["stored_path"])).expanduser()
+        if raw_path.is_symlink():
+            substituted_sources += 1
+            continue
+        path = raw_path.resolve()
+        recorded_sha = str(source["content_hash"])
+        if not path.is_file() or _sha256_file(path) != recorded_sha:
+            substituted_sources += 1
+            continue
+        if recorded_sha in seen_source_hashes:
+            continue
+        if execution == "cloud":
+            resolution = _source_image_resolution(path)
+            if resolution is None:
+                substituted_sources += 1
+                continue
+            width, height = resolution
+            ratio = width / height
+            if not 0.50 <= ratio <= 0.65:
+                incompatible_sources += 1
+                continue
+            source["sourceResolution"] = {
+                "width": width,
+                "height": height,
+                "aspectRatio": round(ratio, 6),
+            }
+        source["stored_path"] = str(path)
+        seen_source_hashes.add(recorded_sha)
+        sources.append(source)
     if not sources:
+        if incompatible_sources:
+            raise ValueError(
+                f"no portrait-reel approved image inventory for creator {creator}"
+            )
+        if substituted_sources:
+            raise ValueError(
+                f"approved source SHA mismatch for creator {creator}; "
+                "refresh source inventory before generation"
+            )
         raise ValueError(f"no usable approved image inventory for creator {creator}")
     jobs: list[dict[str, Any]] = []
+    used_seeds: set[int] = set()
     for index in range(int(count)):
         source = sources[index % len(sources)]
         source_sha = str(source["content_hash"])
-        seed = int(
-            hashlib.sha256(
-                f"{creator_slug}:{intent}:{index}:{source_sha}".encode()
-            ).hexdigest()[:8],
-            16,
+        seed = _deterministic_seed(
+            creator=creator_slug,
+            intent=intent,
+            index=index,
+            source_sha256=source_sha,
+            used=used_seeds,
         )
+        used_seeds.add(seed)
         recipe = build_production_motion_recipe(
             creator=creator_slug,
             intent=intent,
@@ -322,10 +470,12 @@ def plan_production_batch(
                 "sourceAssetId": source["id"],
                 "sourcePath": source["stored_path"],
                 "sourceSha256": source_sha,
+                "sourceResolution": source.get("sourceResolution"),
                 "creator": creator_slug,
                 "intent": intent,
                 "prompt": _INTENT_PROMPTS[intent],
                 "seed": seed,
+                "requestFingerprint": identity,
                 "accountGroup": accounts,
                 "audioPolicy": resolved_audio_policy,
                 "productionRecipe": recipe,
@@ -337,6 +487,12 @@ def plan_production_batch(
         "intent": intent,
         "execution": execution,
         "requested": int(count),
+        "maxConcurrency": DEFAULT_CLOUD_CONCURRENCY if execution == "cloud" else 1,
+        "estimatedProviderCostUsd": (
+            round(int(count) * WAVESPEED_WAN22_I2V_5B_PRICE_USD, 4)
+            if execution == "cloud"
+            else 0.0
+        ),
         "jobs": jobs,
     }
 
@@ -351,6 +507,8 @@ def run_production_batch(
     accounts: str | None,
     audio_preference: str,
     apply: bool,
+    max_total_usd: float = DEFAULT_CLOUD_BATCH_MAX_USD,
+    max_concurrency: int = DEFAULT_CLOUD_CONCURRENCY,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -362,52 +520,500 @@ def run_production_batch(
         audio_preference=audio_preference,
     )
     results: list[dict[str, Any]] = []
-    if apply and execution == "cloud":
-        raise PermissionError(
-            "cloud production apply requires configured paid-spend authorization"
-        )
+    if execution == "cloud":
+        if (
+            isinstance(max_total_usd, bool)
+            or not isinstance(max_total_usd, (int, float))
+            or not math.isfinite(float(max_total_usd))
+            or float(max_total_usd) <= 0
+        ):
+            raise ValueError("cloud production requires a finite positive batch cap")
+        if plan["estimatedProviderCostUsd"] > float(max_total_usd):
+            raise PermissionError(
+                "production_batch_quote_exceeds_total_spend_cap: "
+                f"{plan['estimatedProviderCostUsd']:.2f} > {float(max_total_usd):.2f}"
+            )
+    if isinstance(max_concurrency, bool) or not 1 <= int(max_concurrency) <= 4:
+        raise ValueError("production concurrency must be between 1 and 4")
+    plan["maxConcurrency"] = min(int(max_concurrency), plan["requested"])
+    plan["maxTotalUsd"] = float(max_total_usd) if execution == "cloud" else 0.0
+    plan["paidGenerationAuthorized"] = bool(
+        apply
+        and execution == "cloud"
+        and plan["estimatedProviderCostUsd"] <= max_total_usd
+    )
+    if not apply:
+        results = [
+            {"jobId": job["jobId"], "index": job["index"], "status": "created"}
+            for job in plan["jobs"]
+        ]
+        return _finalize_production_batch(plan, results, apply=False)
+
+    prepared: list[dict[str, Any]] = []
     for job in plan["jobs"]:
-        if not apply:
-            results.append({"jobId": job["jobId"], "status": "created"})
-            continue
         try:
-            result = run_generation_workflow(
-                factory,
-                mode=job["productionRecipe"]["mode"],
-                campaign_slug=job["campaign"],
-                accepted_still_path=Path(job["sourcePath"]),
-                motion_prompt=job["prompt"],
-                motion_model_id=job["productionRecipe"]["modelId"],
-                production_motion_recipe=job["productionRecipe"],
-                seed=job["seed"],
-                audio_policy=job["audioPolicy"],
-                dry_run=False,
-                apply=True,
-            )
-            audio_fulfillment = fulfill_production_audio(
-                factory,
-                job=job,
-                generation_result=result,
-            )
-            result["audioFulfillment"] = audio_fulfillment
-            results.append(
-                {"jobId": job["jobId"], "status": "completed", "result": result}
-            )
-        except NeedsEmbeddedAudioError as exc:
-            results.append(
-                {
-                    "jobId": job["jobId"],
-                    "status": "blocked",
-                    "error": exc.code,
-                    "attempts": exc.attempts,
-                }
+            prepared.append(
+                _expand_production_job_prompt(job)
+                if execution == "cloud"
+                else dict(job)
             )
         except Exception as exc:
             results.append(
-                {"jobId": job["jobId"], "status": "failed", "error": str(exc)}
+                {
+                    "jobId": job["jobId"],
+                    "index": job["index"],
+                    "status": "failed",
+                    "error": str(exc),
+                }
             )
-    statuses = [item["status"] for item in results]
-    output_hashes = {
+    plan["jobs"] = [
+        next(
+            (
+                prepared_job
+                for prepared_job in prepared
+                if prepared_job["jobId"] == job["jobId"]
+            ),
+            job,
+        )
+        for job in plan["jobs"]
+    ]
+    audio_candidates = (
+        discover_production_audio_candidates()
+        if _audio_policy(audio_preference) == "embedded_trending_required"
+        else []
+    )
+    concurrent = (
+        execution == "cloud"
+        and len(prepared) > 1
+        and _supports_isolated_factories(factory)
+    )
+    workers = min(plan["maxConcurrency"], len(prepared)) if concurrent else 1
+    if workers > 1:
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="creator-os-wavespeed"
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _run_production_job_isolated,
+                    factory,
+                    job=job,
+                    audio_candidates=audio_candidates,
+                    max_usd_per_job=WAVESPEED_WAN22_I2V_5B_PRICE_USD,
+                ): job
+                for job in prepared
+            }
+            for future in as_completed(futures):
+                job = futures[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    results.append(
+                        {
+                            "jobId": job["jobId"],
+                            "index": job["index"],
+                            "status": "failed",
+                            "error": str(exc),
+                        }
+                    )
+    else:
+        for job in prepared:
+            results.append(
+                _run_production_job(
+                    factory,
+                    job=job,
+                    audio_candidates=audio_candidates,
+                    max_usd_per_job=WAVESPEED_WAN22_I2V_5B_PRICE_USD,
+                )
+            )
+    results.sort(key=lambda item: int(item.get("index") or 0))
+    _block_duplicate_provider_outputs(results)
+    return _finalize_production_batch(plan, results, apply=True)
+
+
+def _expand_production_job_prompt(job: Mapping[str, Any]) -> dict[str, Any]:
+    from reel_factory.worker_api import expand_local_wan_i2v_prompt
+
+    source = Path(str(job["sourcePath"])).expanduser().resolve()
+    expansion = expand_local_wan_i2v_prompt(
+        image_path=source,
+        original_prompt=str(job["prompt"]),
+    )
+    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
+    recipe = bind_production_prompt_expansion(
+        job["productionRecipe"],
+        original_prompt=str(job["prompt"]),
+        expansion=expansion,
+    )
+    return {
+        **dict(job),
+        "originalPrompt": job["prompt"],
+        "prompt": expanded_prompt,
+        "promptExpansion": expansion,
+        "productionRecipe": recipe,
+        "requestFingerprint": _fingerprint(
+            {
+                "source": job["sourceSha256"],
+                "seed": job["seed"],
+                "prompt": expanded_prompt,
+                "model": recipe["modelId"],
+            }
+        ),
+    }
+
+
+def _supports_isolated_factories(factory: Any) -> bool:
+    return getattr(factory, "settings", None) is not None and callable(
+        getattr(factory, "close", None)
+    )
+
+
+def _run_production_job_isolated(
+    factory: Any,
+    *,
+    job: Mapping[str, Any],
+    audio_candidates: list[TrendCandidate],
+    max_usd_per_job: float,
+) -> dict[str, Any]:
+    worker_factory = type(factory)(factory.settings)
+    try:
+        return _run_production_job(
+            worker_factory,
+            job=job,
+            audio_candidates=audio_candidates,
+            max_usd_per_job=max_usd_per_job,
+        )
+    finally:
+        worker_factory.close()
+
+
+def _run_production_job(
+    factory: Any,
+    *,
+    job: Mapping[str, Any],
+    audio_candidates: list[TrendCandidate],
+    max_usd_per_job: float,
+) -> dict[str, Any]:
+    base = {"jobId": job["jobId"], "index": job["index"]}
+    try:
+        cloud = str(job["productionRecipe"]["mode"]) == "best_motion"
+        result = run_generation_workflow(
+            factory,
+            mode=job["productionRecipe"]["mode"],
+            campaign_slug=job["campaign"],
+            accepted_still_path=Path(str(job["sourcePath"])),
+            motion_prompt=str(job["prompt"]),
+            motion_model_id=job["productionRecipe"]["modelId"],
+            production_motion_recipe=dict(job["productionRecipe"]),
+            seed=int(job["seed"]),
+            duration_seconds=5 if cloud else None,
+            resolution="720p" if cloud else None,
+            audio_policy=str(job["audioPolicy"]),
+            workspace=Path.cwd(),
+            paid_confirmation=cloud,
+            max_usd=max_usd_per_job if cloud else None,
+            dry_run=False,
+            apply=True,
+        )
+        hard_qc = run_production_hard_qc(job=job, generation_result=result)
+        provider = _provider_execution(result)
+        if hard_qc["status"] == "blocked":
+            return {
+                **base,
+                "status": "blocked",
+                "error": "production_hard_qc_failed",
+                "hardQc": hard_qc,
+                "provider": provider,
+                "result": result,
+            }
+        audio_fulfillment = fulfill_production_audio(
+            factory,
+            job=job,
+            generation_result=result,
+            candidates=audio_candidates,
+        )
+        result["audioFulfillment"] = audio_fulfillment
+        return {
+            **base,
+            "status": "completed",
+            "hardQc": hard_qc,
+            "provider": provider,
+            "result": result,
+        }
+    except NeedsEmbeddedAudioError as exc:
+        return {
+            **base,
+            "status": "blocked",
+            "error": exc.code,
+            "attempts": exc.attempts,
+        }
+    except Exception as exc:
+        return {
+            **base,
+            "status": "failed",
+            "error": str(exc),
+            "provider": _failed_provider_execution(factory, job),
+        }
+
+
+def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] | None:
+    stage = _motion_stage_result(dict(generation_result))
+    worker = stage.get("worker")
+    worker = worker if isinstance(worker, dict) else {}
+    execution = worker.get("result")
+    if not isinstance(execution, dict) or not execution.get("predictionId"):
+        return None
+    return _provider_receipt_summary(execution)
+
+
+def _provider_receipt_summary(
+    execution: Mapping[str, Any], *, evidence_path: Path | None = None
+) -> dict[str, Any]:
+    return {
+        "requestId": execution.get("predictionId"),
+        "model": execution.get("providerModel"),
+        "status": execution.get("status"),
+        "submittedAt": execution.get("submittedAt"),
+        "completedAt": execution.get("completedAt"),
+        "outputUrl": execution.get("outputUrl"),
+        "outputSha256": execution.get("outputSha256"),
+        "outputRecords": execution.get("outputRecords") or [],
+        "generationDurationSeconds": execution.get("generationDurationSeconds"),
+        "providerInferenceMilliseconds": execution.get("providerInferenceMilliseconds"),
+        "providerCostUsd": execution.get("providerCostUsd"),
+        "requestFingerprint": execution.get("requestFingerprint"),
+        "evidencePath": execution.get("evidencePath")
+        or (str(evidence_path) if evidence_path is not None else None),
+    }
+
+
+def _failed_provider_execution(
+    factory: Any, job: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    try:
+        campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
+        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
+            campaign["id"]
+        )
+        evidence_dir = (
+            factory.domains.campaign_dirs(model_slug, campaign["slug"])["audits"]
+            / "motion_generation"
+        )
+        prompt_sha = hashlib.sha256(
+            " ".join(str(job["prompt"]).split()).encode("utf-8")
+        ).hexdigest()
+        matches: list[tuple[dict[str, Any], Path]] = []
+        for path in evidence_dir.glob("*.wavespeed_submission.json"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(receipt, dict):
+                continue
+            if (
+                receipt.get("creator") == job.get("creator")
+                and receipt.get("intent") == job.get("intent")
+                and receipt.get("sourceSha256") == job.get("sourceSha256")
+                and receipt.get("expandedPromptSha256") == prompt_sha
+                and receipt.get("providerModel") == "wavespeed-ai/wan-2.2/i2v-5b-720p"
+                and (
+                    receipt.get("seed") is None
+                    or receipt.get("seed") == job.get("seed")
+                )
+                and receipt.get("predictionId")
+            ):
+                matches.append((receipt, path))
+        if len(matches) != 1:
+            return None
+        receipt, path = matches[0]
+        return _provider_receipt_summary(receipt, evidence_path=path)
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+
+
+def _source_image_resolution(path: Path) -> tuple[int, int] | None:
+    try:
+        from PIL import Image, UnidentifiedImageError
+
+        with Image.open(path) as image:
+            width, height = image.size
+    except (OSError, UnidentifiedImageError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return int(width), int(height)
+
+
+def run_production_hard_qc(
+    *, job: Mapping[str, Any], generation_result: dict[str, Any]
+) -> dict[str, Any]:
+    blockers: list[str] = []
+    source_path = Path(str(job["sourcePath"])).expanduser().resolve()
+    if (
+        source_path.is_symlink()
+        or not source_path.is_file()
+        or _sha256_file(source_path) != job["sourceSha256"]
+    ):
+        blockers.append("source_substitution")
+    stage = _motion_stage_result(generation_result)
+    registered = stage.get("registeredAsset")
+    if not isinstance(registered, dict):
+        blockers.append("unreadable_or_corrupt_media")
+        return _hard_qc_receipt(job, blockers=blockers, output_sha256=None, probe=None)
+    output = Path(str(registered.get("output_path") or "")).expanduser()
+    output_sha: str | None = None
+    probe: dict[str, Any] | None = None
+    if output.is_symlink() or not output.resolve().is_file():
+        blockers.append("unreadable_or_corrupt_media")
+    else:
+        output = output.resolve()
+        try:
+            output_sha = _sha256_file(output)
+            if output_sha != str(registered.get("content_hash") or ""):
+                blockers.append("source_substitution")
+            probe = _probe_production_video(output)
+            if probe["durationSeconds"] <= 0 or probe["durationSeconds"] > 60:
+                blockers.append("invalid_duration_or_codec")
+            if probe["codec"] not in {"h264", "hevc", "av1", "vp9"}:
+                blockers.append("invalid_duration_or_codec")
+            ratio = probe["width"] / probe["height"]
+            if not 0.50 <= ratio <= 0.65:
+                blockers.append("invalid_duration_or_codec")
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            blockers.append("unreadable_or_corrupt_media")
+    provider = _provider_execution(generation_result)
+    if provider is not None:
+        expected_model = "wavespeed-ai/wan-2.2/i2v-5b-720p"
+        if (
+            provider.get("model") != expected_model
+            or provider.get("outputSha256") != output_sha
+            or provider.get("requestFingerprint") is None
+        ):
+            blockers.append("source_substitution")
+    return _hard_qc_receipt(
+        job, blockers=blockers, output_sha256=output_sha, probe=probe
+    )
+
+
+def _hard_qc_receipt(
+    job: Mapping[str, Any],
+    *,
+    blockers: list[str],
+    output_sha256: str | None,
+    probe: dict[str, Any] | None,
+) -> dict[str, Any]:
+    unique_blockers = sorted(set(blockers))
+    receipt = {
+        "schema": "campaign_factory.production_hard_qc.v1",
+        "jobId": job["jobId"],
+        "sourceSha256": job["sourceSha256"],
+        "outputSha256": output_sha256,
+        "checks": {
+            "sourceBinding": "failed"
+            if "source_substitution" in unique_blockers
+            else "passed",
+            "mediaIntegrity": (
+                "failed"
+                if {
+                    "unreadable_or_corrupt_media",
+                    "invalid_duration_or_codec",
+                }.intersection(unique_blockers)
+                else "passed"
+            ),
+            "identityAndAnatomy": "not_reported_by_available_analyzers",
+        },
+        "probe": probe,
+        "blockers": unique_blockers,
+        "status": "blocked" if unique_blockers else "passed",
+    }
+    return {**receipt, "receiptFingerprint": _fingerprint(receipt)}
+
+
+def _probe_production_video(path: Path) -> dict[str, Any]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe_missing")
+    completed = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_name,width,height:format=duration",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("production_video_ffprobe_failed")
+    try:
+        payload = json.loads(completed.stdout)
+        streams = payload.get("streams") or []
+        video = next(
+            stream
+            for stream in streams
+            if int(stream.get("width") or 0) > 0 and int(stream.get("height") or 0) > 0
+        )
+        duration = float((payload.get("format") or {}).get("duration") or 0)
+    except (json.JSONDecodeError, StopIteration, TypeError, ValueError) as exc:
+        raise RuntimeError("production_video_ffprobe_invalid") from exc
+    return {
+        "codec": str(video.get("codec_name") or ""),
+        "width": int(video["width"]),
+        "height": int(video["height"]),
+        "durationSeconds": round(duration, 3),
+    }
+
+
+def _block_duplicate_provider_outputs(results: list[dict[str, Any]]) -> None:
+    seen: set[str] = set()
+    for item in results:
+        provider = item.get("provider")
+        digest = (
+            str(provider.get("outputSha256") or "")
+            if isinstance(provider, dict)
+            else ""
+        )
+        if not digest:
+            continue
+        if digest in seen:
+            item["status"] = "blocked"
+            item["error"] = "duplicate_provider_output"
+            hard_qc = item.get("hardQc")
+            if isinstance(hard_qc, dict):
+                hard_qc["blockers"] = sorted(
+                    set(hard_qc.get("blockers") or []).union({"duplicate_output"})
+                )
+                hard_qc["status"] = "blocked"
+                unsigned = {
+                    key: value
+                    for key, value in hard_qc.items()
+                    if key != "receiptFingerprint"
+                }
+                hard_qc["receiptFingerprint"] = _fingerprint(unsigned)
+        else:
+            seen.add(digest)
+
+
+def _finalize_production_batch(
+    plan: dict[str, Any], results: list[dict[str, Any]], *, apply: bool
+) -> dict[str, Any]:
+    statuses = [str(item.get("status") or "") for item in results]
+    provider_rows = [
+        item["provider"] for item in results if isinstance(item.get("provider"), dict)
+    ]
+    raw_hashes = {
+        str(provider.get("outputSha256"))
+        for provider in provider_rows
+        if provider.get("outputSha256")
+    }
+    final_hashes = {
         digest
         for item in results
         if item.get("status") == "completed"
@@ -416,13 +1022,21 @@ def run_production_batch(
                 ((item.get("result") or {}).get("audioFulfillment") or {}).get(
                     "finalVideoSha256"
                 )
-                or ((item.get("result") or {}).get("registeredAsset") or {}).get(
-                    "content_hash"
-                )
+                or (
+                    _motion_stage_result(item.get("result") or {}).get(
+                        "registeredAsset"
+                    )
+                    or {}
+                ).get("content_hash")
                 or ""
             )
         )
     }
+    costs = [provider.get("providerCostUsd") for provider in provider_rows]
+    costs_reported = bool(provider_rows) and all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in costs
+    )
     return {
         **plan,
         "apply": apply,
@@ -430,13 +1044,25 @@ def run_production_batch(
         "summary": {
             "requested": plan["requested"],
             "created": len(results),
+            "submitted": len(provider_rows),
             "completed": statuses.count("completed"),
             "blocked": statuses.count("blocked"),
             "failed": statuses.count("failed"),
-            "approved": 0,
+            "approved": statuses.count("completed"),
             "scheduled": 0,
             "published": 0,
-            "uniqueOutputs": len(output_hashes),
+            "uniqueOutputs": len(raw_hashes or final_hashes),
+            "uniqueFinalOutputs": len(final_hashes),
+            "totalProviderCostUsd": (
+                round(sum(float(value) for value in costs), 4)
+                if costs_reported
+                else None
+            ),
+            "providerCostReported": costs_reported,
+            "estimatedProviderCostUsd": plan["estimatedProviderCostUsd"],
+            "generationTimesSeconds": [
+                provider.get("generationDurationSeconds") for provider in provider_rows
+            ],
         },
         "schedulingAllowed": False,
         "publishingAllowed": False,

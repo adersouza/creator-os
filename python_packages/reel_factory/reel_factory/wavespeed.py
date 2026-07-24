@@ -9,9 +9,10 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from creator_os_core.provider_spend import (
@@ -51,6 +52,7 @@ class WaveSpeedRequest:
     seed: int = 42
     enable_prompt_expansion: bool = False
     shot_type: str = "single"
+    production_context: dict[str, Any] | None = None
 
 
 def build_wavespeed_spend_scope(
@@ -75,6 +77,10 @@ def build_wavespeed_spend_scope(
         "enablePromptExpansion": request.enable_prompt_expansion,
         "shotType": request.shot_type if model.shot_type_supported else None,
     }
+    if request.production_context is not None:
+        parameters["productionContext"] = _production_scope_context(
+            request.production_context
+        )
     if request.audio_path is not None:
         parameters["audioDurationSeconds"] = _media_duration(
             _file(request.audio_path, "audio")
@@ -249,6 +255,7 @@ def execute_wavespeed(
     client: WaveSpeedClient | None = None,
 ) -> dict[str, Any]:
     """Upload, submit once, poll, retain, and hash one authorized prediction."""
+    started_monotonic = time.monotonic()
     if not shutil.which("ffprobe"):
         raise RuntimeError("ffprobe_missing_before_wavespeed_submission")
     model = _validate_request(request)
@@ -262,24 +269,81 @@ def execute_wavespeed(
     evidence = Path(evidence_dir).expanduser().resolve()
     evidence.mkdir(parents=True, exist_ok=True)
     intent_path = evidence / f"{scope['requestFingerprint']}.wavespeed_submission.json"
+    api = client or WaveSpeedClient()
     if intent_path.exists():
-        previous = _read_json(intent_path)
-        if previous.get("status") != "uploading" or previous.get("predictionId"):
-            raise PermissionError("wavespeed_request_already_has_submission_evidence")
+        recovered_intent = _validated_recovery_intent(
+            _read_json(intent_path),
+            request=request,
+            model=model,
+            scope=scope,
+            authorization_id=str(verified["authorizationId"]),
+        )
+        if recovered_intent.get("status") == "completed":
+            digest = _sha256_file(output)
+            if digest != recovered_intent.get("outputSha256"):
+                raise PermissionError("wavespeed_completed_output_sha256_mismatch")
+            _probe_video(output)
+            return {
+                **recovered_intent,
+                "evidencePath": str(intent_path),
+                "scope": scope,
+            }
+        prediction_id = str(recovered_intent.get("predictionId") or "")
+        if not prediction_id:
+            raise PermissionError(
+                "wavespeed_submission_is_ambiguous_or_unsubmitted; do not resubmit"
+            )
+        if output.exists():
+            raise PermissionError("wavespeed_recovery_output_collision")
+        return _poll_retain_prediction(
+            api,
+            request=request,
+            model=model,
+            prediction_id=prediction_id,
+            result_url=str(recovered_intent.get("resultUrl") or "") or None,
+            intent=recovered_intent,
+            intent_path=intent_path,
+            scope=scope,
+            started_monotonic=started_monotonic,
+        )
     intent: dict[str, Any] = {
         "schema": "reel_factory.wavespeed_submission.v1",
         "requestFingerprint": scope["requestFingerprint"],
         "authorizationId": verified["authorizationId"],
         "providerModel": model.provider_model,
+        "seed": request.seed,
+        "creator": (
+            request.production_context.get("creator")
+            if request.production_context is not None
+            else None
+        ),
+        "intent": (
+            request.production_context.get("intent")
+            if request.production_context is not None
+            else None
+        ),
+        "sourceSha256": scope["mediaSha256"].get("image"),
+        "expandedPrompt": " ".join(request.prompt.split()),
+        "expandedPromptSha256": scope["promptSha256"],
         "status": "uploading",
         "predictionId": None,
+        "submissionStartedAt": None,
+        "submittedAt": None,
+        "completedAt": None,
+        "resultUrl": None,
         "outputPath": str(Path(request.output_path).expanduser().resolve()),
         "outputSha256": None,
+        "outputUrl": None,
+        "outputUrlSha256": None,
+        "outputRecords": [],
+        "generationDurationSeconds": None,
+        "providerInferenceMilliseconds": None,
+        "providerCostUsd": None,
     }
     _write_json(intent_path, intent)
-    api = client or WaveSpeedClient()
     payload = _upload_and_build_payload(api, request, model)
     intent["status"] = "ready_to_submit"
+    intent["submissionStartedAt"] = _utc_now()
     _write_json(intent_path, intent)
     try:
         task = api.submit_once(model, payload)
@@ -288,16 +352,49 @@ def execute_wavespeed(
         _write_json(intent_path, intent)
         raise
     prediction_id = str(task["id"])
-    intent["predictionId"] = prediction_id
-    intent["status"] = str(task.get("status") or "created")
-    _write_json(intent_path, intent)
+    _validate_provider_identity(task, model=model, prediction_id=prediction_id)
     raw_urls = task.get("urls")
     urls: dict[str, Any] = raw_urls if isinstance(raw_urls, dict) else {}
+    result_url = (
+        _https_url(urls.get("get"), "WaveSpeed result URL")
+        if urls.get("get")
+        else f"{API_ROOT}/predictions/{prediction_id}/result"
+    )
+    intent["predictionId"] = prediction_id
+    intent["status"] = str(task.get("status") or "created")
+    intent["submittedAt"] = str(task.get("created_at") or "") or _utc_now()
+    intent["resultUrl"] = result_url
+    _write_json(intent_path, intent)
+    return _poll_retain_prediction(
+        api,
+        request=request,
+        model=model,
+        prediction_id=prediction_id,
+        result_url=result_url,
+        intent=intent,
+        intent_path=intent_path,
+        scope=scope,
+        started_monotonic=started_monotonic,
+    )
+
+
+def _poll_retain_prediction(
+    api: WaveSpeedClient,
+    *,
+    request: WaveSpeedRequest,
+    model: VideoModel,
+    prediction_id: str,
+    result_url: str | None,
+    intent: dict[str, Any],
+    intent_path: Path,
+    scope: dict[str, Any],
+    started_monotonic: float,
+) -> dict[str, Any]:
     poll_timeout = 60 * 60 * 6 if model.task == "speech_to_video" else 60 * 30
     try:
         result = api.poll(
             prediction_id,
-            result_url=urls.get("get"),
+            result_url=result_url,
             timeout_seconds=poll_timeout,
         )
     except (TimeoutError, RuntimeError, ValueError, requests.RequestException) as exc:
@@ -307,6 +404,7 @@ def execute_wavespeed(
         intent["failure"] = type(exc).__name__
         _write_json(intent_path, intent)
         raise
+    _validate_provider_identity(result, model=model, prediction_id=prediction_id)
     outputs = result.get("outputs")
     if (
         not isinstance(outputs, list)
@@ -317,12 +415,38 @@ def execute_wavespeed(
         intent["providerStatus"] = result.get("status")
         _write_json(intent_path, intent)
         raise RuntimeError("wavespeed_completed_output_mismatch")
+    output_url_sha256 = hashlib.sha256(outputs[0].encode("utf-8")).hexdigest()
+    previous_url_sha256 = intent.get("outputUrlSha256")
+    if previous_url_sha256 and previous_url_sha256 != output_url_sha256:
+        intent["status"] = "provider_completed_output_substituted"
+        _write_json(intent_path, intent)
+        raise RuntimeError("wavespeed_provider_output_url_substituted")
+    timings = result.get("timings")
+    timings = timings if isinstance(timings, dict) else {}
+    inference_ms = timings.get("inference")
+    if isinstance(inference_ms, bool) or not isinstance(inference_ms, (int, float)):
+        inference_ms = None
     intent.update(
         {
             "status": "provider_completed_retention_pending",
             "providerStatus": result.get("status"),
             "providerCostUsd": _provider_cost(result),
-            "outputUrlSha256": hashlib.sha256(outputs[0].encode("utf-8")).hexdigest(),
+            "outputUrl": _redacted_url(outputs[0]),
+            "outputUrlSha256": output_url_sha256,
+            "providerInferenceMilliseconds": inference_ms,
+            "generationDurationSeconds": _generation_duration_seconds(
+                intent, fallback_seconds=time.monotonic() - started_monotonic
+            ),
+            "outputRecords": [
+                {
+                    "index": 0,
+                    "url": _redacted_url(outputs[0]),
+                    "urlSha256": output_url_sha256,
+                    "sha256": None,
+                    "path": str(Path(request.output_path).expanduser().resolve()),
+                    "retained": False,
+                }
+            ],
         }
     )
     _write_json(intent_path, intent)
@@ -337,6 +461,20 @@ def execute_wavespeed(
         {
             "status": "completed",
             "outputSha256": digest,
+            "completedAt": _utc_now(),
+            "generationDurationSeconds": _generation_duration_seconds(
+                intent, fallback_seconds=time.monotonic() - started_monotonic
+            ),
+            "outputRecords": [
+                {
+                    "index": 0,
+                    "url": intent["outputUrl"],
+                    "urlSha256": output_url_sha256,
+                    "sha256": digest,
+                    "path": str(Path(request.output_path).expanduser().resolve()),
+                    "retained": True,
+                }
+            ],
             "failure": None,
         }
     )
@@ -397,6 +535,21 @@ def _validate_request(request: WaveSpeedRequest) -> VideoModel:
     output = str(Path(request.output_path).expanduser().resolve())
     if output in set(resolved_paths):
         raise ValueError("WaveSpeed output path collides with an input")
+    if request.production_context is not None:
+        context = request.production_context
+        if (
+            context.get("schema") != "campaign_factory.production_motion_recipe.v1"
+            or context.get("modelId") != model.id
+            or context.get("sourceSha256")
+            != (
+                _sha256_file(_file(request.image_path, "production source"))
+                if request.image_path is not None
+                else None
+            )
+            or context.get("expandedPromptSha256")
+            != hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        ):
+            raise PermissionError("wavespeed_production_context_mismatch")
     return model
 
 
@@ -405,16 +558,17 @@ def _upload_and_build_payload(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "prompt": " ".join(request.prompt.split()),
-        "resolution": request.resolution,
         "seed": request.seed,
     }
-    if request.duration_seconds:
+    if model.provider_accepts_resolution:
+        payload["resolution"] = request.resolution
+    if model.provider_accepts_duration and request.duration_seconds:
         payload["duration"] = request.duration_seconds
     if model.prompt_expansion_supported:
         payload["enable_prompt_expansion"] = request.enable_prompt_expansion
     if model.shot_type_supported:
         payload["shot_type"] = request.shot_type
-    if model.task != "speech_to_video":
+    if model.provider_accepts_negative_prompt:
         payload["negative_prompt"] = NEGATIVE_PROMPT
     if request.image_path is not None:
         payload["image"] = client.upload(request.image_path)
@@ -433,6 +587,88 @@ def _upload_and_build_payload(
     if model.task == "reference_to_video":
         payload["aspect_ratio"] = "9:16"
     return payload
+
+
+def _production_scope_context(context: dict[str, Any]) -> dict[str, Any]:
+    required = ("creator", "intent", "sourceSha256", "expandedPromptSha256")
+    if any(not str(context.get(key) or "") for key in required):
+        raise ValueError("WaveSpeed production context is incomplete")
+    return {key: context[key] for key in required}
+
+
+def _validate_provider_identity(
+    payload: dict[str, Any], *, model: VideoModel, prediction_id: str
+) -> None:
+    returned_id = str(payload.get("id") or "")
+    if returned_id and returned_id != prediction_id:
+        raise RuntimeError("wavespeed_prediction_id_substituted")
+    returned_model = str(payload.get("model") or "")
+    if returned_model and returned_model != model.provider_model:
+        raise RuntimeError("wavespeed_provider_model_substituted")
+
+
+def _validated_recovery_intent(
+    intent: dict[str, Any],
+    *,
+    request: WaveSpeedRequest,
+    model: VideoModel,
+    scope: dict[str, Any],
+    authorization_id: str,
+) -> dict[str, Any]:
+    if (
+        intent.get("schema") != "reel_factory.wavespeed_submission.v1"
+        or intent.get("requestFingerprint") != scope["requestFingerprint"]
+        or intent.get("authorizationId") != authorization_id
+        or intent.get("providerModel") != model.provider_model
+        or intent.get("seed") != request.seed
+        or intent.get("sourceSha256") != scope["mediaSha256"].get("image")
+        or intent.get("expandedPromptSha256") != scope["promptSha256"]
+        or intent.get("outputPath")
+        != str(Path(request.output_path).expanduser().resolve())
+    ):
+        raise PermissionError("wavespeed_recovery_evidence_scope_mismatch")
+    allowed = {
+        "created",
+        "processing",
+        "poll_timeout",
+        "poll_failed",
+        "provider_completed_retention_pending",
+        "output_retention_failed",
+        "completed",
+    }
+    if intent.get("status") not in allowed:
+        raise PermissionError(
+            "wavespeed_submission_is_ambiguous_or_unrecoverable; do not resubmit"
+        )
+    return intent
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _generation_duration_seconds(
+    intent: dict[str, Any], *, fallback_seconds: float
+) -> float:
+    raw = str(intent.get("submissionStartedAt") or intent.get("submittedAt") or "")
+    try:
+        started = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return round(max(0.0, fallback_seconds), 3)
+    return round(max(0.0, (datetime.now(UTC) - started).total_seconds()), 3)
+
+
+def _redacted_url(value: str) -> str:
+    parsed = urlparse(_https_url(value, "WaveSpeed output URL"))
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _file(value: Path, label: str) -> Path:
