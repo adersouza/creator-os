@@ -20,6 +20,16 @@ def _run(command: list[str], *, cwd: Path = ROOT, input_text: str | None = None)
     ).returncode
 
 
+def _doctor_command(*args: str) -> list[str]:
+    """Run doctor through the exact project environment, not the launcher Python."""
+
+    return [
+        str(ROOT / ".venv" / "bin" / "python"),
+        str(ROOT / "scripts" / "doctor.py"),
+        *args,
+    ]
+
+
 def _campaign_command(*args: str) -> list[str]:
     return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
 
@@ -435,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         effective_argv = ["advanced", surface, *effective_argv[1:]]
     args = _parser().parse_args(effective_argv)
     if args.command == "status":
-        command = [sys.executable, str(ROOT / "scripts/doctor.py"), "--status"]
+        command = _doctor_command("--status")
         if args.json:
             command.append("--json")
         if args.live_read_only:
@@ -443,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run(command)
     if args.command == "doctor":
         doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        return _run([sys.executable, str(ROOT / "scripts/doctor.py"), *doctor_args])
+        return _run(_doctor_command(*doctor_args))
     if args.command == "performance-sync":
         command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
         if args.dry_run:
