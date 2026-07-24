@@ -221,6 +221,13 @@ separately shuffled, model-free, authenticated review packet; all signed
 blinded reviews are locked before a distinct authenticated unblinding receipt
 reveals the sample/model mapping. Promotion summaries and Router decisions bind
 both packet and unblinding fingerprints.
+Imported local browser review forms preserve exact packet, sample, field, and
+decision integrity, but do not prove who operated the browser. They remain
+explicitly unverified and non-promotable until a credential-backed reviewer
+boundary authenticates the reviewer. Promotion also requires complete
+registry-declared analyzer observation and verdict coverage plus explicit
+confirmation of every recorded frame/outlier finding; a missing review answer
+cannot be inferred from the rest of the packet.
 
 Content Intent authorizes the reviewed source set used to construct that grid;
 it does not promote every authorized source. Each recipe and queue job binds one

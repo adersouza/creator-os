@@ -31,9 +31,11 @@ Two authority modes are accepted:
   approvals.
 
 Promotion re-reads the pull request, actor permission, branch protection,
-Actions runs, and checks through the GitHub API. Self-asserted hashes, a
-lookalike check run, weakened protection, an unmerged head, or a commit other
-than exact remote `main` cannot authorize a runtime change.
+Actions runs, and checks through the GitHub API using the exact
+content-addressed `gh` executable under the credential-scrubbed promotion
+environment. Self-asserted hashes, a lookalike check run, weakened protection,
+an unmerged head, or a commit other than exact remote `main` cannot authorize a
+runtime change.
 
 ## Dry-run
 
@@ -65,9 +67,9 @@ Without `--dry-run`, the command:
 5. writes an authenticated transaction journal before changing the checkout;
 6. detaches only the configured runtime checkout at the approved commit;
 7. removes source-worktree environments from the subprocess path, resolves and
-   fingerprints the exact Git, Make, Node, pnpm, Python, and uv executables,
-   and rejects a Node version outside `package.json#engines.node` before any
-   checkout mutation;
+   fingerprints the exact Git, GitHub CLI (`gh`), Make, Node, pnpm, Python,
+   and uv executables, and rejects a Node version outside
+   `package.json#engines.node` before any checkout mutation;
 8. reconstructs the destination runtime's Node environment and every frozen
    workspace Python extra, then runs `make runtime-verify` and
    `creator-os status --live-read-only --json` there under an allowlisted
@@ -97,6 +99,13 @@ resolved toolchain evidence, verification outcomes, failure/rollback state,
 and copyable rollback commands. A failed verifier also preserves a bounded,
 credential-redacted stdout/stderr tail beside full-output SHA-256 hashes; a
 successful verifier retains no output tail.
+Current authoritative receipts are created only from live GitHub API evidence
+plus the canonical runtime verifier and live-read-only health check. Historical
+receipts created before this authority boundary, and receipts produced through
+injected test commands or callbacks, remain readable evidence but cannot
+authorize success, recovery, or an `already_current` health result.
+Diagnostic tails redact quoted and compound credential fields, arbitrary URI
+userinfo, and percent-encoded credential material before they are persisted.
 The commands verify the bundle and fetch its objects before checking out the
 old commit, so recovery still works if the old object is no longer present in
 the runtime object database. Paths are shell-quoted. The final command reruns
