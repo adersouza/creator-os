@@ -212,6 +212,20 @@ def run_generation_workflow(
             _require(accepted_still_path, "accepted_still_path")
         _require(motion_prompt, "motion_prompt")
         normalized_motion_prompt = " ".join(str(motion_prompt).split())
+        prompt_expansion = None
+        if mode_id == "local_wan" and enable_prompt_expansion:
+            if motion_task != "image_to_video" or accepted_still_path is None:
+                raise ValueError(
+                    "local Wan prompt expansion requires image_to_video and an "
+                    "accepted still"
+                )
+            from reel_factory.worker_api import expand_local_wan_i2v_prompt
+
+            prompt_expansion = expand_local_wan_i2v_prompt(
+                image_path=accepted_still_path,
+                original_prompt=normalized_motion_prompt,
+            )
+            normalized_motion_prompt = str(prompt_expansion["expandedPrompt"])
         selected_duration = None
         if duration_seconds is not None:
             if (
@@ -259,6 +273,7 @@ def run_generation_workflow(
                 override_operator=router_override_operator,
                 override_reason=router_override_reason,
                 contentforge_root=factory.settings.contentforge_root,
+                prompt_expansion=prompt_expansion,
             )
             selected_model = str(
                 local_motion_admission["routerDecision"]["selectedModelId"]

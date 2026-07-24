@@ -235,6 +235,7 @@ class LocalVideoRequest:
     execution_context: LocalVideoExecutionContext | None = None
     local_motion_admission: Mapping[str, Any] | None = None
     arena_benchmark_binding: Mapping[str, Any] | None = None
+    prompt_expansion: Mapping[str, Any] | None = None
 
 
 def probe_local_video(
@@ -877,6 +878,8 @@ def run_local_video(
         "publishingAllowed": False,
         "aiDisclosureRequired": spec.ai_disclosure_required,
     }
+    if request.prompt_expansion is not None:
+        lineage["promptExpansion"] = dict(request.prompt_expansion)
     if dry_run:
         planned_base_command = _build_execution_command(
             request,
@@ -2675,6 +2678,8 @@ def _generation_job(
         ),
         "executionBinding": execution_binding,
     }
+    if request.prompt_expansion is not None:
+        inputs["promptExpansion"] = dict(request.prompt_expansion)
     input_sha = fingerprint(inputs)
     cohort_input_sha = fingerprint(
         {
@@ -2710,6 +2715,21 @@ def _generation_job(
         ]
     )
     requested_memory = max(24 * 1024**3, int(spec.estimated_bytes * 1.35))
+    cohort = {
+        "sourceInputSha256": cohort_input_sha,
+        "task": request.task,
+        "prompt": " ".join(request.prompt.split()),
+        "durationSeconds": effective_duration_seconds,
+        "seed": request.seed,
+        "audioMode": request.audio_mode,
+        "executionContext": request.execution_context,
+        "executionBindingFingerprint": execution_binding["bindingFingerprint"],
+        "executionIsolationFingerprint": execution_isolation["isolationFingerprint"],
+    }
+    if request.prompt_expansion is not None:
+        cohort["promptExpansionFingerprint"] = request.prompt_expansion.get(
+            "expansionFingerprint"
+        )
     return LocalGenerationJob.create(
         job_id=job_id,
         model_id=spec.model_id,
@@ -2719,19 +2739,7 @@ def _generation_job(
         input_sha256=input_sha,
         requested_memory_bytes=requested_memory,
         params=params,
-        cohort={
-            "sourceInputSha256": cohort_input_sha,
-            "task": request.task,
-            "prompt": " ".join(request.prompt.split()),
-            "durationSeconds": effective_duration_seconds,
-            "seed": request.seed,
-            "audioMode": request.audio_mode,
-            "executionContext": request.execution_context,
-            "executionBindingFingerprint": execution_binding["bindingFingerprint"],
-            "executionIsolationFingerprint": execution_isolation[
-                "isolationFingerprint"
-            ],
-        },
+        cohort=cohort,
         owned_artifact_paths=(
             output,
             output.with_suffix(".partial" + output.suffix),
@@ -2826,8 +2834,9 @@ def _validate_campaign_admission(
         "resourceSnapshot",
         "admissionFingerprint",
     }
-    if set(payload) != expected_keys or payload.get("schema") != (
-        "campaign_factory.local_motion_admission.v1"
+    if (
+        set(payload) not in (expected_keys, expected_keys | {"promptExpansion"})
+        or payload.get("schema") != "campaign_factory.local_motion_admission.v1"
     ):
         raise LocalVideoUnavailable("local_motion_admission_schema_invalid")
     claimed = _required_sha256(
@@ -2996,6 +3005,12 @@ def _validate_campaign_admission(
         registry
     ):
         raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
+    admission_prompt_expansion = payload.get("promptExpansion")
+    if (admission_prompt_expansion is None) != (request.prompt_expansion is None) or (
+        admission_prompt_expansion is not None
+        and dict(request.prompt_expansion or {}) != dict(admission_prompt_expansion)
+    ):
+        raise LocalVideoUnavailable("local_motion_prompt_expansion_mismatch")
 
     input_fingerprints = payload.get("inputFingerprints")
     exact_bindings = _request_input_bindings(request)

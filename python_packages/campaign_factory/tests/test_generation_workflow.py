@@ -122,6 +122,55 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert admission["last_image_path"] is None
 
 
+def test_local_wan_expands_before_admission_and_preserves_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    captured: dict = {}
+    original = "Create confident movement with a shoulder turn and gentle camera push"
+    expanded = (
+        "She shifts her weight, turns one shoulder toward the camera, and raises "
+        "one hand to adjust her hair before lowering it as the camera moves "
+        "gently forward through the unchanged room."
+    )
+    receipt = {
+        "schema": "reel_factory.wan_i2v_prompt_expansion.v1",
+        "originalPrompt": original,
+        "expandedPrompt": expanded,
+        "expansionFingerprint": "e" * 64,
+    }
+    monkeypatch.setattr(
+        "reel_factory.worker_api.expand_local_wan_i2v_prompt",
+        lambda **_kwargs: receipt,
+    )
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        lambda *_args, **kwargs: (
+            captured.update(kwargs)
+            or {"schema": "campaign_factory.motion_generation_stage_run.v1"}
+        ),
+    )
+    admission = _stub_local_motion_admission(monkeypatch)
+
+    run_generation_workflow(
+        _local_motion_factory(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        local_arena_summary_path=tmp_path / "arena-summary.json",
+        motion_prompt=original,
+        enable_prompt_expansion=True,
+        dry_run=True,
+        apply=False,
+    )
+
+    assert admission["prompt"] == expanded
+    assert admission["prompt_expansion"] == receipt
+    assert captured["prompt"] == expanded
+    assert captured["enable_prompt_expansion"] is True
+
+
 def test_local_wan_text_to_video_routes_without_any_media(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

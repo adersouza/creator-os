@@ -9,7 +9,10 @@ from typing import Any
 
 from creator_os_core.evidence_attestation import payload_fingerprint
 from creator_os_core.task_inputs import canonical_task_input_bindings
-from reel_factory.worker_api import admit_local_motion
+from reel_factory.worker_api import (
+    admit_local_motion,
+    validate_local_wan_i2v_prompt_expansion,
+)
 
 from pipeline_contracts import validate_local_model_router_decision
 
@@ -428,6 +431,7 @@ def build_local_motion_admission(
     override_operator: str | None = None,
     override_reason: str | None = None,
     contentforge_root: Path | None = None,
+    prompt_expansion: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return one exact Router decision bound to this Campaign request."""
 
@@ -486,6 +490,22 @@ def build_local_motion_admission(
         raise LocalMotionAdmissionError("local_motion_benchmark_input_mismatch")
     if recipe.get("taskKind") != task_kind:
         raise LocalMotionAdmissionError("local_motion_benchmark_task_mismatch")
+    validated_prompt_expansion = None
+    if prompt_expansion is not None:
+        if task_kind != "image_to_video" or accepted_still_path is None:
+            raise LocalMotionAdmissionError(
+                "local_motion_prompt_expansion_task_invalid"
+            )
+        try:
+            validated_prompt_expansion = validate_local_wan_i2v_prompt_expansion(
+                prompt_expansion,
+                image_path=accepted_still_path,
+                expanded_prompt=prompt,
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            raise LocalMotionAdmissionError(
+                f"local_motion_prompt_expansion_invalid:{exc}"
+            ) from exc
 
     profile_id = str(identity.get("profileId") or "")
     profile_fingerprint = _fingerprint(identity)
@@ -539,10 +559,18 @@ def build_local_motion_admission(
         model_id=str(decision.get("selectedModelId") or ""),
         error_prefix="",
     )
+    if validated_prompt_expansion is not None and not str(
+        decision.get("selectedModelId") or ""
+    ).startswith("local_wan22_"):
+        raise LocalMotionAdmissionError(
+            "local_motion_prompt_expansion_selected_model_invalid"
+        )
     resource = admission.get("resourceSnapshot")
     if not isinstance(resource, dict):
         raise LocalMotionAdmissionError("local_motion_resource_snapshot_missing")
     resource["motionEditBinding"] = edit_binding
+    if validated_prompt_expansion is not None:
+        admission["promptExpansion"] = validated_prompt_expansion
     admission_core = dict(admission)
     admission_core.pop("admissionFingerprint", None)
     admission["admissionFingerprint"] = _fingerprint(admission_core)
@@ -595,8 +623,9 @@ def revalidate_local_motion_admission(
         "resourceSnapshot",
         "admissionFingerprint",
     }
-    if set(original) != expected_keys or original.get("schema") != (
-        "campaign_factory.local_motion_admission.v1"
+    if (
+        set(original) not in (expected_keys, expected_keys | {"promptExpansion"})
+        or original.get("schema") != "campaign_factory.local_motion_admission.v1"
     ):
         raise LocalMotionAdmissionError("local_motion_execution_admission_invalid")
     original_core = dict(original)
@@ -662,6 +691,26 @@ def revalidate_local_motion_admission(
         raise LocalMotionAdmissionError(
             "local_motion_execution_motion_edit_binding_mismatch"
         )
+    prompt_expansion = original.get("promptExpansion")
+    if prompt_expansion is not None:
+        if (
+            not model_id.startswith("local_wan22_")
+            or task_kind != "image_to_video"
+            or accepted_still_path is None
+        ):
+            raise LocalMotionAdmissionError(
+                "local_motion_execution_prompt_expansion_task_invalid"
+            )
+        try:
+            validate_local_wan_i2v_prompt_expansion(
+                prompt_expansion,
+                image_path=accepted_still_path,
+                expanded_prompt=prompt,
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            raise LocalMotionAdmissionError(
+                f"local_motion_execution_prompt_expansion_invalid:{exc}"
+            ) from exc
 
     records_raw = original.get("evidenceRecords")
     if not isinstance(records_raw, Mapping):

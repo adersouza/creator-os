@@ -30,11 +30,41 @@ from .local_model_arena import LocalModelArenaStore
 from .local_model_benchmark import default_local_model_benchmark_store
 from .local_model_router import RouterRequest, route_local_model
 from .local_video import LocalVideoRequest, local_video_task_parameter_material
+from .local_wan_prompt_expansion import (
+    expand_wan_i2v_prompt,
+    validate_wan_prompt_expansion,
+)
 from .reference_video_remix import (
     build_reference_video_remix_plan,
     gemini_motion_analysis_instruction,
 )
 from .video_provider_models import video_model
+
+
+def expand_local_wan_i2v_prompt(
+    *, image_path: Path, original_prompt: str
+) -> dict[str, Any]:
+    """Return one exact provider-free Qwen-VL expansion receipt."""
+
+    return expand_wan_i2v_prompt(
+        image_path=image_path,
+        original_prompt=original_prompt,
+    )
+
+
+def validate_local_wan_i2v_prompt_expansion(
+    receipt: Mapping[str, Any],
+    *,
+    image_path: Path,
+    expanded_prompt: str,
+) -> dict[str, Any]:
+    """Revalidate the exact expansion capability and source binding."""
+
+    return validate_wan_prompt_expansion(
+        receipt,
+        image_path=image_path,
+        expanded_prompt=expanded_prompt,
+    )
 
 
 def admit_local_motion(

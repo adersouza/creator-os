@@ -120,6 +120,7 @@ def _patch_admission_dependencies(
     *,
     failure: str | None = None,
     admission_mutator=None,
+    selected_model_id: str = "local_wan22_i2v_a14b_q4_mlx",
 ) -> dict:
     captured: dict = {}
 
@@ -131,10 +132,10 @@ def _patch_admission_dependencies(
             _runtime_and_license_policy()
         )
         decision = {
-            "selectedModelId": "local_wan22_i2v_a14b_q4_mlx",
+            "selectedModelId": selected_model_id,
             "consideredCandidates": [
                 {
-                    "modelId": "local_wan22_i2v_a14b_q4_mlx",
+                    "modelId": selected_model_id,
                     "runtimeBinding": runtime,
                     "runtimeBindingFingerprint": runtime_fingerprint,
                     "licensePolicy": license_policy,
@@ -206,6 +207,37 @@ def test_admission_binds_exact_inputs_and_calls_only_public_worker_api(
         == records["benchmarkRecipe"]["inputFingerprints"]
     )
     assert result["resourceSnapshot"]["routerAvailableMemoryBytes"] == 24_000
+
+
+def test_wan_prompt_expansion_rejects_non_wan_router_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still, summary_path, records = _fixture(tmp_path)
+    _patch_admission_dependencies(
+        monkeypatch,
+        selected_model_id="local_ltx23_i2v_2b_q4_mlx",
+    )
+    receipt = {"expandedPrompt": "expanded"}
+    monkeypatch.setattr(
+        "campaign_factory.local_motion_admission.validate_local_wan_i2v_prompt_expansion",
+        lambda *_args, **_kwargs: receipt,
+    )
+
+    with pytest.raises(
+        LocalMotionAdmissionError,
+        match="prompt_expansion_selected_model_invalid",
+    ):
+        build_local_motion_admission(
+            evidence_bundle_path=None,
+            evidence_bundle=records,
+            arena_summary_path=summary_path,
+            accepted_still_path=still,
+            audio_path=None,
+            campaign_creator="stacey",
+            task_kind="image_to_video",
+            prompt="expanded",
+            prompt_expansion=receipt,
+        )
 
 
 def test_admission_allows_exact_recipe_input_from_shared_intent_cohort(

@@ -50,6 +50,19 @@ def _reel_command(*args: str) -> list[str]:
     ]
 
 
+def _prompt_expander_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.local_wan_prompt_expansion",
+        *args,
+    ]
+
+
 def _local_queue_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -374,6 +387,7 @@ def _parser() -> argparse.ArgumentParser:
             "evidence-key",
             "approval-import",
             "motion-qc-register",
+            "prompt-expander",
         ],
     )
     advanced.add_argument("args", nargs=argparse.REMAINDER)
@@ -642,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
         advanced_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         if args.surface == "models":
             return _run(_reel_command(*advanced_args))
+        if args.surface == "prompt-expander":
+            return _run(_prompt_expander_command(*advanced_args))
         if args.surface == "queue":
             return _run(_local_queue_command(*advanced_args))
         if args.surface == "benchmarks":
