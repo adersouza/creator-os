@@ -331,6 +331,18 @@ and revalidates Retake/Extend ranges, audio preservation, the exact task,
 recipe, registry, Arena, Router, and active-promotion evidence so a stale
 admission cannot authorize substituted inputs or a revoked model.
 
+For Wan image-to-video only, `--enable-prompt-expansion` runs the exact accepted
+still and operator motion intent through the pinned local Qwen2.5-VL 7B 4-bit
+MLX preprocessor before Router admission. The deterministic expansion must
+describe real primary motion rather than blinking/breathing alone. Its
+provider-free receipt binds source SHA-256, original and expanded prompts,
+model/runtime revisions, deep-verification and implementation fingerprints,
+local producer authentication, and macOS no-network isolation. Campaign signs
+the expanded prompt, and the same receipt/fingerprint travels through execution
+admission, queue identity, interruption recovery, and final asset lineage.
+Missing, forged, or drifted expansion evidence blocks execution. Non-expanded
+historical jobs preserve their exact legacy fingerprints.
+
 Installed model files alone do not establish routing readiness. Until deep
 content verification, real provider-free queue jobs, output-bound QC, blinded
 reviews, benchmark receipts, and explicit promotion records exist, the Router
@@ -485,6 +497,7 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
+  -> optional pinned local Qwen-VL image-aware Wan prompt expansion
   -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
   -> machine-wide local generation lease + unified-memory admission
   -> exact BenchmarkRecipeV1 + AnalyzerRegistryV1 fingerprints on benchmark jobs
@@ -529,6 +542,10 @@ at validated draft handoff.
   output, and re-verify analyzer implementation hashes plus output-bound QC at
   evaluation and approval time. Historical unlinked receipts remain readable
   but are never assigned inferred evidence or promoted.
+  Wan I2V can additionally use the pinned local Qwen2.5-VL 7B 4-bit prompt
+  expander. It runs before admission, never downloads during generation, and
+  carries one exact source/model/runtime/implementation-bound receipt into the
+  queue job and asset lineage.
 - `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
   quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
   handles multi-reference motion, and Wan 2.2 S2V handles speaking video.

@@ -223,6 +223,56 @@ def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) 
         )
 
 
+def test_local_wan_prompt_expansion_receipt_reaches_exact_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = tmp_path / "still.jpg"
+    image.write_bytes(b"still")
+    evidence_args = _bound_evidence_args(tmp_path)
+    admission_index = evidence_args.index("--local-motion-admission") + 1
+    admission_path = Path(evidence_args[admission_index])
+    admission = json.loads(admission_path.read_text(encoding="utf-8"))
+    expansion_receipt = {
+        "schema": "reel_factory.wan_i2v_prompt_expansion.v1",
+        "expandedPrompt": (
+            "She shifts her weight, turns one shoulder toward the camera, and "
+            "adjusts her hair while the camera moves gently forward."
+        ),
+        "expansionFingerprint": "e" * 64,
+    }
+    admission["promptExpansion"] = expansion_receipt
+    encoded = json.dumps(admission, sort_keys=True).encode("utf-8")
+    admission_path.write_bytes(encoded)
+    admission_sha_index = evidence_args.index("--local-motion-admission-sha256") + 1
+    evidence_args[admission_sha_index] = hashlib.sha256(encoded).hexdigest()
+    monkeypatch.setattr(
+        "reel_factory.motion_generate.validate_wan_prompt_expansion",
+        lambda receipt, **_kwargs: dict(receipt),
+    )
+    args = _parser().parse_args(
+        [
+            "--model",
+            "local_wan22_ti2v_5b_mlx",
+            "--prompt",
+            expansion_receipt["expandedPrompt"],
+            "--image",
+            str(image),
+            "--out",
+            str(tmp_path / "local.mp4"),
+            "--campaign",
+            "campaign",
+            "--enable-prompt-expansion",
+            *evidence_args,
+            "--dry-run",
+        ]
+    )
+
+    request = build_request(args)
+
+    assert request.prompt == expansion_receipt["expandedPrompt"]
+    assert request.prompt_expansion == expansion_receipt
+
+
 def test_audio_task_and_inputs_cannot_silently_disagree() -> None:
     ltx = video_model("local_ltx23_dev_hq_mlx")
     with pytest.raises(ValueError, match="requires exact source audio"):

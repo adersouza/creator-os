@@ -13,6 +13,7 @@ from typing import Any, cast
 import requests
 
 from .local_video import LocalVideoRequest, LocalVideoTask, run_local_video
+from .local_wan_prompt_expansion import validate_wan_prompt_expansion
 from .video_provider_models import validate_model_request, video_model, video_model_ids
 from .wavespeed import (
     WaveSpeedRequest,
@@ -127,9 +128,26 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
+        prompt_expansion = local_motion_admission.get("promptExpansion")
         if args.enable_prompt_expansion:
+            if (
+                not model.id.startswith("local_wan22_")
+                or selected_task != "image_to_video"
+                or args.image is None
+                or not isinstance(prompt_expansion, dict)
+            ):
+                raise ValueError(
+                    "local prompt expansion requires a Wan image_to_video "
+                    "admission with exact expansion evidence"
+                )
+            prompt_expansion = validate_wan_prompt_expansion(
+                prompt_expansion,
+                image_path=args.image,
+                expanded_prompt=args.prompt,
+            )
+        elif prompt_expansion is not None:
             raise ValueError(
-                "local MLX prompt expansion is disabled until expanded text is captured"
+                "local prompt expansion evidence requires --enable-prompt-expansion"
             )
         if args.shot_type != "single":
             raise ValueError("local MLX motion does not support --shot-type")
@@ -207,6 +225,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             content_intent=content_intent,
             execution_context="campaign_generation",
             local_motion_admission=local_motion_admission,
+            prompt_expansion=prompt_expansion,
         )
     if args.model_dir is not None:
         raise ValueError("--model-dir applies only to local MLX models")

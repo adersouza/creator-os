@@ -62,6 +62,20 @@ The installer pins:
 - original official Wan/LTX source revisions in the installation receipt;
 - file size and SHA-256 evidence for every installed model file.
 
+Wan I2V prompt expansion has its own smaller, independently pinned install:
+
+- `mlx-community/Qwen2.5-VL-7B-Instruct-4bit` at revision
+  `fdcc572e8b05ba9daeaf71be8c9e4267c826ff9b`;
+- Apache-2.0 model licensing;
+- MLX-VLM `0.6.7` at commit
+  `b739dfa4b681951acd4a2d439f343e002e6b3013`;
+- exact file hashes, runtime environment, worker implementation hash, and a
+  cached deep-verification receipt invalidated by any file metadata drift.
+
+The 3B Qwen2.5-VL variant is intentionally not installed because its upstream
+license is not appropriate for this commercial workflow. The 7B Apache-2.0
+variant is the supported Mac prompt-expansion model.
+
 Inspect the catalog and disk plan before accepting licenses or downloading:
 
 ```bash
@@ -94,6 +108,10 @@ recorded SHA-256 hashes and can take several minutes:
 ```bash
 scripts/creator-os local-models status
 scripts/creator-os local-models status --deep
+
+scripts/creator-os advanced prompt-expander install --dry-run
+scripts/creator-os advanced prompt-expander install --apply
+scripts/creator-os advanced prompt-expander status --deep
 ```
 
 The default locations are:
@@ -137,9 +155,34 @@ scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
   --motion-model local_wan22_ti2v_5b_mlx \
   --motion-task image_to_video \
-  --motion-prompt "Subtle natural breathing and a gentle camera push" \
+  --motion-prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
+  --enable-prompt-expansion \
   --duration 6 --seed 42 --steps 40
 ```
+
+`--enable-prompt-expansion` invokes the pinned local Qwen-VL preprocessor before
+Router admission. It inspects the exact source image and describes a plausible
+primary action sequence, secondary motion, camera behavior when useful, and the
+stable scene/identity constraints expected by Wan. This follows Wan's official
+I2V guidance: describe dynamic action instead of relying on a generic
+"blink/breathe" prompt or over-describing a static frame.
+
+The expander is deterministic (`temperature=0`), provider-free, and offline.
+Generation never downloads a missing model. Its receipt binds:
+
+- exact input path and SHA-256;
+- operator motion intent and expanded text;
+- Qwen model/revision/license and deep-verification fingerprint;
+- MLX-VLM revision/environment and worker implementation SHA-256;
+- local producer authentication and deterministic output-normalization evidence;
+- macOS sandbox proof with network denied and writes restricted to temporary
+  storage.
+
+Campaign Factory expands first, then builds the exact benchmark/Router
+admission from the expanded prompt. The receipt is carried into the queue job
+and final asset lineage. A changed image, prompt, model, runtime, implementation
+or receipt fingerprint blocks execution. Historical local-motion jobs without
+prompt expansion remain readable and keep their original fingerprints.
 
 Wan A14B quality dry-run:
 
@@ -412,7 +455,10 @@ audio-alignment, lip-sync, or text-only identity-assignment gates.
 ## Primary References
 
 - [Official Wan 2.2 repository](https://github.com/Wan-Video/Wan2.2)
+- [Official Wan 2.2 TI2V-5B model](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers)
 - [Official Wan 2.2 I2V-A14B weights](https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B)
+- [MLX-VLM Apple-silicon runtime](https://github.com/Blaizzy/mlx-vlm)
+- [Qwen2.5-VL 7B MLX 4-bit model](https://huggingface.co/mlx-community/Qwen2.5-VL-7B-Instruct-4bit)
 - [Official LTX-2 repository](https://github.com/Lightricks/LTX-2)
 - [MLX-Video Apple-silicon runtime](https://github.com/Blaizzy/mlx-video)
 - [LongCat Avatar 1.5](https://github.com/meituan-longcat/LongCat-Video)

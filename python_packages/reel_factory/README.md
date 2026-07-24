@@ -44,7 +44,8 @@ scripts/creator-os create --mode soul_static --apply --confirm-paid \
 scripts/creator-os create --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_wan22_ti2v_5b_mlx \
-  --motion-prompt "Natural breathing and a gentle camera push"
+  --motion-prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
+  --enable-prompt-expansion
 
 scripts/creator-os create --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
@@ -123,6 +124,10 @@ scripts/creator-os advanced models install --apply \
   --accept-license gemma
 scripts/creator-os advanced models status --deep
 
+scripts/creator-os advanced prompt-expander install --dry-run
+scripts/creator-os advanced prompt-expander install --apply
+scripts/creator-os advanced prompt-expander status --deep
+
 scripts/creator-os advanced queue status
 scripts/creator-os advanced queue cancel-queued \
   --job-id LOCAL_JOB_ID \
@@ -166,6 +171,19 @@ Installed does not mean resource-admitted. On this 64 GiB Mac, LTX distilled
 remains canary-pending and only runs when the live memory gate passes; the
 current dev/HQ profile is an installed research tier that is not practically
 runnable until a measured lower-memory or compatible quantized path exists.
+
+Local Wan I2V prompt expansion is a separate, narrow preprocessing capability.
+It uses the pinned Apache-2.0 Qwen2.5-VL 7B 4-bit conversion through a pinned
+MLX-VLM runtime on Apple silicon. The expander inspects the exact accepted still
+and turns the operator's motion intent into a detailed, image-aware Wan prompt.
+It must include a real primary action; blinking and breathing can be secondary
+motion but can never be the whole clip. Expansion runs offline in a macOS
+no-network sandbox, records zero provider calls, and emits an authenticated
+immutable receipt binding the source SHA-256, original and expanded prompts,
+model revision, runtime, and implementation hash. Campaign Factory expands
+before Router admission so the signed task and generation lineage bind the
+exact expanded prompt. Missing, substituted, forged, or drifted evidence fails
+closed.
 
 `local-queue` is an admission lease and recovery journal, not a daemon that can
 execute serialized requests later. Busy and current-memory-blocked attempts do
