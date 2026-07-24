@@ -224,11 +224,12 @@ LTX prompts follow the creator's published cinematographic format: one flowing,
 literal paragraph of at most 200 words that describes the main action,
 chronological gestures, relevant appearance, environment, camera behavior,
 lighting, and synchronized soundscape. For image-to-video, keep those details
-consistent with the source image and emphasize what changes over time. Use the
-pinned local Gemma enhancer before Arena planning when expansion is needed,
-then store the exact expanded prompt as benchmark input. Never use hidden
+consistent with the source image and emphasize what changes over time. Creator
+OS does not currently expose an LTX prompt-expansion stage: the exact
+operator-authored prompt must be stored as benchmark input. Never use hidden
 generation-time prompt enhancement because the expanded text would escape the
-plan and lineage fingerprints.
+plan and lineage fingerprints. The installed Gemma component is LTX's text
+encoder, not evidence of a separate Creator OS prompt enhancer.
 
 LTX source-audio and first/last-frame conditioning are supported by the narrow
 Reel Factory worker:

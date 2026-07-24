@@ -62,9 +62,10 @@ frame count remains `8k+1`, matching LTX-2.3's published geometry contract.
   that crosses tile boundaries and are not a quality preset.
 - Image-to-video prompts use one literal, chronological paragraph of at most
   200 words: main action, gestures, source-consistent appearance and
-  environment, camera behavior, lighting, and synchronized soundscape. Prompt
-  enhancement must happen before Arena planning so the exact expanded text is
-  fingerprinted; hidden runtime expansion is not acceptable evidence.
+  environment, camera behavior, lighting, and synchronized soundscape. Creator
+  OS does not currently expose LTX prompt expansion, so Arena fingerprints the
+  exact operator-authored prompt. Any future reviewed expansion must happen
+  before Arena planning; hidden runtime expansion is not acceptable evidence.
 
 The installed Q4 and Q8 manifests already bind the required Gemma text encoder,
 audio/video components, v1.1 spatial upscaler, and (for Q8) distilled LoRA.
