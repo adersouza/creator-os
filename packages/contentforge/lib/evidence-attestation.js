@@ -15,12 +15,12 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 
-export const EVIDENCE_ATTESTATION_SCHEMA = "creator_os.evidence_attestation.v1";
-export const EVIDENCE_ATTESTATION_ALGORITHM = "hmac-sha256";
-export const EVIDENCE_SECRET_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET";
-export const EVIDENCE_SECRET_FILE_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET_FILE";
-export const EVIDENCE_KEY_ID_ENV = "CREATOR_OS_EVIDENCE_AUTH_KEY_ID";
-export const EVIDENCE_KEY_FILE_SCHEMA = "creator_os.evidence_key.v1";
+const EVIDENCE_ATTESTATION_SCHEMA = "creator_os.evidence_attestation.v1";
+const EVIDENCE_ATTESTATION_ALGORITHM = "hmac-sha256";
+const EVIDENCE_SECRET_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET";
+const EVIDENCE_SECRET_FILE_ENV = "CREATOR_OS_EVIDENCE_AUTH_SECRET_FILE";
+const EVIDENCE_KEY_ID_ENV = "CREATOR_OS_EVIDENCE_AUTH_KEY_ID";
+const EVIDENCE_KEY_FILE_SCHEMA = "creator_os.evidence_key.v1";
 
 const MINIMUM_SECRET_BYTES = 32;
 const MAXIMUM_KEY_FILE_BYTES = 4096;

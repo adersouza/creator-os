@@ -114,6 +114,3 @@ export async function snapshotTrustedMediaAnalyzerRegistry({
     },
   };
 }
-
-// Compatibility alias for callers introduced with the evidence bridge.
-export const snapshotMotionSpecificQcAnalyzerRegistry = snapshotTrustedMediaAnalyzerRegistry;
