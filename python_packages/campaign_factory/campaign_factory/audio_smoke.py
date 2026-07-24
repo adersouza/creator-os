@@ -393,7 +393,8 @@ def create_smoke_campaign_asset(
                     "instagram_post_caption": caption,
                     "audioIntent": {
                         "schema": "pipeline.audio_intent.v1",
-                        "mode": "native_platform_audio",
+                        "policy": "embedded_trending_required",
+                        "mode": "embedded_trending_audio",
                         "required": True,
                         "status": "needs_operator_selection",
                     },

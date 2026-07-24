@@ -666,9 +666,14 @@ def test_threadsdash_export_uses_dashboard_ingest_by_default(
                         "instagram_post_caption": "new post is up",
                         "audioIntent": {
                             "schema": "pipeline.audio_intent.v1",
-                            "mode": "native_platform_audio",
+                            "policy": "silent_allowed",
+                            "mode": "silence",
                             "required": False,
                             "status": "not_required",
+                            "operator_selection": {
+                                "selected_reason": "Operator approved silent fixture",
+                                "selected_at": "2026-07-24T00:00:00Z",
+                            },
                         },
                     }
                 ),
@@ -802,9 +807,14 @@ def test_threadsdash_export_empty_dashboard_post_ids_fail_not_exported(
                         "instagram_post_caption": "new post is up",
                         "audioIntent": {
                             "schema": "pipeline.audio_intent.v1",
-                            "mode": "native_platform_audio",
+                            "policy": "silent_allowed",
+                            "mode": "silence",
                             "required": False,
                             "status": "not_required",
+                            "operator_selection": {
+                                "selected_reason": "Operator approved silent fixture",
+                                "selected_at": "2026-07-24T00:00:00Z",
+                            },
                         },
                     }
                 ),
@@ -989,9 +999,14 @@ def test_threadsdash_export_blocks_unresolved_dashboard_media_before_post(
                         "instagram_post_caption": "new post is up",
                         "audioIntent": {
                             "schema": "pipeline.audio_intent.v1",
-                            "mode": "native_platform_audio",
+                            "policy": "silent_allowed",
+                            "mode": "silence",
                             "required": False,
                             "status": "not_required",
+                            "operator_selection": {
+                                "selected_reason": "Operator approved silent fixture",
+                                "selected_at": "2026-07-24T00:00:00Z",
+                            },
                         },
                     }
                 ),
@@ -1244,6 +1259,7 @@ def test_audio_segment_and_cover_frame_export_as_campaign_owned_instructions(
             track_id="ig_audio_123",
             track_name="Proof track",
             source="manual",
+            audio_policy="native_trending_required",
             selected_reason="operator selected different song section",
             segment_start_seconds=18.5,
             segment_duration_seconds=6.0,
@@ -1327,7 +1343,28 @@ def test_export_readiness_blocks_missing_audit_rejected_failed_and_published(
             }
         )
         cf.conn.execute(
-            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+            """
+            UPDATE rendered_assets
+            SET review_state = 'approved', caption_generation_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                json.dumps(
+                    {
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "policy": "silent_allowed",
+                            "mode": "silence",
+                            "required": False,
+                            "status": "not_required",
+                            "operator_selection": {
+                                "selected_reason": "Operator approved silent fixture",
+                                "selected_at": "2026-07-24T00:00:00Z",
+                            },
+                        }
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         add_audit_report(
@@ -1401,7 +1438,28 @@ def test_export_readiness_warns_on_already_drafted_render(tmp_path: Path, monkey
             }
         )
         cf.conn.execute(
-            "UPDATE rendered_assets SET review_state = 'approved' WHERE id = 'asset_1'"
+            """
+            UPDATE rendered_assets
+            SET review_state = 'approved', caption_generation_json = ?
+            WHERE id = 'asset_1'
+            """,
+            (
+                json.dumps(
+                    {
+                        "audioIntent": {
+                            "schema": "pipeline.audio_intent.v1",
+                            "policy": "silent_allowed",
+                            "mode": "silence",
+                            "required": False,
+                            "status": "not_required",
+                            "operator_selection": {
+                                "selected_reason": "Operator approved silent fixture",
+                                "selected_at": "2026-07-24T00:00:00Z",
+                            },
+                        }
+                    }
+                ),
+            ),
         )
         cf.conn.commit()
         add_audit_report(cf, overall_verdict="warn", warnings=["compression"])
@@ -1599,7 +1657,7 @@ def test_threadsdash_export_preserves_existing_caption_outcome_context_nulls(
         cf.close()
 
 
-def test_threadsdash_audio_live_gate_accepts_embedded_licensed_audio():
+def test_threadsdash_audio_live_gate_rejects_legacy_licensed_music_mode():
     assert (
         threadsdash_payload_adapter._audio_intent_allows_live(
             {
@@ -1616,7 +1674,7 @@ def test_threadsdash_audio_live_gate_accepts_embedded_licensed_audio():
                 },
             }
         )
-        is True
+        is False
     )
 
 

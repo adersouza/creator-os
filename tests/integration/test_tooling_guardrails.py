@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -132,21 +133,39 @@ def test_github_workflows_have_one_monorepo_owner() -> None:
     assert (ROOT / ".github/workflows/security.yml").exists()
 
 
-def test_monorepo_ci_scopes_language_jobs_without_blanket_script_trigger() -> None:
+def test_monorepo_ci_always_runs_required_promotion_language_jobs() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
-    filters = workflow["jobs"]["changes"]["steps"][1]["with"]["filters"]
+    jobs = workflow["jobs"]
 
-    js_filters, py_filters = filters.split("\npy:\n", maxsplit=1)
-    assert "- 'packages/**'" not in js_filters
-    assert "- 'scripts/**'" not in js_filters
-    assert "- 'packages/contentforge/**'" in js_filters
-    assert "- 'packages/pipeline_contracts/**'" in js_filters
-    assert "- 'scripts/**/*.mjs'" in js_filters
+    assert "changes" not in jobs
+    for required_job in ("javascript", "python"):
+        assert "if" not in jobs[required_job]
+        assert "needs" not in jobs[required_job]
 
-    assert "- 'packages/creator_os_core/**'" in py_filters
-    assert "- 'packages/pipeline_contracts/**'" in py_filters
-    assert "- 'scripts/**/*.py'" in py_filters
-    assert "- 'scripts/**/*.sh'" in py_filters
+
+def test_runtime_verify_reconstructs_complete_frozen_python_environment() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    runtime_verify = makefile.split("\nruntime-verify:\n", maxsplit=1)[1].split(
+        "\n\n", maxsplit=1
+    )[0]
+    sync_commands = [
+        line.strip() for line in runtime_verify.splitlines() if "uv sync" in line
+    ]
+
+    assert sync_commands == ["uv sync --all-extras --all-packages --frozen"]
+
+
+def test_mypy_skips_only_the_incompatible_tifffile_implementation() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    mypy = pyproject["tool"]["mypy"]
+
+    assert "follow_imports" not in mypy
+    assert mypy["overrides"] == [
+        {
+            "module": ["tifffile", "tifffile.*"],
+            "follow_imports": "skip",
+        }
+    ]
 
 
 def test_active_reel_producers_use_reel_factory_lineage_authority() -> None:

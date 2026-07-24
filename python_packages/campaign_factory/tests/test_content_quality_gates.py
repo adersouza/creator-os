@@ -484,7 +484,8 @@ def test_import_folder_accepts_guarded_reel_review_package(
         json.dumps(
             {
                 "schema": "audio_intent.v1",
-                "mode": "platform_auto_music",
+                "policy": "embedded_trending_required",
+                "mode": "embedded_trending_audio",
                 "humanReviewRequired": True,
             }
         )
@@ -608,7 +609,8 @@ def test_import_folder_accepts_guarded_reel_review_package(
         assert rendered["audit_status"] == "approved_candidate"
         assert rendered["review_state"] == "review_ready"
         generation = json.loads(rendered["caption_generation_json"])
-        assert generation["audioIntent"]["mode"] == "platform_auto_music"
+        assert generation["audioIntent"]["mode"] == "embedded_trending_audio"
+        assert generation["audioIntent"]["policy"] == "embedded_trending_required"
         validate_audio_intent(generation["audioIntent"])
         assert (
             generation["generatedAssetLineage"]["workflow"]
@@ -2400,7 +2402,7 @@ def test_publishability_blocks_embedded_audio_claim_when_mp4_has_no_audio(
         cf.close()
 
 
-def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(
+def test_publishability_rejects_legacy_licensed_music_without_explicit_policy(
     tmp_path: Path, monkeypatch
 ):
     cf = make_factory(tmp_path)
@@ -2442,14 +2444,12 @@ def test_publishability_accepts_licensed_local_audio_embedded_in_mp4(
             "asset_1", distribution_plan_id=plan["id"]
         )
 
-        assert explanation["publishableCandidate"] is True
-        assert explanation["checks"]["audio_assigned"] is True
+        assert explanation["publishableCandidate"] is False
+        assert explanation["checks"]["audio_assigned"] is False
         assert explanation["checks"]["embedded_audio_verified"] is True
         assert explanation["audioIntent"]["mode"] == "licensed_music"
-        assert (
-            explanation["audioIntent"]["operator_selection"]["selection_source"]
-            == "embedded_licensed_audio"
-        )
+        assert "operator_selection" not in explanation["audioIntent"]
+        assert "missing_audio" in explanation["publishability_failure_reasons"]
     finally:
         cf.close()
 

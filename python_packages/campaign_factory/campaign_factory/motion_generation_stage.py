@@ -30,6 +30,7 @@ from pipeline_contracts import (
     validate_provider_spend_authorization_v2,
 )
 
+from .audio_policy import build_motion_audio_intent, validate_motion_audio_policy
 from .core import (
     new_id,
     sanitize_for_storage,
@@ -96,6 +97,13 @@ def run_motion_generation_stage(
     max_usd: float | None = None,
     audio_path: Path | None = None,
     generate_audio: bool = False,
+    audio_policy: str = "embedded_trending_required",
+    audio_track_id: str | None = None,
+    audio_track_name: str | None = None,
+    audio_source: str | None = None,
+    audio_start_offset: float | None = None,
+    audio_volume: float | None = None,
+    audio_selected_reason: str | None = None,
     last_image_path: Path | None = None,
     source_video_path: Path | None = None,
     retake_start_frame: int | None = None,
@@ -171,6 +179,13 @@ def run_motion_generation_stage(
         source_video_path = source_video
         primary_source = still
     audio_path = _resolve_task_media_path(audio_path, "source audio")
+    audio_policy = validate_motion_audio_policy(
+        audio_policy,
+        audio_path=audio_path,
+        generate_audio=generate_audio,
+        preserve_audio=preserve_audio,
+        selected_reason=audio_selected_reason,
+    )
     last_image_path = _resolve_task_media_path(last_image_path, "last image")
     try:
         canonical_task_input_bindings(
@@ -261,6 +276,13 @@ def run_motion_generation_stage(
         steps=steps,
         audio_path=audio_path,
         generate_audio=generate_audio,
+        audio_policy=audio_policy,
+        audio_track_id=audio_track_id,
+        audio_track_name=audio_track_name,
+        audio_source=audio_source,
+        audio_start_offset=audio_start_offset,
+        audio_volume=audio_volume,
+        audio_selected_reason=audio_selected_reason,
         last_image_path=last_image_path,
         source_video_path=source_video_path,
         retake_start_frame=retake_start_frame,
@@ -589,6 +611,13 @@ def run_motion_generation_stage(
                 request_fingerprint=request_fingerprint,
                 local_motion_admission=local_motion_admission,
                 prompt=prompt,
+                audio_policy=audio_policy,
+                audio_track_id=audio_track_id,
+                audio_track_name=audio_track_name,
+                audio_source=audio_source,
+                audio_start_offset=audio_start_offset,
+                audio_volume=audio_volume,
+                audio_selected_reason=audio_selected_reason,
                 pipeline_job_id=pipeline_job["id"],
                 paid_authorization=authorization,
                 paid_authorization_path=authorization_path,
@@ -1134,6 +1163,13 @@ def _register_review_asset(
     request_fingerprint: str | None = None,
     local_motion_admission: Mapping[str, Any] | None = None,
     prompt: str | None = None,
+    audio_policy: str | None = None,
+    audio_track_id: str | None = None,
+    audio_track_name: str | None = None,
+    audio_source: str | None = None,
+    audio_start_offset: float | None = None,
+    audio_volume: float | None = None,
+    audio_selected_reason: str | None = None,
     pipeline_job_id: str | None = None,
     paid_authorization: Mapping[str, Any] | None = None,
     paid_authorization_path: Path | None = None,
@@ -1154,7 +1190,19 @@ def _register_review_asset(
     audio = generation.get("audio")
     audio = audio if isinstance(audio, dict) else {"mode": "none"}
     audio_mode = str(audio.get("mode") or "none")
-    embedded_audio = audio_mode in {"source", "generated"}
+    embedded_audio = audio_mode in {"source", "generated", "preserved"}
+    audio_intent = build_motion_audio_intent(
+        policy=audio_policy,
+        audio=audio,
+        output_sha256=digest,
+        selected_at=now,
+        track_id=audio_track_id,
+        track_name=audio_track_name,
+        source=audio_source,
+        start_offset_seconds=audio_start_offset,
+        volume=audio_volume,
+        selected_reason=audio_selected_reason,
+    )
     blocking_issues = [
         "contentforge_audit_required",
         "motion_specific_qc_required",
@@ -1167,11 +1215,12 @@ def _register_review_asset(
         blocking_issues.append("audio_video_alignment_qc_required")
     if model_id == "local_longcat_avatar15_q4_mlx":
         blocking_issues.append("lip_sync_qc_required")
-    blocking_issues.append(
-        "local_audio_policy_review_required"
-        if embedded_audio
-        else "native_audio_unresolved"
-    )
+    if embedded_audio:
+        blocking_issues.append("local_audio_policy_review_required")
+    elif audio_intent["policy"] == "embedded_trending_required":
+        blocking_issues.append("NEEDS_EMBEDDED_AUDIO")
+    elif audio_intent["policy"] == "native_trending_required":
+        blocking_issues.append("NEEDS_NATIVE_AUDIO")
     if generation.get("aiDisclosureRequired") is True:
         blocking_issues.append("ai_generated_media_disclosure_required")
     source_binding = {"path": str(source_path), "sha256": source_hash}
@@ -1212,6 +1261,7 @@ def _register_review_asset(
         "audioBurned": embedded_audio,
         "embeddedAudioMode": audio_mode,
         "embeddedAudio": audio,
+        "audioIntent": audio_intent,
         "nativeAudioResolved": False,
         "source": generation_source,
         "generationInput": generation_source,

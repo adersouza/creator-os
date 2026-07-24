@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +16,25 @@ except ImportError:  # script mode: package dir itself is on sys.path
     from fileops import atomic_write_text
 
 AUDIO_INTENT_MODES = {
+    "embedded_trending_audio",
+    "embedded_original_audio",
+    "embedded_creator_voice",
+    "embedded_royalty_free_audio",
     "native_trending_audio",
     "original_voiceover",
-    "licensed_music",
     "silent_by_design",
     "platform_auto_music",
+}
+
+POLICY_FOR_MODE = {
+    "embedded_trending_audio": "embedded_trending_required",
+    "embedded_original_audio": "original_embedded",
+    "embedded_creator_voice": "creator_voice",
+    "embedded_royalty_free_audio": "royalty_free",
+    "native_trending_audio": "native_trending_required",
+    "original_voiceover": "creator_voice",
+    "silent_by_design": "silent_allowed",
+    "platform_auto_music": "native_trending_required",
 }
 
 
@@ -50,13 +65,26 @@ def write_audio_intent(
         raise ValueError(
             f"audio intent mode must be one of {sorted(AUDIO_INTENT_MODES)}"
         )
+    policy = POLICY_FOR_MODE[mode]
+    silent = policy == "silent_allowed"
+    now = datetime.now(UTC).isoformat()
     payload = {
         "schema": "pipeline.audio_intent.v1",
+        "policy": policy,
         "mode": mode,
-        "required": mode != "silent_by_design",
-        "status": "recommended" if mode != "silent_by_design" else "not_required",
+        "required": not silent,
+        "status": "recommended" if not silent else "not_required",
         "platform": platform or "",
         "recommendations": [],
+        "operator_selection": (
+            {
+                "selected_reason": notes
+                or "Operator explicitly selected silent_by_design",
+                "selected_at": now,
+            }
+            if silent
+            else {}
+        ),
         "gates": {
             "allow_draft_export": True,
             "allow_preview_schedule": False,

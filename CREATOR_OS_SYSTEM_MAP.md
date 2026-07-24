@@ -22,6 +22,21 @@ The operator-facing system has four roles. Package names describe internal
 ownership; they are not four separate workflows the operator must manually
 coordinate.
 
+```mermaid
+flowchart LR
+    Operator["Operator"] --> Intelligence["Intelligence<br/>references + measured learning"]
+    Intelligence --> Orchestrator["Orchestrator<br/>intent + account + policy"]
+    Orchestrator --> Engine["Content engine<br/>create + inspect + block"]
+    Engine --> Distribution["Distribution<br/>review + schedule + publish"]
+    Distribution --> Outcomes["Real outcomes<br/>publication + metric history"]
+    Outcomes --> Intelligence
+
+    Foundation["Creator OS Core + Pipeline Contracts"] -.-> Intelligence
+    Foundation -.-> Orchestrator
+    Foundation -.-> Engine
+    Foundation -.-> Distribution
+```
+
 | Role | Question it answers | Internal owner |
 |---|---|---|
 | Intelligence | What should we make, and what actually worked? | Reference Factory plus Campaign performance learning |
@@ -79,6 +94,13 @@ Historical backup, deployment, publication, experiment, and metric evidence
 belongs in dated audit artifacts, not in this map. Trial capability and OAuth
 scope counts likewise come only from a fresh ThreadsDashboard account
 projection.
+
+The latest repository-owned point-in-time assessment is
+[`CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md`](./CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md).
+It is a dated evidence snapshot, not a second architecture authority. If that
+report disagrees with this map about component ownership, this map wins. If it
+disagrees about a volatile SHA, run, account, model, provider, or metric fact,
+refresh the report from current evidence.
 
 ## Lifecycle Overview
 
@@ -221,6 +243,13 @@ separately shuffled, model-free, authenticated review packet; all signed
 blinded reviews are locked before a distinct authenticated unblinding receipt
 reveals the sample/model mapping. Promotion summaries and Router decisions bind
 both packet and unblinding fingerprints.
+Imported local browser review forms preserve exact packet, sample, field, and
+decision integrity, but do not prove who operated the browser. They remain
+explicitly unverified and non-promotable until a credential-backed reviewer
+boundary authenticates the reviewer. Promotion also requires complete
+registry-declared analyzer observation and verdict coverage plus explicit
+confirmation of every recorded frame/outlier finding; a missing review answer
+cannot be inferred from the rest of the packet.
 
 Content Intent authorizes the reviewed source set used to construct that grid;
 it does not promote every authorized source. Each recipe and queue job binds one
@@ -324,6 +353,18 @@ and revalidates Retake/Extend ranges, audio preservation, the exact task,
 recipe, registry, Arena, Router, and active-promotion evidence so a stale
 admission cannot authorize substituted inputs or a revoked model.
 
+For Wan image-to-video only, `--enable-prompt-expansion` runs the exact accepted
+still and operator motion intent through the pinned local Qwen2.5-VL 7B 4-bit
+MLX preprocessor before Router admission. The deterministic expansion must
+describe real primary motion rather than blinking/breathing alone. Its
+provider-free receipt binds source SHA-256, original and expanded prompts,
+model/runtime revisions, deep-verification and implementation fingerprints,
+local producer authentication, and macOS no-network isolation. Campaign signs
+the expanded prompt, and the same receipt/fingerprint travels through execution
+admission, queue identity, interruption recovery, and final asset lineage.
+Missing, forged, or drifted expansion evidence blocks execution. Non-expanded
+historical jobs preserve their exact legacy fingerprints.
+
 Installed model files alone do not establish routing readiness. Until deep
 content verification, real provider-free queue jobs, output-bound QC, blinded
 reviews, benchmark receipts, and explicit promotion records exist, the Router
@@ -407,17 +448,21 @@ local-motion metadata. Focused approval, readiness, and export tests cover this
 combined boundary.
 
 `creator-os promote` is local source/runtime management, not production
-publishing. It requires an exact clean reviewed commit, a write-capable
-non-author approval, and live GitHub verification of trusted workflow/app
-identities. A deterministic runtime-scoped lock prevents alternate state roots
-from racing one checkout. Promotion accepts only an initially detached runtime,
-revalidates mutable authority under the lock, creates and verifies a Git bundle
-plus backup manifest, and runs verification under a credential-scrubbed
-environment. Health policy `creator_os.runtime_live_read_only_health.v1`
-requires its exact nine-check inventory, all `PASS`. Authenticated journals and
-receipts are fail-closed; recovery verifies the bundle and can re-import the
-prior commit before rollback. It never mutates operational databases,
-ThreadsDashboard, providers, schedules, or posts.
+publishing. It requires an exact clean merged commit and live GitHub verification
+of trusted workflow/app identities. Historical independent-review approvals
+remain readable; the active single-owner mode binds the authenticated
+write-capable operator to strict branch protection, all nine required checks,
+conversation resolution, admin enforcement, and a zero-review policy instead
+of inventing a second reviewer. A deterministic runtime-scoped lock prevents
+alternate state roots from racing one checkout. Promotion accepts only an
+initially detached runtime, revalidates mutable authority under the lock,
+creates and verifies a Git bundle plus backup manifest, and runs verification
+under a credential-scrubbed environment. Health policy
+`creator_os.runtime_live_read_only_health.v1` requires its exact nine-check
+inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
+recovery verifies the bundle and can re-import the prior commit before
+rollback. It never mutates operational databases, ThreadsDashboard, providers,
+schedules, or posts.
 
 ## Failure And Authority Map
 
@@ -474,6 +519,7 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
+  -> optional pinned local Qwen-VL image-aware Wan prompt expansion
   -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
   -> machine-wide local generation lease + unified-memory admission
   -> exact BenchmarkRecipeV1 + AnalyzerRegistryV1 fingerprints on benchmark jobs
@@ -505,10 +551,18 @@ at validated draft handoff.
   for quality, quantized LTX-2.3 Q4 for fast generated-audio motion, or
   quantized LTX-2.3 Q8 for HQ source/generated audio, first/last frames,
   keyframes, retake, and extension. LTX runs in its own pinned native MLX
-  runtime with low-RAM streaming; every source image, audio track, end frame,
-  and edited source video remains fingerprinted. Experimental LongCat Avatar
+  runtime at exact 9:16 by default (`576x1024`, 24 fps, `8k+1` frames), with
+  low-RAM streaming and no modality tiling unless measured memory pressure
+  requires an explicit override. Q4 distilled is the iteration tier; Q8
+  two-stage HQ with the pinned distilled LoRA and v1.1 spatial upscaler is the
+  final-quality tier. Every source image, audio track, end frame, expanded
+  prompt, and edited source video remains fingerprinted. Experimental LongCat Avatar
   1.5 q4 adds local image-plus-speech talking video behind lip-sync and memory
-  canary gates. The static fallback is always retained. Installation is a
+  canary gates using its pinned 8-step DMD, 25 fps, and explicit 4.0/4.0
+  text/audio guidance recipe. Wan A14B uses the official 40-step dual-guidance
+  recipe with automatic VAE tiling; LTX Q8 source-audio and generated-audio
+  generation both use its declared two-stage HQ path. The static fallback is
+  always retained. Installation is a
   separate pinned setup action; generation is offline and cannot download
   weights. Local jobs use one machine-wide resource lease and append-only
   recovery journal. Model promotion requires matched measured benchmarks and
@@ -518,6 +572,10 @@ at validated draft handoff.
   output, and re-verify analyzer implementation hashes plus output-bound QC at
   evaluation and approval time. Historical unlinked receipts remain readable
   but are never assigned inferred evidence or promoted.
+  Wan I2V can additionally use the pinned local Qwen2.5-VL 7B 4-bit prompt
+  expander. It runs before admission, never downloads during generation, and
+  carries one exact source/model/runtime/implementation-bound receipt into the
+  queue job and asset lineage.
 - `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
   quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
   handles multi-reference motion, and Wan 2.2 S2V handles speaking video.
@@ -703,6 +761,9 @@ normal Creator OS operator command.
 
 - `README.md` is the concise supported-entrypoint guide.
 - This file is the durable architecture and ownership source of truth.
+- `CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md` is the dated operational-truth
+  scorecard. It records what the current implementation has actually proved and
+  must be refreshed rather than treated as permanent truth.
 - `PIPELINE_STATE.md` records current source capability without freezing
   volatile operational counts or SHAs.
 - `docs/architecture/` contains active implementation and promotion policy.

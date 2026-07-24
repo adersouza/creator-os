@@ -738,6 +738,7 @@ export const generatedPipelineContractSchemas = {
 	  "additionalProperties": true,
 	  "required": [
 	    "schema",
+	    "policy",
 	    "mode",
 	    "required",
 	    "status",
@@ -745,12 +746,129 @@ export const generatedPipelineContractSchemas = {
 	    "recommendations",
 	    "gates"
 	  ],
+	  "allOf": [
+	    {
+	      "if": {
+	        "properties": {
+	          "policy": {
+	            "const": "silent_allowed"
+	          }
+	        },
+	        "required": [
+	          "policy"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "required": {
+	            "const": false
+	          },
+	          "status": {
+	            "enum": [
+	              "not_required",
+	              "skipped"
+	            ]
+	          },
+	          "operator_selection": {
+	            "type": "object",
+	            "required": [
+	              "selected_reason"
+	            ],
+	            "properties": {
+	              "selected_reason": {
+	                "type": "string",
+	                "minLength": 1
+	              }
+	            },
+	            "anyOf": [
+	              {
+	                "required": [
+	                  "selected_at"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "skipped_at"
+	                ]
+	              }
+	            ]
+	          }
+	        },
+	        "required": [
+	          "operator_selection"
+	        ]
+	      },
+	      "else": {
+	        "properties": {
+	          "required": {
+	            "const": true
+	          }
+	        }
+	      }
+	    },
+	    {
+	      "if": {
+	        "properties": {
+	          "policy": {
+	            "const": "embedded_trending_required"
+	          },
+	          "status": {
+	            "enum": [
+	              "attached",
+	              "verified"
+	            ]
+	          }
+	        },
+	        "required": [
+	          "policy",
+	          "status"
+	        ]
+	      },
+	      "then": {
+	        "properties": {
+	          "fulfillment": {
+	            "type": "object",
+	            "required": [
+	              "audio_present",
+	              "output_sha256",
+	              "acquired_audio_sha256",
+	              "embedded_audio_fingerprint",
+	              "proof_type",
+	              "verification_receipt"
+	            ],
+	            "properties": {
+	              "audio_present": {
+	                "const": true
+	              },
+	              "proof_type": {
+	                "const": "embedded_output_audio_stream"
+	              }
+	            }
+	          }
+	        },
+	        "required": [
+	          "fulfillment"
+	        ]
+	      }
+	    }
+	  ],
 	  "properties": {
 	    "schema": {
 	      "const": "pipeline.audio_intent.v1"
 	    },
 	    "mode": {
 	      "type": "string"
+	    },
+	    "policy": {
+	      "type": "string",
+	      "enum": [
+	        "embedded_trending_required",
+	        "native_trending_required",
+	        "original_embedded",
+	        "creator_voice",
+	        "royalty_free",
+	        "silent_allowed"
+	      ]
 	    },
 	    "required": {
 	      "type": "boolean"
@@ -880,6 +998,90 @@ export const generatedPipelineContractSchemas = {
 	              "integer",
 	              "null"
 	            ]
+	          },
+	          "provider": {
+	            "type": [
+	              "string",
+	              "null"
+	            ]
+	          },
+	          "canonical_track_id": {
+	            "type": [
+	              "string",
+	              "null"
+	            ]
+	          },
+	          "platform_sound_ids": {
+	            "type": "array",
+	            "items": {
+	              "type": "object",
+	              "additionalProperties": true,
+	              "required": [
+	                "platform",
+	                "sound_id"
+	              ],
+	              "properties": {
+	                "platform": {
+	                  "type": "string"
+	                },
+	                "sound_id": {
+	                  "type": "string"
+	                },
+	                "region": {
+	                  "type": [
+	                    "string",
+	                    "null"
+	                  ]
+	                }
+	              }
+	            }
+	          },
+	          "current_rank": {
+	            "type": [
+	              "integer",
+	              "null"
+	            ],
+	            "minimum": 1
+	          },
+	          "rank_velocity": {
+	            "type": [
+	              "number",
+	              "null"
+	            ]
+	          },
+	          "usage_velocity": {
+	            "type": [
+	              "number",
+	              "null"
+	            ]
+	          },
+	          "freshness_hours": {
+	            "type": [
+	              "number",
+	              "null"
+	            ],
+	            "minimum": 0
+	          },
+	          "saturation": {
+	            "type": [
+	              "number",
+	              "null"
+	            ],
+	            "minimum": 0,
+	            "maximum": 1
+	          },
+	          "trend_bucket": {
+	            "type": [
+	              "string",
+	              "null"
+	            ],
+	            "enum": [
+	              "BREAKOUT",
+	              "HOT",
+	              "PROVEN",
+	              "EVERGREEN",
+	              null
+	            ]
 	          }
 	        }
 	      }
@@ -968,6 +1170,133 @@ export const generatedPipelineContractSchemas = {
 	            "string",
 	            "null"
 	          ]
+	        },
+	        "track_id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "track_name": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "canonical_track_id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "audio_id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "source": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "provider": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "platform_sound_ids": {
+	          "type": "array",
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": true,
+	            "required": [
+	              "platform",
+	              "sound_id"
+	            ],
+	            "properties": {
+	              "platform": {
+	                "type": "string"
+	              },
+	              "sound_id": {
+	                "type": "string"
+	              },
+	              "region": {
+	                "type": [
+	                  "string",
+	                  "null"
+	                ]
+	              }
+	            }
+	          }
+	        },
+	        "selection_source": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "selected_reason": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "start_offset_seconds": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "minimum": 0
+	        },
+	        "volume": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "minimum": 0,
+	          "maximum": 1
+	        },
+	        "segment_duration_seconds": {
+	          "type": [
+	            "number",
+	            "null"
+	          ],
+	          "exclusiveMinimum": 0
+	        },
+	        "segment_score": {
+	          "type": [
+	            "number",
+	            "null"
+	          ]
+	        },
+	        "beat_evidence": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "hook_evidence": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "acquired_audio_sha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "embedded_audio_fingerprint": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
 	        },
 	        "artist_name": {
 	          "type": [
@@ -1058,6 +1387,172 @@ export const generatedPipelineContractSchemas = {
 	            "string",
 	            "null"
 	          ]
+	        }
+	      }
+	    },
+	    "fulfillment": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": true,
+	      "properties": {
+	        "status": {
+	          "type": "string"
+	        },
+	        "owner": {
+	          "type": "string"
+	        },
+	        "proof_required": {
+	          "type": "boolean"
+	        },
+	        "proof_type": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "audio_present": {
+	          "type": [
+	            "boolean",
+	            "null"
+	          ]
+	        },
+	        "output_sha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "sidecar_sha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "acquired_audio_sha256": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "embedded_audio_fingerprint": {
+	          "type": [
+	            "string",
+	            "null"
+	          ],
+	          "pattern": "^[a-f0-9]{64}$"
+	        },
+	        "verification_receipt": {
+	          "type": [
+	            "object",
+	            "null"
+	          ],
+	          "additionalProperties": true
+	        },
+	        "verified_at": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        }
+	      }
+	    },
+	    "performance_learning": {
+	      "type": [
+	        "object",
+	        "null"
+	      ],
+	      "additionalProperties": true,
+	      "properties": {
+	        "canonical_track_id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "platform_sound_ids": {
+	          "type": "array",
+	          "items": {
+	            "type": "object",
+	            "additionalProperties": true
+	          }
+	        },
+	        "provider": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "trend_rank": {
+	          "type": [
+	            "integer",
+	            "null"
+	          ]
+	        },
+	        "trend_velocity": {
+	          "type": [
+	            "number",
+	            "null"
+	          ]
+	        },
+	        "creator": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "account": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "visual_intent": {
+	          "type": [
+	            "object",
+	            "null"
+	          ],
+	          "additionalProperties": true
+	        },
+	        "publication_id": {
+	          "type": [
+	            "string",
+	            "null"
+	          ]
+	        },
+	        "metrics": {
+	          "type": [
+	            "object",
+	            "null"
+	          ],
+	          "additionalProperties": true,
+	          "properties": {
+	            "1h": {
+	              "type": [
+	                "object",
+	                "null"
+	              ],
+	              "additionalProperties": true
+	            },
+	            "24h": {
+	              "type": [
+	                "object",
+	                "null"
+	              ],
+	              "additionalProperties": true
+	            },
+	            "72h": {
+	              "type": [
+	                "object",
+	                "null"
+	              ],
+	              "additionalProperties": true
+	            }
+	          }
 	        }
 	      }
 	    },
@@ -13253,15 +13748,18 @@ export const generatedPipelineContractSchemas = {
 	    "pullRequestNumber",
 	    "approvedCommit",
 	    "reviewedCommit",
-	    "reviewedBy",
-	    "reviewedAt",
-	    "review",
 	    "checks",
 	    "approvalFingerprint"
 	  ],
 	  "properties": {
 	    "schema": {
 	      "const": "creator_os.runtime_promotion_approval.v1"
+	    },
+	    "approvalMode": {
+	      "enum": [
+	        "independent_review",
+	        "single_owner_ci"
+	      ]
 	    },
 	    "repository": {
 	      "type": "string",
@@ -13316,6 +13814,52 @@ export const generatedPipelineContractSchemas = {
 	        "commitId": {
 	          "type": "string",
 	          "pattern": "^[a-f0-9]{40}$"
+	        }
+	      }
+	    },
+	    "operator": {
+	      "type": "string",
+	      "minLength": 1
+	    },
+	    "attestedAt": {
+	      "type": "string",
+	      "format": "date-time"
+	    },
+	    "attestationReason": {
+	      "type": "string",
+	      "minLength": 12
+	    },
+	    "branchProtection": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "strictStatusChecks",
+	        "requiredStatusChecks",
+	        "requiredApprovingReviewCount",
+	        "requiredConversationResolution",
+	        "enforceAdmins"
+	      ],
+	      "properties": {
+	        "strictStatusChecks": {
+	          "const": true
+	        },
+	        "requiredStatusChecks": {
+	          "type": "array",
+	          "minItems": 9,
+	          "uniqueItems": true,
+	          "items": {
+	            "type": "string",
+	            "minLength": 1
+	          }
+	        },
+	        "requiredApprovingReviewCount": {
+	          "const": 0
+	        },
+	        "requiredConversationResolution": {
+	          "const": true
+	        },
+	        "enforceAdmins": {
+	          "const": true
 	        }
 	      }
 	    },
@@ -13392,6 +13936,77 @@ export const generatedPipelineContractSchemas = {
 	      "$ref": "#/$defs/sha256"
 	    }
 	  },
+	  "oneOf": [
+	    {
+	      "required": [
+	        "reviewedBy",
+	        "reviewedAt",
+	        "review"
+	      ],
+	      "properties": {
+	        "approvalMode": {
+	          "const": "independent_review"
+	        }
+	      },
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "operator"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "attestedAt"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "attestationReason"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "branchProtection"
+	            ]
+	          }
+	        ]
+	      }
+	    },
+	    {
+	      "required": [
+	        "approvalMode",
+	        "operator",
+	        "attestedAt",
+	        "attestationReason",
+	        "branchProtection"
+	      ],
+	      "properties": {
+	        "approvalMode": {
+	          "const": "single_owner_ci"
+	        }
+	      },
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "reviewedBy"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "reviewedAt"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "review"
+	            ]
+	          }
+	        ]
+	      }
+	    }
+	  ],
 	  "$defs": {
 	    "sha256": {
 	      "type": "string",
@@ -13432,6 +14047,12 @@ export const generatedPipelineContractSchemas = {
 	  "properties": {
 	    "schema": {
 	      "const": "creator_os.runtime_promotion_receipt.v1"
+	    },
+	    "receiptAuthority": {
+	      "const": "authoritative"
+	    },
+	    "approvalEvidenceSource": {
+	      "const": "github_api_live"
 	    },
 	    "promotionId": {
 	      "type": "string",
@@ -13474,19 +14095,13 @@ export const generatedPipelineContractSchemas = {
 	    "approvalEvidence": {
 	      "type": "object",
 	      "additionalProperties": false,
-	      "required": [
-	        "repository",
-	        "pullRequestNumber",
-	        "approvedCommit",
-	        "reviewedCommit",
-	        "reviewId",
-	        "reviewerPermission",
-	        "trustedCheckApp",
-	        "checkRunIds",
-	        "workflowRunIds",
-	        "evidenceFingerprint"
-	      ],
 	      "properties": {
+	        "approvalMode": {
+	          "enum": [
+	            "independent_review",
+	            "single_owner_ci"
+	          ]
+	        },
 	        "repository": {
 	          "type": "string",
 	          "pattern": "^[^/\\s]+/[^/\\s]+$"
@@ -13514,6 +14129,51 @@ export const generatedPipelineContractSchemas = {
 	            "admin"
 	          ]
 	        },
+	        "operator": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "operatorPermission": {
+	          "enum": [
+	            "write",
+	            "maintain",
+	            "admin"
+	          ]
+	        },
+	        "branchProtection": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "strictStatusChecks",
+	            "requiredStatusChecks",
+	            "requiredApprovingReviewCount",
+	            "requiredConversationResolution",
+	            "enforceAdmins"
+	          ],
+	          "properties": {
+	            "strictStatusChecks": {
+	              "const": true
+	            },
+	            "requiredStatusChecks": {
+	              "type": "array",
+	              "minItems": 9,
+	              "uniqueItems": true,
+	              "items": {
+	                "type": "string",
+	                "minLength": 1
+	              }
+	            },
+	            "requiredApprovingReviewCount": {
+	              "const": 0
+	            },
+	            "requiredConversationResolution": {
+	              "const": true
+	            },
+	            "enforceAdmins": {
+	              "const": true
+	            }
+	          }
+	        },
 	        "trustedCheckApp": {
 	          "const": "github-actions:15368"
 	        },
@@ -13538,7 +14198,82 @@ export const generatedPipelineContractSchemas = {
 	        "evidenceFingerprint": {
 	          "$ref": "#/$defs/sha256"
 	        }
-	      }
+	      },
+	      "oneOf": [
+	        {
+	          "required": [
+	            "repository",
+	            "pullRequestNumber",
+	            "approvedCommit",
+	            "reviewedCommit",
+	            "reviewId",
+	            "reviewerPermission",
+	            "trustedCheckApp",
+	            "checkRunIds",
+	            "workflowRunIds",
+	            "evidenceFingerprint"
+	          ],
+	          "properties": {
+	            "approvalMode": {
+	              "const": "independent_review"
+	            }
+	          },
+	          "not": {
+	            "anyOf": [
+	              {
+	                "required": [
+	                  "operator"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "operatorPermission"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "branchProtection"
+	                ]
+	              }
+	            ]
+	          }
+	        },
+	        {
+	          "required": [
+	            "approvalMode",
+	            "repository",
+	            "pullRequestNumber",
+	            "approvedCommit",
+	            "reviewedCommit",
+	            "operator",
+	            "operatorPermission",
+	            "branchProtection",
+	            "trustedCheckApp",
+	            "checkRunIds",
+	            "workflowRunIds",
+	            "evidenceFingerprint"
+	          ],
+	          "properties": {
+	            "approvalMode": {
+	              "const": "single_owner_ci"
+	            }
+	          },
+	          "not": {
+	            "anyOf": [
+	              {
+	                "required": [
+	                  "reviewId"
+	                ]
+	              },
+	              {
+	                "required": [
+	                  "reviewerPermission"
+	                ]
+	              }
+	            ]
+	          }
+	        }
+	      ]
 	    },
 	    "planFingerprint": {
 	      "$ref": "#/$defs/sha256"
@@ -13586,10 +14321,467 @@ export const generatedPipelineContractSchemas = {
 	      "$ref": "evidence_attestation.v1.schema.json"
 	    }
 	  },
+	  "oneOf": [
+	    {
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "receiptAuthority"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "approvalEvidenceSource"
+	            ]
+	          }
+	        ]
+	      }
+	    },
+	    {
+	      "required": [
+	        "receiptAuthority",
+	        "approvalEvidenceSource"
+	      ],
+	      "properties": {
+	        "status": {
+	          "enum": [
+	            "promoted",
+	            "already_current"
+	          ]
+	        },
+	        "verification": {
+	          "$ref": "#/$defs/successfulVerification"
+	        }
+	      }
+	    },
+	    {
+	      "required": [
+	        "receiptAuthority",
+	        "approvalEvidenceSource"
+	      ],
+	      "properties": {
+	        "status": {
+	          "const": "rolled_back"
+	        },
+	        "verification": {
+	          "$ref": "#/$defs/rolledBackVerification"
+	        }
+	      }
+	    }
+	  ],
 	  "$defs": {
 	    "sha256": {
 	      "type": "string",
 	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "tool": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "commandPath",
+	        "resolvedPath",
+	        "sha256",
+	        "fileSize",
+	        "device",
+	        "inode",
+	        "version"
+	      ],
+	      "properties": {
+	        "name": {
+	          "enum": [
+	            "git",
+	            "gh",
+	            "make",
+	            "node",
+	            "pnpm",
+	            "python3",
+	            "uv"
+	          ]
+	        },
+	        "commandPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "resolvedPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "fileSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "device": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "inode": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "version": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "toolchainEvidence": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "packageJsonPath",
+	        "packageJsonSha256",
+	        "nodeEngine",
+	        "nodeMajor",
+	        "tools",
+	        "evidenceFingerprint"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "creator_os.runtime_toolchain_evidence.v1"
+	        },
+	        "packageJsonPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "packageJsonSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "nodeEngine": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "nodeMajor": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "tools": {
+	          "type": "array",
+	          "minItems": 7,
+	          "maxItems": 7,
+	          "prefixItems": [
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "git"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "gh"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "make"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "node"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "pnpm"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "python3"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "uv"
+	                    }
+	                  }
+	                }
+	              ]
+	            }
+	          ],
+	          "items": false
+	        },
+	        "evidenceFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "toolchainPreflight": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "passed",
+	        "toolchainEvidence"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "toolchain_preflight"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "toolchainEvidence": {
+	          "$ref": "#/$defs/toolchainEvidence"
+	        }
+	      }
+	    },
+	    "successfulFullVerify": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "command",
+	        "returnCode",
+	        "stdoutSha256",
+	        "stderrSha256",
+	        "passed",
+	        "reportSummary",
+	        "reportError"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "full_verify"
+	        },
+	        "command": {
+	          "type": "array",
+	          "minItems": 2,
+	          "maxItems": 2,
+	          "prefixItems": [
+	            {
+	              "type": "string",
+	              "pattern": "^/"
+	            },
+	            {
+	              "const": "runtime-verify"
+	            }
+	          ],
+	          "items": false
+	        },
+	        "returnCode": {
+	          "const": 0
+	        },
+	        "stdoutSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "stderrSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "reportSummary": {
+	          "type": "null"
+	        },
+	        "reportError": {
+	          "type": "null"
+	        }
+	      }
+	    },
+	    "healthSummary": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "policy",
+	        "checkCount",
+	        "checkNames",
+	        "statusCounts",
+	        "reportFingerprint"
+	      ],
+	      "properties": {
+	        "policy": {
+	          "const": "creator_os.runtime_live_read_only_health.v1"
+	        },
+	        "checkCount": {
+	          "const": 9
+	        },
+	        "checkNames": {
+	          "type": "array",
+	          "minItems": 9,
+	          "maxItems": 9,
+	          "uniqueItems": true,
+	          "items": {
+	            "enum": [
+	              "campaign-database",
+	              "canonical-roots",
+	              "contracts",
+	              "local-config",
+	              "provider-readiness",
+	              "repository",
+	              "runtime",
+	              "threadsdashboard-handshake",
+	              "venv-entrypoints"
+	            ]
+	          }
+	        },
+	        "statusCounts": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "PASS"
+	          ],
+	          "properties": {
+	            "PASS": {
+	              "const": 9
+	            }
+	          }
+	        },
+	        "reportFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "successfulLiveHealth": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "command",
+	        "returnCode",
+	        "stdoutSha256",
+	        "stderrSha256",
+	        "passed",
+	        "reportSummary",
+	        "reportError"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "live_read_only_health"
+	        },
+	        "command": {
+	          "type": "array",
+	          "minItems": 4,
+	          "maxItems": 4,
+	          "prefixItems": [
+	            {
+	              "const": "scripts/creator-os"
+	            },
+	            {
+	              "const": "status"
+	            },
+	            {
+	              "const": "--live-read-only"
+	            },
+	            {
+	              "const": "--json"
+	            }
+	          ],
+	          "items": false
+	        },
+	        "returnCode": {
+	          "const": 0
+	        },
+	        "stdoutSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "stderrSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "reportSummary": {
+	          "$ref": "#/$defs/healthSummary"
+	        },
+	        "reportError": {
+	          "type": "null"
+	        }
+	      }
+	    },
+	    "successfulVerification": {
+	      "type": "array",
+	      "minItems": 3,
+	      "maxItems": 3,
+	      "prefixItems": [
+	        {
+	          "$ref": "#/$defs/toolchainPreflight"
+	        },
+	        {
+	          "$ref": "#/$defs/successfulFullVerify"
+	        },
+	        {
+	          "$ref": "#/$defs/successfulLiveHealth"
+	        }
+	      ],
+	      "items": false
+	    },
+	    "rolledBackVerification": {
+	      "type": "array",
+	      "minItems": 1,
+	      "maxItems": 3,
+	      "prefixItems": [
+	        {
+	          "$ref": "#/$defs/toolchainPreflight"
+	        }
+	      ],
+	      "items": {
+	        "type": "object"
+	      }
 	    }
 	  }
 	} as const,

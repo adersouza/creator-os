@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from reel_factory.human_media_review import (
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
     HumanMediaReview,
     HumanMediaReviewStore,
     HumanReviewDecisions,
@@ -196,4 +197,31 @@ def test_review_emits_output_bound_qc_receipt(tmp_path: Path) -> None:
     assert rejected["passed"] is False
     assert rejected["reasons"] == [
         {"code": "operator_usefulness_rejected", "severity": "block"}
+    ]
+
+
+def test_identity_unverified_form_review_is_not_promotion_evidence(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"measured output")
+    review = review_for(output)
+    imported = replace(
+        review,
+        provenance=HumanReviewProvenance(
+            review_mode="blinded",
+            unblinding_reason=None,
+            source_references=(
+                *review.provenance.source_references,
+                (UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID, "f" * 64),
+            ),
+        ),
+    ).attest()
+
+    receipt = imported.qc_receipt()
+
+    assert receipt["passed"] is False
+    assert receipt["verdict"] == "blocked"
+    assert receipt["reasons"] == [
+        {"code": "reviewer_identity_unverified", "severity": "block"}
     ]

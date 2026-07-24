@@ -17,7 +17,7 @@ execution, output validation, durable lineage, and a ContentForge review path.
 | Keyframe interpolation | LTX Q8 `keyframe` pipeline | explicit task, not a hidden fallback |
 | Segment repair | LTX Q8 `retake` pipeline | beta, source fingerprint and bounded latent range required |
 | Clip continuation | LTX Q8 `extend` pipeline | beta, 1-24 latent frames, output must become longer |
-| Mac memory controls | low-RAM block streaming and spatial/temporal tiling | enabled conservatively; queue admission still applies |
+| Mac memory controls | low-RAM block streaming and spatial/temporal tiling | low-RAM streaming by default; tiling is explicit and only for measured memory pressure |
 | Model/style LoRAs | registered `.safetensors` with base revision, source, license, and SHA-256 | generation tasks only |
 | Storage review | report-only legacy BF16 inventory | no deletion command exists |
 
@@ -44,6 +44,49 @@ recovery, collision protection, benchmarking, and artifact provenance.
 - LTX Q4: `dgrauet/ltx-2.3-mlx-q4@53a6f5f39d9c074bc73e6a18ba391f40ddffaa68`
 - LTX Q8: `dgrauet/ltx-2.3-mlx-q8@03da129baa459c9a70fc5858dee52fa417b3a93d`
 - Gemma MLX Q4: `mlx-community/gemma-3-12b-it-4bit@86cc6a8dedbc456dd0e4af01a9d09f396f77e558`
+
+## LTX Reel Recipe
+
+Creator OS uses `576x1024` at 24 fps for ordinary portrait generation. That is
+an exact 9:16 frame, both dimensions are divisible by 32, and the generated
+frame count remains `8k+1`, matching LTX-2.3's published geometry contract.
+
+- `local_ltx23_distilled_mlx` is the Q4 iteration/qualification tier. It uses
+  the fastest distilled pipeline.
+- `local_ltx23_dev_hq_mlx` is the Q8 final-quality tier. It uses the
+  recommended two-stage HQ pipeline with the pinned distilled LoRA and v1.1
+  spatial upscaler.
+- `--low-ram` stays enabled on the 64 GB Mac. Spatial and temporal modality
+  tiling stay off (`1`) unless a measured 1080p, 8-second-or-longer run exceeds
+  the admitted memory envelope. Independent spatial tiles can damage a face
+  that crosses tile boundaries and are not a quality preset.
+- Image-to-video prompts use one literal, chronological paragraph of at most
+  200 words: main action, gestures, source-consistent appearance and
+  environment, camera behavior, lighting, and synchronized soundscape. Creator
+  OS does not currently expose LTX prompt expansion, so Arena fingerprints the
+  exact operator-authored prompt. Any future reviewed expansion must happen
+  before Arena planning; hidden runtime expansion is not acceptable evidence.
+
+The installed Q4 and Q8 manifests already bind the required Gemma text encoder,
+audio/video components, v1.1 spatial upscaler, and (for Q8) distilled LoRA.
+The temporal upscaler and optional control/LipDub LoRAs are not current
+requirements for the adopted pipelines and are not downloaded speculatively.
+
+## Creator-Recommended Runtime Recipes
+
+| Active model | Creator OS recipe | Conformance |
+|---|---|---|
+| Wan 2.2 TI2V-5B Q8 | 704x1280, 24 fps, 40 steps, guidance 5.0, UniPC, automatic VAE tiling | Matches the pinned MLX conversion card and config. The official CUDA source uses 50 steps; that is a distinct unqualified recipe. |
+| Wan 2.2 I2V-A14B Q4 | 704x1280, 16 fps, 40 steps, dual guidance 3.5/3.5, UniPC, automatic VAE tiling | Matches the official Wan config and installed q4 config. Aggressive 256-pixel tiling is not a quality default. |
+| LTX-2.3 Q4 distilled | 576x1024, 24 fps, 8-step distilled two-stage path, v1.1 2x spatial upscaler, low-RAM streaming, no tiling | Matches the pinned MLX `DistilledPipeline`; intended for fast qualification, not final model promotion by assumption. |
+| LTX-2.3 Q8 HQ | 576x1024, 24 fps, res_2s 15-step stage 1 plus 3-step distilled-LoRA refinement, low-RAM streaming, no tiling | Matches the pinned MLX HQ pipeline for generated and source-audio runs. |
+| LongCat Avatar 1.5 Q4 | 480x832, 25 fps, 8-step DMD, text/audio CFG 4.0/4.0, explicit source speech | Matches the pinned MLX single-segment pipeline. Official CUDA continuation controls and 720p super-resolution are not available in this port, so it remains experimental. |
+
+Prompts are model inputs, not untracked convenience text. LTX uses the
+cinematographic format above. LongCat requires an explicit speaking/talking cue
+plus appearance, action, and scene context. Wan prompt expansion belongs to the
+separately reviewed Wan qualification path; this decision record does not
+duplicate it.
 
 Upstream references: [MLX Video](https://github.com/Blaizzy/mlx-video),
 [LTX 2 MLX](https://github.com/dgrauet/ltx-2-mlx),

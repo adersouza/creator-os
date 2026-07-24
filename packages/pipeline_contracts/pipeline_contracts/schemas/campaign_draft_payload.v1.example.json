@@ -121,6 +121,7 @@
           },
           "audio_intent": {
             "schema": "pipeline.audio_intent.v1",
+            "policy": "native_trending_required",
             "mode": "native_platform_audio",
             "required": true,
             "status": "selected",

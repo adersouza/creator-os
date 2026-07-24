@@ -8,9 +8,12 @@ GitHub before treating the monorepo as production runtime source.
 - Protect `main`.
 - Require pull requests before merge.
 - Require the latest successful CI run on the merge commit.
-- Require at least one approving review from a code owner or trusted maintainer.
-- Dismiss stale approvals when the head branch changes.
-- Require approval of the most recent reviewable push by someone other than the
+- For this single-owner repository, require zero approving reviews. Do not
+  manufacture a second-person approval or block the owner on an unavailable
+  reviewer.
+- Dismiss stale approvals when the head branch changes; this is harmless when
+  the required count is zero.
+- Do not require approval of the most recent push by someone other than the
   pusher.
 - Require conversation resolution before merge.
 - Require signed commits if it does not block existing automation.
@@ -53,11 +56,12 @@ Verification:
 ```bash
 gh api repos/adersouza/creator-os/rulesets --jq '.[] | {name,enforcement}'
 gh api repos/adersouza/creator-os/branches/main/protection \
-  --jq '{reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled, checks: [.required_status_checks.checks[].context]}'
+  --jq '{strict: .required_status_checks.strict, reviews: .required_pull_request_reviews.required_approving_review_count, stale: .required_pull_request_reviews.dismiss_stale_reviews, last_push: .required_pull_request_reviews.require_last_push_approval, conversations: .required_conversation_resolution.enabled, admins: .enforce_admins.enabled, checks: [.required_status_checks.checks[].context]}'
 ```
 
-The live payload, not this checklist, is the authority. Require `reviews >= 1`
-and `stale`, `last_push`, and `conversations` all true while preserving the full
+The live payload, not this checklist, is the authority. For the current
+single-owner policy require `reviews == 0`, `last_push == false`,
+`conversations == true`, strict status checks, admin enforcement, and the full
 required-check inventory above. Changing these repository settings requires a
 GitHub administrator; a checked-in documentation change is not proof that the
 control is active.

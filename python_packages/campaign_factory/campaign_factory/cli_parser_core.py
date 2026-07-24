@@ -148,6 +148,24 @@ def register_core_commands(sub) -> None:
     generation_run.add_argument("--motion-prompt")
     generation_run.add_argument("--audio", type=Path)
     generation_run.add_argument("--generate-audio", action="store_true")
+    generation_run.add_argument(
+        "--audio-policy",
+        choices=[
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+            "silent_allowed",
+        ],
+        default="embedded_trending_required",
+    )
+    generation_run.add_argument("--audio-track-id")
+    generation_run.add_argument("--audio-track-name")
+    generation_run.add_argument("--audio-source")
+    generation_run.add_argument("--audio-start-offset", type=float)
+    generation_run.add_argument("--audio-volume", type=float)
+    generation_run.add_argument("--audio-selected-reason")
     generation_run.add_argument("--last-image", type=Path)
     generation_run.add_argument("--source-video", type=Path)
     generation_run.add_argument("--retake-start-frame", type=int)

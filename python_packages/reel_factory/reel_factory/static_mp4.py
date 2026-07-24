@@ -31,7 +31,7 @@ class StaticMp4Request:
     duration_seconds: float = 5.0
     fps: int = 30
     platform: str = "instagram_reels"
-    audio_mode: str = "platform_auto_music"
+    audio_mode: str = "embedded_trending_audio"
     allow_upscale: bool = False
 
 
@@ -85,11 +85,14 @@ def _validate_request(request: StaticMp4Request, *, still: Path) -> None:
     if request.fps <= 0:
         raise ValueError("fps must be positive")
     if request.audio_mode not in {
+        "embedded_trending_audio",
         "platform_auto_music",
         "native_trending_audio",
         "silent_by_design",
     }:
-        raise ValueError("static MP4 audio mode must remain native or silent")
+        raise ValueError(
+            "static MP4 audio mode must be embedded trending, native, or explicitly silent"
+        )
     with Image.open(still) as image:
         width, height = image.size
     if not request.allow_upscale and (width < MIN_STILL_W or height < MIN_STILL_H):
@@ -237,8 +240,13 @@ def main() -> int:
     parser.add_argument("--platform", default="instagram_reels")
     parser.add_argument(
         "--audio-mode",
-        choices=["platform_auto_music", "native_trending_audio", "silent_by_design"],
-        default="platform_auto_music",
+        choices=[
+            "embedded_trending_audio",
+            "platform_auto_music",
+            "native_trending_audio",
+            "silent_by_design",
+        ],
+        default="embedded_trending_audio",
     )
     parser.add_argument("--allow-upscale", action="store_true")
     parser.add_argument("--dry-run", action="store_true")

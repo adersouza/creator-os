@@ -39,6 +39,7 @@ def _caption_context() -> dict:
 def _audio_intent() -> dict:
     return {
         "schema": "pipeline.audio_intent.v1",
+        "policy": "native_trending_required",
         "mode": "native_platform_audio",
         "required": True,
         "status": "attached",
@@ -65,6 +66,7 @@ def _audio_intent() -> dict:
             "selected_at": "2026-06-13T12:00:00Z",
             "attached_at": "2026-06-13T12:01:00Z",
             "selection_source": "acceptance_fixture",
+            "selected_reason": "deterministic native-audio acceptance fixture",
         },
         "gates": {
             "allow_draft_export": True,
@@ -207,8 +209,15 @@ def _feed_single_draft_payload() -> dict:
     draft["media_urls"] = ["https://cdn.example/acceptance-feed.jpg"]
     cf["content_surface"] = "feed_single"
     cf["ig_media_type"] = "IMAGE"
+    cf["audio_intent"]["policy"] = "silent_allowed"
+    cf["audio_intent"]["mode"] = "silent"
     cf["audio_intent"]["required"] = False
     cf["audio_intent"]["status"] = "not_required"
+    cf["audio_intent"]["operator_selection"] = {
+        "selection_source": "acceptance_fixture",
+        "selected_reason": "feed_single acceptance fixture has no audio surface",
+        "selected_at": "2026-06-13T12:00:00Z",
+    }
     cf["handoff_manifest"].update(
         {
             "manifest_version": 2,

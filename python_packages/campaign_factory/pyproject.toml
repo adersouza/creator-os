@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
   "creator-os-core",
   "fastapi>=0.115,<1",
+  "opencv-python>=4.9,<5",
   "pipeline-contracts",
   "reel-factory",
   "requests>=2.32,<3",
