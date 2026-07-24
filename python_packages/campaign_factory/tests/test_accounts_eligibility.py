@@ -329,6 +329,7 @@ def test_attach_audio_to_distribution_plan_marks_campaign_audio_attached_and_exp
             track_id="ig_audio_123",
             track_name="Proof track",
             source="manual",
+            audio_policy="native_trending_required",
             selected_reason="operator_selected_for_proof",
             operator="tester",
         )

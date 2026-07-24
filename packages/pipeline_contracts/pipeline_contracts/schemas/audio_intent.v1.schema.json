@@ -6,6 +6,7 @@
   "additionalProperties": true,
   "required": [
     "schema",
+    "policy",
     "mode",
     "required",
     "status",
@@ -13,12 +14,129 @@
     "recommendations",
     "gates"
   ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "policy": {
+            "const": "silent_allowed"
+          }
+        },
+        "required": [
+          "policy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "required": {
+            "const": false
+          },
+          "status": {
+            "enum": [
+              "not_required",
+              "skipped"
+            ]
+          },
+          "operator_selection": {
+            "type": "object",
+            "required": [
+              "selected_reason"
+            ],
+            "properties": {
+              "selected_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "selected_at"
+                ]
+              },
+              {
+                "required": [
+                  "skipped_at"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "operator_selection"
+        ]
+      },
+      "else": {
+        "properties": {
+          "required": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "policy": {
+            "const": "embedded_trending_required"
+          },
+          "status": {
+            "enum": [
+              "attached",
+              "verified"
+            ]
+          }
+        },
+        "required": [
+          "policy",
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "fulfillment": {
+            "type": "object",
+            "required": [
+              "audio_present",
+              "output_sha256",
+              "acquired_audio_sha256",
+              "embedded_audio_fingerprint",
+              "proof_type",
+              "verification_receipt"
+            ],
+            "properties": {
+              "audio_present": {
+                "const": true
+              },
+              "proof_type": {
+                "const": "embedded_output_audio_stream"
+              }
+            }
+          }
+        },
+        "required": [
+          "fulfillment"
+        ]
+      }
+    }
+  ],
   "properties": {
     "schema": {
       "const": "pipeline.audio_intent.v1"
     },
     "mode": {
       "type": "string"
+    },
+    "policy": {
+      "type": "string",
+      "enum": [
+        "embedded_trending_required",
+        "native_trending_required",
+        "original_embedded",
+        "creator_voice",
+        "royalty_free",
+        "silent_allowed"
+      ]
     },
     "required": {
       "type": "boolean"
@@ -148,6 +266,90 @@
               "integer",
               "null"
             ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canonical_track_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform_sound_ids": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "platform",
+                "sound_id"
+              ],
+              "properties": {
+                "platform": {
+                  "type": "string"
+                },
+                "sound_id": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "current_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "rank_velocity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "usage_velocity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "freshness_hours": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "saturation": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "trend_bucket": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "BREAKOUT",
+              "HOT",
+              "PROVEN",
+              "EVERGREEN",
+              null
+            ]
           }
         }
       }
@@ -236,6 +438,133 @@
             "string",
             "null"
           ]
+        },
+        "track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "track_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "canonical_track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "audio_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform_sound_ids": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "platform",
+              "sound_id"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "sound_id": {
+                "type": "string"
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "selection_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_offset_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "volume": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "segment_duration_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "segment_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "beat_evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hook_evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "acquired_audio_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "embedded_audio_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
         },
         "artist_name": {
           "type": [
@@ -326,6 +655,172 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "fulfillment": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "proof_required": {
+          "type": "boolean"
+        },
+        "proof_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "audio_present": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "output_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sidecar_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acquired_audio_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "embedded_audio_fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "verification_receipt": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "verified_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "performance_learning": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "canonical_track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platform_sound_ids": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trend_rank": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trend_velocity": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "creator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "account": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visual_intent": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "publication_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metrics": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "1h": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true
+            },
+            "24h": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true
+            },
+            "72h": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true
+            }
+          }
         }
       }
     },

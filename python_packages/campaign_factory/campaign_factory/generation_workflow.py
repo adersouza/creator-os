@@ -11,6 +11,7 @@ from pipeline_contracts import (
     CreatorIdentityProfileV1,
 )
 
+from .audio_policy import validate_motion_audio_policy
 from .creative_modes import creative_workflow_mode
 from .evidence_foundation import (
     compile_thin_evidence_records,
@@ -69,6 +70,13 @@ def run_generation_workflow(
     motion_prompt: str | None = None,
     audio_path: Path | None = None,
     generate_audio: bool = False,
+    audio_policy: str = "embedded_trending_required",
+    audio_track_id: str | None = None,
+    audio_track_name: str | None = None,
+    audio_source: str | None = None,
+    audio_start_offset: float | None = None,
+    audio_volume: float | None = None,
+    audio_selected_reason: str | None = None,
     last_image_path: Path | None = None,
     source_video_path: Path | None = None,
     retake_start_frame: int | None = None,
@@ -183,6 +191,13 @@ def run_generation_workflow(
     elif mode_id in {"local_wan", "best_motion"}:
         from .motion_generation_stage import run_motion_generation_stage
 
+        audio_policy = validate_motion_audio_policy(
+            audio_policy,
+            audio_path=audio_path,
+            generate_audio=generate_audio,
+            preserve_audio=preserve_audio,
+            selected_reason=audio_selected_reason,
+        )
         video_edit = motion_task in {"video_retake", "video_extend"}
         if video_edit:
             _require(source_video_path, "source_video_path")
@@ -313,6 +328,13 @@ def run_generation_workflow(
             max_usd=max_usd,
             audio_path=audio_path,
             generate_audio=generate_audio,
+            audio_policy=audio_policy,
+            audio_track_id=audio_track_id,
+            audio_track_name=audio_track_name,
+            audio_source=audio_source,
+            audio_start_offset=audio_start_offset,
+            audio_volume=audio_volume,
+            audio_selected_reason=audio_selected_reason,
             last_image_path=last_image_path,
             source_video_path=source_video_path,
             retake_start_frame=retake_start_frame,

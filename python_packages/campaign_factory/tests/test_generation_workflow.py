@@ -281,7 +281,12 @@ def test_local_video_edit_routes_source_video_without_accepted_still(
         monkeypatch, default_model="local_ltx23_distilled_mlx"
     )
     controls = (
-        {"retake_start_frame": 2, "retake_end_frame": 5, "preserve_audio": True}
+        {
+            "retake_start_frame": 2,
+            "retake_end_frame": 5,
+            "preserve_audio": True,
+            "audio_policy": "original_embedded",
+        }
         if motion_task == "video_retake"
         else {"extend_frames": 8, "extend_direction": "after"}
     )
@@ -368,6 +373,8 @@ def test_local_mode_authorizes_ltx_audio_without_paid_generation(
         motion_task="image_to_video",
         motion_prompt="Natural motion synchronized with softly generated ambient audio",
         generate_audio=True,
+        audio_policy="royalty_free",
+        audio_selected_reason="Approved locally generated royalty-free ambience",
         dry_run=True,
         apply=False,
     )
@@ -409,6 +416,7 @@ def test_local_mode_routes_talking_task_and_source_audio(
         motion_prompt="She speaks naturally to camera with subtle head movement",
         motion_task="audio_image_to_video",
         audio_path=audio,
+        audio_policy="creator_voice",
         dry_run=True,
         apply=False,
     )

@@ -137,7 +137,8 @@ def test_motion_edit_apply_renders_mp4_and_sidecars(tmp_path: Path) -> None:
     assert frame_count >= 10
     audio_intent = read_audio_intent(out)
     assert audio_intent is not None
-    assert audio_intent["mode"] == "platform_auto_music"
+    assert audio_intent["mode"] == "embedded_trending_audio"
+    assert audio_intent["policy"] == "embedded_trending_required"
     lineage = json.loads(Path(result["lineagePath"]).read_text(encoding="utf-8"))
     assert lineage["schema"] == "reel_factory.generated_asset_lineage.v1"
     assert lineage["generation"]["workflow"] == "motion_edit_still_to_reel"
@@ -183,7 +184,7 @@ def test_motion_edit_low_resolution_requires_explicit_upscale(tmp_path: Path) ->
 
 
 @pytest.mark.slow
-def test_motion_edit_optional_local_audio_is_explicit_licensed_music(
+def test_motion_edit_optional_local_audio_is_explicit_royalty_free(
     tmp_path: Path,
 ) -> None:
     still = _still(tmp_path / "still.png")
@@ -198,14 +199,15 @@ def test_motion_edit_optional_local_audio_is_explicit_licensed_music(
             duration_seconds=1,
             fps=12,
             local_audio_path=audio,
-            audio_mode="licensed_music",
+            audio_mode="embedded_royalty_free_audio",
         ),
         dry_run=False,
     )
 
     audio_intent = read_audio_intent(out)
     assert audio_intent is not None
-    assert audio_intent["mode"] == "licensed_music"
+    assert audio_intent["mode"] == "embedded_royalty_free_audio"
+    assert audio_intent["policy"] == "royalty_free"
     assert audio_intent["audio_selection"]["source"] == "local_audio"
     assert "native_trending_audio" not in json.dumps(audio_intent)
     assert result["quality"]["status"] == "passed"

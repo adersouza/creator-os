@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-07-24T12:00:00Z",
+  "items": [
+    {
+      "sound_id": "tt_sound_202",
+      "title": "Midnight Glow - slowed + reverb",
+      "artists": [
+        "Example Artist",
+        "Guest"
+      ],
+      "chart_index": 8,
+      "previous_chart_index": 30,
+      "ugc_videos_total": 91000,
+      "ugc_videos_per_day": 6100,
+      "freshness_hours": 120,
+      "tokchart_score": 941,
+      "saturation": 0.41,
+      "audio_url": "https://audio.example.test/tt_sound_202.mp3",
+      "hashtags": [
+        "flirty",
+        "outfit"
+      ]
+    }
+  ]
+}
