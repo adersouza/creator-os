@@ -148,6 +148,36 @@ def test_generate_list_modes_uses_read_only_campaign_catalog(
     ]
 
 
+def test_status_and_doctor_use_the_exact_project_venv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert namespace["main"](["status", "--json", "--live-read-only"]) == 0
+    assert namespace["main"](["doctor", "--", "--json"]) == 0
+    assert commands == [
+        [
+            str(ROOT / ".venv" / "bin" / "python"),
+            str(ROOT / "scripts" / "doctor.py"),
+            "--status",
+            "--json",
+            "--live-read-only",
+        ],
+        [
+            str(ROOT / ".venv" / "bin" / "python"),
+            str(ROOT / "scripts" / "doctor.py"),
+            "--json",
+        ],
+    ]
+
+
 def test_create_routes_to_the_existing_campaign_control_plane_without_deprecation(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
