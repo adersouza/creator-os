@@ -22,6 +22,21 @@ The operator-facing system has four roles. Package names describe internal
 ownership; they are not four separate workflows the operator must manually
 coordinate.
 
+```mermaid
+flowchart LR
+    Operator["Operator"] --> Intelligence["Intelligence<br/>references + measured learning"]
+    Intelligence --> Orchestrator["Orchestrator<br/>intent + account + policy"]
+    Orchestrator --> Engine["Content engine<br/>create + inspect + block"]
+    Engine --> Distribution["Distribution<br/>review + schedule + publish"]
+    Distribution --> Outcomes["Real outcomes<br/>publication + metric history"]
+    Outcomes --> Intelligence
+
+    Foundation["Creator OS Core + Pipeline Contracts"] -.-> Intelligence
+    Foundation -.-> Orchestrator
+    Foundation -.-> Engine
+    Foundation -.-> Distribution
+```
+
 | Role | Question it answers | Internal owner |
 |---|---|---|
 | Intelligence | What should we make, and what actually worked? | Reference Factory plus Campaign performance learning |
@@ -79,6 +94,13 @@ Historical backup, deployment, publication, experiment, and metric evidence
 belongs in dated audit artifacts, not in this map. Trial capability and OAuth
 scope counts likewise come only from a fresh ThreadsDashboard account
 projection.
+
+The latest repository-owned point-in-time assessment is
+[`CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md`](./CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md).
+It is a dated evidence snapshot, not a second architecture authority. If that
+report disagrees with this map about component ownership, this map wins. If it
+disagrees about a volatile SHA, run, account, model, provider, or metric fact,
+refresh the report from current evidence.
 
 ## Lifecycle Overview
 
@@ -739,6 +761,9 @@ normal Creator OS operator command.
 
 - `README.md` is the concise supported-entrypoint guide.
 - This file is the durable architecture and ownership source of truth.
+- `CREATOR_OS_TARGET_STATE_PROGRESS_AUDIT.md` is the dated operational-truth
+  scorecard. It records what the current implementation has actually proved and
+  must be refreshed rather than treated as permanent truth.
 - `PIPELINE_STATE.md` records current source capability without freezing
   volatile operational counts or SHAs.
 - `docs/architecture/` contains active implementation and promotion policy.
