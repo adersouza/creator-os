@@ -4,17 +4,17 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { snapshotMotionSpecificQcAnalyzerRegistry } from "../lib/analyzer-registry.js";
+import { snapshotTrustedMediaAnalyzerRegistry } from "../lib/analyzer-registry.js";
 
 const PRODUCED_AT = "2026-07-22T12:00:00Z";
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 
 test("snapshots the exact deterministic motion-QC implementation", async function () {
-  var first = await snapshotMotionSpecificQcAnalyzerRegistry({
+  var first = await snapshotTrustedMediaAnalyzerRegistry({
     producedAt: PRODUCED_AT,
     repositoryRoot: ROOT,
   });
-  var second = await snapshotMotionSpecificQcAnalyzerRegistry({
+  var second = await snapshotTrustedMediaAnalyzerRegistry({
     producedAt: PRODUCED_AT,
     repositoryRoot: ROOT,
   });
@@ -91,7 +91,7 @@ test("snapshots the exact deterministic motion-QC implementation", async functio
 
 test("requires an explicit snapshot timestamp", async function () {
   await assert.rejects(
-    snapshotMotionSpecificQcAnalyzerRegistry({ repositoryRoot: ROOT }),
+    snapshotTrustedMediaAnalyzerRegistry({ repositoryRoot: ROOT }),
     /requires an explicit producedAt/,
   );
 });
