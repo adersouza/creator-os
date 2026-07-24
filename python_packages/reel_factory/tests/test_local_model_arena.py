@@ -60,6 +60,10 @@ from reel_factory.local_model_arena import (
     validate_rollout_gate_receipt,
 )
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
+from reel_factory.local_video import (
+    local_video_task_parameter_material,
+    task_parameter_fingerprint,
+)
 from reel_factory.local_video_models import local_video_model_spec
 
 from pipeline_contracts import ContractValidationError
@@ -485,9 +489,35 @@ def test_candidate_aggregates_use_true_even_sample_medians() -> None:
     assert aggregate["medianPeakMemoryBytes"] == 200.0
 
 
+def _fixture_execution_isolation(request) -> dict:
+    output = Path(request.output_path).resolve()
+    core = {
+        "schema": "reel_factory.local_subprocess_isolation.v1",
+        "enforced": True,
+        "networkAccess": "denied",
+        "writeAccess": "explicit_artifacts_only",
+        "sandboxRoot": str(
+            output.parent / f".local_video_sandbox_fixture_{request.seed}"
+        ),
+        "providerActivity": {
+            "callsObserved": 0,
+            "successfulDirectSocketCallsPossible": False,
+        },
+    }
+    return {**core, "isolationFingerprint": fingerprint(core)}
+
+
+def _fixture_command(request) -> list[str]:
+    return ["fixture-local-video", "--seed", str(request.seed)]
+
+
 def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
+    output = Path(request.output_path).resolve()
+    isolation = _fixture_execution_isolation(request)
+    command = _fixture_command(request)
+    binding = dict(request.arena_benchmark_binding or {})
     primary_source = request.image_path or request.source_video_path
     source_sha = (
         sha256_file(primary_source)
@@ -507,9 +537,26 @@ def _fake_job(request) -> LocalGenerationJob:
         task_kind=request.task,
         input_sha256=source_sha,
         requested_memory_bytes=1024,
-        params={"seed": request.seed, "output": str(request.output_path)},
+        params={
+            "command": command,
+            "outputPath": str(output),
+            "task": request.task,
+            "durationSeconds": request.duration_seconds,
+            "seed": request.seed,
+            "executionContext": request.execution_context,
+            "executionBindingFingerprint": binding["bindingFingerprint"],
+            "executionIsolationFingerprint": isolation["isolationFingerprint"],
+            "taskParameterFingerprint": binding["taskParameterFingerprint"]
+            if "taskParameterFingerprint" in binding
+            else task_parameter_fingerprint(
+                local_video_task_parameter_material(
+                    request,
+                    runtime_binding=binding["runtimeBinding"],
+                )
+            ),
+        },
         cohort={"seed": request.seed},
-        owned_artifact_paths=(request.output_path,),
+        owned_artifact_paths=(output, Path(isolation["sandboxRoot"])),
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         creator_identity_profile=request.creator_identity_profile,
@@ -546,6 +593,99 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
         license_policy=dict(raw["licensePolicy"]),
         license_policy_fingerprint=str(raw["licensePolicyFingerprint"]),
     )
+
+
+def _complete_queue_sample(
+    queue: LocalGenerationQueue,
+    sample: dict,
+    *,
+    output_bytes: bytes,
+) -> str:
+    output = Path(sample["outputPath"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(output_bytes)
+    output_sha256 = sha256_file(output)
+    job = _job_from_sample(sample)
+    queue.submit(job)
+    measurement = {
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1024,
+        "memoryMeasurementMethod": "test-child-peak",
+    }
+    with queue.worker_session() as lease:
+        assert queue.start_next(lease).job_id == job.job_id
+        queue.verify_generated_artifacts(
+            lease,
+            job.job_id,
+            partial_output_path=output,
+            final_output_path=output,
+            output_probe={"streams": [{"codec_type": "video"}]},
+            execution_measurement=measurement,
+        )
+        queue.succeed(
+            lease,
+            job.job_id,
+            output_sha256=output_sha256,
+            output_path=output,
+            execution_measurement=measurement,
+        )
+    return output_sha256
+
+
+def _completed_arena_lineage(sample: dict, *, output_sha256: str) -> dict:
+    output = Path(sample["outputPath"]).resolve()
+    lineage_path = output.with_suffix(output.suffix + ".local_video.json")
+    request = _request_from_sample(sample)
+
+    def media(path_field: str, sha_field: str) -> dict[str, str] | None:
+        if sample.get(path_field) is None:
+            return None
+        return {
+            "path": str(Path(sample[path_field]).resolve()),
+            "sha256": str(sample[sha_field]),
+        }
+
+    isolation = _fixture_execution_isolation(request)
+    binding = dict(request.arena_benchmark_binding or {})
+    return {
+        "schema": "reel_factory.local_video_generation.v1",
+        "status": "completed",
+        "outputPath": str(output),
+        "lineagePath": str(lineage_path),
+        "outputSha256": output_sha256,
+        "modelId": sample["modelId"],
+        "modelRevision": sample["modelRevision"],
+        "modelManifestSha256": sample["modelManifestSha256"],
+        "executionContext": "arena_benchmark",
+        "command": _fixture_command(request),
+        "request": {
+            "task": request.task,
+            "durationSeconds": request.duration_seconds,
+            "seed": request.seed,
+        },
+        "taskParameterMaterial": sample["taskParameterMaterial"],
+        "taskParameterFingerprint": sample["taskParameterFingerprint"],
+        "arenaBenchmarkBinding": binding,
+        "executionBinding": binding,
+        "input": (
+            {
+                "path": str(Path(sample["sourcePath"]).resolve()),
+                "sha256": sample["sourceSha256"],
+            }
+            if sample.get("sourcePath") is not None
+            else None
+        ),
+        "lastImage": media("lastImagePath", "lastImageSha256"),
+        "sourceVideo": media("sourceVideoPath", "sourceVideoSha256"),
+        "sourceAudio": media("audioPath", "audioSha256"),
+        "executionIsolation": isolation,
+        "queue": {"jobId": sample["queueJob"]["jobId"]},
+        "providerCalls": 0,
+        "paidGeneration": False,
+        "humanReviewRequired": True,
+        "publishingAllowed": False,
+        "schedulingAllowed": False,
+    }
 
 
 def test_arena_registry_merges_existing_human_analyzer_and_preserves_exact_provenance() -> (
@@ -741,6 +881,374 @@ def _build(
         analyzer_registry=registry,
         identity_root=identity_root,
     )
+
+
+def test_early_uniqueness_gate_records_duplicate_and_stops_cohort(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2), _spec(source, seed=3)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    by_seed = {sample["seed"]: sample for sample in plan["samples"]}
+    first, second, third = by_seed[1], by_seed[2], by_seed[3]
+    output_sha256 = _complete_queue_sample(
+        queue,
+        first,
+        output_bytes=b"same generated video",
+    )
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=first["sampleId"],
+            output_sha256=output_sha256,
+            queue=queue,
+        )["status"]
+        == "unique"
+    )
+    assert (
+        _complete_queue_sample(
+            queue,
+            second,
+            output_bytes=b"same generated video",
+        )
+        == output_sha256
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_duplicate_output_sha256"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=output_sha256,
+            queue=queue,
+        )
+
+    [observation] = [
+        event["payload"]
+        for event in store.journal_events()
+        if event["eventType"] == "arena_output_uniqueness_observed"
+        and event["payload"]["sampleId"] == second["sampleId"]
+    ]
+    assert observation["status"] == "duplicate"
+    assert observation["providerCalls"] == 0
+    assert observation["productionWrites"] == 0
+    assert observation["duplicateSamples"] == [
+        {
+            "sampleId": first["sampleId"],
+            "queueJobId": first["queueJob"]["jobId"],
+            "queueJobFingerprint": first["queueJobFingerprint"],
+            "seed": 1,
+        }
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "plan_local_video_job",
+        lambda *_args, **_kwargs: pytest.fail(
+            "later inference planning ran after a persisted duplicate"
+        ),
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_cohort_blocked_by_duplicate_output"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=third["sampleId"],
+            dry_run=False,
+        )
+
+
+def test_early_uniqueness_gate_accepts_distinct_seed_outputs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    first, second = plan["samples"]
+    first_sha = _complete_queue_sample(
+        queue,
+        first,
+        output_bytes=b"first generated video",
+    )
+    first_observation = store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=first["sampleId"],
+        output_sha256=first_sha,
+        queue=queue,
+    )
+    second_sha = _complete_queue_sample(
+        queue,
+        second,
+        output_bytes=b"second generated video",
+    )
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=first["sampleId"],
+            output_sha256=first_sha,
+            queue=queue,
+        )
+        == first_observation
+    )
+
+    observation = store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=second["sampleId"],
+        output_sha256=second_sha,
+        queue=queue,
+    )
+
+    assert second_sha != first_sha
+    assert observation["status"] == "unique"
+    assert observation["comparedSucceededOutputs"] == 1
+    assert observation["duplicateSamples"] == []
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=second_sha,
+            queue=queue,
+        )
+        == observation
+    )
+    assert (
+        sum(
+            event["eventType"] == "arena_output_uniqueness_observed"
+            and event["payload"]["sampleId"] == second["sampleId"]
+            for event in store.journal_events()
+        )
+        == 1
+    )
+
+
+def test_early_uniqueness_gate_rejects_substituted_output_and_queue_job(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source, seed=1)])
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+
+    substituted_output_queue = LocalGenerationQueue(
+        tmp_path / "substituted-output-queue", resource_limit_bytes=4096
+    )
+    output_sha = _complete_queue_sample(
+        substituted_output_queue,
+        sample,
+        output_bytes=b"original generated video",
+    )
+    Path(sample["outputPath"]).write_bytes(b"substituted generated video")
+    with pytest.raises(LocalQueueError, match="arena_uniqueness_output_substituted"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            output_sha256=output_sha,
+            queue=substituted_output_queue,
+        )
+
+    drift_queue = LocalGenerationQueue(
+        tmp_path / "queue-job-drift", resource_limit_bytes=4096
+    )
+    Path(sample["outputPath"]).write_bytes(b"original generated video")
+    drifted_job = replace(
+        _job_from_sample(sample),
+        params_fingerprint="f" * 64,
+    )
+    drift_queue.submit(drifted_job)
+    measurement = {
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1024,
+        "memoryMeasurementMethod": "test-child-peak",
+    }
+    with drift_queue.worker_session() as lease:
+        assert drift_queue.start_next(lease).job_id == drifted_job.job_id
+        drift_queue.verify_generated_artifacts(
+            lease,
+            drifted_job.job_id,
+            partial_output_path=Path(sample["outputPath"]),
+            final_output_path=Path(sample["outputPath"]),
+            output_probe={"streams": [{"codec_type": "video"}]},
+            execution_measurement=measurement,
+        )
+        drift_queue.succeed(
+            lease,
+            drifted_job.job_id,
+            output_sha256=output_sha,
+            output_path=Path(sample["outputPath"]),
+            execution_measurement=measurement,
+        )
+    with pytest.raises(LocalQueueError, match="arena_uniqueness_queue_job_drift"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            output_sha256=output_sha,
+            queue=drift_queue,
+        )
+
+
+def test_generation_reconciles_succeeded_output_after_pre_observation_interruption(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source, seed=1)])
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    output_sha = _complete_queue_sample(
+        queue, sample, output_bytes=b"completed generated video"
+    )
+    lineage_path = Path(sample["outputPath"]).with_suffix(
+        Path(sample["outputPath"]).suffix + ".local_video.json"
+    )
+    lineage_path.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.local_video_generation.v1",
+                "status": "completed",
+                "outputSha256": output_sha,
+                "queue": {"jobId": sample["queueJob"]["jobId"]},
+                "providerCalls": 0,
+                "publishingAllowed": False,
+                "schedulingAllowed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        arena_module, "plan_local_video_job", lambda _request: _job_from_sample(sample)
+    )
+    monkeypatch.setattr(arena_module, "default_local_generation_queue", lambda: queue)
+    monkeypatch.setattr(
+        arena_module,
+        "run_local_video",
+        lambda *_args, **_kwargs: pytest.fail(
+            "succeeded inference was rerun during reconciliation"
+        ),
+    )
+
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    substituted_lineage = _completed_arena_lineage(sample, output_sha256=output_sha)
+    substituted_lineage["modelRevision"] = "substituted-model-revision"
+    lineage_path.write_text(json.dumps(substituted_lineage), encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    substituted_isolation = _completed_arena_lineage(sample, output_sha256=output_sha)
+    isolation_core = dict(substituted_isolation["executionIsolation"])
+    isolation_core.pop("isolationFingerprint")
+    isolation_core["sandboxRoot"] = str(tmp_path / "attacker-controlled-sandbox")
+    substituted_isolation["executionIsolation"] = {
+        **isolation_core,
+        "isolationFingerprint": fingerprint(isolation_core),
+    }
+    lineage_path.write_text(json.dumps(substituted_isolation), encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    lineage_path.write_text(
+        json.dumps(_completed_arena_lineage(sample, output_sha256=output_sha)),
+        encoding="utf-8",
+    )
+    result = execute_arena_sample_generation(
+        store,
+        plan_id=plan["planId"],
+        sample_id=sample["sampleId"],
+        dry_run=False,
+    )
+
+    assert result["reconciledFromSucceededQueue"] is True
+    assert result["outputSha256"] == output_sha
+    assert result["arenaOutputUniqueness"]["status"] == "unique"
+
+
+def test_duplicate_outputs_remain_in_denominator_but_cannot_inflate_yield(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    first, second = plan["samples"]
+    duplicate_sha = _complete_queue_sample(
+        queue, first, output_bytes=b"same generated video"
+    )
+    store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=first["sampleId"],
+        output_sha256=duplicate_sha,
+        queue=queue,
+    )
+    assert (
+        _complete_queue_sample(queue, second, output_bytes=b"same generated video")
+        == duplicate_sha
+    )
+    with pytest.raises(LocalQueueError, match="arena_duplicate_output_sha256"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=duplicate_sha,
+            queue=queue,
+        )
+
+    summary = store.summarize(
+        plan["planId"],
+        queue=queue,
+        benchmarks=LocalModelBenchmarkStore(tmp_path / "evidence"),
+    )
+    by_id = {sample["sampleId"]: sample for sample in summary["samples"]}
+    duplicate = by_id[second["sampleId"]]
+
+    assert sum(summary["sampleCounts"].values()) == 2
+    assert summary["sampleCounts"]["missing"] == 2
+    assert summary["promotionEligibleYield"] == 0
+    assert duplicate["status"] == "missing"
+    assert duplicate["reason"] == "duplicate_output_sha256"
+    assert duplicate["outputSha256"] is None
+    assert duplicate["promotionEvidenceValid"] is False
+    assert "duplicate_output_sha256" in duplicate["blockingReasons"]
 
 
 def _rollout_router_bundle(

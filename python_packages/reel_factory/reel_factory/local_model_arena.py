@@ -2885,6 +2885,200 @@ class LocalModelArenaStore:
 
         return tuple(dict(event) for event in self.__events.read().events)
 
+    def observe_generated_output_uniqueness(
+        self,
+        *,
+        plan_id: str,
+        sample_id: str,
+        output_sha256: str,
+        queue: LocalGenerationQueue,
+    ) -> dict[str, Any]:
+        """Persist an early cohort uniqueness check and stop on duplicates.
+
+        Final Arena summaries still re-check the complete cohort. This earlier
+        observation prevents a sequential qualification runner from spending
+        hours on later samples after different planned cells produce identical
+        bytes.
+        """
+
+        plan = self.load_plan(plan_id)
+        samples = {str(item["sampleId"]): dict(item) for item in plan["samples"]}
+        sample = samples.get(sample_id)
+        if sample is None:
+            raise LocalQueueError("arena_sample_not_in_plan")
+        if len(output_sha256) != 64 or any(
+            char not in "0123456789abcdef" for char in output_sha256
+        ):
+            raise ValueError("arena_output_sha256_invalid")
+        states = queue.states()
+
+        def verified_succeeded_output(
+            candidate: Mapping[str, Any],
+        ) -> tuple[str, str] | None:
+            job_id = str(candidate["queueJob"]["jobId"])
+            state = states.get(job_id)
+            if state is None or state.status != "succeeded":
+                return None
+            if fingerprint(state.job.as_dict()) != candidate["queueJobFingerprint"]:
+                raise LocalQueueError("arena_uniqueness_queue_job_drift")
+            observed_sha = str(
+                state.last_event.get("payload", {}).get("outputSha256") or ""
+            )
+            output = Path(str(candidate["outputPath"])).expanduser().resolve()
+            if (
+                len(observed_sha) != 64
+                or not output.is_file()
+                or output.is_symlink()
+                or sha256_file(output) != observed_sha
+            ):
+                raise LocalQueueError("arena_uniqueness_output_substituted")
+            return job_id, observed_sha
+
+        current = verified_succeeded_output(sample)
+        if current is None or current[1] != output_sha256:
+            raise LocalQueueError("arena_uniqueness_current_output_mismatch")
+        existing = self._output_uniqueness_observations(plan).get(sample_id)
+        if existing is not None:
+            if (
+                existing["queueJobId"] != current[0]
+                or existing["outputSha256"] != current[1]
+            ):
+                raise LocalQueueError("arena_output_uniqueness_observation_collision")
+            if existing["status"] == "duplicate":
+                raise LocalQueueError(
+                    "arena_duplicate_output_sha256:"
+                    + output_sha256
+                    + ":"
+                    + ",".join(
+                        str(item["sampleId"]) for item in existing["duplicateSamples"]
+                    )
+                )
+            return existing
+        duplicates: list[dict[str, Any]] = []
+        compared_outputs = 0
+        for other_id, other in sorted(samples.items()):
+            if other_id == sample_id:
+                continue
+            succeeded = verified_succeeded_output(other)
+            if succeeded is None:
+                continue
+            compared_outputs += 1
+            if succeeded[1] == output_sha256:
+                duplicates.append(
+                    {
+                        "sampleId": other_id,
+                        "queueJobId": succeeded[0],
+                        "queueJobFingerprint": other["queueJobFingerprint"],
+                        "seed": int(other["seed"]),
+                    }
+                )
+        status = "duplicate" if duplicates else "unique"
+        core = {
+            "schema": "reel_factory.local_model_arena_output_uniqueness.v1",
+            "planId": plan_id,
+            "planFingerprint": plan["planFingerprint"],
+            "sampleId": sample_id,
+            "queueJobId": current[0],
+            "queueJobFingerprint": sample["queueJobFingerprint"],
+            "seed": int(sample["seed"]),
+            "outputSha256": output_sha256,
+            "comparedSucceededOutputs": compared_outputs,
+            "duplicateSamples": duplicates,
+            "status": status,
+            "providerCalls": 0,
+            "productionWrites": 0,
+        }
+        payload = {**core, "observationFingerprint": fingerprint(core)}
+        with file_lock(self._mutation):
+            prior = [
+                event
+                for event in self.__events.read().events
+                if event.get("eventType") == "arena_output_uniqueness_observed"
+                and event.get("payload", {}).get("planId") == plan_id
+                and event.get("payload", {}).get("sampleId") == sample_id
+            ]
+            if prior:
+                if len(prior) != 1 or prior[0].get("payload") != payload:
+                    raise LocalQueueError(
+                        "arena_output_uniqueness_observation_collision"
+                    )
+                event = prior[0]
+            else:
+                event = self.__events.append(
+                    "arena_output_uniqueness_observed",
+                    payload,
+                )
+        if duplicates:
+            raise LocalQueueError(
+                "arena_duplicate_output_sha256:"
+                + output_sha256
+                + ":"
+                + ",".join(item["sampleId"] for item in duplicates)
+            )
+        return dict(event["payload"])
+
+    def _output_uniqueness_observations(
+        self, plan: Mapping[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        samples = {str(item["sampleId"]): item for item in plan["samples"]}
+        observations: dict[str, dict[str, Any]] = {}
+        for event in self.__events.read().events:
+            if (
+                event.get("eventType") != "arena_output_uniqueness_observed"
+                or event.get("payload", {}).get("planId") != plan["planId"]
+            ):
+                continue
+            payload = dict(event["payload"])
+            sample_id = str(payload.get("sampleId") or "")
+            sample = samples.get(sample_id)
+            core = {
+                key: value
+                for key, value in payload.items()
+                if key != "observationFingerprint"
+            }
+            duplicates = payload.get("duplicateSamples")
+            if (
+                sample is None
+                or sample_id in observations
+                or payload.get("schema")
+                != "reel_factory.local_model_arena_output_uniqueness.v1"
+                or payload.get("planFingerprint") != plan["planFingerprint"]
+                or payload.get("queueJobId") != sample["queueJob"]["jobId"]
+                or payload.get("queueJobFingerprint") != sample["queueJobFingerprint"]
+                or payload.get("seed") != sample["seed"]
+                or payload.get("status") not in {"unique", "duplicate"}
+                or not isinstance(duplicates, list)
+                or (payload.get("status") == "duplicate") is not bool(duplicates)
+                or payload.get("observationFingerprint") != fingerprint(core)
+                or payload.get("providerCalls") != 0
+                or payload.get("productionWrites") != 0
+            ):
+                raise LocalQueueError("arena_output_uniqueness_observation_invalid")
+            observations[sample_id] = payload
+        return observations
+
+    def require_no_duplicate_output_observation(
+        self, plan_id: str, *, requested_sample_id: str
+    ) -> None:
+        """Keep a duplicate-stopped cohort blocked across later CLI invocations."""
+
+        plan = self.load_plan(plan_id)
+        if not any(
+            str(sample["sampleId"]) == requested_sample_id for sample in plan["samples"]
+        ):
+            raise LocalQueueError("arena_sample_not_in_plan")
+        duplicates = sorted(
+            sample_id
+            for sample_id, observation in self._output_uniqueness_observations(
+                plan
+            ).items()
+            if observation["status"] == "duplicate"
+        )
+        if duplicates:
+            raise LocalQueueError(
+                "arena_cohort_blocked_by_duplicate_output:" + ",".join(duplicates)
+            )
+
     def _validate_transition_timestamp(
         self,
         decided_at: str,
@@ -4949,6 +5143,7 @@ class LocalModelArenaStore:
             if sample_id in by_sample:
                 raise LocalQueueError("arena_duplicate_terminal_sample")
             by_sample[sample_id] = event
+        uniqueness_observations = self._output_uniqueness_observations(plan)
         queue_states = queue.states()
         receipts = benchmarks.all_receipts()
         reviews = human_reviews.reviews() if human_reviews is not None else {}
@@ -4960,8 +5155,12 @@ class LocalModelArenaStore:
             queue_job_id = str(sample["queueJob"]["jobId"])
             queue_state = queue_states.get(queue_job_id)
             terminal = by_sample.get(sample_id)
+            uniqueness = uniqueness_observations.get(sample_id)
             if terminal is None:
-                if queue_state is not None and queue_state.status in {
+                if uniqueness is not None and uniqueness["status"] == "duplicate":
+                    status = "missing"
+                    reason = "duplicate_output_sha256"
+                elif queue_state is not None and queue_state.status in {
                     "failed",
                     "interrupted",
                     "cancelled",
@@ -5018,6 +5217,15 @@ class LocalModelArenaStore:
                 blockers.append("queue_job_missing")
             else:
                 execution_evidence = queue.execution_evidence(queue_job_id)
+                measurement = execution_evidence.get("executionMeasurement")
+                if isinstance(measurement, dict) and "available" not in measurement:
+                    execution_evidence = {
+                        **execution_evidence,
+                        "executionMeasurement": {
+                            "available": True,
+                            **measurement,
+                        },
+                    }
                 if status == "succeeded" and queue_state.status != "succeeded":
                     blockers.append("queue_job_not_succeeded")
                 if (
@@ -5025,6 +5233,19 @@ class LocalModelArenaStore:
                     != sample["queueJobFingerprint"]
                 ):
                     blockers.append("queue_job_substituted")
+            if uniqueness is not None and uniqueness["status"] == "duplicate":
+                blockers.append("duplicate_output_sha256")
+                output = Path(str(sample["outputPath"])).expanduser().resolve()
+                if (
+                    queue_state is None
+                    or queue_state.status != "succeeded"
+                    or queue_state.last_event.get("payload", {}).get("outputSha256")
+                    != uniqueness["outputSha256"]
+                    or not output.is_file()
+                    or output.is_symlink()
+                    or sha256_file(output) != uniqueness["outputSha256"]
+                ):
+                    blockers.append("arena_uniqueness_output_substituted")
             expected_queue_evidence_fingerprint = fingerprint(
                 execution_evidence
                 if queue_state is not None
@@ -5514,6 +5735,114 @@ def _arena_benchmark_binding(
     return {**core, "bindingFingerprint": fingerprint(core)}
 
 
+def _validate_completed_arena_lineage(
+    lineage: Mapping[str, Any],
+    *,
+    sample: Mapping[str, Any],
+    request: LocalVideoRequest,
+    output: Path,
+    lineage_path: Path,
+    output_sha256: str,
+    queue_job: LocalGenerationJob,
+) -> dict[str, Any]:
+    def expected_media(path_field: str, sha_field: str) -> dict[str, str] | None:
+        raw_path = sample.get(path_field)
+        raw_sha = sample.get(sha_field)
+        if raw_path is None:
+            if raw_sha is not None:
+                raise LocalQueueError("arena_completed_lineage_input_binding_invalid")
+            return None
+        if not isinstance(raw_sha, str):
+            raise LocalQueueError("arena_completed_lineage_input_binding_invalid")
+        return {
+            "path": str(Path(str(raw_path)).expanduser().resolve()),
+            "sha256": raw_sha,
+        }
+
+    expected_input = (
+        {
+            "path": str(Path(str(sample["sourcePath"])).expanduser().resolve()),
+            "sha256": str(sample["sourceSha256"]),
+        }
+        if sample.get("sourcePath") is not None
+        else None
+    )
+    expected_binding = request.arena_benchmark_binding
+    isolation = lineage.get("executionIsolation")
+    isolation_core = dict(isolation) if isinstance(isolation, Mapping) else {}
+    isolation_claimed = isolation_core.pop("isolationFingerprint", None)
+    provider_activity = isolation_core.get("providerActivity")
+    lineage_queue = lineage.get("queue")
+    lineage_request = lineage.get("request")
+    lineage_command = lineage.get("command")
+    lineage_params = (
+        {
+            "command": lineage_command,
+            "outputPath": str(output),
+            "task": lineage_request.get("task"),
+            "durationSeconds": lineage_request.get("durationSeconds"),
+            "seed": lineage_request.get("seed"),
+            "executionContext": lineage.get("executionContext"),
+            "executionBindingFingerprint": expected_binding.get("bindingFingerprint"),
+            "executionIsolationFingerprint": isolation_claimed,
+            "taskParameterFingerprint": lineage.get("taskParameterFingerprint"),
+        }
+        if isinstance(lineage_request, Mapping)
+        and isinstance(lineage_command, list)
+        and isinstance(expected_binding, Mapping)
+        else None
+    )
+    owned_sandboxes = [
+        Path(path).expanduser().resolve()
+        for path in queue_job.owned_artifact_paths
+        if Path(path).name.startswith(".local_video_sandbox_")
+    ]
+    if (
+        lineage.get("schema") != "reel_factory.local_video_generation.v1"
+        or lineage.get("status") != "completed"
+        or lineage.get("outputPath") != str(output)
+        or lineage.get("lineagePath") != str(lineage_path)
+        or lineage.get("outputSha256") != output_sha256
+        or lineage.get("executionContext") != "arena_benchmark"
+        or lineage.get("modelId") != sample["modelId"]
+        or lineage.get("modelRevision") != sample["modelRevision"]
+        or lineage.get("modelManifestSha256") != sample["modelManifestSha256"]
+        or lineage.get("taskParameterMaterial") != sample["taskParameterMaterial"]
+        or lineage.get("taskParameterFingerprint") != sample["taskParameterFingerprint"]
+        or not isinstance(expected_binding, Mapping)
+        or lineage.get("arenaBenchmarkBinding") != dict(expected_binding)
+        or lineage.get("executionBinding") != dict(expected_binding)
+        or lineage.get("input") != expected_input
+        or lineage.get("lastImage")
+        != expected_media("lastImagePath", "lastImageSha256")
+        or lineage.get("sourceVideo")
+        != expected_media("sourceVideoPath", "sourceVideoSha256")
+        or lineage.get("sourceAudio") != expected_media("audioPath", "audioSha256")
+        or lineage.get("providerCalls") != 0
+        or lineage.get("paidGeneration") is not False
+        or lineage.get("humanReviewRequired") is not True
+        or lineage.get("publishingAllowed") is not False
+        or lineage.get("schedulingAllowed") is not False
+        or not isinstance(lineage_queue, Mapping)
+        or lineage_queue.get("jobId") != queue_job.job_id
+        or lineage_params is None
+        or fingerprint(lineage_params) != queue_job.params_fingerprint
+        or isolation_core.get("schema") != "reel_factory.local_subprocess_isolation.v1"
+        or isolation_core.get("enforced") is not True
+        or isolation_core.get("networkAccess") != "denied"
+        or isolation_core.get("writeAccess") != "explicit_artifacts_only"
+        or not isinstance(provider_activity, Mapping)
+        or provider_activity.get("callsObserved") != 0
+        or provider_activity.get("successfulDirectSocketCallsPossible") is not False
+        or not isinstance(isolation_claimed, str)
+        or fingerprint(isolation_core) != isolation_claimed
+        or len(owned_sandboxes) != 1
+        or isolation_core.get("sandboxRoot") != str(owned_sandboxes[0])
+    ):
+        raise LocalQueueError("arena_completed_lineage_binding_mismatch")
+    return dict(lineage)
+
+
 def execute_arena_sample_generation(
     store: LocalModelArenaStore,
     *,
@@ -5544,6 +5873,10 @@ def execute_arena_sample_generation(
         bindings=_plan_identity_bindings(plan),
         identity_root=identity_root,
     )
+    if not dry_run:
+        store.require_no_duplicate_output_observation(
+            plan_id, requested_sample_id=sample_id
+        )
     if not isinstance(sample.get("taskParameterMaterial"), dict) or not isinstance(
         sample.get("taskParameterFingerprint"), str
     ):
@@ -5555,12 +5888,59 @@ def execute_arena_sample_generation(
         or planned_job.as_dict() != sample["queueJob"]
     ):
         raise LocalQueueError("arena_runtime_queue_job_drift")
+    queue = default_local_generation_queue()
     output = Path(str(sample["outputPath"])).resolve()
     if output.exists():
-        raise LocalQueueError("arena_output_collision")
+        if dry_run:
+            raise LocalQueueError("arena_output_collision")
+        states = queue.states()
+        state = states.get(planned_job.job_id)
+        lineage_path = output.with_suffix(output.suffix + ".local_video.json")
+        if (
+            state is None
+            or state.status != "succeeded"
+            or fingerprint(state.job.as_dict()) != sample["queueJobFingerprint"]
+            or not output.is_file()
+            or output.is_symlink()
+            or not lineage_path.is_file()
+            or lineage_path.is_symlink()
+        ):
+            raise LocalQueueError("arena_output_collision")
+        output_sha256 = sha256_file(output)
+        lineage = _read_json(lineage_path)
+        if state.last_event.get("payload", {}).get("outputSha256") != output_sha256:
+            raise LocalQueueError("arena_completed_output_reconciliation_mismatch")
+        lineage = _validate_completed_arena_lineage(
+            lineage,
+            sample=sample,
+            request=request,
+            output=output,
+            lineage_path=lineage_path,
+            output_sha256=output_sha256,
+            queue_job=planned_job,
+        )
+        uniqueness = store.observe_generated_output_uniqueness(
+            plan_id=plan_id,
+            sample_id=sample_id,
+            output_sha256=output_sha256,
+            queue=queue,
+        )
+        return {
+            **lineage,
+            "arenaOutputUniqueness": uniqueness,
+            "reconciledFromSucceededQueue": True,
+        }
     if dry_run:
         return run_local_video(request, dry_run=True)
-    return run_local_video(request, dry_run=False)
+    result = run_local_video(request, dry_run=False)
+    output_sha256 = str(result.get("outputSha256") or "")
+    uniqueness = store.observe_generated_output_uniqueness(
+        plan_id=plan_id,
+        sample_id=sample_id,
+        output_sha256=output_sha256,
+        queue=queue,
+    )
+    return {**result, "arenaOutputUniqueness": uniqueness}
 
 
 def _write_exact_json(path: Path, payload: Mapping[str, Any]) -> None:
