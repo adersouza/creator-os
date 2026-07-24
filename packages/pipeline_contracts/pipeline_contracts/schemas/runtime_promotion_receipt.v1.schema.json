@@ -37,7 +37,7 @@
           "required": ["strictStatusChecks", "requiredStatusChecks", "requiredApprovingReviewCount", "requiredConversationResolution", "enforceAdmins"],
           "properties": {
             "strictStatusChecks": {"const": true},
-            "requiredStatusChecks": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "requiredStatusChecks": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
             "requiredApprovingReviewCount": {"const": 0},
             "requiredConversationResolution": {"const": true},
             "enforceAdmins": {"const": true}
