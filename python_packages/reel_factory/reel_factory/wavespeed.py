@@ -311,6 +311,7 @@ def execute_wavespeed(
         "requestFingerprint": scope["requestFingerprint"],
         "authorizationId": verified["authorizationId"],
         "providerModel": model.provider_model,
+        "seed": request.seed,
         "creator": (
             request.production_context.get("creator")
             if request.production_context is not None
@@ -433,6 +434,19 @@ def _poll_retain_prediction(
             "outputUrl": _redacted_url(outputs[0]),
             "outputUrlSha256": output_url_sha256,
             "providerInferenceMilliseconds": inference_ms,
+            "generationDurationSeconds": _generation_duration_seconds(
+                intent, fallback_seconds=time.monotonic() - started_monotonic
+            ),
+            "outputRecords": [
+                {
+                    "index": 0,
+                    "url": _redacted_url(outputs[0]),
+                    "urlSha256": output_url_sha256,
+                    "sha256": None,
+                    "path": str(Path(request.output_path).expanduser().resolve()),
+                    "retained": False,
+                }
+            ],
         }
     )
     _write_json(intent_path, intent)
@@ -458,6 +472,7 @@ def _poll_retain_prediction(
                     "urlSha256": output_url_sha256,
                     "sha256": digest,
                     "path": str(Path(request.output_path).expanduser().resolve()),
+                    "retained": True,
                 }
             ],
             "failure": None,
@@ -605,6 +620,7 @@ def _validated_recovery_intent(
         or intent.get("requestFingerprint") != scope["requestFingerprint"]
         or intent.get("authorizationId") != authorization_id
         or intent.get("providerModel") != model.provider_model
+        or intent.get("seed") != request.seed
         or intent.get("sourceSha256") != scope["mediaSha256"].get("image")
         or intent.get("expandedPromptSha256") != scope["promptSha256"]
         or intent.get("outputPath")

@@ -392,6 +392,7 @@ def plan_production_batch(
     sources: list[dict[str, Any]] = []
     seen_source_hashes: set[str] = set()
     substituted_sources = 0
+    incompatible_sources = 0
     for row in rows:
         source = dict(row)
         raw_path = Path(str(source["stored_path"])).expanduser()
@@ -405,10 +406,29 @@ def plan_production_batch(
             continue
         if recorded_sha in seen_source_hashes:
             continue
+        if execution == "cloud":
+            resolution = _source_image_resolution(path)
+            if resolution is None:
+                substituted_sources += 1
+                continue
+            width, height = resolution
+            ratio = width / height
+            if not 0.50 <= ratio <= 0.65:
+                incompatible_sources += 1
+                continue
+            source["sourceResolution"] = {
+                "width": width,
+                "height": height,
+                "aspectRatio": round(ratio, 6),
+            }
         source["stored_path"] = str(path)
         seen_source_hashes.add(recorded_sha)
         sources.append(source)
     if not sources:
+        if incompatible_sources:
+            raise ValueError(
+                f"no portrait-reel approved image inventory for creator {creator}"
+            )
         if substituted_sources:
             raise ValueError(
                 f"approved source SHA mismatch for creator {creator}; "
@@ -450,6 +470,7 @@ def plan_production_batch(
                 "sourceAssetId": source["id"],
                 "sourcePath": source["stored_path"],
                 "sourceSha256": source_sha,
+                "sourceResolution": source.get("sourceResolution"),
                 "creator": creator_slug,
                 "intent": intent,
                 "prompt": _INTENT_PROMPTS[intent],
@@ -726,7 +747,12 @@ def _run_production_job(
             "attempts": exc.attempts,
         }
     except Exception as exc:
-        return {**base, "status": "failed", "error": str(exc)}
+        return {
+            **base,
+            "status": "failed",
+            "error": str(exc),
+            "provider": _failed_provider_execution(factory, job),
+        }
 
 
 def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -736,6 +762,12 @@ def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] 
     execution = worker.get("result")
     if not isinstance(execution, dict) or not execution.get("predictionId"):
         return None
+    return _provider_receipt_summary(execution)
+
+
+def _provider_receipt_summary(
+    execution: Mapping[str, Any], *, evidence_path: Path | None = None
+) -> dict[str, Any]:
     return {
         "requestId": execution.get("predictionId"),
         "model": execution.get("providerModel"),
@@ -749,8 +781,68 @@ def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] 
         "providerInferenceMilliseconds": execution.get("providerInferenceMilliseconds"),
         "providerCostUsd": execution.get("providerCostUsd"),
         "requestFingerprint": execution.get("requestFingerprint"),
-        "evidencePath": execution.get("evidencePath"),
+        "evidencePath": execution.get("evidencePath")
+        or (str(evidence_path) if evidence_path is not None else None),
     }
+
+
+def _failed_provider_execution(
+    factory: Any, job: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    try:
+        campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
+        model_slug = factory.domains.reel_execution.model_slug_for_campaign(
+            campaign["id"]
+        )
+        evidence_dir = (
+            factory.domains.campaign_dirs(model_slug, campaign["slug"])["audits"]
+            / "motion_generation"
+        )
+        prompt_sha = hashlib.sha256(
+            " ".join(str(job["prompt"]).split()).encode("utf-8")
+        ).hexdigest()
+        matches: list[tuple[dict[str, Any], Path]] = []
+        for path in evidence_dir.glob("*.wavespeed_submission.json"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                receipt = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(receipt, dict):
+                continue
+            if (
+                receipt.get("creator") == job.get("creator")
+                and receipt.get("intent") == job.get("intent")
+                and receipt.get("sourceSha256") == job.get("sourceSha256")
+                and receipt.get("expandedPromptSha256") == prompt_sha
+                and receipt.get("providerModel") == "wavespeed-ai/wan-2.2/i2v-5b-720p"
+                and (
+                    receipt.get("seed") is None
+                    or receipt.get("seed") == job.get("seed")
+                )
+                and receipt.get("predictionId")
+            ):
+                matches.append((receipt, path))
+        if len(matches) != 1:
+            return None
+        receipt, path = matches[0]
+        return _provider_receipt_summary(receipt, evidence_path=path)
+    except (KeyError, OSError, TypeError, ValueError):
+        return None
+
+
+def _source_image_resolution(path: Path) -> tuple[int, int] | None:
+    try:
+        from PIL import Image, UnidentifiedImageError
+
+        with Image.open(path) as image:
+            width, height = image.size
+    except (OSError, UnidentifiedImageError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return int(width), int(height)
 
 
 def run_production_hard_qc(

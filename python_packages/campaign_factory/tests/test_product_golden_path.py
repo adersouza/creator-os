@@ -28,6 +28,7 @@ from campaign_factory.production_lane import (
     run_production_batch,
 )
 from campaign_factory.production_quality_policy import production_quality_policy
+from PIL import Image
 
 
 def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNamespace:
@@ -90,7 +91,7 @@ def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNames
     conn.execute("INSERT INTO models VALUES ('model-1', 'stacey')")
     for index in range(source_count):
         path = tmp_path / f"approved-{index}.png"
-        path.write_bytes(f"approved-source-{index}".encode())
+        Image.new("RGB", (90, 160), color=(index, 20, 40)).save(path)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         conn.execute(
             "INSERT INTO source_assets VALUES (?, 'campaign-1', 'model-1', ?, ?, "
@@ -252,6 +253,36 @@ def test_cloud_production_uses_wavespeed_wan22_i2v_5b(tmp_path: Path) -> None:
         "wavespeed_wan22_i2v_5b_720p"
     }
     assert batch["estimatedProviderCostUsd"] == 0.15
+
+
+def test_cloud_source_resolution_skips_non_reel_aspect_ratios(
+    tmp_path: Path,
+) -> None:
+    factory = _production_factory(tmp_path)
+    first = factory.conn.execute(
+        "SELECT * FROM source_assets ORDER BY created_at LIMIT 1"
+    ).fetchone()
+    assert first is not None
+    first_path = Path(first["stored_path"])
+    Image.new("RGB", (120, 160), color=(10, 20, 40)).save(first_path)
+    first_sha = hashlib.sha256(first_path.read_bytes()).hexdigest()
+    factory.conn.execute(
+        "UPDATE source_assets SET content_hash = ? WHERE id = ?",
+        (first_sha, first["id"]),
+    )
+
+    batch = plan_production_batch(
+        factory,
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts=None,
+        audio_preference="embedded_trending",
+    )
+
+    assert batch["jobs"][0]["sourceAssetId"] != first["id"]
+    assert batch["jobs"][0]["sourceResolution"]["aspectRatio"] == 0.5625
 
 
 def test_golden_reel_caption_hook_audio_to_postable_handoff() -> None:

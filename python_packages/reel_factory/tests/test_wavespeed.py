@@ -149,7 +149,51 @@ def test_wavespeed_one_submit_retains_output_and_hides_signed_url(
     assert result["predictionId"] == "pred_123"
     assert result["providerCostUsd"] == 0.6
     assert result["providerInferenceMilliseconds"] == 1234
+    assert result["seed"] == 71
     assert result["outputRecords"][0]["sha256"] == result["outputSha256"]
+    assert result["outputRecords"][0]["retained"] is True
+
+
+def test_output_retention_failure_preserves_provider_output_record(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    scope = build_wavespeed_spend_scope(
+        request, campaign="campaign", cohort_id="cohort"
+    )
+
+    class RetentionFailureClient(FakeClient):
+        def download(self, _url: str, _destination: Path) -> str:
+            self.calls.append("download")
+            raise RuntimeError("output failed hard QC")
+
+    client = RetentionFailureClient(request.output_path)
+    with pytest.raises(RuntimeError, match="output failed hard QC"):
+        execute_wavespeed(
+            request,
+            campaign="campaign",
+            cohort_id="cohort",
+            authorization=_authorization(scope),
+            secret=SECRET,
+            evidence_dir=tmp_path / "evidence",
+            client=client,
+        )
+
+    evidence = next((tmp_path / "evidence").glob("*.wavespeed_submission.json"))
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    assert payload["status"] == "output_retention_failed"
+    assert payload["seed"] == 71
+    assert payload["generationDurationSeconds"] >= 0
+    assert payload["outputRecords"] == [
+        {
+            "index": 0,
+            "path": str(request.output_path.resolve()),
+            "retained": False,
+            "sha256": None,
+            "url": "https://outputs.example/signed.mp4",
+            "urlSha256": payload["outputUrlSha256"],
+        }
+    ]
 
 
 def test_wan22_5b_request_uses_exact_official_three_field_contract(

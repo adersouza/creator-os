@@ -439,18 +439,33 @@ def run_motion_generation_stage(
                 source_asset_id = str(source_asset["id"])
         else:
             assert still is not None
-            static_fallback = run_static_mp4_stage(
-                factory,
-                campaign_slug=campaign_slug,
-                still_path=still,
-                duration_seconds=float(
-                    6 if duration_seconds is None else duration_seconds
-                ),
-                dry_run=dry_run,
-                apply=apply,
+            direct_source = (
+                _production_direct_source_asset(
+                    factory,
+                    campaign_id=str(campaign["id"]),
+                    still_path=still,
+                    still_fingerprint=source_hash,
+                )
+                if production_bound
+                else None
             )
-            if apply:
-                source_asset_id = _static_source_asset_id(static_fallback)
+            if direct_source is not None:
+                static_fallback = None
+                if apply:
+                    source_asset_id = str(direct_source["id"])
+            else:
+                static_fallback = run_static_mp4_stage(
+                    factory,
+                    campaign_slug=campaign_slug,
+                    still_path=still,
+                    duration_seconds=float(
+                        6 if duration_seconds is None else duration_seconds
+                    ),
+                    dry_run=dry_run,
+                    apply=apply,
+                )
+                if apply:
+                    source_asset_id = _static_source_asset_id(static_fallback)
         authorization = None
         authorization_path: Path | None = None
         authorization_verified_at: str | None = None
@@ -735,6 +750,40 @@ def _static_source_asset_id(static_fallback: dict[str, Any]) -> str:
     if not isinstance(registered, dict) or not registered.get("source_asset_id"):
         raise RuntimeError("static fallback omitted source asset identity")
     return str(registered["source_asset_id"])
+
+
+def _production_direct_source_asset(
+    factory: Any,
+    *,
+    campaign_id: str,
+    still_path: Path,
+    still_fingerprint: str,
+) -> dict[str, Any] | None:
+    rows = factory.conn.execute(
+        """
+        SELECT * FROM source_assets
+        WHERE campaign_id = ? AND media_type = 'image' AND content_hash = ?
+          AND lower(COALESCE(status, 'imported')) NOT IN ('rejected', 'quarantined')
+        ORDER BY created_at, id
+        """,
+        (campaign_id, still_fingerprint),
+    ).fetchall()
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        source = dict(row)
+        raw_path = Path(str(source.get("stored_path") or "")).expanduser()
+        if raw_path.is_symlink():
+            continue
+        path = raw_path.resolve()
+        if (
+            path == still_path
+            and path.is_file()
+            and sha256_file(path) == still_fingerprint
+        ):
+            matches.append(source)
+    if len(matches) > 1:
+        raise ValueError("production source lineage is ambiguous")
+    return matches[0] if matches else None
 
 
 def _canonical_fingerprint(value: Mapping[str, Any]) -> str:
