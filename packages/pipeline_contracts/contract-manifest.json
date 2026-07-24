@@ -1,7 +1,7 @@
 {
   "schema": "creator_os.pipeline_contracts_manifest.v1",
   "package": "@creator-os/pipeline-contracts",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "files": {
     "pipeline_contracts/schemas/account_eligibility_decision.v1.example.json": "ceb3d1543f201951de0d6d3ea0cc6ba11355edbe5604b05e92398a040556c250",
     "pipeline_contracts/schemas/account_eligibility_decision.v1.schema.json": "4ca3aaaae4aeba5828931ef31eb9703c4cd076ee488ed1ea2757593d992f7654",
