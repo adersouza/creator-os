@@ -132,7 +132,16 @@ def _normalize_review_audio_intent(
     gates = intent.get("gates")
     if not isinstance(gates, dict):
         gates = {}
-    mode = str(intent.get("mode") or "native_platform_audio")
+    mode = str(intent.get("mode") or "embedded_trending_audio")
+    policy = str(intent.get("policy") or "").strip()
+    if not policy:
+        policy = {
+            "embedded_trending_audio": "embedded_trending_required",
+            "native_platform_audio": "native_trending_required",
+            "embedded_original_audio": "original_embedded",
+            "embedded_creator_voice": "creator_voice",
+            "embedded_royalty_free_audio": "royalty_free",
+        }.get(mode, "")
     normalized_gates = {
         "allow_draft_export": bool(gates.get("allow_draft_export", True)),
         "allow_preview_schedule": bool(gates.get("allow_preview_schedule", False)),
@@ -142,6 +151,7 @@ def _normalize_review_audio_intent(
     return {
         **intent,
         "schema": "pipeline.audio_intent.v1",
+        **({"policy": policy} if policy else {}),
         "mode": mode,
         "required": required,
         "status": status,

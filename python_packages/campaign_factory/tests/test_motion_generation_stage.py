@@ -1387,6 +1387,7 @@ def test_text_to_video_dry_run_has_no_media_or_prompt_source_write(
                 "retake_start_frame": 2,
                 "retake_end_frame": 5,
                 "preserve_audio": True,
+                "audio_policy": "original_embedded",
             },
         ),
         (
@@ -1908,6 +1909,8 @@ def test_ltx_embedded_audio_is_not_misclassified_as_native_platform_audio(
         assert metadata["audioBurned"] is True
         assert metadata["embeddedAudioMode"] == "generated"
         assert metadata["nativeAudioResolved"] is False
+        assert metadata["audioIntent"]["policy"] == "royalty_free"
+        assert metadata["audioIntent"]["fulfillment"]["audio_present"] is True
         assert (
             "local_audio_policy_review_required"
             in metadata["publishability"]["blockingIssues"]
@@ -1924,6 +1927,52 @@ def test_ltx_embedded_audio_is_not_misclassified_as_native_platform_audio(
             "audio_video_alignment_qc_required"
             in metadata["publishability"]["blockingIssues"]
         )
+    finally:
+        cf.close()
+
+
+def test_preserved_motion_audio_is_registered_as_original_embedded(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        source = add_source_asset(cf, tmp_path)
+        source_video = tmp_path / "source.mp4"
+        source_video.write_bytes(b"source-video-with-audio")
+        output = tmp_path / "retake.mp4"
+        output.write_bytes(b"retake-with-preserved-audio")
+        asset = _register_review_asset(
+            cf,
+            campaign=cf.domains.campaign_by_slug("may"),
+            source_asset_id=source["id"],
+            model_slug="stacey",
+            model_id="local_ltx23_distilled_mlx",
+            source_path=source_video,
+            source_hash=hashlib.sha256(source_video.read_bytes()).hexdigest(),
+            output_path=output,
+            worker_result={
+                "result": {
+                    "audio": {
+                        "mode": "preserved",
+                        "nativePlatformAudio": False,
+                        "sidecarSha256": "c" * 64,
+                    }
+                }
+            },
+            paid=False,
+            motion_task="video_retake",
+            audio_policy="original_embedded",
+            audio_source="source_video",
+            audio_selected_reason="Preserve the original source-video audio",
+        )
+
+        metadata = json.loads(asset["metadata_json"])
+        intent = metadata["audioIntent"]
+        assert metadata["audioBurned"] is True
+        assert metadata["embeddedAudioMode"] == "preserved"
+        assert intent["policy"] == "original_embedded"
+        assert intent["fulfillment"]["audio_present"] is True
+        assert "NEEDS_NATIVE_AUDIO" not in metadata["publishability"]["blockingIssues"]
     finally:
         cf.close()
 

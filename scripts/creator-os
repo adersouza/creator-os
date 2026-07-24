@@ -271,6 +271,24 @@ def _parser() -> argparse.ArgumentParser:
     generate.add_argument("--motion-prompt")
     generate.add_argument("--audio", type=Path)
     generate.add_argument("--generate-audio", action="store_true")
+    generate.add_argument(
+        "--audio-policy",
+        choices=[
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+            "silent_allowed",
+        ],
+        default="embedded_trending_required",
+    )
+    generate.add_argument("--audio-track-id")
+    generate.add_argument("--audio-track-name")
+    generate.add_argument("--audio-source")
+    generate.add_argument("--audio-start-offset", type=float)
+    generate.add_argument("--audio-volume", type=float)
+    generate.add_argument("--audio-selected-reason")
     generate.add_argument("--last-image", type=Path)
     generate.add_argument("--source-video", type=Path)
     generate.add_argument("--retake-start-frame", type=int)
@@ -556,6 +574,13 @@ def main(argv: list[str] | None = None) -> int:
             ("--router-override-reason", args.router_override_reason),
             ("--motion-task", args.motion_task),
             ("--motion-prompt", args.motion_prompt),
+            ("--audio-policy", args.audio_policy),
+            ("--audio-track-id", args.audio_track_id),
+            ("--audio-track-name", args.audio_track_name),
+            ("--audio-source", args.audio_source),
+            ("--audio-start-offset", args.audio_start_offset),
+            ("--audio-volume", args.audio_volume),
+            ("--audio-selected-reason", args.audio_selected_reason),
             ("--resolution", args.resolution),
             ("--seed", args.seed),
             ("--steps", args.steps),

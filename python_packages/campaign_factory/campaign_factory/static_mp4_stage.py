@@ -148,7 +148,7 @@ def _invoke_reel_factory_static_mp4(
         "--duration",
         str(duration_seconds),
         "--audio-mode",
-        "platform_auto_music",
+        "embedded_trending_audio",
     ]
     if allow_upscale:
         command.append("--allow-upscale")

@@ -1194,10 +1194,14 @@ def test_sync_reel_outputs_reads_manifest_and_copies_rendered_asset(tmp_path: Pa
         assert dashboard_asset["captionGeneration"]["instagramPostCaption"][
             "instagram_post_caption"
         ]
-        assert dashboard_asset["captionGeneration"]["audioIntent"]["status"] in {
-            "attached",
-            "missing",
-        }
+        assert (
+            dashboard_asset["captionGeneration"]["audioIntent"]["status"]
+            == "needs_operator_selection"
+        )
+        assert (
+            dashboard_asset["captionGeneration"]["audioIntent"]["policy"]
+            == "embedded_trending_required"
+        )
     finally:
         cf.close()
 
@@ -1305,6 +1309,7 @@ def test_dashboard_audio_workflow_summary_counts_audio_tasks(tmp_path: Path):
         rendered[0]["captionGeneration"] = {
             "audio_intent": {
                 "schema": "pipeline.audio_intent.v1",
+                "policy": "native_trending_required",
                 "required": True,
                 "status": "verified",
                 "operator_selection": {

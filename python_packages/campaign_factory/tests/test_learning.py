@@ -197,6 +197,12 @@ def test_audio_memory_import_selects_and_graphs_recommended_audio(tmp_path: Path
         caption_generation = json.loads(updated["caption_generation_json"])
         assert caption_generation["audioIntent"]["status"] == "selected"
         assert (
+            caption_generation["audioIntent"]["policy"] == "embedded_trending_required"
+        )
+        assert (
+            caption_generation["audioIntent"]["gates"]["allow_live_schedule"] is False
+        )
+        assert (
             caption_generation["audioIntent"]["operator_selection"]["catalog_audio_id"]
             == "aud_mem"
         )

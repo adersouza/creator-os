@@ -22,6 +22,9 @@ from ..lineage_v2 import (
     finalize_lineage_v2,
     lineage_v2_is_valid,
 )
+from .threadsdash_audio_policy import (
+    audio_intent_allows_live as _audio_intent_allows_live,
+)
 from .threadsdash_draft_integrity import (
     exported_content_hash,
     learning_cohort_metadata,
@@ -795,7 +798,8 @@ def _build_audio_intent(
     else:
         intent = {
             "schema": "pipeline.audio_intent.v1",
-            "mode": "native_platform_audio",
+            "policy": "embedded_trending_required",
+            "mode": "embedded_trending_audio",
             "required": _native_audio_required(distribution_surface),
             "status": None,
             "platform": platform,
@@ -818,6 +822,18 @@ def _build_audio_intent(
     intent["required"] = bool(
         intent.get("required", _native_audio_required(distribution_surface))
     )
+    if not intent.get("policy"):
+        mode = str(intent.get("mode") or "").strip().lower()
+        inferred_policy = {
+            "embedded_trending_audio": "embedded_trending_required",
+            "native_platform_audio": "native_trending_required",
+            "embedded_original_audio": "original_embedded",
+            "embedded_creator_voice": "creator_voice",
+            "embedded_royalty_free_audio": "royalty_free",
+        }.get(mode)
+        if inferred_policy:
+            intent["policy"] = inferred_policy
+            intent["required"] = True
     recommendations = intent.get("recommendations")
     has_recommendations = (
         isinstance(recommendations, list) and bool(recommendations)
@@ -836,7 +852,7 @@ def _build_audio_intent(
     intent["status"] = status
     intent["platform"] = str(intent.get("platform") or platform)
     intent["surface"] = str(intent.get("surface") or distribution_surface)
-    intent.setdefault("mode", "native_platform_audio")
+    intent.setdefault("mode", "embedded_trending_audio")
     intent.setdefault("operator_selection", {})
     safe = _audio_intent_allows_live(intent)
     intent["task"] = _audio_task_for_intent(intent)
@@ -1021,39 +1037,6 @@ def _audio_intent_decision(decision: Any) -> dict[str, Any] | None:
         "whenNotToUse": decision.get("whenNotToUse"),
         "operatorInstruction": decision.get("operatorInstruction"),
     }
-
-
-def _audio_intent_allows_live(intent: Any) -> bool:
-    if not isinstance(intent, dict):
-        return True
-    if not intent.get("required", False):
-        return True
-    status = str(intent.get("status") or "").strip().lower()
-    if status in {"skipped", "not_required"}:
-        return True
-    if status not in {"attached", "verified"}:
-        return False
-    selection = intent.get("operator_selection")
-    if not isinstance(selection, dict):
-        return False
-    has_native_locator = any(
-        isinstance(selection.get(key), str) and selection.get(key).strip()
-        for key in (
-            "platform_audio_id",
-            "platform_url",
-            "native_audio_id",
-            "native_audio_url",
-            "audio_id",
-        )
-    )
-    has_selected_at = isinstance(selection.get("selected_at"), str) and bool(
-        selection.get("selected_at").strip()
-    )
-    final_key = "verified_at" if status == "verified" else "attached_at"
-    has_final_timestamp = isinstance(selection.get(final_key), str) and bool(
-        selection.get(final_key).strip()
-    )
-    return bool(has_native_locator and has_selected_at and has_final_timestamp)
 
 
 def _allows_draft_notify_audio_deferral(

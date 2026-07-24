@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "observed_at": "2026-07-24T12:00:00Z",
+  "data": {
+    "items": [
+      {
+        "audio_id": "ig_audio_101",
+        "title": "Midnight Glow (Sped Up)",
+        "artist": "Example Artist feat. Guest",
+        "rank": 4,
+        "previous_rank": 15,
+        "usage_count": 72000,
+        "uses_per_day": 4200,
+        "freshness_hours": 96,
+        "saturation": 0.32,
+        "audio_url": "https://media.example.test/audio/ig_audio_101.mp3",
+        "vibe_tags": [
+          "flirty",
+          "soft"
+        ]
+      }
+    ]
+  }
+}

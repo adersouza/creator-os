@@ -60,6 +60,7 @@ def test_static_mp4_apply_renders_and_writes_native_audio_intent(
     assert output.is_file() and output.stat().st_size > 0
     intent = json.loads(Path(result["audioIntentPath"]).read_text(encoding="utf-8"))
     assert intent["schema"] == "pipeline.audio_intent.v1"
-    assert intent["mode"] == "platform_auto_music"
+    assert intent["mode"] == "embedded_trending_audio"
+    assert intent["policy"] == "embedded_trending_required"
     assert intent["gates"]["allow_draft_export"] is True
     assert intent["gates"]["allow_publish"] is False
