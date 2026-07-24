@@ -25,6 +25,7 @@ from reel_factory.local_lora_registry import register_local_lora
 from reel_factory.local_model_manager import runtime_status as manager_runtime_status
 from reel_factory.local_video import (
     _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+    _LTX_FFMPEG_DISCOVERY_PROBE,
     _SANDBOX_ALLOWED_WRITE_PROBE,
     _SANDBOX_DENIAL_PROBE,
     LocalVideoRequest,
@@ -753,6 +754,51 @@ def test_imageio_ffmpeg_discovery_preflight_proves_exact_runtime_consumer(
     assert kwargs["timeout"] == 30
     assert evidence["consumer"] == "imageio_ffmpeg.get_ffmpeg_exe"
     assert evidence["expectedFfmpegExecutable"] == str(ffmpeg)
+    assert evidence["observedFfmpegExecutable"] == str(ffmpeg)
+    assert evidence["discoverySucceeded"] is True
+
+
+def test_ltx_ffmpeg_discovery_preflight_probes_the_actual_runtime_consumer(
+    tmp_path: Path,
+) -> None:
+    ffmpeg = tmp_path / "ffmpeg"
+    ffmpeg.write_bytes(b"#!/bin/sh\n")
+    ffmpeg.chmod(0o755)
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "IMAGEIO_FFMPEG_EXE": str(ffmpeg),
+    }
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def successful_runner(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, dict(kwargs)))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=f"{ffmpeg}\n",
+            stderr="",
+        )
+
+    evidence = _preflight_imageio_ffmpeg_discovery(
+        sandbox_exec=Path("/usr/bin/sandbox-exec"),
+        profile="(version 1)\n(allow default)\n(deny network*)",
+        python_executable=Path(sys.executable),
+        environment=environment,
+        expected_ffmpeg=ffmpeg,
+        consumer="ltx_core_mlx.utils.ffmpeg.find_ffmpeg",
+        runner=successful_runner,
+    )
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command[-1] == _LTX_FFMPEG_DISCOVERY_PROBE
+    assert kwargs["env"] == environment
+    assert evidence["consumer"] == "ltx_core_mlx.utils.ffmpeg.find_ffmpeg"
+    assert evidence["consumerProbeFingerprint"] == fingerprint(
+        {"implementation": _LTX_FFMPEG_DISCOVERY_PROBE}
+    )
     assert evidence["observedFfmpegExecutable"] == str(ffmpeg)
     assert evidence["discoverySucceeded"] is True
 

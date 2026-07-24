@@ -163,6 +163,12 @@ _IMAGEIO_FFMPEG_DISCOVERY_PROBE = """from imageio_ffmpeg import get_ffmpeg_exe
 
 print(get_ffmpeg_exe())
 """
+_LTX_FFMPEG_DISCOVERY_PROBE = """from pathlib import Path
+
+from ltx_core_mlx.utils.ffmpeg import find_ffmpeg
+
+print(Path(find_ffmpeg()).resolve())
+"""
 
 DEFAULT_NEGATIVE_PROMPT = DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT
 
@@ -1029,6 +1035,7 @@ def run_local_video(
                     python_executable=Path(command[4]),
                     environment=offline_env,
                     expected_ffmpeg=Path(offline_env["IMAGEIO_FFMPEG_EXE"]),
+                    consumer=_media_tool_discovery_consumer(request),
                 )
                 if (
                     current_media_tool_discovery
@@ -1349,6 +1356,7 @@ def _isolated_execution(
         python_executable=Path(command[0]),
         environment=environment,
         expected_ffmpeg=Path(expected_ffmpeg),
+        consumer=_media_tool_discovery_consumer(request),
     )
     isolation_core = {
         "schema": "reel_factory.local_subprocess_isolation.v1",
@@ -1686,10 +1694,20 @@ def _preflight_imageio_ffmpeg_discovery(
     python_executable: Path,
     environment: Mapping[str, str],
     expected_ffmpeg: Path,
+    consumer: str = "imageio_ffmpeg.get_ffmpeg_exe",
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
     """Prove the model runtime's actual encoder consumer resolves exact FFmpeg."""
 
+    probes = {
+        "imageio_ffmpeg.get_ffmpeg_exe": _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+        "ltx_core_mlx.utils.ffmpeg.find_ffmpeg": _LTX_FFMPEG_DISCOVERY_PROBE,
+    }
+    probe = probes.get(consumer)
+    if probe is None:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:consumer_unsupported"
+        )
     expected = expected_ffmpeg.expanduser()
     if not expected.is_file() or not os.access(expected, os.X_OK):
         raise LocalVideoUnavailable(
@@ -1712,7 +1730,7 @@ def _preflight_imageio_ffmpeg_discovery(
         "-I",
         "-E",
         "-c",
-        _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+        probe,
     ]
     try:
         completed = runner(
@@ -1754,10 +1772,8 @@ def _preflight_imageio_ffmpeg_discovery(
         )
     return {
         "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
-        "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
-        "consumerProbeFingerprint": fingerprint(
-            {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
-        ),
+        "consumer": consumer,
+        "consumerProbeFingerprint": fingerprint({"implementation": probe}),
         "pythonExecutable": str(python_executable),
         "expectedFfmpegExecutable": str(expected),
         "expectedFfmpegExecutableResolved": str(expected_resolved),
@@ -1768,6 +1784,13 @@ def _preflight_imageio_ffmpeg_discovery(
         "timeoutSeconds": _MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
         "discoverySucceeded": True,
     }
+
+
+def _media_tool_discovery_consumer(request: LocalVideoRequest) -> str:
+    family = local_video_model_spec(request.model_id).family
+    if family == "ltx_2":
+        return "ltx_core_mlx.utils.ffmpeg.find_ffmpeg"
+    return "imageio_ffmpeg.get_ffmpeg_exe"
 
 
 def _runtime_binding(
