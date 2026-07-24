@@ -76,6 +76,10 @@ blocked as `NEEDS_EMBEDDED_AUDIO`. Consumers must not infer silence or native
 audio when `policy` is absent. Existing stored payloads must be migrated or
 handled as legacy input before validation against package 3.0.0.
 
+Package 3.0.1 aligns the shared publishability helper with those policies:
+verified embedded proof is publishable without a native audio ID, while missing
+candidates and legacy `licensed_music` metadata remain blocked.
+
 ### Campaign draft v3 rollout
 
 `campaign_factory.threadsdash_drafts.v2` is a frozen compatibility contract. It

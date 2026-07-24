@@ -8,6 +8,7 @@ import {
 	audioIntentSchema,
 	campaignDraftPayloadV2Schema,
 	campaignDraftPayloadV3Schema,
+	explainCampaignFactoryPublishability,
 	pipelineContractSchemas,
 	validateAudioIntentContract,
 	validateAnalyzerRegistry,
@@ -164,6 +165,90 @@ describe("TypeScript pipeline contract validators", () => {
 				expect.stringContaining("allow_publish"),
 			]),
 		);
+	});
+
+	it("treats verified embedded AAC proof as assigned without native audio", () => {
+		const sha = "a".repeat(64);
+		const decision = explainCampaignFactoryPublishability({
+			audio_intent: {
+				policy: "embedded_trending_required",
+				required: true,
+				status: "verified",
+				fulfillment: {
+					audio_present: true,
+					output_sha256: sha,
+					acquired_audio_sha256: sha,
+					embedded_audio_fingerprint: sha,
+					proof_type: "embedded_output_audio_stream",
+					verification_receipt: {
+						status: "verified",
+						audioPresent: true,
+						audioCodec: "aac",
+					},
+				},
+			},
+		});
+
+		expect(decision.checks.audio_assigned).toBe(true);
+	});
+
+	it("blocks exhausted embedded audio and legacy licensed-music mappings", () => {
+		for (const audio_intent of [
+			{
+				policy: "embedded_trending_required",
+				required: true,
+				status: "blocked",
+			},
+			{
+				mode: "licensed_music",
+				required: true,
+				status: "attached",
+				operator_selection: { audio_id: "legacy-only" },
+			},
+		]) {
+			expect(
+				explainCampaignFactoryPublishability({ audio_intent }).checks
+					.audio_assigned,
+			).toBe(false);
+		}
+	});
+
+	it("preserves explicit original-embedded, native, and silent policies", () => {
+		const sha = "b".repeat(64);
+		const intents = [
+			{
+				policy: "original_embedded",
+				required: true,
+				status: "verified",
+				fulfillment: {
+					audio_present: true,
+					output_sha256: sha,
+					proof_type: "embedded_output_audio_stream",
+				},
+			},
+			{
+				policy: "native_trending_required",
+				required: true,
+				status: "verified",
+				operator_selection: { platform_audio_id: "ig-audio-1" },
+			},
+			{
+				policy: "silent_allowed",
+				required: false,
+				status: "not_required",
+				operator_selection: {
+					selected_reason: "explicit fixture exception",
+					selected_at: "2026-07-24T00:00:00Z",
+				},
+			},
+		];
+
+		for (const audio_intent of intents) {
+			expect(
+				explainCampaignFactoryPublishability({ audio_intent }).checks
+					.audio_assigned,
+			).toBe(true);
+		}
 	});
 
 	it("uses generated nested draft payload schemas, not hand-written shallow stubs", () => {

@@ -457,9 +457,54 @@ function isQuarantined(campaignFactory: Record<string, unknown>): boolean {
 
 function audioIntentHasAssignedAudio(audioIntent: unknown): boolean {
 	if (!isRecord(audioIntent)) return false;
+	const policy = stringValue(audioIntent.policy) || "";
 	const required = audioIntent.required === true;
 	const status = String(audioIntent.status || "").trim().toLowerCase();
-	if (!required || status === "not_required" || status === "skipped") return true;
+	if (policy === "silent_allowed") {
+		const selection = isRecord(audioIntent.operator_selection)
+			? audioIntent.operator_selection
+			: {};
+		return Boolean(
+			!required &&
+				(status === "not_required" || status === "skipped") &&
+				stringValue(selection.selected_reason || selection.skip_reason) &&
+				stringValue(selection.selected_at || selection.skipped_at),
+		);
+	}
+	if (
+		[
+			"embedded_trending_required",
+			"original_embedded",
+			"creator_voice",
+			"royalty_free",
+		].includes(policy)
+	) {
+		if (!required || !ASSIGNED_NATIVE_AUDIO_STATUSES.has(status)) return false;
+		const fulfillment = isRecord(audioIntent.fulfillment)
+			? audioIntent.fulfillment
+			: {};
+		const sha256 = (value: unknown): boolean =>
+			/^[a-f0-9]{64}$/.test(stringValue(value) || "");
+		const baseComplete =
+			fulfillment.audio_present === true &&
+			sha256(fulfillment.output_sha256) &&
+			Boolean(stringValue(fulfillment.proof_type));
+		if (!baseComplete || policy !== "embedded_trending_required") {
+			return baseComplete;
+		}
+		const verification = isRecord(fulfillment.verification_receipt)
+			? fulfillment.verification_receipt
+			: {};
+		return Boolean(
+			sha256(fulfillment.acquired_audio_sha256) &&
+				sha256(fulfillment.embedded_audio_fingerprint) &&
+				verification.status === "verified" &&
+				verification.audioPresent === true &&
+				(stringValue(verification.audioCodec) || "").toLowerCase() === "aac",
+		);
+	}
+	if (policy !== "native_trending_required") return false;
+	if (!required || status === "not_required" || status === "skipped") return false;
 	if (!ASSIGNED_NATIVE_AUDIO_STATUSES.has(status)) return false;
 	const selection = isRecord(audioIntent.operator_selection)
 		? audioIntent.operator_selection
