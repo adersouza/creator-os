@@ -230,7 +230,7 @@ class LocalVideoRequest:
     extend_direction: Literal["before", "after"] = "after"
     low_ram: bool = True
     tile_frames: int = 1
-    tile_spatial: int = 2
+    tile_spatial: int = 1
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False

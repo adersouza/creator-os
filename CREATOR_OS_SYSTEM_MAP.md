@@ -529,8 +529,12 @@ at validated draft handoff.
   for quality, quantized LTX-2.3 Q4 for fast generated-audio motion, or
   quantized LTX-2.3 Q8 for HQ source/generated audio, first/last frames,
   keyframes, retake, and extension. LTX runs in its own pinned native MLX
-  runtime with low-RAM streaming; every source image, audio track, end frame,
-  and edited source video remains fingerprinted. Experimental LongCat Avatar
+  runtime at exact 9:16 by default (`576x1024`, 24 fps, `8k+1` frames), with
+  low-RAM streaming and no modality tiling unless measured memory pressure
+  requires an explicit override. Q4 distilled is the iteration tier; Q8
+  two-stage HQ with the pinned distilled LoRA and v1.1 spatial upscaler is the
+  final-quality tier. Every source image, audio track, end frame, expanded
+  prompt, and edited source video remains fingerprinted. Experimental LongCat Avatar
   1.5 q4 adds local image-plus-speech talking video behind lip-sync and memory
   canary gates. The static fallback is always retained. Installation is a
   separate pinned setup action; generation is offline and cannot download

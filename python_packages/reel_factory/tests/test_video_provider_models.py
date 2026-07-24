@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from reel_factory.local_video_models import LTX23_DEV_HQ, LTX23_DISTILLED
 from reel_factory.motion_generate import _load_bound_json, _parser, build_request
 from reel_factory.video_provider_models import (
     validate_model_request,
@@ -62,6 +63,18 @@ def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None
         "silentProviderFallbackAllowed": False,
     }
     assert "wavespeed_wan27_i2v_pro" in video_model_ids(task="image_to_video")
+
+
+def test_ltx_reel_profiles_are_exact_9_by_16_and_bind_production_assets() -> None:
+    assert LTX23_DISTILLED.width * 16 == LTX23_DISTILLED.height * 9
+    assert LTX23_DEV_HQ.width * 16 == LTX23_DEV_HQ.height * 9
+    assert (LTX23_DISTILLED.width, LTX23_DISTILLED.height) == (576, 1024)
+    assert (LTX23_DEV_HQ.width, LTX23_DEV_HQ.height) == (576, 1024)
+    assert LTX23_DISTILLED.pipeline == "distilled"
+    assert LTX23_DEV_HQ.pipeline == "dev-two-stage-hq"
+    assert "spatial_upscaler_x2_v1_1.safetensors" in LTX23_DISTILLED.required_paths
+    assert "spatial_upscaler_x2_v1_1.safetensors" in LTX23_DEV_HQ.required_paths
+    assert "ltx-2.3-22b-distilled-lora-384.safetensors" in (LTX23_DEV_HQ.required_paths)
 
 
 def test_models_enforce_exact_capabilities() -> None:

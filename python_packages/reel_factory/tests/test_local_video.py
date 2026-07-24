@@ -2179,6 +2179,8 @@ def test_ltx_hq_generated_audio_is_explicit(tmp_path: Path) -> None:
     assert command[command.index("--stage1-steps") + 1] == "15"
     assert "--audio" not in command
     assert "--low-ram" in command
+    assert "--tile-frames" not in command
+    assert "--tile-spatial" not in command
 
 
 def test_ltx_q4_is_quantized_distilled_and_rejects_source_audio(
@@ -2194,8 +2196,11 @@ def test_ltx_q4_is_quantized_distilled_and_rejects_source_audio(
     assert command[:4] == ["python3", "-m", "ltx_pipelines_mlx.cli", "generate"]
     assert "--distilled" in command
     assert "--low-ram" in command
-    assert command[command.index("--tile-spatial") + 1] == "2"
+    assert "--tile-spatial" not in command
     assert command[command.index("--model") + 1].endswith("LTX-2.3-MLX-Q4")
+    material = local_video_task_parameter_material(request)
+    assert material["effectiveExecution"]["tileFrames"] == 1
+    assert material["effectiveExecution"]["tileSpatial"] == 1
 
     audio = tmp_path / "voice.wav"
     audio.write_bytes(b"audio")
@@ -2209,6 +2214,24 @@ def test_ltx_q4_is_quantized_distilled_and_rejects_source_audio(
             ),
             python_executable="python3",
         )
+
+
+def test_ltx_spatial_tiling_is_explicit_memory_pressure_opt_in(
+    tmp_path: Path,
+) -> None:
+    request = replace(
+        _request(
+            tmp_path,
+            model_id="local_ltx23_distilled_mlx",
+            audio_mode="generated",
+            task="image_to_video",
+        ),
+        tile_spatial=2,
+    )
+    command = build_local_video_command(request, python_executable="python3")
+    assert command[command.index("--tile-spatial") + 1] == "2"
+    material = local_video_task_parameter_material(request)
+    assert material["effectiveExecution"]["tileSpatial"] == 2
 
 
 def test_ltx_keyframe_retake_and_extend_are_explicit_q8_tasks(

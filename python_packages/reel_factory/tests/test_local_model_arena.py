@@ -1938,6 +1938,10 @@ def test_text_arena_plan_keeps_execution_media_empty_and_prompt_provenance_exact
     assert request.audio_path is None
     assert request.last_image_path is None
     assert request.source_video_path is None
+    assert sample["tileFrames"] == 1
+    assert sample["tileSpatial"] == 1
+    assert request.tile_frames == 1
+    assert request.tile_spatial == 1
 
 
 @pytest.mark.parametrize("reviewed_only", [False, True])

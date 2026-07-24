@@ -201,9 +201,23 @@ scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
   --motion-model local_ltx23_distilled_mlx \
   --motion-task image_to_video --generate-audio \
-  --motion-prompt "She smiles and speaks naturally in a quiet room" \
+  --motion-prompt "She slowly blinks once and makes a slight natural head tilt while keeping her relaxed expression unchanged. Her hands remain still and away from her face while her hair moves subtly with her breathing. The camera remains completely locked as quiet room tone and faint fabric movement continue." \
   --duration 6 --seed 42 --steps 8
 ```
+
+Both LTX tiers render ordinary Reels at exact 9:16 (`576x1024`), 24 fps, with
+`8k+1` frames. Q4 distilled is the fast qualification tier; Q8 two-stage HQ is
+the final-quality tier. Low-RAM block streaming is enabled, but modality tiling
+is off by default. Do not add `--tile-spatial 2` at this resolution: upstream's
+MLX runtime reserves tiling for measured 1080p/8s+ memory pressure, and
+independent tiles can destabilize a face crossing tile boundaries.
+
+LTX image-to-video prompts should describe only changes from the source image,
+in chronological order, including requested motion, explicit camera behavior,
+and the synchronized soundscape. Use the pinned local Gemma enhancer before
+Arena planning when expansion is needed, then store the exact expanded prompt
+as benchmark input. Never use hidden generation-time prompt enhancement because
+the expanded text would escape the plan and lineage fingerprints.
 
 LTX source-audio and first/last-frame conditioning are supported by the narrow
 Reel Factory worker:

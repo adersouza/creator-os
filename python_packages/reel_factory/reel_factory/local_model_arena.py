@@ -496,7 +496,7 @@ class ArenaSampleSpec:
     lora_strength: float = 1.0
     low_ram: bool = True
     tile_frames: int = 1
-    tile_spatial: int = 2
+    tile_spatial: int = 1
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
@@ -599,7 +599,7 @@ class ArenaSampleSpec:
             lora_strength=float(value.get("loraStrength", 1.0)),
             low_ram=value.get("lowRam") is not False,
             tile_frames=int(value.get("tileFrames", 1)),
-            tile_spatial=int(value.get("tileSpatial", 2)),
+            tile_spatial=int(value.get("tileSpatial", 1)),
             commercial_use=value.get("commercialUse") is not False,
             commercial_annual_revenue_usd=(
                 _required_int(
@@ -5662,7 +5662,7 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
         extend_direction=str(sample.get("extendDirection") or "after"),  # type: ignore[arg-type]
         low_ram=sample.get("lowRam") is not False,
         tile_frames=int(sample.get("tileFrames", 1)),
-        tile_spatial=int(sample.get("tileSpatial", 2)),
+        tile_spatial=int(sample.get("tileSpatial", 1)),
         commercial_use=sample.get("commercialUse") is not False,
         commercial_annual_revenue_usd=(
             int(sample["commercialAnnualRevenueUsd"])
