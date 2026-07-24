@@ -14,10 +14,12 @@ import reel_factory.local_model_arena as arena_module
 from creator_os_core.evidence_attestation import (
     canonical_json,
     payload_fingerprint,
+    sign_evidence_attestation,
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from reel_factory.human_media_review import (
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
     HumanMediaReview,
     HumanMediaReviewStore,
     HumanReviewDecisions,
@@ -45,6 +47,7 @@ from reel_factory.local_model_arena import (
     _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
+    author_human_review_from_form,
     build_arena_plan,
     build_arena_record_bundle,
     build_arena_review_packet,
@@ -2193,6 +2196,453 @@ def test_historical_plan_is_readable_but_partial_parameter_evidence_is_rejected(
         validate_arena_plan(partial)
 
 
+def _review_authoring_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[dict, dict, dict, dict]:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"review source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    sample = plan["samples"][0]
+    output = Path(sample["outputPath"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"review output")
+    output_sha = sha256_file(output)
+    job = _job_from_sample(sample)
+    queue = SimpleNamespace(
+        states=lambda: {
+            job.job_id: SimpleNamespace(
+                status="succeeded",
+                job=job,
+                last_event={"payload": {"outputSha256": output_sha}},
+            )
+        }
+    )
+    packet = build_arena_review_packet(
+        arena_plan=plan,
+        queue=queue,
+        created_at="2026-07-22T12:01:00Z",
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    analysis_id = f"analysis_{fingerprint({'sample': sample['sampleId']})[:24]}"
+    observations = []
+    verdicts = []
+    for registration in sample["analyzerRegistry"]["analyzers"]:
+        observation = {
+            **registration,
+            "analyzerRegistryId": sample["analyzerRegistry"]["registryId"],
+            "analyzerRegistryFingerprint": sample["analyzerRegistryFingerprint"],
+            "toolRevisions": {
+                "node": "fixture",
+                "platform": "fixture",
+                "ffmpeg": {"available": True, "version": "fixture"},
+                "ffprobe": {"available": True, "version": "fixture"},
+            },
+            "status": "measured",
+            "observations": {"available": True},
+        }
+        observations.append(observation)
+        verdicts.append(
+            {
+                "schema": "contentforge.trusted_analyzer_receipt.v1",
+                "policy": {
+                    "id": registration["analyzerId"],
+                    "version": registration["analyzerVersion"],
+                },
+                "subjectSha256": output_sha,
+                "analysisId": analysis_id,
+                "observationFingerprint": fingerprint(observation),
+                "implementationRef": registration["implementationRef"],
+                "implementationFingerprint": registration["implementationFingerprint"],
+                "analyzerRegistryId": sample["analyzerRegistry"]["registryId"],
+                "analyzerRegistryFingerprint": sample["analyzerRegistryFingerprint"],
+                "verdict": "pass",
+                "passed": True,
+                "evidenceOnly": True,
+                "providerCalls": 0,
+                "reasons": [],
+            }
+        )
+    analysis = {
+        "schema": "contentforge.trusted_media_analysis.v1",
+        "analysisId": analysis_id,
+        "subject": {
+            "mediaPath": str(output),
+            "mediaSha256": output_sha,
+            "sourcePath": str(source),
+            "sourceSha256": sample["sourceSha256"],
+        },
+        "producedAt": "2026-07-22T12:02:00Z",
+        "producer": "contentforge.trusted_media_analysis",
+        "humanReviewSampling": {
+            "sampleFps": 8.0,
+            "width": 180,
+            "height": 320,
+            "sampledFrames": 40,
+            "totalFrames": 120,
+            "durationSeconds": 5.0,
+            "durationCoverageRatio": 1,
+            "frameSetFingerprint": "6" * 64,
+            "briefFrameOutlierCount": 0,
+        },
+        "analyzerRegistry": {
+            "registryId": sample["analyzerRegistry"]["registryId"],
+            "registryFingerprint": sample["analyzerRegistryFingerprint"],
+        },
+        "rawObservations": observations,
+        "analyzerVerdicts": verdicts,
+        "unavailableMeasurements": {},
+    }
+    analysis["analysisFingerprint"] = fingerprint(analysis)
+    analysis["producerAttestation"] = sign_evidence_attestation(
+        dict(analysis),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=analysis["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    candidate = packet["candidates"][0]
+    form = {
+        "schema": "creator_os.human_review_form.v1",
+        "arenaPlanId": plan["planId"],
+        "arenaPlanFingerprint": plan["planFingerprint"],
+        "reviewPacketId": packet["packetId"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+        "reviewer": "reviewer@example.test",
+        "reviewedAt": "2026-07-22T12:03:00Z",
+        "rubricVersion": "1.0.0",
+        "reviewedFrameSetFingerprint": analysis["humanReviewSampling"][
+            "frameSetFingerprint"
+        ],
+        "briefFrameOutlierCount": analysis["humanReviewSampling"][
+            "briefFrameOutlierCount"
+        ],
+        "briefFrameOutliersReviewed": True,
+        "ratings": {
+            "realism": 0.8,
+            "attractiveness": 0.7,
+            "creatorIdentitySimilarity": 0.9,
+            "faceStability": 0.85,
+            "motionNaturalness": 0.75,
+            "faceArtifactScore": 0.1,
+            "handsVisible": False,
+            "handArtifactScore": None,
+            "bodyArtifactScore": 0.15,
+            "conversionUsefulness": 0.8,
+            "intentAdherence": 0.95,
+            "loopAcceptable": True,
+        },
+        "decisions": {
+            "creatorIdentityPreserved": True,
+            "anatomyAcceptable": True,
+            "operatorUseful": True,
+            "approvedForBenchmark": True,
+        },
+    }
+    return plan, packet, analysis, form
+
+
+def _resign_trusted_analysis(analysis: dict) -> dict:
+    resigned = deepcopy(analysis)
+    resigned.pop("producerAttestation", None)
+    resigned.pop("analysisFingerprint", None)
+    resigned["analysisFingerprint"] = fingerprint(resigned)
+    resigned["producerAttestation"] = sign_evidence_attestation(
+        dict(resigned),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=resigned["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    return resigned
+
+
+def _author_review(
+    plan: dict,
+    packet: dict,
+    analysis: dict,
+    form: dict,
+) -> dict:
+    return author_human_review_from_form(
+        form=form,
+        arena_plan=plan,
+        review_packet=packet,
+        trusted_analysis=analysis,
+        sample_id=plan["samples"][0]["sampleId"],
+        operator_identity=form["reviewer"],
+        issued_at=form["reviewedAt"],
+        evidence_secret=EVIDENCE_SECRET,
+    )
+
+
+def test_author_review_binds_exact_user_values_and_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+
+    first = _author_review(plan, packet, analysis, form)
+    second = _author_review(plan, packet, analysis, form)
+
+    assert first == second
+    validated = HumanMediaReview.from_dict(
+        first,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    assert validated.ratings.as_dict() == form["ratings"]
+    assert validated.decisions.as_dict() == form["decisions"]
+    assert validated.provenance.review_mode == "blinded"
+    assert validated.provenance.unblinding_reason is None
+    assert (
+        analysis["analysisId"],
+        analysis["analysisFingerprint"],
+    ) in validated.provenance.source_references
+    assert (
+        packet["packetId"],
+        packet["packetFingerprint"],
+    ) in validated.provenance.source_references
+    assert any(
+        record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+        for record_id, _fingerprint in validated.provenance.source_references
+    )
+    receipt = validated.qc_receipt()
+    assert receipt["passed"] is False
+    assert receipt["verdict"] == "blocked"
+    assert {reason["code"] for reason in receipt["reasons"]} == {
+        "reviewer_identity_unverified"
+    }
+    blockers, _quality = _human_review_evidence(validated)
+    assert blockers == ["human_review_reviewer_identity_unverified"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        (
+            lambda form: form["ratings"].pop("realism"),
+            "human_review_form_ratings_incomplete",
+        ),
+        (
+            lambda form: form["decisions"].pop("approvedForBenchmark"),
+            "human_review_form_decisions_incomplete",
+        ),
+        (
+            lambda form: form.__setitem__("reviewMode", "unblinded"),
+            "human_review_form_schema_invalid",
+        ),
+        (
+            lambda form: form.__setitem__("sampleId", "substituted-sample"),
+            "human_review_form_sampleId_mismatch",
+        ),
+        (
+            lambda form: form.__setitem__("reviewedAt", "2026-07-22T12:03:00"),
+            "human_review_form_issued_at_timezone_missing",
+        ),
+        (
+            lambda form: form.__setitem__("briefFrameOutliersReviewed", False),
+            "human_review_form_outliers_not_confirmed",
+        ),
+        (
+            lambda form: form.__setitem__("reviewedFrameSetFingerprint", "f" * 64),
+            "human_review_form_frame_set_mismatch",
+        ),
+        (
+            lambda form: form.__setitem__("briefFrameOutlierCount", 1),
+            "human_review_form_outlier_count_mismatch",
+        ),
+    ],
+)
+def test_author_review_rejects_incomplete_unblinded_or_substituted_form(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation,
+    expected_error: str,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    mutation(form)
+
+    with pytest.raises(LocalQueueError, match=expected_error):
+        _author_review(plan, packet, analysis, form)
+
+
+def test_author_review_rejects_future_explicit_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    form["reviewedAt"] = "2999-01-01T00:00:00Z"
+
+    with pytest.raises(LocalQueueError, match="timestamp_order_invalid"):
+        author_human_review_from_form(
+            form=form,
+            arena_plan=plan,
+            review_packet=packet,
+            trusted_analysis=analysis,
+            sample_id=form["sampleId"],
+            operator_identity=form["reviewer"],
+            issued_at=form["reviewedAt"],
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_author_review_rejects_tampered_packet_and_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    tampered_packet = deepcopy(packet)
+    signature = tampered_packet["producerAttestation"]["signature"]
+    tampered_packet["producerAttestation"]["signature"] = (
+        "a" if signature[0] != "a" else "b"
+    ) + signature[1:]
+    with pytest.raises(LocalQueueError, match="packetFingerprint_attestation_invalid"):
+        _author_review(plan, tampered_packet, analysis, form)
+
+    tampered_analysis = deepcopy(analysis)
+    tampered_analysis["subject"]["sourceSha256"] = "e" * 64
+    tampered_analysis.pop("producerAttestation")
+    tampered_analysis.pop("analysisFingerprint")
+    tampered_analysis["analysisFingerprint"] = fingerprint(tampered_analysis)
+    tampered_analysis["producerAttestation"] = sign_evidence_attestation(
+        dict(tampered_analysis),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=tampered_analysis["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    with pytest.raises(LocalQueueError, match="analysis_binding_mismatch"):
+        _author_review(plan, packet, tampered_analysis, form)
+
+
+@pytest.mark.parametrize(
+    ("collection", "mutation", "expected_error"),
+    (
+        (
+            "rawObservations",
+            lambda rows: rows.pop(),
+            "human_review_analysis_registry_coverage_mismatch",
+        ),
+        (
+            "rawObservations",
+            lambda rows: rows.append(deepcopy(rows[0])),
+            "human_review_analysis_observation_duplicate|non-unique elements",
+        ),
+        (
+            "rawObservations",
+            lambda rows: rows[0].__setitem__("implementationFingerprint", "f" * 64),
+            "human_review_analysis_registry_binding_mismatch",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows.pop(),
+            "human_review_analysis_registry_coverage_mismatch",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows.append(deepcopy(rows[0])),
+            "human_review_analysis_verdict_duplicate|non-unique elements",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows[0].__setitem__("implementationRef", "substituted.py"),
+            "human_review_analysis_registry_binding_mismatch",
+        ),
+    ),
+)
+def test_author_review_rejects_incomplete_duplicate_or_substituted_analyzers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    collection: str,
+    mutation,
+    expected_error: str,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    mutation(analysis[collection])
+    changed_analysis = _resign_trusted_analysis(analysis)
+
+    with pytest.raises(
+        (ContractValidationError, LocalQueueError),
+        match=expected_error,
+    ):
+        _author_review(plan, packet, changed_analysis, form)
+
+
+def test_author_review_rejects_substituted_subject_and_operator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    with pytest.raises(LocalQueueError, match="operator_mismatch"):
+        author_human_review_from_form(
+            form=form,
+            arena_plan=plan,
+            review_packet=packet,
+            trusted_analysis=analysis,
+            sample_id=form["sampleId"],
+            operator_identity="different@example.test",
+            issued_at=form["reviewedAt"],
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    Path(plan["samples"][0]["outputPath"]).write_bytes(b"substituted output")
+    with pytest.raises(LocalQueueError, match="candidate_binding_mismatch"):
+        _author_review(plan, packet, analysis, form)
+
+
+def test_author_review_cli_writes_only_exact_idempotent_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", EVIDENCE_SECRET)
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    root = tmp_path / "arena-state"
+    store = LocalModelArenaStore(root)
+    store.persist_plan(plan)
+    store.persist_review_packet(packet, evidence_secret=EVIDENCE_SECRET)
+    form_path = tmp_path / "completed-form.json"
+    analysis_path = tmp_path / "trusted-analysis.json"
+    output_path = tmp_path / "signed-review.json"
+    form_path.write_text(json.dumps(form), encoding="utf-8")
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    argv = [
+        "--root",
+        str(root),
+        "author-review",
+        "--plan-id",
+        form["arenaPlanId"],
+        "--sample-id",
+        form["sampleId"],
+        "--form",
+        str(form_path),
+        "--analysis",
+        str(analysis_path),
+        "--operator-identity",
+        form["reviewer"],
+        "--issued-at",
+        form["reviewedAt"],
+        "--output",
+        str(output_path),
+    ]
+
+    assert arena_module.main(argv) == 0
+    first = output_path.read_text(encoding="utf-8")
+    result = json.loads(capsys.readouterr().out)
+    assert result["providerCalls"] == 0
+    assert result["productionWrites"] == 0
+    assert (
+        HumanMediaReview.from_dict(
+            json.loads(first),
+            evidence_secret=EVIDENCE_SECRET,
+        ).review_fingerprint
+        == result["reviewFingerprint"]
+    )
+
+    assert arena_module.main(argv) == 0
+    assert output_path.read_text(encoding="utf-8") == first
+
+
 def test_review_packet_is_shuffled_model_free_and_unblinding_waits_for_reviews(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -2664,7 +3114,10 @@ def test_human_review_binds_exact_trusted_full_duration_frame_set() -> None:
             unblinding_reason=None,
             source_references=references,
         ),
-        sampling_evidence=HumanReviewSamplingEvidence.from_trusted_analysis(analysis),
+        sampling_evidence=HumanReviewSamplingEvidence.from_trusted_analysis(
+            analysis,
+            brief_frame_outliers_reviewed=True,
+        ),
     )
 
     _validate_human_review_binding(review, plan=plan, sample=sample, analysis=analysis)

@@ -56,7 +56,16 @@ from pipeline_contracts import (
 )
 
 from .fileops import atomic_write_text, file_lock
-from .human_media_review import HumanMediaReviewStore, HumanReviewSamplingEvidence
+from .human_media_review import (
+    RUBRIC_VERSION,
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
+    HumanMediaReview,
+    HumanMediaReviewStore,
+    HumanReviewDecisions,
+    HumanReviewProvenance,
+    HumanReviewRatings,
+    HumanReviewSamplingEvidence,
+)
 from .human_media_review import load_review as load_human_review
 from .identity_verification import (
     _load_reference_embeddings,
@@ -77,6 +86,7 @@ from .local_generation_queue import (
 )
 from .local_model_benchmark import (
     LocalModelBenchmarkStore,
+    _validate_trusted_analysis_payload,
     default_local_model_benchmark_store,
 )
 from .local_model_manager import model_status
@@ -94,6 +104,7 @@ PLAN_SCHEMA: Final = "reel_factory.local_model_arena_plan.v1"
 SUMMARY_SCHEMA: Final = "reel_factory.local_model_arena_summary.v1"
 EVENT_SCHEMA: Final = "reel_factory.local_model_arena_event.v1"
 REVIEW_PACKET_SCHEMA: Final = "reel_factory.local_model_arena_review_packet.v1"
+REVIEW_FORM_SCHEMA: Final = "creator_os.human_review_form.v1"
 UNBLINDING_RECEIPT_SCHEMA: Final = (
     "reel_factory.local_model_arena_unblinding_receipt.v1"
 )
@@ -162,6 +173,51 @@ IDENTITY_ANALYZER: Final = ("reel_factory.identity_preservation", "2.0.0")
 HUMAN_ANALYZER: Final = (
     "reel_factory.structured_human_media_review",
     "1.0.0",
+)
+REVIEW_FORM_FIELDS: Final = frozenset(
+    {
+        "schema",
+        "arenaPlanId",
+        "arenaPlanFingerprint",
+        "reviewPacketId",
+        "reviewPacketFingerprint",
+        "sampleId",
+        "blindedCandidateId",
+        "subjectSha256",
+        "sourceSha256",
+        "reviewer",
+        "reviewedAt",
+        "rubricVersion",
+        "reviewedFrameSetFingerprint",
+        "briefFrameOutlierCount",
+        "briefFrameOutliersReviewed",
+        "ratings",
+        "decisions",
+    }
+)
+REVIEW_FORM_RATING_FIELDS: Final = frozenset(
+    {
+        "realism",
+        "attractiveness",
+        "creatorIdentitySimilarity",
+        "faceStability",
+        "motionNaturalness",
+        "faceArtifactScore",
+        "handsVisible",
+        "handArtifactScore",
+        "bodyArtifactScore",
+        "conversionUsefulness",
+        "intentAdherence",
+        "loopAcceptable",
+    }
+)
+REVIEW_FORM_DECISION_FIELDS: Final = frozenset(
+    {
+        "creatorIdentityPreserved",
+        "anatomyAcceptable",
+        "operatorUseful",
+        "approvedForBenchmark",
+    }
 )
 
 
@@ -1568,6 +1624,12 @@ def _human_review_evidence(review: Any) -> tuple[list[str], float]:
 
     decisions = review.decisions
     blockers: list[str] = []
+    provenance = getattr(review, "provenance", None)
+    if any(
+        record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+        for record_id, _fingerprint in getattr(provenance, "source_references", ())
+    ):
+        blockers.append("human_review_reviewer_identity_unverified")
     if not decisions.creator_identity_preserved:
         blockers.append("human_review_creator_identity_rejected")
     if not decisions.anatomy_acceptable:
@@ -1651,7 +1713,10 @@ def _validate_human_review_binding(
         )
         try:
             expected_sampling = HumanReviewSamplingEvidence.from_trusted_analysis(
-                analysis
+                analysis,
+                brief_frame_outliers_reviewed=(
+                    review.sampling_evidence.brief_frame_outliers_reviewed
+                ),
             )
         except ValueError as exc:
             raise LocalQueueError("arena_trusted_review_sampling_invalid") from exc
@@ -1677,6 +1742,332 @@ def _validate_human_review_binding(
         )
     if not required_references.issubset(set(review.provenance.source_references)):
         raise LocalQueueError("arena_human_review_provenance_incomplete")
+
+
+def _review_form_timestamp(value: Any, field: str) -> datetime:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise LocalQueueError(f"arena_human_review_form_{field}_invalid")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LocalQueueError(f"arena_human_review_form_{field}_invalid") from exc
+    if parsed.tzinfo is None:
+        raise LocalQueueError(f"arena_human_review_form_{field}_timezone_missing")
+    return parsed.astimezone(UTC)
+
+
+def _validate_review_analysis_registry_coverage(
+    *,
+    analysis: Mapping[str, Any],
+    sample: Mapping[str, Any],
+) -> None:
+    registry = sample.get("analyzerRegistry")
+    registrations = registry.get("analyzers") if isinstance(registry, dict) else None
+    observations = analysis.get("rawObservations")
+    verdicts = analysis.get("analyzerVerdicts")
+    if (
+        not isinstance(registry, dict)
+        or not isinstance(registrations, list)
+        or not isinstance(observations, list)
+        or not isinstance(verdicts, list)
+    ):
+        raise LocalQueueError("arena_human_review_analysis_registry_coverage_missing")
+
+    expected: dict[tuple[str, str], Mapping[str, Any]] = {}
+    observed: dict[tuple[str, str], Mapping[str, Any]] = {}
+    decided: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for registration in registrations:
+        if not isinstance(registration, dict):
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_registration_invalid"
+            )
+        identity = (
+            str(registration.get("analyzerId") or ""),
+            str(registration.get("analyzerVersion") or ""),
+        )
+        if not all(identity) or identity in expected:
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_registration_duplicate"
+            )
+        expected[identity] = registration
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise LocalQueueError("arena_human_review_analysis_observation_invalid")
+        identity = (
+            str(observation.get("analyzerId") or ""),
+            str(observation.get("analyzerVersion") or ""),
+        )
+        if not all(identity) or identity in observed:
+            raise LocalQueueError("arena_human_review_analysis_observation_duplicate")
+        observed[identity] = observation
+    for verdict in verdicts:
+        policy = verdict.get("policy") if isinstance(verdict, dict) else None
+        if not isinstance(policy, dict):
+            raise LocalQueueError("arena_human_review_analysis_verdict_invalid")
+        identity = (
+            str(policy.get("id") or ""),
+            str(policy.get("version") or ""),
+        )
+        if not all(identity) or identity in decided:
+            raise LocalQueueError("arena_human_review_analysis_verdict_duplicate")
+        decided[identity] = verdict
+    if set(observed) != set(expected) or set(decided) != set(expected):
+        raise LocalQueueError("arena_human_review_analysis_registry_coverage_mismatch")
+
+    registry_id = str(registry["registryId"])
+    registry_fingerprint = str(sample["analyzerRegistryFingerprint"])
+    analysis_id = str(analysis["analysisId"])
+    subject_sha256 = str(analysis["subject"]["mediaSha256"])
+    for identity, registration in expected.items():
+        observation = observed[identity]
+        verdict = decided[identity]
+        if (
+            observation.get("evidenceKinds") != registration.get("evidenceKinds")
+            or observation.get("implementationRef")
+            != registration.get("implementationRef")
+            or observation.get("implementationFingerprint")
+            != registration.get("implementationFingerprint")
+            or observation.get("analyzerRegistryId") != registry_id
+            or observation.get("analyzerRegistryFingerprint") != registry_fingerprint
+            or verdict.get("subjectSha256") != subject_sha256
+            or verdict.get("analysisId") != analysis_id
+            or verdict.get("observationFingerprint") != fingerprint(observation)
+            or verdict.get("implementationRef") != registration.get("implementationRef")
+            or verdict.get("implementationFingerprint")
+            != registration.get("implementationFingerprint")
+            or verdict.get("analyzerRegistryId") != registry_id
+            or verdict.get("analyzerRegistryFingerprint") != registry_fingerprint
+        ):
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_binding_mismatch"
+            )
+
+
+def author_human_review_from_form(
+    *,
+    form: Mapping[str, Any],
+    arena_plan: Mapping[str, Any],
+    review_packet: Mapping[str, Any],
+    trusted_analysis: Mapping[str, Any],
+    sample_id: str,
+    operator_identity: str,
+    issued_at: str,
+    evidence_secret: str | None = None,
+) -> dict[str, Any]:
+    """Bind operator-entered review inputs to exact authenticated Arena evidence.
+
+    The form is deliberately not trusted evidence. Ratings and decisions are
+    copied exactly after strict shape validation; all provenance, sampling, and
+    attestation fields are derived from the verified plan, packet, and trusted
+    analysis. No score, decision, timestamp, or reviewer identity is defaulted.
+    Because this boundary has no operator credential, the resulting review is
+    explicitly identity-unverified and cannot become promotion evidence.
+    """
+
+    if set(form) != REVIEW_FORM_FIELDS or form.get("schema") != REVIEW_FORM_SCHEMA:
+        raise LocalQueueError("arena_human_review_form_schema_invalid")
+    ratings_payload = form.get("ratings")
+    decisions_payload = form.get("decisions")
+    if (
+        not isinstance(ratings_payload, dict)
+        or set(ratings_payload) != REVIEW_FORM_RATING_FIELDS
+    ):
+        raise LocalQueueError("arena_human_review_form_ratings_incomplete")
+    if (
+        not isinstance(decisions_payload, dict)
+        or set(decisions_payload) != REVIEW_FORM_DECISION_FIELDS
+    ):
+        raise LocalQueueError("arena_human_review_form_decisions_incomplete")
+
+    operator = _required_text(operator_identity, "human_review_operator_identity")
+    if operator != operator_identity or form.get("reviewer") != operator:
+        raise LocalQueueError("arena_human_review_form_operator_mismatch")
+    issued = _required_text(issued_at, "human_review_issued_at")
+    if issued != issued_at or form.get("reviewedAt") != issued:
+        raise LocalQueueError("arena_human_review_form_issued_at_mismatch")
+    if form.get("rubricVersion") != RUBRIC_VERSION:
+        raise LocalQueueError("arena_human_review_form_rubric_version_mismatch")
+
+    plan = validate_arena_plan(arena_plan)
+    sample = _sample(plan, sample_id)
+    packet = validate_arena_review_packet(
+        review_packet,
+        arena_plan=plan,
+        evidence_secret=evidence_secret,
+    )
+    packet_attestation = packet.get("producerAttestation")
+    if not isinstance(packet_attestation, dict) or packet_attestation.get(
+        "issuedAt"
+    ) != packet.get("createdAt"):
+        raise LocalQueueError("arena_human_review_packet_timestamp_mismatch")
+
+    matching_candidates = [
+        candidate
+        for candidate in packet["candidates"]
+        if candidate.get("blindedCandidateId") == sample["blindedCandidateId"]
+    ]
+    if len(matching_candidates) != 1:
+        raise LocalQueueError("arena_human_review_form_candidate_mismatch")
+    candidate = matching_candidates[0]
+    expected_form_bindings = {
+        "arenaPlanId": plan["planId"],
+        "arenaPlanFingerprint": plan["planFingerprint"],
+        "reviewPacketId": packet["packetId"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+    }
+    for field, expected in expected_form_bindings.items():
+        if form.get(field) != expected:
+            raise LocalQueueError(f"arena_human_review_form_{field}_mismatch")
+
+    analysis = _validate_trusted_analysis_payload(
+        dict(trusted_analysis),
+        expected_subject_sha256=str(candidate["subjectSha256"]),
+        evidence_secret=evidence_secret,
+    )
+    analysis_subject = analysis.get("subject")
+    analysis_registry = analysis.get("analyzerRegistry")
+    if (
+        not isinstance(analysis_subject, dict)
+        or analysis_subject.get("sourceSha256") != sample["sourceSha256"]
+        or not isinstance(analysis_registry, dict)
+        or analysis_registry.get("registryId")
+        != sample["analyzerRegistry"]["registryId"]
+        or analysis_registry.get("registryFingerprint")
+        != sample["analyzerRegistryFingerprint"]
+    ):
+        raise LocalQueueError("arena_human_review_analysis_binding_mismatch")
+    _validate_review_analysis_registry_coverage(
+        analysis=analysis,
+        sample=sample,
+    )
+
+    analysis_sampling = analysis.get("humanReviewSampling")
+    if not isinstance(analysis_sampling, dict):
+        raise LocalQueueError("arena_human_review_form_sampling_missing")
+    if form.get("reviewedFrameSetFingerprint") != analysis_sampling.get(
+        "frameSetFingerprint"
+    ):
+        raise LocalQueueError("arena_human_review_form_frame_set_mismatch")
+    outlier_count = form.get("briefFrameOutlierCount")
+    if (
+        isinstance(outlier_count, bool)
+        or not isinstance(outlier_count, int)
+        or outlier_count != analysis_sampling.get("briefFrameOutlierCount")
+    ):
+        raise LocalQueueError("arena_human_review_form_outlier_count_mismatch")
+    if form.get("briefFrameOutliersReviewed") is not True:
+        raise LocalQueueError("arena_human_review_form_outliers_not_confirmed")
+
+    plan_created_at = _review_form_timestamp(plan.get("createdAt"), "plan_created_at")
+    packet_created_at = _review_form_timestamp(
+        packet.get("createdAt"), "packet_created_at"
+    )
+    analysis_produced_at = _review_form_timestamp(
+        analysis.get("producedAt"), "analysis_produced_at"
+    )
+    issued_timestamp = _review_form_timestamp(issued, "issued_at")
+    if (
+        plan_created_at > packet_created_at
+        or plan_created_at > analysis_produced_at
+        or packet_created_at > issued_timestamp
+        or analysis_produced_at > issued_timestamp
+        or issued_timestamp > datetime.now(UTC)
+    ):
+        raise LocalQueueError("arena_human_review_form_timestamp_order_invalid")
+
+    try:
+        ratings = HumanReviewRatings.from_dict(ratings_payload)
+        decisions = HumanReviewDecisions.from_dict(decisions_payload)
+        sampling_evidence = HumanReviewSamplingEvidence.from_trusted_analysis(
+            analysis,
+            brief_frame_outliers_reviewed=True,
+        )
+    except ValueError as exc:
+        raise LocalQueueError("arena_human_review_form_values_invalid") from exc
+
+    provenance_references = tuple(
+        sorted(
+            {
+                (str(plan["planId"]), str(plan["planFingerprint"])),
+                (str(sample["sampleId"]), str(sample["queueJobFingerprint"])),
+                (
+                    str(sample["identityProfileId"]),
+                    str(sample["identityProfileFingerprint"]),
+                ),
+                (
+                    str(sample["contentIntentId"]),
+                    str(sample["contentIntentFingerprint"]),
+                ),
+                (
+                    str(analysis["analysisId"]),
+                    str(analysis["analysisFingerprint"]),
+                ),
+                (str(packet["packetId"]), str(packet["packetFingerprint"])),
+                (
+                    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
+                    fingerprint(
+                        {
+                            "schema": REVIEW_FORM_SCHEMA,
+                            "operatorIdentity": operator,
+                            "issuedAt": issued,
+                            "verificationStatus": "unverified",
+                            "reason": (
+                                "imported_form_has_no_authenticated_operator_credential"
+                            ),
+                        }
+                    ),
+                ),
+            }
+        )
+    )
+    review_identity = {
+        "arenaPlanId": plan["planId"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+        "operatorIdentity": operator,
+        "issuedAt": issued,
+        "rubricVersion": RUBRIC_VERSION,
+        "ratings": ratings.as_dict(),
+        "decisions": decisions.as_dict(),
+        "analysisFingerprint": analysis["analysisFingerprint"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+    }
+    review = HumanMediaReview(
+        review_id=f"review_{fingerprint(review_identity)[:24]}",
+        arena_plan_id=str(plan["planId"]),
+        sample_id=str(sample["sampleId"]),
+        blinded_candidate_id=str(sample["blindedCandidateId"]),
+        subject_sha256=str(candidate["subjectSha256"]),
+        source_sha256=str(sample["sourceSha256"]),
+        reviewer=operator,
+        reviewed_at=issued,
+        rubric_version=RUBRIC_VERSION,
+        sampling_evidence=sampling_evidence,
+        ratings=ratings,
+        decisions=decisions,
+        provenance=HumanReviewProvenance(
+            review_mode="blinded",
+            unblinding_reason=None,
+            source_references=provenance_references,
+        ),
+    ).attest(evidence_secret=evidence_secret)
+    _validate_human_review_binding(
+        review,
+        plan=plan,
+        sample=sample,
+        analysis=analysis,
+        review_packet=packet,
+    )
+    return HumanMediaReview.from_dict(
+        review.as_dict(),
+        evidence_secret=evidence_secret,
+    ).as_dict()
 
 
 def _arena_candidate_aggregates(
@@ -5859,6 +6250,20 @@ def main(argv: list[str] | None = None) -> int:
     execution = generate.add_mutually_exclusive_group(required=True)
     execution.add_argument("--dry-run", action="store_true")
     execution.add_argument("--apply", action="store_true")
+    author_review = sub.add_parser(
+        "author-review",
+        help=(
+            "bind a completed blinded review form to the exact Arena packet "
+            "and trusted analysis"
+        ),
+    )
+    author_review.add_argument("--plan-id", required=True)
+    author_review.add_argument("--sample-id", required=True)
+    author_review.add_argument("--form", type=Path, required=True)
+    author_review.add_argument("--analysis", type=Path, required=True)
+    author_review.add_argument("--operator-identity", required=True)
+    author_review.add_argument("--issued-at", required=True)
+    author_review.add_argument("--output", type=Path, required=True)
     finalize = sub.add_parser("finalize")
     finalize.add_argument("--plan-id", required=True)
     finalize.add_argument("--sample-id", required=True)
@@ -5987,6 +6392,28 @@ def main(argv: list[str] | None = None) -> int:
                 benchmarks=benchmark_store,
                 human_reviews=HumanMediaReviewStore(args.root),
             )
+        elif args.command == "author-review":
+            review = author_human_review_from_form(
+                form=_read_json(args.form),
+                arena_plan=store.load_plan(args.plan_id),
+                review_packet=store.load_review_packet(args.plan_id),
+                trusted_analysis=_read_json(args.analysis),
+                sample_id=args.sample_id,
+                operator_identity=args.operator_identity,
+                issued_at=args.issued_at,
+            )
+            output_path = args.output.expanduser().resolve()
+            _write_exact_json(output_path, review)
+            result = {
+                "schema": "reel_factory.local_model_arena_review_authoring.v1",
+                "planId": args.plan_id,
+                "sampleId": args.sample_id,
+                "reviewId": review["reviewId"],
+                "reviewFingerprint": review["reviewFingerprint"],
+                "path": str(output_path),
+                "providerCalls": 0,
+                "productionWrites": 0,
+            }
         elif args.command == "finalize":
             benchmark_store = default_local_model_benchmark_store(args.root)
             result = finalize_arena_sample_evidence(

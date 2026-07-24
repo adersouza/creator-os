@@ -209,11 +209,32 @@ active promotion immediately before entering the local generation path:
 scripts/creator-os advanced arena --root <arena-root> generate \
   --plan-id <plan-id> --sample-id <sample-id> --mode local_wan \
   --apply
+scripts/creator-os advanced arena --root <arena-root> author-review \
+  --plan-id <plan-id> --sample-id <sample-id> \
+  --form <downloaded-human-review-form.json> \
+  --analysis <trusted-media-analysis.json> \
+  --operator-identity <exact-reviewer> --issued-at <exact-reviewed-at> \
+  --output <signed-human-review.json>
 scripts/creator-os advanced arena --root <arena-root> finalize \
   --plan-id <plan-id> --sample-id <sample-id> --review <signed-review.json> \
   --repository-root <exact-clean-source-root> --identity-root <identity-root> \
   --produced-at <utc-timestamp>
 ```
+
+Never pass the downloaded form directly to `finalize`. It contains only the
+operator's inputs. `author-review` copies the supplied ratings and decisions
+without defaults and derives only the exact plan, packet, analysis, sampling,
+and attestation evidence. The explicit `--operator-identity` and `--issued-at`
+must exactly match the completed form. The completed form must also echo the
+exact sampled frame-set fingerprint and brief-outlier count and explicitly
+confirm those outliers were reviewed. Trusted analysis must cover every exact
+plan-registry analyzer with matching observation and verdict evidence.
+
+This import command does not authenticate the human. Its output records the
+claimed reviewer as identity-unverified, and the resulting QC receipt is
+non-promotable even when every decision is positive. The HMAC protects content
+integrity only. Do not use an imported form as promotion evidence until a
+separate credential-backed operator-verification boundary exists.
 
 `finalize` records successful samples with their exact output, benchmark, and
 human-review evidence. Record every non-success explicitly; inferred queue

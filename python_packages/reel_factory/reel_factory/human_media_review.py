@@ -27,6 +27,9 @@ from .local_generation_queue import AppendOnlyJournal, LocalQueueError, fingerpr
 SCHEMA: Final = "reel_factory.human_media_review.v1"
 RUBRIC_VERSION: Final = "1.0.0"
 ATTESTATION_ISSUER: Final = "reel_factory.structured_human_media_review"
+UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID: Final = (
+    "reel_factory.imported_form_reviewer_identity_unverified"
+)
 
 
 def _sha256_file(path: Path) -> str:
@@ -290,7 +293,12 @@ class HumanReviewSamplingEvidence:
         }
 
     @classmethod
-    def from_trusted_analysis(cls, analysis: Any) -> HumanReviewSamplingEvidence:
+    def from_trusted_analysis(
+        cls,
+        analysis: Any,
+        *,
+        brief_frame_outliers_reviewed: bool,
+    ) -> HumanReviewSamplingEvidence:
         if not isinstance(analysis, dict):
             raise ValueError("human_media_review_trusted_analysis_invalid")
         sampling = analysis.get("humanReviewSampling")
@@ -301,7 +309,7 @@ class HumanReviewSamplingEvidence:
                 **sampling,
                 "analysisId": analysis.get("analysisId"),
                 "analysisFingerprint": analysis.get("analysisFingerprint"),
-                "briefFrameOutliersReviewed": True,
+                "briefFrameOutliersReviewed": brief_frame_outliers_reviewed,
             }
         )
 
@@ -492,11 +500,16 @@ class HumanMediaReview:
     def qc_receipt(self) -> dict[str, Any]:
         if self.operator_attestation is None:
             raise LocalQueueError("human_review_unsigned_not_promotion_eligible")
+        reviewer_identity_unverified = any(
+            record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+            for record_id, _fingerprint in self.provenance.source_references
+        )
         passed = bool(
             self.decisions.creator_identity_preserved
             and self.decisions.anatomy_acceptable
             and self.decisions.operator_useful
             and self.decisions.approved_for_benchmark
+            and not reviewer_identity_unverified
         )
         reasons = []
         for field, approved in (
@@ -510,6 +523,10 @@ class HumanMediaReview:
         ):
             if not approved:
                 reasons.append({"code": field, "severity": "block"})
+        if reviewer_identity_unverified:
+            reasons.append(
+                {"code": "reviewer_identity_unverified", "severity": "block"}
+            )
         return {
             "schema": "reel_factory.human_media_review_qc.v1",
             "policy": {
