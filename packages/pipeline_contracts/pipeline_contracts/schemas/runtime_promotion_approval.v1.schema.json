@@ -35,13 +35,13 @@
       "required": ["strictStatusChecks", "requiredStatusChecks", "requiredApprovingReviewCount", "requiredConversationResolution", "enforceAdmins"],
       "properties": {
         "strictStatusChecks": {"const": true},
-        "requiredStatusChecks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "requiredStatusChecks": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "requiredApprovingReviewCount": {"const": 0},
         "requiredConversationResolution": {"const": true},
         "enforceAdmins": {"const": true}
       }
     },
-    "checks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "checkRunId", "detailsUrl", "completedAt", "headSha", "appId", "appSlug", "workflowRunId", "workflowName", "workflowPath"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "checkRunId": {"type": "integer", "minimum": 1}, "detailsUrl": {"type": "string", "pattern": "^https://"}, "completedAt": {"type": "string", "format": "date-time"}, "headSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"}, "appId": {"const": 15368}, "appSlug": {"const": "github-actions"}, "workflowRunId": {"type": "integer", "minimum": 1}, "workflowName": {"enum": ["Creator OS Monorepo CI", "Security"]}, "workflowPath": {"enum": [".github/workflows/monorepo-ci.yml", ".github/workflows/security.yml"]}}}},
+    "checks": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "checkRunId", "detailsUrl", "completedAt", "headSha", "appId", "appSlug", "workflowRunId", "workflowName", "workflowPath"], "properties": {"name": {"type": "string", "minLength": 1}, "status": {"const": "passed"}, "checkRunId": {"type": "integer", "minimum": 1}, "detailsUrl": {"type": "string", "pattern": "^https://"}, "completedAt": {"type": "string", "format": "date-time"}, "headSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"}, "appId": {"const": 15368}, "appSlug": {"const": "github-actions"}, "workflowRunId": {"type": "integer", "minimum": 1}, "workflowName": {"enum": ["Creator OS Monorepo CI", "Security"]}, "workflowPath": {"enum": [".github/workflows/monorepo-ci.yml", ".github/workflows/security.yml"]}}}},
     "approvalFingerprint": {"$ref": "#/$defs/sha256"}
   },
   "oneOf": [

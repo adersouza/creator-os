@@ -48,8 +48,8 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
     assert "dependency-review" not in jobs
 
     assert "trivy" in jobs
-    assert "if" not in jobs["trivy"]
-    assert "if" not in jobs["codeql"]
+    assert jobs["trivy"]["if"] == "github.event_name != 'pull_request'"
+    assert jobs["codeql"]["if"] == "github.event_name != 'pull_request'"
     assert workflow["permissions"] == {"contents": "read"}
     trivy_steps = jobs["trivy"]["steps"]
     trivy_step = next(step for step in trivy_steps if step.get("name") == "Trivy scan")
@@ -79,31 +79,26 @@ def test_security_workflow_gates_trivy_and_verified_secret_scans() -> None:
         if step.get("name") == "TruffleHog full-history secret scan"
     )
     _assert_action_pinned(trufflehog_step["uses"], "trufflesecurity/trufflehog")
+    assert trufflehog_step["if"] == "github.event_name != 'pull_request'"
     assert trufflehog_step["with"]["extra_args"] == "--only-verified"
     assert "continue-on-error" not in trufflehog_step
 
 
-def test_monorepo_ci_contains_architecture_and_sbom_jobs() -> None:
+def test_monorepo_ci_uses_affected_pr_and_release_main_tiers() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
     jobs = workflow["jobs"]
 
-    for job_name in (
-        "contracts",
-        "architecture",
-        "javascript",
-        "sbom",
-    ):
+    for job_name in ("affected", "release", "sbom"):
         _assert_action_major_allowed(jobs[job_name]["steps"], "pnpm/action-setup", {6})
     assert "visual-regression" not in jobs
     assert "dashboard-build-provenance" not in jobs
 
-    assert "architecture" in jobs
-    arch_runs = [step.get("run", "") for step in jobs["architecture"]["steps"]]
-    assert "pnpm check:arch" in arch_runs
-
-    javascript_runs = [step.get("run", "") for step in jobs["javascript"]["steps"]]
-    assert any("--filter contentforge test" in run for run in javascript_runs)
-    assert all("command-center" not in run for run in javascript_runs)
+    assert jobs["affected"]["if"] == "github.event_name == 'pull_request'"
+    assert jobs["release"]["if"] == "github.event_name != 'pull_request'"
+    affected_runs = [step.get("run", "") for step in jobs["affected"]["steps"]]
+    release_runs = [step.get("run", "") for step in jobs["release"]["steps"]]
+    assert "make affected" in affected_runs
+    assert "make release" in release_runs
 
     assert "sbom" in jobs
     sbom_runs = "\n".join(step.get("run", "") for step in jobs["sbom"]["steps"])
@@ -133,14 +128,24 @@ def test_github_workflows_have_one_monorepo_owner() -> None:
     assert (ROOT / ".github/workflows/security.yml").exists()
 
 
-def test_monorepo_ci_always_runs_required_promotion_language_jobs() -> None:
+def test_exhaustive_workflow_moves_deep_checks_to_schedule() -> None:
     workflow = _workflow(".github/workflows/monorepo-ci.yml")
     jobs = workflow["jobs"]
-
     assert "changes" not in jobs
-    for required_job in ("javascript", "python"):
-        assert "if" not in jobs[required_job]
-        assert "needs" not in jobs[required_job]
+    assert "architecture" not in jobs
+    exhaustive = _workflow(".github/workflows/exhaustive.yml")
+    assert "schedule" in exhaustive[True]
+    runs = [step.get("run", "") for step in exhaustive["jobs"]["exhaustive"]["steps"]]
+    assert "make exhaustive" in runs
+
+
+def test_make_verification_tiers_are_real_distinct_commands() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    for tier in ("fast", "affected", "release", "exhaustive"):
+        body = makefile.split(f"\n{tier}:\n", maxsplit=1)[1].split("\n\n", maxsplit=1)[
+            0
+        ]
+        assert f"scripts/verify_tier.py {tier}" in body
 
 
 def test_runtime_verify_reconstructs_complete_frozen_python_environment() -> None:

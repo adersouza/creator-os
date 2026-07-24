@@ -37,6 +37,7 @@ from .learning_cohort import (
     record_learning_cohort_publish,
     run_learning_cohort_day,
 )
+from .production_lane import run_production_batch
 from .readiness_report import build_mass_production_readiness_report
 from .trial_reels import (
     graduate_trial_reel,
@@ -58,6 +59,20 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         return 0
     if args.cmd == "control-check":
         print_json(operator_control_check(settings))
+        return 0
+    if args.cmd == "create":
+        print_json(
+            run_production_batch(
+                cf,
+                creator=args.creator,
+                intent=args.intent,
+                count=args.count,
+                execution=args.execution,
+                accounts=args.accounts,
+                audio_preference=args.audio_preference,
+                apply=args.apply,
+            )
+        )
         return 0
     if args.cmd == "creative-approval-build":
         print_json(

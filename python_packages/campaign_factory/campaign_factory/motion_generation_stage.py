@@ -70,6 +70,8 @@ from .motion_worker_process import (
     invoke_motion_worker as _invoke_worker,
 )
 from .persistence import utc_now
+from .production_lane import bind_production_motion_recipe
+from .production_quality_policy import initial_motion_blockers, production_asset_policy
 from .provider_spend import consume_provider_spend_authorization
 from .provider_spend_v2 import (
     issue_wavespeed_spend_authorization,
@@ -122,6 +124,7 @@ def run_motion_generation_stage(
     benchmark_recipe: Mapping[str, Any] | None = None,
     analyzer_registry: Mapping[str, Any] | None = None,
     local_motion_admission: Mapping[str, Any] | None = None,
+    production_motion_recipe: Mapping[str, Any] | None = None,
     local_arena_summary_path: Path | None = None,
     campaign_creator: str | None = None,
 ) -> dict[str, Any]:
@@ -226,12 +229,23 @@ def run_motion_generation_stage(
         raise ValueError("benchmark evidence applies only to local models")
     if paid and local_motion_admission is not None:
         raise ValueError("local motion admission applies only to local models")
+    production_bound = False
     if not paid:
-        _validate_local_motion_admission(local_motion_admission, model_id=model_id)
+        production_source_sha = (
+            sha256_file(still) if still else _text_prompt_task_fingerprint(prompt)
+        )
+        production_bound = bind_production_motion_recipe(
+            production_motion_recipe,
+            model_id=model_id,
+            source_sha256=production_source_sha,
+            research_admission=local_motion_admission,
+        )
+        if not production_bound:
+            _validate_local_motion_admission(local_motion_admission, model_id=model_id)
 
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
-    if not paid:
+    if not paid and not production_bound:
         revalidate_admission = partial(
             revalidate_local_motion_admission,
             arena_summary_path=local_arena_summary_path,
@@ -343,6 +357,7 @@ def run_motion_generation_stage(
         benchmark_recipe=benchmark_recipe,
         analyzer_registry=analyzer_registry,
         local_motion_admission=local_motion_admission,
+        production_motion_recipe=production_motion_recipe,
         evidence_transport_dir=evidence_dir / "worker_inputs",
         dry_run=True,
     )
@@ -443,7 +458,7 @@ def run_motion_generation_stage(
         authorization_verified_at: str | None = None
         worker_result = worker_plan
         if apply:
-            if not paid:
+            if not paid and not production_bound:
                 local_motion_admission = revalidate_admission(local_motion_admission)
             apply_command = _worker_command(
                 factory,
@@ -476,6 +491,7 @@ def run_motion_generation_stage(
                 benchmark_recipe=benchmark_recipe,
                 analyzer_registry=analyzer_registry,
                 local_motion_admission=local_motion_admission,
+                production_motion_recipe=production_motion_recipe,
                 evidence_transport_dir=evidence_dir / "worker_inputs",
                 dry_run=False,
             )
@@ -610,6 +626,7 @@ def run_motion_generation_stage(
                 motion_task=motion_task,
                 request_fingerprint=request_fingerprint,
                 local_motion_admission=local_motion_admission,
+                production_motion_recipe=production_motion_recipe,
                 prompt=prompt,
                 audio_policy=audio_policy,
                 audio_track_id=audio_track_id,
@@ -1162,6 +1179,7 @@ def _register_review_asset(
     motion_task: str = "image_to_video",
     request_fingerprint: str | None = None,
     local_motion_admission: Mapping[str, Any] | None = None,
+    production_motion_recipe: Mapping[str, Any] | None = None,
     prompt: str | None = None,
     audio_policy: str | None = None,
     audio_track_id: str | None = None,
@@ -1203,12 +1221,7 @@ def _register_review_asset(
         volume=audio_volume,
         selected_reason=audio_selected_reason,
     )
-    blocking_issues = [
-        "contentforge_audit_required",
-        "motion_specific_qc_required",
-        "human_final_review_required",
-        "creative_approval_v2_required",
-    ]
+    blocking_issues = initial_motion_blockers(production_motion_recipe)
     if motion_task == "text_to_video":
         blocking_issues.append("text_to_video_identity_assignment_forbidden")
     if embedded_audio:
@@ -1254,8 +1267,7 @@ def _register_review_asset(
     metadata = {
         "schema": "campaign_factory.motion_generation_asset.v1",
         "asset_state": "approved_but_not_publishable",
-        "humanReviewRequired": True,
-        "creativeApprovalRequired": True,
+        **production_asset_policy(production_motion_recipe),
         "contentforgeAuditRequired": True,
         "captionBurned": False,
         "audioBurned": embedded_audio,

@@ -28,7 +28,8 @@ def test_operator_help_has_no_generic_package_or_publish_escape_hatch() -> None:
     assert result.returncode == 0
     assert "component" not in result.stdout
     assert "campaign-prepare" not in result.stdout
-    assert "create (generate)" in result.stdout
+    assert "create" in result.stdout
+    assert "generate" in result.stdout
     assert "export (draft-export)" in result.stdout
     for ordinary in ("create", "review", "approve", "export", "promote", "advanced"):
         assert ordinary in result.stdout
@@ -178,7 +179,7 @@ def test_status_and_doctor_use_the_exact_project_venv(
     ]
 
 
-def test_create_routes_to_the_existing_campaign_control_plane_without_deprecation(
+def test_create_routes_intent_to_production_batch_without_internal_paths(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -190,8 +191,42 @@ def test_create_routes_to_the_existing_campaign_control_plane_without_deprecatio
         return 0
 
     namespace["main"].__globals__["_run"] = fake_run
-    assert namespace["main"](["create", "--list-modes"]) == 0
-    assert commands[0][-2:] == ["generation", "modes"]
+    assert (
+        namespace["main"](
+            [
+                "create",
+                "--creator",
+                "stacey",
+                "--intent",
+                "passive_selfie",
+                "--count",
+                "4",
+                "--execution",
+                "local",
+                "--accounts",
+                "stacey-main",
+            ]
+        )
+        == 0
+    )
+    command = commands[0]
+    assert command[-13:] == [
+        "create",
+        "--creator",
+        "stacey",
+        "--intent",
+        "passive_selfie",
+        "--count",
+        "4",
+        "--execution",
+        "local",
+        "--audio",
+        "embedded_trending_required",
+        "--accounts",
+        "stacey-main",
+    ]
+    assert "arena" not in " ".join(command)
+    assert "evidence" not in " ".join(command)
     assert "deprecated" not in capsys.readouterr().err
 
 
@@ -208,7 +243,7 @@ def test_generate_alias_is_explicitly_deprecated(
     namespace["main"].__globals__["_run"] = fake_run
     assert namespace["main"](["generate", "--list-modes"]) == 0
     assert commands[0][-2:] == ["generation", "modes"]
-    assert "deprecated: use `creator-os create`" in capsys.readouterr().err
+    assert "deprecated advanced compatibility command" in capsys.readouterr().err
 
 
 def test_export_is_canonical_and_draft_export_remains_deprecated(

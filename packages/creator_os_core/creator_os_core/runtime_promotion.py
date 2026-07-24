@@ -55,11 +55,7 @@ TRUSTED_CHECK_APP_ID: Final = 15368
 TRUSTED_CHECK_APP_SLUG: Final = "github-actions"
 WRITE_PERMISSIONS: Final = frozenset({"admin", "maintain", "write"})
 TRUSTED_CHECK_WORKFLOWS: Final = {
-    "contracts": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
-    "hygiene": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
-    "architecture": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
-    "python": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
-    "javascript": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
+    "release": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
     "Secret scan": ("Security", ".github/workflows/security.yml"),
     "CodeQL (javascript-typescript)": ("Security", ".github/workflows/security.yml"),
     "CodeQL (python)": ("Security", ".github/workflows/security.yml"),
@@ -146,11 +142,7 @@ _SENSITIVE_TOKEN = re.compile(
 )
 REQUIRED_CHECKS: Final = frozenset(
     {
-        "contracts",
-        "hygiene",
-        "architecture",
-        "python",
-        "javascript",
+        "release",
         "Secret scan",
         "CodeQL (javascript-typescript)",
         "CodeQL (python)",

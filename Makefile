@@ -1,4 +1,4 @@
-.PHONY: dev test verify runtime-verify sync format install reel-models backup-runtime
+.PHONY: dev test verify fast affected release exhaustive runtime-verify sync format install reel-models backup-runtime
 
 install:
 	pnpm install
@@ -34,6 +34,20 @@ test:
 verify:
 	pnpm run check:all
 	$(MAKE) test
+
+# Product-first verification tiers. Fast and affected are change-aware;
+# release and exhaustive intentionally cover different trust horizons.
+fast:
+	uv run python scripts/verify_tier.py fast
+
+affected:
+	uv run python scripts/verify_tier.py affected
+
+release:
+	uv run python scripts/verify_tier.py release
+
+exhaustive:
+	uv run python scripts/verify_tier.py exhaustive
 
 # Runtime promotion starts from a clean detached checkout whose dependency
 # environments may belong to the prior commit. Rebuild those untracked

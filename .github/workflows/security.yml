@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   codeql:
+    if: github.event_name != 'pull_request'
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -58,12 +59,14 @@ jobs:
       - name: Current tree secret hygiene
         run: bash scripts/security/secret-scan.sh
       - name: TruffleHog full-history secret scan
+        if: github.event_name != 'pull_request'
         uses: trufflesecurity/trufflehog@27b0417c16317ca9a472a9a8092acce143b49c55 # v3.95.9
         with:
           # The action injects --fail itself; keep extra args to policy filters only.
           extra_args: --only-verified
 
   trivy:
+    if: github.event_name != 'pull_request'
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
     timeout-minutes: 10

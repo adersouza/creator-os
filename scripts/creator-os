@@ -227,10 +227,44 @@ def _parser() -> argparse.ArgumentParser:
         default=ROOT.parent / "reference_reels/audio_catalog.json",
     )
 
-    generate = sub.add_parser(
+    create = sub.add_parser(
         "create",
-        aliases=["generate"],
-        help="choose one explicit generation mode; use --list-modes for cost and gates",
+        help="create a production batch from creator intent; dry-run unless --apply",
+    )
+    create.add_argument("--creator", required=True)
+    create.add_argument(
+        "--intent",
+        required=True,
+        choices=[
+            "passive_selfie",
+            "flirty_portrait",
+            "outfit",
+            "lifestyle",
+            "animate_existing",
+        ],
+    )
+    create.add_argument("--count", type=int, default=1)
+    create.add_argument("--execution", choices=["local", "cloud"], default="local")
+    create.add_argument("--accounts")
+    create.add_argument(
+        "--audio",
+        dest="audio_preference",
+        choices=[
+            "embedded_trending",
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+            "silent_allowed",
+        ],
+        default="embedded_trending_required",
+    )
+    create.add_argument("--apply", action="store_true")
+
+    generate = sub.add_parser(
+        "generate",
+        help="advanced explicit-mode generation compatibility surface",
     )
     generation_choice = generate.add_mutually_exclusive_group(required=True)
     generation_choice.add_argument("--mode")
@@ -496,12 +530,34 @@ def main(argv: list[str] | None = None) -> int:
             if code := _run(command):
                 return code
         return 0
-    if args.command in {"generate", "create"}:
-        if args.command == "generate":
-            print(
-                "deprecated: use `creator-os create`; `generate` remains a compatibility alias",
-                file=sys.stderr,
-            )
+    if args.command == "create":
+        if args.count <= 0:
+            print("--count must be greater than zero", file=sys.stderr)
+            return 2
+        command = _campaign_command(
+            "create",
+            "--creator",
+            args.creator,
+            "--intent",
+            args.intent,
+            "--count",
+            str(args.count),
+            "--execution",
+            args.execution,
+            "--audio",
+            args.audio_preference,
+        )
+        if args.accounts:
+            command.extend(["--accounts", args.accounts])
+        if args.apply:
+            command.append("--apply")
+        return _run(command)
+    if args.command == "generate":
+        print(
+            "deprecated advanced compatibility command: ordinary production uses "
+            "`creator-os create`",
+            file=sys.stderr,
+        )
         if args.list_modes:
             return _run(_campaign_command("generation", "modes"))
         if not args.campaign:
