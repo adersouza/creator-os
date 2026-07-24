@@ -55,6 +55,9 @@ class VideoModel:
     video_extend: bool = False
     low_ram_streaming: bool = False
     capability_status: Literal["production", "experimental"] = "production"
+    provider_accepts_resolution: bool = True
+    provider_accepts_duration: bool = True
+    provider_accepts_negative_prompt: bool = True
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -197,6 +200,26 @@ LOCAL_LONGCAT_AVATAR15_Q4 = VideoModel(
     capability_status="experimental",
 )
 
+# WaveSpeed's production Wan 2.2 5B endpoint has a deliberately narrow wire
+# contract: image, prompt, and seed. Resolution and duration are fixed by the
+# endpoint and must not be sent as undocumented inputs.
+WAVESPEED_WAN22_I2V_5B_720P = VideoModel(
+    id="wavespeed_wan22_i2v_5b_720p",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="wavespeed-ai/wan-2.2/i2v-5b-720p",
+    task="image_to_video",
+    resolutions=("720p",),
+    durations=(5,),
+    default_resolution="720p",
+    default_duration=5,
+    paid=True,
+    quality_tier="remote_production_volume",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+)
+
 # The standard Wan 2.7 endpoint remains available as the lower-cost control. It
 # has documented 720p/1080p and first/last-frame behavior plus parameter-derived
 # pricing, but it is not the quality default.
@@ -273,6 +296,7 @@ _MODELS = {
         LOCAL_LTX23_DISTILLED,
         LOCAL_LTX23_DEV_HQ,
         LOCAL_LONGCAT_AVATAR15_Q4,
+        WAVESPEED_WAN22_I2V_5B_720P,
         WAVESPEED_WAN27_I2V,
         WAVESPEED_WAN27_I2V_PRO,
         WAVESPEED_WAN27_REFERENCE,
@@ -308,7 +332,8 @@ def video_model_catalog() -> dict[str, object]:
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
             "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
-            "paidImageMotion": WAVESPEED_WAN27_I2V_PRO.id,
+            "paidImageMotion": WAVESPEED_WAN22_I2V_5B_720P.id,
+            "paidImageMotionQuality": WAVESPEED_WAN27_I2V_PRO.id,
             "paidImageMotionEconomy": WAVESPEED_WAN27_I2V.id,
             "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
             "paidSpeakingVideo": WAVESPEED_WAN22_S2V.id,

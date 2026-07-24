@@ -22,6 +22,7 @@ The Mac-specific adoption and deferral record lives in
 | `local_ltx23_distilled_mlx` | local MLX | fast image motion with jointly generated audio | 576x1024, 24 fps, 5-8 s | generated | 20 GB plus 8.1 GB shared Gemma |
 | `local_ltx23_dev_hq_mlx` | local MLX | HQ motion, source audio, keyframes, retake, and extension | 576x1024, 24 fps, 5-8 s | source, generated, or explicitly preserved retake audio | 37 GB plus 8.1 GB shared Gemma |
 | `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
+| `wavespeed_wan22_i2v_5b_720p` | WaveSpeed | production creator-image batch motion | fixed 720p, fixed 5 s | none | remote |
 | `wavespeed_wan27_i2v_pro` | WaveSpeed | best-quality paid still animation | 1080p, 5 s | none | remote |
 | `wavespeed_wan27_i2v` | WaveSpeed | lower-cost remote control | 1080p, 5 s | none | remote |
 | `wavespeed_wan27_reference` | WaveSpeed | 1-5 identity/style references | 1080p, 5 s | none | remote |
@@ -446,8 +447,23 @@ export WAVESPEED_COHORT_MAX_USD=10
 export WAVESPEED_MIN_BALANCE_USD=2
 ```
 
-Always dry-run first. Apply additionally requires `--confirm-paid`, an existing
-`--workspace`, and a finite `--max-usd` for that exact request.
+The intent-first production command uses the fixed WaveSpeed Wan 2.2 I2V 5B
+endpoint. `--execution cloud --apply` is the explicit paid authorization, with
+a conservative two-job concurrency limit and a $0.25 total batch cap by
+default. Every provider call still receives its own signed $0.05 authorization.
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent passive_selfie \
+  --count 3 \
+  --execution cloud \
+  --audio embedded_trending \
+  --apply
+```
+
+The advanced explicit-model surface still requires `--confirm-paid`, an
+existing `--workspace`, and a finite `--max-usd` for that exact request.
 
 ```bash
 scripts/creator-os generate --mode best_motion --dry-run \
@@ -502,5 +518,6 @@ audio-alignment, lip-sync, or text-only identity-assignment gates.
 - [LongCat Avatar 1.5](https://github.com/meituan-longcat/LongCat-Video)
 - [LongCat Avatar MLX runtime](https://github.com/xocialize/longcat-avatar-mlx)
 - [WaveSpeed REST API](https://wavespeed.ai/docs/rest-api)
+- [Wan 2.2 I2V 5B 720p API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-i2v-5b-720p)
 - [Wan 2.7 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/alibaba/alibaba-wan-2.7-image-to-video-pro)
 - [Wan 2.2 Speech-to-Video API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-speech-to-video)

@@ -27,6 +27,8 @@ def register_core_commands(sub) -> None:
     )
     create.add_argument("--count", type=int, default=1)
     create.add_argument("--execution", choices=["local", "cloud"], default="local")
+    create.add_argument("--max-usd", type=float, default=0.25)
+    create.add_argument("--concurrency", type=int, default=2)
     create.add_argument("--accounts")
     create.add_argument(
         "--audio",

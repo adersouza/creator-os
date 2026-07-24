@@ -47,7 +47,7 @@ def _bound_evidence_args(tmp_path: Path) -> list[str]:
     return arguments
 
 
-def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None:
+def test_catalog_routes_production_paid_motion_to_wan22_5b_without_fallback() -> None:
     catalog = video_model_catalog()
     assert catalog["routing"] == {
         "localImageMotion": "local_wan22_ti2v_5b_mlx",
@@ -56,12 +56,14 @@ def test_catalog_routes_best_paid_motion_to_wan27_pro_without_fallback() -> None
         "localAudioMotionQuality": "local_ltx23_dev_hq_mlx",
         "localTextToVideo": "local_ltx23_distilled_mlx",
         "localSpeakingVideo": "local_longcat_avatar15_q4_mlx",
-        "paidImageMotion": "wavespeed_wan27_i2v_pro",
+        "paidImageMotion": "wavespeed_wan22_i2v_5b_720p",
+        "paidImageMotionQuality": "wavespeed_wan27_i2v_pro",
         "paidImageMotionEconomy": "wavespeed_wan27_i2v",
         "paidReferenceMotion": "wavespeed_wan27_reference",
         "paidSpeakingVideo": "wavespeed_wan22_s2v",
         "silentProviderFallbackAllowed": False,
     }
+    assert "wavespeed_wan22_i2v_5b_720p" in video_model_ids(task="image_to_video")
     assert "wavespeed_wan27_i2v_pro" in video_model_ids(task="image_to_video")
 
 

@@ -24,6 +24,7 @@ from campaign_factory.motion_generation_stage import (
     _ensure_motion_edit_source_asset,
     _invoke_worker,
     _motion_request_fingerprint,
+    _production_direct_source_asset,
     _register_review_asset,
     _worker_command,
     run_motion_generation_stage,
@@ -48,6 +49,44 @@ def _evidence_secret(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _fingerprint(value: object) -> str:
     return payload_fingerprint(value)
+
+
+def test_production_direct_source_resolves_exact_imported_image(
+    tmp_path: Path,
+) -> None:
+    cf = make_factory(tmp_path)
+    try:
+        add_source_asset(cf, tmp_path)
+        folder = tmp_path / "approved-images"
+        folder.mkdir()
+        first_path = folder / "first.png"
+        second_path = folder / "second.png"
+        first_path.write_bytes(b"first-approved-image")
+        second_path.write_bytes(b"second-approved-image")
+        cf.domains.asset_import.import_folder(
+            folder, campaign_slug="may", model_slug="model"
+        )
+        campaign = cf.domains.campaign_by_slug("may")
+        digest = hashlib.sha256(first_path.read_bytes()).hexdigest()
+        imported = cf.conn.execute(
+            "SELECT * FROM source_assets WHERE campaign_id = ? AND content_hash = ?",
+            (campaign["id"], digest),
+        ).fetchone()
+        assert imported is not None
+        stored_path = Path(imported["stored_path"]).resolve()
+
+        resolved = _production_direct_source_asset(
+            cf,
+            campaign_id=campaign["id"],
+            still_path=stored_path,
+            still_fingerprint=digest,
+        )
+
+        assert resolved is not None
+        assert resolved["stored_path"] == str(stored_path)
+        assert resolved["content_hash"] == digest
+    finally:
+        cf.close()
 
 
 @lru_cache(maxsize=1)

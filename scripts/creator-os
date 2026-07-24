@@ -245,6 +245,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--count", type=int, default=1)
     create.add_argument("--execution", choices=["local", "cloud"], default="local")
+    create.add_argument("--max-usd", type=float)
+    create.add_argument("--concurrency", type=int)
     create.add_argument("--accounts")
     create.add_argument(
         "--audio",
@@ -549,6 +551,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.accounts:
             command.extend(["--accounts", args.accounts])
+        if args.max_usd is not None:
+            if not math.isfinite(args.max_usd) or args.max_usd <= 0:
+                print("--max-usd must be finite and greater than zero", file=sys.stderr)
+                return 2
+            command.extend(["--max-usd", str(args.max_usd)])
+        if args.concurrency is not None:
+            if not 1 <= args.concurrency <= 4:
+                print("--concurrency must be between 1 and 4", file=sys.stderr)
+                return 2
+            command.extend(["--concurrency", str(args.concurrency)])
         if args.apply:
             command.append("--apply")
         return _run(command)

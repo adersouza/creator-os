@@ -73,6 +73,17 @@ def test_wan27_pro_quote_covers_all_documented_quality_tiers(tmp_path: Path) -> 
     )
 
 
+def test_wan22_i2v_5b_quote_is_fixed_at_five_cents(tmp_path: Path) -> None:
+    quote = quote_wavespeed_scope(
+        _scope(tmp_path, "wavespeed-ai/wan-2.2/i2v-5b-720p", "720p", 5)
+    )
+    assert quote["amount"] == 0.05
+    with pytest.raises(ValueError, match="pricing parameters"):
+        quote_wavespeed_scope(
+            _scope(tmp_path, "wavespeed-ai/wan-2.2/i2v-5b-720p", "1080p", 5)
+        )
+
+
 def test_authorization_requires_caps_balance_and_exact_run_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
