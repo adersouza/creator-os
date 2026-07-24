@@ -357,7 +357,10 @@ def _request(
     base_request = LocalVideoRequest(
         model_id=model_id,
         image_path=selected_image,
-        prompt="Subtle natural movement with a steady portrait camera composition",
+        prompt=(
+            "She is speaking directly to the camera with natural facial motion "
+            "while the portrait framing and soft room lighting remain steady"
+        ),
         output_path=tmp_path / "out.mp4",
         duration_seconds=6,
         seed=71,
@@ -2080,10 +2083,34 @@ def test_longcat_requires_image_audio_and_uses_owned_offline_adapter(
     assert lineage["request"]["steps"] == 8
     assert lineage["request"]["negativePrompt"] is None
     assert lineage["request"]["negativePromptApplied"] is False
+    assert command[command.index("--sampling-steps") + 1] == "8"
+    assert command[command.index("--text-guidance-scale") + 1] == "4.0"
+    assert command[command.index("--audio-guidance-scale") + 1] == "4.0"
+    material = local_video_task_parameter_material(request)
+    assert material["effectiveExecution"]["guideScale"] == "text=4.0,audio=4.0"
+    assert material["effectiveExecution"]["scheduler"] == "flowmatch_euler_dmd"
 
     with pytest.raises(ValueError, match="exactly 8 DMD steps"):
         build_local_video_command(
             replace(request, steps=4),
+            python_executable="python3",
+        )
+
+    with pytest.raises(ValueError, match="detailed speaking-scene prompt"):
+        build_local_video_command(
+            replace(request, prompt="She is speaking naturally"),
+            python_executable="python3",
+        )
+
+    with pytest.raises(ValueError, match="speaking or talking"):
+        build_local_video_command(
+            replace(
+                request,
+                prompt=(
+                    "She looks directly at the camera with natural facial motion "
+                    "while the portrait framing and soft room lighting remain steady"
+                ),
+            ),
             python_executable="python3",
         )
 
@@ -2097,9 +2124,11 @@ def test_wan_quality_command_uses_q4_dual_model_profile(tmp_path: Path) -> None:
     material = local_video_task_parameter_material(request)
     assert command[command.index("--model-dir") + 1].endswith("/q4")
     assert command[command.index("--guide-scale") + 1] == "3.5,3.5"
-    assert command[command.index("--tiling") + 1] == "aggressive"
-    assert command[command.index("--steps") + 1] == "20"
+    assert command[command.index("--tiling") + 1] == "auto"
+    assert command[command.index("--steps") + 1] == "40"
     assert "--trim-first-frames" not in command
+    assert material["effectiveExecution"]["tilingMode"] == "auto"
+    assert material["effectiveExecution"]["steps"] == 40
     assert material["effectiveExecution"]["trimFirstFrames"] == 0
     assert (
         int(command[command.index("--num-frames") + 1])
@@ -2152,9 +2181,13 @@ def test_ltx_q8_supports_exact_source_audio_and_rejects_extra_last_frame(
     assert command[:4] == ["python3", "-m", "ltx_pipelines_mlx.cli", "a2v"]
     assert command[command.index("--width") + 1] == "576"
     assert command[command.index("--height") + 1] == "1024"
-    assert command[command.index("--stage1-steps") + 1] == "30"
+    assert "--two-stages-hq" in command
+    assert command[command.index("--stage1-steps") + 1] == "15"
     assert command[command.index("--audio") + 1] == str(audio.resolve())
     assert "--low-ram" in command
+    material = local_video_task_parameter_material(request)
+    assert material["effectiveExecution"]["pipeline"] == "dev-two-stage-hq"
+    assert material["effectiveExecution"]["steps"] == 15
     frames = int(command[command.index("--frames") + 1])
     assert frames == 145
     assert (frames - 1) % 8 == 0
@@ -2212,6 +2245,11 @@ def test_ltx_q4_is_quantized_distilled_and_rejects_source_audio(
                 audio_path=audio,
                 task="audio_image_to_video",
             ),
+            python_executable="python3",
+        )
+    with pytest.raises(ValueError, match="at most 200 words"):
+        build_local_video_command(
+            replace(request, prompt=" ".join(["motion"] * 201)),
             python_executable="python3",
         )
 

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -379,6 +380,7 @@ def local_video_task_parameter_material(
     )
     is_wan = selected.family == "wan_2"
     is_ltx = selected.family == "ltx_2"
+    is_longcat = selected.family == "longcat_avatar"
     edit_task = request.task in {"video_retake", "video_extend"}
     trim_first_frames = 0
     if edit_task:
@@ -444,15 +446,11 @@ def local_video_task_parameter_material(
         requested_steps=request.steps,
         audio_mode=request.audio_mode,
         pipeline=selected.pipeline,
-        guide_scale=selected.guide_scale if is_wan else None,
-        scheduler="unipc" if is_wan else None,
-        tiling_mode=(
-            "aggressive"
-            if is_wan and "a14b" in selected.model_id
-            else "auto"
-            if is_wan
-            else None
+        guide_scale=selected.guide_scale if is_wan or is_longcat else None,
+        scheduler=(
+            "unipc" if is_wan else "flowmatch_euler_dmd" if is_longcat else None
         ),
+        tiling_mode="auto" if is_wan else None,
         trim_first_frames=trim_first_frames,
         retake_start_frame=request.retake_start_frame,
         retake_end_frame=request.retake_end_frame,
@@ -1965,7 +1963,7 @@ def _build_wan_command(
         "--scheduler",
         "unipc",
         "--tiling",
-        "aggressive" if "a14b" in spec.model_id else "auto",
+        "auto",
         "--output-path",
         str(output),
     ]
@@ -2098,6 +2096,8 @@ def _build_ltx_command(
         command.extend(
             ["--audio", str(Path(request.audio_path).expanduser().resolve())]
         )
+        if spec.pipeline == "dev-two-stage-hq":
+            command.append("--two-stages-hq")
         command.extend(["--stage1-steps", str(_effective_steps(request, spec))])
     elif spec.pipeline == "distilled":
         command.extend(["--distilled"])
@@ -2153,15 +2153,11 @@ def _append_ltx_memory_flags(
 def _effective_steps(request: LocalVideoRequest, spec: LocalVideoModelSpec) -> int:
     if request.steps is not None:
         return request.steps
-    if spec.family == "ltx_2" and (
-        request.audio_mode == "source"
-        or request.task
-        in {
-            "keyframe_interpolation",
-            "video_retake",
-            "video_extend",
-        }
-    ):
+    if spec.family == "ltx_2" and request.task in {
+        "keyframe_interpolation",
+        "video_retake",
+        "video_extend",
+    }:
         return 30
     return spec.default_steps
 
@@ -2200,6 +2196,12 @@ def _build_longcat_command(
         str(frames),
         "--fps",
         str(spec.fps),
+        "--sampling-steps",
+        str(_effective_steps(request, spec)),
+        "--text-guidance-scale",
+        "4.0",
+        "--audio-guidance-scale",
+        "4.0",
         "--seed",
         str(request.seed),
         "--output-path",
@@ -2224,6 +2226,22 @@ def _validate_request_inputs(
         raise ValueError(
             "local video motion prompt must contain at least 20 characters"
         )
+    if spec.family == "ltx_2" and len(prompt.split()) > 200:
+        raise ValueError("local LTX prompt must contain at most 200 words")
+    if spec.family == "longcat_avatar":
+        prompt_words = re.findall(r"[a-z]+", prompt.lower())
+        if len(prompt_words) < 12:
+            raise ValueError(
+                "LongCat Avatar requires a detailed speaking-scene prompt "
+                "with at least 12 words"
+            )
+        if not any(
+            cue in prompt_words
+            for cue in ("speak", "speaks", "speaking", "talk", "talks", "talking")
+        ):
+            raise ValueError(
+                "LongCat Avatar prompt must explicitly describe speaking or talking"
+            )
     _request_input_bindings(request)
     if request.image_path is not None:
         image = Path(request.image_path).expanduser().resolve()

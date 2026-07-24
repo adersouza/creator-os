@@ -191,8 +191,16 @@ scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
   --motion-model local_wan22_i2v_a14b_q4_mlx \
   --motion-prompt "Natural posture shift, realistic hair motion, locked identity" \
-  --duration 6 --seed 42 --steps 20
+  --duration 6 --seed 42 --steps 40
 ```
+
+The A14B quality tier uses the official and installed 40-step recipe with
+`guide-scale=3.5,3.5`, UniPC, and the pinned runtime's `auto` VAE tiling.
+Creator OS no longer halves the denoising schedule or forces the
+quality-degrading 256-pixel aggressive tiler. Wan 5B keeps the pinned MLX
+conversion's documented 40-step default; the official CUDA source uses 50,
+so that difference remains explicit rather than being presented as the same
+runtime recipe.
 
 LTX synchronized generated-audio dry-run:
 
@@ -212,12 +220,15 @@ is off by default. Do not add `--tile-spatial 2` at this resolution: upstream's
 MLX runtime reserves tiling for measured 1080p/8s+ memory pressure, and
 independent tiles can destabilize a face crossing tile boundaries.
 
-LTX image-to-video prompts should describe only changes from the source image,
-in chronological order, including requested motion, explicit camera behavior,
-and the synchronized soundscape. Use the pinned local Gemma enhancer before
-Arena planning when expansion is needed, then store the exact expanded prompt
-as benchmark input. Never use hidden generation-time prompt enhancement because
-the expanded text would escape the plan and lineage fingerprints.
+LTX prompts follow the creator's published cinematographic format: one flowing,
+literal paragraph of at most 200 words that describes the main action,
+chronological gestures, relevant appearance, environment, camera behavior,
+lighting, and synchronized soundscape. For image-to-video, keep those details
+consistent with the source image and emphasize what changes over time. Use the
+pinned local Gemma enhancer before Arena planning when expansion is needed,
+then store the exact expanded prompt as benchmark input. Never use hidden
+generation-time prompt enhancement because the expanded text would escape the
+plan and lineage fingerprints.
 
 LTX source-audio and first/last-frame conditioning are supported by the narrow
 Reel Factory worker:
@@ -231,6 +242,11 @@ uv run --package reel-factory python -m reel_factory.motion_generate \
   --prompt "Natural conversational delivery with stable facial identity" \
   --duration 6 --steps 15 --out /absolute/review-only.mp4
 ```
+
+Source-audio Q8 uses the same recommended HQ two-stage family as Q8 generated
+audio: res_2s stage 1 at 15 steps, then the distilled-LoRA full-resolution
+refinement at 3 steps. It does not silently drop to the standard 30-step Euler
+pipeline while retaining an HQ label.
 
 Q8 keyframe interpolation, retake, and extension are explicit tasks rather than
 hidden post-processing fallbacks:
@@ -265,7 +281,7 @@ scripts/creator-os generate --mode local_wan --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/portrait.jpg \
   --motion-model local_longcat_avatar15_q4_mlx \
   --motion-task audio_image_to_video --audio /absolute/dialogue.wav \
-  --motion-prompt "Natural direct-to-camera delivery with stable identity" \
+  --motion-prompt "A young woman with long dark hair is speaking naturally to the camera, smiling gently in a softly lit bedroom while the portrait framing remains steady" \
   --duration 4 --seed 42 --steps 8
 ```
 
@@ -274,8 +290,15 @@ Whisper features offline; derives synchronized PCM/AAC audio for the MP4 while
 preserving the exact source-audio hash; retains a hashed WAV sidecar; and fails
 if either artifact is absent. It does not call the
 upstream demo CLI, use its hard-coded sample media, or accept a silent MP4 as a
-success. A dry-run proves routing only. It does not prove this experimental
-model can produce acceptable output on the current Mac.
+success. It binds and rechecks the pinned MLX runtime's exact 8-step DMD
+schedule, 25 fps, and disentangled text/audio CFG of `4.0/4.0`; the official
+recommended audio-CFG range is 3-5. Prompts must explicitly describe speaking
+or talking and contain enough appearance, action, and scene context to avoid
+the short-prompt failure mode called out by the model creators. The upstream
+CUDA continuation controls (`ref_img_index` and `mask_frame_range`) are not
+implemented by the pinned single-segment MLX pipeline and Creator OS does not
+pretend otherwise. A dry-run proves routing only. It does not prove this
+experimental model can produce acceptable output on the current Mac.
 
 Source audio and generated audio are mutually exclusive. Wan does not accept
 audio. LTX audio is muxed into the derivative MP4 and retained as a hashed WAV

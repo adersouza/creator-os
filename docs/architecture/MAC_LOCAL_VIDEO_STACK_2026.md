@@ -60,16 +60,32 @@ frame count remains `8k+1`, matching LTX-2.3's published geometry contract.
   tiling stay off (`1`) unless a measured 1080p, 8-second-or-longer run exceeds
   the admitted memory envelope. Independent spatial tiles can damage a face
   that crosses tile boundaries and are not a quality preset.
-- Image-to-video prompts describe only changes from the supplied first frame:
-  literal, chronological subject motion, any requested camera movement, and
-  the synchronized soundscape. Prompt enhancement must happen before Arena
-  planning so the exact expanded text is fingerprinted; hidden runtime
-  expansion is not acceptable evidence.
+- Image-to-video prompts use one literal, chronological paragraph of at most
+  200 words: main action, gestures, source-consistent appearance and
+  environment, camera behavior, lighting, and synchronized soundscape. Prompt
+  enhancement must happen before Arena planning so the exact expanded text is
+  fingerprinted; hidden runtime expansion is not acceptable evidence.
 
 The installed Q4 and Q8 manifests already bind the required Gemma text encoder,
 audio/video components, v1.1 spatial upscaler, and (for Q8) distilled LoRA.
 The temporal upscaler and optional control/LipDub LoRAs are not current
 requirements for the adopted pipelines and are not downloaded speculatively.
+
+## Creator-Recommended Runtime Recipes
+
+| Active model | Creator OS recipe | Conformance |
+|---|---|---|
+| Wan 2.2 TI2V-5B Q8 | 704x1280, 24 fps, 40 steps, guidance 5.0, UniPC, automatic VAE tiling | Matches the pinned MLX conversion card and config. The official CUDA source uses 50 steps; that is a distinct unqualified recipe. |
+| Wan 2.2 I2V-A14B Q4 | 704x1280, 16 fps, 40 steps, dual guidance 3.5/3.5, UniPC, automatic VAE tiling | Matches the official Wan config and installed q4 config. Aggressive 256-pixel tiling is not a quality default. |
+| LTX-2.3 Q4 distilled | 576x1024, 24 fps, 8-step distilled two-stage path, v1.1 2x spatial upscaler, low-RAM streaming, no tiling | Matches the pinned MLX `DistilledPipeline`; intended for fast qualification, not final model promotion by assumption. |
+| LTX-2.3 Q8 HQ | 576x1024, 24 fps, res_2s 15-step stage 1 plus 3-step distilled-LoRA refinement, low-RAM streaming, no tiling | Matches the pinned MLX HQ pipeline for generated and source-audio runs. |
+| LongCat Avatar 1.5 Q4 | 480x832, 25 fps, 8-step DMD, text/audio CFG 4.0/4.0, explicit source speech | Matches the pinned MLX single-segment pipeline. Official CUDA continuation controls and 720p super-resolution are not available in this port, so it remains experimental. |
+
+Prompts are model inputs, not untracked convenience text. LTX uses the
+cinematographic format above. LongCat requires an explicit speaking/talking cue
+plus appearance, action, and scene context. Wan prompt expansion belongs to the
+separately reviewed Wan qualification path; this decision record does not
+duplicate it.
 
 Upstream references: [MLX Video](https://github.com/Blaizzy/mlx-video),
 [LTX 2 MLX](https://github.com/dgrauet/ltx-2-mlx),
