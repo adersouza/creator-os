@@ -166,6 +166,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn,
         "audio_catalog",
         {
+            "canonical_track_id": "TEXT",
+            "canonical_title": "TEXT",
+            "canonical_artists_json": "TEXT NOT NULL DEFAULT '[]'",
+            "variant": "TEXT",
             "confidence": "REAL",
             "safe_usage_notes": "TEXT",
             "trend_score": "REAL",
@@ -182,7 +186,28 @@ def init_db(conn: sqlite3.Connection) -> None:
             "example_reels_json": "TEXT NOT NULL DEFAULT '[]'",
             "performance_summary_json": "TEXT NOT NULL DEFAULT '{}'",
             "fatigue_json": "TEXT NOT NULL DEFAULT '{}'",
+            "lifecycle_state": "TEXT NOT NULL DEFAULT 'EVERGREEN'",
+            "pinned": "INTEGER NOT NULL DEFAULT 0",
+            "active": "INTEGER NOT NULL DEFAULT 0",
+            "last_seen_refresh_id": "TEXT",
+            "consecutive_absences": "INTEGER NOT NULL DEFAULT 0",
+            "last_seen_at": "TEXT",
+            "activated_at": "TEXT",
+            "refresh_metadata_json": "TEXT NOT NULL DEFAULT '{}'",
         },
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_audio_catalog_canonical
+        ON audio_catalog(canonical_track_id)
+        WHERE canonical_track_id IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_audio_catalog_lifecycle
+        ON audio_catalog(active, lifecycle_state, last_seen_at)
+        """
     )
     _ensure_columns(
         conn,

@@ -1,0 +1,84 @@
+{
+  "success": true,
+  "platform": "tiktok",
+  "endpoint": "/v1/tiktok/trending",
+  "observed_at": "2026-07-24T12:00:00Z",
+  "request_id": "req_tiktok_redacted",
+  "credits_used": 5,
+  "credits_remaining": 994,
+  "data": {
+    "items": [
+      {
+        "post": {
+          "id": "video_101",
+          "content": {
+            "text": "first real schema example"
+          },
+          "author": {
+            "username": "creator_one",
+            "display_name": "Creator One"
+          },
+          "engagement": {
+            "views": 10000,
+            "likes": 800,
+            "comments": 100,
+            "shares": 100
+          },
+          "published_at": "2026-07-23T12:00:00Z",
+          "ext": {
+            "music_id": "tt_music_501",
+            "music_title": "Midnight Glow (Sped Up)",
+            "music_author": "Example Artist",
+            "published_at_epoch": 1784808000
+          }
+        },
+        "region": "US"
+      },
+      {
+        "post": {
+          "id": "video_102",
+          "content": {
+            "text": "second appearance"
+          },
+          "author": {
+            "username": "creator_two"
+          },
+          "engagement": {
+            "views": 20000,
+            "likes": 1600,
+            "comments": 200,
+            "shares": 200
+          },
+          "published_at": "2026-07-22T12:00:00Z",
+          "ext": {
+            "music_id": "tt_music_501"
+          }
+        },
+        "region": "US"
+      },
+      {
+        "post": {
+          "id": "video_103",
+          "content": {
+            "text": "metadata resolved later"
+          },
+          "author": {
+            "username": "creator_three"
+          },
+          "engagement": {
+            "views": 5000,
+            "likes": 300,
+            "comments": 30,
+            "shares": 20
+          },
+          "published_at": "2026-07-21T12:00:00Z",
+          "ext": {
+            "music_id": "tt_music_opaque"
+          }
+        },
+        "region": "US"
+      }
+    ],
+    "dropped": 0
+  }
+}

@@ -91,18 +91,37 @@ def _candidate_score(
     segment_quality: float | None,
 ) -> tuple[float, list[str]]:
     reasons: list[str] = []
-    rank = max(1, int(candidate.current_rank or 100))
-    rank_component = 26.0 / math.sqrt(rank)
-    velocity = max(0.0, float(candidate.usage_velocity or 0.0))
-    velocity_component = min(18.0, math.log1p(velocity) * 1.7)
-    usage_component = min(
-        10.0,
-        math.log1p(max(0, int(candidate.usage_total or 0))) * 0.55,
+    rank_component = (
+        26.0 / math.sqrt(max(1, int(candidate.current_rank)))
+        if candidate.current_rank is not None
+        else 0.0
+    )
+    velocity = (
+        max(0.0, float(candidate.usage_velocity))
+        if candidate.usage_velocity is not None
+        else None
+    )
+    velocity_component = (
+        min(18.0, math.log1p(velocity) * 1.7) if velocity is not None else 0.0
+    )
+    usage_component = (
+        min(
+            10.0,
+            math.log1p(max(0, int(candidate.usage_total))) * 0.55,
+        )
+        if candidate.usage_total is not None
+        else 0.0
     )
     platform_count = len({value.platform for value in candidate.platform_sound_ids})
     cross_platform_component = min(12.0, max(0, platform_count - 1) * 6.0)
-    freshness = float(candidate.freshness_hours or 24 * 365)
-    freshness_component = max(0.0, 12.0 - freshness / (24 * 7))
+    freshness = (
+        float(candidate.freshness_hours)
+        if candidate.freshness_hours is not None
+        else None
+    )
+    freshness_component = (
+        max(0.0, 12.0 - freshness / (24 * 7)) if freshness is not None else 0.0
+    )
     creative_tags = {
         *context.visual_tags,
         *context.motion_tags,
@@ -115,17 +134,72 @@ def _candidate_score(
         0.0,
     )
     prior_component = max(-8.0, min(10.0, float(prior)))
-    saturation_penalty = max(0.0, min(1.0, float(candidate.saturation or 0))) * 14
+    saturation_penalty = (
+        max(0.0, min(1.0, float(candidate.saturation))) * 14
+        if candidate.saturation is not None
+        else 0.0
+    )
     segment_component = max(0.0, min(1.0, float(segment_quality or 0))) * 10
+    labels = candidate.advisory_labels
+    sample_appearances = _optional_float(labels.get("sampleAppearanceCount"))
+    total_engagement = _optional_float(labels.get("totalEngagement"))
+    sample_component = (
+        min(4.0, math.log1p(max(0.0, sample_appearances)) * 1.5)
+        if sample_appearances is not None
+        else 0.0
+    )
+    engagement_component = (
+        min(8.0, math.log1p(max(0.0, total_engagement)) * 0.5)
+        if total_engagement is not None
+        else 0.0
+    )
+    chart_type = str(labels.get("chartType") or "").lower()
+    rank_gain = (
+        candidate.previous_rank - candidate.current_rank
+        if candidate.previous_rank is not None and candidate.current_rank is not None
+        else _optional_float(labels.get("rankMovement"))
+    )
+    chart_component = 7.0 if chart_type == "breakout" else 0.0
+    new_component = 5.0 if labels.get("newToTop100") is True else 0.0
+    movement_component = (
+        min(8.0, max(-4.0, rank_gain * 0.25)) if rank_gain is not None else 0.0
+    )
+    quality_component = sum(
+        max(0.0, min(1.0, value)) * weight
+        for value, weight in (
+            (_optional_float(labels.get("candidateAudioQuality")), 4.0),
+            (_optional_float(labels.get("hookQuality")), 4.0),
+            (_optional_float(labels.get("creatorFit")), 5.0),
+            (_optional_float(labels.get("visualMotionFit")), 4.0),
+        )
+        if value is not None
+    )
+    overuse_penalty = (
+        max(0.0, min(1.0, value)) * 8.0
+        if (value := _optional_float(labels.get("fleetOveruse"))) is not None
+        else 0.0
+    )
     if context.speaking and "talking" not in mood_tags:
         fit_component -= 3
         reasons.append("speaking_fit_penalty")
     if platform_count > 1:
         reasons.append("cross_platform_presence")
-    if velocity > 0:
+    if sample_appearances is not None:
+        reasons.append("trend_sample_appearances")
+    if total_engagement is not None:
+        reasons.append("available_engagement_evidence")
+    if velocity is not None and velocity > 0:
         reasons.append("positive_usage_velocity")
-    if freshness <= 24 * 14:
+    if freshness is not None and freshness <= 24 * 14:
         reasons.append("fresh")
+    if chart_type == "breakout":
+        reasons.append("breakout_chart")
+    if labels.get("newToTop100") is True:
+        reasons.append("new_to_top_100")
+    if rank_gain is not None and rank_gain > 0:
+        reasons.append("positive_rank_movement")
+    if quality_component > 0:
+        reasons.append("available_quality_evidence")
     if fit_component > 0:
         reasons.append("creative_tag_match")
     if segment_component > 0:
@@ -135,24 +209,60 @@ def _candidate_score(
         + velocity_component
         + usage_component
         + cross_platform_component
+        + sample_component
+        + engagement_component
         + freshness_component
         + fit_component
         + prior_component
         + segment_component
+        + chart_component
+        + new_component
+        + movement_component
+        + quality_component
         - saturation_penalty
+        - overuse_penalty
     )
     return score, reasons
 
 
 def _bucket(candidate: TrendCandidate) -> str:
-    freshness = float(candidate.freshness_hours or 24 * 365)
-    velocity = float(candidate.usage_velocity or 0)
-    saturation = float(candidate.saturation or 0)
-    usage = int(candidate.usage_total or 0)
-    if freshness <= 24 * 14 and velocity >= 500 and saturation < 0.65:
+    freshness = candidate.freshness_hours
+    velocity = candidate.usage_velocity
+    saturation = candidate.saturation
+    usage = candidate.usage_total
+    rank_gain = (
+        candidate.previous_rank - candidate.current_rank
+        if candidate.previous_rank is not None and candidate.current_rank is not None
+        else _optional_float(candidate.advisory_labels.get("rankMovement"))
+    )
+    if (
+        candidate.advisory_labels.get("newToTop100") is True
+        or str(candidate.advisory_labels.get("chartType") or "").lower() == "breakout"
+        or (rank_gain is not None and rank_gain >= 10)
+        or (
+            freshness is not None
+            and freshness <= 24 * 14
+            and velocity is not None
+            and velocity >= 500
+            and (saturation is None or saturation < 0.65)
+        )
+    ):
         return "BREAKOUT"
-    if velocity >= 1000 or (candidate.current_rank or 10**9) <= 20:
+    if (velocity is not None and velocity >= 1000) or (
+        candidate.current_rank is not None and candidate.current_rank <= 20
+    ):
         return "HOT"
-    if usage >= 100_000:
+    if usage is not None and usage >= 100_000:
         return "PROVEN"
     return "EVERGREEN"
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

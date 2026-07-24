@@ -179,6 +179,55 @@ def test_status_and_doctor_use_the_exact_project_venv(
     ]
 
 
+def test_audio_refresh_routes_to_bounded_audio_radar_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    namespace = runpy.run_path(str(CLI))
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], *, cwd: Path = ROOT) -> int:
+        commands.append(command)
+        return 0
+
+    namespace["main"].__globals__["_run"] = fake_run
+
+    assert (
+        namespace["main"](
+            [
+                "audio",
+                "refresh",
+                "--region",
+                "US",
+                "--max-new",
+                "10",
+                "--max-active",
+                "30",
+                "--apply",
+            ]
+        )
+        == 0
+    )
+    assert commands == [
+        [
+            "uv",
+            "run",
+            "--package",
+            "campaign-factory",
+            "python",
+            "-m",
+            "campaign_factory.audio_radar.cli",
+            "refresh",
+            "--region",
+            "US",
+            "--max-new",
+            "10",
+            "--max-active",
+            "30",
+            "--apply",
+        ]
+    ]
+
+
 def test_create_routes_intent_to_production_batch_without_internal_paths(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

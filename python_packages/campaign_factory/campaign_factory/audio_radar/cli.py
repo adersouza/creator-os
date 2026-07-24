@@ -20,6 +20,7 @@ from .normalization import normalize_candidates
 from .pipeline import fulfill_embedded_trending
 from .providers import SocialCrawlInstagramProvider, TokchartTrendProvider
 from .ranking import AudioMatchContext, rank_candidates
+from .refresh import RefreshPaths, refresh_audio_library
 
 
 def _now() -> str:
@@ -37,6 +38,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     discover.add_argument("--region")
     discover.add_argument("--limit", type=int, default=25)
+
+    refresh = commands.add_parser("refresh")
+    refresh.add_argument("--region", default="US")
+    refresh.add_argument("--max-new", type=int, default=20)
+    refresh.add_argument("--max-active", type=int, default=75)
+    refresh_mode = refresh.add_mutually_exclusive_group(required=True)
+    refresh_mode.add_argument("--dry-run", action="store_true")
+    refresh_mode.add_argument("--apply", action="store_true")
+    refresh.add_argument("--database", type=Path)
+    refresh.add_argument("--cache-dir", type=Path)
+    refresh.add_argument("--receipts-dir", type=Path)
+    refresh.add_argument("--lock-file", type=Path)
 
     bind = commands.add_parser("bind-receipt")
     bind.add_argument("--database", type=Path, required=True)
@@ -80,6 +93,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "provider": provider.provider_name,
             "candidates": [value.as_dict() for value in candidates],
         }
+    if args.command == "refresh":
+        defaults = RefreshPaths.defaults()
+        return refresh_audio_library(
+            region=args.region,
+            max_new=args.max_new,
+            max_active=args.max_active,
+            apply=args.apply,
+            paths=RefreshPaths(
+                database=(args.database or defaults.database).expanduser().resolve(),
+                cache=(args.cache_dir or defaults.cache).expanduser().resolve(),
+                receipts=(args.receipts_dir or defaults.receipts)
+                .expanduser()
+                .resolve(),
+                lock=(args.lock_file or defaults.lock).expanduser().resolve(),
+            ),
+        )
     if args.command == "bind-receipt":
         raw_database = args.database.expanduser()
         raw_receipt = args.receipt.expanduser()
@@ -188,3 +217,7 @@ def main() -> int:
     result = run(build_parser().parse_args())
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

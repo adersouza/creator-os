@@ -91,15 +91,38 @@ def normalize_candidate(candidate: TrendCandidate) -> TrendCandidate:
         )
     artists = tuple(value for value in (primary_artist, *featured) if value)
     canonical_artists = tuple(dict.fromkeys(artists))
-    identity = f"{title}|{'|'.join(canonical_artists)}"
+    canonical_variant = _plain(candidate.variant or inferred_variant or "")
+    if title and canonical_artists:
+        identity = f"{title}|{'|'.join(canonical_artists)}|{canonical_variant}"
+    else:
+        sound_identity = "|".join(
+            sorted(
+                f"{value.platform}:{value.sound_id}:{value.region or ''}"
+                for value in candidate.platform_sound_ids
+            )
+        )
+        identity = f"provider-sound-id|{sound_identity}|{canonical_variant}"
     canonical_track_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    observation = {
+        "provider": candidate.provider,
+        "candidateId": candidate.candidate_id,
+        "observedAt": candidate.observed_at,
+        "region": candidate.region,
+        "rank": candidate.current_rank,
+        "previousRank": candidate.previous_rank,
+        **candidate.advisory_labels,
+    }
     return replace(
         candidate,
         canonical_track_id=canonical_track_id,
         canonical_title=title,
         canonical_artists=canonical_artists,
         featured_artists=featured,
-        variant=candidate.variant or inferred_variant,
+        variant=canonical_variant or None,
+        advisory_labels={
+            **candidate.advisory_labels,
+            "observations": [observation],
+        },
     )
 
 
@@ -108,8 +131,34 @@ def normalize_candidates(
 ) -> list[TrendCandidate]:
     """Normalize and merge duplicate platform wrappers for the same song."""
 
+    complete_metadata_by_sound = {
+        (sound.platform, sound.sound_id): candidate
+        for candidate in candidates
+        if candidate.title.strip() and candidate.artist.strip()
+        for sound in candidate.platform_sound_ids
+    }
     grouped: dict[str, TrendCandidate] = {}
     for raw in candidates:
+        metadata_match = next(
+            (
+                complete_metadata_by_sound[(sound.platform, sound.sound_id)]
+                for sound in raw.platform_sound_ids
+                if (sound.platform, sound.sound_id) in complete_metadata_by_sound
+            ),
+            None,
+        )
+        if metadata_match is not None and (
+            not raw.title.strip() or not raw.artist.strip()
+        ):
+            raw = replace(
+                raw,
+                title=raw.title or metadata_match.title,
+                artist=raw.artist or metadata_match.artist,
+                advisory_labels={
+                    **raw.advisory_labels,
+                    "metadataEnrichedFromSharedSoundId": True,
+                },
+            )
         candidate = normalize_candidate(raw)
         key = str(candidate.canonical_track_id)
         existing = grouped.get(key)
@@ -126,7 +175,10 @@ def normalize_candidates(
             current_rank=_minimum(existing.current_rank, candidate.current_rank),
             previous_rank=_minimum(existing.previous_rank, candidate.previous_rank),
             usage_total=_maximum(existing.usage_total, candidate.usage_total),
-            usage_velocity=_sum(existing.usage_velocity, candidate.usage_velocity),
+            usage_velocity=_maximum(
+                existing.usage_velocity,
+                candidate.usage_velocity,
+            ),
             freshness_hours=_minimum(
                 existing.freshness_hours,
                 candidate.freshness_hours,
@@ -135,8 +187,12 @@ def normalize_candidates(
             saturation=_maximum(existing.saturation, candidate.saturation),
             mood_tags=tuple(dict.fromkeys((*existing.mood_tags, *candidate.mood_tags))),
             locator=existing.locator or candidate.locator,
+            advisory_labels=_merge_advisory_labels(
+                existing.advisory_labels,
+                candidate.advisory_labels,
+            ),
         )
-    return sorted(
+    merged = sorted(
         grouped.values(),
         key=lambda item: (
             item.current_rank is None,
@@ -144,6 +200,21 @@ def normalize_candidates(
             str(item.canonical_track_id),
         ),
     )
+    return [
+        replace(
+            item,
+            advisory_labels={
+                **item.advisory_labels,
+                "crossPlatformMatch": (
+                    len({sound.platform for sound in item.platform_sound_ids}) > 1
+                ),
+                "observedPlatforms": sorted(
+                    {sound.platform for sound in item.platform_sound_ids}
+                ),
+            },
+        )
+        for item in merged
+    ]
 
 
 def _merge_sound_ids(
@@ -167,7 +238,16 @@ def _maximum(left: int | float | None, right: int | float | None):
     return max(values) if values else None
 
 
-def _sum(left: float | None, right: float | None) -> float | None:
-    if left is None and right is None:
-        return None
-    return float(left or 0) + float(right or 0)
+def _merge_advisory_labels(
+    left: dict[str, object],
+    right: dict[str, object],
+) -> dict[str, object]:
+    observations: list[object] = []
+    for value in (left.get("observations"), right.get("observations")):
+        if isinstance(value, list):
+            observations.extend(value)
+    return {
+        **left,
+        **right,
+        "observations": observations,
+    }

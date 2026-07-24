@@ -1054,6 +1054,10 @@ CREATE TABLE IF NOT EXISTS reference_knowledge_packs (
 CREATE TABLE IF NOT EXISTS audio_catalog (
   id TEXT PRIMARY KEY,
   source_audio_id TEXT,
+  canonical_track_id TEXT,
+  canonical_title TEXT,
+  canonical_artists_json TEXT NOT NULL DEFAULT '[]',
+  variant TEXT,
   title TEXT NOT NULL,
   artist_name TEXT,
   platform TEXT NOT NULL,
@@ -1083,6 +1087,14 @@ CREATE TABLE IF NOT EXISTS audio_catalog (
   example_reels_json TEXT NOT NULL DEFAULT '[]',
   performance_summary_json TEXT NOT NULL DEFAULT '{}',
   fatigue_json TEXT NOT NULL DEFAULT '{}',
+  lifecycle_state TEXT NOT NULL DEFAULT 'EVERGREEN',
+  pinned INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 0,
+  last_seen_refresh_id TEXT,
+  consecutive_absences INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  activated_at TEXT,
+  refresh_metadata_json TEXT NOT NULL DEFAULT '{}',
   raw_json TEXT NOT NULL DEFAULT '{}',
   imported_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -1152,6 +1164,50 @@ CREATE TABLE IF NOT EXISTS audio_performance_rollups (
   FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS audio_refresh_runs (
+  id TEXT PRIMARY KEY, region TEXT NOT NULL, apply_mode INTEGER NOT NULL,
+  status TEXT NOT NULL, started_at TEXT NOT NULL, completed_at TEXT,
+  source_status_json TEXT NOT NULL DEFAULT '{}', counts_json TEXT NOT NULL DEFAULT '{}',
+  credits_json TEXT NOT NULL DEFAULT '{}', receipt_path TEXT, candidates_receipt_path TEXT,
+  error_summary TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audio_platform_sound_ids (
+  id TEXT PRIMARY KEY, audio_catalog_id TEXT NOT NULL,
+  platform TEXT NOT NULL, sound_id TEXT NOT NULL, region TEXT NOT NULL DEFAULT '',
+  detail_url TEXT, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(platform, sound_id, region),
+  FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS audio_cache_objects (
+  id TEXT PRIMARY KEY, audio_catalog_id TEXT NOT NULL,
+  provider TEXT NOT NULL, platform TEXT NOT NULL, platform_sound_id TEXT NOT NULL,
+  cache_path TEXT NOT NULL, byte_sha256 TEXT NOT NULL,
+  acoustic_fingerprint TEXT NOT NULL, duration_seconds REAL NOT NULL,
+  size_bytes INTEGER NOT NULL, codec TEXT NOT NULL, sample_rate INTEGER, channels INTEGER,
+  source_fingerprint TEXT NOT NULL, source_metadata_json TEXT NOT NULL DEFAULT '{}',
+  cached INTEGER NOT NULL DEFAULT 1, retrieved_at TEXT NOT NULL,
+  pruned_at TEXT, prune_reason TEXT, created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(audio_catalog_id, byte_sha256),
+  FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS audio_cache_prune_receipts (
+  id TEXT PRIMARY KEY, refresh_run_id TEXT NOT NULL,
+  audio_cache_object_id TEXT NOT NULL, audio_catalog_id TEXT NOT NULL,
+  cache_path TEXT NOT NULL, byte_sha256 TEXT NOT NULL,
+  acoustic_fingerprint TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+  reason TEXT NOT NULL, pruned_at TEXT NOT NULL, created_at TEXT NOT NULL,
+  UNIQUE(refresh_run_id, audio_cache_object_id),
+  FOREIGN KEY(refresh_run_id) REFERENCES audio_refresh_runs(id) ON UPDATE CASCADE,
+  FOREIGN KEY(audio_cache_object_id) REFERENCES audio_cache_objects(id) ON UPDATE CASCADE,
+  FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS campaign_reference_plans (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -1169,6 +1225,12 @@ CREATE INDEX IF NOT EXISTS idx_audio_catalog_platform ON audio_catalog(platform,
 CREATE INDEX IF NOT EXISTS idx_audio_trend_snapshots_audio ON audio_trend_snapshots(audio_catalog_id, observed_at);
 CREATE INDEX IF NOT EXISTS idx_audio_selections_recommendation ON audio_selections(recommendation_item_id, status);
 CREATE INDEX IF NOT EXISTS idx_audio_performance_campaign ON audio_performance_rollups(campaign_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_audio_platform_sound_catalog
+  ON audio_platform_sound_ids(audio_catalog_id, platform);
+CREATE INDEX IF NOT EXISTS idx_audio_cache_catalog
+  ON audio_cache_objects(audio_catalog_id, cached, retrieved_at);
+CREATE INDEX IF NOT EXISTS idx_audio_refresh_started
+  ON audio_refresh_runs(started_at, status);
 CREATE INDEX IF NOT EXISTS idx_campaign_reference_plans_campaign ON campaign_reference_plans(campaign_id, created_at);
 
 CREATE TABLE IF NOT EXISTS recommendation_runs (

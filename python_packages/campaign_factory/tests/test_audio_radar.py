@@ -67,7 +67,7 @@ def test_provider_fixtures_normalize_and_preserve_platform_sound_ids() -> None:
         ("instagram", "ig_audio_101"),
         ("tiktok", "tt_sound_202"),
     }
-    assert candidate.usage_velocity == 10_300
+    assert candidate.usage_velocity == 6_100
     assert candidate.locator is not None
 
 
@@ -584,7 +584,7 @@ def test_normalized_candidate_serialization_redacts_locator_value() -> None:
     assert "request_headers" not in serialized["locator"]
 
 
-def test_variant_wrappers_merge_without_losing_variant_observation() -> None:
+def test_distinct_explicit_versions_remain_separate_before_fingerprinting() -> None:
     base = TrendCandidate(
         candidate_id="base",
         provider="fixture",
@@ -602,6 +602,7 @@ def test_variant_wrappers_merge_without_losing_variant_observation() -> None:
 
     normalized = normalize_candidates([base, alternate])
 
-    assert len(normalized) == 1
-    assert normalized[0].canonical_title == "song"
-    assert len(normalized[0].platform_sound_ids) == 2
+    assert len(normalized) == 2
+    assert {value.canonical_title for value in normalized} == {"song"}
+    assert {value.variant for value in normalized} == {"sped up", "slowed"}
+    assert len({value.canonical_track_id for value in normalized}) == 2
