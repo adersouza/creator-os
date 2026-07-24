@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -145,6 +145,7 @@ def test_missing_identity_is_fail_closed_to_first_persisted_origin(tmp_path: Pat
 def test_source_family_reuse_gate_is_shared_by_plan_and_reservation(tmp_path: Path):
     cf = make_factory(tmp_path)
     try:
+        first_window = datetime.now(UTC).replace(microsecond=0)
         first_asset = add_asset(
             cf,
             tmp_path,
@@ -166,14 +167,14 @@ def test_source_family_reuse_gate_is_shared_by_plan_and_reservation(tmp_path: Pa
         cf.domains.distribution.create_distribution_plan(
             first_asset["id"],
             account_id=first["id"],
-            planned_window_start="2026-07-10T12:00:00+00:00",
+            planned_window_start=first_window.isoformat(),
         )
 
         with pytest.raises(AssignmentEligibilityError) as planned:
             cf.domains.distribution.create_distribution_plan(
                 second_asset["id"],
                 account_id=second["id"],
-                planned_window_start="2026-07-11T12:00:00+00:00",
+                planned_window_start=(first_window + timedelta(days=1)).isoformat(),
             )
         assert "source_family_reuse_window" in planned.value.decision["reasonCodes"]
 
