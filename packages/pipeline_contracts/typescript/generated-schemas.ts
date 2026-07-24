@@ -13553,6 +13553,12 @@ export const generatedPipelineContractSchemas = {
 	    "schema": {
 	      "const": "creator_os.runtime_promotion_receipt.v1"
 	    },
+	    "receiptAuthority": {
+	      "const": "authoritative"
+	    },
+	    "approvalEvidenceSource": {
+	      "const": "github_api_live"
+	    },
 	    "promotionId": {
 	      "type": "string",
 	      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -13820,10 +13826,467 @@ export const generatedPipelineContractSchemas = {
 	      "$ref": "evidence_attestation.v1.schema.json"
 	    }
 	  },
+	  "oneOf": [
+	    {
+	      "not": {
+	        "anyOf": [
+	          {
+	            "required": [
+	              "receiptAuthority"
+	            ]
+	          },
+	          {
+	            "required": [
+	              "approvalEvidenceSource"
+	            ]
+	          }
+	        ]
+	      }
+	    },
+	    {
+	      "required": [
+	        "receiptAuthority",
+	        "approvalEvidenceSource"
+	      ],
+	      "properties": {
+	        "status": {
+	          "enum": [
+	            "promoted",
+	            "already_current"
+	          ]
+	        },
+	        "verification": {
+	          "$ref": "#/$defs/successfulVerification"
+	        }
+	      }
+	    },
+	    {
+	      "required": [
+	        "receiptAuthority",
+	        "approvalEvidenceSource"
+	      ],
+	      "properties": {
+	        "status": {
+	          "const": "rolled_back"
+	        },
+	        "verification": {
+	          "$ref": "#/$defs/rolledBackVerification"
+	        }
+	      }
+	    }
+	  ],
 	  "$defs": {
 	    "sha256": {
 	      "type": "string",
 	      "pattern": "^[a-f0-9]{64}$"
+	    },
+	    "tool": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "commandPath",
+	        "resolvedPath",
+	        "sha256",
+	        "fileSize",
+	        "device",
+	        "inode",
+	        "version"
+	      ],
+	      "properties": {
+	        "name": {
+	          "enum": [
+	            "git",
+	            "gh",
+	            "make",
+	            "node",
+	            "pnpm",
+	            "python3",
+	            "uv"
+	          ]
+	        },
+	        "commandPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "resolvedPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "sha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "fileSize": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "device": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "inode": {
+	          "type": "integer",
+	          "minimum": 0
+	        },
+	        "version": {
+	          "type": "string",
+	          "minLength": 1
+	        }
+	      }
+	    },
+	    "toolchainEvidence": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "schema",
+	        "packageJsonPath",
+	        "packageJsonSha256",
+	        "nodeEngine",
+	        "nodeMajor",
+	        "tools",
+	        "evidenceFingerprint"
+	      ],
+	      "properties": {
+	        "schema": {
+	          "const": "creator_os.runtime_toolchain_evidence.v1"
+	        },
+	        "packageJsonPath": {
+	          "type": "string",
+	          "pattern": "^/"
+	        },
+	        "packageJsonSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "nodeEngine": {
+	          "type": "string",
+	          "minLength": 1
+	        },
+	        "nodeMajor": {
+	          "type": "integer",
+	          "minimum": 1
+	        },
+	        "tools": {
+	          "type": "array",
+	          "minItems": 7,
+	          "maxItems": 7,
+	          "prefixItems": [
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "git"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "gh"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "make"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "node"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "pnpm"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "python3"
+	                    }
+	                  }
+	                }
+	              ]
+	            },
+	            {
+	              "allOf": [
+	                {
+	                  "$ref": "#/$defs/tool"
+	                },
+	                {
+	                  "properties": {
+	                    "name": {
+	                      "const": "uv"
+	                    }
+	                  }
+	                }
+	              ]
+	            }
+	          ],
+	          "items": false
+	        },
+	        "evidenceFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "toolchainPreflight": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "passed",
+	        "toolchainEvidence"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "toolchain_preflight"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "toolchainEvidence": {
+	          "$ref": "#/$defs/toolchainEvidence"
+	        }
+	      }
+	    },
+	    "successfulFullVerify": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "command",
+	        "returnCode",
+	        "stdoutSha256",
+	        "stderrSha256",
+	        "passed",
+	        "reportSummary",
+	        "reportError"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "full_verify"
+	        },
+	        "command": {
+	          "type": "array",
+	          "minItems": 2,
+	          "maxItems": 2,
+	          "prefixItems": [
+	            {
+	              "type": "string",
+	              "pattern": "^/"
+	            },
+	            {
+	              "const": "runtime-verify"
+	            }
+	          ],
+	          "items": false
+	        },
+	        "returnCode": {
+	          "const": 0
+	        },
+	        "stdoutSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "stderrSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "reportSummary": {
+	          "type": "null"
+	        },
+	        "reportError": {
+	          "type": "null"
+	        }
+	      }
+	    },
+	    "healthSummary": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "policy",
+	        "checkCount",
+	        "checkNames",
+	        "statusCounts",
+	        "reportFingerprint"
+	      ],
+	      "properties": {
+	        "policy": {
+	          "const": "creator_os.runtime_live_read_only_health.v1"
+	        },
+	        "checkCount": {
+	          "const": 9
+	        },
+	        "checkNames": {
+	          "type": "array",
+	          "minItems": 9,
+	          "maxItems": 9,
+	          "uniqueItems": true,
+	          "items": {
+	            "enum": [
+	              "campaign-database",
+	              "canonical-roots",
+	              "contracts",
+	              "local-config",
+	              "provider-readiness",
+	              "repository",
+	              "runtime",
+	              "threadsdashboard-handshake",
+	              "venv-entrypoints"
+	            ]
+	          }
+	        },
+	        "statusCounts": {
+	          "type": "object",
+	          "additionalProperties": false,
+	          "required": [
+	            "PASS"
+	          ],
+	          "properties": {
+	            "PASS": {
+	              "const": 9
+	            }
+	          }
+	        },
+	        "reportFingerprint": {
+	          "$ref": "#/$defs/sha256"
+	        }
+	      }
+	    },
+	    "successfulLiveHealth": {
+	      "type": "object",
+	      "additionalProperties": false,
+	      "required": [
+	        "name",
+	        "command",
+	        "returnCode",
+	        "stdoutSha256",
+	        "stderrSha256",
+	        "passed",
+	        "reportSummary",
+	        "reportError"
+	      ],
+	      "properties": {
+	        "name": {
+	          "const": "live_read_only_health"
+	        },
+	        "command": {
+	          "type": "array",
+	          "minItems": 4,
+	          "maxItems": 4,
+	          "prefixItems": [
+	            {
+	              "const": "scripts/creator-os"
+	            },
+	            {
+	              "const": "status"
+	            },
+	            {
+	              "const": "--live-read-only"
+	            },
+	            {
+	              "const": "--json"
+	            }
+	          ],
+	          "items": false
+	        },
+	        "returnCode": {
+	          "const": 0
+	        },
+	        "stdoutSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "stderrSha256": {
+	          "$ref": "#/$defs/sha256"
+	        },
+	        "passed": {
+	          "const": true
+	        },
+	        "reportSummary": {
+	          "$ref": "#/$defs/healthSummary"
+	        },
+	        "reportError": {
+	          "type": "null"
+	        }
+	      }
+	    },
+	    "successfulVerification": {
+	      "type": "array",
+	      "minItems": 3,
+	      "maxItems": 3,
+	      "prefixItems": [
+	        {
+	          "$ref": "#/$defs/toolchainPreflight"
+	        },
+	        {
+	          "$ref": "#/$defs/successfulFullVerify"
+	        },
+	        {
+	          "$ref": "#/$defs/successfulLiveHealth"
+	        }
+	      ],
+	      "items": false
+	    },
+	    "rolledBackVerification": {
+	      "type": "array",
+	      "minItems": 1,
+	      "maxItems": 3,
+	      "prefixItems": [
+	        {
+	          "$ref": "#/$defs/toolchainPreflight"
+	        }
+	      ],
+	      "items": {
+	        "type": "object"
+	      }
 	    }
 	  }
 	} as const,

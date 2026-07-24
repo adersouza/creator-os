@@ -82,7 +82,7 @@
     "pipeline_contracts/schemas/repurposing_plan.v1.example.json": "84fa37038776cc0cdb58109e42fefd0f51a0f15867f89ae7c62ceb9696a08578",
     "pipeline_contracts/schemas/repurposing_plan.v1.schema.json": "d9b478c2aa3f6f5b343f33a1cd1a1468a26af7757cc71b7eb96e23773fbd4ca5",
     "pipeline_contracts/schemas/runtime_promotion_approval.v1.schema.json": "e3edfcc75cc274528f1b411550f2538e984f45886a48f4d557bca8961adcae08",
-    "pipeline_contracts/schemas/runtime_promotion_receipt.v1.schema.json": "f53d455cbbce646d1ce397420b26b228dcf2e277afb07d4ca47d69f75cfac4f8",
+    "pipeline_contracts/schemas/runtime_promotion_receipt.v1.schema.json": "3479ff51997d82e890fcda794fa402439dc03ce3c26dd0463346e3379e47fbf7",
     "pipeline_contracts/schemas/threadsdash_handshake.v1.example.json": "0e230af6d7f67c64b174eb2cfc5e79c9e9c8d5f2356b83e5b143e18d7859bf2a",
     "pipeline_contracts/schemas/threadsdash_handshake.v1.schema.json": "c8821b79f4b4996f1fcee02c4040baf3cad263601368d5a15bdac1bbb21b029c",
     "pipeline_contracts/schemas/threadsdash_handshake.v2.example.json": "e8a0a6483344dcd168a3d2f1ee6e5acdbbb008369a94a529dd285c4efe69efff",
@@ -92,7 +92,7 @@
     "pipeline_contracts/schemas/variant_assignment.v1.schema.json": "b6c800ab61d1101d8cebc917979308dad6409b65fb805e10fd163877f9230ccc",
     "pipeline_contracts/schemas/video_analysis.v1.example.json": "6229df16ecdad46763b0f414dd5b7f6eabbf5517c1961a480b236727cdb5fb6e",
     "pipeline_contracts/schemas/video_analysis.v1.schema.json": "3842fc87e1f0e1f43c929ba015a40d672baf1fe82bc7df84d3888095ac17927b",
-    "typescript/generated-schemas.ts": "fefd2ebc28c51794fa09a748fcd5b0ece86681b23c05d56166e634b1925810ec",
+    "typescript/generated-schemas.ts": "ebf16bd5a7246ee31fe3e6d0c9f29f7e0e9b0eebab48324c1e5d709bd5b7ea03",
     "typescript/index.ts": "9d3cd985014c34a3e1a7200c961158380af8d62ea1e2576d207ecbfec6ceb4d8"
   }
 }
