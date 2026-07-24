@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from creator_os_core.fileops import atomic_write_text
 
 from ..audio_policy import build_embedded_trending_audio_intent
+from ..db import connect
 from .acquisition import AudioCache
 from .binding import bind_embedding_receipt
 from .embedding import EmbeddingSettings
@@ -96,7 +96,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         if not isinstance(receipt, dict):
             raise ValueError("embedding receipt must be a JSON object")
-        with sqlite3.connect(database) as conn:
+        with connect(database) as conn:
             return bind_embedding_receipt(
                 conn,
                 rendered_asset_id=args.rendered_asset_id,
