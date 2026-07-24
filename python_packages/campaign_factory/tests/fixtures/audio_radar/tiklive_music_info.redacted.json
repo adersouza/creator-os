@@ -3,5 +3,8 @@
   "title": "Midnight Glow",
   "author": "Example Artist",
   "duration": 31,
-  "play": "https://cdn.example.test/music/tt_sound_202.mp3"
+  "play": "https://cdn.example.test/music/tt_sound_202.mp3",
+  "video_count": 91000,
+  "is_original": false,
+  "cover": "https://cdn.example.test/covers/tt_sound_202.jpg"
 }

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
+import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -21,6 +24,37 @@ class ProviderError(RuntimeError):
 
 class ProviderCredentialError(ProviderError):
     """A required provider credential is absent."""
+
+
+@dataclass(frozen=True)
+class TikLiveAudioDetails:
+    """TikLive metadata plus the allowlisted locator used by AudioCache."""
+
+    locator: AudioLocator
+    title: str | None
+    author: str | None
+    duration_seconds: float | None
+    video_count: int | None
+    classification: str | None
+    cover_url: str | None
+    provider_request_id: str | None = None
+    credits_used: float | None = None
+    credits_remaining: float | None = None
+
+    def receipt(self) -> dict[str, Any]:
+        return {
+            "musicId": self.locator.track_id,
+            "title": self.title,
+            "author": self.author,
+            "durationSeconds": self.duration_seconds,
+            "videoCount": self.video_count,
+            "classification": self.classification,
+            "coverUrl": self.cover_url,
+            "providerRequestId": self.provider_request_id,
+            "creditsUsed": self.credits_used,
+            "creditsRemaining": self.credits_remaining,
+            "locatorAvailable": True,
+        }
 
 
 class TrendProvider(Protocol):
@@ -97,6 +131,7 @@ class SocialCrawlInstagramProvider:
 
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
+        self.last_metadata: dict[str, Any] = {}
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
         key = _required_env(self.credential_env)
@@ -112,6 +147,7 @@ class SocialCrawlInstagramProvider:
         payload = response.json()
         if not isinstance(payload, Mapping) or payload.get("success") is False:
             raise ProviderError("socialcrawl trending response was unsuccessful")
+        self.last_metadata = _provider_metadata(payload, response.headers)
         return self.parse(payload, region=region, limit=limit)
 
     @classmethod
@@ -124,6 +160,7 @@ class SocialCrawlInstagramProvider:
     ) -> list[TrendCandidate]:
         observed_at = _string(payload.get("observed_at")) or _utc_now()
         fingerprint = _payload_fingerprint(payload)
+        provider_metadata = _provider_metadata(payload)
         candidates: list[TrendCandidate] = []
         for index, item in enumerate(_items(payload)[: max(1, limit)], start=1):
             sound_id = _string(
@@ -184,8 +221,235 @@ class SocialCrawlInstagramProvider:
                     ),
                     locator=locator,
                     provider_payload_fingerprint=fingerprint,
+                    advisory_labels={
+                        "coverUrl": _optional_string(
+                            item.get("cover_url")
+                            or item.get("coverUrl")
+                            or item.get("cover")
+                        ),
+                        "durationSeconds": _number(
+                            item.get("duration") or item.get("duration_seconds")
+                        ),
+                        "providerRequestId": provider_metadata.get("requestId"),
+                        "creditsUsed": provider_metadata.get("creditsUsed"),
+                        "creditsRemaining": provider_metadata.get("creditsRemaining"),
+                        "retrievedAt": observed_at,
+                    },
                 )
             )
+        return candidates
+
+
+class TikTokCreativeCenterProvider:
+    """Narrow public-page adapter for Creative Center song trend views."""
+
+    provider_name = "tiktok_creative_center"
+    endpoint = (
+        "https://ads.tiktok.com/business/creativecenter/inspiration/popular/music/pc/en"
+    )
+    _chart_views = (("popular", 7), ("popular", 30), ("breakout", 7), ("breakout", 30))
+
+    def __init__(
+        self,
+        *,
+        session: requests.Session | None = None,
+        max_requests: int = 4,
+    ) -> None:
+        self.session = session or requests.Session()
+        self.max_requests = max(1, min(int(max_requests), len(self._chart_views)))
+        self.last_metadata: dict[str, Any] = {
+            "status": "unavailable",
+            "requests": 0,
+            "views": [],
+        }
+
+    def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
+        candidates: list[TrendCandidate] = []
+        view_receipts: list[dict[str, Any]] = []
+        for chart_type, period_days in self._chart_views[: self.max_requests]:
+            params = {
+                "countryCode": region or "US",
+                "period": str(period_days),
+                "chartType": chart_type,
+            }
+            try:
+                response = self.session.get(
+                    self.endpoint,
+                    params=params,
+                    headers={
+                        "Accept": "text/html,application/json",
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 Chrome/126 Safari/537.36"
+                        ),
+                    },
+                    timeout=30,
+                )
+                if response.status_code != 200:
+                    raise ProviderError(
+                        "creative center public page failed: "
+                        f"HTTP {response.status_code}"
+                    )
+                parsed = self.parse_page(
+                    response.text,
+                    region=region or "US",
+                    chart_type=chart_type,
+                    period_days=period_days,
+                    limit=limit,
+                )
+                candidates.extend(parsed)
+                view_receipts.append(
+                    {
+                        "chartType": chart_type,
+                        "periodDays": period_days,
+                        "status": "available" if parsed else "unavailable",
+                        "candidateCount": len(parsed),
+                    }
+                )
+            except (ProviderError, requests.RequestException, ValueError):
+                view_receipts.append(
+                    {
+                        "chartType": chart_type,
+                        "periodDays": period_days,
+                        "status": "unavailable",
+                        "candidateCount": 0,
+                    }
+                )
+        self.last_metadata = {
+            "status": "available" if candidates else "unavailable",
+            "requests": len(view_receipts),
+            "views": view_receipts,
+        }
+        return candidates[: max(1, limit)]
+
+    @classmethod
+    def parse_page(
+        cls,
+        page: str,
+        *,
+        region: str,
+        chart_type: str,
+        period_days: int,
+        limit: int,
+    ) -> list[TrendCandidate]:
+        """Parse only JSON state embedded in the public song-trends page."""
+
+        payloads = _embedded_json_payloads(page)
+        observed_at = _utc_now()
+        candidates: list[TrendCandidate] = []
+        seen: set[tuple[str, str, int]] = set()
+        for payload in payloads:
+            for item in _creative_center_items(payload):
+                sound_id = _string(
+                    item.get("music_id")
+                    or item.get("musicId")
+                    or item.get("sound_id")
+                    or item.get("soundId")
+                    or item.get("clipId")
+                    or item.get("id")
+                )
+                title = _string(
+                    item.get("title")
+                    or item.get("musicName")
+                    or item.get("song_name")
+                    or item.get("songName")
+                )
+                if not sound_id or not title:
+                    continue
+                item_chart = (
+                    _string(item.get("chart_type") or item.get("chartType"))
+                    or chart_type
+                ).lower()
+                item_period = (
+                    _integer(
+                        item.get("period")
+                        or item.get("period_days")
+                        or item.get("periodDays")
+                    )
+                    or period_days
+                )
+                dedupe_key = (sound_id, item_chart, item_period)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                rank = _integer(
+                    item.get("rank")
+                    or item.get("chart_position")
+                    or item.get("chartPosition")
+                )
+                previous_rank = _integer(
+                    item.get("previous_rank")
+                    or item.get("previousRank")
+                    or item.get("last_rank")
+                    or item.get("lastRank")
+                )
+                rank_movement = _number(
+                    item.get("rank_movement") or item.get("rankMovement")
+                )
+                detail_url = _string(
+                    item.get("detail_url") or item.get("detailUrl") or item.get("url")
+                )
+                if detail_url.startswith("/"):
+                    detail_url = f"https://ads.tiktok.com{detail_url}"
+                if not detail_url:
+                    detail_url = (
+                        "https://ads.tiktok.com/business/creativecenter/song/"
+                        f"{sound_id}/pc/en?countryCode={region}&period={item_period}"
+                    )
+                is_new = bool(
+                    item.get("new_to_top_100")
+                    or item.get("newToTop100")
+                    or item_chart in {"new", "new_to_top_100"}
+                )
+                candidates.append(
+                    TrendCandidate(
+                        candidate_id=(
+                            f"{cls.provider_name}:tiktok:{sound_id}:"
+                            f"{item_chart}:{item_period}"
+                        ),
+                        provider=cls.provider_name,
+                        title=title,
+                        artist=_string(
+                            item.get("artist")
+                            or item.get("author")
+                            or item.get("artistName")
+                        ),
+                        platform_sound_ids=(
+                            PlatformSoundId(
+                                platform="tiktok",
+                                sound_id=sound_id,
+                                region=region,
+                                url=detail_url,
+                            ),
+                        ),
+                        observed_at=_string(
+                            item.get("observed_at") or item.get("observedAt")
+                        )
+                        or observed_at,
+                        region=region,
+                        current_rank=rank,
+                        previous_rank=previous_rank,
+                        usage_total=_integer(
+                            item.get("video_count")
+                            or item.get("videoCount")
+                            or item.get("usage_count")
+                        ),
+                        usage_velocity=_number(
+                            item.get("usage_velocity") or item.get("usageVelocity")
+                        ),
+                        freshness_hours=_number(item.get("freshness_hours")),
+                        provider_payload_fingerprint=_payload_fingerprint(item),
+                        advisory_labels={
+                            "chartType": item_chart,
+                            "rankMovement": rank_movement,
+                            "newToTop100": is_new,
+                            "observationPeriodDays": item_period,
+                            "detailUrl": detail_url,
+                        },
+                    )
+                )
+                if len(candidates) >= max(1, limit):
+                    return candidates
         return candidates
 
 
@@ -318,8 +582,12 @@ class TikLiveAudioResolver:
 
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
+        self.last_metadata: dict[str, Any] = {}
 
     def resolve(self, music_id: str) -> AudioLocator:
+        return self.resolve_details(music_id).locator
+
+    def resolve_details(self, music_id: str) -> TikLiveAudioDetails:
         key = _required_env(self.credential_env)
         response = self.session.get(
             self.endpoint,
@@ -334,7 +602,17 @@ class TikLiveAudioResolver:
         payload = response.json()
         if not isinstance(payload, Mapping):
             raise ProviderError("tiklive music-info response was not an object")
-        return self.parse(payload, music_id=music_id)
+        details = self.parse_details(
+            payload,
+            music_id=music_id,
+            response_headers=response.headers,
+        )
+        self.last_metadata = {
+            "requestId": details.provider_request_id,
+            "creditsUsed": details.credits_used,
+            "creditsRemaining": details.credits_remaining,
+        }
+        return details
 
     @classmethod
     def parse(
@@ -343,17 +621,59 @@ class TikLiveAudioResolver:
         *,
         music_id: str,
     ) -> AudioLocator:
+        return cls.parse_details(payload, music_id=music_id).locator
+
+    @classmethod
+    def parse_details(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        music_id: str,
+        response_headers: Mapping[str, Any] | None = None,
+    ) -> TikLiveAudioDetails:
         play_url = _string(payload.get("play") or payload.get("playUrl"))
         returned_id = _string(payload.get("id") or music_id)
         if returned_id != music_id or not play_url:
             raise ProviderError("tiklive music-info response did not match music ID")
-        return AudioLocator(
-            provider=cls.provider_name,
-            platform="tiktok",
-            track_id=music_id,
-            kind="playable_url",
-            value=play_url,
-            allowed_hosts=_host_suffixes(play_url),
+        metadata = _provider_metadata(payload, response_headers)
+        is_original = payload.get("is_original")
+        if is_original is None:
+            is_original = payload.get("isOriginal")
+        classification = _optional_string(
+            payload.get("classification")
+            or payload.get("music_type")
+            or payload.get("musicType")
+        )
+        if classification is None and is_original is not None:
+            classification = "original" if bool(is_original) else "catalog"
+        return TikLiveAudioDetails(
+            locator=AudioLocator(
+                provider=cls.provider_name,
+                platform="tiktok",
+                track_id=music_id,
+                kind="playable_url",
+                value=play_url,
+                allowed_hosts=_host_suffixes(play_url),
+            ),
+            title=_optional_string(payload.get("title")),
+            author=_optional_string(payload.get("author") or payload.get("artist")),
+            duration_seconds=_number(
+                payload.get("duration") or payload.get("duration_seconds")
+            ),
+            video_count=_integer(
+                payload.get("video_count")
+                or payload.get("videoCount")
+                or payload.get("user_count")
+            ),
+            classification=classification,
+            cover_url=_optional_string(
+                payload.get("cover")
+                or payload.get("cover_url")
+                or payload.get("coverUrl")
+            ),
+            provider_request_id=metadata.get("requestId"),
+            credits_used=metadata.get("creditsUsed"),
+            credits_remaining=metadata.get("creditsRemaining"),
         )
 
 
@@ -419,3 +739,119 @@ def _host_suffixes(url: str) -> tuple[str, ...]:
 
     host = (urlparse(url).hostname or "").lower()
     return (host,) if host else ()
+
+
+def _optional_string(value: object) -> str | None:
+    clean = _string(value)
+    return clean or None
+
+
+def _provider_metadata(
+    payload: Mapping[str, Any],
+    headers: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    headers = headers or {}
+    meta = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else {}
+    credits = (
+        payload.get("credits") if isinstance(payload.get("credits"), Mapping) else {}
+    )
+    request_id = _optional_string(
+        payload.get("request_id")
+        or payload.get("requestId")
+        or meta.get("request_id")
+        or meta.get("requestId")
+        or headers.get("x-request-id")
+        or headers.get("request-id")
+    )
+    used = _number(
+        _first_defined(
+            payload.get("credits_used"),
+            payload.get("creditsUsed"),
+            meta.get("credits_used"),
+            credits.get("used"),
+            headers.get("x-credits-used"),
+        )
+    )
+    remaining = _number(
+        _first_defined(
+            payload.get("credits_remaining"),
+            payload.get("creditsRemaining"),
+            meta.get("credits_remaining"),
+            credits.get("remaining"),
+            headers.get("x-credits-remaining"),
+        )
+    )
+    return {
+        "requestId": request_id,
+        "creditsUsed": used,
+        "creditsRemaining": remaining,
+    }
+
+
+def _first_defined(*values: object) -> object | None:
+    return next((value for value in values if value is not None), None)
+
+
+_SCRIPT_JSON_RE = re.compile(
+    r"<script[^>]*type=[\"']application/(?:ld\\+)?json[\"'][^>]*>(.*?)</script>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_STATE_ASSIGNMENT_RE = re.compile(
+    r"(?:window\\.)?__(?:NEXT_DATA|INITIAL_STATE|SSR_DATA|SIGI_STATE)__?\\s*=\\s*"
+    r"(\{.*?\})\\s*;?\\s*</script>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def _embedded_json_payloads(page: str) -> list[Mapping[str, Any]]:
+    stripped = page.strip()
+    raw_values: list[str] = []
+    if stripped.startswith(("{", "[")):
+        raw_values.append(stripped)
+    raw_values.extend(
+        html.unescape(value).strip() for value in _SCRIPT_JSON_RE.findall(page)
+    )
+    raw_values.extend(
+        html.unescape(value).strip() for value in _STATE_ASSIGNMENT_RE.findall(page)
+    )
+    payloads: list[Mapping[str, Any]] = []
+    for raw in raw_values:
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(decoded, Mapping):
+            payloads.append(decoded)
+    if not payloads:
+        raise ProviderError("creative center page contained no parseable public state")
+    return payloads
+
+
+_CREATIVE_ITEM_KEYS = {
+    "music_list",
+    "musicList",
+    "songs",
+    "items",
+    "trendingSongs",
+    "popularSongs",
+    "breakoutSongs",
+}
+
+
+def _creative_center_items(value: object) -> list[Mapping[str, Any]]:
+    results: list[Mapping[str, Any]] = []
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if (
+                key in _CREATIVE_ITEM_KEYS
+                and isinstance(nested, Sequence)
+                and not isinstance(nested, (str, bytes))
+            ):
+                results.extend(item for item in nested if isinstance(item, Mapping))
+            elif isinstance(nested, (Mapping, list, tuple)):
+                results.extend(_creative_center_items(nested))
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for nested in value:
+            if isinstance(nested, (Mapping, list, tuple)):
+                results.extend(_creative_center_items(nested))
+    return results

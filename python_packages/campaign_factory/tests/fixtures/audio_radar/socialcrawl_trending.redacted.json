@@ -1,6 +1,11 @@
 {
   "success": true,
   "observed_at": "2026-07-24T12:00:00Z",
+  "request_id": "req_redacted_example",
+  "credits": {
+    "used": 1,
+    "remaining": 999
+  },
   "data": {
     "items": [
       {
@@ -14,6 +19,8 @@
         "freshness_hours": 96,
         "saturation": 0.32,
         "audio_url": "https://media.example.test/audio/ig_audio_101.mp3",
+        "cover_url": "https://media.example.test/covers/ig_audio_101.jpg",
+        "duration": 31,
         "vibe_tags": [
           "flirty",
           "soft"

@@ -122,6 +122,28 @@ class AudioCache:
             temporary.unlink(missing_ok=True)
             raise
 
+    def delete_verified(self, path: Path, *, expected_sha256: str) -> int:
+        """Delete one exact cached object after containment and hash checks."""
+
+        raw_path = path.expanduser()
+        if raw_path.is_symlink():
+            raise AudioAcquisitionError("cached audio object must not be a symlink")
+        resolved = raw_path.resolve()
+        try:
+            resolved.relative_to(self.root)
+        except ValueError as exc:
+            raise AudioAcquisitionError(
+                "cached audio object is outside the private cache"
+            ) from exc
+        if not resolved.is_file():
+            raise AudioAcquisitionError("cached audio object is missing")
+        actual_sha256 = _sha256_file(resolved)
+        if actual_sha256 != expected_sha256:
+            raise AudioAcquisitionError("cached audio object hash does not match")
+        size = resolved.stat().st_size
+        resolved.unlink()
+        return size
+
     def _copy_local(self, locator: AudioLocator, temporary: Path) -> None:
         source = Path(locator.value).expanduser()
         if source.is_symlink():

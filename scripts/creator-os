@@ -34,6 +34,19 @@ def _campaign_command(*args: str) -> list[str]:
     return ["uv", "run", "--package", "campaign-factory", "campaign-factory", *args]
 
 
+def _audio_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.audio_radar.cli",
+        *args,
+    ]
+
+
 def _reference_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -226,6 +239,22 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=ROOT.parent / "reference_reels/audio_catalog.json",
     )
+
+    audio = sub.add_parser(
+        "audio",
+        help="operate the private Audio Radar discovery and cache library",
+    )
+    audio_commands = audio.add_subparsers(dest="audio_command", required=True)
+    audio_refresh = audio_commands.add_parser(
+        "refresh",
+        help="run the bounded weekly live audio-library refresh",
+    )
+    audio_refresh.add_argument("--region", default="US")
+    audio_refresh.add_argument("--max-new", type=int, default=20)
+    audio_refresh.add_argument("--max-active", type=int, default=75)
+    audio_refresh_mode = audio_refresh.add_mutually_exclusive_group(required=True)
+    audio_refresh_mode.add_argument("--dry-run", action="store_true")
+    audio_refresh_mode.add_argument("--apply", action="store_true")
 
     create = sub.add_parser(
         "create",
@@ -530,6 +559,21 @@ def main(argv: list[str] | None = None) -> int:
             if code := _run(command):
                 return code
         return 0
+    if args.command == "audio":
+        if args.audio_command != "refresh":
+            raise AssertionError(f"unhandled audio command: {args.audio_command}")
+        return _run(
+            _audio_command(
+                "refresh",
+                "--region",
+                args.region,
+                "--max-new",
+                str(args.max_new),
+                "--max-active",
+                str(args.max_active),
+                "--apply" if args.apply else "--dry-run",
+            )
+        )
     if args.command == "create":
         if args.count <= 0:
             print("--count must be greater than zero", file=sys.stderr)
