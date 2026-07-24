@@ -13844,8 +13844,9 @@ export const generatedPipelineContractSchemas = {
 	          "const": true
 	        },
 	        "requiredStatusChecks": {
+	          "description": "Live consolidated pull-request branch-protection contexts.",
 	          "type": "array",
-	          "minItems": 5,
+	          "minItems": 3,
 	          "uniqueItems": true,
 	          "items": {
 	            "type": "string",
@@ -13864,6 +13865,7 @@ export const generatedPipelineContractSchemas = {
 	      }
 	    },
 	    "checks": {
+	      "description": "Promotion evidence. In single_owner_ci mode every check is bound to approvedCommit; independent_review retains reviewedCommit binding.",
 	      "type": "array",
 	      "minItems": 5,
 	      "uniqueItems": true,
@@ -14156,7 +14158,7 @@ export const generatedPipelineContractSchemas = {
 	            },
 	            "requiredStatusChecks": {
 	              "type": "array",
-	              "minItems": 5,
+	              "minItems": 3,
 	              "uniqueItems": true,
 	              "items": {
 	                "type": "string",

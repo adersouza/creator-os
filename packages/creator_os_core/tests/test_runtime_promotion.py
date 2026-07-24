@@ -20,9 +20,12 @@ from creator_os_core.runtime_promotion import (
     DIAGNOSTIC_TAIL_MAX_CHARS,
     PROMOTED_ENV_BLOCKLIST,
     PROMOTED_REQUIRED_EXECUTABLES,
+    REQUIRED_BRANCH_PROTECTION_CHECKS,
     REQUIRED_CHECKS,
     REQUIRED_LIVE_HEALTH_CHECKS,
+    REQUIRED_PROMOTION_CHECKS,
     RUNTIME_HEALTH_COMMAND,
+    TRUSTED_BRANCH_CHECK_WORKFLOWS,
     TRUSTED_CHECK_APP_ID,
     TRUSTED_CHECK_APP_SLUG,
     TRUSTED_CHECK_WORKFLOWS,
@@ -84,7 +87,21 @@ def test_required_promotion_checks_match_canonical_workflow_provenance() -> None
             security["name"],
             ".github/workflows/security.yml",
         )
-    assert set(TRUSTED_CHECK_WORKFLOWS) == REQUIRED_CHECKS
+    assert set(TRUSTED_CHECK_WORKFLOWS) == REQUIRED_PROMOTION_CHECKS
+    assert REQUIRED_CHECKS == REQUIRED_PROMOTION_CHECKS
+    assert set(TRUSTED_BRANCH_CHECK_WORKFLOWS) == REQUIRED_BRANCH_PROTECTION_CHECKS
+    assert TRUSTED_BRANCH_CHECK_WORKFLOWS["affected"] == (
+        monorepo["name"],
+        ".github/workflows/monorepo-ci.yml",
+    )
+    assert TRUSTED_BRANCH_CHECK_WORKFLOWS["hygiene"] == (
+        monorepo["name"],
+        ".github/workflows/monorepo-ci.yml",
+    )
+    assert TRUSTED_BRANCH_CHECK_WORKFLOWS["Secret scan"] == (
+        security["name"],
+        ".github/workflows/security.yml",
+    )
 
 
 def test_rollback_instructions_are_shell_safe_and_restore_bundle_before_checkout(
@@ -224,11 +241,17 @@ def _approval(path: Path, commit: str) -> Path:
     return path
 
 
-def _single_owner_approval(path: Path, commit: str) -> Path:
+def _single_owner_approval(
+    path: Path,
+    commit: str,
+    *,
+    reviewed_commit: str | None = None,
+) -> Path:
     legacy_path = _approval(path, commit)
     payload = json.loads(legacy_path.read_text(encoding="utf-8"))
     for field in ("reviewedBy", "reviewedAt", "review"):
         payload.pop(field)
+    payload["reviewedCommit"] = reviewed_commit or commit
     payload.update(
         {
             "approvalMode": "single_owner_ci",
@@ -237,7 +260,7 @@ def _single_owner_approval(path: Path, commit: str) -> Path:
             "attestationReason": "Exact merged commit and required CI verified",
             "branchProtection": {
                 "strictStatusChecks": True,
-                "requiredStatusChecks": sorted(REQUIRED_CHECKS),
+                "requiredStatusChecks": sorted(REQUIRED_BRANCH_PROTECTION_CHECKS),
                 "requiredApprovingReviewCount": 0,
                 "requiredConversationResolution": True,
                 "enforceAdmins": True,
@@ -249,6 +272,126 @@ def _single_owner_approval(path: Path, commit: str) -> Path:
     payload["approvalFingerprint"] = _fingerprint(core)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def _single_owner_live_state(approval: dict) -> dict:
+    promotion_checks = [
+        {
+            "id": item["checkRunId"],
+            "name": item["name"],
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": item["detailsUrl"],
+            "completed_at": item["completedAt"],
+            "head_sha": approval["approvedCommit"],
+            "app": {"id": item["appId"], "slug": item["appSlug"]},
+        }
+        for item in approval["checks"]
+    ]
+    branch_run_ids = {
+        "affected": 501,
+        "hygiene": 501,
+        "Secret scan": 502,
+    }
+    branch_checks = [
+        {
+            "id": 1_000 + index,
+            "name": name,
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": (
+                "https://github.com/example/creator-os/actions/runs/"
+                f"{branch_run_ids[name]}/job/{1_000 + index}"
+            ),
+            "completed_at": "2020-01-01T00:20:00Z",
+            "head_sha": approval["reviewedCommit"],
+            "app": {
+                "id": TRUSTED_CHECK_APP_ID,
+                "slug": TRUSTED_CHECK_APP_SLUG,
+            },
+        }
+        for index, name in enumerate(sorted(REQUIRED_BRANCH_PROTECTION_CHECKS))
+    ]
+    workflows = {}
+    for item in approval["checks"]:
+        workflows[item["workflowRunId"]] = {
+            "id": item["workflowRunId"],
+            "name": item["workflowName"],
+            "path": item["workflowPath"],
+            "head_sha": approval["approvedCommit"],
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": approval["repository"]},
+            "head_repository": {"full_name": approval["repository"]},
+        }
+    for name, run_id in branch_run_ids.items():
+        workflow_name, workflow_path = TRUSTED_BRANCH_CHECK_WORKFLOWS[name]
+        workflows[run_id] = {
+            "id": run_id,
+            "name": workflow_name,
+            "path": workflow_path,
+            "head_sha": approval["reviewedCommit"],
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": approval["repository"]},
+            "head_repository": {"full_name": approval["repository"]},
+        }
+    return {
+        "actor": approval["operator"],
+        "operatorPermission": "admin",
+        "adminEnforcement": True,
+        "requiredStatusChecks": sorted(REQUIRED_BRANCH_PROTECTION_CHECKS),
+        "requiredApprovingReviewCount": 0,
+        "promotionChecks": promotion_checks,
+        "branchChecks": branch_checks,
+        "workflows": workflows,
+    }
+
+
+def _single_owner_api(approval: dict, state: dict):
+    def api(_source, endpoint):
+        state.setdefault("calls", []).append(endpoint)
+        if endpoint == "user":
+            return {"login": state["actor"]}
+        if endpoint.endswith(f"/collaborators/{approval['operator']}/permission"):
+            return {"permission": state["operatorPermission"]}
+        if endpoint.endswith("/branches/main/protection"):
+            return {
+                "required_status_checks": {
+                    "strict": True,
+                    "checks": [
+                        {"context": name} for name in state["requiredStatusChecks"]
+                    ],
+                },
+                "required_pull_request_reviews": {
+                    "required_approving_review_count": state[
+                        "requiredApprovingReviewCount"
+                    ]
+                },
+                "required_conversation_resolution": {"enabled": True},
+                "enforce_admins": {"enabled": state["adminEnforcement"]},
+            }
+        if endpoint.endswith(
+            f"/commits/{approval['approvedCommit']}/check-runs?per_page=100"
+        ):
+            checks = list(state["promotionChecks"])
+            if approval["approvedCommit"] == approval["reviewedCommit"]:
+                checks.extend(state["branchChecks"])
+            return {"check_runs": checks}
+        if endpoint.endswith(
+            f"/commits/{approval['reviewedCommit']}/check-runs?per_page=100"
+        ):
+            return {"check_runs": list(state["branchChecks"])}
+        if "/actions/runs/" in endpoint:
+            return state["workflows"].get(int(endpoint.rsplit("/", 1)[-1]))
+        return {
+            "merged_at": "2020-01-01T00:45:00Z",
+            "merge_commit_sha": approval["approvedCommit"],
+            "head": {"sha": approval["reviewedCommit"]},
+            "user": {"login": approval["operator"]},
+        }
+
+    return api
 
 
 @pytest.fixture
@@ -777,18 +920,18 @@ def test_live_github_evidence_binds_merge_review_and_checks(
         _verify_github_approval_evidence(source, approval)
     permission["value"] = "write"
     checks[0]["app"] = {"id": 1, "slug": "lookalike-actions"}
-    with pytest.raises(RuntimePromotionError, match="check_not_live_verified"):
+    with pytest.raises(RuntimePromotionError, match="evidence_untrusted"):
         _verify_github_approval_evidence(source, approval)
     checks[0]["app"] = {
         "id": TRUSTED_CHECK_APP_ID,
         "slug": TRUSTED_CHECK_APP_SLUG,
     }
     workflow_path_override["value"] = ".github/workflows/lookalike.yml"
-    with pytest.raises(RuntimePromotionError, match="workflow_not_live_verified"):
+    with pytest.raises(RuntimePromotionError, match="evidence_workflow_untrusted"):
         _verify_github_approval_evidence(source, approval)
     workflow_path_override["value"] = None
     approval["checks"][0]["checkRunId"] = 999_999
-    with pytest.raises(RuntimePromotionError, match="check_not_live_verified"):
+    with pytest.raises(RuntimePromotionError, match="evidence_substituted"):
         _verify_github_approval_evidence(source, approval)
     approval["checks"][0]["checkRunId"] = checks[0]["id"]
     approval["review"]["reviewId"] = 999_999
@@ -936,88 +1079,247 @@ def test_live_github_evidence_rejects_self_review(repositories, monkeypatch) -> 
         _verify_github_approval_evidence(source, approval)
 
 
-def test_single_owner_ci_evidence_binds_actor_policy_merge_and_checks(
+def test_single_owner_ci_accepts_consolidated_policy_and_exact_main_evidence(
     repositories,
     monkeypatch,
 ) -> None:
-    source, _runtime, _first, second, approval_path, _state = repositories
+    source, _runtime, first, second, approval_path, _state = repositories
     approval = load_runtime_promotion_approval(
-        _single_owner_approval(approval_path, second)
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
     )
     validate_runtime_promotion_approval(approval)
-    checks = [
-        {
-            "id": item["checkRunId"],
-            "name": item["name"],
-            "status": "completed",
-            "conclusion": "success",
-            "details_url": item["detailsUrl"],
-            "completed_at": item["completedAt"],
-            "head_sha": second,
-            "app": {"id": item["appId"], "slug": item["appSlug"]},
-        }
-        for item in approval["checks"]
-    ]
-    actor = {"login": "owner"}
-    review_count = {"value": 0}
+    live = _single_owner_live_state(approval)
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
 
-    def api(_source, endpoint):
-        if endpoint == "user":
-            return actor
-        if endpoint.endswith("/collaborators/owner/permission"):
-            return {"permission": "admin"}
-        if endpoint.endswith("/branches/main/protection"):
-            return {
-                "required_status_checks": {
-                    "strict": True,
-                    "checks": [
-                        {"context": name}
-                        for name in approval["branchProtection"]["requiredStatusChecks"]
-                    ],
-                },
-                "required_pull_request_reviews": {
-                    "required_approving_review_count": review_count["value"]
-                },
-                "required_conversation_resolution": {"enabled": True},
-                "enforce_admins": {"enabled": True},
-            }
-        if endpoint.endswith("/check-runs?per_page=100"):
-            return {"check_runs": checks}
-        if "/actions/runs/" in endpoint:
-            run_id = int(endpoint.rsplit("/", 1)[-1])
-            expected = next(
-                item for item in approval["checks"] if item["workflowRunId"] == run_id
-            )
-            return {
-                "id": run_id,
-                "name": expected["workflowName"],
-                "path": expected["workflowPath"],
-                "head_sha": second,
-                "status": "completed",
-                "conclusion": "success",
-                "repository": {"full_name": "example/creator-os"},
-                "head_repository": {"full_name": "example/creator-os"},
-            }
-        return {
-            "merged_at": "2020-01-01T00:45:00Z",
-            "merge_commit_sha": second,
-            "head": {"sha": second},
-            "user": {"login": "owner"},
-        }
-
-    monkeypatch.setattr("creator_os_core.runtime_promotion._github_api_json", api)
     evidence = _verify_github_approval_evidence(source, approval)
+
     assert evidence["approvalMode"] == "single_owner_ci"
     assert evidence["operator"] == "owner"
     assert evidence["operatorPermission"] == "admin"
     assert evidence["branchProtection"] == approval["branchProtection"]
+    assert len(evidence["checkRunIds"]) == len(REQUIRED_PROMOTION_CHECKS) + len(
+        REQUIRED_BRANCH_PROTECTION_CHECKS
+    )
+    assert not any("/reviews?" in endpoint for endpoint in live["calls"])
 
-    actor["login"] = "different-user"
-    with pytest.raises(RuntimePromotionError, match="operator_identity_mismatch"):
+
+def test_single_owner_ci_missing_required_pr_context_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    live["branchChecks"] = [
+        check for check in live["branchChecks"] if check["name"] != "hygiene"
+    ]
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(RuntimePromotionError, match="required_context_missing:hygiene"):
         _verify_github_approval_evidence(source, approval)
-    actor["login"] = "owner"
-    review_count["value"] = 1
-    with pytest.raises(RuntimePromotionError, match="branch_protection"):
+
+
+def test_single_owner_ci_live_policy_missing_required_context_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    live["requiredStatusChecks"].remove("hygiene")
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="branch_protection_checks_mismatch",
+    ):
+        _verify_github_approval_evidence(source, approval)
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "skipped"])
+def test_single_owner_ci_failed_required_pr_context_blocks(
+    repositories,
+    monkeypatch,
+    conclusion,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    hygiene = next(
+        check for check in live["branchChecks"] if check["name"] == "hygiene"
+    )
+    hygiene["conclusion"] = conclusion
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match=f"required_context_failed:hygiene:{conclusion}",
+    ):
+        _verify_github_approval_evidence(source, approval)
+
+
+def test_single_owner_ci_missing_release_evidence_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    live["promotionChecks"] = [
+        check for check in live["promotionChecks"] if check["name"] != "release"
+    ]
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(RuntimePromotionError, match="evidence_missing:release"):
+        _verify_github_approval_evidence(source, approval)
+
+
+def test_single_owner_ci_pending_release_evidence_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    release = next(
+        check for check in live["promotionChecks"] if check["name"] == "release"
+    )
+    release["status"] = "in_progress"
+    release["conclusion"] = None
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(RuntimePromotionError, match="evidence_pending:release"):
+        _verify_github_approval_evidence(source, approval)
+
+
+def test_single_owner_ci_failed_security_evidence_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    codeql = next(
+        check for check in live["promotionChecks"] if check["name"] == "CodeQL (python)"
+    )
+    codeql["conclusion"] = "failure"
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match=r"evidence_failed:CodeQL \(python\):failure",
+    ):
+        _verify_github_approval_evidence(source, approval)
+
+
+@pytest.mark.parametrize("surface", ["check", "workflow"])
+def test_single_owner_ci_other_sha_promotion_evidence_blocks(
+    repositories,
+    monkeypatch,
+    surface,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    release = next(
+        check for check in live["promotionChecks"] if check["name"] == "release"
+    )
+    if surface == "check":
+        release["head_sha"] = first
+    else:
+        release_run_id = next(
+            item["workflowRunId"]
+            for item in approval["checks"]
+            if item["name"] == "release"
+        )
+        live["workflows"][release_run_id]["head_sha"] = first
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(RuntimePromotionError, match="wrong_sha:release"):
+        _verify_github_approval_evidence(source, approval)
+
+
+def test_single_owner_ci_untrusted_workflow_identity_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    release_run_id = next(
+        item["workflowRunId"]
+        for item in approval["checks"]
+        if item["name"] == "release"
+    )
+    live["workflows"][release_run_id]["path"] = ".github/workflows/lookalike.yml"
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(
+        RuntimePromotionError,
+        match="evidence_workflow_untrusted:release",
+    ):
+        _verify_github_approval_evidence(source, approval)
+
+
+def test_single_owner_ci_admin_enforcement_disabled_blocks(
+    repositories,
+    monkeypatch,
+) -> None:
+    source, _runtime, first, second, approval_path, _state = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    live["adminEnforcement"] = False
+    monkeypatch.setattr(
+        "creator_os_core.runtime_promotion._github_api_json",
+        _single_owner_api(approval, live),
+    )
+
+    with pytest.raises(RuntimePromotionError, match="branch_protection_invalid"):
         _verify_github_approval_evidence(source, approval)
 
 
@@ -1027,12 +1329,14 @@ def test_single_owner_ci_rejects_weakened_declared_policy_and_operator_mismatch(
     source, runtime, _first, second, approval_path, state = repositories
     approval_path = _single_owner_approval(approval_path, second)
     payload = json.loads(approval_path.read_text(encoding="utf-8"))
-    payload["branchProtection"]["requiredStatusChecks"].remove("CodeQL (python)")
+    payload["branchProtection"]["requiredStatusChecks"].remove("hygiene")
     core = dict(payload)
     core.pop("approvalFingerprint")
     payload["approvalFingerprint"] = _fingerprint(core)
     approval_path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(RuntimePromotionError, match="branch_protection_missing_checks"):
+    with pytest.raises(
+        RuntimePromotionError, match="branch_protection_checks_mismatch"
+    ):
         load_runtime_promotion_approval(approval_path)
 
     approval_path = _single_owner_approval(approval_path, second)
@@ -1068,7 +1372,12 @@ def test_single_owner_ci_receipt_remains_contract_valid(repositories) -> None:
         "operatorPermission": "admin",
         "branchProtection": approval["branchProtection"],
         "trustedCheckApp": "github-actions:15368",
-        "checkRunIds": sorted(item["checkRunId"] for item in approval["checks"]),
+        "checkRunIds": sorted(
+            [
+                *(item["checkRunId"] for item in approval["checks"]),
+                *range(1_000, 1_000 + len(REQUIRED_BRANCH_PROTECTION_CHECKS)),
+            ]
+        ),
         "workflowRunIds": sorted(
             {item["workflowRunId"] for item in approval["checks"]}
         ),
@@ -1086,6 +1395,61 @@ def test_single_owner_ci_receipt_remains_contract_valid(repositories) -> None:
     validate_runtime_promotion_receipt(receipt)
     assert receipt["approvalEvidence"]["approvalMode"] == "single_owner_ci"
     assert _validate_runtime_promotion_receipt_payload(receipt) == receipt
+
+    historical = json.loads(json.dumps(receipt))
+    historical["approvalEvidence"]["branchProtection"]["requiredStatusChecks"] = [
+        "CodeQL (javascript-typescript)",
+        "CodeQL (python)",
+        "Secret scan",
+        "Trivy filesystem scan",
+        "architecture",
+        "contracts",
+        "hygiene",
+        "javascript",
+        "python",
+    ]
+    evidence_core = dict(historical["approvalEvidence"])
+    evidence_core.pop("evidenceFingerprint")
+    historical["approvalEvidence"]["evidenceFingerprint"] = _fingerprint(evidence_core)
+    historical = _resign_receipt(historical)
+    validate_runtime_promotion_receipt(historical)
+    assert _validate_runtime_promotion_receipt_payload(historical) == historical
+
+
+def test_single_owner_authorization_leaves_promotion_execution_unchanged(
+    repositories,
+) -> None:
+    source, runtime, first, second, approval_path, state_root = repositories
+    approval = load_runtime_promotion_approval(
+        _single_owner_approval(approval_path, second, reviewed_commit=first)
+    )
+    live = _single_owner_live_state(approval)
+    evidence = _verify_github_approval_evidence(
+        source,
+        approval,
+        api_reader=_single_owner_api(approval, live),
+    )
+
+    receipt = _promote_runtime(
+        source_root=source,
+        runtime_root=runtime,
+        approved_commit=second,
+        approval_path=approval_path,
+        state_root=state_root,
+        operator="owner",
+        dry_run=False,
+        verifier_command=(sys.executable, "-c", "raise SystemExit(0)"),
+        health_command=(sys.executable, "-c", _health_script()),
+        approval_evidence_verifier=lambda _source, _approval: evidence,
+        approval_payload=approval,
+    )
+
+    assert receipt["status"] == "promoted"
+    assert receipt["providerCalls"] == 0
+    assert receipt["productionStateWrites"] == 0
+    assert receipt["rolledBack"] is False
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == second
+    assert Path(receipt["backupManifestPath"]).is_file()
 
 
 def test_dirty_source_is_rejected(repositories) -> None:

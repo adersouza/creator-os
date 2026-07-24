@@ -26,9 +26,18 @@ Two authority modes are accepted:
 - `single_owner_ci` is the normal mode for this single-owner repository. It
   binds an explicit operator attestation to the authenticated GitHub actor and
   requires that actor to have write authority. It also snapshots and rechecks
-  live `main` protection: strict status checks, all nine required code/security
-  checks, conversation resolution, admin enforcement, and zero mandatory human
-  approvals.
+  live `main` protection: strict status checks, the consolidated `affected`,
+  `hygiene`, and `Secret scan` contexts, conversation resolution, admin
+  enforcement, and zero mandatory human approvals. Those three contexts must
+  be successful on the exact merged PR head.
+
+Single-owner promotion evidence is separate from branch protection. The
+approval binds successful `release`, `Secret scan`, both language-specific
+CodeQL checks, and `Trivy filesystem scan` runs on the exact merged
+`origin/main` commit. Promotion verifies their check-run and workflow-run
+identities live. Missing, pending, failed, cancelled, skipped, substituted,
+wrong-commit, or untrusted evidence fails closed. Release and security
+workflows do not need to be permanent PR branch-protection requirements.
 
 Promotion re-reads the pull request, actor permission, branch protection,
 Actions runs, and checks through the GitHub API using the exact
@@ -141,8 +150,10 @@ gh api repos/adersouza/creator-os/branches/main/protection \
 
 The required single-owner result is zero approving reviews, conversation
 resolution enabled, strict status checks enabled, admin enforcement enabled,
-and the complete nine-check inventory preserved. `dismiss_stale_reviews` may
-remain enabled but has no authority when zero reviews are required.
+and exactly `affected`, `hygiene`, and `Secret scan` required. The separate
+release and security evidence is verified on the exact target `main` commit at
+promotion time. `dismiss_stale_reviews` may remain enabled but has no authority
+when zero reviews are required.
 `require_last_push_approval` must be false because it would recreate the
 unavailable second-person gate. Re-read the complete protection payload before
 every promotion; the promotion command also verifies it live.

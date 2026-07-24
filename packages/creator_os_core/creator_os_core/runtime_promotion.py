@@ -61,6 +61,11 @@ TRUSTED_CHECK_WORKFLOWS: Final = {
     "CodeQL (python)": ("Security", ".github/workflows/security.yml"),
     "Trivy filesystem scan": ("Security", ".github/workflows/security.yml"),
 }
+TRUSTED_BRANCH_CHECK_WORKFLOWS: Final = {
+    "affected": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
+    "hygiene": ("Creator OS Monorepo CI", ".github/workflows/monorepo-ci.yml"),
+    "Secret scan": ("Security", ".github/workflows/security.yml"),
+}
 PROMOTED_ENV_ALLOWLIST: Final = frozenset(
     {
         "CI",
@@ -140,7 +145,7 @@ _SENSITIVE_TOKEN = re.compile(
     r"sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\."
     r"[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"
 )
-REQUIRED_CHECKS: Final = frozenset(
+REQUIRED_PROMOTION_CHECKS: Final = frozenset(
     {
         "release",
         "Secret scan",
@@ -149,6 +154,15 @@ REQUIRED_CHECKS: Final = frozenset(
         "Trivy filesystem scan",
     }
 )
+REQUIRED_BRANCH_PROTECTION_CHECKS: Final = frozenset(
+    {
+        "affected",
+        "hygiene",
+        "Secret scan",
+    }
+)
+# Compatibility name for callers that inspect the promotion-evidence inventory.
+REQUIRED_CHECKS: Final = REQUIRED_PROMOTION_CHECKS
 APPROVAL_COMMON_FIELDS: Final = frozenset(
     {
         "schema",
@@ -825,11 +839,16 @@ def _validate_runtime_promotion_approval_payload(
         )
     ):
         raise RuntimePromotionError("runtime_promotion_check_run_identity_invalid")
-    missing = REQUIRED_CHECKS.difference(identities)
+    missing = REQUIRED_PROMOTION_CHECKS.difference(identities)
     if missing:
         raise RuntimePromotionError(
             "runtime_promotion_required_checks_missing:" + ",".join(sorted(missing))
         )
+    evidence_commit = (
+        str(payload["approvedCommit"])
+        if approval_mode == "single_owner_ci"
+        else str(payload["reviewedCommit"])
+    )
     authority_time = (
         str(payload["attestedAt"])
         if approval_mode == "single_owner_ci"
@@ -838,7 +857,7 @@ def _validate_runtime_promotion_approval_payload(
     for check in checks:
         _validate_approval_check(
             check,
-            reviewed_commit=str(payload["reviewedCommit"]),
+            evidence_commit=evidence_commit,
             authority_time=authority_time,
         )
     return payload
@@ -902,6 +921,19 @@ def _validate_single_owner_approval(payload: dict[str, Any]) -> None:
         code="runtime_promotion_operator_attestation_invalid",
     )
     policy = payload.get("branchProtection")
+    checks = _validate_branch_protection_policy(policy)
+    actual_checks = frozenset(checks)
+    if actual_checks != REQUIRED_BRANCH_PROTECTION_CHECKS:
+        missing = REQUIRED_BRANCH_PROTECTION_CHECKS.difference(actual_checks)
+        unexpected = actual_checks.difference(REQUIRED_BRANCH_PROTECTION_CHECKS)
+        raise RuntimePromotionError(
+            "runtime_promotion_branch_protection_checks_mismatch:"
+            f"missing={','.join(sorted(missing))};"
+            f"unexpected={','.join(sorted(unexpected))}"
+        )
+
+
+def _validate_branch_protection_policy(policy: Any) -> list[str]:
     if (
         not isinstance(policy, dict)
         or frozenset(policy) != BRANCH_PROTECTION_FIELDS
@@ -918,18 +950,13 @@ def _validate_single_owner_approval(payload: dict[str, Any]) -> None:
         or any(not isinstance(item, str) or not item.strip() for item in checks)
     ):
         raise RuntimePromotionError("runtime_promotion_branch_protection_invalid")
-    missing = REQUIRED_CHECKS.difference(checks)
-    if missing:
-        raise RuntimePromotionError(
-            "runtime_promotion_branch_protection_missing_checks:"
-            + ",".join(sorted(missing))
-        )
+    return checks
 
 
 def _validate_approval_check(
     check: Any,
     *,
-    reviewed_commit: str,
+    evidence_commit: str,
     authority_time: str,
 ) -> None:
     if not isinstance(check, dict) or check.get("status") != "passed":
@@ -958,7 +985,7 @@ def _validate_approval_check(
         or not isinstance(check.get("checkRunId"), int)
         or int(check["checkRunId"]) <= 0
         or not str(check.get("detailsUrl") or "").startswith("https://")
-        or check.get("headSha") != reviewed_commit
+        or check.get("headSha") != evidence_commit
         or check.get("appId") != TRUSTED_CHECK_APP_ID
         or check.get("appSlug") != TRUSTED_CHECK_APP_SLUG
         or isinstance(check.get("workflowRunId"), bool)
@@ -1033,13 +1060,22 @@ def _verify_github_approval_evidence(
             source,
             repository=repository,
             approval=approval,
+            evidence_commit=str(approval["approvedCommit"]),
             api_reader=reader,
         )
+        branch_check_ids, branch_workflow_runs = _verify_required_branch_checks(
+            source,
+            repository=repository,
+            reviewed_commit=str(approval["reviewedCommit"]),
+            api_reader=reader,
+        )
+        verified_workflow_runs.update(branch_workflow_runs)
         evidence_core = _verify_single_owner_github_authority(
             source,
             repository=repository,
             pull_request_number=pull_request_number,
             approval=approval,
+            verified_branch_check_ids=branch_check_ids,
             verified_workflow_runs=verified_workflow_runs,
             api_reader=reader,
         )
@@ -1057,6 +1093,7 @@ def _verify_github_approval_evidence(
             source,
             repository=repository,
             approval=approval,
+            evidence_commit=str(approval["reviewedCommit"]),
             api_reader=reader,
         )
         evidence_core["workflowRunIds"] = sorted(verified_workflow_runs)
@@ -1127,9 +1164,11 @@ def _normalized_branch_protection(payload: Any) -> dict[str, Any]:
     review_policy = payload.get("required_pull_request_reviews")
     conversations = payload.get("required_conversation_resolution")
     admins = payload.get("enforce_admins")
-    if not all(
-        isinstance(item, dict)
-        for item in (status_checks, review_policy, conversations, admins)
+    if not (
+        isinstance(status_checks, dict)
+        and isinstance(review_policy, dict)
+        and isinstance(conversations, dict)
+        and isinstance(admins, dict)
     ):
         raise RuntimePromotionError("runtime_promotion_branch_protection_not_live")
     checks = status_checks.get("checks")
@@ -1170,6 +1209,7 @@ def _verify_single_owner_github_authority(
     repository: str,
     pull_request_number: int,
     approval: dict[str, Any],
+    verified_branch_check_ids: Sequence[int],
     verified_workflow_runs: dict[int, dict[str, Any]],
     api_reader: GithubApiReader,
 ) -> dict[str, Any]:
@@ -1212,7 +1252,12 @@ def _verify_single_owner_github_authority(
         "operatorPermission": operator_permission,
         "branchProtection": live_policy,
         "trustedCheckApp": f"{TRUSTED_CHECK_APP_SLUG}:{TRUSTED_CHECK_APP_ID}",
-        "checkRunIds": sorted(check["checkRunId"] for check in approval["checks"]),
+        "checkRunIds": sorted(
+            {
+                *(check["checkRunId"] for check in approval["checks"]),
+                *verified_branch_check_ids,
+            }
+        ),
         "workflowRunIds": sorted(verified_workflow_runs),
     }
 
@@ -1222,11 +1267,12 @@ def _verify_live_check_runs(
     *,
     repository: str,
     approval: dict[str, Any],
+    evidence_commit: str,
     api_reader: GithubApiReader,
 ) -> dict[int, dict[str, Any]]:
     check_payload = api_reader(
         source,
-        f"repos/{repository}/commits/{approval['reviewedCommit']}/check-runs?per_page=100",
+        f"repos/{repository}/commits/{evidence_commit}/check-runs?per_page=100",
     )
     if not isinstance(check_payload, dict) or not isinstance(
         check_payload.get("check_runs"), list
@@ -1235,24 +1281,37 @@ def _verify_live_check_runs(
     check_runs = check_payload["check_runs"]
     verified_workflow_runs: dict[int, dict[str, Any]] = {}
     for expected in approval["checks"]:
-        matches = [
+        name = str(expected["name"])
+        id_matches = [
             run
             for run in check_runs
-            if isinstance(run, dict)
-            and run.get("id") == expected["checkRunId"]
-            and run.get("name") == expected["name"]
-            and run.get("status") == "completed"
-            and run.get("conclusion") == "success"
-            and run.get("details_url") == expected["detailsUrl"]
-            and run.get("completed_at") == expected["completedAt"]
-            and run.get("head_sha") == approval["reviewedCommit"]
-            and run.get("app", {}).get("id") == TRUSTED_CHECK_APP_ID
-            and run.get("app", {}).get("slug") == TRUSTED_CHECK_APP_SLUG
+            if isinstance(run, dict) and run.get("id") == expected["checkRunId"]
         ]
-        if len(matches) != 1:
+        if not id_matches:
+            same_name = [
+                run
+                for run in check_runs
+                if isinstance(run, dict) and run.get("name") == name
+            ]
+            reason = "substituted" if same_name else "missing"
+            raise RuntimePromotionError(f"runtime_promotion_evidence_{reason}:{name}")
+        if len(id_matches) != 1:
+            raise RuntimePromotionError(f"runtime_promotion_evidence_ambiguous:{name}")
+        live_check = id_matches[0]
+        if (
+            live_check.get("name") != name
+            or live_check.get("details_url") != expected["detailsUrl"]
+            or live_check.get("completed_at") != expected["completedAt"]
+        ):
             raise RuntimePromotionError(
-                f"runtime_promotion_check_not_live_verified:{expected['name']}"
+                f"runtime_promotion_evidence_substituted:{name}"
             )
+        _verify_live_check_state(
+            live_check,
+            name=name,
+            expected_commit=evidence_commit,
+            error_prefix="runtime_promotion_evidence",
+        )
         workflow_run_id = int(expected["workflowRunId"])
         if workflow_run_id not in verified_workflow_runs:
             workflow_run = api_reader(
@@ -1261,24 +1320,171 @@ def _verify_live_check_runs(
             )
             if not isinstance(workflow_run, dict):
                 raise RuntimePromotionError(
-                    f"runtime_promotion_workflow_not_live_verified:{expected['name']}"
+                    f"runtime_promotion_evidence_workflow_missing:{name}"
                 )
             verified_workflow_runs[workflow_run_id] = workflow_run
         workflow_run = verified_workflow_runs[workflow_run_id]
+        _verify_live_workflow_state(
+            workflow_run,
+            workflow_run_id=workflow_run_id,
+            name=name,
+            expected_commit=evidence_commit,
+            expected_workflow=(
+                str(expected["workflowName"]),
+                str(expected["workflowPath"]),
+            ),
+            repository=repository,
+            error_prefix="runtime_promotion_evidence",
+        )
+    return verified_workflow_runs
+
+
+def _verify_required_branch_checks(
+    source: Path,
+    *,
+    repository: str,
+    reviewed_commit: str,
+    api_reader: GithubApiReader,
+) -> tuple[list[int], dict[int, dict[str, Any]]]:
+    check_payload = api_reader(
+        source,
+        f"repos/{repository}/commits/{reviewed_commit}/check-runs?per_page=100",
+    )
+    if not isinstance(check_payload, dict) or not isinstance(
+        check_payload.get("check_runs"), list
+    ):
+        raise RuntimePromotionError("runtime_promotion_required_contexts_invalid")
+    check_runs = check_payload["check_runs"]
+    check_run_ids: list[int] = []
+    verified_workflow_runs: dict[int, dict[str, Any]] = {}
+    for name in sorted(REQUIRED_BRANCH_PROTECTION_CHECKS):
+        matches = [
+            run
+            for run in check_runs
+            if isinstance(run, dict) and run.get("name") == name
+        ]
+        if not matches:
+            raise RuntimePromotionError(
+                f"runtime_promotion_required_context_missing:{name}"
+            )
+        if len(matches) != 1:
+            raise RuntimePromotionError(
+                f"runtime_promotion_required_context_ambiguous:{name}"
+            )
+        live_check = matches[0]
+        _verify_live_check_state(
+            live_check,
+            name=name,
+            expected_commit=reviewed_commit,
+            error_prefix="runtime_promotion_required_context",
+        )
+        check_run_id = live_check.get("id")
         if (
-            workflow_run.get("id") != workflow_run_id
-            or workflow_run.get("name") != expected["workflowName"]
-            or workflow_run.get("path") != expected["workflowPath"]
-            or workflow_run.get("head_sha") != approval["reviewedCommit"]
-            or workflow_run.get("status") != "completed"
-            or workflow_run.get("conclusion") != "success"
-            or workflow_run.get("repository", {}).get("full_name") != repository
-            or workflow_run.get("head_repository", {}).get("full_name") != repository
+            isinstance(check_run_id, bool)
+            or not isinstance(check_run_id, int)
+            or check_run_id <= 0
         ):
             raise RuntimePromotionError(
-                f"runtime_promotion_workflow_not_live_verified:{expected['name']}"
+                f"runtime_promotion_required_context_untrusted:{name}"
             )
-    return verified_workflow_runs
+        workflow_run_id = _workflow_run_id(
+            str(live_check.get("details_url") or ""),
+            name=name,
+            error_prefix="runtime_promotion_required_context",
+        )
+        if workflow_run_id not in verified_workflow_runs:
+            workflow_run = api_reader(
+                source,
+                f"repos/{repository}/actions/runs/{workflow_run_id}",
+            )
+            if not isinstance(workflow_run, dict):
+                raise RuntimePromotionError(
+                    f"runtime_promotion_required_context_workflow_missing:{name}"
+                )
+            verified_workflow_runs[workflow_run_id] = workflow_run
+        _verify_live_workflow_state(
+            verified_workflow_runs[workflow_run_id],
+            workflow_run_id=workflow_run_id,
+            name=name,
+            expected_commit=reviewed_commit,
+            expected_workflow=TRUSTED_BRANCH_CHECK_WORKFLOWS[name],
+            repository=repository,
+            error_prefix="runtime_promotion_required_context",
+        )
+        check_run_ids.append(check_run_id)
+    return check_run_ids, verified_workflow_runs
+
+
+def _workflow_run_id(details_url: str, *, name: str, error_prefix: str) -> int:
+    match = re.search(r"/actions/runs/([1-9][0-9]*)/", details_url)
+    if match is None:
+        raise RuntimePromotionError(f"{error_prefix}_untrusted:{name}")
+    return int(match.group(1))
+
+
+def _verify_live_check_state(
+    live_check: dict[str, Any],
+    *,
+    name: str,
+    expected_commit: str,
+    error_prefix: str,
+) -> None:
+    if live_check.get("head_sha") != expected_commit:
+        raise RuntimePromotionError(f"{error_prefix}_wrong_sha:{name}")
+    app = live_check.get("app")
+    if (
+        not isinstance(app, dict)
+        or app.get("id") != TRUSTED_CHECK_APP_ID
+        or app.get("slug") != TRUSTED_CHECK_APP_SLUG
+    ):
+        raise RuntimePromotionError(f"{error_prefix}_untrusted:{name}")
+    status = str(live_check.get("status") or "")
+    if status != "completed":
+        raise RuntimePromotionError(
+            f"{error_prefix}_pending:{name}:{status or 'missing'}"
+        )
+    conclusion = str(live_check.get("conclusion") or "")
+    if conclusion != "success":
+        raise RuntimePromotionError(
+            f"{error_prefix}_failed:{name}:{conclusion or 'missing'}"
+        )
+
+
+def _verify_live_workflow_state(
+    workflow_run: Any,
+    *,
+    workflow_run_id: int,
+    name: str,
+    expected_commit: str,
+    expected_workflow: tuple[str, str],
+    repository: str,
+    error_prefix: str,
+) -> None:
+    if not isinstance(workflow_run, dict) or workflow_run.get("id") != workflow_run_id:
+        raise RuntimePromotionError(f"{error_prefix}_workflow_missing:{name}")
+    if workflow_run.get("head_sha") != expected_commit:
+        raise RuntimePromotionError(f"{error_prefix}_workflow_wrong_sha:{name}")
+    workflow_repository = workflow_run.get("repository")
+    head_repository = workflow_run.get("head_repository")
+    if (
+        workflow_run.get("name") != expected_workflow[0]
+        or workflow_run.get("path") != expected_workflow[1]
+        or not isinstance(workflow_repository, dict)
+        or workflow_repository.get("full_name") != repository
+        or not isinstance(head_repository, dict)
+        or head_repository.get("full_name") != repository
+    ):
+        raise RuntimePromotionError(f"{error_prefix}_workflow_untrusted:{name}")
+    status = str(workflow_run.get("status") or "")
+    if status != "completed":
+        raise RuntimePromotionError(
+            f"{error_prefix}_workflow_pending:{name}:{status or 'missing'}"
+        )
+    conclusion = str(workflow_run.get("conclusion") or "")
+    if conclusion != "success":
+        raise RuntimePromotionError(
+            f"{error_prefix}_workflow_failed:{name}:{conclusion or 'missing'}"
+        )
 
 
 def _remote_main_commit(
@@ -1637,11 +1843,9 @@ def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any
         "workflowRunIds",
         "evidenceFingerprint",
     }
-    evidence_mode = (
-        str(approval_evidence.get("approvalMode") or "independent_review")
-        if isinstance(approval_evidence, dict)
-        else ""
-    )
+    if not isinstance(approval_evidence, dict):
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    evidence_mode = str(approval_evidence.get("approvalMode") or "independent_review")
     expected_evidence_fields = (
         single_owner_evidence_fields
         if evidence_mode == "single_owner_ci"
@@ -1649,8 +1853,7 @@ def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any
         | ({"approvalMode"} if "approvalMode" in approval_evidence else set())
     )
     if (
-        not isinstance(approval_evidence, dict)
-        or evidence_mode not in {"independent_review", "single_owner_ci"}
+        evidence_mode not in {"independent_review", "single_owner_ci"}
         or set(approval_evidence) != expected_evidence_fields
     ):
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
@@ -1686,20 +1889,16 @@ def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any
         if not str(approval_evidence.get("operator") or "").strip():
             raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
         try:
-            _validate_single_owner_approval(
-                {
-                    "operator": approval_evidence["operator"],
-                    "attestedAt": payload["createdAt"],
-                    "attestationReason": "Authenticated runtime promotion receipt",
-                    "branchProtection": approval_evidence["branchProtection"],
-                }
-            )
+            _validate_branch_protection_policy(approval_evidence["branchProtection"])
         except RuntimePromotionError as exc:
             raise RuntimePromotionError(
                 "runtime_promotion_receipt_shape_invalid"
             ) from exc
+    minimum_check_runs = len(REQUIRED_PROMOTION_CHECKS)
+    if evidence_mode == "single_owner_ci":
+        minimum_check_runs += len(REQUIRED_BRANCH_PROTECTION_CHECKS)
     for field, minimum in (
-        ("checkRunIds", len(REQUIRED_CHECKS)),
+        ("checkRunIds", minimum_check_runs),
         ("workflowRunIds", 1),
     ):
         values = approval_evidence.get(field)
