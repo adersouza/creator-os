@@ -221,7 +221,7 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
         "--execution",
         "local",
         "--audio",
-        "native_trending_required",
+        "embedded_trending_required",
         "--accounts",
         "stacey-main",
     ]
