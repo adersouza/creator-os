@@ -43,6 +43,13 @@ def motion_request_fingerprint(
     benchmark_recipe: Mapping[str, Any] | None = None,
     analyzer_registry: Mapping[str, Any] | None = None,
     local_motion_admission: Mapping[str, Any] | None = None,
+    audio_policy: str = "embedded_trending_required",
+    audio_track_id: str | None = None,
+    audio_track_name: str | None = None,
+    audio_source: str | None = None,
+    audio_start_offset: float | None = None,
+    audio_volume: float | None = None,
+    audio_selected_reason: str | None = None,
 ) -> str:
     def media(path: Path | None) -> dict[str, str] | None:
         if path is None:
@@ -60,6 +67,13 @@ def motion_request_fingerprint(
         "steps": steps,
         "audio": media(audio_path),
         "generateAudio": generate_audio,
+        "audioPolicy": audio_policy,
+        "audioTrackId": audio_track_id,
+        "audioTrackName": audio_track_name,
+        "audioSource": audio_source,
+        "audioStartOffset": audio_start_offset,
+        "audioVolume": audio_volume,
+        "audioSelectedReason": audio_selected_reason,
         "lastImage": media(last_image_path),
         "sourceVideo": media(source_video_path),
         "retakeStartFrame": retake_start_frame,

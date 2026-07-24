@@ -61,10 +61,12 @@ class AudioOperationsRepository:
         track_id: str | None = None,
         track_name: str | None = None,
         source: str | None = None,
+        audio_policy: str | None = None,
         audio_url: str | None = None,
         native_audio_id: str | None = None,
         local_winner_audio_id: str | None = None,
         selected_reason: str | None = None,
+        volume: float | None = None,
         segment_start_seconds: float | None = None,
         segment_duration_seconds: float | None = None,
         segment_label: str | None = None,
@@ -86,6 +88,32 @@ class AudioOperationsRepository:
                 "track_id, audio_url, native_audio_id, or local_winner_audio_id is required"
             )
         source_value = str(source or "manual").strip() or "manual"
+        policy_value = str(
+            audio_policy
+            or (
+                "native_trending_required"
+                if native_audio_id
+                else "embedded_trending_required"
+            )
+        ).strip()
+        if policy_value not in {
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+            "silent_allowed",
+        }:
+            raise ValueError(f"unsupported audio policy: {policy_value}")
+        if policy_value == "silent_allowed":
+            raise ValueError("attach-audio cannot attach a silent_allowed policy")
+        if policy_value == "embedded_trending_required":
+            raise ValueError(
+                "embedded_trending_required must use a verified Audio Radar "
+                "bind-receipt operation"
+            )
+        if volume is not None and not 0 <= volume <= 1:
+            raise ValueError("audio volume must be between 0 and 1")
         now = self._utc_now()
         asset = self._rendered_asset(plan["rendered_asset_id"])
         caption_generation = json_load(asset.get("caption_generation_json"), {})
@@ -124,6 +152,7 @@ class AudioOperationsRepository:
             else None,
             "selection_source": source_value,
             "source": source_value,
+            "volume": volume,
             "notes": notes,
         }
         audio_segment = self.normalize_audio_segment(
@@ -153,7 +182,15 @@ class AudioOperationsRepository:
         audio_intent = {
             **existing_intent,
             "schema": existing_intent.get("schema") or "pipeline.audio_intent.v1",
-            "mode": existing_intent.get("mode") or "native_platform_audio",
+            "policy": policy_value,
+            "mode": existing_intent.get("mode")
+            or {
+                "embedded_trending_required": "embedded_trending_audio",
+                "native_trending_required": "native_platform_audio",
+                "original_embedded": "embedded_original_audio",
+                "creator_voice": "embedded_creator_voice",
+                "royalty_free": "embedded_royalty_free_audio",
+            }[policy_value],
             "required": True,
             "status": "attached",
             "platform": existing_intent.get("platform") or "instagram",
@@ -195,11 +232,13 @@ class AudioOperationsRepository:
             "trackId": track_id,
             "trackName": track_name,
             "source": source_value,
+            "audioPolicy": policy_value,
             "audioUrl": audio_url,
             "nativeAudioId": native_audio_id,
             "localWinnerAudioId": local_winner_audio_id,
             "audioSegment": audio_segment,
             "selectedReason": selected_reason,
+            "volume": volume,
             "operator": operator,
             "notes": notes,
             "selectedAt": now,
@@ -410,26 +449,38 @@ class AudioOperationsRepository:
             audio_intent.update(
                 {
                     "schema": "pipeline.audio_intent.v1",
-                    "mode": "native_platform_audio",
+                    "policy": "embedded_trending_required",
+                    "mode": "embedded_trending_audio",
                     "required": True,
                     "status": "selected",
                     "platform": payload.get("platform") or "instagram",
                     "recommendations": recommendations,
                     "operator_selection": {
+                        "track_id": payload.get("nativeAudioId") or audio["id"],
+                        "audio_id": payload.get("nativeAudioId") or audio["id"],
                         "audio_title": payload.get("title"),
+                        "track_name": payload.get("title"),
                         "artist_name": payload.get("artistName"),
-                        "platform_audio_id": payload.get("nativeAudioId"),
-                        "platform_url": payload.get("nativeAudioUrl"),
+                        "platform_sound_ids": [
+                            {
+                                "platform": payload.get("platform") or "instagram",
+                                "sound_id": payload.get("nativeAudioId") or audio["id"],
+                            }
+                        ],
+                        "provider_url": payload.get("nativeAudioUrl"),
                         "catalog_audio_id": audio["id"],
                         "audio_memory_graph_id": payload.get("audioMemoryGraphId"),
                         "selected_at": now,
                         "selected_by": operator,
                         "selection_source": "campaign_factory_audio_memory",
+                        "source": "campaign_factory_audio_memory",
+                        "selected_reason": notes
+                        or "Operator selected the Audio Radar candidate",
                         "notes": notes,
                     },
                     "gates": {
                         "allow_draft_export": True,
-                        "allow_preview_schedule": True,
+                        "allow_preview_schedule": False,
                         "allow_live_schedule": False,
                         "allow_publish": False,
                     },
@@ -1005,7 +1056,8 @@ class AudioOperationsRepository:
             return intent
         intent = {
             "schema": "pipeline.audio_intent.v1",
-            "mode": "native_platform_audio",
+            "policy": "embedded_trending_required",
+            "mode": "embedded_trending_audio",
             "required": True,
             "status": "recommended"
             if recommendation_items
@@ -1021,69 +1073,64 @@ class AudioOperationsRepository:
         return intent
 
     def embedded_audio_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(intent)
-        selection = (
-            normalized.get("audio_selection")
-            if isinstance(normalized.get("audio_selection"), dict)
-            else {}
-        )
-        source = (
-            str(selection.get("source") or normalized.get("source") or "")
-            .strip()
-            .lower()
-        )
-        mode = str(normalized.get("mode") or "").strip().lower()
-        if mode != "licensed_music" or source != "local_audio":
-            return normalized
-        now = self._utc_now()
-        path = str(selection.get("path") or "").strip()
-        audio_id = selection.get("audio_id") or (
-            hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
-            if path
-            else "embedded_licensed_audio"
-        )
-        operator_selection = (
-            normalized.get("operator_selection")
-            if isinstance(normalized.get("operator_selection"), dict)
-            else {}
-        )
-        operator_selection = {
-            **operator_selection,
-            "audio_id": str(audio_id),
-            "track_id": str(audio_id),
-            "source": "local_audio",
-            "selection_source": "embedded_licensed_audio",
-            "selected_at": operator_selection.get("selected_at") or now,
-            "attached_at": operator_selection.get("attached_at") or now,
-            "notes": operator_selection.get("notes")
-            or "Licensed local audio is muxed into the MP4.",
-        }
-        normalized.update(
-            {
-                "schema": "pipeline.audio_intent.v1",
-                "mode": "licensed_music",
-                "required": True,
-                "status": "attached",
-                "operator_selection": operator_selection,
-                "source": "embedded_licensed_audio",
-            }
-        )
-        return normalized
+        # Historical licensed_music metadata is intentionally not reclassified.
+        # The operator must select one of the canonical explicit policies.
+        return dict(intent)
 
     def audio_task_for_dashboard_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
-        existing = intent.get("task") if isinstance(intent.get("task"), dict) else {}
+        raw_existing = intent.get("task")
+        existing: dict[str, Any] = (
+            dict(raw_existing) if isinstance(raw_existing, dict) else {}
+        )
         status = str(intent.get("status") or "needs_operator_selection").strip().lower()
-        safe = status in {"skipped", "not_required"}
-        if status in {"attached", "verified"}:
-            selection = (
-                intent.get("operator_selection")
-                if isinstance(intent.get("operator_selection"), dict)
-                else {}
+        policy = str(intent.get("policy") or "").strip().lower()
+        raw_selection = intent.get("operator_selection")
+        selection: dict[str, Any] = (
+            dict(raw_selection) if isinstance(raw_selection, dict) else {}
+        )
+        safe = bool(
+            policy == "silent_allowed"
+            and status in {"skipped", "not_required"}
+            and (selection.get("selected_reason") or selection.get("skip_reason"))
+            and (selection.get("selected_at") or selection.get("skipped_at"))
+        )
+        if policy in {
+            "embedded_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+        } and status in {"attached", "verified"}:
+            raw_fulfillment = intent.get("fulfillment")
+            fulfillment: dict[str, Any] = (
+                dict(raw_fulfillment) if isinstance(raw_fulfillment, dict) else {}
             )
+            safe = bool(
+                fulfillment.get("audio_present") is True
+                and str(fulfillment.get("output_sha256") or "").strip()
+                and str(fulfillment.get("proof_type") or "").strip()
+            )
+            if safe and policy == "embedded_trending_required":
+                raw_verification = fulfillment.get("verification_receipt")
+                verification: dict[str, Any] = (
+                    dict(raw_verification) if isinstance(raw_verification, dict) else {}
+                )
+                safe = bool(
+                    str(fulfillment.get("acquired_audio_sha256") or "").strip()
+                    and str(fulfillment.get("embedded_audio_fingerprint") or "").strip()
+                    and verification.get("status") == "verified"
+                    and verification.get("audioPresent") is True
+                    and str(verification.get("audioCodec") or "").lower() == "aac"
+                )
+        elif policy == "native_trending_required" and status in {
+            "attached",
+            "verified",
+        }:
             final_key = "verified_at" if status == "verified" else "attached_at"
+            selected_at = selection.get("selected_at")
+            final_at = selection.get(final_key)
             safe = bool(
                 any(
-                    isinstance(selection.get(key), str) and selection.get(key).strip()
+                    isinstance(value, str) and value.strip()
                     for key in (
                         "platform_audio_id",
                         "platform_url",
@@ -1091,11 +1138,12 @@ class AudioOperationsRepository:
                         "native_audio_url",
                         "audio_id",
                     )
+                    if (value := selection.get(key)) is not None
                 )
-                and isinstance(selection.get("selected_at"), str)
-                and selection.get("selected_at").strip()
-                and isinstance(selection.get(final_key), str)
-                and selection.get(final_key).strip()
+                and isinstance(selected_at, str)
+                and selected_at.strip()
+                and isinstance(final_at, str)
+                and final_at.strip()
             )
         task_status = {
             "not_required": "not_required",
@@ -1390,6 +1438,7 @@ class AudioOperationsRepository:
             else {}
         )
         probe_values = [
+            audio_intent.get("policy"),
             audio_intent.get("source"),
             audio_intent.get("mode"),
             selection.get("source"),
@@ -1399,7 +1448,16 @@ class AudioOperationsRepository:
         ]
         haystack = " ".join(str(value or "").lower() for value in probe_values)
         return (
-            "embedded" in haystack or "muxed" in haystack or "burned_audio" in haystack
+            audio_intent.get("policy")
+            in {
+                "embedded_trending_required",
+                "original_embedded",
+                "creator_voice",
+                "royalty_free",
+            }
+            or "embedded" in haystack
+            or "muxed" in haystack
+            or "burned_audio" in haystack
         )
 
     def embedded_audio_verified(self, output_path: str) -> bool | None:

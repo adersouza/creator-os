@@ -140,7 +140,12 @@ Structured review captures reviewer, timestamp, rubric version, blinded ID,
 source/output hashes, realism, attractiveness, resemblance, face stability,
 motion naturalness, anatomy/artifact scores, intent adherence, conversion
 usefulness, and explicit decisions. It is required for promotion; it is not
-invented by automation.
+invented by automation. A downloaded form has no authenticated operator
+credential. `author-review` therefore preserves its claimed reviewer as
+identity-unverified and its QC receipt is always blocked from promotion. The
+local HMAC proves record integrity and exact evidence binding, not the human's
+identity. A future credential-backed authoring boundary may produce promotable
+review evidence only after independently verifying that operator.
 
 Speaking-video lip-sync uses the registered local ContentForge face/mouth
 tracker and decoded PCM audio envelope. Promotion requires sufficient speech,
@@ -249,11 +254,31 @@ scripts/creator-os advanced arena --root <evidence-root> plan \
 scripts/creator-os advanced arena --root <evidence-root> generate \
   --plan-id <id> --sample-id <id> --mode local_wan \
   --identity-root <identity-root> --dry-run
+scripts/creator-os advanced arena --root <evidence-root> author-review \
+  --plan-id <id> --sample-id <id> \
+  --form <downloaded-human-review-form.json> \
+  --analysis <trusted-media-analysis.json> \
+  --operator-identity <exact-reviewer> --issued-at <exact-reviewed-at> \
+  --output <signed-human-review.json>
 scripts/creator-os advanced arena --root <evidence-root> finalize \
-  --identity-root <identity-root> ...
+  --review <signed-human-review.json> --identity-root <identity-root> ...
 scripts/creator-os advanced arena --root <evidence-root> summary --plan-id <id>
 scripts/creator-os advanced router --request <json> --arena-summary <json>
 ```
+
+The downloaded `creator_os.human_review_form.v1` is operator input, not trusted
+evidence and cannot be passed directly to `finalize`. `author-review` requires
+the exact reviewer and review timestamp again, validates every score and
+decision without defaults, authenticates the stored blinded packet and trusted
+analysis, and requires raw observations plus verdicts to cover the plan's exact
+analyzer registry without omissions, duplicates, or implementation drift. The
+form must explicitly confirm the exact sampled frame-set fingerprint, brief
+outlier count, and that those outliers were reviewed. It then emits one
+deterministic, attested `HumanMediaReviewV1` marked with unverified reviewer
+identity, so its QC receipt remains non-promotable. It rejects unblinded,
+incomplete, future, substituted, or tampered inputs. Repeating the command with
+the same exact inputs is idempotent; a different review cannot overwrite the
+same output path.
 
 Before a promotion-eligible plan is created, and again before each generation
 and finalization, Arena initializes the real identity provider and verifies the

@@ -248,10 +248,21 @@ def register_operations_commands(sub) -> None:
     attach_audio.add_argument("--track-id")
     attach_audio.add_argument("--track-name")
     attach_audio.add_argument("--source", default="manual")
+    attach_audio.add_argument(
+        "--audio-policy",
+        choices=[
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+        ],
+    )
     attach_audio.add_argument("--audio-url")
     attach_audio.add_argument("--native-audio-id")
     attach_audio.add_argument("--local-winner-audio-id")
     attach_audio.add_argument("--selected-reason")
+    attach_audio.add_argument("--volume", type=float)
     attach_audio.add_argument("--segment-start-seconds", type=float)
     attach_audio.add_argument("--segment-duration-seconds", type=float)
     attach_audio.add_argument("--segment-label")

@@ -864,7 +864,7 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                 "asset_1", decision="approved"
             )
             add_audit_report(cf)
-            required = status != "not_required"
+            required = status in {"attached", "verified"}
             cf.conn.execute(
                 "UPDATE rendered_assets SET caption_generation_json = ? WHERE id = 'asset_1'",
                 (
@@ -873,6 +873,11 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                             "instagram_post_caption": "new post",
                             "audioIntent": {
                                 "schema": "pipeline.audio_intent.v1",
+                                "policy": (
+                                    "native_trending_required"
+                                    if required
+                                    else "silent_allowed"
+                                ),
                                 "mode": "native_platform_audio",
                                 "required": required,
                                 "status": status,
@@ -919,7 +924,12 @@ def test_threadsdash_audio_intent_safe_statuses_pass_live_gate(
                                         }
                                     }
                                     if status in {"attached", "verified"}
-                                    else {}
+                                    else {
+                                        "operator_selection": {
+                                            "selected_reason": "Operator explicitly approved silence",
+                                            "selected_at": "2026-05-22T12:00:00+00:00",
+                                        }
+                                    }
                                 ),
                             },
                         }

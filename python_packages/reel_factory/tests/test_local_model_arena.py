@@ -14,10 +14,12 @@ import reel_factory.local_model_arena as arena_module
 from creator_os_core.evidence_attestation import (
     canonical_json,
     payload_fingerprint,
+    sign_evidence_attestation,
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from reel_factory.human_media_review import (
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
     HumanMediaReview,
     HumanMediaReviewStore,
     HumanReviewDecisions,
@@ -45,6 +47,7 @@ from reel_factory.local_model_arena import (
     _trusted_motion_qc_request,
     _validate_human_review_binding,
     arena_analyzer_registry,
+    author_human_review_from_form,
     build_arena_plan,
     build_arena_record_bundle,
     build_arena_review_packet,
@@ -57,6 +60,10 @@ from reel_factory.local_model_arena import (
     validate_rollout_gate_receipt,
 )
 from reel_factory.local_model_benchmark import LocalModelBenchmarkStore
+from reel_factory.local_video import (
+    local_video_task_parameter_material,
+    task_parameter_fingerprint,
+)
 from reel_factory.local_video_models import local_video_model_spec
 
 from pipeline_contracts import ContractValidationError
@@ -482,9 +489,35 @@ def test_candidate_aggregates_use_true_even_sample_medians() -> None:
     assert aggregate["medianPeakMemoryBytes"] == 200.0
 
 
+def _fixture_execution_isolation(request) -> dict:
+    output = Path(request.output_path).resolve()
+    core = {
+        "schema": "reel_factory.local_subprocess_isolation.v1",
+        "enforced": True,
+        "networkAccess": "denied",
+        "writeAccess": "explicit_artifacts_only",
+        "sandboxRoot": str(
+            output.parent / f".local_video_sandbox_fixture_{request.seed}"
+        ),
+        "providerActivity": {
+            "callsObserved": 0,
+            "successfulDirectSocketCallsPossible": False,
+        },
+    }
+    return {**core, "isolationFingerprint": fingerprint(core)}
+
+
+def _fixture_command(request) -> list[str]:
+    return ["fixture-local-video", "--seed", str(request.seed)]
+
+
 def _fake_job(request) -> LocalGenerationJob:
     recipe = dict(request.benchmark_recipe)
     registry = dict(request.analyzer_registry)
+    output = Path(request.output_path).resolve()
+    isolation = _fixture_execution_isolation(request)
+    command = _fixture_command(request)
+    binding = dict(request.arena_benchmark_binding or {})
     primary_source = request.image_path or request.source_video_path
     source_sha = (
         sha256_file(primary_source)
@@ -504,9 +537,26 @@ def _fake_job(request) -> LocalGenerationJob:
         task_kind=request.task,
         input_sha256=source_sha,
         requested_memory_bytes=1024,
-        params={"seed": request.seed, "output": str(request.output_path)},
+        params={
+            "command": command,
+            "outputPath": str(output),
+            "task": request.task,
+            "durationSeconds": request.duration_seconds,
+            "seed": request.seed,
+            "executionContext": request.execution_context,
+            "executionBindingFingerprint": binding["bindingFingerprint"],
+            "executionIsolationFingerprint": isolation["isolationFingerprint"],
+            "taskParameterFingerprint": binding["taskParameterFingerprint"]
+            if "taskParameterFingerprint" in binding
+            else task_parameter_fingerprint(
+                local_video_task_parameter_material(
+                    request,
+                    runtime_binding=binding["runtimeBinding"],
+                )
+            ),
+        },
         cohort={"seed": request.seed},
-        owned_artifact_paths=(request.output_path,),
+        owned_artifact_paths=(output, Path(isolation["sandboxRoot"])),
         benchmark_recipe=recipe,
         analyzer_registry=registry,
         creator_identity_profile=request.creator_identity_profile,
@@ -543,6 +593,99 @@ def _job_from_sample(sample: dict) -> LocalGenerationJob:
         license_policy=dict(raw["licensePolicy"]),
         license_policy_fingerprint=str(raw["licensePolicyFingerprint"]),
     )
+
+
+def _complete_queue_sample(
+    queue: LocalGenerationQueue,
+    sample: dict,
+    *,
+    output_bytes: bytes,
+) -> str:
+    output = Path(sample["outputPath"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(output_bytes)
+    output_sha256 = sha256_file(output)
+    job = _job_from_sample(sample)
+    queue.submit(job)
+    measurement = {
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1024,
+        "memoryMeasurementMethod": "test-child-peak",
+    }
+    with queue.worker_session() as lease:
+        assert queue.start_next(lease).job_id == job.job_id
+        queue.verify_generated_artifacts(
+            lease,
+            job.job_id,
+            partial_output_path=output,
+            final_output_path=output,
+            output_probe={"streams": [{"codec_type": "video"}]},
+            execution_measurement=measurement,
+        )
+        queue.succeed(
+            lease,
+            job.job_id,
+            output_sha256=output_sha256,
+            output_path=output,
+            execution_measurement=measurement,
+        )
+    return output_sha256
+
+
+def _completed_arena_lineage(sample: dict, *, output_sha256: str) -> dict:
+    output = Path(sample["outputPath"]).resolve()
+    lineage_path = output.with_suffix(output.suffix + ".local_video.json")
+    request = _request_from_sample(sample)
+
+    def media(path_field: str, sha_field: str) -> dict[str, str] | None:
+        if sample.get(path_field) is None:
+            return None
+        return {
+            "path": str(Path(sample[path_field]).resolve()),
+            "sha256": str(sample[sha_field]),
+        }
+
+    isolation = _fixture_execution_isolation(request)
+    binding = dict(request.arena_benchmark_binding or {})
+    return {
+        "schema": "reel_factory.local_video_generation.v1",
+        "status": "completed",
+        "outputPath": str(output),
+        "lineagePath": str(lineage_path),
+        "outputSha256": output_sha256,
+        "modelId": sample["modelId"],
+        "modelRevision": sample["modelRevision"],
+        "modelManifestSha256": sample["modelManifestSha256"],
+        "executionContext": "arena_benchmark",
+        "command": _fixture_command(request),
+        "request": {
+            "task": request.task,
+            "durationSeconds": request.duration_seconds,
+            "seed": request.seed,
+        },
+        "taskParameterMaterial": sample["taskParameterMaterial"],
+        "taskParameterFingerprint": sample["taskParameterFingerprint"],
+        "arenaBenchmarkBinding": binding,
+        "executionBinding": binding,
+        "input": (
+            {
+                "path": str(Path(sample["sourcePath"]).resolve()),
+                "sha256": sample["sourceSha256"],
+            }
+            if sample.get("sourcePath") is not None
+            else None
+        ),
+        "lastImage": media("lastImagePath", "lastImageSha256"),
+        "sourceVideo": media("sourceVideoPath", "sourceVideoSha256"),
+        "sourceAudio": media("audioPath", "audioSha256"),
+        "executionIsolation": isolation,
+        "queue": {"jobId": sample["queueJob"]["jobId"]},
+        "providerCalls": 0,
+        "paidGeneration": False,
+        "humanReviewRequired": True,
+        "publishingAllowed": False,
+        "schedulingAllowed": False,
+    }
 
 
 def test_arena_registry_merges_existing_human_analyzer_and_preserves_exact_provenance() -> (
@@ -738,6 +881,374 @@ def _build(
         analyzer_registry=registry,
         identity_root=identity_root,
     )
+
+
+def test_early_uniqueness_gate_records_duplicate_and_stops_cohort(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2), _spec(source, seed=3)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    by_seed = {sample["seed"]: sample for sample in plan["samples"]}
+    first, second, third = by_seed[1], by_seed[2], by_seed[3]
+    output_sha256 = _complete_queue_sample(
+        queue,
+        first,
+        output_bytes=b"same generated video",
+    )
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=first["sampleId"],
+            output_sha256=output_sha256,
+            queue=queue,
+        )["status"]
+        == "unique"
+    )
+    assert (
+        _complete_queue_sample(
+            queue,
+            second,
+            output_bytes=b"same generated video",
+        )
+        == output_sha256
+    )
+
+    with pytest.raises(LocalQueueError, match="arena_duplicate_output_sha256"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=output_sha256,
+            queue=queue,
+        )
+
+    [observation] = [
+        event["payload"]
+        for event in store.journal_events()
+        if event["eventType"] == "arena_output_uniqueness_observed"
+        and event["payload"]["sampleId"] == second["sampleId"]
+    ]
+    assert observation["status"] == "duplicate"
+    assert observation["providerCalls"] == 0
+    assert observation["productionWrites"] == 0
+    assert observation["duplicateSamples"] == [
+        {
+            "sampleId": first["sampleId"],
+            "queueJobId": first["queueJob"]["jobId"],
+            "queueJobFingerprint": first["queueJobFingerprint"],
+            "seed": 1,
+        }
+    ]
+    monkeypatch.setattr(
+        arena_module,
+        "plan_local_video_job",
+        lambda *_args, **_kwargs: pytest.fail(
+            "later inference planning ran after a persisted duplicate"
+        ),
+    )
+    with pytest.raises(
+        LocalQueueError, match="arena_cohort_blocked_by_duplicate_output"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=third["sampleId"],
+            dry_run=False,
+        )
+
+
+def test_early_uniqueness_gate_accepts_distinct_seed_outputs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    first, second = plan["samples"]
+    first_sha = _complete_queue_sample(
+        queue,
+        first,
+        output_bytes=b"first generated video",
+    )
+    first_observation = store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=first["sampleId"],
+        output_sha256=first_sha,
+        queue=queue,
+    )
+    second_sha = _complete_queue_sample(
+        queue,
+        second,
+        output_bytes=b"second generated video",
+    )
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=first["sampleId"],
+            output_sha256=first_sha,
+            queue=queue,
+        )
+        == first_observation
+    )
+
+    observation = store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=second["sampleId"],
+        output_sha256=second_sha,
+        queue=queue,
+    )
+
+    assert second_sha != first_sha
+    assert observation["status"] == "unique"
+    assert observation["comparedSucceededOutputs"] == 1
+    assert observation["duplicateSamples"] == []
+    assert (
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=second_sha,
+            queue=queue,
+        )
+        == observation
+    )
+    assert (
+        sum(
+            event["eventType"] == "arena_output_uniqueness_observed"
+            and event["payload"]["sampleId"] == second["sampleId"]
+            for event in store.journal_events()
+        )
+        == 1
+    )
+
+
+def test_early_uniqueness_gate_rejects_substituted_output_and_queue_job(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source, seed=1)])
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+
+    substituted_output_queue = LocalGenerationQueue(
+        tmp_path / "substituted-output-queue", resource_limit_bytes=4096
+    )
+    output_sha = _complete_queue_sample(
+        substituted_output_queue,
+        sample,
+        output_bytes=b"original generated video",
+    )
+    Path(sample["outputPath"]).write_bytes(b"substituted generated video")
+    with pytest.raises(LocalQueueError, match="arena_uniqueness_output_substituted"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            output_sha256=output_sha,
+            queue=substituted_output_queue,
+        )
+
+    drift_queue = LocalGenerationQueue(
+        tmp_path / "queue-job-drift", resource_limit_bytes=4096
+    )
+    Path(sample["outputPath"]).write_bytes(b"original generated video")
+    drifted_job = replace(
+        _job_from_sample(sample),
+        params_fingerprint="f" * 64,
+    )
+    drift_queue.submit(drifted_job)
+    measurement = {
+        "wallTimeSeconds": 1.0,
+        "peakMemoryBytes": 1024,
+        "memoryMeasurementMethod": "test-child-peak",
+    }
+    with drift_queue.worker_session() as lease:
+        assert drift_queue.start_next(lease).job_id == drifted_job.job_id
+        drift_queue.verify_generated_artifacts(
+            lease,
+            drifted_job.job_id,
+            partial_output_path=Path(sample["outputPath"]),
+            final_output_path=Path(sample["outputPath"]),
+            output_probe={"streams": [{"codec_type": "video"}]},
+            execution_measurement=measurement,
+        )
+        drift_queue.succeed(
+            lease,
+            drifted_job.job_id,
+            output_sha256=output_sha,
+            output_path=Path(sample["outputPath"]),
+            execution_measurement=measurement,
+        )
+    with pytest.raises(LocalQueueError, match="arena_uniqueness_queue_job_drift"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            output_sha256=output_sha,
+            queue=drift_queue,
+        )
+
+
+def test_generation_reconciles_succeeded_output_after_pre_observation_interruption(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source, seed=1)])
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    sample = plan["samples"][0]
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    output_sha = _complete_queue_sample(
+        queue, sample, output_bytes=b"completed generated video"
+    )
+    lineage_path = Path(sample["outputPath"]).with_suffix(
+        Path(sample["outputPath"]).suffix + ".local_video.json"
+    )
+    lineage_path.write_text(
+        json.dumps(
+            {
+                "schema": "reel_factory.local_video_generation.v1",
+                "status": "completed",
+                "outputSha256": output_sha,
+                "queue": {"jobId": sample["queueJob"]["jobId"]},
+                "providerCalls": 0,
+                "publishingAllowed": False,
+                "schedulingAllowed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        arena_module, "plan_local_video_job", lambda _request: _job_from_sample(sample)
+    )
+    monkeypatch.setattr(arena_module, "default_local_generation_queue", lambda: queue)
+    monkeypatch.setattr(
+        arena_module,
+        "run_local_video",
+        lambda *_args, **_kwargs: pytest.fail(
+            "succeeded inference was rerun during reconciliation"
+        ),
+    )
+
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    substituted_lineage = _completed_arena_lineage(sample, output_sha256=output_sha)
+    substituted_lineage["modelRevision"] = "substituted-model-revision"
+    lineage_path.write_text(json.dumps(substituted_lineage), encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    substituted_isolation = _completed_arena_lineage(sample, output_sha256=output_sha)
+    isolation_core = dict(substituted_isolation["executionIsolation"])
+    isolation_core.pop("isolationFingerprint")
+    isolation_core["sandboxRoot"] = str(tmp_path / "attacker-controlled-sandbox")
+    substituted_isolation["executionIsolation"] = {
+        **isolation_core,
+        "isolationFingerprint": fingerprint(isolation_core),
+    }
+    lineage_path.write_text(json.dumps(substituted_isolation), encoding="utf-8")
+    with pytest.raises(
+        LocalQueueError, match="arena_completed_lineage_binding_mismatch"
+    ):
+        execute_arena_sample_generation(
+            store,
+            plan_id=plan["planId"],
+            sample_id=sample["sampleId"],
+            dry_run=False,
+        )
+    lineage_path.write_text(
+        json.dumps(_completed_arena_lineage(sample, output_sha256=output_sha)),
+        encoding="utf-8",
+    )
+    result = execute_arena_sample_generation(
+        store,
+        plan_id=plan["planId"],
+        sample_id=sample["sampleId"],
+        dry_run=False,
+    )
+
+    assert result["reconciledFromSucceededQueue"] is True
+    assert result["outputSha256"] == output_sha
+    assert result["arenaOutputUniqueness"]["status"] == "unique"
+
+
+def test_duplicate_outputs_remain_in_denominator_but_cannot_inflate_yield(
+    monkeypatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"safe source")
+    plan = _build(
+        monkeypatch,
+        tmp_path,
+        [_spec(source, seed=1), _spec(source, seed=2)],
+    )
+    store = LocalModelArenaStore(tmp_path / "evidence")
+    store.persist_plan(plan)
+    queue = LocalGenerationQueue(tmp_path / "queue", resource_limit_bytes=4096)
+    first, second = plan["samples"]
+    duplicate_sha = _complete_queue_sample(
+        queue, first, output_bytes=b"same generated video"
+    )
+    store.observe_generated_output_uniqueness(
+        plan_id=plan["planId"],
+        sample_id=first["sampleId"],
+        output_sha256=duplicate_sha,
+        queue=queue,
+    )
+    assert (
+        _complete_queue_sample(queue, second, output_bytes=b"same generated video")
+        == duplicate_sha
+    )
+    with pytest.raises(LocalQueueError, match="arena_duplicate_output_sha256"):
+        store.observe_generated_output_uniqueness(
+            plan_id=plan["planId"],
+            sample_id=second["sampleId"],
+            output_sha256=duplicate_sha,
+            queue=queue,
+        )
+
+    summary = store.summarize(
+        plan["planId"],
+        queue=queue,
+        benchmarks=LocalModelBenchmarkStore(tmp_path / "evidence"),
+    )
+    by_id = {sample["sampleId"]: sample for sample in summary["samples"]}
+    duplicate = by_id[second["sampleId"]]
+
+    assert sum(summary["sampleCounts"].values()) == 2
+    assert summary["sampleCounts"]["missing"] == 2
+    assert summary["promotionEligibleYield"] == 0
+    assert duplicate["status"] == "missing"
+    assert duplicate["reason"] == "duplicate_output_sha256"
+    assert duplicate["outputSha256"] is None
+    assert duplicate["promotionEvidenceValid"] is False
+    assert "duplicate_output_sha256" in duplicate["blockingReasons"]
 
 
 def _rollout_router_bundle(
@@ -1427,6 +1938,10 @@ def test_text_arena_plan_keeps_execution_media_empty_and_prompt_provenance_exact
     assert request.audio_path is None
     assert request.last_image_path is None
     assert request.source_video_path is None
+    assert sample["tileFrames"] == 1
+    assert sample["tileSpatial"] == 1
+    assert request.tile_frames == 1
+    assert request.tile_spatial == 1
 
 
 @pytest.mark.parametrize("reviewed_only", [False, True])
@@ -2193,6 +2708,453 @@ def test_historical_plan_is_readable_but_partial_parameter_evidence_is_rejected(
         validate_arena_plan(partial)
 
 
+def _review_authoring_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[dict, dict, dict, dict]:
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"review source")
+    plan = _build(monkeypatch, tmp_path, [_spec(source)])
+    sample = plan["samples"][0]
+    output = Path(sample["outputPath"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"review output")
+    output_sha = sha256_file(output)
+    job = _job_from_sample(sample)
+    queue = SimpleNamespace(
+        states=lambda: {
+            job.job_id: SimpleNamespace(
+                status="succeeded",
+                job=job,
+                last_event={"payload": {"outputSha256": output_sha}},
+            )
+        }
+    )
+    packet = build_arena_review_packet(
+        arena_plan=plan,
+        queue=queue,
+        created_at="2026-07-22T12:01:00Z",
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    analysis_id = f"analysis_{fingerprint({'sample': sample['sampleId']})[:24]}"
+    observations = []
+    verdicts = []
+    for registration in sample["analyzerRegistry"]["analyzers"]:
+        observation = {
+            **registration,
+            "analyzerRegistryId": sample["analyzerRegistry"]["registryId"],
+            "analyzerRegistryFingerprint": sample["analyzerRegistryFingerprint"],
+            "toolRevisions": {
+                "node": "fixture",
+                "platform": "fixture",
+                "ffmpeg": {"available": True, "version": "fixture"},
+                "ffprobe": {"available": True, "version": "fixture"},
+            },
+            "status": "measured",
+            "observations": {"available": True},
+        }
+        observations.append(observation)
+        verdicts.append(
+            {
+                "schema": "contentforge.trusted_analyzer_receipt.v1",
+                "policy": {
+                    "id": registration["analyzerId"],
+                    "version": registration["analyzerVersion"],
+                },
+                "subjectSha256": output_sha,
+                "analysisId": analysis_id,
+                "observationFingerprint": fingerprint(observation),
+                "implementationRef": registration["implementationRef"],
+                "implementationFingerprint": registration["implementationFingerprint"],
+                "analyzerRegistryId": sample["analyzerRegistry"]["registryId"],
+                "analyzerRegistryFingerprint": sample["analyzerRegistryFingerprint"],
+                "verdict": "pass",
+                "passed": True,
+                "evidenceOnly": True,
+                "providerCalls": 0,
+                "reasons": [],
+            }
+        )
+    analysis = {
+        "schema": "contentforge.trusted_media_analysis.v1",
+        "analysisId": analysis_id,
+        "subject": {
+            "mediaPath": str(output),
+            "mediaSha256": output_sha,
+            "sourcePath": str(source),
+            "sourceSha256": sample["sourceSha256"],
+        },
+        "producedAt": "2026-07-22T12:02:00Z",
+        "producer": "contentforge.trusted_media_analysis",
+        "humanReviewSampling": {
+            "sampleFps": 8.0,
+            "width": 180,
+            "height": 320,
+            "sampledFrames": 40,
+            "totalFrames": 120,
+            "durationSeconds": 5.0,
+            "durationCoverageRatio": 1,
+            "frameSetFingerprint": "6" * 64,
+            "briefFrameOutlierCount": 0,
+        },
+        "analyzerRegistry": {
+            "registryId": sample["analyzerRegistry"]["registryId"],
+            "registryFingerprint": sample["analyzerRegistryFingerprint"],
+        },
+        "rawObservations": observations,
+        "analyzerVerdicts": verdicts,
+        "unavailableMeasurements": {},
+    }
+    analysis["analysisFingerprint"] = fingerprint(analysis)
+    analysis["producerAttestation"] = sign_evidence_attestation(
+        dict(analysis),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=analysis["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    candidate = packet["candidates"][0]
+    form = {
+        "schema": "creator_os.human_review_form.v1",
+        "arenaPlanId": plan["planId"],
+        "arenaPlanFingerprint": plan["planFingerprint"],
+        "reviewPacketId": packet["packetId"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+        "reviewer": "reviewer@example.test",
+        "reviewedAt": "2026-07-22T12:03:00Z",
+        "rubricVersion": "1.0.0",
+        "reviewedFrameSetFingerprint": analysis["humanReviewSampling"][
+            "frameSetFingerprint"
+        ],
+        "briefFrameOutlierCount": analysis["humanReviewSampling"][
+            "briefFrameOutlierCount"
+        ],
+        "briefFrameOutliersReviewed": True,
+        "ratings": {
+            "realism": 0.8,
+            "attractiveness": 0.7,
+            "creatorIdentitySimilarity": 0.9,
+            "faceStability": 0.85,
+            "motionNaturalness": 0.75,
+            "faceArtifactScore": 0.1,
+            "handsVisible": False,
+            "handArtifactScore": None,
+            "bodyArtifactScore": 0.15,
+            "conversionUsefulness": 0.8,
+            "intentAdherence": 0.95,
+            "loopAcceptable": True,
+        },
+        "decisions": {
+            "creatorIdentityPreserved": True,
+            "anatomyAcceptable": True,
+            "operatorUseful": True,
+            "approvedForBenchmark": True,
+        },
+    }
+    return plan, packet, analysis, form
+
+
+def _resign_trusted_analysis(analysis: dict) -> dict:
+    resigned = deepcopy(analysis)
+    resigned.pop("producerAttestation", None)
+    resigned.pop("analysisFingerprint", None)
+    resigned["analysisFingerprint"] = fingerprint(resigned)
+    resigned["producerAttestation"] = sign_evidence_attestation(
+        dict(resigned),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=resigned["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    return resigned
+
+
+def _author_review(
+    plan: dict,
+    packet: dict,
+    analysis: dict,
+    form: dict,
+) -> dict:
+    return author_human_review_from_form(
+        form=form,
+        arena_plan=plan,
+        review_packet=packet,
+        trusted_analysis=analysis,
+        sample_id=plan["samples"][0]["sampleId"],
+        operator_identity=form["reviewer"],
+        issued_at=form["reviewedAt"],
+        evidence_secret=EVIDENCE_SECRET,
+    )
+
+
+def test_author_review_binds_exact_user_values_and_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+
+    first = _author_review(plan, packet, analysis, form)
+    second = _author_review(plan, packet, analysis, form)
+
+    assert first == second
+    validated = HumanMediaReview.from_dict(
+        first,
+        evidence_secret=EVIDENCE_SECRET,
+    )
+    assert validated.ratings.as_dict() == form["ratings"]
+    assert validated.decisions.as_dict() == form["decisions"]
+    assert validated.provenance.review_mode == "blinded"
+    assert validated.provenance.unblinding_reason is None
+    assert (
+        analysis["analysisId"],
+        analysis["analysisFingerprint"],
+    ) in validated.provenance.source_references
+    assert (
+        packet["packetId"],
+        packet["packetFingerprint"],
+    ) in validated.provenance.source_references
+    assert any(
+        record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+        for record_id, _fingerprint in validated.provenance.source_references
+    )
+    receipt = validated.qc_receipt()
+    assert receipt["passed"] is False
+    assert receipt["verdict"] == "blocked"
+    assert {reason["code"] for reason in receipt["reasons"]} == {
+        "reviewer_identity_unverified"
+    }
+    blockers, _quality = _human_review_evidence(validated)
+    assert blockers == ["human_review_reviewer_identity_unverified"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        (
+            lambda form: form["ratings"].pop("realism"),
+            "human_review_form_ratings_incomplete",
+        ),
+        (
+            lambda form: form["decisions"].pop("approvedForBenchmark"),
+            "human_review_form_decisions_incomplete",
+        ),
+        (
+            lambda form: form.__setitem__("reviewMode", "unblinded"),
+            "human_review_form_schema_invalid",
+        ),
+        (
+            lambda form: form.__setitem__("sampleId", "substituted-sample"),
+            "human_review_form_sampleId_mismatch",
+        ),
+        (
+            lambda form: form.__setitem__("reviewedAt", "2026-07-22T12:03:00"),
+            "human_review_form_issued_at_timezone_missing",
+        ),
+        (
+            lambda form: form.__setitem__("briefFrameOutliersReviewed", False),
+            "human_review_form_outliers_not_confirmed",
+        ),
+        (
+            lambda form: form.__setitem__("reviewedFrameSetFingerprint", "f" * 64),
+            "human_review_form_frame_set_mismatch",
+        ),
+        (
+            lambda form: form.__setitem__("briefFrameOutlierCount", 1),
+            "human_review_form_outlier_count_mismatch",
+        ),
+    ],
+)
+def test_author_review_rejects_incomplete_unblinded_or_substituted_form(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mutation,
+    expected_error: str,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    mutation(form)
+
+    with pytest.raises(LocalQueueError, match=expected_error):
+        _author_review(plan, packet, analysis, form)
+
+
+def test_author_review_rejects_future_explicit_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    form["reviewedAt"] = "2999-01-01T00:00:00Z"
+
+    with pytest.raises(LocalQueueError, match="timestamp_order_invalid"):
+        author_human_review_from_form(
+            form=form,
+            arena_plan=plan,
+            review_packet=packet,
+            trusted_analysis=analysis,
+            sample_id=form["sampleId"],
+            operator_identity=form["reviewer"],
+            issued_at=form["reviewedAt"],
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+
+def test_author_review_rejects_tampered_packet_and_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    tampered_packet = deepcopy(packet)
+    signature = tampered_packet["producerAttestation"]["signature"]
+    tampered_packet["producerAttestation"]["signature"] = (
+        "a" if signature[0] != "a" else "b"
+    ) + signature[1:]
+    with pytest.raises(LocalQueueError, match="packetFingerprint_attestation_invalid"):
+        _author_review(plan, tampered_packet, analysis, form)
+
+    tampered_analysis = deepcopy(analysis)
+    tampered_analysis["subject"]["sourceSha256"] = "e" * 64
+    tampered_analysis.pop("producerAttestation")
+    tampered_analysis.pop("analysisFingerprint")
+    tampered_analysis["analysisFingerprint"] = fingerprint(tampered_analysis)
+    tampered_analysis["producerAttestation"] = sign_evidence_attestation(
+        dict(tampered_analysis),
+        issuer="contentforge.trusted_media_analysis",
+        issued_at=tampered_analysis["producedAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    with pytest.raises(LocalQueueError, match="analysis_binding_mismatch"):
+        _author_review(plan, packet, tampered_analysis, form)
+
+
+@pytest.mark.parametrize(
+    ("collection", "mutation", "expected_error"),
+    (
+        (
+            "rawObservations",
+            lambda rows: rows.pop(),
+            "human_review_analysis_registry_coverage_mismatch",
+        ),
+        (
+            "rawObservations",
+            lambda rows: rows.append(deepcopy(rows[0])),
+            "human_review_analysis_observation_duplicate|non-unique elements",
+        ),
+        (
+            "rawObservations",
+            lambda rows: rows[0].__setitem__("implementationFingerprint", "f" * 64),
+            "human_review_analysis_registry_binding_mismatch",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows.pop(),
+            "human_review_analysis_registry_coverage_mismatch",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows.append(deepcopy(rows[0])),
+            "human_review_analysis_verdict_duplicate|non-unique elements",
+        ),
+        (
+            "analyzerVerdicts",
+            lambda rows: rows[0].__setitem__("implementationRef", "substituted.py"),
+            "human_review_analysis_registry_binding_mismatch",
+        ),
+    ),
+)
+def test_author_review_rejects_incomplete_duplicate_or_substituted_analyzers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    collection: str,
+    mutation,
+    expected_error: str,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    mutation(analysis[collection])
+    changed_analysis = _resign_trusted_analysis(analysis)
+
+    with pytest.raises(
+        (ContractValidationError, LocalQueueError),
+        match=expected_error,
+    ):
+        _author_review(plan, packet, changed_analysis, form)
+
+
+def test_author_review_rejects_substituted_subject_and_operator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    with pytest.raises(LocalQueueError, match="operator_mismatch"):
+        author_human_review_from_form(
+            form=form,
+            arena_plan=plan,
+            review_packet=packet,
+            trusted_analysis=analysis,
+            sample_id=form["sampleId"],
+            operator_identity="different@example.test",
+            issued_at=form["reviewedAt"],
+            evidence_secret=EVIDENCE_SECRET,
+        )
+
+    Path(plan["samples"][0]["outputPath"]).write_bytes(b"substituted output")
+    with pytest.raises(LocalQueueError, match="candidate_binding_mismatch"):
+        _author_review(plan, packet, analysis, form)
+
+
+def test_author_review_cli_writes_only_exact_idempotent_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CREATOR_OS_EVIDENCE_AUTH_SECRET", EVIDENCE_SECRET)
+    plan, packet, analysis, form = _review_authoring_context(monkeypatch, tmp_path)
+    root = tmp_path / "arena-state"
+    store = LocalModelArenaStore(root)
+    store.persist_plan(plan)
+    store.persist_review_packet(packet, evidence_secret=EVIDENCE_SECRET)
+    form_path = tmp_path / "completed-form.json"
+    analysis_path = tmp_path / "trusted-analysis.json"
+    output_path = tmp_path / "signed-review.json"
+    form_path.write_text(json.dumps(form), encoding="utf-8")
+    analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
+    argv = [
+        "--root",
+        str(root),
+        "author-review",
+        "--plan-id",
+        form["arenaPlanId"],
+        "--sample-id",
+        form["sampleId"],
+        "--form",
+        str(form_path),
+        "--analysis",
+        str(analysis_path),
+        "--operator-identity",
+        form["reviewer"],
+        "--issued-at",
+        form["reviewedAt"],
+        "--output",
+        str(output_path),
+    ]
+
+    assert arena_module.main(argv) == 0
+    first = output_path.read_text(encoding="utf-8")
+    result = json.loads(capsys.readouterr().out)
+    assert result["providerCalls"] == 0
+    assert result["productionWrites"] == 0
+    assert (
+        HumanMediaReview.from_dict(
+            json.loads(first),
+            evidence_secret=EVIDENCE_SECRET,
+        ).review_fingerprint
+        == result["reviewFingerprint"]
+    )
+
+    assert arena_module.main(argv) == 0
+    assert output_path.read_text(encoding="utf-8") == first
+
+
 def test_review_packet_is_shuffled_model_free_and_unblinding_waits_for_reviews(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -2664,7 +3626,10 @@ def test_human_review_binds_exact_trusted_full_duration_frame_set() -> None:
             unblinding_reason=None,
             source_references=references,
         ),
-        sampling_evidence=HumanReviewSamplingEvidence.from_trusted_analysis(analysis),
+        sampling_evidence=HumanReviewSamplingEvidence.from_trusted_analysis(
+            analysis,
+            brief_frame_outliers_reviewed=True,
+        ),
     )
 
     _validate_human_review_binding(review, plan=plan, sample=sample, analysis=analysis)

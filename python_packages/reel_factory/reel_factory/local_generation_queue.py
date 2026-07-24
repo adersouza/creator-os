@@ -1900,6 +1900,8 @@ class LocalGenerationQueue:
             inputs["executionBinding"] = lineage.get("executionBinding")
         if "sourceVideo" in lineage:
             inputs["sourceVideo"] = lineage.get("sourceVideo")
+        if "promptExpansion" in lineage:
+            inputs["promptExpansion"] = lineage.get("promptExpansion")
         request = lineage.get("request")
         command = lineage.get("command")
         if not isinstance(request, dict) or not isinstance(command, list):
@@ -1964,6 +1966,13 @@ class LocalGenerationQueue:
         if isinstance(isolation, dict):
             cohort["executionIsolationFingerprint"] = isolation.get(
                 "isolationFingerprint"
+            )
+        if "promptExpansion" in lineage:
+            expansion = lineage.get("promptExpansion")
+            cohort["promptExpansionFingerprint"] = (
+                expansion.get("expansionFingerprint")
+                if isinstance(expansion, dict)
+                else None
             )
         model_fingerprint = fingerprint(
             {

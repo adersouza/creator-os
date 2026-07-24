@@ -48,7 +48,7 @@ class MotionEditRequest:
     caption_style: str = "ig"
     caption_band: str = "center"
     caption_font: str = "Instagram Sans Condensed"
-    audio_mode: str = "platform_auto_music"
+    audio_mode: str = "embedded_trending_audio"
     local_audio_path: Path | None = None
     allow_upscale: bool = False
 
@@ -133,15 +133,27 @@ def _validate_request(request: MotionEditRequest, *, still: Path) -> None:
     if request.fps <= 0:
         raise ValueError("fps must be positive")
     if request.audio_mode not in {
+        "embedded_trending_audio",
+        "embedded_original_audio",
+        "embedded_creator_voice",
+        "embedded_royalty_free_audio",
         "platform_auto_music",
         "native_trending_audio",
-        "licensed_music",
         "silent_by_design",
     }:
         raise ValueError(
-            "audio_mode must be platform_auto_music, native_trending_audio, licensed_music, or silent_by_design"
+            "audio_mode must be a canonical embedded/native mode or silent_by_design"
         )
     if request.local_audio_path is not None:
+        if request.audio_mode not in {
+            "embedded_original_audio",
+            "embedded_creator_voice",
+            "embedded_royalty_free_audio",
+        }:
+            raise ValueError(
+                "local audio requires an explicit original_embedded, creator_voice, "
+                "or royalty_free mode"
+            )
         audio = request.local_audio_path.expanduser().resolve()
         if not audio.exists() or not audio.is_file():
             raise FileNotFoundError(f"local audio not found: {audio}")
@@ -302,7 +314,7 @@ def _write_audio_intent(request: MotionEditRequest, output: Path) -> Path:
     if request.local_audio_path is not None:
         return write_audio_intent(
             output,
-            mode="licensed_music",
+            mode=request.audio_mode,
             platform=request.platform,
             notes="Local operator-provided audio muxed into motion-edit render.",
             audio_selection={
@@ -447,7 +459,7 @@ def main() -> int:
     parser.add_argument("--caption-style", default="ig")
     parser.add_argument("--caption-band", default="center")
     parser.add_argument("--caption-font", default="Instagram Sans Condensed")
-    parser.add_argument("--audio-mode", default="platform_auto_music")
+    parser.add_argument("--audio-mode", default="embedded_trending_audio")
     parser.add_argument("--local-audio")
     parser.add_argument("--allow-upscale", action="store_true")
     parser.add_argument("--dry-run", action="store_true")

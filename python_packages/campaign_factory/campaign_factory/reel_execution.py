@@ -1025,12 +1025,19 @@ class ReelExecutionRepository:
         if not selected:
             return {
                 "schema": "pipeline.audio_intent.v1",
-                "mode": "native_platform_audio",
+                "policy": "embedded_trending_required",
+                "mode": "embedded_trending_audio",
                 "required": True,
-                "status": "missing",
+                "status": "needs_operator_selection",
                 "platform": "instagram",
                 "source": "reference_audio_recommendations",
                 "operator_selection": {},
+                "gates": {
+                    "allow_draft_export": True,
+                    "allow_preview_schedule": False,
+                    "allow_live_schedule": False,
+                    "allow_publish": False,
+                },
             }
         audio_id = str(selected.get("audioId") or "").strip()
         audio_title = str(
@@ -1041,19 +1048,24 @@ class ReelExecutionRepository:
         ).strip()
         return {
             "schema": "pipeline.audio_intent.v1",
-            "mode": "native_platform_audio",
+            "policy": "embedded_trending_required",
+            "mode": "embedded_trending_audio",
             "required": True,
-            "status": "attached",
+            "status": "selected",
             "platform": "instagram",
             "source": "reference_audio_recommendations",
             "operator_selection": {
                 "audio_id": audio_id,
                 "track_id": audio_id,
-                "platform_audio_id": audio_id,
-                "native_audio_id": audio_id,
                 "audio_title": audio_title,
                 "track_name": audio_title,
                 "artist_name": artist,
+                "platform_sound_ids": [
+                    {
+                        "platform": "instagram",
+                        "sound_id": audio_id,
+                    }
+                ],
                 "source": "reference_audio_recommendations",
                 "selection_source": "reference_audio_recommendations",
                 "selected_reason": str(
@@ -1061,11 +1073,10 @@ class ReelExecutionRepository:
                     or "reference pattern audio recommendation"
                 ).strip(),
                 "selected_at": now,
-                "attached_at": now,
             },
             "gates": {
                 "allow_draft_export": True,
-                "allow_preview_schedule": True,
+                "allow_preview_schedule": False,
                 "allow_live_schedule": False,
                 "allow_publish": False,
             },

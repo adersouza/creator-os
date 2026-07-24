@@ -56,7 +56,16 @@ from pipeline_contracts import (
 )
 
 from .fileops import atomic_write_text, file_lock
-from .human_media_review import HumanMediaReviewStore, HumanReviewSamplingEvidence
+from .human_media_review import (
+    RUBRIC_VERSION,
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
+    HumanMediaReview,
+    HumanMediaReviewStore,
+    HumanReviewDecisions,
+    HumanReviewProvenance,
+    HumanReviewRatings,
+    HumanReviewSamplingEvidence,
+)
 from .human_media_review import load_review as load_human_review
 from .identity_verification import (
     _load_reference_embeddings,
@@ -77,6 +86,7 @@ from .local_generation_queue import (
 )
 from .local_model_benchmark import (
     LocalModelBenchmarkStore,
+    _validate_trusted_analysis_payload,
     default_local_model_benchmark_store,
 )
 from .local_model_manager import model_status
@@ -94,6 +104,7 @@ PLAN_SCHEMA: Final = "reel_factory.local_model_arena_plan.v1"
 SUMMARY_SCHEMA: Final = "reel_factory.local_model_arena_summary.v1"
 EVENT_SCHEMA: Final = "reel_factory.local_model_arena_event.v1"
 REVIEW_PACKET_SCHEMA: Final = "reel_factory.local_model_arena_review_packet.v1"
+REVIEW_FORM_SCHEMA: Final = "creator_os.human_review_form.v1"
 UNBLINDING_RECEIPT_SCHEMA: Final = (
     "reel_factory.local_model_arena_unblinding_receipt.v1"
 )
@@ -162,6 +173,51 @@ IDENTITY_ANALYZER: Final = ("reel_factory.identity_preservation", "2.0.0")
 HUMAN_ANALYZER: Final = (
     "reel_factory.structured_human_media_review",
     "1.0.0",
+)
+REVIEW_FORM_FIELDS: Final = frozenset(
+    {
+        "schema",
+        "arenaPlanId",
+        "arenaPlanFingerprint",
+        "reviewPacketId",
+        "reviewPacketFingerprint",
+        "sampleId",
+        "blindedCandidateId",
+        "subjectSha256",
+        "sourceSha256",
+        "reviewer",
+        "reviewedAt",
+        "rubricVersion",
+        "reviewedFrameSetFingerprint",
+        "briefFrameOutlierCount",
+        "briefFrameOutliersReviewed",
+        "ratings",
+        "decisions",
+    }
+)
+REVIEW_FORM_RATING_FIELDS: Final = frozenset(
+    {
+        "realism",
+        "attractiveness",
+        "creatorIdentitySimilarity",
+        "faceStability",
+        "motionNaturalness",
+        "faceArtifactScore",
+        "handsVisible",
+        "handArtifactScore",
+        "bodyArtifactScore",
+        "conversionUsefulness",
+        "intentAdherence",
+        "loopAcceptable",
+    }
+)
+REVIEW_FORM_DECISION_FIELDS: Final = frozenset(
+    {
+        "creatorIdentityPreserved",
+        "anatomyAcceptable",
+        "operatorUseful",
+        "approvedForBenchmark",
+    }
 )
 
 
@@ -440,7 +496,7 @@ class ArenaSampleSpec:
     lora_strength: float = 1.0
     low_ram: bool = True
     tile_frames: int = 1
-    tile_spatial: int = 2
+    tile_spatial: int = 1
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
@@ -543,7 +599,7 @@ class ArenaSampleSpec:
             lora_strength=float(value.get("loraStrength", 1.0)),
             low_ram=value.get("lowRam") is not False,
             tile_frames=int(value.get("tileFrames", 1)),
-            tile_spatial=int(value.get("tileSpatial", 2)),
+            tile_spatial=int(value.get("tileSpatial", 1)),
             commercial_use=value.get("commercialUse") is not False,
             commercial_annual_revenue_usd=(
                 _required_int(
@@ -1568,6 +1624,12 @@ def _human_review_evidence(review: Any) -> tuple[list[str], float]:
 
     decisions = review.decisions
     blockers: list[str] = []
+    provenance = getattr(review, "provenance", None)
+    if any(
+        record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+        for record_id, _fingerprint in getattr(provenance, "source_references", ())
+    ):
+        blockers.append("human_review_reviewer_identity_unverified")
     if not decisions.creator_identity_preserved:
         blockers.append("human_review_creator_identity_rejected")
     if not decisions.anatomy_acceptable:
@@ -1651,7 +1713,10 @@ def _validate_human_review_binding(
         )
         try:
             expected_sampling = HumanReviewSamplingEvidence.from_trusted_analysis(
-                analysis
+                analysis,
+                brief_frame_outliers_reviewed=(
+                    review.sampling_evidence.brief_frame_outliers_reviewed
+                ),
             )
         except ValueError as exc:
             raise LocalQueueError("arena_trusted_review_sampling_invalid") from exc
@@ -1677,6 +1742,332 @@ def _validate_human_review_binding(
         )
     if not required_references.issubset(set(review.provenance.source_references)):
         raise LocalQueueError("arena_human_review_provenance_incomplete")
+
+
+def _review_form_timestamp(value: Any, field: str) -> datetime:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise LocalQueueError(f"arena_human_review_form_{field}_invalid")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LocalQueueError(f"arena_human_review_form_{field}_invalid") from exc
+    if parsed.tzinfo is None:
+        raise LocalQueueError(f"arena_human_review_form_{field}_timezone_missing")
+    return parsed.astimezone(UTC)
+
+
+def _validate_review_analysis_registry_coverage(
+    *,
+    analysis: Mapping[str, Any],
+    sample: Mapping[str, Any],
+) -> None:
+    registry = sample.get("analyzerRegistry")
+    registrations = registry.get("analyzers") if isinstance(registry, dict) else None
+    observations = analysis.get("rawObservations")
+    verdicts = analysis.get("analyzerVerdicts")
+    if (
+        not isinstance(registry, dict)
+        or not isinstance(registrations, list)
+        or not isinstance(observations, list)
+        or not isinstance(verdicts, list)
+    ):
+        raise LocalQueueError("arena_human_review_analysis_registry_coverage_missing")
+
+    expected: dict[tuple[str, str], Mapping[str, Any]] = {}
+    observed: dict[tuple[str, str], Mapping[str, Any]] = {}
+    decided: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for registration in registrations:
+        if not isinstance(registration, dict):
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_registration_invalid"
+            )
+        identity = (
+            str(registration.get("analyzerId") or ""),
+            str(registration.get("analyzerVersion") or ""),
+        )
+        if not all(identity) or identity in expected:
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_registration_duplicate"
+            )
+        expected[identity] = registration
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise LocalQueueError("arena_human_review_analysis_observation_invalid")
+        identity = (
+            str(observation.get("analyzerId") or ""),
+            str(observation.get("analyzerVersion") or ""),
+        )
+        if not all(identity) or identity in observed:
+            raise LocalQueueError("arena_human_review_analysis_observation_duplicate")
+        observed[identity] = observation
+    for verdict in verdicts:
+        policy = verdict.get("policy") if isinstance(verdict, dict) else None
+        if not isinstance(policy, dict):
+            raise LocalQueueError("arena_human_review_analysis_verdict_invalid")
+        identity = (
+            str(policy.get("id") or ""),
+            str(policy.get("version") or ""),
+        )
+        if not all(identity) or identity in decided:
+            raise LocalQueueError("arena_human_review_analysis_verdict_duplicate")
+        decided[identity] = verdict
+    if set(observed) != set(expected) or set(decided) != set(expected):
+        raise LocalQueueError("arena_human_review_analysis_registry_coverage_mismatch")
+
+    registry_id = str(registry["registryId"])
+    registry_fingerprint = str(sample["analyzerRegistryFingerprint"])
+    analysis_id = str(analysis["analysisId"])
+    subject_sha256 = str(analysis["subject"]["mediaSha256"])
+    for identity, registration in expected.items():
+        observation = observed[identity]
+        verdict = decided[identity]
+        if (
+            observation.get("evidenceKinds") != registration.get("evidenceKinds")
+            or observation.get("implementationRef")
+            != registration.get("implementationRef")
+            or observation.get("implementationFingerprint")
+            != registration.get("implementationFingerprint")
+            or observation.get("analyzerRegistryId") != registry_id
+            or observation.get("analyzerRegistryFingerprint") != registry_fingerprint
+            or verdict.get("subjectSha256") != subject_sha256
+            or verdict.get("analysisId") != analysis_id
+            or verdict.get("observationFingerprint") != fingerprint(observation)
+            or verdict.get("implementationRef") != registration.get("implementationRef")
+            or verdict.get("implementationFingerprint")
+            != registration.get("implementationFingerprint")
+            or verdict.get("analyzerRegistryId") != registry_id
+            or verdict.get("analyzerRegistryFingerprint") != registry_fingerprint
+        ):
+            raise LocalQueueError(
+                "arena_human_review_analysis_registry_binding_mismatch"
+            )
+
+
+def author_human_review_from_form(
+    *,
+    form: Mapping[str, Any],
+    arena_plan: Mapping[str, Any],
+    review_packet: Mapping[str, Any],
+    trusted_analysis: Mapping[str, Any],
+    sample_id: str,
+    operator_identity: str,
+    issued_at: str,
+    evidence_secret: str | None = None,
+) -> dict[str, Any]:
+    """Bind operator-entered review inputs to exact authenticated Arena evidence.
+
+    The form is deliberately not trusted evidence. Ratings and decisions are
+    copied exactly after strict shape validation; all provenance, sampling, and
+    attestation fields are derived from the verified plan, packet, and trusted
+    analysis. No score, decision, timestamp, or reviewer identity is defaulted.
+    Because this boundary has no operator credential, the resulting review is
+    explicitly identity-unverified and cannot become promotion evidence.
+    """
+
+    if set(form) != REVIEW_FORM_FIELDS or form.get("schema") != REVIEW_FORM_SCHEMA:
+        raise LocalQueueError("arena_human_review_form_schema_invalid")
+    ratings_payload = form.get("ratings")
+    decisions_payload = form.get("decisions")
+    if (
+        not isinstance(ratings_payload, dict)
+        or set(ratings_payload) != REVIEW_FORM_RATING_FIELDS
+    ):
+        raise LocalQueueError("arena_human_review_form_ratings_incomplete")
+    if (
+        not isinstance(decisions_payload, dict)
+        or set(decisions_payload) != REVIEW_FORM_DECISION_FIELDS
+    ):
+        raise LocalQueueError("arena_human_review_form_decisions_incomplete")
+
+    operator = _required_text(operator_identity, "human_review_operator_identity")
+    if operator != operator_identity or form.get("reviewer") != operator:
+        raise LocalQueueError("arena_human_review_form_operator_mismatch")
+    issued = _required_text(issued_at, "human_review_issued_at")
+    if issued != issued_at or form.get("reviewedAt") != issued:
+        raise LocalQueueError("arena_human_review_form_issued_at_mismatch")
+    if form.get("rubricVersion") != RUBRIC_VERSION:
+        raise LocalQueueError("arena_human_review_form_rubric_version_mismatch")
+
+    plan = validate_arena_plan(arena_plan)
+    sample = _sample(plan, sample_id)
+    packet = validate_arena_review_packet(
+        review_packet,
+        arena_plan=plan,
+        evidence_secret=evidence_secret,
+    )
+    packet_attestation = packet.get("producerAttestation")
+    if not isinstance(packet_attestation, dict) or packet_attestation.get(
+        "issuedAt"
+    ) != packet.get("createdAt"):
+        raise LocalQueueError("arena_human_review_packet_timestamp_mismatch")
+
+    matching_candidates = [
+        candidate
+        for candidate in packet["candidates"]
+        if candidate.get("blindedCandidateId") == sample["blindedCandidateId"]
+    ]
+    if len(matching_candidates) != 1:
+        raise LocalQueueError("arena_human_review_form_candidate_mismatch")
+    candidate = matching_candidates[0]
+    expected_form_bindings = {
+        "arenaPlanId": plan["planId"],
+        "arenaPlanFingerprint": plan["planFingerprint"],
+        "reviewPacketId": packet["packetId"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+    }
+    for field, expected in expected_form_bindings.items():
+        if form.get(field) != expected:
+            raise LocalQueueError(f"arena_human_review_form_{field}_mismatch")
+
+    analysis = _validate_trusted_analysis_payload(
+        dict(trusted_analysis),
+        expected_subject_sha256=str(candidate["subjectSha256"]),
+        evidence_secret=evidence_secret,
+    )
+    analysis_subject = analysis.get("subject")
+    analysis_registry = analysis.get("analyzerRegistry")
+    if (
+        not isinstance(analysis_subject, dict)
+        or analysis_subject.get("sourceSha256") != sample["sourceSha256"]
+        or not isinstance(analysis_registry, dict)
+        or analysis_registry.get("registryId")
+        != sample["analyzerRegistry"]["registryId"]
+        or analysis_registry.get("registryFingerprint")
+        != sample["analyzerRegistryFingerprint"]
+    ):
+        raise LocalQueueError("arena_human_review_analysis_binding_mismatch")
+    _validate_review_analysis_registry_coverage(
+        analysis=analysis,
+        sample=sample,
+    )
+
+    analysis_sampling = analysis.get("humanReviewSampling")
+    if not isinstance(analysis_sampling, dict):
+        raise LocalQueueError("arena_human_review_form_sampling_missing")
+    if form.get("reviewedFrameSetFingerprint") != analysis_sampling.get(
+        "frameSetFingerprint"
+    ):
+        raise LocalQueueError("arena_human_review_form_frame_set_mismatch")
+    outlier_count = form.get("briefFrameOutlierCount")
+    if (
+        isinstance(outlier_count, bool)
+        or not isinstance(outlier_count, int)
+        or outlier_count != analysis_sampling.get("briefFrameOutlierCount")
+    ):
+        raise LocalQueueError("arena_human_review_form_outlier_count_mismatch")
+    if form.get("briefFrameOutliersReviewed") is not True:
+        raise LocalQueueError("arena_human_review_form_outliers_not_confirmed")
+
+    plan_created_at = _review_form_timestamp(plan.get("createdAt"), "plan_created_at")
+    packet_created_at = _review_form_timestamp(
+        packet.get("createdAt"), "packet_created_at"
+    )
+    analysis_produced_at = _review_form_timestamp(
+        analysis.get("producedAt"), "analysis_produced_at"
+    )
+    issued_timestamp = _review_form_timestamp(issued, "issued_at")
+    if (
+        plan_created_at > packet_created_at
+        or plan_created_at > analysis_produced_at
+        or packet_created_at > issued_timestamp
+        or analysis_produced_at > issued_timestamp
+        or issued_timestamp > datetime.now(UTC)
+    ):
+        raise LocalQueueError("arena_human_review_form_timestamp_order_invalid")
+
+    try:
+        ratings = HumanReviewRatings.from_dict(ratings_payload)
+        decisions = HumanReviewDecisions.from_dict(decisions_payload)
+        sampling_evidence = HumanReviewSamplingEvidence.from_trusted_analysis(
+            analysis,
+            brief_frame_outliers_reviewed=True,
+        )
+    except ValueError as exc:
+        raise LocalQueueError("arena_human_review_form_values_invalid") from exc
+
+    provenance_references = tuple(
+        sorted(
+            {
+                (str(plan["planId"]), str(plan["planFingerprint"])),
+                (str(sample["sampleId"]), str(sample["queueJobFingerprint"])),
+                (
+                    str(sample["identityProfileId"]),
+                    str(sample["identityProfileFingerprint"]),
+                ),
+                (
+                    str(sample["contentIntentId"]),
+                    str(sample["contentIntentFingerprint"]),
+                ),
+                (
+                    str(analysis["analysisId"]),
+                    str(analysis["analysisFingerprint"]),
+                ),
+                (str(packet["packetId"]), str(packet["packetFingerprint"])),
+                (
+                    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
+                    fingerprint(
+                        {
+                            "schema": REVIEW_FORM_SCHEMA,
+                            "operatorIdentity": operator,
+                            "issuedAt": issued,
+                            "verificationStatus": "unverified",
+                            "reason": (
+                                "imported_form_has_no_authenticated_operator_credential"
+                            ),
+                        }
+                    ),
+                ),
+            }
+        )
+    )
+    review_identity = {
+        "arenaPlanId": plan["planId"],
+        "sampleId": sample["sampleId"],
+        "blindedCandidateId": sample["blindedCandidateId"],
+        "subjectSha256": candidate["subjectSha256"],
+        "sourceSha256": sample["sourceSha256"],
+        "operatorIdentity": operator,
+        "issuedAt": issued,
+        "rubricVersion": RUBRIC_VERSION,
+        "ratings": ratings.as_dict(),
+        "decisions": decisions.as_dict(),
+        "analysisFingerprint": analysis["analysisFingerprint"],
+        "reviewPacketFingerprint": packet["packetFingerprint"],
+    }
+    review = HumanMediaReview(
+        review_id=f"review_{fingerprint(review_identity)[:24]}",
+        arena_plan_id=str(plan["planId"]),
+        sample_id=str(sample["sampleId"]),
+        blinded_candidate_id=str(sample["blindedCandidateId"]),
+        subject_sha256=str(candidate["subjectSha256"]),
+        source_sha256=str(sample["sourceSha256"]),
+        reviewer=operator,
+        reviewed_at=issued,
+        rubric_version=RUBRIC_VERSION,
+        sampling_evidence=sampling_evidence,
+        ratings=ratings,
+        decisions=decisions,
+        provenance=HumanReviewProvenance(
+            review_mode="blinded",
+            unblinding_reason=None,
+            source_references=provenance_references,
+        ),
+    ).attest(evidence_secret=evidence_secret)
+    _validate_human_review_binding(
+        review,
+        plan=plan,
+        sample=sample,
+        analysis=analysis,
+        review_packet=packet,
+    )
+    return HumanMediaReview.from_dict(
+        review.as_dict(),
+        evidence_secret=evidence_secret,
+    ).as_dict()
 
 
 def _arena_candidate_aggregates(
@@ -2493,6 +2884,200 @@ class LocalModelArenaStore:
         """Return an immutable snapshot; mutation remains internal to Arena."""
 
         return tuple(dict(event) for event in self.__events.read().events)
+
+    def observe_generated_output_uniqueness(
+        self,
+        *,
+        plan_id: str,
+        sample_id: str,
+        output_sha256: str,
+        queue: LocalGenerationQueue,
+    ) -> dict[str, Any]:
+        """Persist an early cohort uniqueness check and stop on duplicates.
+
+        Final Arena summaries still re-check the complete cohort. This earlier
+        observation prevents a sequential qualification runner from spending
+        hours on later samples after different planned cells produce identical
+        bytes.
+        """
+
+        plan = self.load_plan(plan_id)
+        samples = {str(item["sampleId"]): dict(item) for item in plan["samples"]}
+        sample = samples.get(sample_id)
+        if sample is None:
+            raise LocalQueueError("arena_sample_not_in_plan")
+        if len(output_sha256) != 64 or any(
+            char not in "0123456789abcdef" for char in output_sha256
+        ):
+            raise ValueError("arena_output_sha256_invalid")
+        states = queue.states()
+
+        def verified_succeeded_output(
+            candidate: Mapping[str, Any],
+        ) -> tuple[str, str] | None:
+            job_id = str(candidate["queueJob"]["jobId"])
+            state = states.get(job_id)
+            if state is None or state.status != "succeeded":
+                return None
+            if fingerprint(state.job.as_dict()) != candidate["queueJobFingerprint"]:
+                raise LocalQueueError("arena_uniqueness_queue_job_drift")
+            observed_sha = str(
+                state.last_event.get("payload", {}).get("outputSha256") or ""
+            )
+            output = Path(str(candidate["outputPath"])).expanduser().resolve()
+            if (
+                len(observed_sha) != 64
+                or not output.is_file()
+                or output.is_symlink()
+                or sha256_file(output) != observed_sha
+            ):
+                raise LocalQueueError("arena_uniqueness_output_substituted")
+            return job_id, observed_sha
+
+        current = verified_succeeded_output(sample)
+        if current is None or current[1] != output_sha256:
+            raise LocalQueueError("arena_uniqueness_current_output_mismatch")
+        existing = self._output_uniqueness_observations(plan).get(sample_id)
+        if existing is not None:
+            if (
+                existing["queueJobId"] != current[0]
+                or existing["outputSha256"] != current[1]
+            ):
+                raise LocalQueueError("arena_output_uniqueness_observation_collision")
+            if existing["status"] == "duplicate":
+                raise LocalQueueError(
+                    "arena_duplicate_output_sha256:"
+                    + output_sha256
+                    + ":"
+                    + ",".join(
+                        str(item["sampleId"]) for item in existing["duplicateSamples"]
+                    )
+                )
+            return existing
+        duplicates: list[dict[str, Any]] = []
+        compared_outputs = 0
+        for other_id, other in sorted(samples.items()):
+            if other_id == sample_id:
+                continue
+            succeeded = verified_succeeded_output(other)
+            if succeeded is None:
+                continue
+            compared_outputs += 1
+            if succeeded[1] == output_sha256:
+                duplicates.append(
+                    {
+                        "sampleId": other_id,
+                        "queueJobId": succeeded[0],
+                        "queueJobFingerprint": other["queueJobFingerprint"],
+                        "seed": int(other["seed"]),
+                    }
+                )
+        status = "duplicate" if duplicates else "unique"
+        core = {
+            "schema": "reel_factory.local_model_arena_output_uniqueness.v1",
+            "planId": plan_id,
+            "planFingerprint": plan["planFingerprint"],
+            "sampleId": sample_id,
+            "queueJobId": current[0],
+            "queueJobFingerprint": sample["queueJobFingerprint"],
+            "seed": int(sample["seed"]),
+            "outputSha256": output_sha256,
+            "comparedSucceededOutputs": compared_outputs,
+            "duplicateSamples": duplicates,
+            "status": status,
+            "providerCalls": 0,
+            "productionWrites": 0,
+        }
+        payload = {**core, "observationFingerprint": fingerprint(core)}
+        with file_lock(self._mutation):
+            prior = [
+                event
+                for event in self.__events.read().events
+                if event.get("eventType") == "arena_output_uniqueness_observed"
+                and event.get("payload", {}).get("planId") == plan_id
+                and event.get("payload", {}).get("sampleId") == sample_id
+            ]
+            if prior:
+                if len(prior) != 1 or prior[0].get("payload") != payload:
+                    raise LocalQueueError(
+                        "arena_output_uniqueness_observation_collision"
+                    )
+                event = prior[0]
+            else:
+                event = self.__events.append(
+                    "arena_output_uniqueness_observed",
+                    payload,
+                )
+        if duplicates:
+            raise LocalQueueError(
+                "arena_duplicate_output_sha256:"
+                + output_sha256
+                + ":"
+                + ",".join(item["sampleId"] for item in duplicates)
+            )
+        return dict(event["payload"])
+
+    def _output_uniqueness_observations(
+        self, plan: Mapping[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        samples = {str(item["sampleId"]): item for item in plan["samples"]}
+        observations: dict[str, dict[str, Any]] = {}
+        for event in self.__events.read().events:
+            if (
+                event.get("eventType") != "arena_output_uniqueness_observed"
+                or event.get("payload", {}).get("planId") != plan["planId"]
+            ):
+                continue
+            payload = dict(event["payload"])
+            sample_id = str(payload.get("sampleId") or "")
+            sample = samples.get(sample_id)
+            core = {
+                key: value
+                for key, value in payload.items()
+                if key != "observationFingerprint"
+            }
+            duplicates = payload.get("duplicateSamples")
+            if (
+                sample is None
+                or sample_id in observations
+                or payload.get("schema")
+                != "reel_factory.local_model_arena_output_uniqueness.v1"
+                or payload.get("planFingerprint") != plan["planFingerprint"]
+                or payload.get("queueJobId") != sample["queueJob"]["jobId"]
+                or payload.get("queueJobFingerprint") != sample["queueJobFingerprint"]
+                or payload.get("seed") != sample["seed"]
+                or payload.get("status") not in {"unique", "duplicate"}
+                or not isinstance(duplicates, list)
+                or (payload.get("status") == "duplicate") is not bool(duplicates)
+                or payload.get("observationFingerprint") != fingerprint(core)
+                or payload.get("providerCalls") != 0
+                or payload.get("productionWrites") != 0
+            ):
+                raise LocalQueueError("arena_output_uniqueness_observation_invalid")
+            observations[sample_id] = payload
+        return observations
+
+    def require_no_duplicate_output_observation(
+        self, plan_id: str, *, requested_sample_id: str
+    ) -> None:
+        """Keep a duplicate-stopped cohort blocked across later CLI invocations."""
+
+        plan = self.load_plan(plan_id)
+        if not any(
+            str(sample["sampleId"]) == requested_sample_id for sample in plan["samples"]
+        ):
+            raise LocalQueueError("arena_sample_not_in_plan")
+        duplicates = sorted(
+            sample_id
+            for sample_id, observation in self._output_uniqueness_observations(
+                plan
+            ).items()
+            if observation["status"] == "duplicate"
+        )
+        if duplicates:
+            raise LocalQueueError(
+                "arena_cohort_blocked_by_duplicate_output:" + ",".join(duplicates)
+            )
 
     def _validate_transition_timestamp(
         self,
@@ -4558,6 +5143,7 @@ class LocalModelArenaStore:
             if sample_id in by_sample:
                 raise LocalQueueError("arena_duplicate_terminal_sample")
             by_sample[sample_id] = event
+        uniqueness_observations = self._output_uniqueness_observations(plan)
         queue_states = queue.states()
         receipts = benchmarks.all_receipts()
         reviews = human_reviews.reviews() if human_reviews is not None else {}
@@ -4569,8 +5155,12 @@ class LocalModelArenaStore:
             queue_job_id = str(sample["queueJob"]["jobId"])
             queue_state = queue_states.get(queue_job_id)
             terminal = by_sample.get(sample_id)
+            uniqueness = uniqueness_observations.get(sample_id)
             if terminal is None:
-                if queue_state is not None and queue_state.status in {
+                if uniqueness is not None and uniqueness["status"] == "duplicate":
+                    status = "missing"
+                    reason = "duplicate_output_sha256"
+                elif queue_state is not None and queue_state.status in {
                     "failed",
                     "interrupted",
                     "cancelled",
@@ -4627,6 +5217,15 @@ class LocalModelArenaStore:
                 blockers.append("queue_job_missing")
             else:
                 execution_evidence = queue.execution_evidence(queue_job_id)
+                measurement = execution_evidence.get("executionMeasurement")
+                if isinstance(measurement, dict) and "available" not in measurement:
+                    execution_evidence = {
+                        **execution_evidence,
+                        "executionMeasurement": {
+                            "available": True,
+                            **measurement,
+                        },
+                    }
                 if status == "succeeded" and queue_state.status != "succeeded":
                     blockers.append("queue_job_not_succeeded")
                 if (
@@ -4634,6 +5233,19 @@ class LocalModelArenaStore:
                     != sample["queueJobFingerprint"]
                 ):
                     blockers.append("queue_job_substituted")
+            if uniqueness is not None and uniqueness["status"] == "duplicate":
+                blockers.append("duplicate_output_sha256")
+                output = Path(str(sample["outputPath"])).expanduser().resolve()
+                if (
+                    queue_state is None
+                    or queue_state.status != "succeeded"
+                    or queue_state.last_event.get("payload", {}).get("outputSha256")
+                    != uniqueness["outputSha256"]
+                    or not output.is_file()
+                    or output.is_symlink()
+                    or sha256_file(output) != uniqueness["outputSha256"]
+                ):
+                    blockers.append("arena_uniqueness_output_substituted")
             expected_queue_evidence_fingerprint = fingerprint(
                 execution_evidence
                 if queue_state is not None
@@ -5050,7 +5662,7 @@ def _request_from_sample(sample: Mapping[str, Any]) -> LocalVideoRequest:
         extend_direction=str(sample.get("extendDirection") or "after"),  # type: ignore[arg-type]
         low_ram=sample.get("lowRam") is not False,
         tile_frames=int(sample.get("tileFrames", 1)),
-        tile_spatial=int(sample.get("tileSpatial", 2)),
+        tile_spatial=int(sample.get("tileSpatial", 1)),
         commercial_use=sample.get("commercialUse") is not False,
         commercial_annual_revenue_usd=(
             int(sample["commercialAnnualRevenueUsd"])
@@ -5123,6 +5735,114 @@ def _arena_benchmark_binding(
     return {**core, "bindingFingerprint": fingerprint(core)}
 
 
+def _validate_completed_arena_lineage(
+    lineage: Mapping[str, Any],
+    *,
+    sample: Mapping[str, Any],
+    request: LocalVideoRequest,
+    output: Path,
+    lineage_path: Path,
+    output_sha256: str,
+    queue_job: LocalGenerationJob,
+) -> dict[str, Any]:
+    def expected_media(path_field: str, sha_field: str) -> dict[str, str] | None:
+        raw_path = sample.get(path_field)
+        raw_sha = sample.get(sha_field)
+        if raw_path is None:
+            if raw_sha is not None:
+                raise LocalQueueError("arena_completed_lineage_input_binding_invalid")
+            return None
+        if not isinstance(raw_sha, str):
+            raise LocalQueueError("arena_completed_lineage_input_binding_invalid")
+        return {
+            "path": str(Path(str(raw_path)).expanduser().resolve()),
+            "sha256": raw_sha,
+        }
+
+    expected_input = (
+        {
+            "path": str(Path(str(sample["sourcePath"])).expanduser().resolve()),
+            "sha256": str(sample["sourceSha256"]),
+        }
+        if sample.get("sourcePath") is not None
+        else None
+    )
+    expected_binding = request.arena_benchmark_binding
+    isolation = lineage.get("executionIsolation")
+    isolation_core = dict(isolation) if isinstance(isolation, Mapping) else {}
+    isolation_claimed = isolation_core.pop("isolationFingerprint", None)
+    provider_activity = isolation_core.get("providerActivity")
+    lineage_queue = lineage.get("queue")
+    lineage_request = lineage.get("request")
+    lineage_command = lineage.get("command")
+    lineage_params = (
+        {
+            "command": lineage_command,
+            "outputPath": str(output),
+            "task": lineage_request.get("task"),
+            "durationSeconds": lineage_request.get("durationSeconds"),
+            "seed": lineage_request.get("seed"),
+            "executionContext": lineage.get("executionContext"),
+            "executionBindingFingerprint": expected_binding.get("bindingFingerprint"),
+            "executionIsolationFingerprint": isolation_claimed,
+            "taskParameterFingerprint": lineage.get("taskParameterFingerprint"),
+        }
+        if isinstance(lineage_request, Mapping)
+        and isinstance(lineage_command, list)
+        and isinstance(expected_binding, Mapping)
+        else None
+    )
+    owned_sandboxes = [
+        Path(path).expanduser().resolve()
+        for path in queue_job.owned_artifact_paths
+        if Path(path).name.startswith(".local_video_sandbox_")
+    ]
+    if (
+        lineage.get("schema") != "reel_factory.local_video_generation.v1"
+        or lineage.get("status") != "completed"
+        or lineage.get("outputPath") != str(output)
+        or lineage.get("lineagePath") != str(lineage_path)
+        or lineage.get("outputSha256") != output_sha256
+        or lineage.get("executionContext") != "arena_benchmark"
+        or lineage.get("modelId") != sample["modelId"]
+        or lineage.get("modelRevision") != sample["modelRevision"]
+        or lineage.get("modelManifestSha256") != sample["modelManifestSha256"]
+        or lineage.get("taskParameterMaterial") != sample["taskParameterMaterial"]
+        or lineage.get("taskParameterFingerprint") != sample["taskParameterFingerprint"]
+        or not isinstance(expected_binding, Mapping)
+        or lineage.get("arenaBenchmarkBinding") != dict(expected_binding)
+        or lineage.get("executionBinding") != dict(expected_binding)
+        or lineage.get("input") != expected_input
+        or lineage.get("lastImage")
+        != expected_media("lastImagePath", "lastImageSha256")
+        or lineage.get("sourceVideo")
+        != expected_media("sourceVideoPath", "sourceVideoSha256")
+        or lineage.get("sourceAudio") != expected_media("audioPath", "audioSha256")
+        or lineage.get("providerCalls") != 0
+        or lineage.get("paidGeneration") is not False
+        or lineage.get("humanReviewRequired") is not True
+        or lineage.get("publishingAllowed") is not False
+        or lineage.get("schedulingAllowed") is not False
+        or not isinstance(lineage_queue, Mapping)
+        or lineage_queue.get("jobId") != queue_job.job_id
+        or lineage_params is None
+        or fingerprint(lineage_params) != queue_job.params_fingerprint
+        or isolation_core.get("schema") != "reel_factory.local_subprocess_isolation.v1"
+        or isolation_core.get("enforced") is not True
+        or isolation_core.get("networkAccess") != "denied"
+        or isolation_core.get("writeAccess") != "explicit_artifacts_only"
+        or not isinstance(provider_activity, Mapping)
+        or provider_activity.get("callsObserved") != 0
+        or provider_activity.get("successfulDirectSocketCallsPossible") is not False
+        or not isinstance(isolation_claimed, str)
+        or fingerprint(isolation_core) != isolation_claimed
+        or len(owned_sandboxes) != 1
+        or isolation_core.get("sandboxRoot") != str(owned_sandboxes[0])
+    ):
+        raise LocalQueueError("arena_completed_lineage_binding_mismatch")
+    return dict(lineage)
+
+
 def execute_arena_sample_generation(
     store: LocalModelArenaStore,
     *,
@@ -5153,6 +5873,10 @@ def execute_arena_sample_generation(
         bindings=_plan_identity_bindings(plan),
         identity_root=identity_root,
     )
+    if not dry_run:
+        store.require_no_duplicate_output_observation(
+            plan_id, requested_sample_id=sample_id
+        )
     if not isinstance(sample.get("taskParameterMaterial"), dict) or not isinstance(
         sample.get("taskParameterFingerprint"), str
     ):
@@ -5164,12 +5888,59 @@ def execute_arena_sample_generation(
         or planned_job.as_dict() != sample["queueJob"]
     ):
         raise LocalQueueError("arena_runtime_queue_job_drift")
+    queue = default_local_generation_queue()
     output = Path(str(sample["outputPath"])).resolve()
     if output.exists():
-        raise LocalQueueError("arena_output_collision")
+        if dry_run:
+            raise LocalQueueError("arena_output_collision")
+        states = queue.states()
+        state = states.get(planned_job.job_id)
+        lineage_path = output.with_suffix(output.suffix + ".local_video.json")
+        if (
+            state is None
+            or state.status != "succeeded"
+            or fingerprint(state.job.as_dict()) != sample["queueJobFingerprint"]
+            or not output.is_file()
+            or output.is_symlink()
+            or not lineage_path.is_file()
+            or lineage_path.is_symlink()
+        ):
+            raise LocalQueueError("arena_output_collision")
+        output_sha256 = sha256_file(output)
+        lineage = _read_json(lineage_path)
+        if state.last_event.get("payload", {}).get("outputSha256") != output_sha256:
+            raise LocalQueueError("arena_completed_output_reconciliation_mismatch")
+        lineage = _validate_completed_arena_lineage(
+            lineage,
+            sample=sample,
+            request=request,
+            output=output,
+            lineage_path=lineage_path,
+            output_sha256=output_sha256,
+            queue_job=planned_job,
+        )
+        uniqueness = store.observe_generated_output_uniqueness(
+            plan_id=plan_id,
+            sample_id=sample_id,
+            output_sha256=output_sha256,
+            queue=queue,
+        )
+        return {
+            **lineage,
+            "arenaOutputUniqueness": uniqueness,
+            "reconciledFromSucceededQueue": True,
+        }
     if dry_run:
         return run_local_video(request, dry_run=True)
-    return run_local_video(request, dry_run=False)
+    result = run_local_video(request, dry_run=False)
+    output_sha256 = str(result.get("outputSha256") or "")
+    uniqueness = store.observe_generated_output_uniqueness(
+        plan_id=plan_id,
+        sample_id=sample_id,
+        output_sha256=output_sha256,
+        queue=queue,
+    )
+    return {**result, "arenaOutputUniqueness": uniqueness}
 
 
 def _write_exact_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -5859,6 +6630,20 @@ def main(argv: list[str] | None = None) -> int:
     execution = generate.add_mutually_exclusive_group(required=True)
     execution.add_argument("--dry-run", action="store_true")
     execution.add_argument("--apply", action="store_true")
+    author_review = sub.add_parser(
+        "author-review",
+        help=(
+            "bind a completed blinded review form to the exact Arena packet "
+            "and trusted analysis"
+        ),
+    )
+    author_review.add_argument("--plan-id", required=True)
+    author_review.add_argument("--sample-id", required=True)
+    author_review.add_argument("--form", type=Path, required=True)
+    author_review.add_argument("--analysis", type=Path, required=True)
+    author_review.add_argument("--operator-identity", required=True)
+    author_review.add_argument("--issued-at", required=True)
+    author_review.add_argument("--output", type=Path, required=True)
     finalize = sub.add_parser("finalize")
     finalize.add_argument("--plan-id", required=True)
     finalize.add_argument("--sample-id", required=True)
@@ -5987,6 +6772,28 @@ def main(argv: list[str] | None = None) -> int:
                 benchmarks=benchmark_store,
                 human_reviews=HumanMediaReviewStore(args.root),
             )
+        elif args.command == "author-review":
+            review = author_human_review_from_form(
+                form=_read_json(args.form),
+                arena_plan=store.load_plan(args.plan_id),
+                review_packet=store.load_review_packet(args.plan_id),
+                trusted_analysis=_read_json(args.analysis),
+                sample_id=args.sample_id,
+                operator_identity=args.operator_identity,
+                issued_at=args.issued_at,
+            )
+            output_path = args.output.expanduser().resolve()
+            _write_exact_json(output_path, review)
+            result = {
+                "schema": "reel_factory.local_model_arena_review_authoring.v1",
+                "planId": args.plan_id,
+                "sampleId": args.sample_id,
+                "reviewId": review["reviewId"],
+                "reviewFingerprint": review["reviewFingerprint"],
+                "path": str(output_path),
+                "providerCalls": 0,
+                "productionWrites": 0,
+            }
         elif args.command == "finalize":
             benchmark_store = default_local_model_benchmark_store(args.root)
             result = finalize_arena_sample_evidence(

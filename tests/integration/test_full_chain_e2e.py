@@ -267,9 +267,23 @@ def mark_publishable_qc(cf: CampaignFactory, rendered_asset_id: str) -> None:
     generation = json.loads(row["caption_generation_json"] or "{}")
     generation["audioIntent"] = {
         "schema": "pipeline.audio_intent.v1",
-        "mode": "native_platform_audio",
+        "policy": "silent_allowed",
+        "mode": "silence",
         "required": False,
         "status": "not_required",
+        "operator_selection": {
+            "selection_source": "e2e_test_fixture",
+            "selected_reason": "This fixture explicitly tests a silent Reel",
+            "selected_at": "2026-01-01T00:00:00+00:00",
+        },
+        "fulfillment": {
+            "status": "explicitly_allowed",
+            "owner": "creator_os",
+            "proof_required": False,
+            "proof_type": "explicit_silent_policy",
+            "audio_present": False,
+            "verified_at": "2026-01-01T00:00:00+00:00",
+        },
     }
     cf.conn.execute(
         "UPDATE rendered_assets SET caption_outcome_context_json = ?, caption_generation_json = ? WHERE id = ?",

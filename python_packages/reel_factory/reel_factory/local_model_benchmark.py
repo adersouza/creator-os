@@ -32,7 +32,10 @@ from pipeline_contracts import (
 )
 
 from .fileops import atomic_write_text, file_lock
-from .human_media_review import HumanMediaReview
+from .human_media_review import (
+    UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID,
+    HumanMediaReview,
+)
 from .identity_verification import (
     MINIMUM_REFERENCE_SOURCES,
     REFERENCE_OUTLIER_MINIMUM_MEDIAN_COSINE,
@@ -134,7 +137,10 @@ def _require_zero_external_activity(payload: Mapping[str, Any], check_id: str) -
 
 
 def _validate_trusted_analysis_payload(
-    analysis: Any, *, expected_subject_sha256: str
+    analysis: Any,
+    *,
+    expected_subject_sha256: str,
+    evidence_secret: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(analysis, dict):
         raise LocalQueueError("benchmark_trusted_analysis_missing")
@@ -150,7 +156,7 @@ def _validate_trusted_analysis_payload(
         verified = verify_evidence_attestation(
             attestation if isinstance(attestation, dict) else {},
             attested_payload,
-            secret=load_evidence_secret(),
+            secret=evidence_secret or load_evidence_secret(),
             expected_issuer="contentforge.trusted_media_analysis",
         )
     except EvidenceAttestationError as exc:
@@ -453,11 +459,16 @@ def _validate_human_review_receipt(
     validate_human_media_review(review)
     parsed_review = HumanMediaReview.from_dict(review)
     claimed = review.get("reviewFingerprint")
+    reviewer_identity_unverified = any(
+        record_id == UNVERIFIED_REVIEWER_IDENTITY_RECORD_ID
+        for record_id, _fingerprint in parsed_review.provenance.source_references
+    )
     expected_passed = bool(
         parsed_review.decisions.creator_identity_preserved
         and parsed_review.decisions.anatomy_acceptable
         and parsed_review.decisions.operator_useful
         and parsed_review.decisions.approved_for_benchmark
+        and not reviewer_identity_unverified
     )
     reviewed_at = datetime.fromisoformat(
         str(review.get("reviewedAt") or "").replace("Z", "+00:00")

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -163,6 +164,12 @@ _IMAGEIO_FFMPEG_DISCOVERY_PROBE = """from imageio_ffmpeg import get_ffmpeg_exe
 
 print(get_ffmpeg_exe())
 """
+_LTX_FFMPEG_DISCOVERY_PROBE = """from pathlib import Path
+
+from ltx_core_mlx.utils.ffmpeg import find_ffmpeg
+
+print(Path(find_ffmpeg()).resolve())
+"""
 
 DEFAULT_NEGATIVE_PROMPT = DEFAULT_LOCAL_VIDEO_NEGATIVE_PROMPT
 
@@ -224,7 +231,7 @@ class LocalVideoRequest:
     extend_direction: Literal["before", "after"] = "after"
     low_ram: bool = True
     tile_frames: int = 1
-    tile_spatial: int = 2
+    tile_spatial: int = 1
     commercial_use: bool = True
     commercial_annual_revenue_usd: int | None = None
     overlays_exist: bool = False
@@ -235,6 +242,7 @@ class LocalVideoRequest:
     execution_context: LocalVideoExecutionContext | None = None
     local_motion_admission: Mapping[str, Any] | None = None
     arena_benchmark_binding: Mapping[str, Any] | None = None
+    prompt_expansion: Mapping[str, Any] | None = None
 
 
 def probe_local_video(
@@ -372,6 +380,7 @@ def local_video_task_parameter_material(
     )
     is_wan = selected.family == "wan_2"
     is_ltx = selected.family == "ltx_2"
+    is_longcat = selected.family == "longcat_avatar"
     edit_task = request.task in {"video_retake", "video_extend"}
     trim_first_frames = 0
     if edit_task:
@@ -437,15 +446,11 @@ def local_video_task_parameter_material(
         requested_steps=request.steps,
         audio_mode=request.audio_mode,
         pipeline=selected.pipeline,
-        guide_scale=selected.guide_scale if is_wan else None,
-        scheduler="unipc" if is_wan else None,
-        tiling_mode=(
-            "aggressive"
-            if is_wan and "a14b" in selected.model_id
-            else "auto"
-            if is_wan
-            else None
+        guide_scale=selected.guide_scale if is_wan or is_longcat else None,
+        scheduler=(
+            "unipc" if is_wan else "flowmatch_euler_dmd" if is_longcat else None
         ),
+        tiling_mode="auto" if is_wan else None,
         trim_first_frames=trim_first_frames,
         retake_start_frame=request.retake_start_frame,
         retake_end_frame=request.retake_end_frame,
@@ -877,6 +882,8 @@ def run_local_video(
         "publishingAllowed": False,
         "aiDisclosureRequired": spec.ai_disclosure_required,
     }
+    if request.prompt_expansion is not None:
+        lineage["promptExpansion"] = dict(request.prompt_expansion)
     if dry_run:
         planned_base_command = _build_execution_command(
             request,
@@ -1026,6 +1033,7 @@ def run_local_video(
                     python_executable=Path(command[4]),
                     environment=offline_env,
                     expected_ffmpeg=Path(offline_env["IMAGEIO_FFMPEG_EXE"]),
+                    consumer=_media_tool_discovery_consumer(request),
                 )
                 if (
                     current_media_tool_discovery
@@ -1346,6 +1354,7 @@ def _isolated_execution(
         python_executable=Path(command[0]),
         environment=environment,
         expected_ffmpeg=Path(expected_ffmpeg),
+        consumer=_media_tool_discovery_consumer(request),
     )
     isolation_core = {
         "schema": "reel_factory.local_subprocess_isolation.v1",
@@ -1683,10 +1692,20 @@ def _preflight_imageio_ffmpeg_discovery(
     python_executable: Path,
     environment: Mapping[str, str],
     expected_ffmpeg: Path,
+    consumer: str = "imageio_ffmpeg.get_ffmpeg_exe",
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
     """Prove the model runtime's actual encoder consumer resolves exact FFmpeg."""
 
+    probes = {
+        "imageio_ffmpeg.get_ffmpeg_exe": _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+        "ltx_core_mlx.utils.ffmpeg.find_ffmpeg": _LTX_FFMPEG_DISCOVERY_PROBE,
+    }
+    probe = probes.get(consumer)
+    if probe is None:
+        raise LocalVideoUnavailable(
+            "local_video_media_tool_discovery_preflight_failed:consumer_unsupported"
+        )
     expected = expected_ffmpeg.expanduser()
     if not expected.is_file() or not os.access(expected, os.X_OK):
         raise LocalVideoUnavailable(
@@ -1709,7 +1728,7 @@ def _preflight_imageio_ffmpeg_discovery(
         "-I",
         "-E",
         "-c",
-        _IMAGEIO_FFMPEG_DISCOVERY_PROBE,
+        probe,
     ]
     try:
         completed = runner(
@@ -1751,10 +1770,8 @@ def _preflight_imageio_ffmpeg_discovery(
         )
     return {
         "schema": "reel_factory.local_media_tool_discovery_preflight.v1",
-        "consumer": "imageio_ffmpeg.get_ffmpeg_exe",
-        "consumerProbeFingerprint": fingerprint(
-            {"implementation": _IMAGEIO_FFMPEG_DISCOVERY_PROBE}
-        ),
+        "consumer": consumer,
+        "consumerProbeFingerprint": fingerprint({"implementation": probe}),
         "pythonExecutable": str(python_executable),
         "expectedFfmpegExecutable": str(expected),
         "expectedFfmpegExecutableResolved": str(expected_resolved),
@@ -1765,6 +1782,13 @@ def _preflight_imageio_ffmpeg_discovery(
         "timeoutSeconds": _MEDIA_TOOL_DISCOVERY_TIMEOUT_SECONDS,
         "discoverySucceeded": True,
     }
+
+
+def _media_tool_discovery_consumer(request: LocalVideoRequest) -> str:
+    family = local_video_model_spec(request.model_id).family
+    if family == "ltx_2":
+        return "ltx_core_mlx.utils.ffmpeg.find_ffmpeg"
+    return "imageio_ffmpeg.get_ffmpeg_exe"
 
 
 def _runtime_binding(
@@ -1939,7 +1963,7 @@ def _build_wan_command(
         "--scheduler",
         "unipc",
         "--tiling",
-        "aggressive" if "a14b" in spec.model_id else "auto",
+        "auto",
         "--output-path",
         str(output),
     ]
@@ -2072,6 +2096,8 @@ def _build_ltx_command(
         command.extend(
             ["--audio", str(Path(request.audio_path).expanduser().resolve())]
         )
+        if spec.pipeline == "dev-two-stage-hq":
+            command.append("--two-stages-hq")
         command.extend(["--stage1-steps", str(_effective_steps(request, spec))])
     elif spec.pipeline == "distilled":
         command.extend(["--distilled"])
@@ -2127,15 +2153,11 @@ def _append_ltx_memory_flags(
 def _effective_steps(request: LocalVideoRequest, spec: LocalVideoModelSpec) -> int:
     if request.steps is not None:
         return request.steps
-    if spec.family == "ltx_2" and (
-        request.audio_mode == "source"
-        or request.task
-        in {
-            "keyframe_interpolation",
-            "video_retake",
-            "video_extend",
-        }
-    ):
+    if spec.family == "ltx_2" and request.task in {
+        "keyframe_interpolation",
+        "video_retake",
+        "video_extend",
+    }:
         return 30
     return spec.default_steps
 
@@ -2174,6 +2196,12 @@ def _build_longcat_command(
         str(frames),
         "--fps",
         str(spec.fps),
+        "--sampling-steps",
+        str(_effective_steps(request, spec)),
+        "--text-guidance-scale",
+        "4.0",
+        "--audio-guidance-scale",
+        "4.0",
         "--seed",
         str(request.seed),
         "--output-path",
@@ -2198,6 +2226,22 @@ def _validate_request_inputs(
         raise ValueError(
             "local video motion prompt must contain at least 20 characters"
         )
+    if spec.family == "ltx_2" and len(prompt.split()) > 200:
+        raise ValueError("local LTX prompt must contain at most 200 words")
+    if spec.family == "longcat_avatar":
+        prompt_words = re.findall(r"[a-z]+", prompt.lower())
+        if len(prompt_words) < 12:
+            raise ValueError(
+                "LongCat Avatar requires a detailed speaking-scene prompt "
+                "with at least 12 words"
+            )
+        if not any(
+            cue in prompt_words
+            for cue in ("speak", "speaks", "speaking", "talk", "talks", "talking")
+        ):
+            raise ValueError(
+                "LongCat Avatar prompt must explicitly describe speaking or talking"
+            )
     _request_input_bindings(request)
     if request.image_path is not None:
         image = Path(request.image_path).expanduser().resolve()
@@ -2675,6 +2719,8 @@ def _generation_job(
         ),
         "executionBinding": execution_binding,
     }
+    if request.prompt_expansion is not None:
+        inputs["promptExpansion"] = dict(request.prompt_expansion)
     input_sha = fingerprint(inputs)
     cohort_input_sha = fingerprint(
         {
@@ -2710,6 +2756,21 @@ def _generation_job(
         ]
     )
     requested_memory = max(24 * 1024**3, int(spec.estimated_bytes * 1.35))
+    cohort = {
+        "sourceInputSha256": cohort_input_sha,
+        "task": request.task,
+        "prompt": " ".join(request.prompt.split()),
+        "durationSeconds": effective_duration_seconds,
+        "seed": request.seed,
+        "audioMode": request.audio_mode,
+        "executionContext": request.execution_context,
+        "executionBindingFingerprint": execution_binding["bindingFingerprint"],
+        "executionIsolationFingerprint": execution_isolation["isolationFingerprint"],
+    }
+    if request.prompt_expansion is not None:
+        cohort["promptExpansionFingerprint"] = request.prompt_expansion.get(
+            "expansionFingerprint"
+        )
     return LocalGenerationJob.create(
         job_id=job_id,
         model_id=spec.model_id,
@@ -2719,19 +2780,7 @@ def _generation_job(
         input_sha256=input_sha,
         requested_memory_bytes=requested_memory,
         params=params,
-        cohort={
-            "sourceInputSha256": cohort_input_sha,
-            "task": request.task,
-            "prompt": " ".join(request.prompt.split()),
-            "durationSeconds": effective_duration_seconds,
-            "seed": request.seed,
-            "audioMode": request.audio_mode,
-            "executionContext": request.execution_context,
-            "executionBindingFingerprint": execution_binding["bindingFingerprint"],
-            "executionIsolationFingerprint": execution_isolation[
-                "isolationFingerprint"
-            ],
-        },
+        cohort=cohort,
         owned_artifact_paths=(
             output,
             output.with_suffix(".partial" + output.suffix),
@@ -2826,8 +2875,9 @@ def _validate_campaign_admission(
         "resourceSnapshot",
         "admissionFingerprint",
     }
-    if set(payload) != expected_keys or payload.get("schema") != (
-        "campaign_factory.local_motion_admission.v1"
+    if (
+        set(payload) not in (expected_keys, expected_keys | {"promptExpansion"})
+        or payload.get("schema") != "campaign_factory.local_motion_admission.v1"
     ):
         raise LocalVideoUnavailable("local_motion_admission_schema_invalid")
     claimed = _required_sha256(
@@ -2996,6 +3046,12 @@ def _validate_campaign_admission(
         registry
     ):
         raise LocalVideoUnavailable("local_motion_analyzer_registry_mismatch")
+    admission_prompt_expansion = payload.get("promptExpansion")
+    if (admission_prompt_expansion is None) != (request.prompt_expansion is None) or (
+        admission_prompt_expansion is not None
+        and dict(request.prompt_expansion or {}) != dict(admission_prompt_expansion)
+    ):
+        raise LocalVideoUnavailable("local_motion_prompt_expansion_mismatch")
 
     input_fingerprints = payload.get("inputFingerprints")
     exact_bindings = _request_input_bindings(request)
