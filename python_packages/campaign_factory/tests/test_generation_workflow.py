@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from campaign_factory.generation_workflow import (
     _run_library_reuse_mode,
     run_generation_workflow,
 )
+from campaign_factory.production_lane import build_production_motion_recipe
 from campaign_test_support import make_factory
 
 
@@ -120,6 +122,42 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert admission["campaign_creator"] == "stacey"
     assert admission["accepted_still_path"] == still
     assert admission["last_image_path"] is None
+
+
+def test_explicit_production_wan_bypasses_arena_router(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    still = tmp_path / "accepted.png"
+    still.write_bytes(b"still")
+    captured: dict = {}
+    monkeypatch.setattr(
+        "campaign_factory.motion_generation_stage.run_motion_generation_stage",
+        lambda *_args, **kwargs: captured.update(kwargs) or {"ok": True},
+    )
+    recipe = build_production_motion_recipe(
+        creator="stacey",
+        intent="passive_selfie",
+        execution="local",
+        source_sha256=hashlib.sha256(still.read_bytes()).hexdigest(),
+    )
+    result = run_generation_workflow(
+        _local_motion_factory(),
+        mode="local_wan",
+        campaign_slug="campaign",
+        accepted_still_path=still,
+        motion_model_id="local_wan22_ti2v_5b_mlx",
+        production_motion_recipe=recipe,
+        motion_prompt="Natural eye movement and one restrained hair adjustment",
+        audio_policy="native_trending_required",
+        dry_run=True,
+        apply=False,
+    )
+    assert captured["local_motion_admission"] is None
+    assert captured["local_arena_summary_path"] is None
+    assert captured["benchmark_recipe"] is None
+    assert captured["production_motion_recipe"] == recipe
+    assert result["humanReviewRequired"] is False
+    assert result["productionPolicy"]["softScoresRankOnly"] is True
 
 
 def test_local_wan_expands_before_admission_and_preserves_receipt(

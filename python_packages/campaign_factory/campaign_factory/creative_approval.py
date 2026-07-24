@@ -101,6 +101,15 @@ def asset_requires_creative_approval(asset: dict[str, Any]) -> bool:
     """Derive approval policy from immutable generation lineage, never a draft marker."""
 
     metadata = _asset_metadata(asset)
+    production_recipe = metadata.get("productionMotionRecipe")
+    if (
+        metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
+        and isinstance(production_recipe, dict)
+        and production_recipe.get("status") == "active"
+        and metadata.get("creativeApprovalRequired") is False
+        and metadata.get("humanReviewRequired") is False
+    ):
+        return False
     return bool(
         metadata.get("schema") == "campaign_factory.motion_generation_asset.v1"
         or str(asset.get("frame_type") or "") == "generated_motion"

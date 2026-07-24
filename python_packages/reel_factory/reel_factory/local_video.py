@@ -64,7 +64,9 @@ LocalVideoTask = Literal[
     "video_retake",
     "video_extend",
 ]
-LocalVideoExecutionContext = Literal["campaign_generation", "arena_benchmark"]
+LocalVideoExecutionContext = Literal[
+    "campaign_generation", "production_recipe", "arena_benchmark"
+]
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 _MAX_GENERATION_LOG_BYTES = 16 * 1024 * 1024
@@ -241,6 +243,7 @@ class LocalVideoRequest:
     content_intent: Mapping[str, Any] | None = None
     execution_context: LocalVideoExecutionContext | None = None
     local_motion_admission: Mapping[str, Any] | None = None
+    production_motion_recipe: Mapping[str, Any] | None = None
     arena_benchmark_binding: Mapping[str, Any] | None = None
     prompt_expansion: Mapping[str, Any] | None = None
 
@@ -812,6 +815,11 @@ def run_local_video(
         "localMotionAdmission": (
             dict(request.local_motion_admission)
             if request.local_motion_admission is not None
+            else None
+        ),
+        "productionMotionRecipe": (
+            dict(request.production_motion_recipe)
+            if request.production_motion_recipe is not None
             else None
         ),
         "arenaBenchmarkBinding": (
@@ -2821,14 +2829,66 @@ def _validate_execution_binding(
             "local_video_custom_model_dir_forbidden_for_bound_execution"
         )
     if request.execution_context == "campaign_generation":
-        if request.arena_benchmark_binding is not None:
+        if (
+            request.arena_benchmark_binding is not None
+            or request.production_motion_recipe is not None
+        ):
             raise LocalVideoUnavailable("local_video_mixed_execution_evidence")
         return _validate_campaign_admission(request, capability=capability)
+    if request.execution_context == "production_recipe":
+        if (
+            request.local_motion_admission is not None
+            or request.arena_benchmark_binding is not None
+        ):
+            raise LocalVideoUnavailable("local_video_mixed_execution_evidence")
+        return _validate_production_recipe(request, capability=capability)
     if request.execution_context == "arena_benchmark":
         if request.local_motion_admission is not None:
             raise LocalVideoUnavailable("local_video_mixed_execution_evidence")
         return _validate_arena_benchmark_binding(request)
     raise LocalVideoUnavailable("local_video_execution_context_invalid")
+
+
+def _validate_production_recipe(
+    request: LocalVideoRequest, *, capability: Mapping[str, Any]
+) -> dict[str, Any]:
+    recipe = request.production_motion_recipe
+    if not isinstance(recipe, Mapping):
+        raise LocalVideoUnavailable("production_motion_recipe_required")
+    payload = dict(recipe)
+    claimed = str(payload.pop("recipeFingerprint", ""))
+    if (
+        payload.get("schema") != "campaign_factory.production_motion_recipe.v1"
+        or payload.get("status") != "active"
+        or payload.get("modelId") != request.model_id
+        or payload.get("researchSelectionRequired") is not False
+        or fingerprint(payload) != claimed
+    ):
+        raise LocalVideoUnavailable("production_motion_recipe_invalid")
+    input_sha = _optional_input_sha256(request.image_path or request.source_video_path)
+    if input_sha is None and request.task == "text_to_video":
+        input_sha = fingerprint(
+            {"taskKind": request.task, "prompt": " ".join(request.prompt.split())}
+        )
+    if recipe.get("sourceSha256") != input_sha:
+        raise LocalVideoUnavailable("production_motion_recipe_source_mismatch")
+    if capability.get("ready") is not True:
+        raise LocalVideoUnavailable("production_motion_runtime_not_ready")
+    return {
+        "schema": "reel_factory.production_execution_binding.v1",
+        "recipeFingerprint": claimed,
+        "modelId": request.model_id,
+        "sourceSha256": input_sha,
+        "runtimeBinding": (capability.get("runtime") or {}),
+        "licensePolicy": {"commercialUseAllowed": True},
+        "bindingFingerprint": fingerprint(
+            {
+                "recipeFingerprint": claimed,
+                "modelId": request.model_id,
+                "sourceSha256": input_sha,
+            }
+        ),
+    }
 
 
 def _execution_capability_fingerprint(capability: Mapping[str, Any]) -> str:

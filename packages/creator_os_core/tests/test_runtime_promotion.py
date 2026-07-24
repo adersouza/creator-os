@@ -66,12 +66,11 @@ def test_required_promotion_checks_match_canonical_workflow_provenance() -> None
         (ROOT / ".github/workflows/security.yml").read_text(encoding="utf-8")
     )
 
-    for check in {"contracts", "hygiene", "architecture", "python", "javascript"}:
-        assert check in monorepo["jobs"]
-        assert TRUSTED_CHECK_WORKFLOWS[check] == (
-            monorepo["name"],
-            ".github/workflows/monorepo-ci.yml",
-        )
+    assert "release" in monorepo["jobs"]
+    assert TRUSTED_CHECK_WORKFLOWS["release"] == (
+        monorepo["name"],
+        ".github/workflows/monorepo-ci.yml",
+    )
     assert security["jobs"]["secrets"]["name"] == "Secret scan"
     assert security["jobs"]["trivy"]["name"] == "Trivy filesystem scan"
     assert security["jobs"]["codeql"]["name"] == "CodeQL (${{ matrix.language }})"

@@ -9,6 +9,39 @@ from .creative_modes import creative_workflow_mode_ids
 
 def register_core_commands(sub) -> None:
     sub.add_parser("init")
+    create = sub.add_parser(
+        "create",
+        help="create an independent production batch from operator intent",
+    )
+    create.add_argument("--creator", required=True)
+    create.add_argument(
+        "--intent",
+        required=True,
+        choices=[
+            "passive_selfie",
+            "flirty_portrait",
+            "outfit",
+            "lifestyle",
+            "animate_existing",
+        ],
+    )
+    create.add_argument("--count", type=int, default=1)
+    create.add_argument("--execution", choices=["local", "cloud"], default="local")
+    create.add_argument("--accounts")
+    create.add_argument(
+        "--audio",
+        dest="audio_preference",
+        choices=[
+            "embedded_trending_required",
+            "native_trending_required",
+            "original_embedded",
+            "creator_voice",
+            "royalty_free",
+            "silent_allowed",
+        ],
+        default="native_trending_required",
+    )
+    create.add_argument("--apply", action="store_true")
     sub.add_parser(
         "control-check",
         help="check Campaign Factory's local component/tooling dependencies",

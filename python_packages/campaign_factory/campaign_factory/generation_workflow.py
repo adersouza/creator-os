@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -92,6 +93,7 @@ def run_generation_workflow(
     enable_prompt_expansion: bool = False,
     shot_type: str = "single",
     local_model_dir: Path | None = None,
+    production_motion_recipe: dict[str, Any] | None = None,
     motion_task: str = "image_to_video",
     motion_lora_path: Path | None = None,
     motion_lora_strength: float = 1.0,
@@ -254,48 +256,64 @@ def run_generation_workflow(
         local_motion_admission = None
         if mode_id == "local_wan":
             from .local_motion_admission import build_local_motion_admission
+            from .production_lane import validate_production_motion_recipe
 
-            if local_arena_summary_path is None:
-                raise ValueError("local_wan requires --local-arena-summary")
             campaign = factory.domains.campaign_by_slug(campaign_slug)
             campaign_creator = factory.domains.reel_execution.model_slug_for_campaign(
                 campaign["id"]
             )
-            local_motion_admission = build_local_motion_admission(
-                evidence_bundle_path=local_evidence_bundle_path,
-                evidence_bundle=evidence_records,
-                arena_summary_path=local_arena_summary_path,
-                accepted_still_path=accepted_still_path,
-                audio_path=audio_path,
-                last_image_path=last_image_path,
-                source_video_path=source_video_path,
-                prompt=normalized_motion_prompt,
-                duration_seconds=selected_duration,
-                resolution=resolution,
-                seed=seed,
-                steps=steps,
-                generate_audio=generate_audio,
-                retake_start_frame=retake_start_frame,
-                retake_end_frame=retake_end_frame,
-                extend_frames=extend_frames,
-                extend_direction=extend_direction,
-                preserve_audio=preserve_audio,
-                lora_path=motion_lora_path,
-                lora_strength=motion_lora_strength,
-                campaign_creator=campaign_creator,
-                task_kind=motion_task,
-                override_model_id=motion_model_id,
-                override_operator=router_override_operator,
-                override_reason=router_override_reason,
-                contentforge_root=factory.settings.contentforge_root,
-                prompt_expansion=prompt_expansion,
-            )
-            selected_model = str(
-                local_motion_admission["routerDecision"]["selectedModelId"]
-            )
-            admitted_records = local_motion_admission["evidenceRecords"]
-            local_benchmark_recipe = admitted_records["benchmarkRecipe"]
-            local_analyzer_registry = admitted_records["analyzerRegistry"]
+            if production_motion_recipe is not None:
+                selected_model = str(motion_model_id or "")
+                source_sha = (
+                    hashlib.sha256(accepted_still_path.read_bytes()).hexdigest()
+                    if accepted_still_path is not None
+                    else ""
+                )
+                validate_production_motion_recipe(
+                    production_motion_recipe,
+                    model_id=selected_model,
+                    source_sha256=source_sha,
+                )
+                local_benchmark_recipe = None
+                local_analyzer_registry = None
+            else:
+                if local_arena_summary_path is None:
+                    raise ValueError("local_wan requires --local-arena-summary")
+                local_motion_admission = build_local_motion_admission(
+                    evidence_bundle_path=local_evidence_bundle_path,
+                    evidence_bundle=evidence_records,
+                    arena_summary_path=local_arena_summary_path,
+                    accepted_still_path=accepted_still_path,
+                    audio_path=audio_path,
+                    last_image_path=last_image_path,
+                    source_video_path=source_video_path,
+                    prompt=normalized_motion_prompt,
+                    duration_seconds=selected_duration,
+                    resolution=resolution,
+                    seed=seed,
+                    steps=steps,
+                    generate_audio=generate_audio,
+                    retake_start_frame=retake_start_frame,
+                    retake_end_frame=retake_end_frame,
+                    extend_frames=extend_frames,
+                    extend_direction=extend_direction,
+                    preserve_audio=preserve_audio,
+                    lora_path=motion_lora_path,
+                    lora_strength=motion_lora_strength,
+                    campaign_creator=campaign_creator,
+                    task_kind=motion_task,
+                    override_model_id=motion_model_id,
+                    override_operator=router_override_operator,
+                    override_reason=router_override_reason,
+                    contentforge_root=factory.settings.contentforge_root,
+                    prompt_expansion=prompt_expansion,
+                )
+                selected_model = str(
+                    local_motion_admission["routerDecision"]["selectedModelId"]
+                )
+                admitted_records = local_motion_admission["evidenceRecords"]
+                local_benchmark_recipe = admitted_records["benchmarkRecipe"]
+                local_analyzer_registry = admitted_records["analyzerRegistry"]
         else:
             if any(
                 value is not None
@@ -351,6 +369,7 @@ def run_generation_workflow(
             motion_lora_path=motion_lora_path,
             motion_lora_strength=motion_lora_strength,
             local_motion_admission=local_motion_admission,
+            production_motion_recipe=production_motion_recipe,
             local_arena_summary_path=(
                 local_arena_summary_path if mode_id == "local_wan" else None
             ),
@@ -413,12 +432,26 @@ def run_generation_workflow(
     return {
         "schema": "campaign_factory.generation_workflow_run.v1",
         "mode": mode_id,
-        "modeDefinition": selected,
+        "modeDefinition": {
+            **selected,
+            "humanReviewRequired": production_motion_recipe is None,
+        },
         "executionPlan": execution_plan.to_contract(),
+        "productionPolicy": (
+            {
+                "recipeBound": True,
+                "arenaRouterRequired": False,
+                "humanReviewRequired": False,
+                "hardQcRequired": True,
+                "softScoresRankOnly": True,
+            }
+            if production_motion_recipe is not None
+            else None
+        ),
         "dryRun": dry_run,
         "apply": live,
         "result": result,
-        "humanReviewRequired": True,
+        "humanReviewRequired": production_motion_recipe is None,
         "schedulingAllowed": False,
         "publishingAllowed": False,
         **({"evidenceRecords": evidence_records} if evidence_records else {}),

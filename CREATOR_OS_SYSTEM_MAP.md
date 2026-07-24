@@ -206,7 +206,37 @@ mirrors. Reel Factory has one local SQLite render queue. ContentForge runs a
 bounded command directly; it has no HTTP server, daemon, background job API, or
 polling queue.
 
-## Local Motion Evidence, Arena, And Routing
+## Production Creation And Research
+
+Normal production begins with:
+
+```text
+creator + intent + count + execution + account group + audio preference
+-> approved creator image inventory
+-> pinned active production recipe
+-> N independent source/prompt/seed/request identities
+-> local or authorized cloud worker
+-> hard QC blockers + soft ranking signals
+-> Creator OS creative decision
+-> validated ThreadsDashboard draft
+```
+
+The pinned production recipe binds the exact model and source hash and is
+rehash-validated at Campaign, worker-command, and local-runtime boundaries.
+Explicit production-model execution does not consume Arena summaries, benchmark
+recipes, analyzer registries, Router decisions, or promotion IDs. It never
+silently substitutes a model or permits paid fallback. `creator-os create`
+resolves implementation paths and seeds internally; `count=N` materializes N
+independent job identities.
+
+Calibration assets retain exact human creative approval. An active production
+recipe may omit mandatory human review only after hard QC; soft scores rank
+candidates and feed learning rather than acting as universal publication
+blockers. ThreadsDashboard trusts the exact Creator OS creative result while
+retaining account authorization, health, schedule, platform, and publish
+preflight authority.
+
+## Local Motion Research Evidence, Arena, And Routing
 
 Local Wan/LTX/LongCat execution remains a Reel Factory worker concern. The
 evidence path deliberately reuses the existing machine-wide generation queue
@@ -342,16 +372,14 @@ ineligible.
 An operator override may select only an otherwise valid candidate and is
 explicitly excluded from benchmark learning.
 
-Ordinary `creator-os create --mode local_wan` uses the same evidence gate. It
-requires an exact thin-evidence bundle plus the frozen Arena plan/summary,
-invokes Router before worker admission, and carries the full admission through
-the queue job and asset lineage. `--motion-model` is an audited override, not a
-direct bypass; it requires an operator and substantive reason and may select
-only an otherwise eligible Router candidate. Immediately before execution,
-Campaign rehashes every current image, audio, last-frame, and source-video input
-and revalidates Retake/Extend ranges, audio preservation, the exact task,
-recipe, registry, Arena, Router, and active-promotion evidence so a stale
-admission cannot authorize substituted inputs or a revoked model.
+Advanced automatic local-model selection uses this evidence gate. It requires
+an exact thin-evidence bundle plus the frozen Arena plan/summary, invokes Router
+before worker admission, and carries the full admission through the queue job
+and asset lineage. Its `--motion-model` option is an audited Router override,
+not the pinned production-recipe path. Immediately before research execution,
+Campaign rehashes current inputs and revalidates the exact task, recipe,
+registry, Arena, Router, and active-promotion evidence so a stale admission
+cannot authorize substituted inputs or a revoked model.
 
 For Wan image-to-video only, `--enable-prompt-expansion` runs the exact accepted
 still and operator motion intent through the pinned local Qwen2.5-VL 7B 4-bit

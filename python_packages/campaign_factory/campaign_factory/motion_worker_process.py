@@ -105,6 +105,7 @@ def build_motion_worker_command(
     benchmark_recipe: Mapping[str, Any] | None = None,
     analyzer_registry: Mapping[str, Any] | None = None,
     local_motion_admission: Mapping[str, Any] | None = None,
+    production_motion_recipe: Mapping[str, Any] | None = None,
     evidence_transport_dir: Path | None = None,
     dry_run: bool,
 ) -> list[str]:
@@ -203,6 +204,20 @@ def build_motion_worker_command(
                 str(admission_path),
                 "--local-motion-admission-sha256",
                 admission_sha256,
+            ]
+        )
+    if production_motion_recipe is not None:
+        recipe_path, recipe_sha256 = _materialize_worker_evidence(
+            evidence_transport_dir,
+            label="production_motion_recipe",
+            payload=production_motion_recipe,
+        )
+        command.extend(
+            [
+                "--production-motion-recipe",
+                str(recipe_path),
+                "--production-motion-recipe-sha256",
+                recipe_sha256,
             ]
         )
     return command

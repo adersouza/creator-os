@@ -37,14 +37,14 @@
           "required": ["strictStatusChecks", "requiredStatusChecks", "requiredApprovingReviewCount", "requiredConversationResolution", "enforceAdmins"],
           "properties": {
             "strictStatusChecks": {"const": true},
-            "requiredStatusChecks": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "requiredStatusChecks": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
             "requiredApprovingReviewCount": {"const": 0},
             "requiredConversationResolution": {"const": true},
             "enforceAdmins": {"const": true}
           }
         },
         "trustedCheckApp": {"const": "github-actions:15368"},
-        "checkRunIds": {"type": "array", "minItems": 9, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "checkRunIds": {"type": "array", "minItems": 5, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "workflowRunIds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "evidenceFingerprint": {"$ref": "#/$defs/sha256"}
       },

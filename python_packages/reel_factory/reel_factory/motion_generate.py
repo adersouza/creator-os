@@ -75,6 +75,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--analyzer-registry-sha256")
     parser.add_argument("--local-motion-admission", type=Path)
     parser.add_argument("--local-motion-admission-sha256")
+    parser.add_argument("--production-motion-recipe", type=Path)
+    parser.add_argument("--production-motion-recipe-sha256")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -92,8 +94,10 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         registry_sha = getattr(args, "analyzer_registry_sha256", None)
         admission_path = getattr(args, "local_motion_admission", None)
         admission_sha = getattr(args, "local_motion_admission_sha256", None)
-        if any(
-            value is None
+        production_path = getattr(args, "production_motion_recipe", None)
+        production_sha = getattr(args, "production_motion_recipe_sha256", None)
+        research_complete = all(
+            value is not None
             for value in (
                 recipe_path,
                 recipe_sha,
@@ -102,33 +106,50 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
                 admission_path,
                 admission_sha,
             )
-        ):
+        )
+        production_complete = production_path is not None and production_sha is not None
+        if research_complete == production_complete:
             raise ValueError(
-                "local MLX generation requires path+sha evidence for admission, "
-                "benchmark recipe, and analyzer registry"
+                "local MLX generation requires exactly one of production recipe "
+                "or Arena/Router research evidence"
             )
-        benchmark_recipe = _load_bound_json(
-            recipe_path, recipe_sha, label="benchmark_recipe"
-        )
-        analyzer_registry = _load_bound_json(
-            registry_path, registry_sha, label="analyzer_registry"
-        )
-        local_motion_admission = _load_bound_json(
-            admission_path, admission_sha, label="local_motion_admission"
-        )
-        evidence_records = local_motion_admission.get("evidenceRecords")
-        if not isinstance(evidence_records, dict):
-            raise ValueError("local motion admission evidence records are missing")
-        creator_identity_profile = evidence_records.get("creatorIdentityProfile")
-        content_intent = evidence_records.get("contentIntent")
-        if not isinstance(creator_identity_profile, dict) or not isinstance(
-            content_intent, dict
-        ):
-            raise ValueError("local motion identity and intent records are missing")
+        benchmark_recipe = None
+        analyzer_registry = None
+        local_motion_admission = None
+        production_motion_recipe = None
+        creator_identity_profile = None
+        content_intent = None
+        if research_complete:
+            benchmark_recipe = _load_bound_json(
+                recipe_path, recipe_sha, label="benchmark_recipe"
+            )
+            analyzer_registry = _load_bound_json(
+                registry_path, registry_sha, label="analyzer_registry"
+            )
+            local_motion_admission = _load_bound_json(
+                admission_path, admission_sha, label="local_motion_admission"
+            )
+            evidence_records = local_motion_admission.get("evidenceRecords")
+            if not isinstance(evidence_records, dict):
+                raise ValueError("local motion admission evidence records are missing")
+            creator_identity_profile = evidence_records.get("creatorIdentityProfile")
+            content_intent = evidence_records.get("contentIntent")
+            if not isinstance(creator_identity_profile, dict) or not isinstance(
+                content_intent, dict
+            ):
+                raise ValueError("local motion identity and intent records are missing")
+        else:
+            production_motion_recipe = _load_bound_json(
+                production_path, production_sha, label="production_motion_recipe"
+            )
         selected_task = cast(LocalVideoTask, args.task or "image_to_video")
         if args.reference_image or args.reference_video:
             raise ValueError("local MLX motion does not accept reference media lists")
-        prompt_expansion = local_motion_admission.get("promptExpansion")
+        prompt_expansion = (
+            local_motion_admission.get("promptExpansion")
+            if local_motion_admission is not None
+            else None
+        )
         if args.enable_prompt_expansion:
             if (
                 not model.id.startswith("local_wan22_")
@@ -161,14 +182,25 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             raise ValueError(
                 "--audio, --generate-audio, and --preserve-audio are mutually exclusive"
             )
-        parameter_material = local_motion_admission.get("taskParameterMaterial")
-        policy_context = (
+        parameter_material = (
+            local_motion_admission.get("taskParameterMaterial")
+            if local_motion_admission is not None
+            else None
+        )
+        raw_policy_context = (
             parameter_material.get("policyContext")
             if isinstance(parameter_material, dict)
             else None
         )
-        if not isinstance(policy_context, dict):
-            raise ValueError("local motion admission parameter policy is missing")
+        policy_context: dict[str, Any] = (
+            raw_policy_context
+            if isinstance(raw_policy_context, dict)
+            else {
+                "commercialUse": True,
+                "commercialAnnualRevenueUsd": None,
+                "overlaysExist": False,
+            }
+        )
         validate_model_request(
             model,
             resolution=resolution,
@@ -223,8 +255,13 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             analyzer_registry=analyzer_registry,
             creator_identity_profile=creator_identity_profile,
             content_intent=content_intent,
-            execution_context="campaign_generation",
+            execution_context=(
+                "campaign_generation"
+                if local_motion_admission is not None
+                else "production_recipe"
+            ),
             local_motion_admission=local_motion_admission,
+            production_motion_recipe=production_motion_recipe,
             prompt_expansion=prompt_expansion,
         )
     if args.model_dir is not None:

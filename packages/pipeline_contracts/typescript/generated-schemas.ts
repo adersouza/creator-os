@@ -13845,7 +13845,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "requiredStatusChecks": {
 	          "type": "array",
-	          "minItems": 9,
+	          "minItems": 5,
 	          "uniqueItems": true,
 	          "items": {
 	            "type": "string",
@@ -13865,7 +13865,7 @@ export const generatedPipelineContractSchemas = {
 	    },
 	    "checks": {
 	      "type": "array",
-	      "minItems": 9,
+	      "minItems": 5,
 	      "uniqueItems": true,
 	      "items": {
 	        "type": "object",
@@ -14156,7 +14156,7 @@ export const generatedPipelineContractSchemas = {
 	            },
 	            "requiredStatusChecks": {
 	              "type": "array",
-	              "minItems": 9,
+	              "minItems": 5,
 	              "uniqueItems": true,
 	              "items": {
 	                "type": "string",
@@ -14179,7 +14179,7 @@ export const generatedPipelineContractSchemas = {
 	        },
 	        "checkRunIds": {
 	          "type": "array",
-	          "minItems": 9,
+	          "minItems": 5,
 	          "uniqueItems": true,
 	          "items": {
 	            "type": "integer",

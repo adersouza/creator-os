@@ -1,9 +1,9 @@
 # Creator OS
 
-Creator OS is a contract-driven, headless content-production monorepo. It
-creates and judges media, prepares validated drafts, and learns from measured
-performance. It does not own the product UI, account management, scheduling, or
-publishing; those belong to the external ThreadsDashboard repository and
+Creator OS turns creator intent into postable content batches, sends approved
+drafts to ThreadsDashboard, and learns from real performance. It does not own
+the product UI, account management, scheduling, or publishing; those belong to
+the external ThreadsDashboard repository and
 [juno33.com](https://juno33.com).
 
 The durable architecture and runtime map is
@@ -20,7 +20,36 @@ Documentation has three deliberately separate levels:
 
 Historical migration plans and snapshots are not runtime instructions.
 
-## Pipeline
+## Create Content
+
+The normal command names the creator goal, not implementation evidence:
+
+```bash
+# Safe plan: resolves approved inventory, prompt, model, seeds, and N jobs.
+scripts/creator-os create \
+  --creator stacey \
+  --intent passive_selfie \
+  --count 20 \
+  --execution local \
+  --accounts stacey-main
+
+# Execute the local production batch. This still never schedules or publishes.
+scripts/creator-os create \
+  --creator stacey \
+  --intent passive_selfie \
+  --count 20 \
+  --execution local \
+  --accounts stacey-main \
+  --apply
+```
+
+Use `creator-os review` for calibration exceptions, `creator-os export` for the
+validated draft boundary, and ThreadsDashboard for account health, scheduling,
+publishing, and results. Arena, Router, benchmark evidence, seeds, paths, and
+runtime overrides live under developer/research commands and are not normal
+operator inputs.
+
+## Product Loop
 
 ```text
 reference intake
@@ -31,7 +60,7 @@ reference intake
   -> ContentForge headless QC and blocking evidence
   -> Campaign Factory readiness and contract validation
   -> HMAC-signed draft-only handoff
-  -> ThreadsDashboard approval, schedule, and publish
+  -> ThreadsDashboard account checks, schedule, and publish
   -> performance history
   -> Campaign/Reel/Reference learning fan-out
 ```
@@ -99,7 +128,7 @@ scripts/creator-os generate --mode library_reuse --apply \
 # Read-only catalog with cost, inputs, outputs, and approval gates
 scripts/creator-os generate --list-modes
 
-# Every generation run names one mode; there is no default
+# Advanced explicit-mode compatibility surface
 scripts/creator-os generate --mode soul_static --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png
 
@@ -120,7 +149,7 @@ scripts/creator-os draft-export --dry-run \
 # Metrics/learning sync: explicit preview or apply
 scripts/creator-os performance-sync --dry-run
 
-# Paid generation additionally requires confirmation, target, workspace, and cap
+# Advanced paid generation additionally requires confirmation and a spend cap
 scripts/creator-os generate --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
   --reference-image /path/to/reference.png --max-credits 2 --wait --download
@@ -193,9 +222,10 @@ and Tesseract. Optional local model extras are installed separately.
 make install
 make reel-models       # optional local placement/identity model bundle
 
-pnpm check:all         # static gates
-make test              # all package and integration tests
-make verify            # static gates plus all tests
+make fast              # changed files and focused unit/contract tests
+make affected          # affected packages and cross-package seams
+make release           # broad main/pre-deployment integration verification
+make exhaustive        # scheduled deep architecture/security/dead-code checks
 pnpm security:secrets  # local secret scan
 ```
 
