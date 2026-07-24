@@ -70,11 +70,22 @@ through `6` Saturday convention.
 </plist>
 ```
 
-The refresh itself takes a non-blocking single-instance lock, caps SocialCrawl
-to one discovery request, Creative Center to at most four public-page views,
-TikLive resolution to `--max-new`, and total downloads to `--max-new`.
-Creative Center unavailability is recorded as a partial source result and does
-not discard a successful SocialCrawl refresh.
+The refresh itself takes a non-blocking single-instance lock and makes at most
+two SocialCrawl discovery requests: Instagram music trending first, then
+TikTok trending videos for the configured region. TikTok videos are aggregated
+by their actual music IDs before selection. Creative Center is optional
+additional chart evidence and is capped at four public-page views; its
+unavailability never blocks the SocialCrawl TikTok feed. TikLiveAPI only
+resolves selected TikTok music IDs. TikLive resolution and total downloads are
+both capped by `--max-new`.
+
+A provider observation counts toward lifecycle absence only when it returned
+usable candidates or an explicitly valid successful empty feed. Provider
+failures and invalid empty responses are unavailable observations. If every
+discovery source is unavailable, the run preserves all lifecycle states,
+absence counters, active tracks, and cache objects. A genuine omission from a
+valid feed may increment an absence counter, but stale/prune eligibility still
+requires two consecutive valid absences plus the retention protections below.
 
 Lifecycle and retention thresholds are centralized and can be overridden in
 the same private environment:

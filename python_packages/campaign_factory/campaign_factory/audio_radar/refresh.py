@@ -28,6 +28,7 @@ from .providers import (
     ProviderCredentialError,
     ProviderError,
     SocialCrawlInstagramProvider,
+    SocialCrawlTikTokProvider,
     TikLiveAudioDetails,
     TikLiveAudioResolver,
     TikTokCreativeCenterProvider,
@@ -124,6 +125,7 @@ def refresh_audio_library(
     paths: RefreshPaths | None = None,
     thresholds: LifecycleThresholds | None = None,
     social_provider: Any | None = None,
+    tiktok_social_provider: Any | None = None,
     creative_provider: Any | None = None,
     tiklive_resolver: Any | None = None,
     cache: AudioCache | None = None,
@@ -145,6 +147,7 @@ def refresh_audio_library(
     run_id = _run_id(started_at, region)
     _load_private_audio_secrets()
     social = social_provider or SocialCrawlInstagramProvider()
+    tiktok_social = tiktok_social_provider or SocialCrawlTikTokProvider()
     creative = creative_provider or TikTokCreativeCenterProvider(
         max_requests=config.creative_center_request_cap
     )
@@ -158,14 +161,23 @@ def refresh_audio_library(
             region=region,
             limit=100,
         )
-        tiktok, creative_status = _discover_source(
+        social_tiktok, tiktok_social_status = _discover_source(
+            tiktok_social,
+            source="socialcrawl_tiktok",
+            platform="tiktok",
+            region=region,
+            limit=100,
+        )
+        creative_tiktok, creative_status = _discover_source(
             creative,
             source="tiktok_creative_center",
             platform="tiktok",
             region=region,
             limit=100,
         )
-        normalized = normalize_candidates([*instagram, *tiktok])
+        normalized = normalize_candidates(
+            [*instagram, *social_tiktok, *creative_tiktok]
+        )
         ranked = rank_candidates(
             normalized,
             AudioMatchContext(creator="fleet", account="fleet"),
@@ -173,6 +185,7 @@ def refresh_audio_library(
         )
         sources = {
             "socialcrawlInstagram": social_status,
+            "socialcrawlTikTok": tiktok_social_status,
             "tiktokCreativeCenter": creative_status,
             "tiklive": {
                 "status": "not_called" if apply else "dry_run_not_called",
@@ -188,7 +201,11 @@ def refresh_audio_library(
             "observedAt": started_at,
             "sourceStatus": sources,
             "instagramCandidateCount": len(instagram),
-            "tiktokCandidateCount": len(tiktok),
+            "socialcrawlTikTokVideoCount": tiktok_social_status.get("rawVideoCount", 0),
+            "socialcrawlTikTokMusicIdCount": len(social_tiktok),
+            "creativeCenterCandidateCount": len(creative_tiktok),
+            "tiktokCandidateCount": len(social_tiktok) + len(creative_tiktok),
+            "tiktokMusicIds": _tiktok_music_ids(normalized),
             "normalizedUniqueTrackCount": len(normalized),
             "candidates": [value.as_dict() for value in normalized],
         }
@@ -204,7 +221,13 @@ def refresh_audio_library(
                 "sourceStatus": sources,
                 "counts": {
                     "instagramCandidates": len(instagram),
-                    "tiktokCandidates": len(tiktok),
+                    "socialcrawlTikTokVideos": tiktok_social_status.get(
+                        "rawVideoCount", 0
+                    ),
+                    "socialcrawlTikTokMusicIds": len(social_tiktok),
+                    "creativeCenterCandidates": len(creative_tiktok),
+                    "tiktokCandidates": len(social_tiktok) + len(creative_tiktok),
+                    "tiktokMusicIds": len(_tiktok_music_ids(normalized)),
                     "normalizedUniqueTracks": len(normalized),
                     "audioFilesDownloaded": 0,
                     "activeLibrarySize": None,
@@ -215,7 +238,7 @@ def refresh_audio_library(
                 },
                 "credits": _credits(sources),
                 "requestCaps": {
-                    "socialcrawl": 1,
+                    "socialcrawl": 2,
                     "creativeCenter": config.creative_center_request_cap,
                     "tiklive": 0,
                     "downloads": 0,
@@ -289,7 +312,13 @@ def refresh_audio_library(
                 platform
                 for platform, source_status in (
                     ("instagram", social_status),
-                    ("tiktok", creative_status),
+                    (
+                        "tiktok",
+                        _combined_tiktok_status(
+                            tiktok_social_status,
+                            creative_status,
+                        ),
+                    ),
                 )
                 if source_status["status"] == "available"
             }
@@ -304,12 +333,16 @@ def refresh_audio_library(
                 max_active=max_active,
                 config=config,
             )
-            prunes = _prune_cache(
-                conn,
-                cache=selected_cache,
-                run_id=run_id,
-                now=started_at,
-                config=config,
+            prunes = (
+                _prune_cache(
+                    conn,
+                    cache=selected_cache,
+                    run_id=run_id,
+                    now=started_at,
+                    config=config,
+                )
+                if successful_platforms
+                else []
             )
             history_after = _history_counts(conn)
             history_preserved = all(
@@ -317,7 +350,11 @@ def refresh_audio_library(
             )
             counts = {
                 "instagramCandidates": len(instagram),
-                "tiktokCandidates": len(tiktok),
+                "socialcrawlTikTokVideos": tiktok_social_status.get("rawVideoCount", 0),
+                "socialcrawlTikTokMusicIds": len(social_tiktok),
+                "creativeCenterCandidates": len(creative_tiktok),
+                "tiktokCandidates": len(social_tiktok) + len(creative_tiktok),
+                "tiktokMusicIds": len(_tiktok_music_ids(normalized)),
                 "normalizedUniqueTracks": len(normalized),
                 "audioFilesDownloaded": acquisition["downloaded"],
                 "tracksActivated": acquisition["activated"],
@@ -347,7 +384,7 @@ def refresh_audio_library(
                 "counts": counts,
                 "credits": _credits(sources),
                 "requestCaps": {
-                    "socialcrawl": 1,
+                    "socialcrawl": 2,
                     "creativeCenter": config.creative_center_request_cap,
                     "tiklive": max_new,
                     "downloads": max_new,
@@ -418,14 +455,51 @@ def _discover_source(
         }
     metadata = _redact(getattr(provider, "last_metadata", {}))
     request_count = metadata.get("requests", 1) if isinstance(metadata, dict) else 1
+    observation_valid = bool(candidates) or (
+        isinstance(metadata, dict) and metadata.get("observationValid") is True
+    )
+    if not observation_valid:
+        return [], {
+            **(metadata if isinstance(metadata, dict) else {}),
+            "status": "unavailable",
+            "reason": "invalid_empty_response",
+            "source": source,
+            "platform": platform,
+            "requests": request_count,
+            "candidateCount": 0,
+        }
     return candidates, {
+        **(metadata if isinstance(metadata, dict) else {}),
         "status": "available",
         "source": source,
         "platform": platform,
         "requests": request_count,
         "candidateCount": len(candidates),
-        **(metadata if isinstance(metadata, dict) else {}),
     }
+
+
+def _combined_tiktok_status(
+    socialcrawl: dict[str, Any],
+    creative_center: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": (
+            "available"
+            if "available" in {socialcrawl.get("status"), creative_center.get("status")}
+            else "unavailable"
+        )
+    }
+
+
+def _tiktok_music_ids(candidates: list[TrendCandidate]) -> list[str]:
+    return sorted(
+        {
+            sound.sound_id
+            for candidate in candidates
+            for sound in candidate.platform_sound_ids
+            if sound.platform == "tiktok"
+        }
+    )
 
 
 def _load_private_audio_secrets() -> None:
@@ -463,6 +537,28 @@ def _rank_with_history(
             """,
             (canonical_id,),
         ).fetchone()
+        if row is None and candidate.platform_sound_ids:
+            predicates = " OR ".join(
+                "(s.platform = ? AND s.sound_id = ?)"
+                for _ in candidate.platform_sound_ids
+            )
+            parameters = [
+                value
+                for sound in candidate.platform_sound_ids
+                for value in (sound.platform, sound.sound_id)
+            ]
+            row = conn.execute(
+                f"""
+                SELECT c.id, c.creator_fit_score, c.account_fit_score,
+                       c.fatigue_score, c.performance_lift
+                FROM audio_catalog c
+                JOIN audio_platform_sound_ids s ON s.audio_catalog_id = c.id
+                WHERE {predicates}
+                ORDER BY c.updated_at DESC
+                LIMIT 1
+                """,
+                parameters,
+            ).fetchone()
         if row is None:
             enriched.append(candidate)
             continue
@@ -492,6 +588,10 @@ def _rank_with_history(
             (row["id"], recent_cutoff),
         ).fetchone()[0]
         labels = dict(candidate.advisory_labels)
+        labels["localCatalogId"] = str(row["id"])
+        labels["localUsageLast30Days"] = int(recent_uses)
+        if values:
+            labels["localPerformanceScore"] = max(float(value) for value in values)
         for key, value in (
             ("creatorFit", row["creator_fit_score"]),
             ("visualMotionFit", row["account_fit_score"]),
@@ -695,7 +795,7 @@ def _acquire_ranked_candidates(
     activated = 0
     receipts: list[dict[str, Any]] = []
     sample: list[dict[str, Any]] = []
-    tiklive = {
+    tiklive: dict[str, Any] = {
         "status": "not_called",
         "requests": 0,
         "resolved": 0,
@@ -823,10 +923,25 @@ def _acquire_ranked_candidates(
             """
             UPDATE audio_catalog
             SET active = 1, activated_at = COALESCE(activated_at, ?),
-                resolved = 1, updated_at = ?
+                resolved = 1,
+                title = COALESCE(NULLIF(?, ''), title),
+                artist_name = COALESCE(NULLIF(?, ''), artist_name),
+                canonical_title = CASE
+                  WHEN canonical_title IS NULL OR canonical_title = ''
+                  THEN COALESCE(NULLIF(?, ''), canonical_title)
+                  ELSE canonical_title
+                END,
+                updated_at = ?
             WHERE id = ?
             """,
-            (retrieved_at, retrieved_at, catalog_id),
+            (
+                retrieved_at,
+                details.title if details else candidate.title,
+                details.author if details else candidate.artist,
+                details.title if details else candidate.title,
+                retrieved_at,
+                catalog_id,
+            ),
         )
         downloaded += 1
         activated += 1
@@ -879,6 +994,8 @@ def _recalculate_lifecycle(
     max_active: int,
     config: LifecycleThresholds,
 ) -> dict[str, int]:
+    if not successful_platforms:
+        return {"cooling": 0, "stale": 0}
     ranked_states = {
         catalog_ids[str(value.candidate.canonical_track_id)]: value.bucket
         for value in ranked
@@ -1229,20 +1346,33 @@ def _history_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def _credits(sources: dict[str, Any]) -> dict[str, Any]:
-    social = sources.get("socialcrawlInstagram") or {}
+    instagram = sources.get("socialcrawlInstagram") or {}
+    tiktok = sources.get("socialcrawlTikTok") or {}
     tiklive = sources.get("tiklive") or {}
     used_values = [
         value
         for value in (
-            social.get("creditsUsed"),
+            instagram.get("creditsUsed"),
+            tiktok.get("creditsUsed"),
             tiklive.get("creditsUsed"),
         )
         if isinstance(value, (int, float))
     ]
+    social_used_values = [
+        value
+        for value in (instagram.get("creditsUsed"), tiktok.get("creditsUsed"))
+        if isinstance(value, (int, float))
+    ]
     return {
         "used": sum(used_values) if used_values else None,
-        "socialcrawlUsed": social.get("creditsUsed"),
-        "socialcrawlRemaining": social.get("creditsRemaining"),
+        "socialcrawlUsed": (sum(social_used_values) if social_used_values else None),
+        "socialcrawlInstagramUsed": instagram.get("creditsUsed"),
+        "socialcrawlTikTokUsed": tiktok.get("creditsUsed"),
+        "socialcrawlRemaining": (
+            tiktok.get("creditsRemaining")
+            if tiktok.get("creditsRemaining") is not None
+            else instagram.get("creditsRemaining")
+        ),
         "tikliveUsed": tiklive.get("creditsUsed"),
         "tikliveRemaining": tiklive.get("creditsRemaining"),
         "tokchartUsed": 0,
@@ -1250,13 +1380,15 @@ def _credits(sources: dict[str, Any]) -> dict[str, Any]:
 
 
 def _overall_status(sources: dict[str, Any]) -> str:
-    discovery = [
+    primary_discovery = [
         sources.get("socialcrawlInstagram", {}).get("status"),
-        sources.get("tiktokCreativeCenter", {}).get("status"),
+        sources.get("socialcrawlTikTok", {}).get("status"),
     ]
-    if all(value == "available" for value in discovery):
+    if all(value == "available" for value in primary_discovery):
         return "success"
-    if any(value == "available" for value in discovery):
+    if any(value == "available" for value in primary_discovery) or (
+        sources.get("tiktokCreativeCenter", {}).get("status") == "available"
+    ):
         return "partial"
     return "unavailable"
 
@@ -1372,6 +1504,8 @@ def _sum_optional(left: float | None, right: float | None) -> float | None:
 
 def _unit_score(value: object) -> float | None:
     if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float, str)):
         return None
     try:
         score = float(value)

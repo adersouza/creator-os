@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 from typing import Any, Protocol
 
 import requests
@@ -83,7 +84,11 @@ def _payload_fingerprint(payload: object) -> str:
 def _items(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     data = payload.get("data")
     if isinstance(data, Mapping):
-        raw = data.get("items") or data.get("tracks") or data.get("audios")
+        raw = None
+        for key in ("items", "tracks", "audios"):
+            if key in data:
+                raw = data.get(key)
+                break
     else:
         raw = data
     if raw is None:
@@ -148,7 +153,21 @@ class SocialCrawlInstagramProvider:
         if not isinstance(payload, Mapping) or payload.get("success") is False:
             raise ProviderError("socialcrawl trending response was unsuccessful")
         self.last_metadata = _provider_metadata(payload, response.headers)
-        return self.parse(payload, region=region, limit=limit)
+        candidates = self.parse(payload, region=region, limit=limit)
+        raw_items = _items(payload)
+        if raw_items and not candidates:
+            raise ProviderError(
+                "socialcrawl Instagram response contained no usable music IDs"
+            )
+        self.last_metadata.update(
+            {
+                "status": "available",
+                "requests": 1,
+                "observationValid": True,
+                "rawItemCount": len(raw_items),
+            }
+        )
+        return candidates
 
     @classmethod
     def parse(
@@ -240,6 +259,276 @@ class SocialCrawlInstagramProvider:
         return candidates
 
 
+class SocialCrawlTikTokProvider:
+    """Aggregate SocialCrawl's real trending-video feed by TikTok music ID."""
+
+    provider_name = "socialcrawl_tiktok"
+    credential_env = "SOCIALCRAWL_API_KEY"
+    endpoint = "https://www.socialcrawl.dev/v1/tiktok/trending"
+
+    def __init__(self, *, session: requests.Session | None = None) -> None:
+        self.session = session or requests.Session()
+        self.last_metadata: dict[str, Any] = {}
+
+    def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
+        key = _required_env(self.credential_env)
+        selected_region = region or "US"
+        response = self.session.get(
+            self.endpoint,
+            headers={"x-api-key": key, "Accept": "application/json"},
+            params={"region": selected_region},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise ProviderError(
+                "socialcrawl TikTok trending request failed: "
+                f"HTTP {response.status_code}"
+            )
+        payload = response.json()
+        if not isinstance(payload, Mapping) or payload.get("success") is not True:
+            raise ProviderError("socialcrawl TikTok trending response was unsuccessful")
+        platform = _string(payload.get("platform")).lower()
+        endpoint = _string(payload.get("endpoint"))
+        if platform and platform != "tiktok":
+            raise ProviderError("socialcrawl TikTok response named another platform")
+        if endpoint and not endpoint.endswith("/v1/tiktok/trending"):
+            raise ProviderError("socialcrawl TikTok response named another endpoint")
+        raw_items = _items(payload)
+        candidates = self.parse(payload, region=selected_region, limit=limit)
+        if raw_items and not candidates:
+            raise ProviderError(
+                "socialcrawl TikTok response contained no usable music IDs"
+            )
+        self.last_metadata = {
+            **_provider_metadata(payload, response.headers),
+            "status": "available",
+            "requests": 1,
+            "observationValid": True,
+            "rawVideoCount": len(raw_items),
+            "aggregatedMusicIdCount": len(candidates),
+        }
+        return candidates
+
+    @classmethod
+    def parse(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        region: str | None,
+        limit: int,
+    ) -> list[TrendCandidate]:
+        """Parse the credentialed unified-envelope schema without inferred ranks."""
+
+        observed_at = _string(payload.get("observed_at")) or _utc_now()
+        observed_time = _parse_datetime(observed_at)
+        fingerprint = _payload_fingerprint(payload)
+        provider_metadata = _provider_metadata(payload)
+        groups: dict[str, dict[str, Any]] = {}
+
+        for item in _items(payload)[: max(1, limit)]:
+            post: Mapping[str, Any] = _first_mapping(item.get("post"), item)
+            content: Mapping[str, Any] = _first_mapping(post.get("content"))
+            author: Mapping[str, Any] = _first_mapping(post.get("author"))
+            engagement: Mapping[str, Any] = _first_mapping(post.get("engagement"))
+            extension: Mapping[str, Any] = _first_mapping(post.get("ext"))
+            music = _first_mapping(
+                post.get("music"),
+                extension.get("music"),
+                item.get("music"),
+            )
+            music_id = _string(
+                extension.get("music_id")
+                or extension.get("musicId")
+                or music.get("id")
+                or music.get("music_id")
+                or music.get("musicId")
+            )
+            if not music_id:
+                continue
+
+            published_at = _timestamp_string(
+                post.get("published_at")
+                or post.get("publishedAt")
+                or extension.get("published_at")
+                or extension.get("publishedAt"),
+                extension.get("published_at_epoch")
+                or extension.get("publishedAtEpoch"),
+            )
+            music_title = _optional_string(
+                music.get("title")
+                or music.get("name")
+                or extension.get("music_title")
+                or extension.get("musicTitle")
+                or extension.get("music_name")
+            )
+            music_author = _optional_string(
+                music.get("author")
+                or music.get("artist")
+                or music.get("author_name")
+                or extension.get("music_author")
+                or extension.get("musicAuthor")
+                or extension.get("music_author_name")
+            )
+            item_region = _optional_string(
+                item.get("region")
+                or post.get("region")
+                or extension.get("region")
+                or region
+            )
+            counts: dict[str, int | None] = {
+                "views": _integer(engagement.get("views")),
+                "likes": _integer(engagement.get("likes")),
+                "comments": _integer(engagement.get("comments")),
+                "shares": _integer(engagement.get("shares")),
+            }
+            interaction_values: list[int] = []
+            for key in ("likes", "comments", "shares"):
+                value = counts[key]
+                if value is not None:
+                    interaction_values.append(value)
+            interactions = sum(interaction_values) if interaction_values else None
+            video = _without_none(
+                {
+                    "videoId": _optional_string(post.get("id")),
+                    "creationTime": published_at,
+                    **counts,
+                    "engagement": interactions,
+                    "author": _optional_string(
+                        author.get("username")
+                        or author.get("display_name")
+                        or author.get("displayName")
+                    ),
+                    "caption": _optional_string(
+                        content.get("text") or post.get("caption")
+                    ),
+                    "musicId": music_id,
+                    "musicTitle": music_title,
+                    "musicAuthor": music_author,
+                    "region": item_region,
+                    "providerObservationTime": observed_at,
+                }
+            )
+            group = groups.setdefault(
+                music_id,
+                {
+                    "videos": [],
+                    "titles": [],
+                    "authors": [],
+                    "regions": [],
+                },
+            )
+            group["videos"].append(video)
+            if music_title and music_title not in group["titles"]:
+                group["titles"].append(music_title)
+            if music_author and music_author not in group["authors"]:
+                group["authors"].append(music_author)
+            if item_region and item_region not in group["regions"]:
+                group["regions"].append(item_region)
+
+        candidates: list[TrendCandidate] = []
+        for music_id, group in groups.items():
+            videos = group["videos"]
+            engagement_values = [
+                int(video["engagement"])
+                for video in videos
+                if isinstance(video.get("engagement"), int)
+            ]
+            creation_times = [
+                parsed_creation
+                for video in videos
+                if (
+                    parsed_creation := _parse_datetime(
+                        str(video.get("creationTime") or "")
+                    )
+                )
+                is not None
+            ]
+            total_views = _sum_video_metric(videos, "views")
+            total_likes = _sum_video_metric(videos, "likes")
+            total_comments = _sum_video_metric(videos, "comments")
+            total_shares = _sum_video_metric(videos, "shares")
+            newest = max(creation_times) if creation_times else None
+            freshness_hours = (
+                max(0.0, (observed_time - newest).total_seconds() / 3600)
+                if observed_time is not None and newest is not None
+                else None
+            )
+            velocity_values: list[float] = []
+            if observed_time is not None:
+                for video in videos:
+                    created = _parse_datetime(str(video.get("creationTime") or ""))
+                    engagement_value = video.get("engagement")
+                    if created is None or not isinstance(engagement_value, int):
+                        continue
+                    age_hours = max(
+                        1.0,
+                        (observed_time - created).total_seconds() / 3600,
+                    )
+                    velocity_values.append(engagement_value / age_hours)
+            engagement_velocity = sum(velocity_values) if velocity_values else None
+            labels = _without_none(
+                {
+                    "sourcePriority": 1,
+                    "sampleAppearanceCount": len(videos),
+                    "totalEngagement": (
+                        sum(engagement_values) if engagement_values else None
+                    ),
+                    "medianEngagement": (
+                        float(median(engagement_values)) if engagement_values else None
+                    ),
+                    "engagementDefinition": "likes+comments+shares",
+                    "totalViews": total_views,
+                    "totalLikes": total_likes,
+                    "totalComments": total_comments,
+                    "totalShares": total_shares,
+                    "newestCreationTime": (
+                        newest.isoformat().replace("+00:00", "Z") if newest else None
+                    ),
+                    "engagementVelocityPerHour": engagement_velocity,
+                    "velocityDefinition": (
+                        "sum((likes+comments+shares)/age_hours)"
+                        if engagement_velocity is not None
+                        else None
+                    ),
+                    "musicTitles": group["titles"] or None,
+                    "musicAuthors": group["authors"] or None,
+                    "regions": group["regions"] or None,
+                    "providerObservationTime": observed_at,
+                    "providerRequestId": provider_metadata.get("requestId"),
+                    "creditsUsed": provider_metadata.get("creditsUsed"),
+                    "creditsRemaining": provider_metadata.get("creditsRemaining"),
+                    "videos": videos,
+                }
+            )
+            candidates.append(
+                TrendCandidate(
+                    candidate_id=f"{cls.provider_name}:tiktok:{music_id}",
+                    provider=cls.provider_name,
+                    title=group["titles"][0] if group["titles"] else "",
+                    artist=group["authors"][0] if group["authors"] else "",
+                    platform_sound_ids=(
+                        PlatformSoundId(
+                            platform="tiktok",
+                            sound_id=music_id,
+                            region=region,
+                        ),
+                    ),
+                    observed_at=observed_at,
+                    region=region,
+                    current_rank=None,
+                    previous_rank=None,
+                    usage_total=None,
+                    usage_velocity=engagement_velocity,
+                    freshness_hours=freshness_hours,
+                    trend_score=None,
+                    saturation=None,
+                    provider_payload_fingerprint=fingerprint,
+                    advisory_labels=labels,
+                )
+            )
+        return candidates
+
+
 class TikTokCreativeCenterProvider:
     """Narrow public-page adapter for Creative Center song trend views."""
 
@@ -318,6 +607,7 @@ class TikTokCreativeCenterProvider:
         self.last_metadata = {
             "status": "available" if candidates else "unavailable",
             "requests": len(view_receipts),
+            "observationValid": bool(candidates),
             "views": view_receipts,
         }
         return candidates[: max(1, limit)]
@@ -746,15 +1036,60 @@ def _optional_string(value: object) -> str | None:
     return clean or None
 
 
+def _first_mapping(*values: object) -> Mapping[str, Any]:
+    for value in values:
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
+def _without_none(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    clean = value.strip()
+    if not clean:
+        return None
+    try:
+        parsed = datetime.fromisoformat(clean.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _timestamp_string(value: object, epoch: object) -> str | None:
+    direct = _optional_string(value)
+    if direct:
+        parsed = _parse_datetime(direct)
+        return (
+            parsed.isoformat().replace("+00:00", "Z") if parsed is not None else direct
+        )
+    seconds = _number(epoch)
+    if seconds is None:
+        return None
+    try:
+        return (
+            datetime.fromtimestamp(seconds, tz=UTC).isoformat().replace("+00:00", "Z")
+        )
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _sum_video_metric(videos: Sequence[Mapping[str, Any]], key: str) -> int | None:
+    values = [int(video[key]) for video in videos if isinstance(video.get(key), int)]
+    return sum(values) if values else None
+
+
 def _provider_metadata(
     payload: Mapping[str, Any],
     headers: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     headers = headers or {}
-    meta = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else {}
-    credits = (
-        payload.get("credits") if isinstance(payload.get("credits"), Mapping) else {}
-    )
+    meta: Mapping[str, Any] = _first_mapping(payload.get("meta"))
+    credits: Mapping[str, Any] = _first_mapping(payload.get("credits"))
     request_id = _optional_string(
         payload.get("request_id")
         or payload.get("requestId")

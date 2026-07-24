@@ -17,6 +17,7 @@ from campaign_factory.audio_radar.normalization import normalize_candidates
 from campaign_factory.audio_radar.providers import (
     ProviderError,
     SocialCrawlInstagramProvider,
+    SocialCrawlTikTokProvider,
     TikLiveAudioDetails,
     TikLiveAudioResolver,
     TikTokCreativeCenterProvider,
@@ -66,14 +67,26 @@ class StaticProvider:
         candidates: list[TrendCandidate],
         *,
         status: str = "available",
+        observation_valid: bool = False,
     ) -> None:
         self.candidates = candidates
-        self.last_metadata = {"status": status, "requests": 1}
+        self.last_metadata = {
+            "status": status,
+            "requests": 1,
+            "observationValid": observation_valid,
+        }
         self.calls = 0
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
         self.calls += 1
         return self.candidates[:limit]
+
+
+class FailingProvider:
+    last_metadata = {"requests": 1}
+
+    def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
+        raise ProviderError("fixture provider outage")
 
 
 class StaticTikLive:
@@ -173,6 +186,101 @@ def test_socialcrawl_authentication_and_metadata_parsing(
         "req_redacted_example"
     )
     assert provider.last_metadata["creditsUsed"] == 1
+
+
+def test_socialcrawl_tiktok_uses_real_schema_and_aggregates_music_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "fixture-social-key"
+    monkeypatch.setenv("SOCIALCRAWL_API_KEY", secret)
+    session = RecordingSession(
+        FakeResponse(_json_fixture("socialcrawl_tiktok_trending.redacted.json"))
+    )
+    provider = SocialCrawlTikTokProvider(session=session)
+
+    candidates = provider.discover(region="US", limit=100)
+
+    assert session.calls == [
+        {
+            "url": "https://www.socialcrawl.dev/v1/tiktok/trending",
+            "headers": {"x-api-key": secret, "Accept": "application/json"},
+            "params": {"region": "US"},
+            "timeout": 30,
+        }
+    ]
+    assert provider.last_metadata["rawVideoCount"] == 3
+    assert provider.last_metadata["aggregatedMusicIdCount"] == 2
+    assert provider.last_metadata["observationValid"] is True
+    aggregated = next(
+        candidate
+        for candidate in candidates
+        if candidate.platform_sound_ids[0].sound_id == "tt_music_501"
+    )
+    assert aggregated.current_rank is None
+    assert aggregated.previous_rank is None
+    assert aggregated.advisory_labels["sampleAppearanceCount"] == 2
+    assert aggregated.advisory_labels["totalEngagement"] == 3000
+    assert aggregated.advisory_labels["medianEngagement"] == 1500
+    assert aggregated.advisory_labels["totalViews"] == 30000
+    assert aggregated.advisory_labels["engagementVelocityPerHour"] == pytest.approx(
+        83.33333333333334
+    )
+    assert aggregated.advisory_labels["videos"][0] == {
+        "videoId": "video_101",
+        "creationTime": "2026-07-23T12:00:00Z",
+        "views": 10000,
+        "likes": 800,
+        "comments": 100,
+        "shares": 100,
+        "engagement": 1000,
+        "author": "creator_one",
+        "caption": "first real schema example",
+        "musicId": "tt_music_501",
+        "musicTitle": "Midnight Glow (Sped Up)",
+        "musicAuthor": "Example Artist",
+        "region": "US",
+        "providerObservationTime": "2026-07-24T12:00:00Z",
+    }
+    opaque = next(candidate for candidate in candidates if not candidate.title)
+    normalized = normalize_candidates([opaque])[0]
+    assert normalized.canonical_track_id
+    assert normalized.canonical_title == ""
+    assert normalized.advisory_labels["crossPlatformMatch"] is False
+    chart_metadata = replace(
+        opaque,
+        candidate_id="tiktok_creative_center:tiktok:tt_music_opaque",
+        provider="tiktok_creative_center",
+        title="Resolved Chart Title",
+        artist="Resolved Chart Artist",
+    )
+    merged = normalize_candidates([opaque, chart_metadata])
+    assert len(merged) == 1
+    assert merged[0].canonical_title == "resolved chart title"
+    assert any(
+        observation.get("metadataEnrichedFromSharedSoundId") is True
+        for observation in merged[0].advisory_labels["observations"]
+    )
+
+
+def test_socialcrawl_tiktok_rejects_nonempty_feed_without_music_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOCIALCRAWL_API_KEY", "fixture-social-key")
+    provider = SocialCrawlTikTokProvider(
+        session=RecordingSession(
+            FakeResponse(
+                {
+                    "success": True,
+                    "platform": "tiktok",
+                    "endpoint": "/v1/tiktok/trending",
+                    "data": {"items": [{"post": {"id": "video-no-music"}}]},
+                }
+            )
+        )
+    )
+
+    with pytest.raises(ProviderError, match="no usable music IDs"):
+        provider.discover(region="US", limit=100)
 
 
 def test_tiklive_authentication_and_full_metadata_parsing(
@@ -298,15 +406,16 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
             )
         ]
     )
-    creative = StaticProvider(
+    tiktok_social = StaticProvider(
         [
             _candidate(
-                provider="tiktok_creative_center",
+                provider="socialcrawl_tiktok",
                 platform="tiktok",
                 sound_id="tt_sound_202",
             )
         ]
     )
+    creative = StaticProvider([])
     resolver = StaticTikLive(source)
     paths = _paths(tmp_path)
     config = LifecycleThresholds(retention_days=1)
@@ -319,6 +428,7 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
         paths=paths,
         thresholds=config,
         social_provider=social,
+        tiktok_social_provider=tiktok_social,
         creative_provider=creative,
         tiklive_resolver=resolver,
         now="2026-06-01T12:00:00Z",
@@ -331,6 +441,7 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
         paths=paths,
         thresholds=config,
         social_provider=social,
+        tiktok_social_provider=tiktok_social,
         creative_provider=creative,
         tiklive_resolver=resolver,
         now="2026-06-01T12:00:00Z",
@@ -351,7 +462,8 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
         )
     assert cache_path.is_file()
 
-    empty = StaticProvider([])
+    empty = StaticProvider([], observation_valid=True)
+    unavailable_creative = StaticProvider([])
     cooling = refresh_audio_library(
         region="US",
         max_new=1,
@@ -360,7 +472,8 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
         paths=paths,
         thresholds=config,
         social_provider=empty,
-        creative_provider=empty,
+        tiktok_social_provider=empty,
+        creative_provider=unavailable_creative,
         tiklive_resolver=resolver,
         now="2026-06-08T12:00:00Z",
     )
@@ -372,7 +485,8 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
         paths=paths,
         thresholds=config,
         social_provider=empty,
-        creative_provider=empty,
+        tiktok_social_provider=empty,
+        creative_provider=unavailable_creative,
         tiklive_resolver=resolver,
         now="2026-06-15T12:00:00Z",
     )
@@ -397,6 +511,143 @@ def test_refresh_is_idempotent_then_cools_stales_and_prunes_only_cache(
                 0
             ]
             == 1
+        )
+
+
+def test_all_source_invalid_empty_outage_preserves_lifecycle_and_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "tiklive-audio.mp3"
+    source.write_bytes(b"fixture audio bytes")
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.acquisition.probe_media",
+        lambda _path: {
+            "format": {"duration": "31.0"},
+            "streams": [
+                {
+                    "codec_type": "audio",
+                    "codec_name": "mp3",
+                    "sample_rate": "44100",
+                    "channels": 2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.refresh.decoded_audio_fingerprint",
+        lambda _path: "f" * 64,
+    )
+    paths = _paths(tmp_path)
+    social = StaticProvider(
+        [
+            _candidate(
+                provider="socialcrawl",
+                platform="instagram",
+                sound_id="ig_audio_101",
+            )
+        ]
+    )
+    tiktok = StaticProvider(
+        [
+            _candidate(
+                provider="socialcrawl_tiktok",
+                platform="tiktok",
+                sound_id="tt_sound_202",
+            )
+        ]
+    )
+    refresh_audio_library(
+        region="US",
+        max_new=1,
+        max_active=30,
+        apply=True,
+        paths=paths,
+        thresholds=LifecycleThresholds(retention_days=1),
+        social_provider=social,
+        tiktok_social_provider=tiktok,
+        creative_provider=StaticProvider([]),
+        tiklive_resolver=StaticTikLive(source),
+        now="2026-06-01T12:00:00Z",
+    )
+    with connect(paths.database) as conn:
+        conn.execute(
+            """
+            UPDATE audio_catalog
+            SET lifecycle_state = 'HOT', trend_status = 'HOT',
+                active = 1, consecutive_absences = 2
+            """
+        )
+        conn.execute(
+            "UPDATE audio_cache_objects SET retrieved_at = '2026-05-01T12:00:00Z'"
+        )
+        conn.commit()
+        before = tuple(
+            conn.execute(
+                """
+                SELECT lifecycle_state, trend_status, active,
+                       consecutive_absences, updated_at
+                FROM audio_catalog
+                """
+            ).fetchone()
+        )
+        cache_path = Path(
+            conn.execute("SELECT cache_path FROM audio_cache_objects").fetchone()[0]
+        )
+
+    invalid_empty = StaticProvider([])
+    outage = refresh_audio_library(
+        region="US",
+        max_new=10,
+        max_active=30,
+        apply=True,
+        paths=paths,
+        thresholds=LifecycleThresholds(retention_days=1),
+        social_provider=FailingProvider(),
+        tiktok_social_provider=invalid_empty,
+        creative_provider=invalid_empty,
+        tiklive_resolver=StaticTikLive(source),
+        now="2026-06-15T12:00:00Z",
+    )
+
+    assert outage["status"] == "unavailable"
+    assert all(
+        outage["sourceStatus"][source_name]["status"] == "unavailable"
+        for source_name in (
+            "socialcrawlInstagram",
+            "socialcrawlTikTok",
+            "tiktokCreativeCenter",
+        )
+    )
+    assert outage["sourceStatus"]["socialcrawlInstagram"]["reason"] == (
+        "provider_or_public_page_unavailable"
+    )
+    assert outage["sourceStatus"]["socialcrawlTikTok"]["reason"] == (
+        "invalid_empty_response"
+    )
+    assert outage["sourceStatus"]["tiktokCreativeCenter"]["reason"] == (
+        "invalid_empty_response"
+    )
+    assert outage["counts"]["tracksMarkedCooling"] == 0
+    assert outage["counts"]["tracksMarkedStale"] == 0
+    assert outage["counts"]["cachedFilesPruned"] == 0
+    assert cache_path.is_file()
+    with connect(paths.database) as conn:
+        after = tuple(
+            conn.execute(
+                """
+                SELECT lifecycle_state, trend_status, active,
+                       consecutive_absences, updated_at
+                FROM audio_catalog
+                """
+            ).fetchone()
+        )
+        assert after == before
+        assert (
+            conn.execute("SELECT COUNT(*) FROM audio_cache_prune_receipts").fetchone()[
+                0
+            ]
+            == 0
         )
 
 
@@ -553,6 +804,7 @@ def test_dry_run_and_provider_failures_do_not_leak_secrets_or_mutate(
         apply=False,
         paths=_paths(tmp_path),
         social_provider=LeakyProvider(),
+        tiktok_social_provider=StaticProvider([]),
         creative_provider=StaticProvider([]),
         now="2026-06-01T12:00:00Z",
     )

@@ -91,8 +91,11 @@ def _candidate_score(
     segment_quality: float | None,
 ) -> tuple[float, list[str]]:
     reasons: list[str] = []
-    rank = max(1, int(candidate.current_rank or 100))
-    rank_component = 26.0 / math.sqrt(rank)
+    rank_component = (
+        26.0 / math.sqrt(max(1, int(candidate.current_rank)))
+        if candidate.current_rank is not None
+        else 0.0
+    )
     velocity = (
         max(0.0, float(candidate.usage_velocity))
         if candidate.usage_velocity is not None
@@ -138,6 +141,18 @@ def _candidate_score(
     )
     segment_component = max(0.0, min(1.0, float(segment_quality or 0))) * 10
     labels = candidate.advisory_labels
+    sample_appearances = _optional_float(labels.get("sampleAppearanceCount"))
+    total_engagement = _optional_float(labels.get("totalEngagement"))
+    sample_component = (
+        min(4.0, math.log1p(max(0.0, sample_appearances)) * 1.5)
+        if sample_appearances is not None
+        else 0.0
+    )
+    engagement_component = (
+        min(8.0, math.log1p(max(0.0, total_engagement)) * 0.5)
+        if total_engagement is not None
+        else 0.0
+    )
     chart_type = str(labels.get("chartType") or "").lower()
     rank_gain = (
         candidate.previous_rank - candidate.current_rank
@@ -169,6 +184,10 @@ def _candidate_score(
         reasons.append("speaking_fit_penalty")
     if platform_count > 1:
         reasons.append("cross_platform_presence")
+    if sample_appearances is not None:
+        reasons.append("trend_sample_appearances")
+    if total_engagement is not None:
+        reasons.append("available_engagement_evidence")
     if velocity is not None and velocity > 0:
         reasons.append("positive_usage_velocity")
     if freshness is not None and freshness <= 24 * 14:
@@ -190,6 +209,8 @@ def _candidate_score(
         + velocity_component
         + usage_component
         + cross_platform_component
+        + sample_component
+        + engagement_component
         + freshness_component
         + fit_component
         + prior_component
@@ -238,6 +259,8 @@ def _bucket(candidate: TrendCandidate) -> str:
 
 def _optional_float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float, str)):
         return None
     try:
         return float(value)
