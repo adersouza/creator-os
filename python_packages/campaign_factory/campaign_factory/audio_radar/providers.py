@@ -366,8 +366,11 @@ class PublicChartSnapshotProvider:
         self.path = path
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
-        resolved = self.path.expanduser().resolve()
-        if resolved.is_symlink() or not resolved.is_file():
+        raw_path = self.path.expanduser()
+        if raw_path.is_symlink():
+            raise ProviderError("public chart snapshot is missing or unsafe")
+        resolved = raw_path.resolve()
+        if not resolved.is_file():
             raise ProviderError("public chart snapshot is missing or unsafe")
         payload = json.loads(resolved.read_text(encoding="utf-8"))
         if not isinstance(payload, Mapping):

@@ -81,11 +81,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "candidates": [value.as_dict() for value in candidates],
         }
     if args.command == "bind-receipt":
-        database = args.database.expanduser().resolve()
-        receipt_path = args.receipt.expanduser().resolve()
-        if database.is_symlink() or not database.is_file():
+        raw_database = args.database.expanduser()
+        raw_receipt = args.receipt.expanduser()
+        if raw_database.is_symlink():
             raise ValueError("Campaign Factory database is missing or unsafe")
-        if receipt_path.is_symlink() or not receipt_path.is_file():
+        if raw_receipt.is_symlink():
+            raise ValueError("embedding receipt is missing or unsafe")
+        database = raw_database.resolve()
+        receipt_path = raw_receipt.resolve()
+        if not database.is_file():
+            raise ValueError("Campaign Factory database is missing or unsafe")
+        if not receipt_path.is_file():
             raise ValueError("embedding receipt is missing or unsafe")
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         if not isinstance(receipt, dict):

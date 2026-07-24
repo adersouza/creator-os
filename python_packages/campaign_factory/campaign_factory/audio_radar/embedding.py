@@ -57,6 +57,12 @@ def embed_selected_audio(
     source_video = source_video.resolve()
     if not source_video.is_file():
         raise AudioEmbeddingError("source video is missing")
+    raw_output = output_path.expanduser()
+    if raw_output.is_symlink():
+        raise AudioEmbeddingError("output video must not be a symlink")
+    output = raw_output.resolve()
+    if output == source_video:
+        raise AudioEmbeddingError("output video must differ from source video")
     source_probe = probe_media(source_video)
     source_duration = _duration(source_probe)
     if abs(source_duration - segment.duration_seconds) > 0.12:
@@ -66,7 +72,6 @@ def embed_selected_audio(
         isinstance(stream, dict) and stream.get("codec_type") == "audio"
         for stream in source_probe.get("streams", [])
     )
-    output = output_path.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     partial = output.with_name(f".{output.name}.partial-{os.getpid()}.mp4")
     partial.unlink(missing_ok=True)

@@ -78,9 +78,11 @@ class AudioCache:
             f"{locator.kind}:{locator.value}".encode()
         ).hexdigest()
         suffix = _source_suffix(locator.value)
-        safe_track_id = _SAFE_ID_RE.sub("_", locator.track_id).strip("._") or "track"
+        safe_provider = _safe_component(locator.provider, fallback="provider")
+        safe_platform = _safe_component(locator.platform, fallback="platform")
+        safe_track_id = _safe_component(locator.track_id, fallback="track")
         destination = self.root / (
-            f"{locator.provider}-{locator.platform}-{safe_track_id}-"
+            f"{safe_provider}-{safe_platform}-{safe_track_id}-"
             f"{source_fingerprint[:16]}{suffix}"
         )
         if destination.exists():
@@ -282,3 +284,7 @@ def _source_suffix(value: str) -> str:
         if suffix in {".mp3", ".m4a", ".aac", ".wav", ".flac", ".mp4"}
         else ".bin"
     )
+
+
+def _safe_component(value: str, *, fallback: str) -> str:
+    return _SAFE_ID_RE.sub("_", value).strip("._") or fallback

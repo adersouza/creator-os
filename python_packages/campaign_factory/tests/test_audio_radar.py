@@ -15,6 +15,10 @@ from campaign_factory.adapters.threadsdash_draft_payload import (
 from campaign_factory.audio_policy import build_embedded_trending_audio_intent
 from campaign_factory.audio_radar.acquisition import AcquiredAudio, AudioCache
 from campaign_factory.audio_radar.binding import bind_embedding_receipt
+from campaign_factory.audio_radar.embedding import (
+    AudioEmbeddingError,
+    embed_selected_audio,
+)
 from campaign_factory.audio_radar.models import (
     AudioLocator,
     PlatformSoundId,
@@ -22,12 +26,14 @@ from campaign_factory.audio_radar.models import (
 )
 from campaign_factory.audio_radar.normalization import normalize_candidates
 from campaign_factory.audio_radar.providers import (
+    ProviderError,
+    PublicChartSnapshotProvider,
     SocialCrawlInstagramProvider,
     TikLiveAudioResolver,
     TokchartTrendProvider,
 )
 from campaign_factory.audio_radar.ranking import AudioMatchContext, rank_candidates
-from campaign_factory.audio_radar.segment import select_segment
+from campaign_factory.audio_radar.segment import SegmentSelection, select_segment
 
 from pipeline_contracts import validate_audio_intent
 
@@ -243,6 +249,88 @@ def test_private_local_acquisition_hashes_and_probes(
     assert acquired.cache_path.stat().st_mode & 0o777 == 0o600
     assert acquired.duration_seconds == 9.5
     assert acquired.receipt()["source_fingerprint"]
+
+
+def test_private_cache_sanitizes_provider_platform_and_track_path_components(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "operator-audio.mp4"
+    source.write_bytes(b"operator supplied audio bytes")
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.acquisition.probe_media",
+        lambda _path: {
+            "format": {"duration": "9.5"},
+            "streams": [{"codec_type": "audio", "codec_name": "aac"}],
+        },
+    )
+    cache = AudioCache(tmp_path / "private-cache")
+
+    acquired = cache.acquire(
+        AudioLocator(
+            provider="../../provider",
+            platform="../platform",
+            track_id="../../track",
+            kind="local_file",
+            value=str(source),
+        ),
+        retrieved_at="2026-07-24T12:00:00Z",
+    )
+
+    assert acquired.cache_path.parent == cache.root
+
+
+def test_public_chart_snapshot_rejects_symlink(
+    tmp_path: Path,
+) -> None:
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text('{"observed_at":"2026-07-24T12:00:00Z","items":[]}')
+    link = tmp_path / "snapshot-link.json"
+    link.symlink_to(snapshot)
+
+    with pytest.raises(ProviderError, match="missing or unsafe"):
+        PublicChartSnapshotProvider(link).discover(region="US", limit=10)
+
+
+def test_embedding_refuses_to_replace_its_source_video(tmp_path: Path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"source video")
+    acquired = AcquiredAudio(
+        cache_path=tmp_path / "audio.mp4",
+        provider="provider",
+        platform="instagram",
+        track_id="track",
+        retrieved_at="2026-07-24T12:00:00Z",
+        source_kind="local_file",
+        source_fingerprint="a" * 64,
+        byte_sha256="b" * 64,
+        size_bytes=1,
+        duration_seconds=5,
+        codec="aac",
+        sample_rate=48_000,
+        channels=2,
+    )
+    segment = SegmentSelection(
+        start_offset_seconds=0,
+        duration_seconds=5,
+        segment_score=1,
+        rms_energy=1,
+        peak_energy=1,
+        onset_count=1,
+        energy_change=1,
+        beat_evidence="test",
+        hook_evidence="test",
+        selection_reason="test",
+        decoded_audio_fingerprint="c" * 64,
+    )
+
+    with pytest.raises(AudioEmbeddingError, match="must differ"):
+        embed_selected_audio(
+            video_path=video,
+            acquired=acquired,
+            segment=segment,
+            output_path=video,
+        )
 
 
 def test_segment_selection_scores_full_track_and_avoids_zero_default(
