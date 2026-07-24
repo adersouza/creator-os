@@ -19,6 +19,7 @@ from creator_os_core.provider_spend import (
     SpendAuthorizationError,
     canonical_json,
     sign_authorization,
+    verify_authorization_v2,
 )
 from creator_os_core.runtime_guards import global_kill_switch_active
 
@@ -50,6 +51,24 @@ class ModelCatalogProvider(Protocol):
 
 class PricingProvider(Protocol):
     def quote(self, scope: dict[str, Any]) -> float | None: ...
+
+
+def verify_wavespeed_authorization_at_call(
+    authorization: dict[str, Any],
+    *,
+    expected_scope: dict[str, Any],
+    secret: str,
+    now: datetime.datetime,
+) -> dict[str, Any]:
+    """Validate the contract and live HMAC immediately before provider I/O."""
+
+    validate_provider_spend_authorization_v2(authorization)
+    return verify_authorization_v2(
+        authorization,
+        expected_scope=expected_scope,
+        secret=secret,
+        now=now,
+    )
 
 
 @dataclass

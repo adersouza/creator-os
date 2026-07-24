@@ -17,7 +17,6 @@ from creator_os_core.evidence_attestation import (
     sign_evidence_attestation,
 )
 from creator_os_core.fileops import atomic_write_text
-from creator_os_core.provider_spend import verify_authorization_v2
 from creator_os_core.task_inputs import canonical_task_input_bindings
 
 from pipeline_contracts import (
@@ -27,7 +26,6 @@ from pipeline_contracts import (
     ProvenanceV1,
     SourceReferenceV1,
     validate_paid_motion_execution_receipt,
-    validate_provider_spend_authorization_v2,
 )
 
 from .audio_policy import build_motion_audio_intent, validate_motion_audio_policy
@@ -60,6 +58,9 @@ from .motion_routing_lineage import local_routing_lineage as _local_routing_line
 from .motion_source_assets import (
     ensure_motion_edit_source_asset as _ensure_motion_edit_source_asset,
 )
+from .motion_source_assets import (
+    production_direct_source_asset as _production_direct_source_asset,
+)
 from .motion_worker_process import (
     MotionWorkerError,
 )
@@ -76,6 +77,9 @@ from .provider_spend import consume_provider_spend_authorization
 from .provider_spend_v2 import (
     issue_wavespeed_spend_authorization,
     record_wavespeed_execution,
+)
+from .provider_spend_v2 import (
+    verify_wavespeed_authorization_at_call as _verify_paid_authorization_at_call,
 )
 from .static_mp4_stage import run_static_mp4_stage
 
@@ -752,64 +756,12 @@ def _static_source_asset_id(static_fallback: dict[str, Any]) -> str:
     return str(registered["source_asset_id"])
 
 
-def _production_direct_source_asset(
-    factory: Any,
-    *,
-    campaign_id: str,
-    still_path: Path,
-    still_fingerprint: str,
-) -> dict[str, Any] | None:
-    rows = factory.conn.execute(
-        """
-        SELECT * FROM source_assets
-        WHERE campaign_id = ? AND media_type = 'image' AND content_hash = ?
-          AND lower(COALESCE(status, 'imported')) NOT IN ('rejected', 'quarantined')
-        ORDER BY created_at, id
-        """,
-        (campaign_id, still_fingerprint),
-    ).fetchall()
-    matches: list[dict[str, Any]] = []
-    for row in rows:
-        source = dict(row)
-        raw_path = Path(str(source.get("stored_path") or "")).expanduser()
-        if raw_path.is_symlink():
-            continue
-        path = raw_path.resolve()
-        if (
-            path == still_path
-            and path.is_file()
-            and sha256_file(path) == still_fingerprint
-        ):
-            matches.append(source)
-    if len(matches) > 1:
-        raise ValueError("production source lineage is ambiguous")
-    return matches[0] if matches else None
-
-
 def _canonical_fingerprint(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(
             dict(value), ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
     ).hexdigest()
-
-
-def _verify_paid_authorization_at_call(
-    authorization: Mapping[str, Any],
-    *,
-    expected_scope: Mapping[str, Any],
-    secret: str,
-    now: datetime,
-) -> dict[str, Any]:
-    """Validate the canonical contract and live HMAC immediately before provider I/O."""
-
-    validate_provider_spend_authorization_v2(dict(authorization))
-    return verify_authorization_v2(
-        authorization,
-        expected_scope=expected_scope,
-        secret=secret,
-        now=now,
-    )
 
 
 def _record_paid_motion_execution_receipt(
