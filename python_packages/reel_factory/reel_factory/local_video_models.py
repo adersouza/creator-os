@@ -171,7 +171,10 @@ WAN22_I2V_A14B_Q4 = LocalVideoModelSpec(
     height=1280,
     fps=16,
     guide_scale="3.5,3.5",
-    default_steps=20,
+    # Keep the quality tier on the exact upstream/pinned MLX recipe. The
+    # official Wan I2V-A14B config and the installed q4 config both specify
+    # 40 steps; 20 was an unqualified speed shortcut.
+    default_steps=40,
     license_id="apache-2.0",
     source_repository="Wan-AI/Wan2.2-I2V-A14B",
     source_revision="206a9ee1b7bfaaf8f7e4d81335650533490646a3",
@@ -282,7 +285,9 @@ LONGCAT_AVATAR15_Q4 = LocalVideoModelSpec(
     width=480,
     height=832,
     fps=25,
-    guide_scale="4.0",
+    # LongCat Avatar uses disentangled CFG. Keep both controls explicit in
+    # evidence instead of collapsing them into an ambiguous scalar.
+    guide_scale="text=4.0,audio=4.0",
     default_steps=8,
     license_id="mit",
     source_repository="meituan-longcat/LongCat-Video-Avatar-1.5",

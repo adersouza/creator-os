@@ -211,7 +211,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             extend_direction=args.extend_direction or "after",
             low_ram=not args.no_low_ram,
             tile_frames=args.tile_frames if args.tile_frames is not None else 1,
-            tile_spatial=args.tile_spatial if args.tile_spatial is not None else 2,
+            tile_spatial=args.tile_spatial if args.tile_spatial is not None else 1,
             commercial_use=policy_context.get("commercialUse") is not False,
             commercial_annual_revenue_usd=(
                 int(policy_context["commercialAnnualRevenueUsd"])

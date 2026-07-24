@@ -95,7 +95,7 @@ def admit_local_motion(
     extend_direction: str = "after",
     low_ram: bool = True,
     tile_frames: int = 1,
-    tile_spatial: int = 2,
+    tile_spatial: int = 1,
     override_model_id: str | None = None,
     override_operator: str | None = None,
     override_reason: str | None = None,

@@ -7,6 +7,7 @@ import pytest
 from reel_factory.longcat_mlx_generate import (
     _runtime_import_path,
     _upstream_module,
+    _verify_runtime_recipe,
 )
 
 
@@ -54,3 +55,22 @@ def test_runtime_import_path_rejects_missing_upstream_package(
     with pytest.raises(FileNotFoundError, match="longcat_upstream_package_missing"):
         with _runtime_import_path(tmp_path):
             raise AssertionError("unreachable")
+
+
+def test_runtime_recipe_requires_exact_dmd_guidance_and_fps() -> None:
+    class Config:
+        num_sampling_steps = 8
+        target_fps = 25
+        text_guidance_scale = 4.0
+        audio_guidance_scale = 4.0
+
+    class Args:
+        sampling_steps = 8
+        fps = 25
+        text_guidance_scale = 4.0
+        audio_guidance_scale = 4.0
+
+    _verify_runtime_recipe(Config(), Args())
+    Args.audio_guidance_scale = 5.0
+    with pytest.raises(RuntimeError, match="audio_guidance_scale"):
+        _verify_runtime_recipe(Config(), Args())

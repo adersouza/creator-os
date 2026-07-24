@@ -30,6 +30,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--num-frames", type=int, required=True)
     parser.add_argument("--fps", type=int, default=25)
+    parser.add_argument("--sampling-steps", type=int, required=True)
+    parser.add_argument("--text-guidance-scale", type=float, required=True)
+    parser.add_argument("--audio-guidance-scale", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--output-path", type=Path, required=True)
     parser.add_argument("--output-audio", type=Path)
@@ -98,6 +101,20 @@ def _run_checked(command: list[str]) -> None:
         raise RuntimeError(f"longcat_media_finalize_failed: {detail}")
 
 
+def _verify_runtime_recipe(config: object, args: argparse.Namespace) -> None:
+    """Fail closed if the pinned runtime no longer matches the qualified recipe."""
+
+    expected = {
+        "num_sampling_steps": args.sampling_steps,
+        "target_fps": args.fps,
+        "text_guidance_scale": args.text_guidance_scale,
+        "audio_guidance_scale": args.audio_guidance_scale,
+    }
+    for attribute, value in expected.items():
+        if getattr(config, attribute, None) != value:
+            raise RuntimeError(f"longcat_runtime_recipe_mismatch:{attribute}")
+
+
 def run(args: argparse.Namespace) -> dict[str, object]:
     import imageio.v2 as imageio
     import mlx.core as mx
@@ -127,10 +144,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("longcat_dimensions_must_be_multiples_of_32")
     if args.num_frames < 29 or (args.num_frames - 1) % 4:
         raise ValueError("longcat_num_frames_must_be_4n_plus_1")
+    if args.sampling_steps != 8:
+        raise ValueError("longcat_q4_dmd_requires_exactly_8_steps")
+    if not 3.0 <= args.audio_guidance_scale <= 5.0:
+        raise ValueError("longcat_audio_guidance_must_be_between_3_and_5")
 
     with _runtime_import_path(runtime_root):
         upstream = _upstream_module(runtime_root)
         pipeline = upstream.build_pipeline(weights_root, variant="q4-merged")
+        _verify_runtime_recipe(pipeline.config, args)
         image = upstream.preprocess_image(image_path, args.height, args.width)
         audio_mel = _audio_mel(audio_path)
         ids, mask = upstream.tokenize_prompt(
@@ -231,6 +253,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "fps": args.fps,
         "durationSeconds": duration,
         "audioMuxed": True,
+        "samplingSteps": args.sampling_steps,
+        "textGuidanceScale": args.text_guidance_scale,
+        "audioGuidanceScale": args.audio_guidance_scale,
+        "scheduler": "flowmatch_euler_dmd",
     }
 
 
