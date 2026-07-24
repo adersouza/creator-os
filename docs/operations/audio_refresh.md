@@ -77,7 +77,9 @@ by their actual music IDs before selection. Creative Center is optional
 additional chart evidence and is capped at four public-page views; its
 unavailability never blocks the SocialCrawl TikTok feed. TikLiveAPI only
 resolves selected TikTok music IDs. TikLive resolution and total downloads are
-both capped by `--max-new`.
+both capped by `--max-new`. TikLive's sound owner/uploader is retained as
+`soundOwner` in source metadata; it is never promoted into canonical artist
+metadata or presented as the musical performer.
 
 A provider observation counts toward lifecycle absence only when it returned
 usable candidates or an explicitly valid successful empty feed. Provider

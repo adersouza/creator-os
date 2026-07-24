@@ -257,6 +257,7 @@ def refresh_audio_library(
         selected_cache = cache or AudioCache(selected_paths.cache)
         with connect(selected_paths.database) as conn:
             init_db(conn)
+            _separate_legacy_tiklive_sound_owners(conn)
             ranked = _rank_with_history(conn, normalized, now=started_at)
             history_before = _history_counts(conn)
             conn.execute(
@@ -657,11 +658,21 @@ def _upsert_candidate(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,
                   ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
-          canonical_title = excluded.canonical_title,
-          canonical_artists_json = excluded.canonical_artists_json,
+          canonical_title = COALESCE(
+            NULLIF(excluded.canonical_title, ''),
+            audio_catalog.canonical_title
+          ),
+          canonical_artists_json = CASE
+            WHEN excluded.canonical_artists_json != '[]'
+            THEN excluded.canonical_artists_json
+            ELSE audio_catalog.canonical_artists_json
+          END,
           variant = excluded.variant,
-          title = excluded.title,
-          artist_name = excluded.artist_name,
+          title = COALESCE(NULLIF(excluded.title, ''), audio_catalog.title),
+          artist_name = COALESCE(
+            NULLIF(excluded.artist_name, ''),
+            audio_catalog.artist_name
+          ),
           platform = excluded.platform,
           native_audio_id = excluded.native_audio_id,
           native_audio_url = excluded.native_audio_url,
@@ -941,7 +952,7 @@ def _acquire_ranked_candidates(
             (
                 retrieved_at,
                 details.title if details else candidate.title,
-                details.author if details else candidate.artist,
+                candidate.artist,
                 details.title if details else candidate.title,
                 retrieved_at,
                 catalog_id,
@@ -963,9 +974,10 @@ def _acquire_ranked_candidates(
             {
                 "audioCatalogId": catalog_id,
                 "expectedTitle": candidate.title,
-                "expectedArtist": candidate.artist,
+                "expectedCanonicalArtist": candidate.artist,
                 "resolvedTitle": details.title if details else candidate.title,
-                "resolvedArtist": details.author if details else candidate.artist,
+                "resolvedSoundOwner": details.sound_owner if details else None,
+                "soundOwnerPresentedAsPerformer": False,
                 "validAudioStream": True,
                 "durationSeconds": acquired.duration_seconds,
                 "sha256": acquired.byte_sha256,
@@ -984,6 +996,54 @@ def _acquire_ranked_candidates(
         "sampleVerification": sample,
         "tiklive": tiklive,
     }
+
+
+def _separate_legacy_tiklive_sound_owners(conn: sqlite3.Connection) -> int:
+    """Relabel legacy TikLive authors and clear only proven false artist mappings."""
+
+    changed = 0
+    rows = conn.execute(
+        """
+        SELECT o.id, o.audio_catalog_id, o.source_metadata_json,
+               c.artist_name, c.raw_json
+        FROM audio_cache_objects AS o
+        JOIN audio_catalog AS c ON c.id = o.audio_catalog_id
+        WHERE o.provider = 'tikliveapi'
+        """
+    ).fetchall()
+    for row in rows:
+        metadata = _json_object(row["source_metadata_json"])
+        legacy_author = str(metadata.get("author") or "").strip()
+        sound_owner = str(metadata.get("soundOwner") or legacy_author).strip()
+        if not sound_owner:
+            continue
+        if "author" in metadata or not metadata.get("soundOwner"):
+            metadata.pop("author", None)
+            metadata["soundOwner"] = sound_owner
+            conn.execute(
+                """
+                UPDATE audio_cache_objects
+                SET source_metadata_json = ?
+                WHERE id = ?
+                """,
+                (_json(metadata), row["id"]),
+            )
+            changed += 1
+
+        raw_candidate = _json_object(row["raw_json"])
+        canonical_artist = str(raw_candidate.get("artist") or "").strip()
+        stored_artist = str(row["artist_name"] or "").strip()
+        if not canonical_artist and stored_artist == sound_owner:
+            conn.execute(
+                """
+                UPDATE audio_catalog
+                SET artist_name = NULL, canonical_artists_json = '[]'
+                WHERE id = ?
+                """,
+                (row["audio_catalog_id"],),
+            )
+    conn.commit()
+    return changed
 
 
 def _recalculate_lifecycle(
@@ -1493,6 +1553,14 @@ def _utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _json_object(value: object) -> dict[str, Any]:
+    try:
+        decoded = json.loads(str(value or "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 def _scalar(conn: sqlite3.Connection, sql: str) -> int:

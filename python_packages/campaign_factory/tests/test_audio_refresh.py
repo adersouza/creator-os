@@ -26,6 +26,7 @@ from campaign_factory.audio_radar.refresh import (
     LifecycleThresholds,
     RefreshPaths,
     _prune_cache,
+    _separate_legacy_tiklive_sound_owners,
     refresh_audio_library,
 )
 from campaign_factory.db import connect, init_db
@@ -105,7 +106,7 @@ class StaticTikLive:
                 value=str(self.path),
             ),
             title="Midnight Glow (Sped Up)",
-            author="Example Artist feat. Guest",
+            sound_owner="Example Sound Owner",
             duration_seconds=31,
             video_count=91_000,
             classification="catalog",
@@ -347,6 +348,162 @@ def test_tiklive_authentication_and_full_metadata_parsing(
     assert details.classification == "catalog"
     assert details.cover_url is not None
     assert details.provider_request_id == "tiklive-request"
+    assert details.sound_owner == "Example Artist"
+
+
+def test_tiklive_sound_owner_is_not_presented_as_canonical_artist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "tiklive-audio.mp3"
+    source.write_bytes(b"fixture audio bytes")
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.acquisition.probe_media",
+        lambda _path: {
+            "format": {"duration": "31.0"},
+            "streams": [
+                {
+                    "codec_type": "audio",
+                    "codec_name": "mp3",
+                    "sample_rate": "44100",
+                    "channels": 2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.refresh.decoded_audio_fingerprint",
+        lambda _path: "f" * 64,
+    )
+    paths = _paths(tmp_path)
+    candidate = replace(
+        _candidate(
+            provider="socialcrawl_tiktok",
+            platform="tiktok",
+            sound_id="tt_sound_owner_only",
+        ),
+        title="",
+        artist="",
+        canonical_title="",
+        canonical_artists=(),
+    )
+
+    receipt = refresh_audio_library(
+        region="US",
+        max_new=1,
+        max_active=30,
+        apply=True,
+        paths=paths,
+        social_provider=StaticProvider([]),
+        tiktok_social_provider=StaticProvider([candidate]),
+        creative_provider=StaticProvider([]),
+        tiklive_resolver=StaticTikLive(source),
+        now="2026-07-24T12:00:00Z",
+    )
+
+    sample = receipt["sampleVerification"][0]
+    assert sample["expectedCanonicalArtist"] == ""
+    assert sample["resolvedSoundOwner"] == "Example Sound Owner"
+    assert sample["soundOwnerPresentedAsPerformer"] is False
+    assert "resolvedArtist" not in sample
+    source_metadata = receipt["acquisitions"][0]["sourceMetadata"]
+    assert source_metadata["soundOwner"] == "Example Sound Owner"
+    assert "author" not in source_metadata
+
+    with connect(paths.database) as conn:
+        catalog = conn.execute(
+            "SELECT id, artist_name, canonical_artists_json FROM audio_catalog"
+        ).fetchone()
+        assert not catalog["artist_name"]
+        assert json.loads(catalog["canonical_artists_json"]) == []
+        cache_row = conn.execute(
+            "SELECT id, source_metadata_json FROM audio_cache_objects"
+        ).fetchone()
+        metadata = json.loads(cache_row["source_metadata_json"])
+        metadata["author"] = metadata.pop("soundOwner")
+        conn.execute(
+            "UPDATE audio_cache_objects SET source_metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata), cache_row["id"]),
+        )
+        conn.execute(
+            "UPDATE audio_catalog SET artist_name = ? WHERE id = ?",
+            ("Example Sound Owner", catalog["id"]),
+        )
+        conn.commit()
+
+        assert _separate_legacy_tiklive_sound_owners(conn) == 1
+        repaired_catalog = conn.execute(
+            "SELECT artist_name, canonical_artists_json FROM audio_catalog"
+        ).fetchone()
+        repaired_metadata = json.loads(
+            conn.execute(
+                "SELECT source_metadata_json FROM audio_cache_objects"
+            ).fetchone()[0]
+        )
+
+    assert repaired_catalog["artist_name"] is None
+    assert json.loads(repaired_catalog["canonical_artists_json"]) == []
+    assert repaired_metadata["soundOwner"] == "Example Sound Owner"
+    assert "author" not in repaired_metadata
+
+
+def test_single_refresh_never_downloads_more_than_max_new(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "tiklive-audio.mp3"
+    source.write_bytes(b"fixture audio bytes")
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.acquisition.probe_media",
+        lambda _path: {
+            "format": {"duration": "31.0"},
+            "streams": [
+                {
+                    "codec_type": "audio",
+                    "codec_name": "mp3",
+                    "sample_rate": "44100",
+                    "channels": 2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "campaign_factory.audio_radar.refresh.decoded_audio_fingerprint",
+        lambda path: hashlib.sha256(str(path).encode()).hexdigest(),
+    )
+    candidates = [
+        replace(
+            _candidate(
+                provider="socialcrawl_tiktok",
+                platform="tiktok",
+                sound_id=f"tt_cap_{index}",
+            ),
+            title=f"Distinct Track {index}",
+            canonical_title=None,
+            canonical_track_id=None,
+        )
+        for index in range(3)
+    ]
+    resolver = StaticTikLive(source)
+
+    receipt = refresh_audio_library(
+        region="US",
+        max_new=2,
+        max_active=30,
+        apply=True,
+        paths=_paths(tmp_path),
+        social_provider=StaticProvider([]),
+        tiktok_social_provider=StaticProvider(candidates),
+        creative_provider=StaticProvider([]),
+        tiklive_resolver=resolver,
+        now="2026-07-24T12:00:00Z",
+    )
+
+    assert receipt["counts"]["audioFilesDownloaded"] == 2
+    assert receipt["counts"]["tracksActivated"] == 2
+    assert receipt["sourceStatus"]["tiklive"]["requests"] == 2
+    assert len(receipt["acquisitions"]) == 2
+    assert len(resolver.calls) == 2
 
 
 def test_creative_center_public_page_parsing_and_request_cap() -> None:

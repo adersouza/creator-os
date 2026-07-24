@@ -33,7 +33,7 @@ class TikLiveAudioDetails:
 
     locator: AudioLocator
     title: str | None
-    author: str | None
+    sound_owner: str | None
     duration_seconds: float | None
     video_count: int | None
     classification: str | None
@@ -46,7 +46,7 @@ class TikLiveAudioDetails:
         return {
             "musicId": self.locator.track_id,
             "title": self.title,
-            "author": self.author,
+            "soundOwner": self.sound_owner,
             "durationSeconds": self.duration_seconds,
             "videoCount": self.video_count,
             "classification": self.classification,
@@ -948,7 +948,9 @@ class TikLiveAudioResolver:
                 allowed_hosts=_host_suffixes(play_url),
             ),
             title=_optional_string(payload.get("title")),
-            author=_optional_string(payload.get("author") or payload.get("artist")),
+            sound_owner=_optional_string(
+                payload.get("author") or payload.get("artist")
+            ),
             duration_seconds=_number(
                 payload.get("duration") or payload.get("duration_seconds")
             ),
