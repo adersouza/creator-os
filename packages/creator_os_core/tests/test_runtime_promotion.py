@@ -15,19 +15,25 @@ from pathlib import Path
 
 import pytest
 import yaml
+from creator_os_core.evidence_attestation import sign_evidence_attestation
 from creator_os_core.runtime_promotion import (
     DIAGNOSTIC_TAIL_MAX_CHARS,
     PROMOTED_ENV_BLOCKLIST,
     PROMOTED_REQUIRED_EXECUTABLES,
     REQUIRED_CHECKS,
     REQUIRED_LIVE_HEALTH_CHECKS,
+    RUNTIME_HEALTH_COMMAND,
     TRUSTED_CHECK_APP_ID,
     TRUSTED_CHECK_APP_SLUG,
     TRUSTED_CHECK_WORKFLOWS,
     RuntimePromotionError,
+    _assert_promoted_tool_file_identity,
+    _existing_receipt,
     _promote_runtime,
     _promoted_subprocess_environment,
+    _redacted_diagnostic_tail,
     _resolved_promoted_toolchain_evidence,
+    _revalidate_promoted_toolchain_evidence,
     _rollback_instructions,
     _runtime_lock_target,
     _validate_runtime_promotion_receipt_payload,
@@ -124,6 +130,36 @@ def _run(*command: str, cwd: Path) -> str:
 def _fingerprint(payload: dict) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _resign_receipt(payload: dict) -> dict:
+    result = json.loads(json.dumps(payload))
+    core = dict(result)
+    core.pop("producerAttestation", None)
+    core.pop("receiptFingerprint", None)
+    result["receiptFingerprint"] = _fingerprint(core)
+    attested = {**core, "receiptFingerprint": result["receiptFingerprint"]}
+    result["producerAttestation"] = sign_evidence_attestation(
+        attested,
+        issuer="creator_os.runtime_promotion",
+        issued_at=result["createdAt"],
+        secret=EVIDENCE_SECRET,
+    )
+    return result
+
+
+def _authoritative_receipt(payload: dict) -> dict:
+    result = json.loads(json.dumps(payload))
+    toolchain = result["verification"][0]["toolchainEvidence"]
+    make_tool = next(tool for tool in toolchain["tools"] if tool["name"] == "make")
+    result["receiptAuthority"] = "authoritative"
+    result["approvalEvidenceSource"] = "github_api_live"
+    result["verification"][1]["command"] = [
+        make_tool["resolvedPath"],
+        "runtime-verify",
+    ]
+    result["verification"][2]["command"] = list(RUNTIME_HEALTH_COMMAND)
+    return _resign_receipt(result)
 
 
 def _approval(path: Path, commit: str) -> Path:
@@ -362,6 +398,8 @@ def test_promotion_creates_verified_backup_receipt_and_runtime(repositories) -> 
     _source, runtime, first, second, _approval_path, _state = repositories
     receipt = _promote(repositories)
     assert receipt["status"] == "promoted"
+    assert "receiptAuthority" not in receipt
+    assert "approvalEvidenceSource" not in receipt
     assert receipt["destinationCommitBefore"] == first
     assert receipt["destinationCommitAfter"] == second
     assert receipt["providerCalls"] == 0
@@ -373,6 +411,12 @@ def test_promotion_creates_verified_backup_receipt_and_runtime(repositories) -> 
     assert toolchain["toolchainEvidence"]["schema"] == (
         "creator_os.runtime_toolchain_evidence.v1"
     )
+    for executable in toolchain["toolchainEvidence"]["tools"]:
+        assert Path(executable["resolvedPath"]).is_file()
+        assert len(executable["sha256"]) == 64
+        assert executable["fileSize"] > 0
+        assert executable["device"] >= 0
+        assert executable["inode"] >= 0
     assert Path(receipt["backupManifestPath"]).is_file()
     validate_runtime_promotion_receipt(receipt)
     assert _validate_runtime_promotion_receipt_payload(receipt) == receipt
@@ -427,6 +471,119 @@ def test_core_receipt_validation_rejects_noncanonical_extra_field(repositories) 
         _validate_runtime_promotion_receipt_payload(receipt)
     with pytest.raises(ValueError):
         validate_runtime_promotion_receipt(receipt)
+
+
+def test_injected_callbacks_and_zero_exit_commands_never_mint_authority(
+    repositories,
+) -> None:
+    receipt = _promote(repositories)
+
+    assert "receiptAuthority" not in receipt
+    assert "approvalEvidenceSource" not in receipt
+    validate_runtime_promotion_receipt(receipt)
+
+    forged = json.loads(json.dumps(receipt))
+    forged["receiptAuthority"] = "authoritative"
+    forged["approvalEvidenceSource"] = "github_api_live"
+    forged = _resign_receipt(forged)
+    with pytest.raises(RuntimePromotionError, match="verification_invalid"):
+        _validate_runtime_promotion_receipt_payload(forged)
+    with pytest.raises(ValueError):
+        validate_runtime_promotion_receipt(forged)
+
+
+def test_authoritative_receipt_binds_live_authority_and_canonical_commands(
+    repositories,
+) -> None:
+    receipt = _authoritative_receipt(_promote(repositories))
+
+    assert _validate_runtime_promotion_receipt_payload(receipt) == receipt
+    validate_runtime_promotion_receipt(receipt)
+
+    receipt["approvalEvidenceSource"] = "operator_asserted"
+    forged = _resign_receipt(receipt)
+    with pytest.raises(RuntimePromotionError, match="receipt_shape_invalid"):
+        _validate_runtime_promotion_receipt_payload(forged)
+    with pytest.raises(ValueError):
+        validate_runtime_promotion_receipt(forged)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda receipt: receipt["verification"].pop(0),
+        lambda receipt: receipt["verification"][1].update({"passed": False}),
+        lambda receipt: receipt["verification"][2].update({"reportSummary": None}),
+        lambda receipt: receipt["verification"][0]["toolchainEvidence"]["tools"][0].pop(
+            "inode"
+        ),
+    ],
+    ids=[
+        "missing-toolchain-preflight",
+        "failed-full-verify",
+        "missing-live-health",
+        "malformed-tool-identity",
+    ],
+)
+def test_authoritative_success_receipt_rejects_forged_verification(
+    repositories,
+    mutate,
+) -> None:
+    receipt = _authoritative_receipt(_promote(repositories))
+    mutate(receipt)
+    forged = _resign_receipt(receipt)
+
+    with pytest.raises(
+        RuntimePromotionError, match="(?:verification|toolchain_evidence)_invalid"
+    ):
+        _validate_runtime_promotion_receipt_payload(forged)
+    with pytest.raises(ValueError):
+        validate_runtime_promotion_receipt(forged)
+
+
+def test_authoritative_receipt_rejects_internally_forged_tool_identity(
+    repositories,
+) -> None:
+    receipt = _authoritative_receipt(_promote(repositories))
+    receipt["verification"][0]["toolchainEvidence"]["tools"][0]["sha256"] = "0" * 64
+    forged = _resign_receipt(receipt)
+
+    with pytest.raises(RuntimePromotionError, match="toolchain_evidence_invalid"):
+        _validate_runtime_promotion_receipt_payload(forged)
+
+
+def test_authoritative_receipt_rejects_self_consistent_node_version_forgery(
+    repositories,
+) -> None:
+    receipt = _authoritative_receipt(_promote(repositories))
+    toolchain = receipt["verification"][0]["toolchainEvidence"]
+    toolchain["nodeMajor"] += 1
+    toolchain_core = dict(toolchain)
+    toolchain_core.pop("evidenceFingerprint")
+    toolchain["evidenceFingerprint"] = _fingerprint(toolchain_core)
+    forged = _resign_receipt(receipt)
+
+    with pytest.raises(RuntimePromotionError, match="toolchain_evidence_invalid"):
+        _validate_runtime_promotion_receipt_payload(forged)
+
+
+def test_historical_receipt_is_readable_but_not_authoritative(
+    repositories,
+) -> None:
+    receipt = _promote(repositories)
+    historical = _resign_receipt(receipt)
+
+    assert _validate_runtime_promotion_receipt_payload(historical) == historical
+    validate_runtime_promotion_receipt(historical)
+
+    legacy_state = repositories[-1].parent / "legacy-state"
+    receipt_root = legacy_state / "receipts"
+    receipt_root.mkdir(parents=True)
+    (receipt_root / f"{historical['promotionId']}.json").write_text(
+        json.dumps(historical),
+        encoding="utf-8",
+    )
+    assert _existing_receipt(legacy_state, historical["sourceCommit"]) is None
 
 
 def test_dry_run_does_not_change_runtime_or_create_state(repositories) -> None:
@@ -640,6 +797,111 @@ def test_live_github_evidence_binds_merge_review_and_checks(
         RuntimePromotionError, match="review_not_independent_or_current"
     ):
         _verify_github_approval_evidence(source, approval)
+
+
+def test_dry_run_uses_exact_sanitized_gh_for_production_authority(
+    repositories,
+    monkeypatch,
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    source, runtime, _first, second, approval_path, state = repositories
+    approval = load_runtime_promotion_approval(approval_path)
+    original = promotion._run
+    gh_calls: list[tuple[tuple[str, ...], dict[str, str]]] = []
+
+    def run(command, *, cwd, environment=None):
+        exact = tuple(command)
+        if len(exact) >= 3 and Path(exact[0]).name == "gh" and exact[1] == "api":
+            assert environment is not None
+            gh_calls.append((exact, dict(environment)))
+            endpoint = exact[2]
+            if endpoint.endswith("/reviews?per_page=100"):
+                payload = [
+                    {
+                        "id": 42,
+                        "state": "APPROVED",
+                        "user": {"login": "reviewer"},
+                        "submitted_at": "2020-01-01T00:30:00Z",
+                        "commit_id": second,
+                    }
+                ]
+            elif endpoint.endswith("/collaborators/reviewer/permission"):
+                payload = {"permission": "write"}
+            elif endpoint.endswith("/check-runs?per_page=100"):
+                payload = {
+                    "check_runs": [
+                        {
+                            "id": item["checkRunId"],
+                            "name": item["name"],
+                            "status": "completed",
+                            "conclusion": "success",
+                            "details_url": item["detailsUrl"],
+                            "completed_at": item["completedAt"],
+                            "head_sha": second,
+                            "app": {
+                                "id": item["appId"],
+                                "slug": item["appSlug"],
+                            },
+                        }
+                        for item in approval["checks"]
+                    ]
+                }
+            elif "/actions/runs/" in endpoint:
+                run_id = int(endpoint.rsplit("/", 1)[-1])
+                expected = next(
+                    item
+                    for item in approval["checks"]
+                    if item["workflowRunId"] == run_id
+                )
+                payload = {
+                    "id": run_id,
+                    "name": expected["workflowName"],
+                    "path": expected["workflowPath"],
+                    "head_sha": second,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "repository": {"full_name": "example/creator-os"},
+                    "head_repository": {"full_name": "example/creator-os"},
+                }
+            else:
+                payload = {
+                    "merged_at": "2020-01-01T00:45:00Z",
+                    "merge_commit_sha": second,
+                    "head": {"sha": second},
+                    "user": {"login": "author"},
+                }
+            return subprocess.CompletedProcess(
+                exact,
+                0,
+                json.dumps(payload),
+                "",
+            )
+        return original(command, cwd=cwd, environment=environment)
+
+    monkeypatch.setenv("SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN", "sensitive")
+    monkeypatch.setattr(promotion, "_run", run)
+    plan = _promote_runtime(
+        source_root=source,
+        runtime_root=runtime,
+        approved_commit=second,
+        approval_path=approval_path,
+        state_root=state,
+        operator="operator",
+        dry_run=True,
+    )
+    gh_tool = next(
+        tool for tool in plan["toolchainEvidence"]["tools"] if tool["name"] == "gh"
+    )
+
+    assert gh_calls
+    assert all(call[0][0] == gh_tool["resolvedPath"] for call in gh_calls)
+    assert all(
+        "SHOULD_NOT_REACH_PROMOTED_CODE_TOKEN" not in environment
+        and "CREATOR_OS_EVIDENCE_AUTH_SECRET" not in environment
+        for _command, environment in gh_calls
+    )
+    assert not state.exists()
 
 
 def test_live_github_evidence_rejects_self_review(repositories, monkeypatch) -> None:
@@ -909,6 +1171,82 @@ def test_failed_verifier_receipt_has_only_bounded_redacted_diagnostics(
     assert "<redacted>" in full_verify["stderrTail"]
 
 
+@pytest.mark.parametrize(
+    ("raw", "secret", "expected"),
+    [
+        (
+            'token="quoted secret value with spaces"',
+            "quoted secret value with spaces",
+            "token=<redacted>",
+        ),
+        (
+            "password='single quoted password with spaces'",
+            "single quoted password with spaces",
+            "password=<redacted>",
+        ),
+        (
+            '{"password": "json secret with spaces"}',
+            "json secret with spaces",
+            '"password": <redacted>',
+        ),
+        (
+            '{"access_token": "access credential with spaces"}',
+            "access credential with spaces",
+            '"access_token": <redacted>',
+        ),
+        (
+            "'refresh_token' = 'refresh credential with spaces'",
+            "refresh credential with spaces",
+            "'refresh_token' = <redacted>",
+        ),
+        (
+            '{"client_secret": "client credential with spaces"}',
+            "client credential with spaces",
+            '"client_secret": <redacted>',
+        ),
+        (
+            "npm_auth_token=compound-npm-credential",
+            "compound-npm-credential",
+            "npm_auth_token=<redacted>",
+        ),
+        (
+            '{"_authToken": "camel auth credential"}',
+            "camel auth credential",
+            '"_authToken": <redacted>',
+        ),
+        (
+            "request failed at https://operator:password-value@example.com/path",
+            "password-value",
+            "https://<redacted>@example.com/path",
+        ),
+        (
+            "request failed at https://credential-token@example.com/path",
+            "credential-token",
+            "https://<redacted>@example.com/path",
+        ),
+        (
+            "postgresql://db-user:p%40ss%3Aword@db.example.com/app",
+            "db-user:p%40ss%3Aword",
+            "postgresql://<redacted>@db.example.com/app",
+        ),
+        (
+            "redis://percent%2Dencoded%40credential@cache.example.com/0",
+            "percent%2Dencoded%40credential",
+            "redis://<redacted>@cache.example.com/0",
+        ),
+    ],
+)
+def test_diagnostic_redaction_blocks_quoted_assignments_and_url_userinfo(
+    raw: str,
+    secret: str,
+    expected: str,
+) -> None:
+    redacted = _redacted_diagnostic_tail(raw, environ={})
+
+    assert secret not in redacted
+    assert expected in redacted
+
+
 def test_legacy_committed_journal_with_rolled_back_receipt_is_recovered(
     repositories,
 ) -> None:
@@ -1030,7 +1368,7 @@ def test_promoted_environment_preserves_unrelated_node_and_system_paths(
     system_bin = tmp_path / "system" / "bin"
     for name in ("node", "pnpm"):
         executable(node_24_bin / name)
-    for name in ("git", "make", "python3", "uv"):
+    for name in ("git", "gh", "make", "python3", "uv"):
         executable(system_bin / name)
     original_path = os.pathsep.join(
         (
@@ -1088,6 +1426,7 @@ def _fake_toolchain(
     tools.mkdir()
     versions = {
         "git": "git version 2.50.0",
+        "gh": "gh version 2.90.0 (2026-04-16)",
         "make": "GNU Make 3.81",
         "node": node_version,
         "pnpm": "11.6.0",
@@ -1120,6 +1459,32 @@ def test_promoted_toolchain_accepts_supported_node_24_path(
         PROMOTED_REQUIRED_EXECUTABLES
     )
     assert len(evidence["evidenceFingerprint"]) == 64
+
+
+def test_promoted_toolchain_revalidation_rejects_executable_substitution(
+    tmp_path: Path,
+) -> None:
+    source, environment = _fake_toolchain(tmp_path, node_version="v24.14.0")
+    evidence = _resolved_promoted_toolchain_evidence(
+        source_root=source,
+        environment=environment,
+    )
+    git_path = Path(environment["PATH"]) / "git"
+    original_stat = git_path.stat()
+    git_path.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'git version substituted'\n",
+        encoding="utf-8",
+    )
+    git_path.chmod(original_stat.st_mode)
+
+    with pytest.raises(RuntimePromotionError, match="toolchain_drift"):
+        _revalidate_promoted_toolchain_evidence(
+            source_root=source,
+            environment=environment,
+            expected=evidence,
+        )
+    with pytest.raises(RuntimePromotionError, match="toolchain_drift:git"):
+        _assert_promoted_tool_file_identity(evidence, name="git")
 
 
 def test_promoted_toolchain_rejects_node_25(tmp_path: Path) -> None:
@@ -1224,6 +1589,71 @@ def test_promoted_toolchain_is_validated_before_runtime_mutation(
         _promote(repositories)
 
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+
+
+def test_toolchain_is_revalidated_under_lock_before_state_or_runtime_mutation(
+    repositories,
+    monkeypatch,
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    _source, runtime, first, *_rest, state = repositories
+
+    def reject_revalidation(*, source_root, environment, expected):
+        raise RuntimePromotionError("runtime_promotion_toolchain_drift")
+
+    monkeypatch.setattr(
+        promotion,
+        "_revalidate_promoted_toolchain_evidence",
+        reject_revalidation,
+    )
+
+    with pytest.raises(RuntimePromotionError, match="toolchain_drift"):
+        _promote(repositories)
+
+    assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first
+    assert not state.exists()
+
+
+def test_authority_backup_checkout_and_verification_use_exact_validated_git(
+    repositories,
+    monkeypatch,
+) -> None:
+    import creator_os_core.runtime_promotion as promotion
+
+    commands: list[tuple[str, ...]] = []
+    original = promotion._run
+
+    def record(command, *, cwd, environment=None):
+        commands.append(tuple(command))
+        return original(command, cwd=cwd, environment=environment)
+
+    monkeypatch.setattr(promotion, "_run", record)
+    receipt = _promote(repositories)
+    git_evidence = next(
+        tool
+        for tool in receipt["verification"][0]["toolchainEvidence"]["tools"]
+        if tool["name"] == "git"
+    )
+    authoritative_git_operations = {
+        "bundle",
+        "cat-file",
+        "checkout",
+        "diff",
+        "fetch",
+        "ls-remote",
+        "rev-parse",
+        "status",
+        "symbolic-ref",
+    }
+    critical = [
+        command
+        for command in commands
+        if authoritative_git_operations.intersection(command)
+    ]
+
+    assert critical
+    assert all(command[0] == git_evidence["resolvedPath"] for command in critical)
 
 
 def test_runtime_must_start_detached(repositories) -> None:
@@ -1469,11 +1899,11 @@ def test_incomplete_transaction_is_recovered_before_new_promotion(
     real_commit_exists = promotion._commit_exists
     forced_missing = {"done": False}
 
-    def commit_exists(repo, commit):
+    def commit_exists(repo, commit, *, git_runner=None):
         if commit == first and not forced_missing["done"]:
             forced_missing["done"] = True
             return False
-        return real_commit_exists(repo, commit)
+        return real_commit_exists(repo, commit, git_runner=git_runner)
 
     monkeypatch.setattr(promotion, "_commit_exists", commit_exists)
 
@@ -1491,12 +1921,16 @@ def test_receipt_wins_recovery_if_crash_preceded_terminal_journal(repositories) 
 
     first_receipt = _promote(repositories)
     state = repositories[-1]
+    receipt_path = state / "receipts" / f"{first_receipt['promotionId']}.json"
+    authoritative_receipt = _authoritative_receipt(first_receipt)
+    receipt_path.write_text(json.dumps(authoritative_receipt), encoding="utf-8")
     transaction_path = state / "transactions" / f"{first_receipt['promotionId']}.json"
     transaction = promotion._load_transaction_journal(transaction_path)
     promotion._transaction_update(
         transaction_path,
         transaction,
         status="receipt_pending",
+        receipt_fingerprint=authoritative_receipt["receiptFingerprint"],
     )
 
     second_receipt = _promote(repositories)
@@ -1566,14 +2000,27 @@ def test_failed_backup_halts_before_runtime_change(repositories, monkeypatch) ->
     import creator_os_core.runtime_promotion as promotion
 
     _source, runtime, first, *_rest = repositories
-    original = promotion._git
+    original = promotion._checked_exact_promoted_tool
 
-    def fail_bundle(repo, *args, code):
-        if args[:2] == ("bundle", "create"):
+    def fail_bundle(
+        command,
+        *,
+        cwd,
+        environment,
+        toolchain_evidence,
+        code,
+    ):
+        if "bundle" in command and "create" in command:
             raise RuntimePromotionError("runtime_backup_failed")
-        return original(repo, *args, code=code)
+        return original(
+            command,
+            cwd=cwd,
+            environment=environment,
+            toolchain_evidence=toolchain_evidence,
+            code=code,
+        )
 
-    monkeypatch.setattr(promotion, "_git", fail_bundle)
+    monkeypatch.setattr(promotion, "_checked_exact_promoted_tool", fail_bundle)
     with pytest.raises(RuntimePromotionError, match="runtime_backup_failed"):
         _promote(repositories)
     assert _run("git", "rev-parse", "HEAD", cwd=runtime) == first

@@ -32,6 +32,12 @@ TRANSACTION_SCHEMA: Final = "creator_os.runtime_promotion_transaction.v1"
 TRANSACTION_ISSUER: Final = "creator_os.runtime_promotion_transaction"
 LIVE_HEALTH_POLICY: Final = "creator_os.runtime_live_read_only_health.v1"
 RUNTIME_VERIFIER_COMMAND: Final = ("make", "runtime-verify")
+RUNTIME_HEALTH_COMMAND: Final = (
+    "scripts/creator-os",
+    "status",
+    "--live-read-only",
+    "--json",
+)
 REQUIRED_LIVE_HEALTH_CHECKS: Final = frozenset(
     {
         "repository",
@@ -98,6 +104,7 @@ PROMOTED_ENV_BLOCKLIST: Final = frozenset(
 )
 PROMOTED_REQUIRED_EXECUTABLES: Final = (
     "git",
+    "gh",
     "make",
     "node",
     "pnpm",
@@ -106,6 +113,7 @@ PROMOTED_REQUIRED_EXECUTABLES: Final = (
 )
 PROMOTED_TOOL_VERSION_ARGS: Final = {
     "git": ("--version",),
+    "gh": ("--version",),
     "make": ("--version",),
     "node": ("--version",),
     "pnpm": ("--version",),
@@ -119,9 +127,17 @@ _SENSITIVE_ENV_KEY = re.compile(
     re.IGNORECASE,
 )
 _SENSITIVE_ASSIGNMENT = re.compile(
-    r"(?i)\b(api[_-]?key|authorization|cookie|credential|password|passwd|"
-    r"private[_-]?key|secret|signature|token)\b(\s*[:=]\s*)"
-    r"(?:bearer\s+)?[^\s,;]+"
+    r"(?i)(?<![A-Za-z0-9_])([\"']?)("
+    r"(?:[A-Za-z0-9]+[_-])+(?:access[_-]?key|api[_-]?key|authorization|"
+    r"cookie|credential|password|passwd|private[_-]?key|secret|signature|token)"
+    r"|_?auth[_-]?token|api[_-]?key|authorization|cookie|credential|password|"
+    r"passwd|private[_-]?key|secret|signature|token)"
+    r"\1(\s*[:=]\s*)"
+    r"(?:bearer\s+)?"
+    r"(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;]+)"
+)
+_URL_USERINFO = re.compile(
+    r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s?#@]+)@",
 )
 _SENSITIVE_TOKEN = re.compile(
     r"\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|"
@@ -176,6 +192,8 @@ BRANCH_PROTECTION_FIELDS: Final = frozenset(
 RECEIPT_FIELDS: Final = frozenset(
     {
         "schema",
+        "receiptAuthority",
+        "approvalEvidenceSource",
         "promotionId",
         "createdAt",
         "operator",
@@ -199,9 +217,18 @@ RECEIPT_FIELDS: Final = frozenset(
         "producerAttestation",
     }
 )
+LEGACY_RECEIPT_FIELDS: Final = RECEIPT_FIELDS - {
+    "receiptAuthority",
+    "approvalEvidenceSource",
+}
 ApprovalEvidenceVerifier = Callable[[Path, dict[str, Any]], dict[str, Any]]
 ReceiptValidator = Callable[[dict[str, Any]], None]
 ApprovalValidator = Callable[[dict[str, Any]], None]
+CommandProcessRunner = Callable[
+    [Path, Sequence[str]],
+    subprocess.CompletedProcess[str],
+]
+GithubApiReader = Callable[[Path, str], Any]
 
 
 class RuntimePromotionError(RuntimeError):
@@ -419,7 +446,7 @@ def _resolved_promoted_toolchain_evidence(
     if not isinstance(node_engine, str) or not node_engine.strip():
         raise RuntimePromotionError("runtime_promotion_node_engine_missing")
 
-    tools: list[dict[str, str]] = []
+    tools: list[dict[str, Any]] = []
     node_version = ""
     for name in PROMOTED_REQUIRED_EXECUTABLES:
         command_path = shutil.which(name, path=environment.get("PATH", ""))
@@ -428,6 +455,11 @@ def _resolved_promoted_toolchain_evidence(
                 f"runtime_promotion_required_executable_missing:{name}"
             )
         resolved_path = Path(command_path).resolve()
+        if not resolved_path.is_file():
+            raise RuntimePromotionError(
+                f"runtime_promotion_required_executable_missing:{name}"
+            )
+        executable_stat = resolved_path.stat()
         completed = _run(
             (command_path, *PROMOTED_TOOL_VERSION_ARGS[name]),
             cwd=source_root,
@@ -444,6 +476,10 @@ def _resolved_promoted_toolchain_evidence(
                 "name": name,
                 "commandPath": command_path,
                 "resolvedPath": str(resolved_path),
+                "sha256": _sha256_file(resolved_path),
+                "fileSize": executable_stat.st_size,
+                "device": executable_stat.st_dev,
+                "inode": executable_stat.st_ino,
                 "version": version,
             }
         )
@@ -471,6 +507,102 @@ def _resolved_promoted_toolchain_evidence(
     return {**core, "evidenceFingerprint": _fingerprint(core)}
 
 
+def _revalidate_promoted_toolchain_evidence(
+    *,
+    source_root: Path,
+    environment: Mapping[str, str],
+    expected: Mapping[str, Any],
+) -> dict[str, Any]:
+    actual = _resolved_promoted_toolchain_evidence(
+        source_root=source_root,
+        environment=environment,
+    )
+    if actual != expected:
+        raise RuntimePromotionError("runtime_promotion_toolchain_drift")
+    return actual
+
+
+def _exact_promoted_tool_command(
+    command: Sequence[str],
+    *,
+    toolchain_evidence: Mapping[str, Any],
+) -> tuple[str, ...]:
+    if not command:
+        raise RuntimePromotionError("runtime_promotion_command_missing")
+    tools = toolchain_evidence.get("tools")
+    if not isinstance(tools, list):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    matching = [
+        tool
+        for tool in tools
+        if isinstance(tool, dict) and tool.get("name") == command[0]
+    ]
+    if len(matching) != 1:
+        return tuple(command)
+    resolved_path = str(matching[0].get("resolvedPath") or "")
+    if not resolved_path:
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    return (resolved_path, *command[1:])
+
+
+def _assert_promoted_tool_file_identity(
+    toolchain_evidence: Mapping[str, Any],
+    *,
+    name: str,
+) -> None:
+    tools = toolchain_evidence.get("tools")
+    if not isinstance(tools, list):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    matching = [
+        tool for tool in tools if isinstance(tool, dict) and tool.get("name") == name
+    ]
+    if len(matching) != 1:
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    tool = matching[0]
+    command_path = Path(str(tool.get("commandPath") or ""))
+    resolved_path = Path(str(tool.get("resolvedPath") or ""))
+    if (
+        not command_path.is_absolute()
+        or not resolved_path.is_absolute()
+        or command_path.resolve() != resolved_path
+        or not resolved_path.is_file()
+    ):
+        raise RuntimePromotionError(f"runtime_promotion_toolchain_drift:{name}")
+    executable_stat = resolved_path.stat()
+    if (
+        _sha256_file(resolved_path) != tool.get("sha256")
+        or executable_stat.st_size != tool.get("fileSize")
+        or executable_stat.st_dev != tool.get("device")
+        or executable_stat.st_ino != tool.get("inode")
+    ):
+        raise RuntimePromotionError(f"runtime_promotion_toolchain_drift:{name}")
+
+
+def _checked_exact_promoted_tool(
+    command: Sequence[str],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    toolchain_evidence: Mapping[str, Any],
+    code: str,
+) -> str:
+    if command and command[0] in PROMOTED_REQUIRED_EXECUTABLES:
+        _assert_promoted_tool_file_identity(
+            toolchain_evidence,
+            name=command[0],
+        )
+    exact_command = _exact_promoted_tool_command(
+        command,
+        toolchain_evidence=toolchain_evidence,
+    )
+    completed = _run(exact_command, cwd=cwd, environment=environment)
+    if completed.returncode != 0:
+        raise RuntimePromotionError(
+            f"{code}:" + (completed.stderr[-2000:] or completed.stdout[-2000:])
+        )
+    return completed.stdout.strip()
+
+
 def _redacted_diagnostic_tail(
     output: str,
     *,
@@ -492,15 +624,33 @@ def _redacted_diagnostic_tail(
     for value in sensitive_values:
         redacted = redacted.replace(value, "<redacted>")
     redacted = _SENSITIVE_ASSIGNMENT.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
+        lambda match: (
+            f"{match.group(1)}{match.group(2)}{match.group(1)}"
+            f"{match.group(3)}<redacted>"
+        ),
+        redacted,
+    )
+    redacted = _URL_USERINFO.sub(
+        lambda match: f"{match.group(1)}<redacted>@",
         redacted,
     )
     redacted = _SENSITIVE_TOKEN.sub("<redacted>", redacted)
     return redacted[-DIAGNOSTIC_TAIL_MAX_CHARS:]
 
 
-def _git(repo: Path, *args: str, code: str) -> str:
-    return _checked(("git", "-C", str(repo), *args), cwd=repo, code=code)
+def _git(
+    repo: Path,
+    *args: str,
+    code: str,
+    runner: CommandProcessRunner | None = None,
+) -> str:
+    command = ("git", "-C", str(repo), *args)
+    completed = _run(command, cwd=repo) if runner is None else runner(repo, command)
+    if completed.returncode != 0:
+        raise RuntimePromotionError(
+            f"{code}:" + (completed.stderr[-2000:] or completed.stdout[-2000:])
+        )
+    return completed.stdout.strip()
 
 
 def _validate_live_read_only_health(stdout: str) -> dict[str, Any]:
@@ -551,22 +701,52 @@ def _validate_live_read_only_health(stdout: str) -> dict[str, Any]:
     }
 
 
-def _clean_commit(repo: Path, *, label: str) -> str:
+def _clean_commit(
+    repo: Path,
+    *,
+    label: str,
+    git_runner: CommandProcessRunner | None = None,
+) -> str:
     if not repo.is_dir() or not (repo / ".git").exists():
         # Worktrees use a .git file.
         if not repo.is_dir() or not (repo / ".git").is_file():
             raise RuntimePromotionError(f"runtime_promotion_{label}_not_git_checkout")
-    status = _git(repo, "status", "--porcelain", code=f"{label}_status_failed")
+    status = _git(
+        repo,
+        "status",
+        "--porcelain",
+        code=f"{label}_status_failed",
+        runner=git_runner,
+    )
     if status:
         raise RuntimePromotionError(f"runtime_promotion_{label}_dirty")
-    return _git(repo, "rev-parse", "HEAD", code=f"{label}_head_failed")
+    return _git(
+        repo,
+        "rev-parse",
+        "HEAD",
+        code=f"{label}_head_failed",
+        runner=git_runner,
+    )
 
 
-def _clean_detached_runtime_commit(runtime: Path) -> str:
-    commit = _clean_commit(runtime, label="runtime")
-    symbolic = _run(
-        ("git", "-C", str(runtime), "symbolic-ref", "-q", "HEAD"),
-        cwd=runtime,
+def _clean_detached_runtime_commit(
+    runtime: Path,
+    *,
+    git_runner: CommandProcessRunner | None = None,
+) -> str:
+    commit = _clean_commit(runtime, label="runtime", git_runner=git_runner)
+    symbolic_command = (
+        "git",
+        "-C",
+        str(runtime),
+        "symbolic-ref",
+        "-q",
+        "HEAD",
+    )
+    symbolic = (
+        _run(symbolic_command, cwd=runtime)
+        if git_runner is None
+        else git_runner(runtime, symbolic_command)
     )
     if symbolic.returncode == 0:
         raise RuntimePromotionError("runtime_promotion_runtime_not_detached")
@@ -818,8 +998,20 @@ def _validate_approval_check(
         )
 
 
-def _github_api_json(source: Path, endpoint: str) -> Any:
-    raw = _checked(("gh", "api", endpoint), cwd=source, code="github_evidence_failed")
+def _github_api_json(
+    source: Path,
+    endpoint: str,
+    *,
+    runner: CommandProcessRunner | None = None,
+) -> Any:
+    command = ("gh", "api", endpoint)
+    completed = _run(command, cwd=source) if runner is None else runner(source, command)
+    if completed.returncode != 0:
+        raise RuntimePromotionError(
+            "github_evidence_failed:"
+            + (completed.stderr[-2000:] or completed.stdout[-2000:])
+        )
+    raw = completed.stdout.strip()
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -827,13 +1019,15 @@ def _github_api_json(source: Path, endpoint: str) -> Any:
 
 
 def _verify_github_approval_evidence(
-    source: Path, approval: dict[str, Any]
+    source: Path,
+    approval: dict[str, Any],
+    *,
+    api_reader: GithubApiReader | None = None,
 ) -> dict[str, Any]:
+    reader = _github_api_json if api_reader is None else api_reader
     repository = str(approval["repository"])
     pull_request_number = int(approval["pullRequestNumber"])
-    pull_request = _github_api_json(
-        source, f"repos/{repository}/pulls/{pull_request_number}"
-    )
+    pull_request = reader(source, f"repos/{repository}/pulls/{pull_request_number}")
     if not isinstance(pull_request, dict):
         raise RuntimePromotionError("runtime_promotion_pull_request_evidence_invalid")
     if (
@@ -847,6 +1041,7 @@ def _verify_github_approval_evidence(
             source,
             repository=repository,
             approval=approval,
+            api_reader=reader,
         )
         evidence_core = _verify_single_owner_github_authority(
             source,
@@ -854,6 +1049,7 @@ def _verify_github_approval_evidence(
             pull_request_number=pull_request_number,
             approval=approval,
             verified_workflow_runs=verified_workflow_runs,
+            api_reader=reader,
         )
     else:
         evidence_core = _verify_independent_review_github_authority(
@@ -863,11 +1059,13 @@ def _verify_github_approval_evidence(
             approval=approval,
             pull_request=pull_request,
             verified_workflow_runs={},
+            api_reader=reader,
         )
         verified_workflow_runs = _verify_live_check_runs(
             source,
             repository=repository,
             approval=approval,
+            api_reader=reader,
         )
         evidence_core["workflowRunIds"] = sorted(verified_workflow_runs)
     return {**evidence_core, "evidenceFingerprint": _fingerprint(evidence_core)}
@@ -881,9 +1079,10 @@ def _verify_independent_review_github_authority(
     approval: dict[str, Any],
     pull_request: dict[str, Any],
     verified_workflow_runs: dict[int, dict[str, Any]],
+    api_reader: GithubApiReader,
 ) -> dict[str, Any]:
     author = str(pull_request.get("user", {}).get("login") or "")
-    reviews = _github_api_json(
+    reviews = api_reader(
         source, f"repos/{repository}/pulls/{pull_request_number}/reviews?per_page=100"
     )
     if not isinstance(reviews, list):
@@ -903,7 +1102,7 @@ def _verify_independent_review_github_authority(
         raise RuntimePromotionError(
             "runtime_promotion_review_not_independent_or_current"
         )
-    permission_payload = _github_api_json(
+    permission_payload = api_reader(
         source,
         f"repos/{repository}/collaborators/{expected_review['reviewer']}/permission",
     )
@@ -980,15 +1179,16 @@ def _verify_single_owner_github_authority(
     pull_request_number: int,
     approval: dict[str, Any],
     verified_workflow_runs: dict[int, dict[str, Any]],
+    api_reader: GithubApiReader,
 ) -> dict[str, Any]:
     operator = str(approval["operator"])
-    current_user = _github_api_json(source, "user")
+    current_user = api_reader(source, "user")
     if (
         not isinstance(current_user, dict)
         or str(current_user.get("login") or "") != operator
     ):
         raise RuntimePromotionError("runtime_promotion_operator_identity_mismatch")
-    permission_payload = _github_api_json(
+    permission_payload = api_reader(
         source,
         f"repos/{repository}/collaborators/{operator}/permission",
     )
@@ -1002,7 +1202,7 @@ def _verify_single_owner_github_authority(
             "runtime_promotion_operator_permission_insufficient"
         )
     live_policy = _normalized_branch_protection(
-        _github_api_json(source, f"repos/{repository}/branches/main/protection")
+        api_reader(source, f"repos/{repository}/branches/main/protection")
     )
     declared_policy = copy.deepcopy(approval["branchProtection"])
     declared_policy["requiredStatusChecks"] = sorted(
@@ -1030,8 +1230,9 @@ def _verify_live_check_runs(
     *,
     repository: str,
     approval: dict[str, Any],
+    api_reader: GithubApiReader,
 ) -> dict[int, dict[str, Any]]:
-    check_payload = _github_api_json(
+    check_payload = api_reader(
         source,
         f"repos/{repository}/commits/{approval['reviewedCommit']}/check-runs?per_page=100",
     )
@@ -1062,7 +1263,7 @@ def _verify_live_check_runs(
             )
         workflow_run_id = int(expected["workflowRunId"])
         if workflow_run_id not in verified_workflow_runs:
-            workflow_run = _github_api_json(
+            workflow_run = api_reader(
                 source,
                 f"repos/{repository}/actions/runs/{workflow_run_id}",
             )
@@ -1088,11 +1289,19 @@ def _verify_live_check_runs(
     return verified_workflow_runs
 
 
-def _remote_main_commit(source: Path) -> str:
-    raw = _checked(
-        ("git", "ls-remote", "--exit-code", "origin", "refs/heads/main"),
-        cwd=source,
+def _remote_main_commit(
+    source: Path,
+    *,
+    git_runner: CommandProcessRunner | None = None,
+) -> str:
+    raw = _git(
+        source,
+        "ls-remote",
+        "--exit-code",
+        "origin",
+        "refs/heads/main",
         code="source_remote_main_lookup_failed",
+        runner=git_runner,
     )
     rows = [line.split() for line in raw.splitlines() if line.strip()]
     if len(rows) != 1 or len(rows[0]) != 2 or rows[0][1] != "refs/heads/main":
@@ -1137,13 +1346,237 @@ def _owned_subroot(
     return resolved
 
 
+def _receipt_authority(payload: Mapping[str, Any]) -> str:
+    authority = payload.get("receiptAuthority")
+    if authority == "authoritative":
+        return "authoritative"
+    if "receiptAuthority" not in payload:
+        return "legacy_non_authoritative"
+    raise RuntimePromotionError("runtime_promotion_receipt_authority_invalid")
+
+
+def _validate_toolchain_evidence_payload(candidate: Any) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    if (
+        set(candidate)
+        != {
+            "schema",
+            "packageJsonPath",
+            "packageJsonSha256",
+            "nodeEngine",
+            "nodeMajor",
+            "tools",
+            "evidenceFingerprint",
+        }
+        or candidate.get("schema") != PROMOTED_TOOLCHAIN_SCHEMA
+        or not Path(str(candidate.get("packageJsonPath") or "")).is_absolute()
+        or not _is_sha256(candidate.get("packageJsonSha256"))
+        or not str(candidate.get("nodeEngine") or "").strip()
+        or isinstance(candidate.get("nodeMajor"), bool)
+        or not isinstance(candidate.get("nodeMajor"), int)
+        or candidate["nodeMajor"] <= 0
+    ):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    tools = candidate.get("tools")
+    if not isinstance(tools, list) or len(tools) != len(PROMOTED_REQUIRED_EXECUTABLES):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    for expected_name, tool in zip(PROMOTED_REQUIRED_EXECUTABLES, tools, strict=True):
+        if (
+            not isinstance(tool, dict)
+            or set(tool)
+            != {
+                "name",
+                "commandPath",
+                "resolvedPath",
+                "sha256",
+                "fileSize",
+                "device",
+                "inode",
+                "version",
+            }
+            or tool.get("name") != expected_name
+            or not Path(str(tool.get("commandPath") or "")).is_absolute()
+            or not Path(str(tool.get("resolvedPath") or "")).is_absolute()
+            or not _is_sha256(tool.get("sha256"))
+            or not str(tool.get("version") or "").strip()
+        ):
+            raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+        for field in ("fileSize", "device", "inode"):
+            value = tool.get(field)
+            minimum = 1 if field == "fileSize" else 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise RuntimePromotionError(
+                    "runtime_promotion_toolchain_evidence_invalid"
+                )
+    node_version = str(
+        next(tool for tool in tools if tool["name"] == "node")["version"]
+    )
+    node_match = re.fullmatch(r"v?(\d+)(?:\.\d+){1,2}", node_version)
+    if (
+        node_match is None
+        or int(node_match.group(1)) != candidate["nodeMajor"]
+        or not _node_major_matches_engine(
+            candidate["nodeMajor"],
+            str(candidate["nodeEngine"]),
+        )
+    ):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    core = dict(candidate)
+    claimed = core.pop("evidenceFingerprint", None)
+    if claimed != _fingerprint(core):
+        raise RuntimePromotionError("runtime_promotion_toolchain_evidence_invalid")
+    return candidate
+
+
+def _validate_verification_process_record(
+    candidate: Any,
+    *,
+    expected_name: str,
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    passed = candidate.get("passed")
+    expected_fields = {
+        "name",
+        "command",
+        "returnCode",
+        "stdoutSha256",
+        "stderrSha256",
+        "passed",
+        "reportSummary",
+        "reportError",
+    }
+    if passed is False:
+        expected_fields |= {"stdoutTail", "stderrTail", "diagnosticTailLimit"}
+    if (
+        set(candidate) != expected_fields
+        or candidate.get("name") != expected_name
+        or not isinstance(passed, bool)
+        or isinstance(candidate.get("returnCode"), bool)
+        or not isinstance(candidate.get("returnCode"), int)
+        or not _is_sha256(candidate.get("stdoutSha256"))
+        or not _is_sha256(candidate.get("stderrSha256"))
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    command = candidate.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or any(not isinstance(item, str) or not item for item in command)
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if passed and candidate["returnCode"] != 0:
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if passed is False and (
+        candidate.get("diagnosticTailLimit") != DIAGNOSTIC_TAIL_MAX_CHARS
+        or not isinstance(candidate.get("stdoutTail"), str)
+        or not isinstance(candidate.get("stderrTail"), str)
+        or len(candidate["stdoutTail"]) > DIAGNOSTIC_TAIL_MAX_CHARS
+        or len(candidate["stderrTail"]) > DIAGNOSTIC_TAIL_MAX_CHARS
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if expected_name == "full_verify":
+        if (
+            candidate.get("reportSummary") is not None
+            or candidate.get("reportError") is not None
+        ):
+            raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    elif passed:
+        summary = candidate.get("reportSummary")
+        if (
+            not isinstance(summary, dict)
+            or summary.get("policy") != LIVE_HEALTH_POLICY
+            or summary.get("checkCount") != len(REQUIRED_LIVE_HEALTH_CHECKS)
+            or set(summary.get("checkNames") or []) != REQUIRED_LIVE_HEALTH_CHECKS
+            or summary.get("statusCounts") != {"PASS": len(REQUIRED_LIVE_HEALTH_CHECKS)}
+            or not _is_sha256(summary.get("reportFingerprint"))
+            or candidate.get("reportError") is not None
+        ):
+            raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    elif not (
+        candidate.get("reportSummary") is None
+        and (
+            candidate.get("reportError") is None
+            or isinstance(candidate.get("reportError"), str)
+        )
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    return candidate
+
+
+def _validate_authoritative_verification(
+    verification: Any,
+    *,
+    status: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(verification, list) or not 1 <= len(verification) <= 3:
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    preflight = verification[0]
+    if (
+        not isinstance(preflight, dict)
+        or set(preflight) != {"name", "passed", "toolchainEvidence"}
+        or preflight.get("name") != "toolchain_preflight"
+        or preflight.get("passed") is not True
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    _validate_toolchain_evidence_payload(preflight.get("toolchainEvidence"))
+    tools = {
+        str(tool["name"]): tool for tool in preflight["toolchainEvidence"]["tools"]
+    }
+    full_verify = None
+    health = None
+    if len(verification) >= 2:
+        full_verify = _validate_verification_process_record(
+            verification[1],
+            expected_name="full_verify",
+        )
+        if full_verify.get("command") != [
+            tools["make"]["resolvedPath"],
+            "runtime-verify",
+        ]:
+            raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if len(verification) == 3:
+        health = _validate_verification_process_record(
+            verification[2],
+            expected_name="live_read_only_health",
+        )
+        if health.get("command") != list(RUNTIME_HEALTH_COMMAND):
+            raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if status in {"promoted", "already_current"} and not (
+        len(verification) == 3
+        and full_verify is not None
+        and full_verify.get("passed") is True
+        and health is not None
+        and health.get("passed") is True
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    if (
+        status == "rolled_back"
+        and full_verify is not None
+        and full_verify.get("passed") is False
+        and health is not None
+    ):
+        raise RuntimePromotionError("runtime_promotion_verification_invalid")
+    return verification
+
+
 def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any]:
     """Validate the core receipt contract without importing pipeline_contracts."""
 
     payload = copy.deepcopy(candidate)
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
-    if frozenset(payload) != RECEIPT_FIELDS:
+    authority = _receipt_authority(payload)
+    expected_fields = (
+        RECEIPT_FIELDS if authority == "authoritative" else LEGACY_RECEIPT_FIELDS
+    )
+    if frozenset(payload) != expected_fields:
+        raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
+    if (
+        authority == "authoritative"
+        and payload.get("approvalEvidenceSource") != "github_api_live"
+    ):
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
     promotion_id = payload.get("promotionId")
     try:
@@ -1295,7 +1728,9 @@ def _validate_runtime_promotion_receipt_payload(candidate: Any) -> dict[str, Any
     ):
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
     verification = payload.get("verification")
-    if not isinstance(verification, list) or any(
+    if authority == "authoritative":
+        _validate_authoritative_verification(verification, status=status)
+    elif not isinstance(verification, list) or any(
         not isinstance(item, dict) for item in verification
     ):
         raise RuntimePromotionError("runtime_promotion_receipt_shape_invalid")
@@ -1396,6 +1831,7 @@ def _existing_receipt(state_root: Path, approved_commit: str) -> dict[str, Any] 
         for payload in _load_all_receipts(state_root)
         if payload.get("sourceCommit") == approved_commit
         and payload.get("status") in {"promoted", "already_current"}
+        and _receipt_authority(payload) == "authoritative"
     ]
     return max(matches, key=lambda item: str(item.get("createdAt") or ""), default=None)
 
@@ -1459,6 +1895,8 @@ def _load_verified_backup(
     state_root: Path,
     runtime: Path,
     record: dict[str, Any],
+    *,
+    git_runner: CommandProcessRunner | None = None,
 ) -> Path:
     promotion_id = str(record.get("promotionId") or "")
     backup_root = _owned_subroot(state_root, "backups", create=False)
@@ -1502,15 +1940,21 @@ def _load_verified_backup(
         or manifest.get("bundleSha256") != _sha256_file(bundle_path)
     ):
         raise RuntimePromotionError("runtime_promotion_recovery_manifest_invalid")
-    _checked(
-        ("git", "bundle", "verify", str(bundle_path)),
-        cwd=runtime,
+    _git(
+        runtime,
+        "bundle",
+        "verify",
+        str(bundle_path),
         code="runtime_promotion_recovery_bundle_invalid",
+        runner=git_runner,
     )
-    bundle_heads = _checked(
-        ("git", "bundle", "list-heads", str(bundle_path)),
-        cwd=runtime,
+    bundle_heads = _git(
+        runtime,
+        "bundle",
+        "list-heads",
+        str(bundle_path),
         code="runtime_promotion_recovery_bundle_heads_invalid",
+        runner=git_runner,
     )
     if str(record.get("destinationCommitBefore") or "") not in {
         line.split()[0] for line in bundle_heads.splitlines() if line.split()
@@ -1519,23 +1963,42 @@ def _load_verified_backup(
     return bundle_path
 
 
-def _commit_exists(repo: Path, commit: str) -> bool:
-    result = _run(
-        ("git", "-C", str(repo), "cat-file", "-e", f"{commit}^{{commit}}"),
-        cwd=repo,
+def _commit_exists(
+    repo: Path,
+    commit: str,
+    *,
+    git_runner: CommandProcessRunner | None = None,
+) -> bool:
+    command = (
+        "git",
+        "-C",
+        str(repo),
+        "cat-file",
+        "-e",
+        f"{commit}^{{commit}}",
+    )
+    result = (
+        _run(command, cwd=repo) if git_runner is None else git_runner(repo, command)
     )
     return result.returncode == 0
 
 
-def _restore_commit_from_bundle(runtime: Path, commit: str, bundle_path: Path) -> None:
-    if not _commit_exists(runtime, commit):
+def _restore_commit_from_bundle(
+    runtime: Path,
+    commit: str,
+    bundle_path: Path,
+    *,
+    git_runner: CommandProcessRunner | None = None,
+) -> None:
+    if not _commit_exists(runtime, commit, git_runner=git_runner):
         _git(
             runtime,
             "fetch",
             str(bundle_path),
             code="runtime_promotion_recovery_bundle_fetch_failed",
+            runner=git_runner,
         )
-    if not _commit_exists(runtime, commit):
+    if not _commit_exists(runtime, commit, git_runner=git_runner):
         raise RuntimePromotionError("runtime_promotion_recovery_commit_unavailable")
 
 
@@ -1560,7 +2023,14 @@ def _transaction_update(
     return _write_transaction_journal(path, core)
 
 
-def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
+def _recover_incomplete_transactions(
+    state_root: Path,
+    runtime: Path,
+    *,
+    before_checkout: Callable[[], None] | None = None,
+    checkout_commit: Callable[[Path, str], None] | None = None,
+    git_runner: CommandProcessRunner | None = None,
+) -> None:
     transaction_root = _owned_subroot(state_root, "transactions", create=False)
     if transaction_root is None:
         return
@@ -1603,7 +2073,10 @@ def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
                 == record.get("destinationCommitBefore")
                 and receipt.get("destinationCommitAfter")
                 == record.get("destinationCommitBefore")
-                and _clean_detached_runtime_commit(runtime)
+                and _clean_detached_runtime_commit(
+                    runtime,
+                    git_runner=git_runner,
+                )
                 == record.get("destinationCommitBefore")
             ):
                 _transaction_update(
@@ -1622,8 +2095,16 @@ def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
         promotion_id = str(record.get("promotionId") or "")
         if not before or not approved or not promotion_id:
             raise RuntimePromotionError("runtime_promotion_transaction_shape_invalid")
-        bundle_path = _load_verified_backup(state_root, runtime, record)
-        current = _clean_detached_runtime_commit(runtime)
+        bundle_path = _load_verified_backup(
+            state_root,
+            runtime,
+            record,
+            git_runner=git_runner,
+        )
+        current = _clean_detached_runtime_commit(
+            runtime,
+            git_runner=git_runner,
+        )
         receipt_root = _owned_subroot(state_root, "receipts", create=False)
         receipt_path = (
             receipt_root / f"{promotion_id}.json"
@@ -1636,6 +2117,7 @@ def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
                 receipt.get("promotionId") == promotion_id
                 and receipt.get("sourceCommit") == approved
                 and receipt.get("status") in {"promoted", "already_current"}
+                and _receipt_authority(receipt) == "authoritative"
                 and current == approved
             ):
                 _transaction_update(
@@ -1646,15 +2128,29 @@ def _recover_incomplete_transactions(state_root: Path, runtime: Path) -> None:
                 )
                 continue
         if current == approved and before != approved:
-            _restore_commit_from_bundle(runtime, before, bundle_path)
-            _git(
+            _restore_commit_from_bundle(
                 runtime,
-                "checkout",
-                "--detach",
                 before,
-                code="runtime_promotion_recovery_checkout_failed",
+                bundle_path,
+                git_runner=git_runner,
             )
-            current = _clean_detached_runtime_commit(runtime)
+            if before_checkout is not None:
+                before_checkout()
+            if checkout_commit is None:
+                _git(
+                    runtime,
+                    "checkout",
+                    "--detach",
+                    before,
+                    code="runtime_promotion_recovery_checkout_failed",
+                    runner=git_runner,
+                )
+            else:
+                checkout_commit(runtime, before)
+            current = _clean_detached_runtime_commit(
+                runtime,
+                git_runner=git_runner,
+            )
         if current != before:
             raise RuntimePromotionError("runtime_promotion_recovery_state_ambiguous")
         _transaction_update(
@@ -1676,19 +2172,26 @@ def _verify_promotion_authority(
     approved_commit: str,
     approval: dict[str, Any],
     approval_evidence_verifier: ApprovalEvidenceVerifier,
+    *,
+    git_runner: CommandProcessRunner | None = None,
 ) -> dict[str, Any]:
     resolved_commit = _git(
         source,
         "rev-parse",
         f"{approved_commit}^{{commit}}",
         code="approved_commit_not_found",
+        runner=git_runner,
     )
     if resolved_commit != approved_commit:
         raise RuntimePromotionError("runtime_promotion_commit_not_exact")
-    source_commit = _clean_commit(source, label="source")
+    source_commit = _clean_commit(
+        source,
+        label="source",
+        git_runner=git_runner,
+    )
     if source_commit != approved_commit:
         raise RuntimePromotionError("runtime_promotion_source_not_at_approved_commit")
-    if _remote_main_commit(source) != approved_commit:
+    if _remote_main_commit(source, git_runner=git_runner) != approved_commit:
         raise RuntimePromotionError("runtime_promotion_approved_commit_not_origin_main")
     evidence = approval_evidence_verifier(source, approval)
     if not isinstance(evidence, dict) or not str(
@@ -1716,6 +2219,7 @@ def _promotion_plan(
     operator: str,
     verifier_command: Sequence[str],
     health_command: Sequence[str],
+    git_runner: CommandProcessRunner | None = None,
 ) -> dict[str, Any]:
     changed_files = tuple(
         line
@@ -1726,6 +2230,7 @@ def _promotion_plan(
             destination_commit,
             approved_commit,
             code="promotion_diff_failed",
+            runner=git_runner,
         ).splitlines()
         if line.strip()
     )
@@ -1769,12 +2274,7 @@ def promote_runtime(
         operator=operator,
         dry_run=dry_run,
         verifier_command=RUNTIME_VERIFIER_COMMAND,
-        health_command=(
-            "scripts/creator-os",
-            "status",
-            "--live-read-only",
-            "--json",
-        ),
+        health_command=RUNTIME_HEALTH_COMMAND,
         approval_evidence_verifier=_verify_github_approval_evidence,
     )
 
@@ -1789,12 +2289,7 @@ def _promote_runtime(
     operator: str,
     dry_run: bool,
     verifier_command: Sequence[str] = RUNTIME_VERIFIER_COMMAND,
-    health_command: Sequence[str] = (
-        "scripts/creator-os",
-        "status",
-        "--live-read-only",
-        "--json",
-    ),
+    health_command: Sequence[str] = RUNTIME_HEALTH_COMMAND,
     approval_evidence_verifier: ApprovalEvidenceVerifier = _verify_github_approval_evidence,
     receipt_validator: ReceiptValidator | None = None,
     approval_payload: dict[str, Any] | None = None,
@@ -1838,14 +2333,93 @@ def _promote_runtime(
         source_root=source,
         environment=promoted_environment,
     )
+    production_authority_verifier = (
+        approval_evidence_verifier is _verify_github_approval_evidence
+    )
+    authoritative_execution = (
+        production_authority_verifier
+        and tuple(verifier_command) == RUNTIME_VERIFIER_COMMAND
+        and tuple(health_command) == RUNTIME_HEALTH_COMMAND
+    )
+
+    def revalidate_toolchain() -> None:
+        _revalidate_promoted_toolchain_evidence(
+            source_root=source,
+            environment=promoted_environment,
+            expected=toolchain_evidence,
+        )
+
+    def run_validated_tool(
+        checkout: Path,
+        command: Sequence[str],
+    ) -> subprocess.CompletedProcess[str]:
+        if not command or command[0] not in PROMOTED_REQUIRED_EXECUTABLES:
+            raise RuntimePromotionError(
+                "runtime_promotion_unbound_tool_execution_rejected"
+            )
+        _assert_promoted_tool_file_identity(
+            toolchain_evidence,
+            name=command[0],
+        )
+        exact_command = _exact_promoted_tool_command(
+            command,
+            toolchain_evidence=toolchain_evidence,
+        )
+        return _run(
+            exact_command,
+            cwd=checkout,
+            environment=promoted_environment,
+        )
+
+    def run_validated_git(
+        checkout: Path,
+        command: Sequence[str],
+    ) -> subprocess.CompletedProcess[str]:
+        if not command or command[0] != "git":
+            raise RuntimePromotionError("runtime_promotion_git_command_invalid")
+        return run_validated_tool(checkout, command)
+
+    def read_validated_github_api(checkout: Path, endpoint: str) -> Any:
+        return _github_api_json(
+            checkout,
+            endpoint,
+            runner=run_validated_tool,
+        )
+
+    def verify_approval_evidence(
+        checkout: Path,
+        exact_approval: dict[str, Any],
+    ) -> dict[str, Any]:
+        if production_authority_verifier:
+            production_verifier: Any = approval_evidence_verifier
+            return production_verifier(
+                checkout,
+                exact_approval,
+                api_reader=read_validated_github_api,
+            )
+        return approval_evidence_verifier(checkout, exact_approval)
+
+    def checkout_with_validated_git(checkout: Path, commit: str) -> None:
+        command = ("git", "-C", str(checkout), "checkout", "--detach", commit)
+        completed = run_validated_git(checkout, command)
+        if completed.returncode != 0:
+            raise RuntimePromotionError(
+                "runtime_promotion_recovery_checkout_failed:"
+                + (completed.stderr[-2000:] or completed.stdout[-2000:])
+            )
+
     if dry_run:
         verified_approval_evidence = _verify_promotion_authority(
             source,
             approved_commit,
             approval,
-            approval_evidence_verifier,
+            verify_approval_evidence,
+            git_runner=run_validated_git,
         )
-        destination_commit = _clean_detached_runtime_commit(runtime)
+        destination_commit = _clean_detached_runtime_commit(
+            runtime,
+            git_runner=run_validated_git,
+        )
         plan = _promotion_plan(
             source=source,
             runtime=runtime,
@@ -1857,17 +2431,20 @@ def _promote_runtime(
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
+            git_runner=run_validated_git,
         )
         return {**plan, "status": "planned", "dryRun": True}
 
     runtime_lock_target = _runtime_lock_target(runtime)
     _assert_runtime_lock_path_safe(runtime_lock_target, runtime)
     with file_lock(runtime_lock_target):
+        revalidate_toolchain()
         verified_approval_evidence = _verify_promotion_authority(
             source,
             approved_commit,
             approval,
-            approval_evidence_verifier,
+            verify_approval_evidence,
+            git_runner=run_validated_git,
         )
         if state.exists() and (state.is_symlink() or not state.is_dir()):
             raise RuntimePromotionError("runtime_promotion_state_root_unsafe")
@@ -1877,8 +2454,17 @@ def _promote_runtime(
             raise RuntimePromotionError("runtime_promotion_path_boundary_invalid")
         for subroot in ("backups", "receipts", "transactions"):
             _owned_subroot(state, subroot, create=True)
-        _recover_incomplete_transactions(state, runtime)
-        destination_commit = _clean_detached_runtime_commit(runtime)
+        _recover_incomplete_transactions(
+            state,
+            runtime,
+            before_checkout=revalidate_toolchain,
+            checkout_commit=checkout_with_validated_git,
+            git_runner=run_validated_git,
+        )
+        destination_commit = _clean_detached_runtime_commit(
+            runtime,
+            git_runner=run_validated_git,
+        )
         plan = _promotion_plan(
             source=source,
             runtime=runtime,
@@ -1890,6 +2476,7 @@ def _promote_runtime(
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
+            git_runner=run_validated_git,
         )
         changed_files = tuple(plan["changedFiles"])
         # Validate every prior success receipt before starting another attempt. A
@@ -1912,25 +2499,37 @@ def _promote_runtime(
         bundle_path = backup_root / "runtime.bundle"
         manifest_path = backup_root / "manifest.json"
         try:
-            _git(
-                runtime,
-                "bundle",
-                "create",
-                str(bundle_path),
-                "--all",
-                "HEAD",
+            revalidate_toolchain()
+            _checked_exact_promoted_tool(
+                (
+                    "git",
+                    "-C",
+                    str(runtime),
+                    "bundle",
+                    "create",
+                    str(bundle_path),
+                    "--all",
+                    "HEAD",
+                ),
+                cwd=runtime,
+                environment=promoted_environment,
+                toolchain_evidence=toolchain_evidence,
                 code="runtime_backup_failed",
             )
             if not bundle_path.is_file() or bundle_path.is_symlink():
                 raise RuntimePromotionError("runtime_backup_missing_or_unsafe")
-            _checked(
+            _checked_exact_promoted_tool(
                 ("git", "bundle", "verify", str(bundle_path)),
                 cwd=runtime,
+                environment=promoted_environment,
+                toolchain_evidence=toolchain_evidence,
                 code="runtime_backup_verification_failed",
             )
-            bundle_heads = _checked(
+            bundle_heads = _checked_exact_promoted_tool(
                 ("git", "bundle", "list-heads", str(bundle_path)),
                 cwd=runtime,
+                environment=promoted_environment,
+                toolchain_evidence=toolchain_evidence,
                 code="runtime_backup_verification_failed",
             )
             if destination_commit not in {
@@ -1969,11 +2568,13 @@ def _promote_runtime(
 
         # Authorization can change while a large backup is being created. Re-read
         # every mutable source immediately before journaling the mutation.
+        revalidate_toolchain()
         verified_approval_evidence = _verify_promotion_authority(
             source,
             approved_commit,
             approval,
-            approval_evidence_verifier,
+            verify_approval_evidence,
+            git_runner=run_validated_git,
         )
         plan = _promotion_plan(
             source=source,
@@ -1986,6 +2587,7 @@ def _promote_runtime(
             operator=operator,
             verifier_command=verifier_command,
             health_command=health_command,
+            git_runner=run_validated_git,
         )
 
         transaction_root = _owned_subroot(state, "transactions", create=True)
@@ -2021,15 +2623,35 @@ def _promote_runtime(
         ]
         failure: str | None = None
         try:
-            _git(runtime, "fetch", "origin", code="runtime_fetch_failed")
-            _git(
-                runtime,
-                "checkout",
-                "--detach",
-                approved_commit,
+            revalidate_toolchain()
+            _checked_exact_promoted_tool(
+                ("git", "-C", str(runtime), "fetch", "origin"),
+                cwd=runtime,
+                environment=promoted_environment,
+                toolchain_evidence=toolchain_evidence,
+                code="runtime_fetch_failed",
+            )
+            _checked_exact_promoted_tool(
+                (
+                    "git",
+                    "-C",
+                    str(runtime),
+                    "checkout",
+                    "--detach",
+                    approved_commit,
+                ),
+                cwd=runtime,
+                environment=promoted_environment,
+                toolchain_evidence=toolchain_evidence,
                 code="runtime_checkout_failed",
             )
-            if _clean_detached_runtime_commit(runtime) != approved_commit:
+            if (
+                _clean_detached_runtime_commit(
+                    runtime,
+                    git_runner=run_validated_git,
+                )
+                != approved_commit
+            ):
                 raise RuntimePromotionError("runtime_commit_verification_failed")
             transaction = _transaction_update(
                 transaction_path,
@@ -2040,8 +2662,13 @@ def _promote_runtime(
                 ("full_verify", verifier_command),
                 ("live_read_only_health", health_command),
             ):
-                completed = _run(
+                revalidate_toolchain()
+                exact_command = _exact_promoted_tool_command(
                     command,
+                    toolchain_evidence=toolchain_evidence,
+                )
+                completed = _run(
+                    exact_command,
                     cwd=runtime,
                     environment=promoted_environment,
                 )
@@ -2058,7 +2685,7 @@ def _promote_runtime(
                         report_error = str(exc)
                 record = {
                     "name": name,
-                    "command": list(command),
+                    "command": list(exact_command),
                     "returnCode": completed.returncode,
                     "stdoutSha256": hashlib.sha256(
                         completed.stdout.encode()
@@ -2092,14 +2719,31 @@ def _promote_runtime(
                 else "already_current"
             )
         except BaseException as exc:
+            _assert_promoted_tool_file_identity(toolchain_evidence, name="git")
+            rollback_command = _exact_promoted_tool_command(
+                (
+                    "git",
+                    "-C",
+                    str(runtime),
+                    "checkout",
+                    "--detach",
+                    destination_commit,
+                ),
+                toolchain_evidence=toolchain_evidence,
+            )
             rollback = _run(
-                ("git", "-C", str(runtime), "checkout", "--detach", destination_commit),
+                rollback_command,
                 cwd=runtime,
+                environment=promoted_environment,
             )
             rolled_back = rollback.returncode == 0
             if (
                 not rolled_back
-                or _clean_detached_runtime_commit(runtime) != destination_commit
+                or _clean_detached_runtime_commit(
+                    runtime,
+                    git_runner=run_validated_git,
+                )
+                != destination_commit
             ):
                 raise RuntimePromotionError(
                     f"runtime_promotion_failed_and_rollback_failed:{type(exc).__name__}:{exc}"
@@ -2122,7 +2766,10 @@ def _promote_runtime(
                 "status": status,
                 "sourceCommit": approved_commit,
                 "destinationCommitBefore": destination_commit,
-                "destinationCommitAfter": _clean_detached_runtime_commit(runtime),
+                "destinationCommitAfter": _clean_detached_runtime_commit(
+                    runtime,
+                    git_runner=run_validated_git,
+                ),
                 "approvalPath": str(approval_path.expanduser().resolve()),
                 "approvalFingerprint": approval["approvalFingerprint"],
                 "approvalEvidence": verified_approval_evidence,
@@ -2140,6 +2787,9 @@ def _promote_runtime(
                 "productionStateWrites": 0,
                 "providerCalls": 0,
             }
+            if authoritative_execution:
+                receipt_core["receiptAuthority"] = "authoritative"
+                receipt_core["approvalEvidenceSource"] = "github_api_live"
             receipt_payload = {
                 **receipt_core,
                 "receiptFingerprint": _fingerprint(receipt_core),
@@ -2184,13 +2834,30 @@ def _promote_runtime(
                         "runtime_promotion_receipt_attestation_invalid"
                     ) from exc
                 raise
+            _assert_promoted_tool_file_identity(toolchain_evidence, name="git")
+            rollback_command = _exact_promoted_tool_command(
+                (
+                    "git",
+                    "-C",
+                    str(runtime),
+                    "checkout",
+                    "--detach",
+                    destination_commit,
+                ),
+                toolchain_evidence=toolchain_evidence,
+            )
             rollback = _run(
-                ("git", "-C", str(runtime), "checkout", "--detach", destination_commit),
+                rollback_command,
                 cwd=runtime,
+                environment=promoted_environment,
             )
             rollback_verified = (
                 rollback.returncode == 0
-                and _clean_detached_runtime_commit(runtime) == destination_commit
+                and _clean_detached_runtime_commit(
+                    runtime,
+                    git_runner=run_validated_git,
+                )
+                == destination_commit
             )
             try:
                 if receipt_path is not None:
