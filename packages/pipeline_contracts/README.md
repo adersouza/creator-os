@@ -64,6 +64,18 @@ pnpm pack:contracts
 - Consumers pin the release URL plus package-lock integrity instead of trusting
   an unversioned sibling checkout or copying source files.
 
+### 3.0.0 audio-policy migration
+
+Package 3.0.0 makes `policy` required on `pipeline.audio_intent.v1` and defines
+the six supported policies: `embedded_trending_required`,
+`native_trending_required`, `original_embedded`, `creator_voice`,
+`royalty_free`, and `silent_allowed`. Normal Reels use
+`embedded_trending_required`. Completed embedded-audio intents must include
+fulfillment proof bound to the final output SHA; candidate exhaustion remains
+blocked as `NEEDS_EMBEDDED_AUDIO`. Consumers must not infer silence or native
+audio when `policy` is absent. Existing stored payloads must be migrated or
+handled as legacy input before validation against package 3.0.0.
+
 ### Campaign draft v3 rollout
 
 `campaign_factory.threadsdash_drafts.v2` is a frozen compatibility contract. It
