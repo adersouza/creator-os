@@ -229,19 +229,17 @@ def run_motion_generation_stage(
         raise ValueError("benchmark evidence applies only to local models")
     if paid and local_motion_admission is not None:
         raise ValueError("local motion admission applies only to local models")
-    production_bound = False
-    if not paid:
-        production_source_sha = (
-            sha256_file(still) if still else _text_prompt_task_fingerprint(prompt)
-        )
-        production_bound = bind_production_motion_recipe(
-            production_motion_recipe,
-            model_id=model_id,
-            source_sha256=production_source_sha,
-            research_admission=local_motion_admission,
-        )
-        if not production_bound:
-            _validate_local_motion_admission(local_motion_admission, model_id=model_id)
+    production_source_sha = (
+        sha256_file(still) if still else _text_prompt_task_fingerprint(prompt)
+    )
+    production_bound = bind_production_motion_recipe(
+        production_motion_recipe,
+        model_id=model_id,
+        source_sha256=production_source_sha,
+        research_admission=local_motion_admission,
+    )
+    if not paid and not production_bound:
+        _validate_local_motion_admission(local_motion_admission, model_id=model_id)
 
     campaign = factory.domains.campaign_by_slug(campaign_slug)
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
@@ -569,42 +567,42 @@ def run_motion_generation_stage(
                 "preflight": preflight_log_evidence,
                 "apply": None,
             }
-            if paid and authorization is not None:
-                execution = worker_result.get("result")
-                prediction_id = (
-                    str(execution.get("predictionId") or "")
-                    if isinstance(execution, dict)
-                    else ""
-                )
-                if not prediction_id:
-                    raise RuntimeError("WaveSpeed worker omitted prediction id")
-                assert isinstance(execution, dict)
-                cost_event_id = record_wavespeed_execution(
-                    factory.conn,
+        if paid and authorization is not None:
+            execution = worker_result.get("result")
+            prediction_id = (
+                str(execution.get("predictionId") or "")
+                if isinstance(execution, dict)
+                else ""
+            )
+            if not prediction_id:
+                raise RuntimeError("WaveSpeed worker omitted prediction id")
+            assert isinstance(execution, dict)
+            cost_event_id = record_wavespeed_execution(
+                factory.conn,
+                authorization=authorization,
+                prediction_id=prediction_id,
+                status=str(execution.get("status") or "completed"),
+                actual_usd=execution.get("providerCostUsd"),
+            )
+            worker_result["campaignCostEventId"] = cost_event_id
+            worker_result["paidExecutionReceipt"] = (
+                _record_paid_motion_execution_receipt(
+                    factory,
+                    evidence_dir=evidence_dir,
                     authorization=authorization,
+                    authorization_path=authorization_path,
+                    authorization_verified_at=authorization_verified_at,
+                    source_path=_required_path(
+                        registration_source_path,
+                        "motion generation provenance source",
+                    ),
+                    source_sha256=registration_source_hash,
+                    output_path=output_path,
                     prediction_id=prediction_id,
-                    status=str(execution.get("status") or "completed"),
-                    actual_usd=execution.get("providerCostUsd"),
+                    provider_result=execution,
+                    cost_event_id=cost_event_id,
                 )
-                worker_result["campaignCostEventId"] = cost_event_id
-                worker_result["paidExecutionReceipt"] = (
-                    _record_paid_motion_execution_receipt(
-                        factory,
-                        evidence_dir=evidence_dir,
-                        authorization=authorization,
-                        authorization_path=authorization_path,
-                        authorization_verified_at=authorization_verified_at,
-                        source_path=_required_path(
-                            registration_source_path,
-                            "motion generation provenance source",
-                        ),
-                        source_sha256=registration_source_hash,
-                        output_path=output_path,
-                        prediction_id=prediction_id,
-                        provider_result=execution,
-                        cost_event_id=cost_event_id,
-                    )
-                )
+            )
         registered_asset = None
         if apply:
             if source_asset_id is None:
@@ -656,7 +654,7 @@ def run_motion_generation_stage(
                 if local_motion_admission is not None
                 else None
             ),
-            "humanReviewRequired": True,
+            "humanReviewRequired": production_motion_recipe is None,
             "schedulingAllowed": False,
             "publishingAllowed": False,
         }

@@ -5,6 +5,8 @@ import json
 import shutil
 import sqlite3
 import subprocess
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +22,8 @@ from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.learning_score import learning_eligible
 from campaign_factory.production_lane import (
+    _block_duplicate_provider_outputs,
+    _expand_production_job_prompt,
     plan_production_batch,
     run_production_batch,
 )
@@ -234,6 +238,22 @@ def test_golden_approved_source_to_animated_reel(tmp_path: Path) -> None:
     assert job["productionRecipe"]["researchSelectionRequired"] is False
 
 
+def test_cloud_production_uses_wavespeed_wan22_i2v_5b(tmp_path: Path) -> None:
+    batch = plan_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=3,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+    )
+    assert {job["productionRecipe"]["modelId"] for job in batch["jobs"]} == {
+        "wavespeed_wan22_i2v_5b_720p"
+    }
+    assert batch["estimatedProviderCostUsd"] == 0.15
+
+
 def test_golden_reel_caption_hook_audio_to_postable_handoff() -> None:
     intent = build_motion_audio_intent(
         policy="native_trending_required",
@@ -277,6 +297,7 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     )
 
     assert batch["summary"]["completed"] == 1
+    assert batch["results"][0]["hardQc"]["status"] == "passed"
     completed = batch["results"][0]["result"]["audioFulfillment"]
     receipt = completed["receipt"]
     intent = receipt["audioIntent"]
@@ -349,6 +370,197 @@ def test_golden_batch_request_has_independent_outputs(tmp_path: Path) -> None:
     assert len({job["jobId"] for job in jobs}) == 5
     assert len({job["seed"] for job in jobs}) == 5
     assert len({job["sourceAssetId"] for job in jobs}) == 2
+
+
+def test_source_inventory_sha_substitution_is_rejected(tmp_path: Path) -> None:
+    factory = _production_factory(tmp_path, source_count=1)
+    source = Path(
+        factory.conn.execute("SELECT stored_path FROM source_assets").fetchone()[0]
+    )
+    source.write_bytes(b"substituted-after-approval")
+    with pytest.raises(ValueError, match="approved source SHA mismatch"):
+        plan_production_batch(
+            factory,
+            creator="stacey",
+            intent="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts=None,
+            audio_preference="embedded_trending",
+        )
+
+
+def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    factory = _production_factory(tmp_path, source_count=3)
+    factory.settings = object()
+    factory.close = lambda: None
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def fake_expand(job):
+        return dict(job)
+
+    def fake_isolated(_factory, *, job, audio_candidates, max_usd_per_job):
+        nonlocal active, peak
+        assert max_usd_per_job == 0.05
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.03)
+        with lock:
+            active -= 1
+        if job["index"] == 1:
+            return {
+                "jobId": job["jobId"],
+                "index": job["index"],
+                "status": "failed",
+                "error": "provider_failed",
+            }
+        digest = hashlib.sha256(str(job["index"]).encode()).hexdigest()
+        return {
+            "jobId": job["jobId"],
+            "index": job["index"],
+            "status": "completed",
+            "provider": {
+                "requestId": f"prediction-{job['index']}",
+                "outputSha256": digest,
+                "generationDurationSeconds": 1.0,
+                "providerCostUsd": 0.05,
+            },
+            "result": {
+                "audioFulfillment": {
+                    "finalVideoSha256": digest,
+                    "outputPath": f"/tmp/{digest}.mp4",
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._expand_production_job_prompt", fake_expand
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._run_production_job_isolated", fake_isolated
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.discover_production_audio_candidates",
+        lambda: [],
+    )
+    batch = run_production_batch(
+        factory,
+        creator="stacey",
+        intent="passive_selfie",
+        count=4,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+        apply=True,
+        max_concurrency=2,
+    )
+    assert peak == 2
+    assert batch["summary"] == {
+        "requested": 4,
+        "created": 4,
+        "submitted": 3,
+        "completed": 3,
+        "blocked": 0,
+        "failed": 1,
+        "approved": 3,
+        "scheduled": 0,
+        "published": 0,
+        "uniqueOutputs": 3,
+        "uniqueFinalOutputs": 3,
+        "totalProviderCostUsd": 0.15,
+        "providerCostReported": True,
+        "estimatedProviderCostUsd": 0.2,
+        "generationTimesSeconds": [1.0, 1.0, 1.0],
+    }
+
+
+def test_cloud_batch_spend_cap_blocks_before_prompt_expansion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called = False
+
+    def unexpected(_job):
+        nonlocal called
+        called = True
+        raise AssertionError
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._expand_production_job_prompt", unexpected
+    )
+    with pytest.raises(PermissionError, match="total_spend_cap"):
+        run_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent="passive_selfie",
+            count=6,
+            execution="cloud",
+            accounts=None,
+            audio_preference="embedded_trending",
+            apply=True,
+        )
+    assert called is False
+
+
+def test_qwen_expansion_is_bound_to_cloud_job_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = plan_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts=None,
+        audio_preference="embedded_trending",
+    )["jobs"][0]
+    expanded = (
+        "She shifts her gaze toward the camera, tilts her head slightly, "
+        "and adjusts one strand of hair while the handheld framing stays restrained."
+    )
+    monkeypatch.setattr(
+        "reel_factory.worker_api.expand_local_wan_i2v_prompt",
+        lambda **_kwargs: {
+            "schema": "reel_factory.wan_prompt_expansion.v1",
+            "expandedPrompt": expanded,
+            "receiptFingerprint": "a" * 64,
+        },
+    )
+    prepared = _expand_production_job_prompt(job)
+    assert prepared["prompt"] == expanded
+    assert (
+        prepared["productionRecipe"]["expandedPromptSha256"]
+        == hashlib.sha256(expanded.encode()).hexdigest()
+    )
+
+
+def test_duplicate_provider_output_is_blocked_without_erasing_first_completion() -> (
+    None
+):
+    results = [
+        {
+            "jobId": "one",
+            "index": 0,
+            "status": "completed",
+            "provider": {"outputSha256": "a" * 64},
+            "hardQc": {"blockers": [], "status": "passed"},
+        },
+        {
+            "jobId": "two",
+            "index": 1,
+            "status": "completed",
+            "provider": {"outputSha256": "a" * 64},
+            "hardQc": {"blockers": [], "status": "passed"},
+        },
+    ]
+    _block_duplicate_provider_outputs(results)
+    assert results[0]["status"] == "completed"
+    assert results[1]["status"] == "blocked"
+    assert results[1]["hardQc"]["blockers"] == ["duplicate_output"]
 
 
 def test_golden_approved_asset_has_single_creative_authority() -> None:

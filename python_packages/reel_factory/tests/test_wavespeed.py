@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 import requests
 from creator_os_core.provider_spend import sign_authorization
+from reel_factory.video_provider_models import video_model
 from reel_factory.wavespeed import (
     AmbiguousWaveSpeedSubmission,
     WaveSpeedClient,
     WaveSpeedRequest,
+    _upload_and_build_payload,
     build_wavespeed_spend_scope,
     execute_wavespeed,
 )
@@ -75,15 +77,24 @@ class FakeClient:
     def submit_once(self, _model, payload):
         self.calls.append("submit")
         assert payload["shot_type"] == "single"
-        return {"id": "pred_123", "status": "created"}
+        self.model = _model.provider_model
+        return {
+            "id": "pred_123",
+            "model": self.model,
+            "status": "created",
+            "created_at": "2026-07-24T12:00:00Z",
+        }
 
     def poll(self, prediction_id: str, *, result_url=None, timeout_seconds=0):
         self.calls.append(f"poll:{prediction_id}")
         assert timeout_seconds == 60 * 30
         return {
             "id": prediction_id,
+            "model": self.model,
             "status": "completed",
             "outputs": ["https://outputs.example/signed.mp4?token=secret"],
+            "timings": {"inference": 1234},
+            "cost": 0.6,
         }
 
     def download(self, _url: str, destination: Path) -> str:
@@ -136,6 +147,107 @@ def test_wavespeed_one_submit_retains_output_and_hides_signed_url(
     evidence = Path(result["evidencePath"]).read_text(encoding="utf-8")
     assert "token=secret" not in evidence
     assert result["predictionId"] == "pred_123"
+    assert result["providerCostUsd"] == 0.6
+    assert result["providerInferenceMilliseconds"] == 1234
+    assert result["outputRecords"][0]["sha256"] == result["outputSha256"]
+
+
+def test_wan22_5b_request_uses_exact_official_three_field_contract(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "source.jpg"
+    image.write_bytes(b"source")
+    request = WaveSpeedRequest(
+        model_id="wavespeed_wan22_i2v_5b_720p",
+        prompt="Natural eye movement, a subtle head turn, and restrained hair motion",
+        output_path=tmp_path / "output.mp4",
+        image_path=image,
+        resolution="720p",
+        duration_seconds=5,
+        seed=731,
+    )
+    client = FakeClient(request.output_path)
+    payload = _upload_and_build_payload(
+        client, request, video_model("wavespeed_wan22_i2v_5b_720p")
+    )
+    assert payload == {
+        "image": "https://media.example/source.jpg",
+        "prompt": request.prompt,
+        "seed": 731,
+    }
+
+
+def test_interrupted_polling_recovers_same_prediction_without_resubmission(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    scope = build_wavespeed_spend_scope(
+        request, campaign="campaign", cohort_id="cohort"
+    )
+
+    class FirstAttempt(FakeClient):
+        def poll(self, prediction_id: str, *, result_url=None, timeout_seconds=0):
+            self.calls.append(f"poll:{prediction_id}")
+            raise TimeoutError("interrupted")
+
+    first = FirstAttempt(request.output_path)
+    with pytest.raises(TimeoutError):
+        execute_wavespeed(
+            request,
+            campaign="campaign",
+            cohort_id="cohort",
+            authorization=_authorization(scope),
+            secret=SECRET,
+            evidence_dir=tmp_path / "evidence",
+            client=first,
+        )
+
+    recovered = FakeClient(request.output_path)
+    recovered.model = video_model(request.model_id).provider_model
+    result = execute_wavespeed(
+        request,
+        campaign="campaign",
+        cohort_id="cohort",
+        authorization=_authorization(scope),
+        secret=SECRET,
+        evidence_dir=tmp_path / "evidence",
+        client=recovered,
+    )
+    assert "submit" not in recovered.calls
+    assert not any(call.startswith("upload:") for call in recovered.calls)
+    assert result["predictionId"] == "pred_123"
+
+
+def test_provider_model_substitution_is_rejected_before_download(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    scope = build_wavespeed_spend_scope(
+        request, campaign="campaign", cohort_id="cohort"
+    )
+
+    class Substituted(FakeClient):
+        def poll(self, prediction_id: str, *, result_url=None, timeout_seconds=0):
+            self.calls.append(f"poll:{prediction_id}")
+            return {
+                "id": prediction_id,
+                "model": "another/provider-model",
+                "status": "completed",
+                "outputs": ["https://outputs.example/substituted.mp4"],
+            }
+
+    client = Substituted(request.output_path)
+    with pytest.raises(RuntimeError, match="provider_model_substituted"):
+        execute_wavespeed(
+            request,
+            campaign="campaign",
+            cohort_id="cohort",
+            authorization=_authorization(scope),
+            secret=SECRET,
+            evidence_dir=tmp_path / "evidence",
+            client=client,
+        )
+    assert "download" not in client.calls
 
 
 def test_submission_network_error_is_ambiguous_and_never_retried() -> None:
