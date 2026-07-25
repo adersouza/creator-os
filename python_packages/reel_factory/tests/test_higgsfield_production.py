@@ -168,10 +168,17 @@ def test_passive_plan_uses_silent_kling_contract(tmp_path: Path) -> None:
 
 
 def test_motion_copy_uses_exact_exposed_motion_control_inputs(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     driving = tmp_path / "driving.mp4"
     driving.write_bytes(b"driving-video")
+    monkeypatch.setattr(
+        subject,
+        "_probe_video",
+        lambda _path: {
+            "durationSeconds": 5.0,
+        },
+    )
     plan = subject.build_higgsfield_production_plan(
         _request(
             tmp_path,
@@ -190,6 +197,18 @@ def test_motion_copy_uses_exact_exposed_motion_control_inputs(
     assert plan["recipe"]["actual_tool"].endswith("kling3_0_motion_control")
     assert "--image-references" in plan["command"]
     assert "--video-references" in plan["command"]
+    assert plan["quoteCommand"] == []
+    assert plan["quoteParameters"] == {
+        "jobType": "kling3_0_motion_control",
+        "durationSeconds": 5.0,
+        "mode": "pro",
+    }
+    quote = subject.quote_higgsfield_production_plan(
+        plan,
+        adapter=FakeAdapter([]),  # type: ignore[arg-type]
+    )
+    assert quote["amount"] == 16.0
+    assert quote["source"] == "authenticated_higgsfield_transaction_duration_rate"
     assert plan["drivingVideo"]["sha256"]
 
 

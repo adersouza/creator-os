@@ -342,6 +342,7 @@ def issue_wavespeed_spend_authorization(
         "wavespeed-ai/infinitetalk": "pinned_audio_duration_rate",
         "wavespeed-ai/longcat-avatar-1.5": "pinned_audio_duration_rate",
         "sync/lipsync-2-pro": "pinned_audio_duration_rate",
+        "sync/lipsync-3": "pinned_reference_duration_rate",
         "kwaivgi/kling-v3.0-pro/motion-control": ("pinned_reference_duration_rate"),
     }
     if scope.get("providerModel") in media_duration_pricing:

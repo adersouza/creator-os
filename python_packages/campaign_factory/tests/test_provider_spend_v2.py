@@ -161,6 +161,43 @@ def test_authorization_requires_caps_balance_and_exact_run_cap(
     assert authorization["scope"] == scope
 
 
+def test_sync3_authorization_uses_exact_local_source_duration_rate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, value in {
+        "WAVESPEED_DAILY_BUDGET_USD": "20",
+        "WAVESPEED_MONTHLY_BUDGET_USD": "100",
+        "WAVESPEED_COHORT_MAX_USD": "10",
+        "WAVESPEED_MIN_BALANCE_USD": "2",
+    }.items():
+        monkeypatch.setenv(name, value)
+    conn = sqlite3.connect(":memory:")
+    ensure_authorization_table(conn)
+    scope = _scope(tmp_path, "sync/lipsync-3", "source", 0)
+    scope["parameters"]["sourceVideoDurationSeconds"] = 8.0
+
+    class UnexpectedLivePricing:
+        def quote(self, _scope: dict) -> float:
+            raise AssertionError("duration-priced Sync 3 must not use generic pricing")
+
+    authorization = issue_wavespeed_spend_authorization(
+        conn,
+        scope=scope,
+        campaign_id=None,
+        max_usd=2,
+        secret=SECRET,
+        balance_provider=Balance(20),
+        model_catalog_provider=Catalog(),
+        pricing_provider=UnexpectedLivePricing(),
+    )
+
+    assert authorization["providerQuote"]["amount"] == 1.072
+    assert (
+        authorization["providerQuote"]["livePriceSource"]
+        == "pinned_reference_duration_rate"
+    )
+
+
 def test_authorization_fails_when_live_price_drifts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

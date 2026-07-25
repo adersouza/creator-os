@@ -111,6 +111,10 @@ _EXACT_JOB_TYPES = (
     "kling3_0_motion_control",
     "veo3_1",
 )
+# The v1.1.19 CLI exposes duration as a cost parameter but rejects it on the
+# generic model-cost command. The authenticated 2026-07-24 account transaction
+# for a completed five-second Pro job charged exactly 16 credits.
+_KLING3_MOTION_CONTROL_PRO_CREDITS_PER_SECOND = 3.2
 
 
 def discover_higgsfield_production_capabilities(
@@ -234,7 +238,8 @@ def build_higgsfield_production_plan(
         "prompt": _candidate_prompt(request),
         "script": request.script,
         "command": command,
-        "quoteCommand": _quote_command(command),
+        "quoteCommand": _quote_command(command, driving=driving),
+        "quoteParameters": _quote_parameters(command, driving=driving),
         "outputPath": str(_output_path(request.output_path)),
         "reviewRoot": str(_review_root(request.review_root)),
         "maxCredits": request.max_credits,
@@ -248,6 +253,40 @@ def quote_higgsfield_production_plan(
     *,
     adapter: HiggsfieldCliAdapter | None = None,
 ) -> dict[str, Any]:
+    recipe = plan.get("recipe")
+    if (
+        isinstance(recipe, dict)
+        and recipe.get("exposed_job_type") == "kling3_0_motion_control"
+    ):
+        parameters = plan.get("quoteParameters")
+        if not isinstance(parameters, dict):
+            raise ValueError("Higgsfield Motion Control quote parameters are missing")
+        duration = parameters.get("durationSeconds")
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not math.isfinite(float(duration))
+            or float(duration) <= 0
+        ):
+            raise ValueError("Higgsfield Motion Control quote duration is invalid")
+        billed_seconds = max(1, int(round(float(duration))))
+        credits = round(
+            billed_seconds * _KLING3_MOTION_CONTROL_PRO_CREDITS_PER_SECOND,
+            4,
+        )
+        return {
+            "provider": "higgsfield",
+            "amount": credits,
+            "unit": "higgsfield_credits",
+            "source": "authenticated_higgsfield_transaction_duration_rate",
+            "raw": {
+                "jobType": "kling3_0_motion_control",
+                "mode": parameters.get("mode"),
+                "durationSeconds": float(duration),
+                "billedSeconds": billed_seconds,
+                "creditsPerSecond": (_KLING3_MOTION_CONTROL_PRO_CREDITS_PER_SECOND),
+            },
+        }
     command = plan.get("quoteCommand")
     if not isinstance(command, list) or not command:
         raise ValueError("Higgsfield quote command is missing")
@@ -784,10 +823,27 @@ def _candidate_prompt(request: HiggsfieldProductionRequest) -> str:
     return base
 
 
-def _quote_command(command: list[str]) -> list[str]:
+def _quote_command(command: list[str], *, driving: dict[str, Any] | None) -> list[str]:
     if command[:3] != ["higgsfield", "generate", "create"]:
         raise ValueError("unsupported Higgsfield create command")
+    if command[3] == "kling3_0_motion_control":
+        return []
     return ["higgsfield", "generate", "cost", *command[3:]]
+
+
+def _quote_parameters(
+    command: list[str], *, driving: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    if command[3] != "kling3_0_motion_control":
+        return None
+    if driving is None:
+        raise ValueError("motion-control quote requires a driving video")
+    duration = _probe_video(Path(str(driving["path"])))["durationSeconds"]
+    return {
+        "jobType": command[3],
+        "durationSeconds": duration,
+        "mode": command[command.index("--mode") + 1],
+    }
 
 
 def _source_identity(
