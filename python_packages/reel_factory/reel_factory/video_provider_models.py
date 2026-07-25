@@ -15,6 +15,8 @@ Task = Literal[
     "text_to_video",
     "image_to_video",
     "audio_image_to_video",
+    "motion_control",
+    "video_lipsync",
     "keyframe_interpolation",
     "video_retake",
     "video_extend",
@@ -58,6 +60,8 @@ class VideoModel:
     provider_accepts_resolution: bool = True
     provider_accepts_duration: bool = True
     provider_accepts_negative_prompt: bool = True
+    provider_accepts_seed: bool = True
+    provider_accepts_prompt: bool = True
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -288,6 +292,114 @@ WAVESPEED_WAN22_S2V = VideoModel(
     quality_tier="remote_best_speaking",
 )
 
+WAVESPEED_KLING_O3_PRO_I2V = VideoModel(
+    id="wavespeed_kling_o3_pro_i2v",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="kwaivgi/kling-video-o3-pro/image-to-video",
+    task="image_to_video",
+    resolutions=("provider_default",),
+    durations=tuple(range(3, 16)),
+    default_resolution="provider_default",
+    default_duration=5,
+    first_last_frame=True,
+    paid=True,
+    quality_tier="remote_premium_portrait",
+    shot_type_supported=True,
+    provider_accepts_resolution=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+WAVESPEED_VIDU_Q3_I2V_PRO = VideoModel(
+    id="wavespeed_vidu_q3_i2v_pro",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="vidu/q3/image-to-video-pro",
+    task="image_to_video",
+    resolutions=("720p", "1080p", "2k", "4k"),
+    durations=tuple(range(1, 17)),
+    default_resolution="1080p",
+    default_duration=5,
+    paid=True,
+    quality_tier="remote_premium_seeded_portrait",
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_KLING_V3_PRO_MOTION_CONTROL = VideoModel(
+    id="wavespeed_kling_v3_pro_motion_control",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="kwaivgi/kling-v3.0-pro/motion-control",
+    task="motion_control",
+    resolutions=("provider_default",),
+    durations=(),
+    default_resolution="provider_default",
+    default_duration=0,
+    paid=True,
+    quality_tier="remote_premium_motion_copy",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_seed=False,
+)
+
+WAVESPEED_INFINITETALK = VideoModel(
+    id="wavespeed_infinitetalk",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="wavespeed-ai/infinitetalk",
+    task="audio_image_to_video",
+    resolutions=("480p", "720p"),
+    durations=(),
+    default_resolution="720p",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_talking",
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_LONGCAT_AVATAR15 = VideoModel(
+    id="wavespeed_longcat_avatar15",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="wavespeed-ai/longcat-avatar-1.5",
+    task="audio_image_to_video",
+    resolutions=("480p", "720p"),
+    durations=(),
+    default_resolution="720p",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_talking_challenger",
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_SYNC_LIPSYNC2_PRO = VideoModel(
+    id="wavespeed_sync_lipsync2_pro",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="sync/lipsync-2-pro",
+    task="video_lipsync",
+    resolutions=("source",),
+    durations=(),
+    default_resolution="source",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_video_lipsync",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
 _MODELS = {
     model.id: model
     for model in (
@@ -301,6 +413,12 @@ _MODELS = {
         WAVESPEED_WAN27_I2V_PRO,
         WAVESPEED_WAN27_REFERENCE,
         WAVESPEED_WAN22_S2V,
+        WAVESPEED_KLING_O3_PRO_I2V,
+        WAVESPEED_VIDU_Q3_I2V_PRO,
+        WAVESPEED_KLING_V3_PRO_MOTION_CONTROL,
+        WAVESPEED_INFINITETALK,
+        WAVESPEED_LONGCAT_AVATAR15,
+        WAVESPEED_SYNC_LIPSYNC2_PRO,
     )
 }
 
@@ -332,11 +450,14 @@ def video_model_catalog() -> dict[str, object]:
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
             "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
-            "paidImageMotion": WAVESPEED_WAN22_I2V_5B_720P.id,
-            "paidImageMotionQuality": WAVESPEED_WAN27_I2V_PRO.id,
-            "paidImageMotionEconomy": WAVESPEED_WAN27_I2V.id,
+            "paidImageMotion": WAVESPEED_KLING_O3_PRO_I2V.id,
+            "paidImageMotionQuality": WAVESPEED_KLING_O3_PRO_I2V.id,
+            "paidImageMotionSeededAlternative": WAVESPEED_VIDU_Q3_I2V_PRO.id,
             "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
-            "paidSpeakingVideo": WAVESPEED_WAN22_S2V.id,
+            "paidMotionControl": WAVESPEED_KLING_V3_PRO_MOTION_CONTROL.id,
+            "paidSpeakingVideo": WAVESPEED_INFINITETALK.id,
+            "paidSpeakingChallenger": WAVESPEED_LONGCAT_AVATAR15.id,
+            "paidVideoLipsync": WAVESPEED_SYNC_LIPSYNC2_PRO.id,
             "silentProviderFallbackAllowed": False,
         },
     }
@@ -349,6 +470,7 @@ def validate_model_request(
     duration: int | None,
     has_audio: bool,
     has_last_image: bool,
+    has_source_video: bool = False,
     generate_audio: bool = False,
     task: Task | None = None,
     has_image: bool = True,
@@ -361,8 +483,23 @@ def validate_model_request(
             f"{model.id} does not support task {selected_task}; choose one of "
             + ", ".join(supported_tasks)
         )
-    if selected_task in {"image_to_video", "audio_image_to_video"} and not has_image:
+    if (
+        selected_task
+        in {
+            "image_to_video",
+            "audio_image_to_video",
+            "motion_control",
+            "speech_to_video",
+        }
+        and not has_image
+    ):
         raise ValueError(f"{model.id} task {selected_task} requires an image")
+    if selected_task == "video_lipsync" and not has_source_video:
+        raise ValueError(f"{model.id} video_lipsync requires a source video")
+    if selected_task != "video_lipsync" and has_source_video:
+        raise ValueError(
+            f"{model.id} task {selected_task} does not accept a source video"
+        )
     if selected_task == "keyframe_interpolation" and not (has_image and has_last_image):
         raise ValueError(
             f"{model.id} keyframe_interpolation requires start and end images"
@@ -375,8 +512,18 @@ def validate_model_request(
         raise ValueError("text_to_video must not silently consume an image")
     if selected_task == "audio_image_to_video" and (not has_audio or generate_audio):
         raise ValueError(f"{model.id} audio_image_to_video requires exact source audio")
-    if selected_task != "audio_image_to_video" and has_audio:
-        raise ValueError("source audio requires the explicit audio_image_to_video task")
+    if selected_task == "video_lipsync" and (not has_audio or generate_audio):
+        raise ValueError(f"{model.id} video_lipsync requires exact source audio")
+    if (
+        selected_task
+        not in {
+            "audio_image_to_video",
+            "speech_to_video",
+            "video_lipsync",
+        }
+        and has_audio
+    ):
+        raise ValueError("source audio requires an explicit audio-driven video task")
     if resolution not in model.resolutions:
         raise ValueError(
             f"{model.id} resolution must be one of {', '.join(model.resolutions)}"
@@ -391,12 +538,12 @@ def validate_model_request(
             + ", ".join(str(value) for value in model.durations)
         )
     if not model.durations and duration not in {None, 0}:
-        raise ValueError(f"{model.id} duration is determined by its audio input")
+        raise ValueError(f"{model.id} duration is determined by its media input")
     if model.audio_required and not has_audio:
         raise ValueError(f"{model.id} requires an audio input")
     if has_audio and not (model.audio_required or model.audio_supported):
         raise ValueError(
-            f"{model.id} does not accept audio in Creator OS; use wavespeed_wan22_s2v"
+            f"{model.id} does not accept audio in Creator OS; use an audio-driven model"
         )
     if generate_audio and not model.generated_audio_supported:
         raise ValueError(f"{model.id} does not support generated audio")

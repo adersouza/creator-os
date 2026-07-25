@@ -164,11 +164,12 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         cost_classification="paid_video",
         providers=("wavespeed",),
         models=(
-            "wavespeed_wan22_i2v_5b_720p",
-            "wavespeed_wan27_i2v_pro",
-            "wavespeed_wan27_i2v",
-            "wavespeed_wan27_reference",
-            "wavespeed_wan22_s2v",
+            "wavespeed_kling_o3_pro_i2v",
+            "wavespeed_vidu_q3_i2v_pro",
+            "wavespeed_kling_v3_pro_motion_control",
+            "wavespeed_infinitetalk",
+            "wavespeed_longcat_avatar15",
+            "wavespeed_sync_lipsync2_pro",
             "static_mp4",
         ),
         required_approvals=(

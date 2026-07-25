@@ -17,6 +17,12 @@ from creator_os_core.task_inputs import (
             {"image_sha256": "a" * 64, "audio_sha256": "b" * 64},
             ("image", "audio"),
         ),
+        ("motion_control", {"image_sha256": "a" * 64}, ("image",)),
+        (
+            "video_lipsync",
+            {"audio_sha256": "b" * 64, "source_video_sha256": "d" * 64},
+            ("audio", "source_video"),
+        ),
         (
             "keyframe_interpolation",
             {"image_sha256": "a" * 64, "last_image_sha256": "c" * 64},

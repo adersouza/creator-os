@@ -604,9 +604,11 @@ at validated draft handoff.
   expander. It runs before admission, never downloads during generation, and
   carries one exact source/model/runtime/implementation-bound receipt into the
   queue job and asset lineage.
-- `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
-  quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
-  handles multi-reference motion, and Wan 2.2 S2V handles speaking video.
+- `best_motion`: explicitly selected WaveSpeed motion. The intent-first path
+  maps ordinary portrait animation to Kling O3 Pro, motion copy/dance to Kling
+  3.0 Pro Motion Control, direct talking portraits to InfiniteTalk, and talking
+  motion-copy to Motion Control followed by Sync Lipsync 2 Pro. Vidu Q3 Pro and
+  LongCat Avatar 1.5 are explicit challengers, not silent fallbacks.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 

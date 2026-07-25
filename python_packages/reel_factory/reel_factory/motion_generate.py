@@ -33,6 +33,8 @@ def _parser() -> argparse.ArgumentParser:
             "text_to_video",
             "image_to_video",
             "audio_image_to_video",
+            "motion_control",
+            "video_lipsync",
             "keyframe_interpolation",
             "video_retake",
             "video_extend",
@@ -211,6 +213,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
             task=selected_task,
             has_image=args.image is not None,
             has_lora=args.lora is not None,
+            has_source_video=args.source_video is not None,
         )
         return LocalVideoRequest(
             model_id=model.id,
@@ -274,8 +277,8 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         raise ValueError("--generate-audio applies only to local LTX models")
     if args.preserve_audio:
         raise ValueError("--preserve-audio applies only to local LTX retakes")
-    if args.source_video is not None:
-        raise ValueError("--source-video applies only to local LTX editing")
+    if args.source_video is not None and model.task != "video_lipsync":
+        raise ValueError("--source-video requires a video lipsync model")
     if (
         any(
             value is not None
@@ -327,6 +330,7 @@ def build_request(args: argparse.Namespace) -> LocalVideoRequest | WaveSpeedRequ
         audio_path=args.audio,
         reference_image_paths=tuple(args.reference_image),
         reference_video_paths=tuple(args.reference_video),
+        source_video_path=args.source_video,
         resolution=resolution,
         duration_seconds=duration or None,
         seed=args.seed,

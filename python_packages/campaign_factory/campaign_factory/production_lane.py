@@ -41,7 +41,6 @@ SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 BATCH_SCHEMA: Final = "campaign_factory.production_batch.v1"
 DEFAULT_CLOUD_BATCH_MAX_USD: Final = 0.25
 DEFAULT_CLOUD_CONCURRENCY: Final = 2
-WAVESPEED_WAN22_I2V_5B_PRICE_USD: Final = 0.05
 
 _INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
@@ -71,12 +70,98 @@ _INTENT_PROMPTS: Final[dict[str, str]] = {
         "handheld camera behavior. No speaking, exaggerated movement, or "
         "identity-changing action."
     ),
+    "motion_copy": (
+        "Transfer the driving video's body motion and timing faithfully while "
+        "preserving the creator's face, body proportions, clothing, and portrait "
+        "identity. Keep the source portrait framing and avoid camera cuts."
+    ),
+    "dance": (
+        "Transfer the driving dance motion and timing faithfully while preserving "
+        "the creator's face, body proportions, clothing, and portrait identity. "
+        "Keep the source portrait framing and avoid camera cuts."
+    ),
+    "talking_selfie": (
+        "A natural direct-to-camera creator delivery with accurate lip movement, "
+        "subtle facial expression, restrained head motion, steady portrait framing, "
+        "and consistent identity throughout."
+    ),
+    "talking_motion_copy": (
+        "Transfer the driving video's body motion and timing while preserving the "
+        "creator's identity and portrait framing, then synchronize the supplied "
+        "creator voice without changing the face or body."
+    ),
 }
 
-_PRODUCTION_MODELS: Final[dict[str, tuple[str, str]]] = {
-    "local": ("local_wan", "local_wan22_ti2v_5b_mlx"),
-    "cloud": ("best_motion", "wavespeed_wan22_i2v_5b_720p"),
+_CLOUD_INTENT_STAGES: Final[dict[str, tuple[dict[str, Any], ...]]] = {
+    intent: (
+        {
+            "modelId": "wavespeed_kling_o3_pro_i2v",
+            "providerModel": "kwaivgi/kling-video-o3-pro/image-to-video",
+            "task": "image_to_video",
+            "resolution": "provider_default",
+            "durationSeconds": 5,
+            "estimatedCostUsd": 0.56,
+        },
+    )
+    for intent in (
+        "passive_selfie",
+        "flirty_portrait",
+        "outfit",
+        "lifestyle",
+        "animate_existing",
+    )
 }
+_CLOUD_INTENT_STAGES.update(
+    {
+        "motion_copy": (
+            {
+                "modelId": "wavespeed_kling_v3_pro_motion_control",
+                "providerModel": "kwaivgi/kling-v3.0-pro/motion-control",
+                "task": "motion_control",
+                "resolution": "provider_default",
+                "durationSeconds": None,
+            },
+        ),
+        "dance": (
+            {
+                "modelId": "wavespeed_kling_v3_pro_motion_control",
+                "providerModel": "kwaivgi/kling-v3.0-pro/motion-control",
+                "task": "motion_control",
+                "resolution": "provider_default",
+                "durationSeconds": None,
+            },
+        ),
+        "talking_selfie": (
+            {
+                "modelId": "wavespeed_infinitetalk",
+                "providerModel": "wavespeed-ai/infinitetalk",
+                "task": "audio_image_to_video",
+                "resolution": "720p",
+                "durationSeconds": None,
+            },
+        ),
+        "talking_motion_copy": (
+            {
+                "modelId": "wavespeed_kling_v3_pro_motion_control",
+                "providerModel": "kwaivgi/kling-v3.0-pro/motion-control",
+                "task": "motion_control",
+                "resolution": "provider_default",
+                "durationSeconds": None,
+            },
+            {
+                "modelId": "wavespeed_sync_lipsync2_pro",
+                "providerModel": "sync/lipsync-2-pro",
+                "task": "video_lipsync",
+                "resolution": "source",
+                "durationSeconds": None,
+            },
+        ),
+    }
+)
+_TALKING_INTENTS: Final = frozenset({"talking_selfie", "talking_motion_copy"})
+_MOTION_CONTROL_INTENTS: Final = frozenset(
+    {"motion_copy", "dance", "talking_motion_copy"}
+)
 
 _AUDIO_ALIASES: Final = {
     "embedded_trending": "embedded_trending_required",
@@ -270,20 +355,28 @@ def build_production_motion_recipe(
     execution: str,
     source_sha256: str,
 ) -> dict[str, Any]:
-    try:
-        mode, model_id = _PRODUCTION_MODELS[execution]
-    except KeyError as exc:
-        raise ValueError("execution must be local or cloud") from exc
     if intent not in _INTENT_PROMPTS:
         raise ValueError(f"intent {intent!r} is not in the production motion catalog")
+    if execution == "cloud":
+        mode = "best_motion"
+        try:
+            stages = _CLOUD_INTENT_STAGES[intent]
+        except KeyError as exc:
+            raise ValueError(
+                f"intent {intent!r} has no cloud production recipe"
+            ) from exc
+        model_id = str(stages[0]["modelId"])
+    else:
+        raise ValueError("production create now requires WaveSpeed cloud execution")
     core = {
         "schema": SCHEMA,
-        "recipeId": f"{execution}_wan_creator_motion_v1",
+        "recipeId": f"{execution}_{intent}_creator_motion_v2",
         "status": "active",
         "creator": creator.strip().lower(),
         "intent": intent,
         "mode": mode,
         "modelId": model_id,
+        "stages": [dict(stage) for stage in stages],
         "sourceSha256": source_sha256,
         "paidProviderFallbackAllowed": False,
         "researchSelectionRequired": False,
@@ -372,11 +465,44 @@ def plan_production_batch(
     execution: str,
     accounts: str | None,
     audio_preference: str,
+    speech_audio_path: Path | None = None,
+    motion_reference_path: Path | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
     creator_slug = creator.strip().lower().replace(" ", "_")
     resolved_audio_policy = _audio_policy(audio_preference)
+    speech_audio = _optional_safe_media(speech_audio_path, "speech audio")
+    motion_reference = _optional_safe_media(
+        motion_reference_path, "motion reference video"
+    )
+    if intent in _TALKING_INTENTS:
+        if resolved_audio_policy != "creator_voice":
+            raise ValueError("talking intents require --audio creator_voice")
+        if speech_audio is None:
+            raise ValueError("talking intents require --speech-audio")
+    elif speech_audio is not None:
+        raise ValueError("--speech-audio is only valid for a talking intent")
+    if intent in _MOTION_CONTROL_INTENTS:
+        if motion_reference is None:
+            raise ValueError("motion-copy intents require --motion-reference")
+    elif motion_reference is not None:
+        raise ValueError("--motion-reference is only valid for a motion-copy intent")
+    if execution != "cloud":
+        raise ValueError("production create now requires --execution cloud")
+    speech_sha = _sha256_file(speech_audio) if speech_audio is not None else None
+    motion_reference_sha = (
+        _sha256_file(motion_reference) if motion_reference is not None else None
+    )
+    per_job_estimate = (
+        _estimate_cloud_job_cost(
+            intent,
+            speech_audio=speech_audio,
+            motion_reference=motion_reference,
+        )
+        if execution == "cloud"
+        else 0.0
+    )
     rows = factory.conn.execute(
         """
         SELECT s.*, c.slug AS campaign_slug, m.slug AS creator_slug
@@ -414,6 +540,9 @@ def plan_production_batch(
             width, height = resolution
             ratio = width / height
             if not 0.50 <= ratio <= 0.65:
+                incompatible_sources += 1
+                continue
+            if intent in _MOTION_CONTROL_INTENTS and min(width, height) < 300:
                 incompatible_sources += 1
                 continue
             source["sourceResolution"] = {
@@ -460,6 +589,8 @@ def plan_production_batch(
                 "seed": seed,
                 "prompt": _INTENT_PROMPTS[intent],
                 "model": recipe["modelId"],
+                "speechAudio": speech_sha,
+                "motionReference": motion_reference_sha,
             }
         )
         jobs.append(
@@ -478,6 +609,13 @@ def plan_production_batch(
                 "requestFingerprint": identity,
                 "accountGroup": accounts,
                 "audioPolicy": resolved_audio_policy,
+                "speechAudioPath": str(speech_audio) if speech_audio else None,
+                "speechAudioSha256": speech_sha,
+                "motionReferencePath": (
+                    str(motion_reference) if motion_reference else None
+                ),
+                "motionReferenceSha256": motion_reference_sha,
+                "estimatedProviderCostUsd": per_job_estimate,
                 "productionRecipe": recipe,
             }
         )
@@ -489,9 +627,7 @@ def plan_production_batch(
         "requested": int(count),
         "maxConcurrency": DEFAULT_CLOUD_CONCURRENCY if execution == "cloud" else 1,
         "estimatedProviderCostUsd": (
-            round(int(count) * WAVESPEED_WAN22_I2V_5B_PRICE_USD, 4)
-            if execution == "cloud"
-            else 0.0
+            round(int(count) * per_job_estimate, 4) if execution == "cloud" else 0.0
         ),
         "jobs": jobs,
     }
@@ -509,6 +645,8 @@ def run_production_batch(
     apply: bool,
     max_total_usd: float = DEFAULT_CLOUD_BATCH_MAX_USD,
     max_concurrency: int = DEFAULT_CLOUD_CONCURRENCY,
+    speech_audio_path: Path | None = None,
+    motion_reference_path: Path | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -518,6 +656,8 @@ def run_production_batch(
         execution=execution,
         accounts=accounts,
         audio_preference=audio_preference,
+        speech_audio_path=speech_audio_path,
+        motion_reference_path=motion_reference_path,
     )
     results: list[dict[str, Any]] = []
     if execution == "cloud":
@@ -528,7 +668,7 @@ def run_production_batch(
             or float(max_total_usd) <= 0
         ):
             raise ValueError("cloud production requires a finite positive batch cap")
-        if plan["estimatedProviderCostUsd"] > float(max_total_usd):
+        if apply and plan["estimatedProviderCostUsd"] > float(max_total_usd):
             raise PermissionError(
                 "production_batch_quote_exceeds_total_spend_cap: "
                 f"{plan['estimatedProviderCostUsd']:.2f} > {float(max_total_usd):.2f}"
@@ -598,7 +738,7 @@ def run_production_batch(
                     factory,
                     job=job,
                     audio_candidates=audio_candidates,
-                    max_usd_per_job=WAVESPEED_WAN22_I2V_5B_PRICE_USD,
+                    max_usd_per_job=float(job["estimatedProviderCostUsd"]),
                 ): job
                 for job in prepared
             }
@@ -622,7 +762,7 @@ def run_production_batch(
                     factory,
                     job=job,
                     audio_candidates=audio_candidates,
-                    max_usd_per_job=WAVESPEED_WAN22_I2V_5B_PRICE_USD,
+                    max_usd_per_job=float(job["estimatedProviderCostUsd"]),
                 )
             )
     results.sort(key=lambda item: int(item.get("index") or 0))
@@ -694,28 +834,91 @@ def _run_production_job(
     max_usd_per_job: float,
 ) -> dict[str, Any]:
     base = {"jobId": job["jobId"], "index": job["index"]}
+    stage_results: list[dict[str, Any]] = []
+    provider_rows: list[dict[str, Any]] = []
     try:
         cloud = str(job["productionRecipe"]["mode"]) == "best_motion"
-        result = run_generation_workflow(
-            factory,
-            mode=job["productionRecipe"]["mode"],
-            campaign_slug=job["campaign"],
-            accepted_still_path=Path(str(job["sourcePath"])),
-            motion_prompt=str(job["prompt"]),
-            motion_model_id=job["productionRecipe"]["modelId"],
-            production_motion_recipe=dict(job["productionRecipe"]),
-            seed=int(job["seed"]),
-            duration_seconds=5 if cloud else None,
-            resolution="720p" if cloud else None,
-            audio_policy=str(job["audioPolicy"]),
-            workspace=Path.cwd(),
-            paid_confirmation=cloud,
-            max_usd=max_usd_per_job if cloud else None,
-            dry_run=False,
-            apply=True,
-        )
+        if cloud:
+            stages = list(job["productionRecipe"].get("stages") or [])
+            if not stages:
+                raise RuntimeError("cloud production recipe stages are missing")
+        else:
+            stages = [
+                {
+                    "modelId": job["productionRecipe"]["modelId"],
+                    "task": "image_to_video",
+                    "resolution": None,
+                    "durationSeconds": None,
+                }
+            ]
+        prior_video: Path | None = None
+        result: dict[str, Any] | None = None
+        for stage_index, stage in enumerate(stages):
+            task = str(stage["task"])
+            stage_recipe = (
+                dict(job["productionRecipe"])
+                if stage_index == 0
+                else _production_followup_stage_recipe(
+                    job,
+                    stage=stage,
+                    stage_index=stage_index,
+                    source_video=_required_stage_output(prior_video),
+                )
+            )
+            result = run_generation_workflow(
+                factory,
+                mode=job["productionRecipe"]["mode"],
+                campaign_slug=job["campaign"],
+                accepted_still_path=(
+                    None if task == "video_lipsync" else Path(str(job["sourcePath"]))
+                ),
+                source_video_path=prior_video if task == "video_lipsync" else None,
+                motion_reference_video_paths=(
+                    (Path(str(job["motionReferencePath"])),)
+                    if task == "motion_control"
+                    else ()
+                ),
+                audio_path=(
+                    Path(str(job["speechAudioPath"]))
+                    if task in {"audio_image_to_video", "video_lipsync"}
+                    else None
+                ),
+                motion_prompt=str(job["prompt"]),
+                motion_model_id=str(stage["modelId"]),
+                motion_task=task,
+                production_motion_recipe=stage_recipe,
+                seed=int(job["seed"]),
+                duration_seconds=stage.get("durationSeconds"),
+                resolution=stage.get("resolution"),
+                audio_policy=(
+                    "creator_voice"
+                    if task in {"audio_image_to_video", "video_lipsync"}
+                    else (
+                        "silent_allowed" if len(stages) > 1 else str(job["audioPolicy"])
+                    )
+                ),
+                audio_selected_reason=(
+                    "intermediate motion-control stage before creator-voice lipsync"
+                    if len(stages) > 1 and task == "motion_control"
+                    else None
+                ),
+                workspace=Path.cwd(),
+                paid_confirmation=cloud,
+                max_usd=(
+                    _stage_cost_cap(job, stage_index=stage_index) if cloud else None
+                ),
+                dry_run=False,
+                apply=True,
+            )
+            stage_results.append(result)
+            provider = _provider_execution(result)
+            if provider is not None:
+                provider_rows.append(provider)
+            prior_video = _registered_output_path(result)
+        if result is None:  # pragma: no cover - guarded by recipe validation
+            raise RuntimeError("production recipe produced no stage")
         hard_qc = run_production_hard_qc(job=job, generation_result=result)
-        provider = _provider_execution(result)
+        provider = provider_rows[-1] if provider_rows else None
         if hard_qc["status"] == "blocked":
             return {
                 **base,
@@ -723,6 +926,8 @@ def _run_production_job(
                 "error": "production_hard_qc_failed",
                 "hardQc": hard_qc,
                 "provider": provider,
+                "providers": provider_rows,
+                "stageResults": stage_results,
                 "result": result,
             }
         audio_fulfillment = fulfill_production_audio(
@@ -737,6 +942,8 @@ def _run_production_job(
             "status": "completed",
             "hardQc": hard_qc,
             "provider": provider,
+            "providers": provider_rows,
+            "stageResults": stage_results,
             "result": result,
         }
     except NeedsEmbeddedAudioError as exc:
@@ -745,14 +952,108 @@ def _run_production_job(
             "status": "blocked",
             "error": exc.code,
             "attempts": exc.attempts,
+            "provider": provider_rows[-1] if provider_rows else None,
+            "providers": provider_rows,
+            "stageResults": stage_results,
         }
     except Exception as exc:
         return {
             **base,
             "status": "failed",
             "error": str(exc),
-            "provider": _failed_provider_execution(factory, job),
+            "provider": (
+                provider_rows[-1]
+                if provider_rows
+                else _failed_provider_execution(factory, job)
+            ),
+            "providers": provider_rows,
+            "stageResults": stage_results,
         }
+
+
+def _required_stage_output(path: Path | None) -> Path:
+    if path is None:
+        raise RuntimeError("production prior stage output is missing")
+    return path
+
+
+def _registered_output_path(generation_result: Mapping[str, Any]) -> Path:
+    stage = _motion_stage_result(dict(generation_result))
+    registered = stage.get("registeredAsset")
+    if not isinstance(registered, dict):
+        raise RuntimeError("production stage registered asset is missing")
+    path = Path(str(registered.get("output_path") or "")).expanduser()
+    if path.is_symlink():
+        raise RuntimeError("production stage registered asset is unsafe")
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise RuntimeError("production stage output is missing")
+    return resolved
+
+
+def _production_followup_stage_recipe(
+    job: Mapping[str, Any],
+    *,
+    stage: Mapping[str, Any],
+    stage_index: int,
+    source_video: Path,
+) -> dict[str, Any]:
+    source_sha = _sha256_file(source_video)
+    original = dict(job["productionRecipe"])
+    core = {
+        key: value
+        for key, value in original.items()
+        if key
+        not in {
+            "recipeFingerprint",
+            "originalPromptSha256",
+            "expandedPromptSha256",
+            "promptExpansion",
+        }
+    }
+    core.update(
+        {
+            "recipeId": f"{original['recipeId']}_stage_{stage_index + 1}",
+            "modelId": stage["modelId"],
+            "stages": [dict(stage)],
+            "sourceSha256": source_sha,
+            "originalPromptSha256": hashlib.sha256(
+                " ".join(
+                    str(job.get("originalPrompt") or job["prompt"]).split()
+                ).encode("utf-8")
+            ).hexdigest(),
+            "expandedPromptSha256": hashlib.sha256(
+                " ".join(str(job["prompt"]).split()).encode("utf-8")
+            ).hexdigest(),
+            "promptExpansion": dict(job.get("promptExpansion") or {}),
+        }
+    )
+    return {**core, "recipeFingerprint": _fingerprint(core)}
+
+
+def _stage_cost_cap(job: Mapping[str, Any], *, stage_index: int) -> float:
+    stages = list(job["productionRecipe"].get("stages") or [])
+    if len(stages) == 1:
+        return float(job["estimatedProviderCostUsd"])
+    speech = _optional_safe_media(
+        Path(str(job["speechAudioPath"])) if job.get("speechAudioPath") else None,
+        "speech audio",
+    )
+    reference = _optional_safe_media(
+        (
+            Path(str(job["motionReferencePath"]))
+            if job.get("motionReferencePath")
+            else None
+        ),
+        "motion reference video",
+    )
+    if stage_index == 0:
+        assert reference is not None
+        return round(
+            max(3.0, _media_duration_seconds(reference, "motion reference")) * 0.168, 4
+        )
+    assert speech is not None
+    return round(_media_duration_seconds(speech, "speech audio") * 0.08, 4)
 
 
 def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -801,6 +1102,10 @@ def _failed_provider_execution(
         prompt_sha = hashlib.sha256(
             " ".join(str(job["prompt"]).split()).encode("utf-8")
         ).hexdigest()
+        stages = list(job["productionRecipe"].get("stages") or [])
+        expected_provider_model = (
+            str(stages[0].get("providerModel") or "") if stages else ""
+        )
         matches: list[tuple[dict[str, Any], Path]] = []
         for path in evidence_dir.glob("*.wavespeed_submission.json"):
             if path.is_symlink() or not path.is_file():
@@ -816,9 +1121,9 @@ def _failed_provider_execution(
                 and receipt.get("intent") == job.get("intent")
                 and receipt.get("sourceSha256") == job.get("sourceSha256")
                 and receipt.get("expandedPromptSha256") == prompt_sha
-                and receipt.get("providerModel") == "wavespeed-ai/wan-2.2/i2v-5b-720p"
+                and receipt.get("providerModel") == expected_provider_model
                 and (
-                    receipt.get("seed") is None
+                    receipt.get("requestIdentitySeed") == job.get("seed")
                     or receipt.get("seed") == job.get("seed")
                 )
                 and receipt.get("predictionId")
@@ -828,8 +1133,93 @@ def _failed_provider_execution(
             return None
         receipt, path = matches[0]
         return _provider_receipt_summary(receipt, evidence_path=path)
-    except (KeyError, OSError, TypeError, ValueError):
+    except (AttributeError, KeyError, OSError, TypeError, ValueError):
         return None
+
+
+def _optional_safe_media(path: Path | None, label: str) -> Path | None:
+    if path is None:
+        return None
+    expanded = Path(path).expanduser()
+    if expanded.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    resolved = expanded.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"{label} is missing: {resolved}")
+    return resolved
+
+
+def _media_duration_seconds(path: Path, label: str) -> float:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("ffprobe_missing")
+    completed = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    try:
+        duration = float(completed.stdout.strip())
+    except ValueError as exc:
+        raise ValueError(f"{label} duration could not be measured") from exc
+    if completed.returncode != 0 or not math.isfinite(duration) or duration <= 0:
+        raise ValueError(f"{label} duration could not be measured")
+    return round(duration, 3)
+
+
+def _estimate_cloud_job_cost(
+    intent: str,
+    *,
+    speech_audio: Path | None,
+    motion_reference: Path | None,
+) -> float:
+    if intent in {
+        "passive_selfie",
+        "flirty_portrait",
+        "outfit",
+        "lifestyle",
+        "animate_existing",
+    }:
+        return 0.56
+    speech_duration = (
+        _media_duration_seconds(speech_audio, "speech audio")
+        if speech_audio is not None
+        else 0.0
+    )
+    reference_duration = (
+        _media_duration_seconds(motion_reference, "motion reference video")
+        if motion_reference is not None
+        else 0.0
+    )
+    if intent == "talking_selfie":
+        if speech_duration > 600:
+            raise ValueError("InfiniteTalk speech audio exceeds 600 seconds")
+        return round(max(5.0, speech_duration) * 0.06, 4)
+    if intent in {"motion_copy", "dance"}:
+        if not 3 <= reference_duration <= 30:
+            raise ValueError("Kling motion reference must be 3 to 30 seconds")
+        return round(max(3.0, reference_duration) * 0.168, 4)
+    if intent == "talking_motion_copy":
+        if not 3 <= reference_duration <= 30:
+            raise ValueError("Kling motion reference must be 3 to 30 seconds")
+        if speech_duration > 600:
+            raise ValueError("Sync speech audio exceeds 600 seconds")
+        return round(
+            max(3.0, reference_duration) * 0.168 + speech_duration * 0.08,
+            4,
+        )
+    raise ValueError(f"intent {intent!r} has no cloud pricing recipe")
 
 
 def _source_image_resolution(path: Path) -> tuple[int, int] | None:
@@ -884,7 +1274,8 @@ def run_production_hard_qc(
             blockers.append("unreadable_or_corrupt_media")
     provider = _provider_execution(generation_result)
     if provider is not None:
-        expected_model = "wavespeed-ai/wan-2.2/i2v-5b-720p"
+        stages = list(job["productionRecipe"].get("stages") or [])
+        expected_model = str(stages[-1].get("providerModel") or "") if stages else None
         if (
             provider.get("model") != expected_model
             or provider.get("outputSha256") != output_sha
@@ -1005,12 +1396,22 @@ def _finalize_production_batch(
     plan: dict[str, Any], results: list[dict[str, Any]], *, apply: bool
 ) -> dict[str, Any]:
     statuses = [str(item.get("status") or "") for item in results]
-    provider_rows = [
+    final_provider_rows = [
         item["provider"] for item in results if isinstance(item.get("provider"), dict)
+    ]
+    provider_rows = [
+        provider
+        for item in results
+        for provider in (
+            item.get("providers")
+            if isinstance(item.get("providers"), list)
+            else ([item["provider"]] if isinstance(item.get("provider"), dict) else [])
+        )
+        if isinstance(provider, dict)
     ]
     raw_hashes = {
         str(provider.get("outputSha256"))
-        for provider in provider_rows
+        for provider in final_provider_rows
         if provider.get("outputSha256")
     }
     final_hashes = {
@@ -1045,6 +1446,7 @@ def _finalize_production_batch(
             "requested": plan["requested"],
             "created": len(results),
             "submitted": len(provider_rows),
+            "jobsSubmitted": len(final_provider_rows),
             "completed": statuses.count("completed"),
             "blocked": statuses.count("blocked"),
             "failed": statuses.count("failed"),

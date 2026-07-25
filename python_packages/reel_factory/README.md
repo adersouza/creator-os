@@ -90,8 +90,10 @@ new internal callers import the owning module directly.
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
 
-`motion_generate` is the narrow motion worker boundary. Local Wan/LTX/LongCat
-can execute without provider authority; every WaveSpeed apply requires a
+`motion_generate` is the narrow motion worker boundary. Historical explicit
+local Wan/LTX/LongCat runs can execute without provider authority; the active
+intent-first production path uses WaveSpeed Kling O3 Pro, Kling 3.0 Pro Motion
+Control, InfiniteTalk, and Sync Lipsync 2 Pro. Every WaveSpeed apply requires a
 Campaign-issued, short-lived v2 spend authorization bound to exact input hashes
 and parameters. Local tasks, LoRAs, inputs, and source audio are explicit; the
 worker never silently changes the model or task.

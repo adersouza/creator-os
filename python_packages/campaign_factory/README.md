@@ -58,7 +58,8 @@ UI.
 
 Campaign Factory delegates media work to canonical Reel Factory modules. The
 active path is direct Higgsfield Soul still generation, a local static MP4 for
-accepted stills, and optional local Wan or explicitly approved WaveSpeed motion. Paid execution
+accepted stills, and explicitly approved intent-specific WaveSpeed motion. The
+production `create` command no longer selects local Wan. Paid execution
 requires opt-in, an explicit Soul ID, a finite credit cap, and a machine-local
 `CREATOR_OS_SPEND_AUTH_SECRET`. Campaign Factory owns provider quotes, balance
 and budget policy, reservations, and the authoritative cost ledger. Reel

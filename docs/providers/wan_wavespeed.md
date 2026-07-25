@@ -1,7 +1,8 @@
-# Local Wan/LTX/LongCat And WaveSpeed Motion Providers
+# Creator OS Video Models And WaveSpeed Motion Providers
 
-Creator OS exposes one explicit motion surface with two independently gated
-backends:
+Creator OS retains the historical explicit local-model surface, but the
+intent-first production command now uses only independently authorized
+WaveSpeed endpoints:
 
 - pinned, offline Apple-silicon MLX models for zero-provider-cost generation;
 - explicitly authorized WaveSpeed endpoints for paid remote generation.
@@ -22,11 +23,16 @@ The Mac-specific adoption and deferral record lives in
 | `local_ltx23_distilled_mlx` | local MLX | fast image motion with jointly generated audio | 576x1024, 24 fps, 5-8 s | generated | 20 GB plus 8.1 GB shared Gemma |
 | `local_ltx23_dev_hq_mlx` | local MLX | HQ motion, source audio, keyframes, retake, and extension | 576x1024, 24 fps, 5-8 s | source, generated, or explicitly preserved retake audio | 37 GB plus 8.1 GB shared Gemma |
 | `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
-| `wavespeed_wan22_i2v_5b_720p` | WaveSpeed | production creator-image batch motion | fixed 720p, fixed 5 s | none | remote |
-| `wavespeed_wan27_i2v_pro` | WaveSpeed | best-quality paid still animation | 1080p, 5 s | none | remote |
-| `wavespeed_wan27_i2v` | WaveSpeed | lower-cost remote control | 1080p, 5 s | none | remote |
+| `wavespeed_kling_o3_pro_i2v` | WaveSpeed | ordinary premium portrait animation | provider output, 3-15 s | disabled | remote |
+| `wavespeed_vidu_q3_i2v_pro` | WaveSpeed | seeded still-animation challenger | 720p-4K, 1-16 s | disabled | remote |
+| `wavespeed_kling_v3_pro_motion_control` | WaveSpeed | driving-video motion copy and dance | driving-video length, up to 30 s | disabled | remote |
+| `wavespeed_infinitetalk` | WaveSpeed | direct talking portrait default | 480p or 720p, speech length | source required | remote |
+| `wavespeed_longcat_avatar15` | WaveSpeed | talking portrait challenger | 480p or 720p, up to 64 s | source required | remote |
+| `wavespeed_sync_lipsync2_pro` | WaveSpeed | lipsync after motion control | source resolution and length | source required | remote |
 | `wavespeed_wan27_reference` | WaveSpeed | 1-5 identity/style references | 1080p, 5 s | none | remote |
-| `wavespeed_wan22_s2v` | WaveSpeed | speech-driven portrait video | 720p, audio length | source required | remote |
+
+Wan models remain readable for historical receipts and the explicit advanced
+compatibility surface. They are not selected by `creator-os create`.
 
 The local catalog is intentionally small:
 
@@ -447,10 +453,18 @@ export WAVESPEED_COHORT_MAX_USD=10
 export WAVESPEED_MIN_BALANCE_USD=2
 ```
 
-The intent-first production command uses the fixed WaveSpeed Wan 2.2 I2V 5B
-endpoint. `--execution cloud --apply` is the explicit paid authorization, with
-a conservative two-job concurrency limit and a $0.25 total batch cap by
-default. Every provider call still receives its own signed $0.05 authorization.
+The intent-first production command has one deterministic recipe per intent:
+
+- passive portrait intents use Kling O3 Pro image-to-video;
+- `motion_copy` and `dance` use Kling 3.0 Pro Motion Control with an explicit
+  driving video;
+- `talking_selfie` uses InfiniteTalk with explicit creator speech;
+- `talking_motion_copy` runs Motion Control, then Sync Lipsync 2 Pro.
+
+Vidu Q3 Pro and LongCat Avatar 1.5 are explicit bakeoff alternatives, never
+silent fallbacks. The default batch cap remains $0.25, so applying a premium
+recipe requires an explicit `--max-usd` large enough for the complete quoted
+batch. Every provider call receives its own signed exact-request authorization.
 
 ```bash
 scripts/creator-os create \
@@ -459,7 +473,20 @@ scripts/creator-os create \
   --count 3 \
   --execution cloud \
   --audio embedded_trending \
+  --max-usd 1.68 \
   --apply
+```
+
+Talking and motion-copy inputs are explicit and are hashed before authorization:
+
+```bash
+scripts/creator-os create --creator stacey --intent talking_selfie \
+  --count 1 --execution cloud --audio creator_voice \
+  --speech-audio /absolute/creator-speech.wav --max-usd 1.00 --apply
+
+scripts/creator-os create --creator stacey --intent motion_copy \
+  --count 1 --execution cloud --audio embedded_trending \
+  --motion-reference /absolute/driving-video.mp4 --max-usd 2.00 --apply
 ```
 
 The advanced explicit-model surface still requires `--confirm-paid`, an
@@ -468,9 +495,9 @@ existing `--workspace`, and a finite `--max-usd` for that exact request.
 ```bash
 scripts/creator-os generate --mode best_motion --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model wavespeed_wan27_i2v_pro \
+  --motion-model wavespeed_kling_o3_pro_i2v \
   --motion-prompt "Subtle natural breathing and a gentle camera push" \
-  --resolution 1080p --duration 5 --seed 42
+  --resolution provider_default --duration 5 --seed 42
 ```
 
 Campaign Factory prices and reserves one exact request, checks the live model
@@ -518,6 +545,12 @@ audio-alignment, lip-sync, or text-only identity-assignment gates.
 - [LongCat Avatar 1.5](https://github.com/meituan-longcat/LongCat-Video)
 - [LongCat Avatar MLX runtime](https://github.com/xocialize/longcat-avatar-mlx)
 - [WaveSpeed REST API](https://wavespeed.ai/docs/rest-api)
+- [Kling O3 Pro Image-to-Video API](https://wavespeed.ai/docs/docs-api/kwaivgi/kwaivgi-kling-video-o3-pro-image-to-video)
+- [Vidu Q3 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/vidu/vidu-q3-image-to-video-pro)
+- [Kling 3.0 Pro Motion Control API](https://wavespeed.ai/docs/docs-api/kwaivgi/kwaivgi-kling-v3.0-pro-motion-control)
+- [InfiniteTalk API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/infinitetalk)
+- [LongCat Avatar 1.5 API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/longcat-avatar-1.5)
+- [Sync Lipsync 2 Pro API](https://wavespeed.ai/docs/docs-api/sync/sync-lipsync-2-pro)
 - [Wan 2.2 I2V 5B 720p API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-i2v-5b-720p)
 - [Wan 2.7 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/alibaba/alibaba-wan-2.7-image-to-video-pro)
 - [Wan 2.2 Speech-to-Video API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-speech-to-video)

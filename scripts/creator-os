@@ -270,13 +270,19 @@ def _parser() -> argparse.ArgumentParser:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "motion_copy",
+            "dance",
+            "talking_selfie",
+            "talking_motion_copy",
         ],
     )
     create.add_argument("--count", type=int, default=1)
-    create.add_argument("--execution", choices=["local", "cloud"], default="local")
+    create.add_argument("--execution", choices=["cloud"], default="cloud")
     create.add_argument("--max-usd", type=float)
     create.add_argument("--concurrency", type=int)
     create.add_argument("--accounts")
+    create.add_argument("--speech-audio", type=Path)
+    create.add_argument("--motion-reference", type=Path)
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -327,6 +333,8 @@ def _parser() -> argparse.ArgumentParser:
             "text_to_video",
             "image_to_video",
             "audio_image_to_video",
+            "motion_control",
+            "video_lipsync",
             "keyframe_interpolation",
             "video_retake",
             "video_extend",
@@ -595,6 +603,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.accounts:
             command.extend(["--accounts", args.accounts])
+        if args.speech_audio:
+            command.extend(["--speech-audio", str(args.speech_audio)])
+        if args.motion_reference:
+            command.extend(["--motion-reference", str(args.motion_reference)])
         if args.max_usd is not None:
             if not math.isfinite(args.max_usd) or args.max_usd <= 0:
                 print("--max-usd must be finite and greater than zero", file=sys.stderr)

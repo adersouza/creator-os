@@ -200,7 +200,7 @@ def run_generation_workflow(
             preserve_audio=preserve_audio,
             selected_reason=audio_selected_reason,
         )
-        video_edit = motion_task in {"video_retake", "video_extend"}
+        video_edit = motion_task in {"video_retake", "video_extend", "video_lipsync"}
         if video_edit:
             _require(source_video_path, "source_video_path")
             if accepted_still_path is not None:
@@ -325,7 +325,7 @@ def run_generation_workflow(
                 )
             ):
                 raise ValueError("local Router evidence applies only to local_wan")
-            selected_model = motion_model_id or "wavespeed_wan27_i2v_pro"
+            selected_model = motion_model_id or "wavespeed_kling_o3_pro_i2v"
             local_benchmark_recipe = None
             local_analyzer_registry = None
         result = run_motion_generation_stage(

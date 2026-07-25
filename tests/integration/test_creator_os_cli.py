@@ -251,7 +251,7 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
                 "--count",
                 "4",
                 "--execution",
-                "local",
+                "cloud",
                 "--accounts",
                 "stacey-main",
             ]
@@ -268,7 +268,7 @@ def test_create_routes_intent_to_production_batch_without_internal_paths(
         "--count",
         "4",
         "--execution",
-        "local",
+        "cloud",
         "--audio",
         "embedded_trending_required",
         "--accounts",

@@ -84,6 +84,38 @@ def test_wan22_i2v_5b_quote_is_fixed_at_five_cents(tmp_path: Path) -> None:
         )
 
 
+def test_premium_recipe_quotes_match_documented_duration_rates(
+    tmp_path: Path,
+) -> None:
+    o3 = _scope(
+        tmp_path,
+        "kwaivgi/kling-video-o3-pro/image-to-video",
+        "provider_default",
+        5,
+    )
+    assert quote_wavespeed_scope(o3)["amount"] == 0.56
+
+    vidu = _scope(tmp_path, "vidu/q3/image-to-video-pro", "1080p", 5)
+    assert quote_wavespeed_scope(vidu)["amount"] == 0.5
+
+    infinite = _scope(tmp_path, "wavespeed-ai/infinitetalk", "720p", 0)
+    infinite["parameters"]["audioDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(infinite)["amount"] == 0.48
+
+    motion = _scope(
+        tmp_path,
+        "kwaivgi/kling-v3.0-pro/motion-control",
+        "provider_default",
+        0,
+    )
+    motion["parameters"]["referenceVideoDurationSeconds"] = 3.0
+    assert quote_wavespeed_scope(motion)["amount"] == 0.504
+
+    lipsync = _scope(tmp_path, "sync/lipsync-2-pro", "source", 0)
+    lipsync["parameters"]["audioDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(lipsync)["amount"] == 0.64
+
+
 def test_authorization_requires_caps_balance_and_exact_run_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -325,7 +325,11 @@ def verify_authorization_v2(
             float(live_quoted_amount), float(amount), rel_tol=0, abs_tol=0.0001
         )
         or live_price_source
-        not in {"wavespeed_model_pricing_api", "pinned_audio_duration_rate"}
+        not in {
+            "wavespeed_model_pricing_api",
+            "pinned_audio_duration_rate",
+            "pinned_reference_duration_rate",
+        }
     ):
         raise SpendAuthorizationError("provider quote is invalid")
     authorization_id = payload.get("authorizationId")

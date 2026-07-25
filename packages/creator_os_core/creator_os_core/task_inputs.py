@@ -10,6 +10,11 @@ _TASK_ROLE_MATRIX: Final = {
     "text_to_video": ((), ()),
     "image_to_video": (("image",), ("image",)),
     "audio_image_to_video": (("image", "audio"), ("image", "audio")),
+    "motion_control": (("image",), ("image",)),
+    "video_lipsync": (
+        ("audio", "source_video"),
+        ("audio", "source_video"),
+    ),
     "keyframe_interpolation": (
         ("image", "last_image"),
         ("image", "last_image"),

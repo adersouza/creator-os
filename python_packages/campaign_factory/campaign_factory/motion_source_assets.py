@@ -132,7 +132,7 @@ def ensure_motion_edit_source_asset(
                 str(stored),
                 stored.name,
                 json.dumps(source_prompt, ensure_ascii=False, sort_keys=True),
-                "Exact source video for local motion retake/extend.",
+                f"Exact source video for {motion_task}.",
                 now,
                 now,
             ),

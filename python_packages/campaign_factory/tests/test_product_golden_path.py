@@ -24,6 +24,7 @@ from campaign_factory.learning_score import learning_eligible
 from campaign_factory.production_lane import (
     _block_duplicate_provider_outputs,
     _expand_production_job_prompt,
+    _run_production_job,
     plan_production_batch,
     run_production_batch,
 )
@@ -91,7 +92,7 @@ def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNames
     conn.execute("INSERT INTO models VALUES ('model-1', 'stacey')")
     for index in range(source_count):
         path = tmp_path / f"approved-{index}.png"
-        Image.new("RGB", (90, 160), color=(index, 20, 40)).save(path)
+        Image.new("RGB", (360, 640), color=(index, 20, 40)).save(path)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         conn.execute(
             "INSERT INTO source_assets VALUES (?, 'campaign-1', 'model-1', ?, ?, "
@@ -224,22 +225,20 @@ def test_golden_approved_source_to_static_mp4_capability() -> None:
     assert plan.static_fallback_required is True
 
 
-def test_golden_approved_source_to_animated_reel(tmp_path: Path) -> None:
-    batch = plan_production_batch(
-        _production_factory(tmp_path),
-        creator="stacey",
-        intent="passive_selfie",
-        count=1,
-        execution="local",
-        accounts="stacey-main",
-        audio_preference="native_trending_required",
-    )
-    job = batch["jobs"][0]
-    assert job["productionRecipe"]["modelId"] == "local_wan22_ti2v_5b_mlx"
-    assert job["productionRecipe"]["researchSelectionRequired"] is False
+def test_production_create_rejects_retired_local_wan_lane(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires --execution cloud"):
+        plan_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent="passive_selfie",
+            count=1,
+            execution="local",
+            accounts="stacey-main",
+            audio_preference="native_trending_required",
+        )
 
 
-def test_cloud_production_uses_wavespeed_wan22_i2v_5b(tmp_path: Path) -> None:
+def test_cloud_production_uses_kling_o3_not_wan(tmp_path: Path) -> None:
     batch = plan_production_batch(
         _production_factory(tmp_path),
         creator="stacey",
@@ -250,9 +249,160 @@ def test_cloud_production_uses_wavespeed_wan22_i2v_5b(tmp_path: Path) -> None:
         audio_preference="embedded_trending",
     )
     assert {job["productionRecipe"]["modelId"] for job in batch["jobs"]} == {
-        "wavespeed_wan22_i2v_5b_720p"
+        "wavespeed_kling_o3_pro_i2v"
     }
-    assert batch["estimatedProviderCostUsd"] == 0.15
+    assert batch["estimatedProviderCostUsd"] == 1.68
+    assert all("wan" not in job["productionRecipe"]["modelId"] for job in batch["jobs"])
+
+
+def test_talking_and_motion_copy_intents_use_deterministic_premium_recipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    speech = tmp_path / "speech.wav"
+    driving = tmp_path / "driving.mp4"
+    speech.write_bytes(b"speech")
+    driving.write_bytes(b"driving")
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._media_duration_seconds",
+        lambda _path, label: 8.0 if "speech" in label else 6.0,
+    )
+    factory = _production_factory(tmp_path)
+
+    talking = plan_production_batch(
+        factory,
+        creator="stacey",
+        intent="talking_selfie",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="creator_voice",
+        speech_audio_path=speech,
+    )
+    assert [
+        stage["modelId"] for stage in talking["jobs"][0]["productionRecipe"]["stages"]
+    ] == ["wavespeed_infinitetalk"]
+    assert talking["estimatedProviderCostUsd"] == 0.48
+
+    motion = plan_production_batch(
+        factory,
+        creator="stacey",
+        intent="talking_motion_copy",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="creator_voice",
+        speech_audio_path=speech,
+        motion_reference_path=driving,
+    )
+    assert [
+        stage["modelId"] for stage in motion["jobs"][0]["productionRecipe"]["stages"]
+    ] == [
+        "wavespeed_kling_v3_pro_motion_control",
+        "wavespeed_sync_lipsync2_pro",
+    ]
+    assert motion["estimatedProviderCostUsd"] == 1.648
+
+
+def test_talking_inputs_fail_before_any_paid_submission(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="require --speech-audio"):
+        plan_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent="talking_selfie",
+            count=1,
+            execution="cloud",
+            accounts="stacey-main",
+            audio_preference="creator_voice",
+        )
+
+
+def test_talking_motion_copy_runs_motion_then_lipsync_and_retains_both_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    factory = _production_factory(tmp_path)
+    driving, speech = _fixture_media(tmp_path)
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._media_duration_seconds",
+        lambda _path, label: 4.0 if "speech" in label else 3.0,
+    )
+    plan = plan_production_batch(
+        factory,
+        creator="stacey",
+        intent="talking_motion_copy",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="creator_voice",
+        speech_audio_path=speech,
+        motion_reference_path=driving,
+    )
+    calls: list[dict] = []
+    outputs = [tmp_path / "motion-stage.mp4", tmp_path / "lipsync-stage.mp4"]
+    for output in outputs:
+        shutil.copy2(driving, output)
+
+    def fake_generation(*_args, **kwargs):
+        calls.append(kwargs)
+        output = outputs[len(calls) - 1]
+        return {
+            "registeredAsset": {
+                "id": f"stage-{len(calls)}",
+                "output_path": str(output),
+                "content_hash": hashlib.sha256(output.read_bytes()).hexdigest(),
+            }
+        }
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.run_generation_workflow",
+        fake_generation,
+    )
+    result = _run_production_job(
+        factory,
+        job=plan["jobs"][0],
+        audio_candidates=[],
+        max_usd_per_job=plan["estimatedProviderCostUsd"],
+    )
+
+    assert result["status"] == "completed"
+    assert [call["motion_task"] for call in calls] == [
+        "motion_control",
+        "video_lipsync",
+    ]
+    assert calls[0]["motion_model_id"] == ("wavespeed_kling_v3_pro_motion_control")
+    assert calls[1]["motion_model_id"] == "wavespeed_sync_lipsync2_pro"
+    assert calls[1]["source_video_path"] == outputs[0]
+    assert calls[1]["audio_path"] == speech
+    assert len(result["stageResults"]) == 2
+
+    calls.clear()
+
+    def fail_lipsync(*_args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError("lipsync failed")
+        output = outputs[0]
+        return {
+            "registeredAsset": {
+                "id": "retained-motion-stage",
+                "output_path": str(output),
+                "content_hash": hashlib.sha256(output.read_bytes()).hexdigest(),
+            }
+        }
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.run_generation_workflow",
+        fail_lipsync,
+    )
+    partial = _run_production_job(
+        factory,
+        job=plan["jobs"][0],
+        audio_candidates=[],
+        max_usd_per_job=plan["estimatedProviderCostUsd"],
+    )
+    assert partial["status"] == "failed"
+    assert partial["error"] == "lipsync failed"
+    assert len(partial["stageResults"]) == 1
+    assert outputs[0].is_file()
 
 
 def test_cloud_source_resolution_skips_non_reel_aspect_ratios(
@@ -312,6 +462,10 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
         lambda *_args, **_kwargs: _fake_generation(factory, video),
     )
     monkeypatch.setattr(
+        "campaign_factory.production_lane._expand_production_job_prompt",
+        lambda job: dict(job),
+    )
+    monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
         lambda: [_fixture_candidate(audio)],
     )
@@ -321,13 +475,14 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
         creator="stacey",
         intent="passive_selfie",
         count=1,
-        execution="local",
+        execution="cloud",
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
+        max_total_usd=0.56,
     )
 
-    assert batch["summary"]["completed"] == 1
+    assert batch["summary"]["completed"] == 1, json.dumps(batch, default=str)
     assert batch["results"][0]["hardQc"]["status"] == "passed"
     completed = batch["results"][0]["result"]["audioFulfillment"]
     receipt = completed["receipt"]
@@ -366,6 +521,10 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
         lambda *_args, **_kwargs: _fake_generation(factory, video),
     )
     monkeypatch.setattr(
+        "campaign_factory.production_lane._expand_production_job_prompt",
+        lambda job: dict(job),
+    )
+    monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
         lambda: [],
     )
@@ -375,13 +534,14 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
         creator="stacey",
         intent="passive_selfie",
         count=1,
-        execution="local",
+        execution="cloud",
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
+        max_total_usd=0.56,
     )
 
-    assert batch["summary"]["blocked"] == 1
+    assert batch["summary"]["blocked"] == 1, json.dumps(batch, default=str)
     assert batch["results"][0]["error"] == "NEEDS_EMBEDDED_AUDIO"
     assert batch["summary"]["published"] == 0
 
@@ -392,7 +552,7 @@ def test_golden_batch_request_has_independent_outputs(tmp_path: Path) -> None:
         creator="stacey",
         intent="outfit",
         count=5,
-        execution="local",
+        execution="cloud",
         accounts="stacey-main",
         audio_preference="native_trending_required",
     )
@@ -436,7 +596,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
 
     def fake_isolated(_factory, *, job, audio_candidates, max_usd_per_job):
         nonlocal active, peak
-        assert max_usd_per_job == 0.05
+        assert max_usd_per_job == 0.56
         with lock:
             active += 1
             peak = max(peak, active)
@@ -488,6 +648,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
+        max_total_usd=3,
         max_concurrency=2,
     )
     assert peak == 2
@@ -495,6 +656,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         "requested": 4,
         "created": 4,
         "submitted": 3,
+        "jobsSubmitted": 3,
         "completed": 3,
         "blocked": 0,
         "failed": 1,
@@ -505,7 +667,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         "uniqueFinalOutputs": 3,
         "totalProviderCostUsd": 0.15,
         "providerCostReported": True,
-        "estimatedProviderCostUsd": 0.2,
+        "estimatedProviderCostUsd": 2.24,
         "generationTimesSeconds": [1.0, 1.0, 1.0],
     }
 

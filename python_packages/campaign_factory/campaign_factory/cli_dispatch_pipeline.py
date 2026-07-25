@@ -70,6 +70,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                 execution=args.execution,
                 accounts=args.accounts,
                 audio_preference=args.audio_preference,
+                speech_audio_path=args.speech_audio,
+                motion_reference_path=args.motion_reference,
                 apply=args.apply,
                 max_total_usd=args.max_usd,
                 max_concurrency=args.concurrency,

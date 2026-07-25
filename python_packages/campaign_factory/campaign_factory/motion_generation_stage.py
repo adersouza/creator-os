@@ -140,7 +140,7 @@ def run_motion_generation_stage(
     if apply == dry_run:
         raise ValueError("choose exactly one of dry_run or apply")
     text_only = motion_task == "text_to_video"
-    video_edit = motion_task in {"video_retake", "video_extend"}
+    video_edit = motion_task in {"video_retake", "video_extend", "video_lipsync"}
     still: Path | None = None
     source_video: Path | None = None
     if text_only:
@@ -234,7 +234,9 @@ def run_motion_generation_stage(
     if paid and local_motion_admission is not None:
         raise ValueError("local motion admission applies only to local models")
     production_source_sha = (
-        sha256_file(still) if still else _text_prompt_task_fingerprint(prompt)
+        _text_prompt_task_fingerprint(prompt)
+        if text_only
+        else sha256_file(_required_path(primary_source, "motion generation input"))
     )
     production_bound = bind_production_motion_recipe(
         production_motion_recipe,
@@ -277,11 +279,7 @@ def run_motion_generation_stage(
         )
         local_motion_admission = revalidate_admission(local_motion_admission)
     dirs = factory.domains.campaign_dirs(model_slug, campaign["slug"])
-    source_hash = (
-        _text_prompt_task_fingerprint(prompt)
-        if text_only
-        else sha256_file(_required_path(primary_source, "motion generation input"))
-    )
+    source_hash = production_source_sha
     request_fingerprint = _motion_request_fingerprint(
         model_id=model_id,
         prompt=prompt,
@@ -1225,7 +1223,9 @@ def _register_review_asset(
         blocking_issues.append("text_to_video_identity_assignment_forbidden")
     if embedded_audio:
         blocking_issues.append("audio_video_alignment_qc_required")
-    if model_id == "local_longcat_avatar15_q4_mlx":
+    if motion_task in {"audio_image_to_video", "video_lipsync"} or any(
+        marker in model_id for marker in ("longcat", "infinitetalk", "lipsync")
+    ):
         blocking_issues.append("lip_sync_qc_required")
     if embedded_audio:
         blocking_issues.append("local_audio_policy_review_required")
@@ -1236,7 +1236,7 @@ def _register_review_asset(
     if generation.get("aiDisclosureRequired") is True:
         blocking_issues.append("ai_generated_media_disclosure_required")
     source_binding = {"path": str(source_path), "sha256": source_hash}
-    video_edit = motion_task in {"video_retake", "video_extend"}
+    video_edit = motion_task in {"video_retake", "video_extend", "video_lipsync"}
     prompt_only = motion_task == "text_to_video"
     static_fallback_source = None if video_edit or prompt_only else source_binding
     generation_source = None if motion_task == "text_to_video" else source_binding
