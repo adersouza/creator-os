@@ -214,6 +214,7 @@ def build_higgsfield_production_plan(
         driving=driving,
         speech=speech,
     )
+    selected_model = command[3]
     material = {
         "recipeId": request.recipe_id,
         "creator": request.creator.strip().lower(),
@@ -222,7 +223,7 @@ def build_higgsfield_production_plan(
         "drivingVideo": driving,
         "speechAudio": speech,
         "prompt": _candidate_prompt(request),
-        "model": candidate.exposed_job_type,
+        "model": selected_model,
         "outputPath": str(_output_path(request.output_path)),
     }
     request_fingerprint = _fingerprint(material)
@@ -238,6 +239,7 @@ def build_higgsfield_production_plan(
         "prompt": _candidate_prompt(request),
         "script": request.script,
         "command": command,
+        "selectedModel": selected_model,
         "quoteCommand": _quote_command(command, driving=driving),
         "quoteParameters": _quote_parameters(command, driving=driving),
         "outputPath": str(_output_path(request.output_path)),
@@ -352,7 +354,7 @@ def execute_higgsfield_production(
         "recipe": plan["recipe"],
         "provider": "higgsfield",
         "tool": "authenticated_higgsfield_cli",
-        "model": plan["recipe"]["exposed_job_type"],
+        "model": plan["selectedModel"],
         "soulId": request.soul_id,
         "source": plan["source"],
         "drivingVideo": plan["drivingVideo"],
@@ -493,14 +495,7 @@ def _complete_higgsfield_generation(
         raise FileExistsError(f"higgsfield_output_collision:{output}")
     download_result(result_url, output)
     probe = _probe_video(output)
-    if (
-        request.recipe_id
-        in {
-            "higgsfield_passive_selfie",
-            "higgsfield_motion_copy_animate",
-        }
-        and probe["audioStreams"]
-    ):
+    if request.recipe_id == "higgsfield_passive_selfie" and probe["audioStreams"]:
         output.unlink(missing_ok=True)
         raise RuntimeError("higgsfield_silent_candidate_returned_audio")
     digest = _sha256_file(output)

@@ -295,7 +295,7 @@ def test_success_hashes_registers_and_preserves_review_fields(
         [
             {"credits": 8.75},
             {"credits": 100.0},
-            {"items": [{"id": "generation-1", "status": "created"}]},
+            {"items": ["generation-1"]},
             {
                 "items": [
                     {
@@ -348,6 +348,7 @@ def test_success_hashes_registers_and_preserves_review_fields(
     output = Path(receipt["finalOutput"]["path"])
     assert receipt["status"] == "completed"
     assert receipt["generationId"] == "generation-1"
+    assert receipt["model"] == "kling3_0"
     assert receipt["creditsConsumed"] == 8.75
     assert receipt["creditsConsumedSource"] == "account_balance_delta"
     assert receipt["resultUrl"] == "https://cdn.example/video.mp4"
@@ -363,6 +364,75 @@ def test_success_hashes_registers_and_preserves_review_fields(
     receipts = list((tmp_path / "review" / "receipts").glob("*.json"))
     assert len(receipts) == 1
     assert "secret" not in receipts[0].read_text(encoding="utf-8")
+
+
+def test_motion_copy_retains_driving_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driving = tmp_path / "driving.mp4"
+    driving.write_bytes(b"driving-video")
+    adapter = FakeAdapter(
+        [
+            {"credits": 100.0},
+            {"items": ["motion-generation-1"]},
+            {
+                "items": [
+                    {
+                        "id": "motion-generation-1",
+                        "status": "completed",
+                        "result_url": "https://cdn.example/motion.mp4",
+                    }
+                ]
+            },
+            {"credits": 84.0},
+        ]
+    )
+
+    def fake_download(_url: str, output: Path) -> Path:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"motion-review-video")
+        return output
+
+    monkeypatch.setattr(subject, "download_result", fake_download)
+    monkeypatch.setattr(
+        subject,
+        "_probe_video",
+        lambda _path: {
+            "codec": "h264",
+            "width": 720,
+            "height": 1280,
+            "durationSeconds": 5.0,
+            "videoStreams": 1,
+            "audioStreams": 1,
+            "audio": [{"codec": "aac"}],
+        },
+    )
+    monkeypatch.setattr(
+        subject,
+        "record_asset_generation",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "asset_generation_id": "asset-motion-1",
+            "identity": {"status": "unknown"},
+        },
+    )
+
+    receipt = subject.execute_higgsfield_production(
+        _request(
+            tmp_path,
+            recipe_id="higgsfield_motion_copy_animate",
+            model=None,
+            driving_video_path=driving,
+            max_credits=20.0,
+        ),
+        capabilities=_capabilities(),
+        adapter=adapter,  # type: ignore[arg-type]
+        confirm_paid=True,
+    )
+
+    assert receipt["status"] == "completed"
+    assert receipt["model"] == "kling3_0_motion_control"
+    assert receipt["finalOutput"]["probe"]["audioStreams"] == 1
 
 
 def test_ambiguous_submission_is_never_retried(
