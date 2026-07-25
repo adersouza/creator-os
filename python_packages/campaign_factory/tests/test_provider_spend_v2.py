@@ -115,6 +115,10 @@ def test_premium_recipe_quotes_match_documented_duration_rates(
     lipsync["parameters"]["audioDurationSeconds"] = 8.0
     assert quote_wavespeed_scope(lipsync)["amount"] == 0.64
 
+    lipsync3 = _scope(tmp_path, "sync/lipsync-3", "source", 0)
+    lipsync3["parameters"]["sourceVideoDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(lipsync3)["amount"] == 1.072
+
 
 def test_authorization_requires_caps_balance_and_exact_run_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

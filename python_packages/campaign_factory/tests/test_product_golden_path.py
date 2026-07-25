@@ -455,6 +455,10 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._OPERATOR_VISUAL_SELECTION_COMPLETE",
+        True,
+    )
     factory = _production_factory(tmp_path)
     video, audio = _fixture_media(tmp_path)
     monkeypatch.setattr(
@@ -514,6 +518,10 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._OPERATOR_VISUAL_SELECTION_COMPLETE",
+        True,
+    )
     factory = _production_factory(tmp_path)
     video, _audio = _fixture_media(tmp_path)
     monkeypatch.setattr(
@@ -584,6 +592,10 @@ def test_source_inventory_sha_substitution_is_rejected(tmp_path: Path) -> None:
 def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._OPERATOR_VISUAL_SELECTION_COMPLETE",
+        True,
+    )
     factory = _production_factory(tmp_path, source_count=3)
     factory.settings = object()
     factory.close = lambda: None
@@ -675,6 +687,10 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
 def test_cloud_batch_spend_cap_blocks_before_prompt_expansion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._OPERATOR_VISUAL_SELECTION_COMPLETE",
+        True,
+    )
     called = False
 
     def unexpected(_job):
@@ -695,6 +711,37 @@ def test_cloud_batch_spend_cap_blocks_before_prompt_expansion(
             accounts=None,
             audio_preference="embedded_trending",
             apply=True,
+        )
+    assert called is False
+
+
+def test_unreviewed_intent_defaults_block_apply_before_prompt_expansion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called = False
+
+    def unexpected(_job):
+        nonlocal called
+        called = True
+        raise AssertionError
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._expand_production_job_prompt", unexpected
+    )
+    with pytest.raises(
+        PermissionError,
+        match="selection_pending_operator_visual_review",
+    ):
+        run_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts="stacey-main",
+            audio_preference="embedded_trending",
+            apply=True,
+            max_total_usd=1,
         )
     assert called is False
 

@@ -47,7 +47,7 @@ def _bound_evidence_args(tmp_path: Path) -> list[str]:
     return arguments
 
 
-def test_catalog_routes_intents_to_explicit_premium_models_without_fallback() -> None:
+def test_catalog_keeps_provider_candidates_pending_operator_visual_review() -> None:
     catalog = video_model_catalog()
     assert catalog["routing"] == {
         "localImageMotion": "local_wan22_ti2v_5b_mlx",
@@ -56,14 +56,35 @@ def test_catalog_routes_intents_to_explicit_premium_models_without_fallback() ->
         "localAudioMotionQuality": "local_ltx23_dev_hq_mlx",
         "localTextToVideo": "local_ltx23_distilled_mlx",
         "localSpeakingVideo": "local_longcat_avatar15_q4_mlx",
-        "paidImageMotion": "wavespeed_kling_o3_pro_i2v",
-        "paidImageMotionQuality": "wavespeed_kling_o3_pro_i2v",
-        "paidImageMotionSeededAlternative": "wavespeed_vidu_q3_i2v_pro",
+        "paidImageMotion": None,
+        "paidImageMotionQuality": None,
+        "paidImageMotionSeededAlternative": None,
         "paidReferenceMotion": "wavespeed_wan27_reference",
-        "paidMotionControl": "wavespeed_kling_v3_pro_motion_control",
-        "paidSpeakingVideo": "wavespeed_infinitetalk",
-        "paidSpeakingChallenger": "wavespeed_longcat_avatar15",
-        "paidVideoLipsync": "wavespeed_sync_lipsync2_pro",
+        "paidMotionControl": None,
+        "paidSpeakingVideo": None,
+        "paidSpeakingChallenger": None,
+        "paidVideoLipsync": None,
+        "operatorVisualSelectionRequired": True,
+        "passiveSelfieCandidates": [
+            "higgsfield_kling3_i2v",
+            "higgsfield_seedance2_i2v",
+            "wavespeed_kling_o3_pro_i2v",
+            "wavespeed_vidu_q3_i2v_pro",
+        ],
+        "motionCopyCandidates": [
+            "higgsfield_kling3_motion_control",
+            "wavespeed_kling_v3_pro_motion_control",
+        ],
+        "talkingSelfieCandidates": [
+            "higgsfield_veo31_talking",
+            "wavespeed_infinitetalk",
+            "wavespeed_longcat_avatar15",
+        ],
+        "talkingMotionCopyLipsyncCandidates": [
+            "wavespeed_sync_lipsync2_pro",
+            "wavespeed_sync_lipsync3",
+        ],
+        "advancedBudgetFallback": "wavespeed_wan22_i2v_5b_720p",
         "silentProviderFallbackAllowed": False,
     }
     assert "wavespeed_kling_o3_pro_i2v" in video_model_ids(task="image_to_video")
@@ -72,6 +93,8 @@ def test_catalog_routes_intents_to_explicit_premium_models_without_fallback() ->
     assert "wavespeed_kling_v3_pro_motion_control" in video_model_ids(
         task="motion_control"
     )
+    assert "higgsfield_kling3_i2v" in video_model_ids(task="image_to_video")
+    assert "wavespeed_sync_lipsync3" in video_model_ids(task="video_lipsync")
 
 
 def test_ltx_reel_profiles_are_exact_9_by_16_and_bind_production_assets() -> None:

@@ -293,23 +293,27 @@ def test_premium_wavespeed_models_use_their_exact_media_contracts(
         "keep_original_sound": False,
     }
 
-    lipsync = WaveSpeedRequest(
-        model_id="wavespeed_sync_lipsync2_pro",
-        prompt=prompt,
-        output_path=tmp_path / "lipsync.mp4",
-        source_video_path=driving,
-        audio_path=audio,
-        resolution="source",
-        duration_seconds=None,
-        seed=126,
-    )
-    assert _upload_and_build_payload(
-        client, lipsync, video_model(lipsync.model_id)
-    ) == {
-        "video": "https://media.example/driving.mp4",
-        "audio": "https://media.example/speech.wav",
-        "sync_mode": "cut_off",
-    }
+    for model_id in (
+        "wavespeed_sync_lipsync2_pro",
+        "wavespeed_sync_lipsync3",
+    ):
+        lipsync = WaveSpeedRequest(
+            model_id=model_id,
+            prompt=prompt,
+            output_path=tmp_path / f"{model_id}.mp4",
+            source_video_path=driving,
+            audio_path=audio,
+            resolution="source",
+            duration_seconds=None,
+            seed=126,
+        )
+        assert _upload_and_build_payload(
+            client, lipsync, video_model(lipsync.model_id)
+        ) == {
+            "video": "https://media.example/driving.mp4",
+            "audio": "https://media.example/speech.wav",
+            "sync_mode": "cut_off",
+        }
 
 
 def test_no_seed_provider_still_retains_distinct_request_identity(

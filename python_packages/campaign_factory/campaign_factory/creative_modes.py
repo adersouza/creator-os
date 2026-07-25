@@ -36,8 +36,14 @@ _MODES: tuple[dict[str, Any], ...] = (
         "id": "best_motion",
         "label": "Best paid motion",
         "costLabel": "paid video",
-        "input": "approved still plus explicit WaveSpeed model and motion prompt",
-        "output": "Wan 2.7 Pro, reference, or speaking video with static fallback",
+        "input": (
+            "approved still plus an explicit authenticated Higgsfield or WaveSpeed "
+            "candidate and motion prompt"
+        ),
+        "output": (
+            "review-only paid motion candidate with exact provider lineage and "
+            "static fallback"
+        ),
         "entrypoint": "generation run --mode best_motion",
     },
     {

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-Backend = Literal["local_mlx", "wavespeed"]
+Backend = Literal["local_mlx", "wavespeed", "higgsfield_cli"]
 Task = Literal[
     "text_to_video",
     "image_to_video",
@@ -400,6 +400,98 @@ WAVESPEED_SYNC_LIPSYNC2_PRO = VideoModel(
     provider_accepts_prompt=False,
 )
 
+WAVESPEED_SYNC_LIPSYNC3 = VideoModel(
+    id="wavespeed_sync_lipsync3",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="sync/lipsync-3",
+    task="video_lipsync",
+    resolutions=("source",),
+    durations=(),
+    default_resolution="source",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_video_lipsync_challenger",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
+# These are authenticated Higgsfield CLI contracts, not marketing-page aliases.
+# They remain bakeoff candidates until the operator selects production defaults.
+HIGGSFIELD_KLING3_I2V = VideoModel(
+    id="higgsfield_kling3_i2v",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="kling3_0",
+    task="image_to_video",
+    resolutions=("720x1280",),
+    durations=tuple(range(3, 16)),
+    default_resolution="720x1280",
+    default_duration=5,
+    paid=True,
+    quality_tier="bakeoff_candidate_passive_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+HIGGSFIELD_SEEDANCE2_I2V = VideoModel(
+    id="higgsfield_seedance2_i2v",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="seedance_2_0",
+    task="image_to_video",
+    resolutions=("720p", "1080p", "4k"),
+    durations=tuple(range(4, 16)),
+    default_resolution="720p",
+    default_duration=5,
+    generated_audio_supported=True,
+    paid=True,
+    quality_tier="bakeoff_candidate_passive_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+HIGGSFIELD_KLING3_MOTION_CONTROL = VideoModel(
+    id="higgsfield_kling3_motion_control",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="kling3_0_motion_control",
+    task="motion_control",
+    resolutions=("720x1280",),
+    durations=(),
+    default_resolution="720x1280",
+    default_duration=0,
+    paid=True,
+    quality_tier="bakeoff_candidate_motion_copy",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
+HIGGSFIELD_VEO31_TALKING = VideoModel(
+    id="higgsfield_veo31_talking",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="veo3_1",
+    task="image_to_video",
+    resolutions=("720x1280",),
+    durations=(4, 6, 8),
+    default_resolution="720x1280",
+    default_duration=8,
+    generated_audio_supported=True,
+    paid=True,
+    quality_tier="bakeoff_candidate_talking_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
 _MODELS = {
     model.id: model
     for model in (
@@ -419,6 +511,11 @@ _MODELS = {
         WAVESPEED_INFINITETALK,
         WAVESPEED_LONGCAT_AVATAR15,
         WAVESPEED_SYNC_LIPSYNC2_PRO,
+        WAVESPEED_SYNC_LIPSYNC3,
+        HIGGSFIELD_KLING3_I2V,
+        HIGGSFIELD_SEEDANCE2_I2V,
+        HIGGSFIELD_KLING3_MOTION_CONTROL,
+        HIGGSFIELD_VEO31_TALKING,
     )
 }
 
@@ -450,14 +547,35 @@ def video_model_catalog() -> dict[str, object]:
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
             "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
-            "paidImageMotion": WAVESPEED_KLING_O3_PRO_I2V.id,
-            "paidImageMotionQuality": WAVESPEED_KLING_O3_PRO_I2V.id,
-            "paidImageMotionSeededAlternative": WAVESPEED_VIDU_Q3_I2V_PRO.id,
+            "paidImageMotion": None,
+            "paidImageMotionQuality": None,
+            "paidImageMotionSeededAlternative": None,
             "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
-            "paidMotionControl": WAVESPEED_KLING_V3_PRO_MOTION_CONTROL.id,
-            "paidSpeakingVideo": WAVESPEED_INFINITETALK.id,
-            "paidSpeakingChallenger": WAVESPEED_LONGCAT_AVATAR15.id,
-            "paidVideoLipsync": WAVESPEED_SYNC_LIPSYNC2_PRO.id,
+            "paidMotionControl": None,
+            "paidSpeakingVideo": None,
+            "paidSpeakingChallenger": None,
+            "paidVideoLipsync": None,
+            "operatorVisualSelectionRequired": True,
+            "passiveSelfieCandidates": [
+                HIGGSFIELD_KLING3_I2V.id,
+                HIGGSFIELD_SEEDANCE2_I2V.id,
+                WAVESPEED_KLING_O3_PRO_I2V.id,
+                WAVESPEED_VIDU_Q3_I2V_PRO.id,
+            ],
+            "motionCopyCandidates": [
+                HIGGSFIELD_KLING3_MOTION_CONTROL.id,
+                WAVESPEED_KLING_V3_PRO_MOTION_CONTROL.id,
+            ],
+            "talkingSelfieCandidates": [
+                HIGGSFIELD_VEO31_TALKING.id,
+                WAVESPEED_INFINITETALK.id,
+                WAVESPEED_LONGCAT_AVATAR15.id,
+            ],
+            "talkingMotionCopyLipsyncCandidates": [
+                WAVESPEED_SYNC_LIPSYNC2_PRO.id,
+                WAVESPEED_SYNC_LIPSYNC3.id,
+            ],
+            "advancedBudgetFallback": WAVESPEED_WAN22_I2V_5B_720P.id,
             "silentProviderFallbackAllowed": False,
         },
     }

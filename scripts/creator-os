@@ -145,6 +145,19 @@ def _identity_command(*args: str) -> list[str]:
     ]
 
 
+def _higgsfield_bakeoff_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.intent_video_bakeoff",
+        *args,
+    ]
+
+
 def _local_router_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -298,6 +311,15 @@ def _parser() -> argparse.ArgumentParser:
         default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
+
+    video_bakeoff = sub.add_parser(
+        "video-bakeoff",
+        help=(
+            "inspect or run the explicit Higgsfield/WaveSpeed visual bakeoff; "
+            "never schedules or publishes"
+        ),
+    )
+    video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
 
     generate = sub.add_parser(
         "generate",
@@ -620,6 +642,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply:
             command.append("--apply")
         return _run(command)
+    if args.command == "video-bakeoff":
+        bakeoff_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_higgsfield_bakeoff_command(*bakeoff_args))
     if args.command == "generate":
         print(
             "deprecated advanced compatibility command: ordinary production uses "

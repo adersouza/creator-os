@@ -50,6 +50,7 @@ _KLING_V3_PRO_MOTION_CONTROL_PER_SECOND = 0.168
 _INFINITETALK_PER_SECOND = {"480p": 0.03, "720p": 0.06}
 _LONGCAT_AVATAR15_PER_SECOND = {"480p": 0.04, "720p": 0.08}
 _SYNC_LIPSYNC2_PRO_PER_SECOND = 0.08
+_SYNC_LIPSYNC3_PER_SECOND = 0.134
 
 
 class BalanceProvider(Protocol):
@@ -178,6 +179,7 @@ def quote_wavespeed_scope(scope: dict[str, Any]) -> dict[str, Any]:
         "wavespeed-ai/longcat-avatar-1.5",
         "kwaivgi/kling-v3.0-pro/motion-control",
         "sync/lipsync-2-pro",
+        "sync/lipsync-3",
     }
     duration_value = 0 if model in media_duration_models else _duration_int(duration)
     if model == "wavespeed-ai/wan-2.2/i2v-5b-720p":
@@ -256,6 +258,15 @@ def quote_wavespeed_scope(scope: dict[str, Any]) -> dict[str, Any]:
         if resolution != "source":
             raise ValueError("unsupported Sync Lipsync 2 Pro resolution")
         amount = _SYNC_LIPSYNC2_PRO_PER_SECOND * audio_duration
+    elif model == "sync/lipsync-3":
+        source_duration = _bounded_media_duration(
+            parameters.get("sourceVideoDurationSeconds"),
+            label="Sync Lipsync source video",
+            maximum=600,
+        )
+        if resolution != "source":
+            raise ValueError("unsupported Sync Lipsync 3 resolution")
+        amount = _SYNC_LIPSYNC3_PER_SECOND * source_duration
     else:
         raise ValueError(f"unpriced WaveSpeed model: {model}")
     pricing = {

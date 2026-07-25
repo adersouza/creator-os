@@ -94,6 +94,10 @@ def build_wavespeed_spend_scope(
         parameters["referenceVideoDurationSeconds"] = _media_duration(
             _file(request.reference_video_paths[0], "motion reference video")
         )
+    if model.task == "video_lipsync" and request.source_video_path is not None:
+        parameters["sourceVideoDurationSeconds"] = _media_duration(
+            _file(request.source_video_path, "source video")
+        )
     return build_video_provider_spend_scope(
         provider="wavespeed",
         provider_model=model.provider_model,
@@ -657,7 +661,10 @@ def _upload_and_build_payload(
         payload["video"] = client.upload(request.reference_video_paths[0])
         payload["character_orientation"] = "video"
         payload["keep_original_sound"] = False
-    elif model.id == "wavespeed_sync_lipsync2_pro":
+    elif model.id in {
+        "wavespeed_sync_lipsync2_pro",
+        "wavespeed_sync_lipsync3",
+    }:
         payload["sync_mode"] = "cut_off"
     return payload
 

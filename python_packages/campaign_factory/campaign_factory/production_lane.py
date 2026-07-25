@@ -41,6 +41,8 @@ SCHEMA: Final = "campaign_factory.production_motion_recipe.v1"
 BATCH_SCHEMA: Final = "campaign_factory.production_batch.v1"
 DEFAULT_CLOUD_BATCH_MAX_USD: Final = 0.25
 DEFAULT_CLOUD_CONCURRENCY: Final = 2
+# Set to true only in the focused recipe-selection commit after operator review.
+_OPERATOR_VISUAL_SELECTION_COMPLETE = False
 
 _INTENT_PROMPTS: Final[dict[str, str]] = {
     "passive_selfie": (
@@ -371,7 +373,7 @@ def build_production_motion_recipe(
     core = {
         "schema": SCHEMA,
         "recipeId": f"{execution}_{intent}_creator_motion_v2",
-        "status": "active",
+        "status": "candidate_only",
         "creator": creator.strip().lower(),
         "intent": intent,
         "mode": mode,
@@ -380,6 +382,7 @@ def build_production_motion_recipe(
         "sourceSha256": source_sha256,
         "paidProviderFallbackAllowed": False,
         "researchSelectionRequired": False,
+        "operatorVisualSelectionRequired": True,
     }
     return {**core, "recipeFingerprint": _fingerprint(core)}
 
@@ -417,10 +420,11 @@ def validate_production_motion_recipe(
     claimed = str(core.pop("recipeFingerprint", ""))
     if (
         core.get("schema") != SCHEMA
-        or core.get("status") != "active"
+        or core.get("status") != "candidate_only"
         or core.get("modelId") != model_id
         or core.get("sourceSha256") != source_sha256
         or core.get("researchSelectionRequired") is not False
+        or core.get("operatorVisualSelectionRequired") is not True
         or claimed != _fingerprint(core)
     ):
         raise PermissionError("production_motion_recipe_invalid")
@@ -659,6 +663,10 @@ def run_production_batch(
         speech_audio_path=speech_audio_path,
         motion_reference_path=motion_reference_path,
     )
+    if apply and not _OPERATOR_VISUAL_SELECTION_COMPLETE:
+        raise PermissionError(
+            "intent_video_recipe_selection_pending_operator_visual_review"
+        )
     results: list[dict[str, Any]] = []
     if execution == "cloud":
         if (

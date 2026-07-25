@@ -604,11 +604,13 @@ at validated draft handoff.
   expander. It runs before admission, never downloads during generation, and
   carries one exact source/model/runtime/implementation-bound receipt into the
   queue job and asset lineage.
-- `best_motion`: explicitly selected WaveSpeed motion. The intent-first path
-  maps ordinary portrait animation to Kling O3 Pro, motion copy/dance to Kling
-  3.0 Pro Motion Control, direct talking portraits to InfiniteTalk, and talking
-  motion-copy to Motion Control followed by Sync Lipsync 2 Pro. Vidu Q3 Pro and
-  LongCat Avatar 1.5 are explicit challengers, not silent fallbacks.
+- `best_motion`: one explicitly selected, separately authorized Higgsfield or
+  WaveSpeed candidate. Higgsfield's authenticated CLI currently exposes Kling
+  3 and Seedance 2 still animation, Kling 3 Motion Control, and vertical Veo
+  3.1. WaveSpeed candidates cover Kling O3 Pro, Vidu Q3 Pro, Kling 3 Motion
+  Control, InfiniteTalk, LongCat Avatar 1.5, and Sync Lipsync 2 Pro/3. The
+  operator's like-for-like visual review must select the tiny intent recipe map
+  before the production lane can apply any of them.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
@@ -622,7 +624,8 @@ The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu
 and cannot be selected through the supported CLI. Motion providers never
 silently fall back to another model. See
-[`docs/providers/wan_wavespeed.md`](docs/providers/wan_wavespeed.md).
+[`docs/providers/wan_wavespeed.md`](docs/providers/wan_wavespeed.md) and
+[`docs/providers/higgsfield_production.md`](docs/providers/higgsfield_production.md).
 
 ## QC, Readiness, And Draft Handoff
 
