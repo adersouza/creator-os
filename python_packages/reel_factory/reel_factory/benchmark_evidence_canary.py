@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -276,9 +277,17 @@ def run_canary(
         model_status_resolver=canary_model_status,
     )
     completed_jobs: list[tuple[LocalGenerationJob, Path]] = []
-    for label, index in (
-        (label, index) for index in range(8) for label in ("baseline", "candidate")
-    ):
+    # Balance first/second execution across the paired cohort. These deliberately
+    # small provider-free samples are sensitive to runner scheduling; always
+    # running the candidate second can turn order effects into a false regression.
+    measurement_order = tuple(
+        (label, index)
+        for index in range(8)
+        for label in (
+            ("baseline", "candidate") if index % 2 == 0 else ("candidate", "baseline")
+        )
+    )
+    for label, index in measurement_order:
         output = canary_root / f"{label}-{index}.mp4"
         partial = output.with_suffix(".partial.mp4")
         job = LocalGenerationJob.create(
@@ -396,6 +405,12 @@ def run_canary(
 
     baseline = tuple(receipt for receipt in receipts if "baseline" in receipt.job_id)
     candidate = tuple(receipt for receipt in receipts if "candidate" in receipt.job_id)
+    promotion_policy = PromotionPolicy(
+        minimum_candidate_samples=8,
+        minimum_baseline_samples=8,
+        maximum_wall_time_ratio=1.25,
+        maximum_peak_memory_ratio=1.25,
+    )
     evaluation = store.evaluate_promotion(
         candidate_model_fingerprint=candidate[0].model_fingerprint,
         baseline_model_fingerprint=baseline[0].model_fingerprint,
@@ -403,17 +418,21 @@ def run_canary(
         hardware_fingerprint=candidate[0].hardware_fingerprint,
         candidate_benchmark_ids=tuple(receipt.benchmark_id for receipt in candidate),
         baseline_benchmark_ids=tuple(receipt.benchmark_id for receipt in baseline),
-        policy=PromotionPolicy(
-            minimum_candidate_samples=8,
-            minimum_baseline_samples=8,
-            maximum_wall_time_ratio=1.25,
-            maximum_peak_memory_ratio=1.25,
-        ),
+        policy=promotion_policy,
     )
     if not evaluation.eligible:
+        candidate_wall_times = [receipt.wall_time_seconds for receipt in candidate]
+        baseline_wall_times = [receipt.wall_time_seconds for receipt in baseline]
         raise RuntimeError(
             "canary_promotion_evaluation_ineligible:"
             + ",".join(evaluation.blocking_reasons)
+            + f";evaluation_id={evaluation.evaluation_id}"
+            + f";wall_time_ratio={evaluation.wall_time_ratio}"
+            + f";wall_time_limit={promotion_policy.maximum_wall_time_ratio}"
+            + f";candidate_wall_time_median={statistics.median(candidate_wall_times)}"
+            + f";baseline_wall_time_median={statistics.median(baseline_wall_times)}"
+            + f";peak_memory_ratio={evaluation.peak_memory_ratio}"
+            + f";peak_memory_limit={promotion_policy.maximum_peak_memory_ratio}"
         )
     return {
         "schema": "reel_factory.benchmark_evidence_canary.v1",
@@ -430,6 +449,8 @@ def run_canary(
             "eligible": evaluation.eligible,
             "blockingReasons": list(evaluation.blocking_reasons),
             "evidenceFingerprint": evaluation.evidence_fingerprint,
+            "wallTimeRatio": evaluation.wall_time_ratio,
+            "peakMemoryRatio": evaluation.peak_memory_ratio,
         },
     }
 
