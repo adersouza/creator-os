@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from campaign_factory.content_director import build_plan, load_plan, persist_plan
 from campaign_factory.content_director_operations import list_plans, plan_status, replan
+from campaign_factory.learning_consumption import (
+    build_measured_recommendations,
+    persist_measured_recommendations,
+)
+from campaign_factory.production_lane import _CREATOR_SOUL_IDS
 from test_content_director import _conn, _request
+from test_learning_consumption import _outcome, _pack
 
 
 def _persisted(tmp_path: Path):
@@ -119,3 +126,80 @@ def test_fixture_master_proof_remains_supervised_and_non_mutating(
     assert proof["truthLevel"] == "fixture_backed_implementation_proof"
     assert proof["notRealOperationalAutonomy"] is True
     assert set(proof["externalEffects"].values()) == {0}
+
+
+def test_fixture_master_proof_consumes_one_supervised_active_recommendation(
+    tmp_path: Path,
+) -> None:
+    conn = _conn(tmp_path)
+    source = conn.execute(
+        "SELECT id, content_hash FROM source_assets WHERE id = 'src_2'"
+    ).fetchone()
+    outcomes = [
+        _outcome(
+            index,
+            sourceAssetId=source["id"],
+            sourceSha256=source["content_hash"],
+            creatorIdentityProfile=_CREATOR_SOUL_IDS["stacey"],
+            campaignId="camp_1",
+            publishedAt="2026-07-25T00:00:00Z",
+            snapshotAt="2026-07-26T00:00:00Z",
+        )
+        for index in (1, 2, 3)
+    ]
+    pack = _pack(outcomes)
+    conn.execute(
+        """
+        INSERT INTO reference_knowledge_packs
+        (id, schema_version, source_fingerprint, generated_at, policy_json,
+         summary_json, payload_json, imported_at, updated_at)
+        VALUES (?, 'reference_factory.knowledge_pack.v1', ?, ?, '{}', '{}', ?, ?, ?)
+        """,
+        (
+            pack["packId"],
+            pack["sourceFingerprint"],
+            pack["generatedAt"],
+            json.dumps(pack),
+            pack["generatedAt"],
+            pack["generatedAt"],
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_patterns (
+          id, cluster_key, rank, label, prompt_template_json, raw_json,
+          imported_at, updated_at
+        ) VALUES (
+          'refpat_10012097369458bf', 'measured_pattern', 0, 'Measured',
+          '{"mainPrompt":"Approved measured casual motion prompt."}',
+          '{"approvalStatus":"approved","patternFamily":"curiosity"}', ?, ?
+        )
+        """,
+        (pack["generatedAt"], pack["generatedAt"]),
+    )
+    recommendations = build_measured_recommendations(
+        pack, now=datetime(2026, 7, 27, tzinfo=UTC)
+    )
+    assert recommendations[0]["eligibleForOperatorApproval"], recommendations
+    persisted = persist_measured_recommendations(conn, recommendations, pack=pack)
+    assert persisted["itemsInserted"] == 1, persisted
+    conn.execute(
+        "UPDATE recommendation_items SET status = 'accepted' WHERE status = 'proposed'"
+    )
+    stored = conn.execute(
+        "SELECT status, evidence_json FROM recommendation_items"
+    ).fetchone()
+    evidence = json.loads(stored["evidence_json"])
+    assert stored["status"] == "accepted"
+    assert evidence["creatorIdentityProfile"] == _CREATOR_SOUL_IDS["stacey"]
+    assert evidence["accountId"] == "stacey-main"
+    assert evidence["contentIntent"] == "passive_selfie"
+    assert evidence["classification"] == "ADVISORY"
+    plan = build_plan(conn, _request())
+    first = plan["items"][0]
+    assert first["sourceAssetId"] == "src_2", json.dumps(
+        first["learningDecision"], sort_keys=True
+    )
+    assert first["prompt"] == "Approved measured casual motion prompt."
+    assert first["learningDecision"]["learningApplied"] is True
+    assert first["learningDecision"]["finalChoiceChanged"] is True
