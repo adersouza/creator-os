@@ -22,9 +22,11 @@ from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.learning_score import learning_eligible
 from campaign_factory.production_lane import (
+    _audio_candidates_for_job,
     _block_duplicate_provider_outputs,
     _expand_production_job_prompt,
     _run_production_job,
+    discover_production_audio_candidates,
     plan_production_batch,
     run_production_batch,
 )
@@ -213,6 +215,97 @@ def _fixture_candidate(audio: Path) -> TrendCandidate:
     )
 
 
+def test_production_audio_prefers_canonical_active_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE audio_catalog (
+          id TEXT PRIMARY KEY, canonical_track_id TEXT, canonical_title TEXT,
+          canonical_artists_json TEXT, title TEXT, artist_name TEXT,
+          platform TEXT, native_audio_id TEXT, velocity_score REAL,
+          trend_score REAL, trend_sources_json TEXT, lifecycle_state TEXT,
+          last_seen_at TEXT, refresh_metadata_json TEXT, active INTEGER
+        );
+        CREATE TABLE audio_cache_objects (
+          audio_catalog_id TEXT, provider TEXT, platform TEXT,
+          platform_sound_id TEXT, cache_path TEXT, byte_sha256 TEXT,
+          duration_seconds REAL, retrieved_at TEXT, source_metadata_json TEXT,
+          cached INTEGER, pruned_at TEXT
+        );
+        """
+    )
+    cached = tmp_path / "cached-audio.bin"
+    cached.write_bytes(b"active-audio-cache")
+    digest = hashlib.sha256(cached.read_bytes()).hexdigest()
+    conn.execute(
+        """
+        INSERT INTO audio_catalog VALUES (
+          'audio-1', 'canonical-1', 'Cached Trend', '["Artist"]',
+          'Cached Trend', 'Artist', 'tiktok', 'music-1', 1234, 0.9,
+          '["socialcrawl_tiktok"]', 'HOT', '2026-07-27T00:00:00Z',
+          '{"score":42}', 1
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO audio_cache_objects VALUES (
+          'audio-1', 'tikliveapi', 'tiktok', 'music-1', ?, ?, 60,
+          '2026-07-27T00:01:00Z', '{"soundOwner":"Owner","videoCount":99}',
+          1, NULL
+        )
+        """,
+        (str(cached), digest),
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.SocialCrawlInstagramProvider.discover",
+        lambda *_args, **_kwargs: pytest.fail("live discovery must not run"),
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane.TokchartTrendProvider.discover",
+        lambda *_args, **_kwargs: pytest.fail("live discovery must not run"),
+    )
+
+    candidates = discover_production_audio_candidates(conn)
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.canonical_track_id == "canonical-1"
+    assert candidate.locator is not None
+    assert candidate.locator.kind == "local_file"
+    assert candidate.locator.value == str(cached)
+    assert candidate.artist == "Artist"
+    assert candidate.advisory_labels["source"] == "canonical_active_audio_library"
+    assert candidate.advisory_labels["soundOwner"] == "Owner"
+
+
+def test_batch_audio_partitions_avoid_unnecessary_track_reuse(tmp_path: Path) -> None:
+    candidates = [
+        _fixture_candidate(tmp_path / f"audio-{index}.bin") for index in range(6)
+    ]
+
+    partitions = [
+        _audio_candidates_for_job(
+            candidates,
+            job_index=index,
+            job_count=3,
+        )
+        for index in range(3)
+    ]
+
+    assert [len(partition) for partition in partitions] == [2, 2, 2]
+    assert not (
+        {id(item) for item in partitions[0]} & {id(item) for item in partitions[1]}
+    )
+    assert not (
+        {id(item) for item in partitions[1]} & {id(item) for item in partitions[2]}
+    )
+
+
 def test_golden_approved_source_to_generated_image_capability() -> None:
     plan = build_generation_execution_plan("soul_static")
     assert plan.still_strategy == "soul_reference_pair"
@@ -384,7 +477,7 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
-        lambda: [_fixture_candidate(audio)],
+        lambda *_args: [_fixture_candidate(audio)],
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane._authorize_higgsfield_jobs",
@@ -461,7 +554,7 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
-        lambda: [],
+        lambda *_args: [],
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane._authorize_higgsfield_jobs",
@@ -588,7 +681,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
-        lambda: [],
+        lambda *_args: [],
     )
     batch = run_production_batch(
         factory,
