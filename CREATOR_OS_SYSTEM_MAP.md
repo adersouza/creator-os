@@ -775,6 +775,34 @@ exporter and cannot drive an active decision.
 Reference-pattern evidence stays advisory and requires operator approval until
 Campaign has at least three eligible measured examples for that pattern.
 
+The supported consumption loop is intentionally narrow:
+
+```text
+canonical metric history
+  -> Reference measured provenance
+  -> creator-os learning-refresh
+  -> fingerprinted Campaign import + scoped advisory recommendations
+  -> explicit operator approval
+  -> normal creator-os create consultation
+  -> learning decision receipt
+```
+
+Only equal-age approximately-24-hour or approximately-72-hour cohorts with at
+least three real, lineage-valid, publication-linked examples may be approved
+for production influence. Approximately-1-hour evidence remains advisory.
+Recommendations bind creator identity, account, intent, evidence IDs, pack
+fingerprint, and observation cohort. Normal create applies only a current
+`SUPERVISED_ACTIVE` match and may reorder already-approved sources or imported
+approved prompt patterns. It cannot change identity, Soul ID, provider, motion
+recipe, spend, hard QC, account authorization, or publication eligibility.
+Missing, mismatched, stale, rejected, or unapproved evidence leaves the
+deterministic production behavior unchanged and is named in the decision
+receipt.
+
+Future Audio Radar learning requires an exact verified embedded-audio selection
+linked to the final MP4 SHA and real Instagram media identity. Historical
+`deferred_to_notify_handoff` rows are not backfilled.
+
 ## Operator Command Surface
 
 `scripts/creator-os` is the supported operator entrypoint:
@@ -791,6 +819,8 @@ Campaign has at least three eligible measured examples for that pattern.
 | `approve` | signs one immutable Creative Approval v2 from an exact review draft |
 | `export --dry-run|--apply` | bounded validated drafts only; never schedules or publishes |
 | `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
+| `learning-refresh --dry-run|--apply` | idempotent Reference knowledge-pack export, validation, Campaign import, and measured recommendation refresh |
+| `learning-review list|approve|reject|pin|revoke` | explicit supervised recommendation review; blank fields never imply rejection |
 | `advanced` | developer-only model, queue, benchmark, Arena, Router and analyzer diagnostics |
 | `promote` | guarded source-to-runtime promotion; never a content publish command |
 

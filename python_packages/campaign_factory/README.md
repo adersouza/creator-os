@@ -121,6 +121,14 @@ The pinned performance launcher imports bounded post metric history and invokes
 `scripts/learning_fanout.py`. Real learning proof requires real platform rows;
 command success alone is not sufficient.
 
+`scripts/creator-os learning-refresh --dry-run|--apply` reuses the versioned
+Reference knowledge pack and stores creator/account/intent/age-scoped measured
+recommendations. `learning-review` is the only activation surface. Normal
+intent-first `create` consults the current pack automatically, applies only an
+operator-approved `SUPERVISED_ACTIVE` match, and records whether approved source
+or prompt ordering actually changed. With no valid match, create keeps the
+existing deterministic behavior.
+
 ## Test
 
 ```bash
