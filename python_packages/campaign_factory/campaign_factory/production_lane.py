@@ -47,6 +47,7 @@ from .production_audio_library import (
 from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
 )
+from .production_batch_identity import deterministic_seed as _deterministic_seed
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -56,6 +57,7 @@ from .production_batch_results import (
 from .production_batch_results import probe_production_video as _probe_production_video
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
     consume_provider_spend_authorization as consume_higgsfield_authorization,
 )
@@ -447,18 +449,6 @@ def bind_production_motion_recipe(
     return True
 
 
-def _deterministic_seed(
-    *, creator: str, intent: str, index: int, source_sha256: str, used: set[int]
-) -> int:
-    nonce = 0
-    while True:
-        material = f"{creator}:{intent}:{index}:{source_sha256}:{nonce}".encode()
-        seed = int(hashlib.sha256(material).hexdigest()[:8], 16) % 2_147_483_648
-        if seed not in used:
-            return seed
-        nonce += 1
-
-
 def plan_production_batch(
     factory: Any,
     *,
@@ -470,6 +460,7 @@ def plan_production_batch(
     audio_preference: str,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -567,6 +558,7 @@ def plan_production_batch(
             f"no explicitly approved image inventory for creator {creator}; "
             "review and approve sources with `creator-os sources`"
         )
+    sources = select_requested_source_assets(sources, selected_source_asset_ids)
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,
@@ -676,6 +668,7 @@ def run_production_batch(
     max_concurrency: int = DEFAULT_CLOUD_CONCURRENCY,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -687,6 +680,7 @@ def run_production_batch(
         audio_preference=audio_preference,
         speech_audio_path=speech_audio_path,
         motion_reference_path=motion_reference_path,
+        selected_source_asset_ids=selected_source_asset_ids,
     )
     results: list[dict[str, Any]] = []
     if (

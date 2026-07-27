@@ -99,4 +99,48 @@ CREATE INDEX IF NOT EXISTS idx_creative_plan_items_scope
   ON creative_plan_items(creator, target_account, content_intent, execution_state);
 CREATE INDEX IF NOT EXISTS idx_creative_plan_items_source
   ON creative_plan_items(source_asset_id, execution_state);
+
+CREATE TABLE IF NOT EXISTS creative_plan_experiments (
+  id TEXT PRIMARY KEY,
+  plan_version_id TEXT NOT NULL,
+  creator TEXT NOT NULL,
+  account_scope_json TEXT NOT NULL DEFAULT '[]',
+  content_intent TEXT NOT NULL,
+  hypothesis TEXT NOT NULL,
+  controlled_variables_json TEXT NOT NULL DEFAULT '[]',
+  changed_variable TEXT NOT NULL,
+  variants_json TEXT NOT NULL DEFAULT '[]',
+  assignment_method TEXT NOT NULL,
+  deterministic_seed INTEGER NOT NULL,
+  publication_windows_json TEXT NOT NULL DEFAULT '[]',
+  required_observation_cohort TEXT NOT NULL,
+  minimum_sample_warning TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PROPOSED',
+  outcome_links_json TEXT NOT NULL DEFAULT '[]',
+  interpretation_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(plan_version_id) REFERENCES creative_plan_versions(id) ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS creative_plan_metric_cohorts (
+  id TEXT PRIMARY KEY,
+  plan_item_id TEXT NOT NULL,
+  observation_bucket TEXT NOT NULL,
+  expected_earliest_at TEXT NOT NULL,
+  actual_observed_at TEXT,
+  post_age_seconds INTEGER,
+  observation_state TEXT NOT NULL DEFAULT 'MISSING',
+  snapshot_id TEXT,
+  learning_eligible INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(plan_item_id, observation_bucket),
+  FOREIGN KEY(plan_item_id) REFERENCES creative_plan_items(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_creative_plan_experiments_scope
+  ON creative_plan_experiments(creator, content_intent, status);
+CREATE INDEX IF NOT EXISTS idx_creative_plan_metric_due
+  ON creative_plan_metric_cohorts(observation_state, expected_earliest_at);
 """
