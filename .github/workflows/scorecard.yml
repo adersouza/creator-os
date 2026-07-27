@@ -31,7 +31,7 @@ jobs:
         with:
           egress-policy: audit
       - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.3
+        uses: ossf/scorecard-action@v2.4.4
         continue-on-error: true
         with:
           results_file: scorecard-results.sarif
