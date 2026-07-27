@@ -8,10 +8,11 @@ commands are diagnostics, not normal inputs.
 ```bash
 creator-os status
 creator-os status --creator stacey
+creator-os status --learning
 creator-os audio status
+creator-os plan list --creator stacey
 ```
 
-The scoped commands require draft PR #527 until it is reviewed and merged.
 Status is read-only. It should show the runtime SHA, approved source count,
 active audio count, waiting work, failures, spend evidence, and next valid
 action.
@@ -45,9 +46,36 @@ creator-os sources approve \
   --apply
 ```
 
-This surface requires draft PR #526. Approval never generates or publishes.
+Approval never generates or publishes.
 
-## 3. Make three passive Stacey Reels
+## 3. Preview a supervised seven-day plan
+
+```bash
+creator-os plan \
+  --creator stacey \
+  --horizon 7d \
+  --accounts bennett_s33 \
+  --goal growth \
+  --count 5 \
+  --mode shadow \
+  --max-credits <authorized-cap> \
+  --dry-run
+```
+
+Shadow planning is mutation-free. It may rank only explicitly approved sources
+and approved patterns. It proposes posting windows but cannot schedule or
+publish. If the plan is later persisted, inspect it through:
+
+```bash
+creator-os plan list --creator stacey
+creator-os plan show <plan-id>
+creator-os plan status <plan-id>
+```
+
+Plan execution delegates to the normal create lane and still requires signed
+spend authorization. The plan is not a second generation or publishing system.
+
+## 4. Make three passive Stacey Reels
 
 Dry-run:
 
@@ -69,7 +97,7 @@ and explicitly state that it will not export, schedule, or publish.
 After reviewing the bounded quote, repeat with `--apply`. Three independent
 jobs must preserve partial successes and produce three local review-ready MP4s.
 
-## 4. Review
+## 5. Review
 
 ```bash
 creator-os review --campaign <campaign>
@@ -79,7 +107,7 @@ Compare source, output, prompt, recipe, audio, cost, lineage, and technical QC.
 Record identity, anatomy, motion, phone-native appearance, audio fit, would-post
 decision, and notes. Blank fields are unreviewed, not rejected.
 
-## 5. Approve Reel 2
+## 6. Approve Reel 2
 
 Use the exact rendered asset shown by review:
 
@@ -93,7 +121,7 @@ creator-os approve \
 
 Approval binds the exact MP4 hash and QC/lineage evidence. It does not publish.
 
-## 6. Preview and export
+## 7. Preview and export
 
 ```bash
 creator-os export \
@@ -118,13 +146,13 @@ creator-os export \
 
 Creator OS ends at validated draft handoff.
 
-## 7. Publish through ThreadsDashboard
+## 8. Publish through ThreadsDashboard
 
 In ThreadsDashboard, verify the stable draft identity and account preflight,
 then explicitly schedule or publish. A queue receipt is not publication.
 Closure requires a reconciled Instagram media ID.
 
-## 8. Metrics and learning
+## 9. Metrics and learning
 
 Machine-local performance sync records canonical metric history. Compare like
 age with like age. Missing remains missing.

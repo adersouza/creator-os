@@ -8,22 +8,23 @@ The comparable visual inputs are three distinct approved-by-chat Stacey Kling 3
 canaries, each 5.041667 seconds, 1080×1920 H.264 with verified AAC and passed
 technical QC:
 
-| Candidate | Source asset / SHA | Generation ID | Final candidate SHA |
-|---|---|---|---|
-| 1 | `src_e3faecf2b473` / `5c4a5d35f7df4b03fd14f7fa28c2721f1cc5594354cd87224bf5f82ee348c749` | `0ff2b4a6-5296-45ad-a0c6-8f795020e7cf` | `c8186c83578061bbb83b451f22d99cdcf3645710c4d56c8a3709f04d647587dd` |
-| 2 | `src_4da46d7cc0fa` / `02480d7d305390b7fd6d68eea9d2126fffb43307ab513306b3573ebc9a5daf5f` | `2781fb6e-b3ed-4bf5-a43b-d27399abb7b5` | `8e41c1ce6f0bf9bc000b6b0cab1da4ce8b6ed8b670838bcbb51f4129ec83beda` |
-| 3 | `src_44520dccb795` / `1c8fcbac3a338db216f48b4dbb92501210063e2e2e3a2d7b9794e4332a41364d` | `d7fa8027-28a3-4038-b2e3-aa52b02af44f` | `2ceeb1cfb04d3f30975ae9dbaed93c7f229ca928aab0494bd5d3a0e6bc4f4fca` |
+| Candidate | Source asset / SHA | Generation ID | TikTok music ID | Final candidate SHA |
+|---|---|---|---|---|
+| 1 | `src_e3faecf2b473` / `5c4a5d35f7df4b03fd14f7fa28c2721f1cc5594354cd87224bf5f82ee348c749` | `0ff2b4a6-5296-45ad-a0c6-8f795020e7cf` | `7290625823743576065` | `959b5c8bb5c78d475880bd5efb4fd4b14a9af7a33a994ff0cf84cecb52112c8b` |
+| 2 | `src_4da46d7cc0fa` / `02480d7d305390b7fd6d68eea9d2126fffb43307ab513306b3573ebc9a5daf5f` | `2781fb6e-b3ed-4bf5-a43b-d27399abb7b5` | `7600469112726817558` | `cf20127bd8d3560498db2cacde7cd6bf546aa690cc42e94d3e52f461dc87108d` |
+| 3 | `src_44520dccb795` / `1c8fcbac3a338db216f48b4dbb92501210063e2e2e3a2d7b9794e4332a41364d` | `d7fa8027-28a3-4038-b2e3-aa52b02af44f` | `7638288315344571157` | `948e5669d4cabde0e2ee281908d0d84daa7693aacfda9f016196aae0c67fed02` |
 
-There is also a later Audio Radar re-embedding set with SHAs `959b5c8b…`,
-`cf20127b…`, and `948e5669…`. Do not mix the two sets. Before publication, the
-operator must choose one exact set and persist Campaign approval and canonical
-audio selection rows for those exact final hashes.
+This is the later Audio Radar hardening set. It has three distinct music IDs,
+acoustic fingerprints, duration-compatible segments, verified AAC, and exact
+final-MP4 receipt binding. Do not mix it with the earlier embedded-audio set.
+Before publication, persist Campaign creative approval and canonical audio
+selection rows for these exact final hashes.
 
 ## Controlled design
 
 - Creator/profile: Stacey and her pinned Soul identity.
-- Account: `stacey-main` only, after ThreadsDashboard resolves that alias to one
-  healthy exact account.
+- Account: `bennett_s33` only, provided its current ThreadsDashboard projection,
+  OAuth state, and publication preflight remain healthy at authorization time.
 - Intent: `passive_selfie` for all three.
 - Visual recipe: Higgsfield Kling 3 for all three.
 - Duration/source class: matched portrait passive motion.

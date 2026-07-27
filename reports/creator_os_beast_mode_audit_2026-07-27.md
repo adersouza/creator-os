@@ -2,6 +2,11 @@
 
 Audit time: `2026-07-27T21:24:10Z`
 
+> Historical snapshot: this report preserves the system truth observed at the
+> audit time. Its draft-PR and runtime statements are not current operating
+> status after the final integration. Use the system map and operator runbooks
+> for current commands and truth levels.
+
 This report is read-only production reconciliation plus source inspection. It
 does not authorize generation, export, scheduling, publication, database
 mutation, schedule changes, or runtime promotion.
