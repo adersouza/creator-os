@@ -28,6 +28,32 @@ this repo without an explicit deployment instruction.
 - `pipeline_contracts`: shared schemas and validators.
 - `reference_factory`: reference review, gold learning set, pattern/audio exports.
 
+## Current Creative Product Decision
+
+The operator reviewed the real paid-motion bakeoff on 2026-07-26. Treat this
+human would-post decision as the creative source of truth until the operator
+explicitly reopens model evaluation:
+
+- Higgsfield Kling 3 and Higgsfield Seedance 2 are the only accepted passive
+  selfie-motion candidates.
+- WaveSpeed Kling O3 Pro and Vidu Q3 Pro are rejected for production quality.
+- Higgsfield and WaveSpeed Kling Motion Control are rejected. Do not use either
+  output as a lip-sync base or spend on a second motion-copy reference.
+- WaveSpeed InfiniteTalk is rejected because the voice sounded robotic and the
+  result was not postable.
+- Higgsfield Veo 3.1 produced no reviewable output. There is no accepted talking
+  or motion-copy recipe.
+- LongCat and Sync Lipsync 2/3 remain unselected, not defaults. Do not run them
+  merely to complete a matrix.
+- Wan/LTX and the Arena/Router research surfaces are not active production
+  defaults.
+
+Do not average technical scores over the operator's would-post judgment. The
+supported creative scope is Soul still/static Reel plus explicitly authorized
+passive motion using one of the two accepted Higgsfield candidates. Talking,
+motion-copy, dance transfer, and talking-motion-copy are unsupported production
+intents unless a later operator-approved bakeoff changes this decision.
+
 ## Contract Ownership
 
 `packages/pipeline_contracts/pipeline_contracts/schemas` is the ONLY hand-edited
@@ -112,7 +138,12 @@ single-person reference image
 → captured Higgsfield prompt + lineage
 → optional append-only body emphasis
 → accepted still
-→ deterministic Kling motion prompt
+→ local static MP4, or explicitly authorized Higgsfield Kling 3/Seedance 2
+  passive animation
+→ technical QC + operator would-post review
+→ Audio Radar track/segment selection and verified AAC embedding
+→ final MP4 SHA bound to Campaign and audio receipts
+→ validated draft handoff
 ```
 
 Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, and `_grok.json` are legacy/experimental unless explicitly requested.
@@ -234,9 +265,12 @@ Do not relearn or invent these each task. Read this section, then the named file
   per-creator weights Larissa/Stacey/Lola, `performance.json` = perf metadata).
   Selection/rotation logic: `caption_bank.py`; rendering: `caption_render.py`;
   fit-to-frame: `caption_scene_fit.py` (`reel_pipeline.py --caption-fit auto`).
-- **Native audio is never burned into the MP4.** Campaign Factory recommends via
-  `audio_intent.v1`; ThreadsDashboard selects/verifies native audio. Publishing
-  is blocked until ThreadsDashboard has native-audio + publishability proof.
+- **The normal finished-Reel path embeds verified trending audio.** Campaign
+  Factory selects an Audio Radar track and duration-compatible segment, embeds
+  AAC after the visual render, verifies the streams, and binds the audio
+  receipt to the exact final MP4 SHA. ThreadsDashboard publishes that completed
+  MP4 unchanged. Native platform audio remains a separate explicitly selected
+  policy; do not describe an embedded-audio Reel as native audio.
 
 ## Durable System Map
 

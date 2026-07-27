@@ -111,7 +111,7 @@ the Creator OS stages, not additional workflow steps.
 ```mermaid
 flowchart TB
     Operator["Operator"]
-    Providers["Higgsfield<br/>Soul · Kling · Seedance"]
+    Providers["Higgsfield<br/>Soul · Kling 3 · Seedance 2<br/>passive motion only"]
 
     subgraph CreatorOS["Creator OS<br/>Core + Pipeline Contracts underpin every stage"]
         direction LR
@@ -208,15 +208,45 @@ polling queue.
 
 ## Production Creation And Research
 
-Normal production begins with:
+### Supported Creative Product Boundary
+
+The real paid-motion bakeoff completed technically with seven retained videos.
+The operator's 2026-07-26 would-post review—not vendor descriptions or
+technical pass rates—set the production-quality boundary:
+
+| Intent | Current decision | Production behavior |
+|---|---|---|
+| Soul still / static Reel | Supported | Direct Higgsfield Soul still, optional approved body-emphasis variant, static MP4 fallback |
+| Passive selfie motion | Two accepted candidates | Higgsfield Kling 3 and Higgsfield Seedance 2 may be used only when explicitly selected and spend-authorized |
+| WaveSpeed passive motion | Rejected | Kling O3 Pro and Vidu Q3 Pro are not production choices |
+| Motion copy / dance transfer | Rejected | Both tested Kling Motion Control implementations were not postable; do not route or lip-sync their outputs |
+| Talking selfie | No accepted recipe | InfiniteTalk was rejected for robotic voice quality; Higgsfield Veo produced no reviewable output |
+| Talking motion copy | Unsupported | No accepted motion-transfer base exists; Sync Lipsync 2/3 are not defaults |
+| Wan/LTX local motion | Advanced historical/experimental only | Not an active production default and not a prerequisite for normal creation |
+
+This closes creative-model research for the supported Creator OS scope. New
+provider architecture, Arena, Router, benchmark expansion, or speculative model
+calls are not required. A future talking or motion-copy feature is new product
+work and must begin with a new explicit operator decision.
+
+The supported product path is complete in scope when it can take an approved
+creator source through Soul still or accepted passive motion, technical and
+human review, verified embedded audio, exact final-media binding, and validated
+draft handoff. Source merge, runtime promotion, scheduling, publication, and
+real metric learning remain separate truth levels; this statement does not
+claim those operational actions occurred.
+
+Normal supported production begins with:
 
 ```text
 creator + intent + count + execution + account group + audio preference
 -> approved creator image inventory
--> pinned active production recipe
+-> static Reel or explicitly selected Higgsfield Kling 3/Seedance 2 passive recipe
 -> N independent source/prompt/seed/request identities
 -> local or authorized cloud worker
 -> hard QC blockers + soft ranking signals
+-> operator would-post decision
+-> verified trending-audio segment embedded into the final MP4
 -> Creator OS creative decision
 -> validated ThreadsDashboard draft
 ```
@@ -547,16 +577,15 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
-  -> optional pinned local Qwen-VL image-aware Wan prompt expansion
-  -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
-  -> machine-wide local generation lease + unified-memory admission
-  -> exact BenchmarkRecipeV1 + AnalyzerRegistryV1 fingerprints on benchmark jobs
-  -> motion-specific temporal/identity/anatomy/audio/lip-sync evidence gate
+  -> optional explicitly selected Higgsfield Kling 3 or Seedance 2 passive motion
+  -> technical QC plus operator would-post review
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
+  -> Audio Radar selects a live cached track and compatible segment
+  -> verified AAC embedding; audio receipt binds the exact final MP4 SHA
   -> Campaign Factory readiness and pipeline-contract validation
   -> HMAC-signed draft-only ingest request
-  -> ThreadsDashboard approval, native-audio proof, scheduling, publishing
+  -> ThreadsDashboard approval, exact-media validation, scheduling, publishing
   -> post metric history
   -> performance sync
   -> Campaign performance_snapshots
@@ -574,7 +603,9 @@ at validated draft handoff.
   recommendation alias. ContentForge failures remain review-only but are
   reported honestly as `validated_with_failures`, never `validated`.
 - `soul_static`: direct Soul still plus local static MP4.
-- `local_wan`: the stable compatibility id for local Apple-silicon MLX motion.
+- `local_wan`: an advanced historical/experimental compatibility mode, not an
+  active production default. It remains the stable compatibility id for local
+  Apple-silicon MLX motion.
   Model choice is explicit: Wan 2.2 TI2V-5B q8 for volume, Wan 2.2 I2V-A14B q4
   for quality, quantized LTX-2.3 Q4 for fast generated-audio motion, or
   quantized LTX-2.3 Q8 for HQ source/generated audio, first/last frames,
@@ -604,21 +635,21 @@ at validated draft handoff.
   expander. It runs before admission, never downloads during generation, and
   carries one exact source/model/runtime/implementation-bound receipt into the
   queue job and asset lineage.
-- `best_motion`: one explicitly selected, separately authorized Higgsfield or
-  WaveSpeed candidate. Higgsfield's authenticated CLI currently exposes Kling
-  3 and Seedance 2 still animation, Kling 3 Motion Control, and vertical Veo
-  3.1. WaveSpeed candidates cover Kling O3 Pro, Vidu Q3 Pro, Kling 3 Motion
-  Control, InfiniteTalk, LongCat Avatar 1.5, and Sync Lipsync 2 Pro/3. The
-  operator's like-for-like visual review must select the tiny intent recipe map
-  before the production lane can apply any of them.
+- `best_motion`: one explicitly selected, separately authorized passive-motion
+  candidate. The only operator-accepted candidates are Higgsfield Kling 3 and
+  Higgsfield Seedance 2. WaveSpeed Kling O3 Pro and Vidu Q3 Pro, both tested
+  Kling Motion Control paths, and InfiniteTalk are rejected for production
+  quality. Higgsfield Veo produced no reviewable output. LongCat and Sync
+  Lipsync 2/3 are unselected and must not be treated as defaults.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
-All modes are review-gated and require explicit selection; there is no active
-generation default. Soul ID owns identity. Prompt and asset lineage are
-retained. LTX may mux source or generated audio into its derivative, but that
-track is never misclassified as native platform audio and requires human audio
-review. Native platform audio remains a separately resolved intent.
+All modes are review-gated and require explicit selection; there is no silent
+provider fallback. Soul ID owns identity. Prompt and asset lineage are
+retained. The normal finished-Reel path selects a duration-compatible Audio
+Radar segment, embeds and verifies AAC, and binds its receipt to the exact final
+MP4 SHA. Native platform audio remains a separately resolved intent and is
+never inferred from an embedded track.
 
 The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu
