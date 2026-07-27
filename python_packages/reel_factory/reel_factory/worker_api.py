@@ -19,6 +19,13 @@ from creator_os_core.task_parameters import (
 
 from .audio_intent import read_audio_intent
 from .caption_bank import CaptionBankStore, load_or_build_caption_bank_store
+from .higgsfield_production import (
+    HiggsfieldProductionRequest,
+    build_higgsfield_production_plan,
+    discover_higgsfield_production_capabilities,
+    execute_higgsfield_production,
+    quote_higgsfield_production_plan,
+)
 from .human_media_review import HumanMediaReviewStore
 from .local_generation_queue import (
     _macos_available_memory_bytes,
@@ -468,9 +475,14 @@ def _is_sha256(value: str) -> bool:
 
 __all__ = [
     "CaptionBankStore",
+    "HiggsfieldProductionRequest",
     "admit_local_motion",
+    "build_higgsfield_production_plan",
     "build_reference_video_remix_plan",
+    "discover_higgsfield_production_capabilities",
+    "execute_higgsfield_production",
     "gemini_motion_analysis_instruction",
     "load_or_build_caption_bank_store",
+    "quote_higgsfield_production_plan",
     "read_audio_intent",
 ]

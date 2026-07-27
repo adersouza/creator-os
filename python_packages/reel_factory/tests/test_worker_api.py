@@ -13,13 +13,28 @@ from reel_factory.local_video import (
     LocalVideoRequest,
     local_video_task_parameter_material,
 )
-from reel_factory.worker_api import admit_local_motion
+from reel_factory.worker_api import (
+    HiggsfieldProductionRequest,
+    admit_local_motion,
+    build_higgsfield_production_plan,
+    discover_higgsfield_production_capabilities,
+    execute_higgsfield_production,
+    quote_higgsfield_production_plan,
+)
 
 MODEL_ID = "local_wan22_ti2v_5b_mlx"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
 HARDWARE_SHA = "d" * 64
+
+
+def test_worker_api_exports_higgsfield_production_boundary() -> None:
+    assert HiggsfieldProductionRequest.__name__ == "HiggsfieldProductionRequest"
+    assert callable(build_higgsfield_production_plan)
+    assert callable(discover_higgsfield_production_capabilities)
+    assert callable(execute_higgsfield_production)
+    assert callable(quote_higgsfield_production_plan)
 
 
 def _parameter_material() -> dict:
