@@ -91,6 +91,27 @@ def exact_embedded_audio_selection(
         ),
         "selection": {**chosen, "catalog_audio_id": row["audio_catalog_id"]},
     }
+    required = (
+        "tiktokMusicId",
+        "trackSha256",
+        "acousticFingerprint",
+        "segmentStartSeconds",
+        "segmentEndSeconds",
+        "processedSegmentSha256",
+        "finalMediaSha256",
+        "instagramMediaId",
+        "creator",
+        "creatorIdentityProfile",
+        "account",
+        "intent",
+        "observationBucket",
+    )
+    if any(
+        linkage.get(field) is None
+        or (isinstance(linkage.get(field), str) and not str(linkage.get(field)).strip())
+        for field in required
+    ):
+        return None
     existing_rollup_links: list[dict[str, Any]] = []
     for existing in conn.execute(
         "SELECT stats_json FROM audio_performance_rollups WHERE audio_catalog_id = ?",

@@ -202,6 +202,9 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
     assert [item["id"] for item in unchanged] == ["source_1", "source_2"]
     assert prompt == "Base prompt."
     assert advisory["fallbackReason"] == "advisory_only"
+    assert advisory["learningEligible"] is False
+    assert advisory["learningApplied"] is False
+    assert advisory["finalChoiceChanged"] is False
     row = conn.execute(
         "SELECT id FROM recommendation_items WHERE status = 'proposed'"
     ).fetchone()
@@ -222,6 +225,9 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
     assert [item["id"] for item in selected] == ["source_2", "source_1"]
     assert prompt == "Approved measured casual motion prompt."
     assert decision["learningInfluenced"] is True
+    assert decision["learningEligible"] is True
+    assert decision["learningApplied"] is True
+    assert decision["finalChoiceChanged"] is True
     for creator in ("larissa", "lola"):
         other, _, other_decision = apply_learning_to_production_plan(
             conn,
@@ -238,6 +244,7 @@ def test_three_equal_age_outcomes_require_operator_approval_and_stay_scoped() ->
 
 
 def test_wrong_account_intent_and_revocation_prevent_consumption() -> None:
+    conn = _conn()
     pack = _pack([_outcome(1), _outcome(2), _outcome(3)])
     rec = build_measured_recommendations(pack, now=datetime(2026, 7, 3, tzinfo=UTC))[0]
     # State classification is fail-closed even before persistence.
@@ -259,6 +266,68 @@ def test_wrong_account_intent_and_revocation_prevent_consumption() -> None:
         )
         == "BLOCKED"
     )
+    conn.execute(
+        """
+        INSERT INTO reference_knowledge_packs
+        (id, schema_version, source_fingerprint, generated_at, policy_json,
+         summary_json, payload_json, imported_at, updated_at)
+        VALUES (?, 'reference_factory.knowledge_pack.v1', ?, ?, '{}', '{}', ?, ?, ?)
+        """,
+        (
+            pack["packId"],
+            pack["sourceFingerprint"],
+            pack["generatedAt"],
+            json.dumps(pack),
+            pack["generatedAt"],
+            pack["generatedAt"],
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO reference_patterns
+        (id, cluster_key, label, prompt_template_json, raw_json,
+         imported_at, updated_at)
+        VALUES ('refpat_10012097369458bf', 'pattern_1', 'Pattern', '{}', '{}', ?, ?)
+        """,
+        (pack["generatedAt"], pack["generatedAt"]),
+    )
+    persist_measured_recommendations(conn, [rec], pack=pack)
+    conn.execute("UPDATE recommendation_items SET status = 'accepted'")
+    sources = [
+        {"id": "source_1", "content_hash": "a" * 64, "status": "approved"},
+        {"id": "source_2", "content_hash": "b" * 64, "status": "approved"},
+    ]
+    for account, intent, reason in (
+        ("stacey-secondary", "passive_selfie", "no_account_match"),
+        ("stacey-main", "outfit", "no_intent_match"),
+    ):
+        unchanged, _, decision = apply_learning_to_production_plan(
+            conn,
+            creator="stacey",
+            creator_identity_profile="soul_stacey",
+            account=account,
+            intent=intent,
+            sources=sources,
+            base_prompt="Base prompt.",
+            now=datetime(2026, 7, 3, tzinfo=UTC),
+        )
+        assert [item["id"] for item in unchanged] == ["source_1", "source_2"]
+        assert decision["fallbackReason"] == reason
+        assert decision["learningApplied"] is False
+    conn.execute("UPDATE recommendation_items SET status = 'rejected'")
+    unchanged, _, revoked = apply_learning_to_production_plan(
+        conn,
+        creator="stacey",
+        creator_identity_profile="soul_stacey",
+        account="stacey-main",
+        intent="passive_selfie",
+        sources=sources,
+        base_prompt="Base prompt.",
+        now=datetime(2026, 7, 3, tzinfo=UTC),
+    )
+    assert [item["id"] for item in unchanged] == ["source_1", "source_2"]
+    assert revoked["fallbackReason"] == "operator_not_approved"
+    assert revoked["learningApplied"] is False
 
 
 def test_decision_receipt_binds_output_lineage_idempotently() -> None:
@@ -330,6 +399,12 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
     )
     links = [
         {
+            "tiktokMusicId": "music_1",
+            "trackSha256": "a" * 64,
+            "acousticFingerprint": "fp_exact",
+            "segmentStartSeconds": 0.0,
+            "segmentEndSeconds": 5.0,
+            "processedSegmentSha256": "b" * 64,
             "instagramMediaId": f"1800{index}",
             "creator": "stacey",
             "creatorIdentityProfile": "soul_stacey",
@@ -379,6 +454,53 @@ def test_audio_learning_requires_exact_linkage_and_operator_approval() -> None:
     )
     assert scores == {"aud_exact": 10.0}
     assert len(ids) == 1
+
+
+def test_audio_learning_rejects_incomplete_exact_linkage() -> None:
+    conn = _conn()
+    pack = _pack([])
+    conn.execute(
+        """
+        INSERT INTO audio_catalog (
+          id, title, platform, active, lifecycle_state, imported_at, updated_at
+        ) VALUES ('aud_missing', 'Incomplete', 'tiktok', 1, 'HOT', ?, ?)
+        """,
+        ("2026-07-28T12:00:00Z", "2026-07-28T12:00:00Z"),
+    )
+    conn.execute(
+        """
+        INSERT INTO audio_performance_rollups (
+          id, campaign_id, account_id, audio_catalog_id, audio_key, post_count,
+          score, stats_json, updated_at
+        ) VALUES ('rollup_incomplete', 'campaign_1', 'stacey-main', 'aud_missing',
+                  'tiktok:music_missing', 3, 9.5, ?, '2026-07-28T12:00:00Z')
+        """,
+        (
+            json.dumps(
+                {
+                    "exactPublicationLinkages": [
+                        {
+                            "instagramMediaId": f"1800{index}",
+                            "creator": "stacey",
+                            "creatorIdentityProfile": "soul_stacey",
+                            "account": "stacey-main",
+                            "intent": "passive_selfie",
+                            "observationBucket": "approximately_24h",
+                            "finalMediaSha256": str(index) * 64,
+                            "snapshotAt": f"2026-07-{24 + index:02d}T12:00:00Z",
+                        }
+                        for index in (1, 2, 3)
+                    ]
+                }
+            ),
+        ),
+    )
+    assert (
+        build_audio_recommendations(
+            conn, pack=pack, now=datetime(2026, 7, 28, tzinfo=UTC)
+        )
+        == []
+    )
 
 
 def test_fixture_normal_create_dry_run_changes_only_approved_choice(tmp_path) -> None:

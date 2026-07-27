@@ -175,6 +175,7 @@ def test_future_embedded_audio_selection_links_exact_publication(tmp_path: Path)
             "audioCatalogId": "aud_exact",
             "creativeContext": {
                 "creator": "stacey",
+                "creatorIdentityProfile": "soul_stacey",
                 "account": "stacey-main",
                 "intent": "passive_selfie",
             },

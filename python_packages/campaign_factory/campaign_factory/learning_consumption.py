@@ -172,6 +172,12 @@ def build_audio_recommendations(
             if not isinstance(link, Mapping):
                 continue
             required = (
+                "tiktokMusicId",
+                "trackSha256",
+                "acousticFingerprint",
+                "segmentStartSeconds",
+                "segmentEndSeconds",
+                "processedSegmentSha256",
                 "instagramMediaId",
                 "creator",
                 "creatorIdentityProfile",
@@ -180,7 +186,14 @@ def build_audio_recommendations(
                 "observationBucket",
                 "finalMediaSha256",
             )
-            if any(not str(link.get(field) or "").strip() for field in required):
+            if any(
+                link.get(field) is None
+                or (
+                    isinstance(link.get(field), str)
+                    and not str(link.get(field)).strip()
+                )
+                for field in required
+            ):
                 continue
             grouped[
                 (
@@ -454,6 +467,9 @@ def apply_learning_to_production_plan(
     decision = {
         "schema": "campaign_factory.learning_decision_receipt.v1",
         "learningConsulted": True,
+        "learningEligible": False,
+        "learningApplied": False,
+        "finalChoiceChanged": False,
         "knowledgePackId": None,
         "knowledgePackSourceFingerprint": None,
         "recommendationIds": [],
@@ -598,6 +614,9 @@ def apply_learning_to_production_plan(
     decision.update(
         {
             "recommendationIds": [str(stored["id"])],
+            "learningEligible": True,
+            "learningApplied": True,
+            "finalChoiceChanged": influenced,
             "learnedScoreAdjustments": [
                 {
                     "recommendationId": str(stored["id"]),
@@ -834,10 +853,15 @@ def merge_audio_learning_decision(
     decision["recommendationIds"] = sorted(recommendation_ids)
     decision["finalSelectedAudio"] = selected_audio or None
     if audio_influenced:
+        decision["learningEligible"] = True
+        decision["learningApplied"] = True
+        decision["finalChoiceChanged"] = True
         decision["learningInfluenced"] = True
         decision["reason"] = "operator_approved_audio_recommendation_changed_ranking"
         decision["fallbackReason"] = None
     elif recommendation_ids and not decision.get("learningInfluenced"):
+        decision["learningEligible"] = True
+        decision["learningApplied"] = True
         decision["reason"] = "approved_recommendation_left_choice_unchanged"
         decision["fallbackReason"] = "final_choice_unchanged"
 
