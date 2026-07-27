@@ -11,6 +11,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.sqlite import connect_sqlite
+
 from .config import get_settings
 from .learning_consumption import apply_learning_to_production_plan
 from .production_lane import _CREATOR_SOUL_IDS
@@ -896,9 +898,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = get_settings()
     writes = getattr(args, "apply", False) or args.action in {"approve", "review"}
-    uri = f"file:{settings.db_path}?mode={'rw' if writes else 'ro'}"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(settings.db_path, readonly=not writes)
     try:
         if args.action == "build":
             before = conn.total_changes
