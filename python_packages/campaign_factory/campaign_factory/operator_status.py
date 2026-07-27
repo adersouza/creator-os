@@ -8,6 +8,8 @@ import sqlite3
 from collections.abc import Iterable
 from typing import Any
 
+from creator_os_core.sqlite import connect_sqlite
+
 from .config import get_settings
 
 
@@ -258,8 +260,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    conn = sqlite3.connect(f"file:{get_settings().db_path}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = connect_sqlite(get_settings().db_path, readonly=True)
     try:
         if args.creator:
             payload = creator_status(conn, args.creator)

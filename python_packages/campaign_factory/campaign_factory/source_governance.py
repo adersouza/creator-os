@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from creator_os_core.sqlite import connect_sqlite
+
 from .config import get_settings
 
 
@@ -22,9 +24,7 @@ def _sha256(path: Path) -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(get_settings().db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return connect_sqlite(get_settings().db_path)
 
 
 def list_sources(conn: sqlite3.Connection, *, creator: str) -> list[dict[str, Any]]:
