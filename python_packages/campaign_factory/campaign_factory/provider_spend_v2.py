@@ -28,7 +28,7 @@ from pipeline_contracts.validator import validate_provider_spend_authorization_v
 from .cost_tracker import ensure_cost_table, record_ai_cost
 from .provider_spend import AUTHORIZATION_TABLE, ensure_authorization_table
 
-PRICING_VERSION = "wavespeed_public_2026-07-21"
+PRICING_VERSION = "wavespeed_public_2026-07-24"
 _I2V_PER_SECOND = {"720p": 0.10, "1080p": 0.15}
 _I2V_PRO_PER_FIVE_SECONDS = {"1080p": 0.60, "2k": 0.70, "4k": 0.80}
 _REFERENCE_PRICES = {
@@ -39,6 +39,18 @@ _REFERENCE_PRICES = {
 }
 _SPEECH_PER_FIVE_SECONDS = {"480p": 0.15, "720p": 0.30}
 _WAN22_I2V_5B_PER_VIDEO = 0.05
+_KLING_O3_PRO_PER_SECOND = 0.112
+_VIDU_Q3_PRO_PER_SECOND = {
+    "720p": 0.09,
+    "1080p": 0.10,
+    "2k": 0.12,
+    "4k": 0.15,
+}
+_KLING_V3_PRO_MOTION_CONTROL_PER_SECOND = 0.168
+_INFINITETALK_PER_SECOND = {"480p": 0.03, "720p": 0.06}
+_LONGCAT_AVATAR15_PER_SECOND = {"480p": 0.04, "720p": 0.08}
+_SYNC_LIPSYNC2_PRO_PER_SECOND = 0.08
+_SYNC_LIPSYNC3_PER_SECOND = 0.134
 
 
 class BalanceProvider(Protocol):
@@ -161,11 +173,15 @@ def quote_wavespeed_scope(scope: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("WaveSpeed quote parameters are missing")
     resolution = str(parameters.get("resolution") or "")
     duration = parameters.get("durationSeconds")
-    duration_value = (
-        0
-        if model == "wavespeed-ai/wan-2.2/speech-to-video"
-        else _duration_int(duration)
-    )
+    media_duration_models = {
+        "wavespeed-ai/wan-2.2/speech-to-video",
+        "wavespeed-ai/infinitetalk",
+        "wavespeed-ai/longcat-avatar-1.5",
+        "kwaivgi/kling-v3.0-pro/motion-control",
+        "sync/lipsync-2-pro",
+        "sync/lipsync-3",
+    }
+    duration_value = 0 if model in media_duration_models else _duration_int(duration)
     if model == "wavespeed-ai/wan-2.2/i2v-5b-720p":
         if resolution != "720p" or duration_value != 5:
             raise ValueError("unsupported Wan 2.2 I2V 5B pricing parameters")
@@ -190,19 +206,67 @@ def quote_wavespeed_scope(scope: dict[str, Any]) -> dict[str, Any]:
                 "unsupported Wan 2.7 reference pricing parameters"
             ) from exc
     elif model == "wavespeed-ai/wan-2.2/speech-to-video":
-        audio_duration = parameters.get("audioDurationSeconds")
+        audio_duration = _bounded_media_duration(
+            parameters.get("audioDurationSeconds"),
+            label="speech audio",
+            maximum=600,
+        )
         if resolution not in _SPEECH_PER_FIVE_SECONDS:
             raise ValueError("unsupported Wan 2.2 speech resolution")
-        if (
-            isinstance(audio_duration, bool)
-            or not isinstance(audio_duration, (int, float))
-            or not math.isfinite(float(audio_duration))
-            or float(audio_duration) <= 0
-            or float(audio_duration) > 600
-        ):
-            raise ValueError("speech audio duration must be between 0 and 600 seconds")
         blocks = math.ceil(float(audio_duration) / 5.0)
         amount = blocks * _SPEECH_PER_FIVE_SECONDS[resolution]
+    elif model == "kwaivgi/kling-video-o3-pro/image-to-video":
+        if resolution != "provider_default" or not 3 <= duration_value <= 15:
+            raise ValueError("unsupported Kling O3 Pro pricing parameters")
+        amount = _KLING_O3_PRO_PER_SECOND * duration_value
+    elif model == "vidu/q3/image-to-video-pro":
+        if resolution not in _VIDU_Q3_PRO_PER_SECOND or not 1 <= duration_value <= 16:
+            raise ValueError("unsupported Vidu Q3 Pro pricing parameters")
+        amount = _VIDU_Q3_PRO_PER_SECOND[resolution] * duration_value
+    elif model == "kwaivgi/kling-v3.0-pro/motion-control":
+        reference_duration = _bounded_media_duration(
+            parameters.get("referenceVideoDurationSeconds"),
+            label="motion reference video",
+            minimum=3,
+            maximum=30,
+        )
+        amount = _KLING_V3_PRO_MOTION_CONTROL_PER_SECOND * max(3, reference_duration)
+    elif model == "wavespeed-ai/infinitetalk":
+        audio_duration = _bounded_media_duration(
+            parameters.get("audioDurationSeconds"),
+            label="InfiniteTalk audio",
+            maximum=600,
+        )
+        if resolution not in _INFINITETALK_PER_SECOND:
+            raise ValueError("unsupported InfiniteTalk resolution")
+        amount = _INFINITETALK_PER_SECOND[resolution] * max(5, audio_duration)
+    elif model == "wavespeed-ai/longcat-avatar-1.5":
+        audio_duration = _bounded_media_duration(
+            parameters.get("audioDurationSeconds"),
+            label="LongCat audio",
+            maximum=64,
+        )
+        if resolution not in _LONGCAT_AVATAR15_PER_SECOND:
+            raise ValueError("unsupported LongCat Avatar 1.5 resolution")
+        amount = _LONGCAT_AVATAR15_PER_SECOND[resolution] * max(5, audio_duration)
+    elif model == "sync/lipsync-2-pro":
+        audio_duration = _bounded_media_duration(
+            parameters.get("audioDurationSeconds"),
+            label="Sync Lipsync audio",
+            maximum=600,
+        )
+        if resolution != "source":
+            raise ValueError("unsupported Sync Lipsync 2 Pro resolution")
+        amount = _SYNC_LIPSYNC2_PRO_PER_SECOND * audio_duration
+    elif model == "sync/lipsync-3":
+        source_duration = _bounded_media_duration(
+            parameters.get("sourceVideoDurationSeconds"),
+            label="Sync Lipsync source video",
+            maximum=600,
+        )
+        if resolution != "source":
+            raise ValueError("unsupported Sync Lipsync 3 resolution")
+        amount = _SYNC_LIPSYNC3_PER_SECOND * source_duration
     else:
         raise ValueError(f"unpriced WaveSpeed model: {model}")
     pricing = {
@@ -273,12 +337,20 @@ def issue_wavespeed_spend_authorization(
     ):
         raise PermissionError("wavespeed_model_catalog_price_invalid")
     live_price: float | None
-    if scope.get("providerModel") == "wavespeed-ai/wan-2.2/speech-to-video":
+    media_duration_pricing = {
+        "wavespeed-ai/wan-2.2/speech-to-video": "pinned_audio_duration_rate",
+        "wavespeed-ai/infinitetalk": "pinned_audio_duration_rate",
+        "wavespeed-ai/longcat-avatar-1.5": "pinned_audio_duration_rate",
+        "sync/lipsync-2-pro": "pinned_audio_duration_rate",
+        "sync/lipsync-3": "pinned_reference_duration_rate",
+        "kwaivgi/kling-v3.0-pro/motion-control": ("pinned_reference_duration_rate"),
+    }
+    if scope.get("providerModel") in media_duration_pricing:
         # The endpoint derives price from uploaded audio length, but uploads are
         # forbidden before authorization.  Use the documented 5-second block
         # rate bound to the locally measured audio duration instead.
         live_price = float(quote["amount"])
-        live_price_source = "pinned_audio_duration_rate"
+        live_price_source = media_duration_pricing[str(scope["providerModel"])]
     else:
         live_price = (pricing_provider or WaveSpeedPricingProvider()).quote(scope)
         live_price_source = "wavespeed_model_pricing_api"
@@ -471,6 +543,23 @@ def _duration_int(value: Any) -> int:
     return value
 
 
+def _bounded_media_duration(
+    value: Any, *, label: str, maximum: float, minimum: float = 0
+) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+        or float(value) < minimum
+        or float(value) > maximum
+    ):
+        raise ValueError(
+            f"{label} duration must be between {minimum:g} and {maximum:g} seconds"
+        )
+    return float(value)
+
+
 def _pricing_inputs(scope: dict[str, Any]) -> dict[str, Any]:
     parameters = scope.get("parameters")
     if not isinstance(parameters, dict):
@@ -481,6 +570,25 @@ def _pricing_inputs(scope: dict[str, Any]) -> dict[str, Any]:
             "prompt": "Creator OS exact pricing preflight",
             "image": "https://pricing.invalid/source.jpg",
             "seed": parameters.get("seed"),
+        }
+    if model == "kwaivgi/kling-video-o3-pro/image-to-video":
+        return {
+            "prompt": "Creator OS exact pricing preflight",
+            "image": "https://pricing.invalid/source.jpg",
+            "duration": parameters.get("durationSeconds"),
+            "sound": False,
+            "shot_type": "customize",
+        }
+    if model == "vidu/q3/image-to-video-pro":
+        return {
+            "prompt": "Creator OS exact pricing preflight",
+            "image": "https://pricing.invalid/source.jpg",
+            "duration": parameters.get("durationSeconds"),
+            "resolution": parameters.get("resolution"),
+            "seed": parameters.get("seed"),
+            "movement_amplitude": "auto",
+            "generate_audio": False,
+            "bgm": False,
         }
     inputs: dict[str, Any] = {
         "prompt": "Creator OS exact pricing preflight",

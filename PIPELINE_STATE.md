@@ -1,6 +1,6 @@
 # Pipeline State
 
-**Last updated:** 2026-07-21.
+**Last updated:** 2026-07-27.
 
 This page records current source capability and the evidence boundary. The
 durable ownership map is [`CREATOR_OS_SYSTEM_MAP.md`](./CREATOR_OS_SYSTEM_MAP.md).
@@ -36,8 +36,12 @@ explicit, separately verified operation.
   developer implementation boundaries, not alternate control planes.
 - Direct Higgsfield reference-image Soul generation with explicit identity and
   lineage is the active still path.
-- Accepted stills can receive a free static MP4. Other motion modes require
-  explicit mode selection and their declared cost/approval gates.
+- Accepted stills can receive a free static MP4 or pinned Higgsfield Kling 3 /
+  Seedance 2 passive motion. Ordinary production is intent-first and has no
+  WaveSpeed or local-model fallback.
+- Exact supplied-voice talking, motion copy/dance, and talking motion are
+  unresolved source capabilities and fail before paid submission. Veo dialogue
+  is not represented as creator-voice preservation.
 - Overlay text is placement-scored, rendered by Reel Factory, and fails closed
   when no safe lane exists. Post captions remain a separate Campaign/
   ThreadsDashboard artifact.
@@ -88,8 +92,10 @@ schedule, post, or metric row.
 
 ## Still Operator-Gated
 
-- Paid generation requires an explicit mode, target, workspace, confirmation,
-  and finite credit cap.
+- Normal paid production requires creator intent, explicit apply, and a finite
+  credit cap; it resolves the pinned Higgsfield recipe internally. The
+  advanced/manual compatibility surface additionally requires an explicit
+  mode, target, workspace, and confirmation.
 - Reference Gold/Maybe/Ignore labels remain human decisions.
 - Draft export requires explicit apply and remains draft-only.
 - ThreadsDashboard approval, native-audio proof, scheduling, and publishing are

@@ -508,7 +508,16 @@ def _primary_generation_item(data: Any) -> dict[str, Any] | None:
     return None
 
 
-def extract_id(data: dict[str, Any]) -> str | None:
+def extract_id(data: Any) -> str | None:
+    if isinstance(data, dict):
+        items = data.get("items")
+        if (
+            isinstance(items, list)
+            and len(items) == 1
+            and isinstance(items[0], str)
+            and items[0]
+        ):
+            return items[0]
     item = _primary_generation_item(data)
     if item and item.get("id"):
         return str(item["id"])

@@ -162,13 +162,10 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         still_strategy="accepted_still",
         motion_strategy="best_paid_motion",
         cost_classification="paid_video",
-        providers=("wavespeed",),
+        providers=("higgsfield",),
         models=(
-            "wavespeed_wan22_i2v_5b_720p",
-            "wavespeed_wan27_i2v_pro",
-            "wavespeed_wan27_i2v",
-            "wavespeed_wan27_reference",
-            "wavespeed_wan22_s2v",
+            "higgsfield_kling3_i2v",
+            "higgsfield_seedance2_i2v",
             "static_mp4",
         ),
         required_approvals=(
@@ -178,7 +175,7 @@ _PLANS: dict[str, GenerationExecutionPlan] = {
         ),
         provider_authorization="required_per_paid_call",
         required_lineage=(
-            "reel_factory.wavespeed_submission.v1",
+            "reel_factory.higgsfield_production_receipt.v1",
             "campaign_factory.motion_generation_asset.v1",
         ),
         qc_requirements=("contentforge_quality", "human_final_review"),

@@ -1,6 +1,7 @@
 # Creator OS Debloat Handoff
 
 Date: 2026-07-24
+Creative closeout updated: 2026-07-26
 Baseline: `origin/main` at `ae165a4164ab0d420f74b83415c5cd4599f85f53`
 
 This is a cleanup handoff, not a new architecture proposal. The next operator
@@ -8,47 +9,46 @@ goal is to prove that Creator OS can make postable creator videos quickly and
 cheaply. Code, rules, tests, contracts, and runtime machinery that do not
 materially support that goal should not remain on the active path.
 
+The 2026-07-26 update supersedes the original WaveSpeed Wan recommendation in
+this handoff. Preserve the historical measurements below, but do not restart
+the old model-research plan.
+
 ## Locked Product Direction
 
-### Now
+Stop adding creative-model infrastructure. The real paid bakeoff produced seven
+technically valid videos, and the operator made the creative decision:
 
-Use WaveSpeed Wan 2.2 I2V 5B to:
+- Higgsfield Kling 3 and Higgsfield Seedance 2 are the only accepted passive
+  selfie-motion candidates.
+- WaveSpeed Kling O3 Pro and Vidu Q3 Pro are rejected.
+- Higgsfield and WaveSpeed Kling Motion Control are rejected as horrible and
+  must not be used as lip-sync bases.
+- InfiniteTalk is rejected because its voice sounded robotic and the video was
+  not postable.
+- Higgsfield Veo 3.1 failed without a reviewable output.
+- There is no accepted talking, motion-copy, dance-transfer, or
+  talking-motion-copy production recipe.
+- LongCat and Sync Lipsync 2/3 are unselected. Do not spend money on them merely
+  to finish a comparison matrix.
+- Wan, LTX, Arena, Router, Modal, Vast.ai, and RunPod are not required by the
+  supported production path.
 
-1. finish prompt testing quickly;
-2. generate real content batches;
-3. prove postable quality.
-
-The intended WaveSpeed provider model is:
+The supported Creator OS creative scope is:
 
 ```text
-wavespeed-ai/wan-2.2/i2v-5b-720p
+approved creator source
+  -> Higgsfield Soul still
+  -> static MP4 or explicitly selected Higgsfield Kling 3/Seedance 2 passive motion
+  -> technical QC
+  -> operator would-post review
+  -> verified trending-audio segment embedded as AAC
+  -> final media SHA bound to Campaign and audio receipts
+  -> validated ThreadsDashboard draft
 ```
 
-The current Creator OS catalog does not contain this endpoint. It currently
-contains WaveSpeed Wan 2.7 image/reference models and Wan 2.2
-speech-to-video. Reuse the existing fail-closed WaveSpeed upload, one-submit,
-poll, download, spend-cap, and receipt behavior. Do not build another provider
-framework.
-
-### Parallel, using existing free credits
-
-Use Modal monthly credits to build one minimal CUDA Wan worker. Benchmark it
-against WaveSpeed using the same approved image, prompt, and seed. Record:
-
-- would-post rate;
-- identity resemblance;
-- motion naturalness;
-- face stability;
-- wall time;
-- provider or compute cost;
-- failures;
-- cost per accepted clip.
-
-### Later
-
-Evaluate Vast.ai or RunPod only if the Modal benchmark shows that self-hosted
-CUDA Wan measurably beats WaveSpeed on accepted-output cost, speed, or quality.
-Do not add those providers speculatively.
+Talking and motion-copy are explicitly unsupported. Treating them as unsupported
+closes the current scope; it is not a request to keep researching until every
+intent has a winner.
 
 ## Measured Bloat Snapshot
 
@@ -67,7 +67,8 @@ The last row includes the local model evaluation/release laboratory plus clear
 later-stage Campaign/Reference/ContentForge areas. It is a conservative floor,
 not a claim that every other line is necessary.
 
-The current repository is overbuilt for the immediate product goal. A
+At the historical baseline, the repository was overbuilt for the immediate
+product goal. A
 defensible 38 percent of production source is already outside the immediate
 path. A caller/runtime audit is expected to show that roughly 50–65 percent can
 be deleted or archived, while 60–75 percent can be removed from the operator
@@ -79,17 +80,15 @@ Keep the operator path this small:
 
 ```text
 approved source
-  -> prompt + seed
-  -> WaveSpeed Wan 5B
-  -> basic media and identity checks
-  -> simple human would-post review
-  -> approved draft
+  -> Soul still
+  -> static Reel or explicit Higgsfield Kling 3/Seedance 2 passive motion
+  -> basic technical and identity checks
+  -> human would-post review
+  -> embedded trending audio with exact final-media proof
+  -> validated draft
   -> ThreadsDashboard
   -> real metrics later
 ```
-
-The parallel Modal worker is an implementation benchmark, not a second control
-plane.
 
 ## Rules Worth Keeping
 
@@ -103,6 +102,8 @@ wrong-account publication, or false evidence:
 4. Require a human would-post and identity decision before draft approval.
 5. Require exact account and draft approval before publishing.
 6. Never synthesize publication identities or performance metrics.
+7. Bind the selected audio, verified AAC streams, decoded-audio fingerprint,
+   and audio receipt to the exact final MP4 SHA.
 
 Everything else must justify its continued presence against the immediate
 postable-content goal.
@@ -129,7 +130,8 @@ preserved.
 
 Retained deliberately:
 
-- Wan 2.2 TI2V-5B MLX Q8, used by the active prompt A/B run;
+- Wan 2.2 TI2V-5B MLX Q8 as historical/advanced evidence, not a production
+  default;
 - Qwen2.5-VL prompt expander;
 - `mlx-video` and `mlx-vlm` runtimes;
 - LTX-2.3 MLX Q8 because it is untested rather than proven failed;
@@ -141,8 +143,10 @@ specific product reason and explicit operator approval.
 
 ## Cleanup Slices
 
-Execute cleanup in an isolated worktree after the active audio task has
-finished. Preserve dirty developer checkouts and machine-local evidence.
+These are historical cleanup guardrails, not an instruction for the next agent
+to start another cleanup project. Any remaining deletion must still have a
+current caller/runtime audit and explicit operator scope. Preserve dirty
+developer checkouts and machine-local evidence.
 
 ### 1. Remove failed models from active source surfaces
 
@@ -191,9 +195,10 @@ The root command should expose a small operator vocabulary. Hundreds of hidden
 Campaign developer subcommands are not an acceptable substitute for
 simplicity.
 
-Prefer content intents such as `static`, `motion`, `talking`, `remix`, and
-`reuse` over provider-specific operator concepts. Provider choice is execution
-policy and may change without changing what the operator is trying to create.
+Prefer supported content intents such as `static`, `passive_motion`, and
+`reuse` over provider-specific operator concepts. Talking and motion-copy are
+not active intents. Provider choice is execution policy and may change without
+changing what the operator is trying to create.
 
 Do not introduce another service layer merely to hide the existing services.
 Converge on a small set of real use cases such as create batch, review batch,
@@ -238,7 +243,7 @@ Define the few durable boundaries required by the minimal path:
 - human review;
 - approval;
 - draft payload;
-- audio intent if used;
+- selected/embedded audio fulfillment bound to the final MP4;
 - real metric observation.
 
 Remove obsolete schema versions only after retained producer/consumer searches
@@ -252,7 +257,7 @@ Database/evidence deletion remains separate from source cleanup.
 Reduce overlapping architecture documents and agent rules to:
 
 - the minimal active path;
-- the six retained safety rules above;
+- the seven retained safety rules above;
 - exact source/runtime/provider truth when it matters;
 - the boundary that ThreadsDashboard alone schedules and publishes.
 
@@ -272,27 +277,44 @@ The cleanup must not:
 - write production rows;
 - modify ThreadsDashboard production behavior;
 - delete source images, completed outputs, receipts, or real metrics;
-- interrupt active audio or Wan jobs;
-- add providers beyond WaveSpeed 5B and the bounded Modal benchmark;
+- silently route to rejected WaveSpeed, Motion Control, or InfiniteTalk recipes;
+- reopen Wan/Modal/Vast.ai/RunPod research without a new explicit product reason;
+- run LongCat or Sync Lipsync merely to complete the old comparison matrix;
 - create a new orchestration framework;
 - promote a model from a tiny cohort;
 - reintroduce deleted local models through an install-all command.
 
 ## Acceptance
 
-The cleanup is successful when:
+The supported Creator OS build is complete in scope when:
 
-1. one simple command can launch a bounded WaveSpeed Wan 5B prompt test or
-   content batch;
-2. every result preserves the small receipt set defined above;
-3. a reviewer can quickly mark would-post and identity quality;
-4. approved outputs can become validated ThreadsDashboard drafts;
-5. no scheduling, publication, or production metric fabrication is possible;
-6. the retained focused tests pass;
-7. final repository-wide verification passes once after the deletion slices;
-8. the operator no longer needs Arena, Router, promotions, analyzer registries,
+1. one simple command can create a bounded static or accepted passive-motion
+   batch from approved inventory;
+2. `count=N` preserves N independent jobs and exact provider receipts;
+3. every result preserves source, prompt, provider, output, spend, and review
+   evidence;
+4. a reviewer can quickly mark would-post and identity quality;
+5. the selected trending-audio segment is embedded, decoded, hashed, and bound
+   to the exact final MP4;
+6. approved outputs can become validated ThreadsDashboard drafts;
+7. no scheduling, publication, or production metric fabrication occurs inside
+   Creator OS;
+8. rejected or unsupported creative intents fail clearly instead of silently
+   falling back;
+9. the operator does not need Arena, Router, promotions, analyzer registries,
    or hundreds of Campaign subcommands to make a Reel.
 
-Delete aggressively, but prove each deletion against the retained path. Git
-history is the archive; dead runtime compatibility does not need to remain in
-the active tree.
+## Completion Verdict
+
+The coding and model-research phase can stop for the supported static/passive
+Creator OS scope. Do not add another provider or benchmark framework.
+
+This is not the same as saying the production runtime is current. Merge,
+exact-SHA CI, guarded runtime promotion, a bounded final canary, scheduling,
+publication, and measured learning remain separate operational actions. Future
+agents must inspect current source and runtime SHAs before claiming those truth
+levels.
+
+For automatic passive production, the remaining operator policy choice is
+whether Kling 3, Seedance 2, or explicit per-run selection is used. That choice
+does not require more model research.

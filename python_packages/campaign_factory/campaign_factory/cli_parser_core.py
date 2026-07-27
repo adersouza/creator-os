@@ -23,13 +23,19 @@ def register_core_commands(sub) -> None:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "motion_copy",
+            "dance",
+            "talking_selfie",
+            "talking_motion_copy",
         ],
     )
     create.add_argument("--count", type=int, default=1)
-    create.add_argument("--execution", choices=["local", "cloud"], default="local")
-    create.add_argument("--max-usd", type=float, default=0.25)
+    create.add_argument("--execution", choices=["cloud"], default="cloud")
+    create.add_argument("--max-credits", type=float, default=100.0)
     create.add_argument("--concurrency", type=int, default=2)
     create.add_argument("--accounts")
+    create.add_argument("--speech-audio", type=Path)
+    create.add_argument("--motion-reference", type=Path)
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -151,6 +157,8 @@ def register_core_commands(sub) -> None:
             "text_to_video",
             "image_to_video",
             "audio_image_to_video",
+            "motion_control",
+            "video_lipsync",
             "keyframe_interpolation",
             "video_retake",
             "video_extend",

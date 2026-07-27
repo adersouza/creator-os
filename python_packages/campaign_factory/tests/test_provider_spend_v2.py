@@ -84,6 +84,42 @@ def test_wan22_i2v_5b_quote_is_fixed_at_five_cents(tmp_path: Path) -> None:
         )
 
 
+def test_premium_recipe_quotes_match_documented_duration_rates(
+    tmp_path: Path,
+) -> None:
+    o3 = _scope(
+        tmp_path,
+        "kwaivgi/kling-video-o3-pro/image-to-video",
+        "provider_default",
+        5,
+    )
+    assert quote_wavespeed_scope(o3)["amount"] == 0.56
+
+    vidu = _scope(tmp_path, "vidu/q3/image-to-video-pro", "1080p", 5)
+    assert quote_wavespeed_scope(vidu)["amount"] == 0.5
+
+    infinite = _scope(tmp_path, "wavespeed-ai/infinitetalk", "720p", 0)
+    infinite["parameters"]["audioDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(infinite)["amount"] == 0.48
+
+    motion = _scope(
+        tmp_path,
+        "kwaivgi/kling-v3.0-pro/motion-control",
+        "provider_default",
+        0,
+    )
+    motion["parameters"]["referenceVideoDurationSeconds"] = 3.0
+    assert quote_wavespeed_scope(motion)["amount"] == 0.504
+
+    lipsync = _scope(tmp_path, "sync/lipsync-2-pro", "source", 0)
+    lipsync["parameters"]["audioDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(lipsync)["amount"] == 0.64
+
+    lipsync3 = _scope(tmp_path, "sync/lipsync-3", "source", 0)
+    lipsync3["parameters"]["sourceVideoDurationSeconds"] = 8.0
+    assert quote_wavespeed_scope(lipsync3)["amount"] == 1.072
+
+
 def test_authorization_requires_caps_balance_and_exact_run_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -123,6 +159,43 @@ def test_authorization_requires_caps_balance_and_exact_run_cap(
         "wavespeed_model_pricing_api"
     )
     assert authorization["scope"] == scope
+
+
+def test_sync3_authorization_uses_exact_local_source_duration_rate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, value in {
+        "WAVESPEED_DAILY_BUDGET_USD": "20",
+        "WAVESPEED_MONTHLY_BUDGET_USD": "100",
+        "WAVESPEED_COHORT_MAX_USD": "10",
+        "WAVESPEED_MIN_BALANCE_USD": "2",
+    }.items():
+        monkeypatch.setenv(name, value)
+    conn = sqlite3.connect(":memory:")
+    ensure_authorization_table(conn)
+    scope = _scope(tmp_path, "sync/lipsync-3", "source", 0)
+    scope["parameters"]["sourceVideoDurationSeconds"] = 8.0
+
+    class UnexpectedLivePricing:
+        def quote(self, _scope: dict) -> float:
+            raise AssertionError("duration-priced Sync 3 must not use generic pricing")
+
+    authorization = issue_wavespeed_spend_authorization(
+        conn,
+        scope=scope,
+        campaign_id=None,
+        max_usd=2,
+        secret=SECRET,
+        balance_provider=Balance(20),
+        model_catalog_provider=Catalog(),
+        pricing_provider=UnexpectedLivePricing(),
+    )
+
+    assert authorization["providerQuote"]["amount"] == 1.072
+    assert (
+        authorization["providerQuote"]["livePriceSource"]
+        == "pinned_reference_duration_rate"
+    )
 
 
 def test_authorization_fails_when_live_price_drifts(

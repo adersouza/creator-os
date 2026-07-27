@@ -28,6 +28,34 @@ this repo without an explicit deployment instruction.
 - `pipeline_contracts`: shared schemas and validators.
 - `reference_factory`: reference review, gold learning set, pattern/audio exports.
 
+## Current Creative Product Decision
+
+The operator reviewed the real paid-motion bakeoff on 2026-07-26. Treat this
+human would-post decision as the creative source of truth until the operator
+explicitly reopens model evaluation:
+
+- Higgsfield Kling 3 and Higgsfield Seedance 2 are the only accepted passive
+  selfie-motion candidates.
+- WaveSpeed Kling O3 Pro and Vidu Q3 Pro are rejected for production quality.
+- The tested Higgsfield and WaveSpeed Kling Motion Control recipes are rejected.
+  Motion copy itself remains unresolved, not permanently closed. Do not use
+  either rejected output as a lip-sync base.
+- WaveSpeed InfiniteTalk is rejected because the voice sounded robotic and the
+  result was not postable.
+- Higgsfield Veo 3.1 produced no reviewable output. There is no accepted talking
+  or motion-copy recipe.
+- LongCat and Sync Lipsync 2/3 remain unselected, not defaults. Do not run them
+  merely to complete a matrix.
+- Wan/LTX and the Arena/Router research surfaces are not active production
+  defaults.
+
+Do not average technical scores over the operator's would-post judgment. The
+supported creative scope is Soul still/static Reel plus explicitly authorized
+passive motion using one of the two accepted Higgsfield candidates. Talking,
+motion-copy, dance transfer, and talking-motion-copy are UNRESOLVED production
+intents unless an authenticated contract and later operator-approved bakeoff
+change this decision.
+
 ## Contract Ownership
 
 `packages/pipeline_contracts/pipeline_contracts/schemas` is the ONLY hand-edited
@@ -81,9 +109,11 @@ graphify query "How does Campaign Factory hand off to ThreadsDashboard?"
 Run `pnpm graphify:update` after code changes. `graphify-out/` is local
 architecture output and must not be committed unless explicitly approved.
 
-## Mandatory Generation Mode Selection
+## Advanced Generation Mode Selection
 
-Every new content-generation run must begin by asking the operator exactly:
+Normal production uses intent-first `creator-os create` and does not ask for or
+accept an internal mode or provider/model identifier. Only an explicitly
+requested advanced/manual `creator-os generate` run begins by asking:
 
 > Which Creator OS mode do you want for this run?
 
@@ -96,11 +126,11 @@ Show the current five-mode menu from Campaign Factory's canonical
 4. Best paid motion — paid video
 5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video
 
-Never remember or infer the mode from an earlier run. If the operator already
-named a mode in the current instruction, confirm that mode before execution.
-The canonical non-interactive command must receive `--mode`; a missing mode is
-an error, never a default. This question is only for a new generation run. Do
-not ask it for audits, tests, status checks, or other read-only work.
+Never remember or infer an advanced mode from an earlier run. If the operator
+already named one in the current instruction, confirm it before execution. The
+advanced non-interactive `generate` command must receive `--mode`; a missing
+mode is an error, never a default. Do not ask this question for normal
+intent-first `create`, audits, tests, status checks, or other read-only work.
 
 ## Reel Factory Active Path
 
@@ -112,7 +142,12 @@ single-person reference image
 → captured Higgsfield prompt + lineage
 → optional append-only body emphasis
 → accepted still
-→ deterministic Kling motion prompt
+→ local static MP4, or explicitly authorized Higgsfield Kling 3/Seedance 2
+  passive animation
+→ technical QC + operator would-post review
+→ Audio Radar track/segment selection and verified AAC embedding
+→ final MP4 SHA bound to Campaign and audio receipts
+→ validated draft handoff
 ```
 
 Grok, Qwen/Ollama/Florence, visual-schema, grids, cropped panels, and `_grok.json` are legacy/experimental unless explicitly requested.
@@ -234,9 +269,12 @@ Do not relearn or invent these each task. Read this section, then the named file
   per-creator weights Larissa/Stacey/Lola, `performance.json` = perf metadata).
   Selection/rotation logic: `caption_bank.py`; rendering: `caption_render.py`;
   fit-to-frame: `caption_scene_fit.py` (`reel_pipeline.py --caption-fit auto`).
-- **Native audio is never burned into the MP4.** Campaign Factory recommends via
-  `audio_intent.v1`; ThreadsDashboard selects/verifies native audio. Publishing
-  is blocked until ThreadsDashboard has native-audio + publishability proof.
+- **The normal finished-Reel path embeds verified trending audio.** Campaign
+  Factory selects an Audio Radar track and duration-compatible segment, embeds
+  AAC after the visual render, verifies the streams, and binds the audio
+  receipt to the exact final MP4 SHA. ThreadsDashboard publishes that completed
+  MP4 unchanged. Native platform audio remains a separate explicitly selected
+  policy; do not describe an embedded-audio Reel as native audio.
 
 ## Durable System Map
 

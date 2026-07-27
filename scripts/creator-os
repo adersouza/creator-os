@@ -145,6 +145,19 @@ def _identity_command(*args: str) -> list[str]:
     ]
 
 
+def _higgsfield_bakeoff_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "reel-factory",
+        "python",
+        "-m",
+        "reel_factory.intent_video_bakeoff",
+        *args,
+    ]
+
+
 def _local_router_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -270,13 +283,19 @@ def _parser() -> argparse.ArgumentParser:
             "outfit",
             "lifestyle",
             "animate_existing",
+            "motion_copy",
+            "dance",
+            "talking_selfie",
+            "talking_motion_copy",
         ],
     )
     create.add_argument("--count", type=int, default=1)
-    create.add_argument("--execution", choices=["local", "cloud"], default="local")
-    create.add_argument("--max-usd", type=float)
+    create.add_argument("--execution", choices=["cloud"], default="cloud")
+    create.add_argument("--max-credits", type=float)
     create.add_argument("--concurrency", type=int)
     create.add_argument("--accounts")
+    create.add_argument("--speech-audio", type=Path)
+    create.add_argument("--motion-reference", type=Path)
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -292,6 +311,14 @@ def _parser() -> argparse.ArgumentParser:
         default="embedded_trending_required",
     )
     create.add_argument("--apply", action="store_true")
+
+    video_bakeoff = sub.add_parser(
+        "video-bakeoff",
+        help=(
+            "inspect historical provider bakeoff evidence; never schedules or publishes"
+        ),
+    )
+    video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
 
     generate = sub.add_parser(
         "generate",
@@ -327,6 +354,8 @@ def _parser() -> argparse.ArgumentParser:
             "text_to_video",
             "image_to_video",
             "audio_image_to_video",
+            "motion_control",
+            "video_lipsync",
             "keyframe_interpolation",
             "video_retake",
             "video_extend",
@@ -595,11 +624,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.accounts:
             command.extend(["--accounts", args.accounts])
-        if args.max_usd is not None:
-            if not math.isfinite(args.max_usd) or args.max_usd <= 0:
-                print("--max-usd must be finite and greater than zero", file=sys.stderr)
+        if args.speech_audio:
+            command.extend(["--speech-audio", str(args.speech_audio)])
+        if args.motion_reference:
+            command.extend(["--motion-reference", str(args.motion_reference)])
+        if args.max_credits is not None:
+            if not math.isfinite(args.max_credits) or args.max_credits <= 0:
+                print(
+                    "--max-credits must be finite and greater than zero",
+                    file=sys.stderr,
+                )
                 return 2
-            command.extend(["--max-usd", str(args.max_usd)])
+            command.extend(["--max-credits", str(args.max_credits)])
         if args.concurrency is not None:
             if not 1 <= args.concurrency <= 4:
                 print("--concurrency must be between 1 and 4", file=sys.stderr)
@@ -608,6 +644,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.apply:
             command.append("--apply")
         return _run(command)
+    if args.command == "video-bakeoff":
+        bakeoff_args = args.args[1:] if args.args[:1] == ["--"] else args.args
+        return _run(_higgsfield_bakeoff_command(*bakeoff_args))
     if args.command == "generate":
         print(
             "deprecated advanced compatibility command: ordinary production uses "

@@ -47,8 +47,9 @@ def _bound_evidence_args(tmp_path: Path) -> list[str]:
     return arguments
 
 
-def test_catalog_routes_production_paid_motion_to_wan22_5b_without_fallback() -> None:
+def test_active_catalog_is_higgsfield_only_and_history_remains_readable() -> None:
     catalog = video_model_catalog()
+    assert catalog["activeProvider"] == "higgsfield"
     assert catalog["routing"] == {
         "localImageMotion": "local_wan22_ti2v_5b_mlx",
         "localImageMotionQuality": "local_wan22_i2v_a14b_q4_mlx",
@@ -56,15 +57,32 @@ def test_catalog_routes_production_paid_motion_to_wan22_5b_without_fallback() ->
         "localAudioMotionQuality": "local_ltx23_dev_hq_mlx",
         "localTextToVideo": "local_ltx23_distilled_mlx",
         "localSpeakingVideo": "local_longcat_avatar15_q4_mlx",
-        "paidImageMotion": "wavespeed_wan22_i2v_5b_720p",
-        "paidImageMotionQuality": "wavespeed_wan27_i2v_pro",
-        "paidImageMotionEconomy": "wavespeed_wan27_i2v",
-        "paidReferenceMotion": "wavespeed_wan27_reference",
-        "paidSpeakingVideo": "wavespeed_wan22_s2v",
+        "paidImageMotion": "higgsfield_kling3_i2v",
+        "paidImageMotionQuality": "higgsfield_seedance2_i2v",
+        "paidImageMotionSeededAlternative": None,
+        "paidReferenceMotion": None,
+        "paidMotionControl": None,
+        "paidSpeakingVideo": None,
+        "paidSpeakingChallenger": None,
+        "paidVideoLipsync": None,
+        "operatorVisualSelectionRequired": False,
+        "supportedPassiveSelfieRecipes": [
+            "higgsfield_kling3_i2v",
+            "higgsfield_seedance2_i2v",
+        ],
+        "experimentalMotionCopyRecipes": [],
+        "experimentalTalkingSelfieRecipes": [],
+        "experimentalTalkingMotionRecipes": [],
+        "advancedBudgetFallback": None,
         "silentProviderFallbackAllowed": False,
     }
-    assert "wavespeed_wan22_i2v_5b_720p" in video_model_ids(task="image_to_video")
-    assert "wavespeed_wan27_i2v_pro" in video_model_ids(task="image_to_video")
+    assert all(model["provider"] != "wavespeed" for model in catalog["models"])
+    assert all(not model_id.startswith("wavespeed_") for model_id in video_model_ids())
+    assert "higgsfield_kling3_i2v" in video_model_ids(task="image_to_video")
+    assert "higgsfield_kling3_motion_control" not in video_model_ids()
+    assert "higgsfield_veo31_talking" not in video_model_ids()
+    assert video_model("wavespeed_infinitetalk").provider == "wavespeed"
+    assert "wavespeed_infinitetalk" in catalog["historicalProviderModelsReadable"]
 
 
 def test_ltx_reel_profiles_are_exact_9_by_16_and_bind_production_assets() -> None:
@@ -158,45 +176,22 @@ def test_motion_worker_rejects_backend_specific_options_instead_of_ignoring_them
     with pytest.raises(ValueError, match="resolution must be one of 720p"):
         build_request(local_args)
 
-    remote_args = _parser().parse_args(
-        [
-            "--model",
-            "wavespeed_wan27_i2v_pro",
-            "--prompt",
-            "Natural breathing and a slow camera push toward the subject",
-            "--image",
-            str(image),
-            "--out",
-            str(tmp_path / "remote.mp4"),
-            "--campaign",
-            "campaign",
-            "--steps",
-            "30",
-            "--dry-run",
-        ]
-    )
-    with pytest.raises(ValueError, match="steps applies only"):
-        build_request(remote_args)
-
-    remote_memory_args = _parser().parse_args(
-        [
-            "--model",
-            "wavespeed_wan27_i2v_pro",
-            "--prompt",
-            "Natural breathing and a slow camera push toward the subject",
-            "--image",
-            str(image),
-            "--out",
-            str(tmp_path / "remote-memory.mp4"),
-            "--campaign",
-            "campaign",
-            "--tile-spatial",
-            "3",
-            "--dry-run",
-        ]
-    )
-    with pytest.raises(ValueError, match="memory controls require a local model"):
-        build_request(remote_memory_args)
+    with pytest.raises(SystemExit):
+        _parser().parse_args(
+            [
+                "--model",
+                "wavespeed_wan27_i2v_pro",
+                "--prompt",
+                "Natural breathing and a slow camera push toward the subject",
+                "--image",
+                str(image),
+                "--out",
+                str(tmp_path / "remote.mp4"),
+                "--campaign",
+                "campaign",
+                "--dry-run",
+            ]
+        )
 
 
 def test_ltx_audio_capabilities_are_explicit_and_never_inferred(tmp_path: Path) -> None:
@@ -299,7 +294,7 @@ def test_audio_task_and_inputs_cannot_silently_disagree() -> None:
             has_last_image=False,
             task="audio_image_to_video",
         )
-    with pytest.raises(ValueError, match="explicit audio_image_to_video task"):
+    with pytest.raises(ValueError, match="explicit audio-driven video task"):
         validate_model_request(
             ltx,
             resolution="576x1024",

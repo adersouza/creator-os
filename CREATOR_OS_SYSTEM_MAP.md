@@ -111,7 +111,7 @@ the Creator OS stages, not additional workflow steps.
 ```mermaid
 flowchart TB
     Operator["Operator"]
-    Providers["Higgsfield<br/>Soul · Kling · Seedance"]
+    Providers["Higgsfield<br/>Soul · Kling 3 · Seedance 2<br/>passive motion only"]
 
     subgraph CreatorOS["Creator OS<br/>Core + Pipeline Contracts underpin every stage"]
         direction LR
@@ -208,15 +208,45 @@ polling queue.
 
 ## Production Creation And Research
 
-Normal production begins with:
+### Supported Creative Product Boundary
+
+The real paid-motion bakeoff completed technically with seven retained videos.
+The operator's 2026-07-26 would-post review—not vendor descriptions or
+technical pass rates—set the production-quality boundary:
+
+| Intent | Current decision | Production behavior |
+|---|---|---|
+| Soul still / static Reel | Supported | Direct Higgsfield Soul still, optional approved body-emphasis variant, static MP4 fallback |
+| Passive selfie motion | Supported | A pinned product configuration selects operator-approved Higgsfield Kling 3 or Seedance 2; ordinary operators do not select models |
+| WaveSpeed passive motion | Rejected | Kling O3 Pro and Vidu Q3 Pro are not production choices |
+| Motion copy / dance transfer | Unresolved | The tested Kling Motion Control recipes were rejected; no distinct authenticated recipe has operator approval |
+| Talking selfie | Unresolved | No authenticated contract proves exact supplied-creator-audio preservation; Veo text dialogue is not a substitute |
+| Talking motion copy | Unresolved | No accepted transfer base and no authenticated supplied-audio lip-sync path |
+| Wan/LTX local motion | Advanced historical/experimental only | Not an active production default and not a prerequisite for normal creation |
+
+This closes provider/model selection for the currently supported scope without
+declaring unresolved capabilities permanently closed. New provider
+architecture, Arena, Router, benchmark expansion, or speculative model calls
+are not required.
+
+The supported product path is complete in scope when it can take an approved
+creator source through Soul still or accepted passive motion, technical and
+human review, verified embedded audio, exact final-media binding, and validated
+draft handoff. Source merge, runtime promotion, scheduling, publication, and
+real metric learning remain separate truth levels; this statement does not
+claim those operational actions occurred.
+
+Normal supported production begins with:
 
 ```text
 creator + intent + count + execution + account group + audio preference
 -> approved creator image inventory
--> pinned active production recipe
+-> static Reel or product-pinned Higgsfield Kling 3/Seedance 2 passive recipe
 -> N independent source/prompt/seed/request identities
 -> local or authorized cloud worker
 -> hard QC blockers + soft ranking signals
+-> operator would-post decision
+-> verified trending-audio segment embedded into the final MP4
 -> Creator OS creative decision
 -> validated ThreadsDashboard draft
 ```
@@ -450,7 +480,7 @@ The ordinary command surface is intentionally small:
 
 ```text
 creator-os status
-creator-os create --mode ...
+creator-os create --creator ... --intent ... --count ...
 creator-os review ...
 creator-os approve ...
 creator-os export ...
@@ -459,8 +489,10 @@ creator-os promote ...
 
 `create`, `review`, and `export` are canonical. `generate`, `readiness`, and
 `draft-export` remain deprecated compatibility aliases. New automation must use
-the canonical names. Every new generation run requires an explicit canonical
-mode; no default mode exists.
+the canonical names. Normal `create` resolves its pinned Higgsfield recipe from
+creator intent and never requires an internal mode or provider/model identifier.
+The advanced/manual `generate` compatibility surface still requires an explicit
+mode and has no default.
 
 Model installation, queue recovery, benchmark inspection, Arena diagnostics,
 Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
@@ -479,15 +511,16 @@ combined boundary.
 publishing. It requires an exact clean merged commit and live GitHub verification
 of trusted workflow/app identities. Historical independent-review approvals
 remain readable; the active single-owner mode binds the authenticated
-write-capable operator to strict branch protection, all nine required checks,
-conversation resolution, admin enforcement, and a zero-review policy instead
-of inventing a second reviewer. A deterministic runtime-scoped lock prevents
+write-capable operator to admin-enforced branch protection requiring
+`affected`, `hygiene`, and `Secret scan`, plus successful trusted release and
+security evidence on the exact target SHA. It does not invent a second reviewer.
+A deterministic runtime-scoped lock prevents
 alternate state roots from racing one checkout. Promotion accepts only an
 initially detached runtime, revalidates mutable authority under the lock,
 creates and verifies a Git bundle plus backup manifest, and runs verification
 under a credential-scrubbed environment. Health policy
-`creator_os.runtime_live_read_only_health.v1` requires its exact nine-check
-inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
+`creator_os.runtime_live_read_only_health.v1` requires its complete runtime
+health inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
 recovery verifies the bundle and can re-import the prior commit before
 rollback. It never mutates operational databases, ThreadsDashboard, providers,
 schedules, or posts.
@@ -547,16 +580,15 @@ reference intake
   -> Campaign-issued, signed one-time spend authorization for paid modes
   -> Reel Factory direct Higgsfield Soul still + lineage
   -> mandatory local static MP4 for accepted stills
-  -> optional pinned local Qwen-VL image-aware Wan prompt expansion
-  -> optional pinned local Wan/LTX/LongCat MLX or approved WaveSpeed motion
-  -> machine-wide local generation lease + unified-memory admission
-  -> exact BenchmarkRecipeV1 + AnalyzerRegistryV1 fingerprints on benchmark jobs
-  -> motion-specific temporal/identity/anatomy/audio/lip-sync evidence gate
+  -> optional explicitly selected Higgsfield Kling 3 or Seedance 2 passive motion
+  -> technical QC plus operator would-post review
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
+  -> Audio Radar selects a live cached track and compatible segment
+  -> verified AAC embedding; audio receipt binds the exact final MP4 SHA
   -> Campaign Factory readiness and pipeline-contract validation
   -> HMAC-signed draft-only ingest request
-  -> ThreadsDashboard approval, native-audio proof, scheduling, publishing
+  -> ThreadsDashboard approval, exact-media validation, scheduling, publishing
   -> post metric history
   -> performance sync
   -> Campaign performance_snapshots
@@ -574,7 +606,9 @@ at validated draft handoff.
   recommendation alias. ContentForge failures remain review-only but are
   reported honestly as `validated_with_failures`, never `validated`.
 - `soul_static`: direct Soul still plus local static MP4.
-- `local_wan`: the stable compatibility id for local Apple-silicon MLX motion.
+- `local_wan`: an advanced historical/experimental compatibility mode, not an
+  active production default. It remains the stable compatibility id for local
+  Apple-silicon MLX motion.
   Model choice is explicit: Wan 2.2 TI2V-5B q8 for volume, Wan 2.2 I2V-A14B q4
   for quality, quantized LTX-2.3 Q4 for fast generated-audio motion, or
   quantized LTX-2.3 Q8 for HQ source/generated audio, first/last frames,
@@ -604,23 +638,29 @@ at validated draft handoff.
   expander. It runs before admission, never downloads during generation, and
   carries one exact source/model/runtime/implementation-bound receipt into the
   queue job and asset lineage.
-- `best_motion`: explicitly selected WaveSpeed motion. Wan 2.7 Pro is the
-  quality default, standard Wan 2.7 is the economy control, Wan 2.7 Reference
-  handles multi-reference motion, and Wan 2.2 S2V handles speaking video.
+- `best_motion`: one explicitly selected, separately authorized passive-motion
+  candidate. The only operator-accepted candidates are Higgsfield Kling 3 and
+  Higgsfield Seedance 2. WaveSpeed Kling O3 Pro and Vidu Q3 Pro, both tested
+  Kling Motion Control paths, and InfiniteTalk are rejected for production
+  quality. Higgsfield Veo produced no reviewable output. LongCat and Sync
+  Lipsync 2/3 are unselected and must not be treated as defaults.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
-All modes are review-gated and require explicit selection; there is no active
-generation default. Soul ID owns identity. Prompt and asset lineage are
-retained. LTX may mux source or generated audio into its derivative, but that
-track is never misclassified as native platform audio and requires human audio
-review. Native platform audio remains a separately resolved intent.
+These advanced/manual modes are review-gated and require explicit selection;
+they are not inputs to normal intent-first `create`. There is no silent provider
+fallback. Soul ID owns identity. Prompt and asset lineage are retained. The
+normal finished-Reel path selects a duration-compatible Audio Radar segment,
+embeds and verifies AAC, and binds its receipt to the exact final MP4 SHA.
+Native platform audio remains a separately resolved intent and is never inferred
+from an embedded track.
 
 The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu
 and cannot be selected through the supported CLI. Motion providers never
 silently fall back to another model. See
-[`docs/providers/wan_wavespeed.md`](docs/providers/wan_wavespeed.md).
+[`docs/providers/wan_wavespeed.md`](docs/providers/wan_wavespeed.md) and
+[`docs/providers/higgsfield_production.md`](docs/providers/higgsfield_production.md).
 
 ## QC, Readiness, And Draft Handoff
 
@@ -740,8 +780,9 @@ Campaign has at least three eligible measured examples for that pattern.
 | `status` | read-only live source/runtime/config/DB report; unprobed systems are `NOT_RUN` |
 | `doctor` | read-only fixture-backed integrity audit |
 | `reference-refresh --dry-run|--apply` | local Reference/Audio database and export workflow |
-| `create --list-modes` | read-only canonical five-mode catalog with cost and gates |
-| `create --mode <mode> --dry-run|--apply` | the only generation workflow; mode is mandatory and no mode may schedule or publish |
+| `create --creator <creator> --intent <intent> --count <N> [--apply]` | canonical intent-first production; resolves the pinned Higgsfield recipe internally and never schedules or publishes |
+| `generate --list-modes` | read-only advanced/manual five-mode compatibility catalog |
+| `generate --mode <mode> --dry-run|--apply` | advanced/manual compatibility generation; mode is mandatory and no mode may schedule or publish |
 | `review` | ordinary read-only Campaign creative/QC review |
 | `approve` | signs one immutable Creative Approval v2 from an exact review draft |
 | `export --dry-run|--apply` | bounded validated drafts only; never schedules or publishes |

@@ -25,37 +25,33 @@ Historical migration plans and snapshots are not runtime instructions.
 The normal command names the creator goal, not implementation evidence:
 
 ```bash
-# Safe plan: resolves approved inventory, prompt, model, seeds, and N jobs.
-scripts/creator-os create \
-  --creator stacey \
-  --intent passive_selfie \
-  --count 20 \
-  --execution local \
-  --accounts stacey-main
-
-# Execute the local production batch. This still never schedules or publishes.
-scripts/creator-os create \
-  --creator stacey \
-  --intent passive_selfie \
-  --count 20 \
-  --execution local \
-  --accounts stacey-main \
-  --apply
-```
-
-Production cloud motion uses the exact WaveSpeed Wan 2.2 I2V 5B endpoint with
-internal source rotation, Qwen-VL prompt expansion, bounded two-job
-concurrency, per-call spend authorization, and a $0.25 default batch cap:
-
-```bash
+# Safe plan: resolves approved inventory, prompt, pinned recipe, seeds, and N jobs.
 scripts/creator-os create \
   --creator stacey \
   --intent passive_selfie \
   --count 3 \
   --execution cloud \
+  --accounts stacey-main \
+  --audio embedded_trending
+
+# Execute the Higgsfield batch. This still never schedules or publishes.
+scripts/creator-os create \
+  --creator stacey \
+  --intent passive_selfie \
+  --count 3 \
+  --execution cloud \
+  --accounts stacey-main \
   --audio embedded_trending \
+  --max-credits 100 \
   --apply
 ```
+
+Production cloud motion uses one pinned, operator-approved Higgsfield recipe:
+Kling 3 by default, or Seedance 2 when explicitly configured by the product.
+It preserves internal source rotation, Qwen-VL prompt expansion, independent
+jobs and receipts, bounded concurrency, native-credit authorization, and exact
+output lineage. Provider/model IDs remain internal. There is no WaveSpeed
+fallback.
 
 Use `creator-os review` for calibration exceptions, `creator-os export` for the
 validated draft boundary, and ThreadsDashboard for account health, scheduling,
@@ -103,12 +99,14 @@ executed by GitHub in this monorepo.
 The normal image path is one reference image through Higgsfield Soul V2 with an
 explicit Soul ID. The reference-conditioned result captures the composition
 prompt and lineage. An accepted still always receives a local, zero-provider-
-cost static MP4. Motion edit is optional and local. Kling is optional, paid,
-and reserved for an explicitly approved best candidate.
+cost static MP4. Passive motion uses the pinned Higgsfield Kling 3 or Seedance
+2 recipe. Exact-voice talking and motion-copy remain unresolved and fail before
+provider submission.
 
 Overlay text always goes through Reel Factory placement and caption rendering.
-If no safe lane exists, no overlay is forced. Native platform audio is carried
-as `audio_intent.v1`; it is not burned into the MP4.
+If no safe lane exists, no overlay is forced. Non-talking motion disables
+provider sound; Audio Radar selects a cached live track and Creator OS embeds
+and verifies AAC against the exact final MP4 SHA.
 
 Grok, grid/cropped-panel, Qwen, Ollama, Florence, and visual-schema generation
 are not Reel Factory operator paths. Their retired execution code and empty

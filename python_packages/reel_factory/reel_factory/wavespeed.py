@@ -45,6 +45,7 @@ class WaveSpeedRequest:
     image_path: Path | None = None
     last_image_path: Path | None = None
     audio_path: Path | None = None
+    source_video_path: Path | None = None
     reference_video_paths: tuple[Path, ...] = ()
     reference_image_paths: tuple[Path, ...] = ()
     resolution: str = "1080p"
@@ -66,6 +67,8 @@ def build_wavespeed_spend_scope(
         media["last_image"] = _file(request.last_image_path, "last image")
     if request.audio_path is not None:
         media["audio"] = _file(request.audio_path, "audio")
+    if request.source_video_path is not None:
+        media["source_video"] = _file(request.source_video_path, "source video")
     for index, path in enumerate(request.reference_video_paths, start=1):
         media[f"video_{index}"] = _file(path, f"reference video {index}")
     for index, path in enumerate(request.reference_image_paths, start=1):
@@ -73,7 +76,9 @@ def build_wavespeed_spend_scope(
     parameters: dict[str, Any] = {
         "resolution": request.resolution,
         "durationSeconds": request.duration_seconds,
-        "seed": request.seed,
+        "seed": request.seed if model.provider_accepts_seed else None,
+        "requestIdentitySeed": request.seed,
+        "providerSeedAccepted": model.provider_accepts_seed,
         "enablePromptExpansion": request.enable_prompt_expansion,
         "shotType": request.shot_type if model.shot_type_supported else None,
     }
@@ -84,6 +89,14 @@ def build_wavespeed_spend_scope(
     if request.audio_path is not None:
         parameters["audioDurationSeconds"] = _media_duration(
             _file(request.audio_path, "audio")
+        )
+    if model.task == "motion_control" and request.reference_video_paths:
+        parameters["referenceVideoDurationSeconds"] = _media_duration(
+            _file(request.reference_video_paths[0], "motion reference video")
+        )
+    if model.task == "video_lipsync" and request.source_video_path is not None:
+        parameters["sourceVideoDurationSeconds"] = _media_duration(
+            _file(request.source_video_path, "source video")
         )
     return build_video_provider_spend_scope(
         provider="wavespeed",
@@ -283,6 +296,8 @@ def execute_wavespeed(
             if digest != recovered_intent.get("outputSha256"):
                 raise PermissionError("wavespeed_completed_output_sha256_mismatch")
             _probe_video(output)
+            if model.audio_required:
+                _probe_audio(output)
             return {
                 **recovered_intent,
                 "evidencePath": str(intent_path),
@@ -311,7 +326,9 @@ def execute_wavespeed(
         "requestFingerprint": scope["requestFingerprint"],
         "authorizationId": verified["authorizationId"],
         "providerModel": model.provider_model,
-        "seed": request.seed,
+        "seed": request.seed if model.provider_accepts_seed else None,
+        "requestIdentitySeed": request.seed,
+        "providerSeedAccepted": model.provider_accepts_seed,
         "creator": (
             request.production_context.get("creator")
             if request.production_context is not None
@@ -322,7 +339,10 @@ def execute_wavespeed(
             if request.production_context is not None
             else None
         ),
-        "sourceSha256": scope["mediaSha256"].get("image"),
+        "sourceSha256": (
+            scope["mediaSha256"].get("image")
+            or scope["mediaSha256"].get("source_video")
+        ),
         "expandedPrompt": " ".join(request.prompt.split()),
         "expandedPromptSha256": scope["promptSha256"],
         "status": "uploading",
@@ -390,7 +410,11 @@ def _poll_retain_prediction(
     scope: dict[str, Any],
     started_monotonic: float,
 ) -> dict[str, Any]:
-    poll_timeout = 60 * 60 * 6 if model.task == "speech_to_video" else 60 * 30
+    poll_timeout = (
+        60 * 60 * 6
+        if model.task in {"speech_to_video", "audio_image_to_video", "video_lipsync"}
+        else 60 * 30
+    )
     try:
         result = api.poll(
             prediction_id,
@@ -457,6 +481,18 @@ def _poll_retain_prediction(
         intent["failure"] = type(exc).__name__
         _write_json(intent_path, intent)
         raise
+    embedded_audio = None
+    if model.audio_required:
+        _probe_audio(Path(request.output_path).expanduser().resolve())
+        embedded_audio = {
+            "mode": "source",
+            "sourceSha256": (
+                _sha256_file(_file(request.audio_path, "source audio"))
+                if request.audio_path is not None
+                else None
+            ),
+            "streamVerified": True,
+        }
     intent.update(
         {
             "status": "completed",
@@ -476,6 +512,7 @@ def _poll_retain_prediction(
                 }
             ],
             "failure": None,
+            "audio": embedded_audio or {"mode": "none"},
         }
     )
     _write_json(intent_path, intent)
@@ -497,6 +534,7 @@ def _validate_request(request: WaveSpeedRequest) -> VideoModel:
         duration=request.duration_seconds,
         has_audio=request.audio_path is not None,
         has_last_image=request.last_image_path is not None,
+        has_source_video=request.source_video_path is not None,
     )
     if request.enable_prompt_expansion and not model.prompt_expansion_supported:
         raise ValueError(f"{model.id} does not support prompt expansion")
@@ -505,25 +543,38 @@ def _validate_request(request: WaveSpeedRequest) -> VideoModel:
     if not model.shot_type_supported and request.shot_type != "single":
         raise ValueError(f"{model.id} does not support shot type selection")
     if (
-        model.task in {"image_to_video", "speech_to_video"}
+        model.task
+        in {
+            "image_to_video",
+            "audio_image_to_video",
+            "motion_control",
+            "speech_to_video",
+        }
         and request.image_path is None
     ):
         raise ValueError(f"{model.id} requires an image")
+    if model.task == "video_lipsync" and request.source_video_path is None:
+        raise ValueError(f"{model.id} requires a source video")
     reference_count = len(request.reference_video_paths) + len(
         request.reference_image_paths
     )
-    if model.task != "reference_to_video" and reference_count:
+    if model.task not in {"reference_to_video", "motion_control"} and reference_count:
         raise ValueError(f"{model.id} does not accept reference collections")
     if model.task == "reference_to_video" and not request.reference_video_paths:
         raise ValueError("WaveSpeed reference-to-video requires a reference video")
     if model.task == "reference_to_video" and not 1 <= reference_count <= 5:
         raise ValueError("WaveSpeed reference-to-video allows 1 to 5 references")
+    if model.task == "motion_control" and (
+        len(request.reference_video_paths) != 1 or request.reference_image_paths
+    ):
+        raise ValueError("WaveSpeed motion control requires exactly one driving video")
     paths = [
         path
         for path in (
             request.image_path,
             request.last_image_path,
             request.audio_path,
+            request.source_video_path,
             *request.reference_video_paths,
             *request.reference_image_paths,
         )
@@ -537,13 +588,14 @@ def _validate_request(request: WaveSpeedRequest) -> VideoModel:
         raise ValueError("WaveSpeed output path collides with an input")
     if request.production_context is not None:
         context = request.production_context
+        source_path = request.image_path or request.source_video_path
         if (
             context.get("schema") != "campaign_factory.production_motion_recipe.v1"
             or context.get("modelId") != model.id
             or context.get("sourceSha256")
             != (
-                _sha256_file(_file(request.image_path, "production source"))
-                if request.image_path is not None
+                _sha256_file(_file(source_path, "production source"))
+                if source_path is not None
                 else None
             )
             or context.get("expandedPromptSha256")
@@ -556,10 +608,11 @@ def _validate_request(request: WaveSpeedRequest) -> VideoModel:
 def _upload_and_build_payload(
     client: WaveSpeedClient, request: WaveSpeedRequest, model: VideoModel
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "prompt": " ".join(request.prompt.split()),
-        "seed": request.seed,
-    }
+    payload: dict[str, Any] = {}
+    if model.provider_accepts_prompt:
+        payload["prompt"] = " ".join(request.prompt.split())
+    if model.provider_accepts_seed:
+        payload["seed"] = request.seed
     if model.provider_accepts_resolution:
         payload["resolution"] = request.resolution
     if model.provider_accepts_duration and request.duration_seconds:
@@ -567,25 +620,52 @@ def _upload_and_build_payload(
     if model.prompt_expansion_supported:
         payload["enable_prompt_expansion"] = request.enable_prompt_expansion
     if model.shot_type_supported:
-        payload["shot_type"] = request.shot_type
+        payload["shot_type"] = (
+            ("customize" if request.shot_type == "single" else "intelligent")
+            if model.id == "wavespeed_kling_o3_pro_i2v"
+            else request.shot_type
+        )
     if model.provider_accepts_negative_prompt:
         payload["negative_prompt"] = NEGATIVE_PROMPT
     if request.image_path is not None:
         payload["image"] = client.upload(request.image_path)
     if request.last_image_path is not None:
-        payload["last_image"] = client.upload(request.last_image_path)
+        payload[
+            "end_image" if model.id == "wavespeed_kling_o3_pro_i2v" else "last_image"
+        ] = client.upload(request.last_image_path)
     if request.audio_path is not None:
         payload["audio"] = client.upload(request.audio_path)
-    if request.reference_video_paths:
+    if request.source_video_path is not None:
+        payload["video"] = client.upload(request.source_video_path)
+    if model.task == "reference_to_video" and request.reference_video_paths:
         payload["videos"] = [
             client.upload(path) for path in request.reference_video_paths
         ]
-    if request.reference_image_paths:
+    if model.task == "reference_to_video" and request.reference_image_paths:
         payload["reference_images"] = [
             client.upload(path) for path in request.reference_image_paths
         ]
     if model.task == "reference_to_video":
         payload["aspect_ratio"] = "9:16"
+    elif model.id == "wavespeed_vidu_q3_i2v_pro":
+        payload.update(
+            {
+                "movement_amplitude": "auto",
+                "generate_audio": False,
+                "bgm": False,
+            }
+        )
+    elif model.id == "wavespeed_kling_o3_pro_i2v":
+        payload["sound"] = False
+    elif model.id == "wavespeed_kling_v3_pro_motion_control":
+        payload["video"] = client.upload(request.reference_video_paths[0])
+        payload["character_orientation"] = "video"
+        payload["keep_original_sound"] = False
+    elif model.id in {
+        "wavespeed_sync_lipsync2_pro",
+        "wavespeed_sync_lipsync3",
+    }:
+        payload["sync_mode"] = "cut_off"
     return payload
 
 
@@ -620,8 +700,13 @@ def _validated_recovery_intent(
         or intent.get("requestFingerprint") != scope["requestFingerprint"]
         or intent.get("authorizationId") != authorization_id
         or intent.get("providerModel") != model.provider_model
-        or intent.get("seed") != request.seed
-        or intent.get("sourceSha256") != scope["mediaSha256"].get("image")
+        or intent.get("requestIdentitySeed") != request.seed
+        or intent.get("seed") != (request.seed if model.provider_accepts_seed else None)
+        or intent.get("sourceSha256")
+        != (
+            scope["mediaSha256"].get("image")
+            or scope["mediaSha256"].get("source_video")
+        )
         or intent.get("expandedPromptSha256") != scope["promptSha256"]
         or intent.get("outputPath")
         != str(Path(request.output_path).expanduser().resolve())
@@ -747,6 +832,42 @@ def _probe_video(path: Path) -> None:
     ratio = width / height
     if not 0.50 <= ratio <= 0.65:
         raise RuntimeError("wavespeed_output_not_portrait_reel")
+
+
+def _probe_audio(path: Path) -> None:
+    proc = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name,sample_rate,channels",
+            "-of",
+            "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError("wavespeed_output_audio_unreadable")
+    try:
+        streams = json.loads(proc.stdout).get("streams") or []
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("wavespeed_output_audio_probe_invalid") from exc
+    if len(streams) != 1:
+        raise RuntimeError("wavespeed_output_audio_stream_mismatch")
+    stream = streams[0]
+    if (
+        not str(stream.get("codec_name") or "")
+        or int(stream.get("sample_rate") or 0) <= 0
+        or int(stream.get("channels") or 0) <= 0
+    ):
+        raise RuntimeError("wavespeed_output_audio_metadata_missing")
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:

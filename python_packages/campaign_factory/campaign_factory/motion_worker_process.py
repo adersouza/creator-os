@@ -137,7 +137,12 @@ def build_motion_worker_command(
         if still is None:
             raise ValueError("WaveSpeed reference motion requires an accepted still")
         command.extend(["--reference-image", str(still)])
-    elif motion_task not in {"text_to_video", "video_retake", "video_extend"}:
+    elif motion_task not in {
+        "text_to_video",
+        "video_retake",
+        "video_extend",
+        "video_lipsync",
+    }:
         if still is None:
             raise ValueError(f"{motion_task} requires an accepted still")
         command.extend(["--image", str(still)])

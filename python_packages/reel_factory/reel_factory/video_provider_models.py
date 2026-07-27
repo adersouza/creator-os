@@ -10,11 +10,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-Backend = Literal["local_mlx", "wavespeed"]
+Backend = Literal["local_mlx", "wavespeed", "higgsfield_cli"]
 Task = Literal[
     "text_to_video",
     "image_to_video",
     "audio_image_to_video",
+    "motion_control",
+    "video_lipsync",
     "keyframe_interpolation",
     "video_retake",
     "video_extend",
@@ -58,6 +60,8 @@ class VideoModel:
     provider_accepts_resolution: bool = True
     provider_accepts_duration: bool = True
     provider_accepts_negative_prompt: bool = True
+    provider_accepts_seed: bool = True
+    provider_accepts_prompt: bool = True
 
     def to_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -288,7 +292,207 @@ WAVESPEED_WAN22_S2V = VideoModel(
     quality_tier="remote_best_speaking",
 )
 
-_MODELS = {
+WAVESPEED_KLING_O3_PRO_I2V = VideoModel(
+    id="wavespeed_kling_o3_pro_i2v",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="kwaivgi/kling-video-o3-pro/image-to-video",
+    task="image_to_video",
+    resolutions=("provider_default",),
+    durations=tuple(range(3, 16)),
+    default_resolution="provider_default",
+    default_duration=5,
+    first_last_frame=True,
+    paid=True,
+    quality_tier="remote_premium_portrait",
+    shot_type_supported=True,
+    provider_accepts_resolution=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+WAVESPEED_VIDU_Q3_I2V_PRO = VideoModel(
+    id="wavespeed_vidu_q3_i2v_pro",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="vidu/q3/image-to-video-pro",
+    task="image_to_video",
+    resolutions=("720p", "1080p", "2k", "4k"),
+    durations=tuple(range(1, 17)),
+    default_resolution="1080p",
+    default_duration=5,
+    paid=True,
+    quality_tier="remote_premium_seeded_portrait",
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_KLING_V3_PRO_MOTION_CONTROL = VideoModel(
+    id="wavespeed_kling_v3_pro_motion_control",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="kwaivgi/kling-v3.0-pro/motion-control",
+    task="motion_control",
+    resolutions=("provider_default",),
+    durations=(),
+    default_resolution="provider_default",
+    default_duration=0,
+    paid=True,
+    quality_tier="remote_premium_motion_copy",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_seed=False,
+)
+
+WAVESPEED_INFINITETALK = VideoModel(
+    id="wavespeed_infinitetalk",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="wavespeed-ai/infinitetalk",
+    task="audio_image_to_video",
+    resolutions=("480p", "720p"),
+    durations=(),
+    default_resolution="720p",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_talking",
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_LONGCAT_AVATAR15 = VideoModel(
+    id="wavespeed_longcat_avatar15",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="wavespeed-ai/longcat-avatar-1.5",
+    task="audio_image_to_video",
+    resolutions=("480p", "720p"),
+    durations=(),
+    default_resolution="720p",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_talking_challenger",
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+)
+
+WAVESPEED_SYNC_LIPSYNC2_PRO = VideoModel(
+    id="wavespeed_sync_lipsync2_pro",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="sync/lipsync-2-pro",
+    task="video_lipsync",
+    resolutions=("source",),
+    durations=(),
+    default_resolution="source",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_video_lipsync",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
+WAVESPEED_SYNC_LIPSYNC3 = VideoModel(
+    id="wavespeed_sync_lipsync3",
+    backend="wavespeed",
+    provider="wavespeed",
+    provider_model="sync/lipsync-3",
+    task="video_lipsync",
+    resolutions=("source",),
+    durations=(),
+    default_resolution="source",
+    default_duration=0,
+    audio_required=True,
+    audio_supported=True,
+    paid=True,
+    quality_tier="remote_premium_video_lipsync_challenger",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
+# These are authenticated Higgsfield CLI contracts, not marketing-page aliases.
+# Kling 3 and Seedance 2 are the operator-approved passive production recipes.
+HIGGSFIELD_KLING3_I2V = VideoModel(
+    id="higgsfield_kling3_i2v",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="kling3_0",
+    task="image_to_video",
+    resolutions=("720x1280",),
+    durations=tuple(range(3, 16)),
+    default_resolution="720x1280",
+    default_duration=5,
+    paid=True,
+    quality_tier="production_passive_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+HIGGSFIELD_SEEDANCE2_I2V = VideoModel(
+    id="higgsfield_seedance2_i2v",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="seedance_2_0",
+    task="image_to_video",
+    resolutions=("720p", "1080p", "4k"),
+    durations=tuple(range(4, 16)),
+    default_resolution="720p",
+    default_duration=5,
+    generated_audio_supported=True,
+    paid=True,
+    quality_tier="production_passive_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+HIGGSFIELD_KLING3_MOTION_CONTROL = VideoModel(
+    id="higgsfield_kling3_motion_control",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="kling3_0_motion_control",
+    task="motion_control",
+    resolutions=("720x1280",),
+    durations=(),
+    default_resolution="720x1280",
+    default_duration=0,
+    paid=True,
+    quality_tier="bakeoff_candidate_motion_copy",
+    provider_accepts_resolution=False,
+    provider_accepts_duration=False,
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+    provider_accepts_prompt=False,
+)
+
+HIGGSFIELD_VEO31_TALKING = VideoModel(
+    id="higgsfield_veo31_talking",
+    backend="higgsfield_cli",
+    provider="higgsfield",
+    provider_model="veo3_1",
+    task="image_to_video",
+    resolutions=("720x1280",),
+    durations=(4, 6, 8),
+    default_resolution="720x1280",
+    default_duration=8,
+    generated_audio_supported=True,
+    paid=True,
+    quality_tier="bakeoff_candidate_talking_selfie",
+    provider_accepts_negative_prompt=False,
+    provider_accepts_seed=False,
+)
+
+_ACTIVE_MODELS = {
     model.id: model
     for model in (
         LOCAL_WAN22_TI2V_5B,
@@ -296,11 +500,27 @@ _MODELS = {
         LOCAL_LTX23_DISTILLED,
         LOCAL_LTX23_DEV_HQ,
         LOCAL_LONGCAT_AVATAR15_Q4,
+        HIGGSFIELD_KLING3_I2V,
+        HIGGSFIELD_SEEDANCE2_I2V,
+    )
+}
+_HISTORICAL_MODELS = {
+    model.id: model
+    for model in (
         WAVESPEED_WAN22_I2V_5B_720P,
         WAVESPEED_WAN27_I2V,
         WAVESPEED_WAN27_I2V_PRO,
         WAVESPEED_WAN27_REFERENCE,
         WAVESPEED_WAN22_S2V,
+        WAVESPEED_KLING_O3_PRO_I2V,
+        WAVESPEED_VIDU_Q3_I2V_PRO,
+        WAVESPEED_KLING_V3_PRO_MOTION_CONTROL,
+        WAVESPEED_INFINITETALK,
+        WAVESPEED_LONGCAT_AVATAR15,
+        WAVESPEED_SYNC_LIPSYNC2_PRO,
+        WAVESPEED_SYNC_LIPSYNC3,
+        HIGGSFIELD_KLING3_MOTION_CONTROL,
+        HIGGSFIELD_VEO31_TALKING,
     )
 }
 
@@ -308,7 +528,7 @@ _MODELS = {
 def video_model(model_id: str) -> VideoModel:
     normalized = str(model_id or "").strip().lower().replace("-", "_")
     try:
-        return _MODELS[normalized]
+        return _ACTIVE_MODELS.get(normalized) or _HISTORICAL_MODELS[normalized]
     except KeyError as exc:
         raise ValueError(f"unsupported video model: {model_id}") from exc
 
@@ -316,7 +536,17 @@ def video_model(model_id: str) -> VideoModel:
 def video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
     return tuple(
         model.id
-        for model in _MODELS.values()
+        for model in _ACTIVE_MODELS.values()
+        if task is None or task in (model.supported_tasks or (model.task,))
+    )
+
+
+def historical_video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
+    """Return retired provider IDs only for evidence readers and migrations."""
+
+    return tuple(
+        model.id
+        for model in _HISTORICAL_MODELS.values()
         if task is None or task in (model.supported_tasks or (model.task,))
     )
 
@@ -324,7 +554,8 @@ def video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
 def video_model_catalog() -> dict[str, object]:
     return {
         "schema": "reel_factory.video_model_catalog.v1",
-        "models": [model.to_dict() for model in _MODELS.values()],
+        "activeProvider": "higgsfield",
+        "models": [model.to_dict() for model in _ACTIVE_MODELS.values()],
         "routing": {
             "localImageMotion": LOCAL_WAN22_TI2V_5B.id,
             "localImageMotionQuality": LOCAL_WAN22_I2V_A14B_Q4.id,
@@ -332,13 +563,26 @@ def video_model_catalog() -> dict[str, object]:
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
             "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
-            "paidImageMotion": WAVESPEED_WAN22_I2V_5B_720P.id,
-            "paidImageMotionQuality": WAVESPEED_WAN27_I2V_PRO.id,
-            "paidImageMotionEconomy": WAVESPEED_WAN27_I2V.id,
-            "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
-            "paidSpeakingVideo": WAVESPEED_WAN22_S2V.id,
+            "paidImageMotion": HIGGSFIELD_KLING3_I2V.id,
+            "paidImageMotionQuality": HIGGSFIELD_SEEDANCE2_I2V.id,
+            "paidImageMotionSeededAlternative": None,
+            "paidReferenceMotion": None,
+            "paidMotionControl": None,
+            "paidSpeakingVideo": None,
+            "paidSpeakingChallenger": None,
+            "paidVideoLipsync": None,
+            "operatorVisualSelectionRequired": False,
+            "supportedPassiveSelfieRecipes": [
+                HIGGSFIELD_KLING3_I2V.id,
+                HIGGSFIELD_SEEDANCE2_I2V.id,
+            ],
+            "experimentalMotionCopyRecipes": [],
+            "experimentalTalkingSelfieRecipes": [],
+            "experimentalTalkingMotionRecipes": [],
+            "advancedBudgetFallback": None,
             "silentProviderFallbackAllowed": False,
         },
+        "historicalProviderModelsReadable": list(historical_video_model_ids()),
     }
 
 
@@ -349,6 +593,7 @@ def validate_model_request(
     duration: int | None,
     has_audio: bool,
     has_last_image: bool,
+    has_source_video: bool = False,
     generate_audio: bool = False,
     task: Task | None = None,
     has_image: bool = True,
@@ -361,8 +606,23 @@ def validate_model_request(
             f"{model.id} does not support task {selected_task}; choose one of "
             + ", ".join(supported_tasks)
         )
-    if selected_task in {"image_to_video", "audio_image_to_video"} and not has_image:
+    if (
+        selected_task
+        in {
+            "image_to_video",
+            "audio_image_to_video",
+            "motion_control",
+            "speech_to_video",
+        }
+        and not has_image
+    ):
         raise ValueError(f"{model.id} task {selected_task} requires an image")
+    if selected_task == "video_lipsync" and not has_source_video:
+        raise ValueError(f"{model.id} video_lipsync requires a source video")
+    if selected_task != "video_lipsync" and has_source_video:
+        raise ValueError(
+            f"{model.id} task {selected_task} does not accept a source video"
+        )
     if selected_task == "keyframe_interpolation" and not (has_image and has_last_image):
         raise ValueError(
             f"{model.id} keyframe_interpolation requires start and end images"
@@ -375,8 +635,18 @@ def validate_model_request(
         raise ValueError("text_to_video must not silently consume an image")
     if selected_task == "audio_image_to_video" and (not has_audio or generate_audio):
         raise ValueError(f"{model.id} audio_image_to_video requires exact source audio")
-    if selected_task != "audio_image_to_video" and has_audio:
-        raise ValueError("source audio requires the explicit audio_image_to_video task")
+    if selected_task == "video_lipsync" and (not has_audio or generate_audio):
+        raise ValueError(f"{model.id} video_lipsync requires exact source audio")
+    if (
+        selected_task
+        not in {
+            "audio_image_to_video",
+            "speech_to_video",
+            "video_lipsync",
+        }
+        and has_audio
+    ):
+        raise ValueError("source audio requires an explicit audio-driven video task")
     if resolution not in model.resolutions:
         raise ValueError(
             f"{model.id} resolution must be one of {', '.join(model.resolutions)}"
@@ -391,12 +661,12 @@ def validate_model_request(
             + ", ".join(str(value) for value in model.durations)
         )
     if not model.durations and duration not in {None, 0}:
-        raise ValueError(f"{model.id} duration is determined by its audio input")
+        raise ValueError(f"{model.id} duration is determined by its media input")
     if model.audio_required and not has_audio:
         raise ValueError(f"{model.id} requires an audio input")
     if has_audio and not (model.audio_required or model.audio_supported):
         raise ValueError(
-            f"{model.id} does not accept audio in Creator OS; use wavespeed_wan22_s2v"
+            f"{model.id} does not accept audio in Creator OS; use an audio-driven model"
         )
     if generate_audio and not model.generated_audio_supported:
         raise ValueError(f"{model.id} does not support generated audio")

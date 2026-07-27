@@ -1,14 +1,17 @@
-# Local Wan/LTX/LongCat And WaveSpeed Motion Providers
+# Historical And Advanced Video Model Evidence
 
-Creator OS exposes one explicit motion surface with two independently gated
-backends:
+This document preserves research, compatibility, and receipt-reading details.
+It is not the normal production model map. The intent-first production command
+uses only the pinned Higgsfield Kling 3 or Seedance 2 passive recipe and never
+selects WaveSpeed.
 
-- pinned, offline Apple-silicon MLX models for zero-provider-cost generation;
-- explicitly authorized WaveSpeed endpoints for paid remote generation.
+Local models and WaveSpeed code remain available only where advanced tools,
+historical receipts, migrations, or immutable lineage require them. Historical
+provider rows, media, hashes, and receipts must not be deleted or rewritten.
 
-No model is a silent fallback for another model. A local failure preserves the
-static MP4 and honest failure lineage. It never calls WaveSpeed. A paid failure
-never falls back to a different billable endpoint.
+WaveSpeed Kling O3, Vidu Q3, Kling Motion Control, and InfiniteTalk are rejected
+recipes from the completed operator bakeoff. LongCat and Sync Lipsync 2/3 were
+not selected. None is an active fallback or runtime credential requirement.
 
 The Mac-specific adoption and deferral record lives in
 [`docs/architecture/MAC_LOCAL_VIDEO_STACK_2026.md`](../architecture/MAC_LOCAL_VIDEO_STACK_2026.md).
@@ -22,11 +25,21 @@ The Mac-specific adoption and deferral record lives in
 | `local_ltx23_distilled_mlx` | local MLX | fast image motion with jointly generated audio | 576x1024, 24 fps, 5-8 s | generated | 20 GB plus 8.1 GB shared Gemma |
 | `local_ltx23_dev_hq_mlx` | local MLX | HQ motion, source audio, keyframes, retake, and extension | 576x1024, 24 fps, 5-8 s | source, generated, or explicitly preserved retake audio | 37 GB plus 8.1 GB shared Gemma |
 | `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
-| `wavespeed_wan22_i2v_5b_720p` | WaveSpeed | production creator-image batch motion | fixed 720p, fixed 5 s | none | remote |
-| `wavespeed_wan27_i2v_pro` | WaveSpeed | best-quality paid still animation | 1080p, 5 s | none | remote |
-| `wavespeed_wan27_i2v` | WaveSpeed | lower-cost remote control | 1080p, 5 s | none | remote |
+| `higgsfield_kling3_i2v` | Higgsfield CLI | supported passive-selfie recipe | 9:16, 4-15 s | disabled | account credits |
+| `higgsfield_seedance2_i2v` | Higgsfield CLI | supported passive-selfie recipe | 9:16, 4-15 s | disabled | account credits |
+| `higgsfield_kling3_motion_control` | Higgsfield CLI | rejected tested motion-transfer recipe | driving-video length | disabled | account credits |
+| `higgsfield_veo31_talking` | Higgsfield CLI | experimental dialogue-only evidence, not exact voice | 9:16, 8 s | generated | account credits |
+| `wavespeed_kling_o3_pro_i2v` | WaveSpeed | ordinary premium portrait animation | provider output, 3-15 s | disabled | remote |
+| `wavespeed_vidu_q3_i2v_pro` | WaveSpeed | seeded still-animation challenger | 720p-4K, 1-16 s | disabled | remote |
+| `wavespeed_kling_v3_pro_motion_control` | WaveSpeed | driving-video motion copy and dance | driving-video length, up to 30 s | disabled | remote |
+| `wavespeed_infinitetalk` | WaveSpeed | direct talking portrait candidate | 480p or 720p, speech length | source required | remote |
+| `wavespeed_longcat_avatar15` | WaveSpeed | talking portrait challenger | 480p or 720p, up to 64 s | source required | remote |
+| `wavespeed_sync_lipsync2_pro` | WaveSpeed | lipsync after motion control | source resolution and length | source required | remote |
+| `wavespeed_sync_lipsync3` | WaveSpeed | lipsync 3 candidate after motion control | source resolution and length | source required | remote |
 | `wavespeed_wan27_reference` | WaveSpeed | 1-5 identity/style references | 1080p, 5 s | none | remote |
-| `wavespeed_wan22_s2v` | WaveSpeed | speech-driven portrait video | 720p, audio length | source required | remote |
+
+Wan models remain readable for historical receipts and the explicit advanced
+compatibility surface. They are not selected by `creator-os create`.
 
 The local catalog is intentionally small:
 
@@ -447,10 +460,24 @@ export WAVESPEED_COHORT_MAX_USD=10
 export WAVESPEED_MIN_BALANCE_USD=2
 ```
 
-The intent-first production command uses the fixed WaveSpeed Wan 2.2 I2V 5B
-endpoint. `--execution cloud --apply` is the explicit paid authorization, with
-a conservative two-job concurrency limit and a $0.25 total batch cap by
-default. Every provider call still receives its own signed $0.05 authorization.
+The intent-first production command has candidate sets, not defaults:
+
+- passive portrait: Higgsfield Kling 3/Seedance 2, WaveSpeed Kling O3 Pro, and
+  WaveSpeed Vidu Q3 Pro;
+- `motion_copy` and `dance`: authenticated Higgsfield Kling 3 Motion Control
+  and WaveSpeed Kling 3 Pro Motion Control;
+- `talking_selfie`: Higgsfield Veo 3.1, WaveSpeed InfiniteTalk, and WaveSpeed
+  LongCat Avatar 1.5;
+- `talking_motion_copy`: WaveSpeed Motion Control followed by Sync Lipsync 2
+  Pro or Sync Lipsync 3.
+
+The authenticated account currently exposes no separate Higgsfield Replace,
+Speak, or lip-sync tool, so those named candidates remain accurately
+unavailable. The production lane blocks paid apply until the operator records a
+winner for each intent. Applying any candidate requires an explicit per-run cap
+large enough for the complete quoted request. Every WaveSpeed provider call
+receives its own signed exact-request authorization; Higgsfield quotes and
+enforces the operator's explicit credit cap before its single create call.
 
 ```bash
 scripts/creator-os create \
@@ -459,7 +486,20 @@ scripts/creator-os create \
   --count 3 \
   --execution cloud \
   --audio embedded_trending \
+  --max-usd 1.68 \
   --apply
+```
+
+Talking and motion-copy inputs are explicit and are hashed before authorization:
+
+```bash
+scripts/creator-os create --creator stacey --intent talking_selfie \
+  --count 1 --execution cloud --audio creator_voice \
+  --speech-audio /absolute/creator-speech.wav --max-usd 1.00 --apply
+
+scripts/creator-os create --creator stacey --intent motion_copy \
+  --count 1 --execution cloud --audio embedded_trending \
+  --motion-reference /absolute/driving-video.mp4 --max-usd 2.00 --apply
 ```
 
 The advanced explicit-model surface still requires `--confirm-paid`, an
@@ -468,21 +508,24 @@ existing `--workspace`, and a finite `--max-usd` for that exact request.
 ```bash
 scripts/creator-os generate --mode best_motion --dry-run \
   --campaign CAMPAIGN --accepted-still /absolute/still.jpg \
-  --motion-model wavespeed_wan27_i2v_pro \
+  --motion-model wavespeed_kling_o3_pro_i2v \
   --motion-prompt "Subtle natural breathing and a gentle camera push" \
-  --resolution 1080p --duration 5 --seed 42
+  --resolution provider_default --duration 5 --seed 42
 ```
 
-Campaign Factory prices and reserves one exact request, checks the live model
-catalog and account balance, and signs a short-lived authorization. Reel Factory
-verifies that signature before upload, records a durable submission intent
-before the paid POST, never retries an ambiguous submit, retries only transient
-result GETs, and downloads temporary output immediately.
+Campaign Factory prices and reserves one exact WaveSpeed request, checks the
+live model catalog and account balance, and signs a short-lived authorization.
+Reel Factory verifies that signature before upload, records a durable
+submission intent before the paid POST, never retries an ambiguous submit,
+retries only transient result GETs, and downloads temporary output immediately.
+The narrow Higgsfield adapter independently captures the exact authenticated
+CLI contract, Soul ID, source identities, quote, generation ID, result hash,
+credit evidence, and review registration, with the same no-blind-retry rule.
 
 ## Review Boundary
 
-Every local or WaveSpeed apply retains the static MP4 fallback. A new motion
-output enters Campaign Factory as review-only with explicit blockers for
+Every local, Higgsfield, or WaveSpeed apply retains the static MP4 fallback. A
+new motion output enters Campaign Factory as review-only with explicit blockers for
 motion-specific ContentForge evidence, final human review, audio/lip-sync policy
 where applicable, and AI disclosure where applicable. This integration cannot
 schedule, publish, dispatch QStash, alter account state, or touch production.
@@ -518,6 +561,12 @@ audio-alignment, lip-sync, or text-only identity-assignment gates.
 - [LongCat Avatar 1.5](https://github.com/meituan-longcat/LongCat-Video)
 - [LongCat Avatar MLX runtime](https://github.com/xocialize/longcat-avatar-mlx)
 - [WaveSpeed REST API](https://wavespeed.ai/docs/rest-api)
+- [Kling O3 Pro Image-to-Video API](https://wavespeed.ai/docs/docs-api/kwaivgi/kwaivgi-kling-video-o3-pro-image-to-video)
+- [Vidu Q3 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/vidu/vidu-q3-image-to-video-pro)
+- [Kling 3.0 Pro Motion Control API](https://wavespeed.ai/docs/docs-api/kwaivgi/kwaivgi-kling-v3.0-pro-motion-control)
+- [InfiniteTalk API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/infinitetalk)
+- [LongCat Avatar 1.5 API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/longcat-avatar-1.5)
+- [Sync Lipsync 2 Pro API](https://wavespeed.ai/docs/docs-api/sync/sync-lipsync-2-pro)
 - [Wan 2.2 I2V 5B 720p API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-i2v-5b-720p)
 - [Wan 2.7 Image-to-Video Pro API](https://wavespeed.ai/docs/docs-api/alibaba/alibaba-wan-2.7-image-to-video-pro)
 - [Wan 2.2 Speech-to-Video API](https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-speech-to-video)

@@ -11721,7 +11721,8 @@ export const generatedPipelineContractSchemas = {
 	        "livePriceSource": {
 	          "enum": [
 	            "wavespeed_model_pricing_api",
-	            "pinned_audio_duration_rate"
+	            "pinned_audio_duration_rate",
+	            "pinned_reference_duration_rate"
 	          ]
 	        }
 	      }

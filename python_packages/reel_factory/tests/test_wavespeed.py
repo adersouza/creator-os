@@ -221,6 +221,130 @@ def test_wan22_5b_request_uses_exact_official_three_field_contract(
     }
 
 
+def test_premium_wavespeed_models_use_their_exact_media_contracts(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "source.jpg"
+    audio = tmp_path / "speech.wav"
+    driving = tmp_path / "driving.mp4"
+    image.write_bytes(b"source")
+    audio.write_bytes(b"speech")
+    driving.write_bytes(b"driving")
+    client = FakeClient(tmp_path / "unused.mp4")
+    prompt = "Natural portrait motion with stable identity and restrained expression"
+
+    o3 = WaveSpeedRequest(
+        model_id="wavespeed_kling_o3_pro_i2v",
+        prompt=prompt,
+        output_path=tmp_path / "o3.mp4",
+        image_path=image,
+        resolution="provider_default",
+        duration_seconds=5,
+        seed=123,
+    )
+    assert _upload_and_build_payload(client, o3, video_model(o3.model_id)) == {
+        "prompt": prompt,
+        "duration": 5,
+        "shot_type": "customize",
+        "image": "https://media.example/source.jpg",
+        "sound": False,
+    }
+
+    talking = WaveSpeedRequest(
+        model_id="wavespeed_infinitetalk",
+        prompt=prompt,
+        output_path=tmp_path / "talking.mp4",
+        image_path=image,
+        audio_path=audio,
+        resolution="720p",
+        duration_seconds=None,
+        seed=124,
+    )
+    assert _upload_and_build_payload(
+        client, talking, video_model(talking.model_id)
+    ) == {
+        "prompt": prompt,
+        "seed": 124,
+        "resolution": "720p",
+        "image": "https://media.example/source.jpg",
+        "audio": "https://media.example/speech.wav",
+    }
+
+    motion = WaveSpeedRequest(
+        model_id="wavespeed_kling_v3_pro_motion_control",
+        prompt=prompt,
+        output_path=tmp_path / "motion.mp4",
+        image_path=image,
+        reference_video_paths=(driving,),
+        resolution="provider_default",
+        duration_seconds=None,
+        seed=125,
+    )
+    assert _upload_and_build_payload(client, motion, video_model(motion.model_id)) == {
+        "prompt": prompt,
+        "negative_prompt": (
+            "blurry, low quality, distorted face, deformed anatomy, extra fingers, "
+            "duplicate person, text, subtitles, watermark, interface elements, "
+            "abrupt cuts"
+        ),
+        "image": "https://media.example/source.jpg",
+        "video": "https://media.example/driving.mp4",
+        "character_orientation": "video",
+        "keep_original_sound": False,
+    }
+
+    for model_id in (
+        "wavespeed_sync_lipsync2_pro",
+        "wavespeed_sync_lipsync3",
+    ):
+        lipsync = WaveSpeedRequest(
+            model_id=model_id,
+            prompt=prompt,
+            output_path=tmp_path / f"{model_id}.mp4",
+            source_video_path=driving,
+            audio_path=audio,
+            resolution="source",
+            duration_seconds=None,
+            seed=126,
+        )
+        assert _upload_and_build_payload(
+            client, lipsync, video_model(lipsync.model_id)
+        ) == {
+            "video": "https://media.example/driving.mp4",
+            "audio": "https://media.example/speech.wav",
+            "sync_mode": "cut_off",
+        }
+
+
+def test_no_seed_provider_still_retains_distinct_request_identity(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "source.jpg"
+    image.write_bytes(b"source")
+    base = {
+        "model_id": "wavespeed_kling_o3_pro_i2v",
+        "prompt": "Natural portrait motion with stable identity and restrained expression",
+        "image_path": image,
+        "resolution": "provider_default",
+        "duration_seconds": 5,
+    }
+    first = build_wavespeed_spend_scope(
+        WaveSpeedRequest(output_path=tmp_path / "first.mp4", seed=101, **base),
+        campaign="campaign",
+        cohort_id="cohort",
+    )
+    second = build_wavespeed_spend_scope(
+        WaveSpeedRequest(output_path=tmp_path / "second.mp4", seed=202, **base),
+        campaign="campaign",
+        cohort_id="cohort",
+    )
+    assert first["parameters"]["seed"] is None
+    assert second["parameters"]["seed"] is None
+    assert first["parameters"]["requestIdentitySeed"] == 101
+    assert second["parameters"]["requestIdentitySeed"] == 202
+    assert first["requestFingerprint"] != second["requestFingerprint"]
+
+
 def test_interrupted_polling_recovers_same_prediction_without_resubmission(
     tmp_path: Path,
 ) -> None:
