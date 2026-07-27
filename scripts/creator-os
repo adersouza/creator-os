@@ -319,8 +319,37 @@ def _parser() -> argparse.ArgumentParser:
     plan_show.add_argument("plan_id")
     plan_approve = plan_sub.add_parser("approve")
     plan_approve.add_argument("plan_id")
-    plan_approve.add_argument("--operator", required=True)
-    plan_approve.add_argument("--reason", required=True)
+    plan_approve.add_argument("--operator", default="authenticated_local_operator")
+    plan_approve.add_argument("--reason", default="operator_approved_plan")
+    plan_schedule = plan_sub.add_parser("schedule-propose")
+    plan_schedule.add_argument("plan_id")
+    plan_schedule.add_argument("--blackout-date", action="append", default=[])
+    plan_schedule_mode = plan_schedule.add_mutually_exclusive_group(required=True)
+    plan_schedule_mode.add_argument("--dry-run", action="store_true")
+    plan_schedule_mode.add_argument("--apply", action="store_true")
+    plan_experiment = plan_sub.add_parser("experiment")
+    plan_experiment.add_argument("plan_id")
+    plan_experiment.add_argument("--variable", required=True)
+    plan_experiment.add_argument("--variant", action="append", required=True)
+    plan_experiment.add_argument("--hypothesis", required=True)
+    plan_experiment_mode = plan_experiment.add_mutually_exclusive_group(required=True)
+    plan_experiment_mode.add_argument("--dry-run", action="store_true")
+    plan_experiment_mode.add_argument("--apply", action="store_true")
+    plan_execute = plan_sub.add_parser("execute")
+    plan_execute.add_argument("plan_id")
+    plan_execute.add_argument("--max-credits", type=float)
+    plan_execute_mode = plan_execute.add_mutually_exclusive_group(required=True)
+    plan_execute_mode.add_argument("--dry-run", action="store_true")
+    plan_execute_mode.add_argument("--apply", action="store_true")
+    plan_review = plan_sub.add_parser("review")
+    plan_review.add_argument("plan_id")
+    plan_review.add_argument("--item")
+    plan_review.add_argument("--action")
+    plan_review.add_argument("--operator", default="authenticated_local_operator")
+    plan_review.add_argument("--reason")
+    plan_export = plan_sub.add_parser("export")
+    plan_export.add_argument("plan_id")
+    plan_export.add_argument("--approved-only", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -711,6 +740,53 @@ def main(argv: list[str] | None = None) -> int:
                     args.reason,
                 )
             )
+        if args.plan_action == "schedule-propose":
+            command = _content_director_command(
+                "schedule-propose",
+                args.plan_id,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for value in args.blackout_date:
+                command.extend(["--blackout-date", value])
+            return _run(command)
+        if args.plan_action == "experiment":
+            command = _content_director_command(
+                "experiment",
+                args.plan_id,
+                "--variable",
+                args.variable,
+                "--hypothesis",
+                args.hypothesis,
+                "--apply" if args.apply else "--dry-run",
+            )
+            for value in args.variant:
+                command.extend(["--variant", value])
+            return _run(command)
+        if args.plan_action == "execute":
+            command = _content_director_command(
+                "execute",
+                args.plan_id,
+                "--apply" if args.apply else "--dry-run",
+            )
+            if args.max_credits is not None:
+                command.extend(["--max-credits", str(args.max_credits)])
+            return _run(command)
+        if args.plan_action == "review":
+            command = _content_director_command("review", args.plan_id)
+            for flag, value in (
+                ("--item", args.item),
+                ("--action", args.action),
+                ("--operator", args.operator),
+                ("--reason", args.reason),
+            ):
+                if value is not None:
+                    command.extend([flag, value])
+            return _run(command)
+        if args.plan_action == "export":
+            command = _content_director_command("export", args.plan_id)
+            if args.approved_only:
+                command.append("--approved-only")
+            return _run(command)
         if not args.creator or not args.accounts:
             print("plan requires --creator and --accounts", file=sys.stderr)
             return 2

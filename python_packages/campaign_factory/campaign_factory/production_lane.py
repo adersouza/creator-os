@@ -470,6 +470,7 @@ def plan_production_batch(
     audio_preference: str,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if isinstance(count, bool) or not 1 <= int(count) <= 100:
         raise ValueError("count must be between 1 and 100")
@@ -567,6 +568,26 @@ def plan_production_batch(
             f"no explicitly approved image inventory for creator {creator}; "
             "review and approve sources with `creator-os sources`"
         )
+    if selected_source_asset_ids is not None:
+        requested_source_ids = tuple(
+            str(value).strip()
+            for value in selected_source_asset_ids
+            if str(value).strip()
+        )
+        if not requested_source_ids:
+            raise ValueError("selected source asset IDs cannot be empty")
+        available_by_id = {str(source["id"]): source for source in sources}
+        missing = [
+            source_id
+            for source_id in requested_source_ids
+            if source_id not in available_by_id
+        ]
+        if missing:
+            raise ValueError(
+                "selected source is not an approved compatible creator asset: "
+                + ", ".join(missing)
+            )
+        sources = [available_by_id[source_id] for source_id in requested_source_ids]
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,
@@ -676,6 +697,7 @@ def run_production_batch(
     max_concurrency: int = DEFAULT_CLOUD_CONCURRENCY,
     speech_audio_path: Path | None = None,
     motion_reference_path: Path | None = None,
+    selected_source_asset_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     plan = plan_production_batch(
         factory,
@@ -687,6 +709,7 @@ def run_production_batch(
         audio_preference=audio_preference,
         speech_audio_path=speech_audio_path,
         motion_reference_path=motion_reference_path,
+        selected_source_asset_ids=selected_source_asset_ids,
     )
     results: list[dict[str, Any]] = []
     if (

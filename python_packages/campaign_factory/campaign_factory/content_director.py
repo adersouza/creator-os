@@ -820,15 +820,45 @@ def _parser() -> argparse.ArgumentParser:
     show.add_argument("plan_id")
     approve = sub.add_parser("approve")
     approve.add_argument("plan_id")
-    approve.add_argument("--operator", required=True)
-    approve.add_argument("--reason", required=True)
+    approve.add_argument("--operator", default="authenticated_local_operator")
+    approve.add_argument("--reason", default="operator_approved_plan")
+    schedule = sub.add_parser("schedule-propose")
+    schedule.add_argument("plan_id")
+    schedule.add_argument("--blackout-date", action="append", default=[])
+    schedule_mode = schedule.add_mutually_exclusive_group(required=True)
+    schedule_mode.add_argument("--dry-run", action="store_true")
+    schedule_mode.add_argument("--apply", action="store_true")
+    experiment = sub.add_parser("experiment")
+    experiment.add_argument("plan_id")
+    experiment.add_argument("--variable", required=True)
+    experiment.add_argument("--variant", action="append", required=True)
+    experiment.add_argument("--hypothesis", required=True)
+    experiment_mode = experiment.add_mutually_exclusive_group(required=True)
+    experiment_mode.add_argument("--dry-run", action="store_true")
+    experiment_mode.add_argument("--apply", action="store_true")
+    execute = sub.add_parser("execute")
+    execute.add_argument("plan_id")
+    execute.add_argument("--max-credits", type=float)
+    execute_mode = execute.add_mutually_exclusive_group(required=True)
+    execute_mode.add_argument("--dry-run", action="store_true")
+    execute_mode.add_argument("--apply", action="store_true")
+    review = sub.add_parser("review")
+    review.add_argument("plan_id")
+    review.add_argument("--item")
+    review.add_argument("--action", dest="review_action")
+    review.add_argument("--operator", default="authenticated_local_operator")
+    review.add_argument("--reason")
+    export = sub.add_parser("export")
+    export.add_argument("plan_id")
+    export.add_argument("--approved-only", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = get_settings()
-    uri = f"file:{settings.db_path}?mode={'rw' if getattr(args, 'apply', False) or args.action == 'approve' else 'ro'}"
+    writes = getattr(args, "apply", False) or args.action in {"approve", "review"}
+    uri = f"file:{settings.db_path}?mode={'rw' if writes else 'ro'}"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -846,7 +876,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.action == "show":
             result = load_plan(conn, args.plan_id)
-        else:
+        elif args.action == "approve":
             result = transition_plan(
                 conn,
                 plan_id=args.plan_id,
@@ -854,6 +884,64 @@ def main(argv: list[str] | None = None) -> int:
                 operator=args.operator,
                 reason=args.reason,
             )
+        else:
+            from .content_director_operations import (
+                design_experiment,
+                export_manifest_preview,
+                plan_execution,
+                propose_schedule,
+                review_plan_item,
+            )
+
+            if args.action == "schedule-propose":
+                result = propose_schedule(
+                    conn,
+                    args.plan_id,
+                    apply=args.apply,
+                    blackout_dates=frozenset(args.blackout_date),
+                )
+            elif args.action == "experiment":
+                result = design_experiment(
+                    conn,
+                    plan_id=args.plan_id,
+                    changed_variable=args.variable,
+                    variants=tuple(args.variant),
+                    hypothesis=args.hypothesis,
+                    apply=args.apply,
+                )
+            elif args.action == "execute":
+                from .core import CampaignFactory
+
+                factory = CampaignFactory(settings)
+                try:
+                    result = plan_execution(
+                        factory.conn,
+                        factory,
+                        plan_id=args.plan_id,
+                        apply=args.apply,
+                        signed_spend_credits=args.max_credits,
+                    )
+                finally:
+                    factory.close()
+            elif args.action == "review" and args.item and args.review_action:
+                result = review_plan_item(
+                    conn,
+                    plan_item_id=args.item,
+                    action=args.review_action,
+                    operator=args.operator,
+                    reason=args.reason or "operator_review",
+                )
+            elif args.action == "review":
+                plan = load_plan(conn, args.plan_id)
+                result = {
+                    "schema": "creator_os.plan_review.v1",
+                    "planId": plan["planId"],
+                    "objective": plan["objective"],
+                    "items": plan["items"],
+                    "operatorVerdict": None,
+                }
+            else:
+                result = export_manifest_preview(conn, args.plan_id)
     finally:
         conn.close()
     print(json.dumps(result, indent=2, sort_keys=True))
