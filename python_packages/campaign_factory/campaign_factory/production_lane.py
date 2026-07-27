@@ -38,6 +38,12 @@ from .audio_radar.providers import (
     SocialCrawlInstagramProvider,
     TokchartTrendProvider,
 )
+from .production_audio_library import (
+    active_audio_library_candidates as _active_audio_library_candidates,
+)
+from .production_audio_library import (
+    audio_candidates_for_job as _audio_candidates_for_job,
+)
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -194,13 +200,18 @@ def _audio_policy(value: str) -> str:
     return resolved
 
 
-def discover_production_audio_candidates() -> list[TrendCandidate]:
-    """Discover candidates internally; missing providers never widen to silence."""
+def discover_production_audio_candidates(
+    connection: Any | None = None,
+) -> list[TrendCandidate]:
+    """Prefer the canonical active cache, then use live discovery if it is empty."""
 
     candidates: list[TrendCandidate] = []
     fixture = _approved_audio_fixture_candidate()
     if fixture is not None:
         return normalize_candidates([fixture])
+    active = _active_audio_library_candidates(connection)
+    if active:
+        return active
     for provider in (
         SocialCrawlInstagramProvider(),
         TokchartTrendProvider(),
@@ -275,7 +286,7 @@ def fulfill_production_audio(
     discovered = (
         normalize_candidates(candidates)
         if candidates is not None
-        else discover_production_audio_candidates()
+        else discover_production_audio_candidates(factory.conn)
     )
     ranked = rank_candidates(
         discovered,
@@ -736,7 +747,7 @@ def run_production_batch(
     plan["providerQuoteStatus"] = "authorized"
     plan["paidGenerationAuthorized"] = True
     audio_candidates = (
-        discover_production_audio_candidates()
+        discover_production_audio_candidates(factory.conn)
         if _audio_policy(audio_preference) == "embedded_trending_required"
         else []
     )
@@ -755,7 +766,11 @@ def run_production_batch(
                     _run_production_job_isolated,
                     factory,
                     job=job,
-                    audio_candidates=audio_candidates,
+                    audio_candidates=_audio_candidates_for_job(
+                        audio_candidates,
+                        job_index=int(job["index"]),
+                        job_count=len(prepared),
+                    ),
                     max_credits_per_job=float(job["quotedProviderCredits"]),
                 ): job
                 for job in prepared
@@ -779,7 +794,11 @@ def run_production_batch(
                 _run_production_job(
                     factory,
                     job=job,
-                    audio_candidates=audio_candidates,
+                    audio_candidates=_audio_candidates_for_job(
+                        audio_candidates,
+                        job_index=int(job["index"]),
+                        job_count=len(prepared),
+                    ),
                     max_credits_per_job=float(job["quotedProviderCredits"]),
                 )
             )
