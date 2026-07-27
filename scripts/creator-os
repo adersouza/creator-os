@@ -336,6 +336,9 @@ def _parser() -> argparse.ArgumentParser:
     plan_mode.add_argument("--apply", action="store_true")
     plan_show = plan_sub.add_parser("show")
     plan_show.add_argument("plan_id")
+    plan_list = plan_sub.add_parser("list")
+    plan_list.add_argument("--creator")
+    plan_list.add_argument("--limit", type=int, default=50)
     plan_approve = plan_sub.add_parser("approve")
     plan_approve.add_argument("plan_id")
     plan_approve.add_argument("--operator", default="authenticated_local_operator")
@@ -369,6 +372,13 @@ def _parser() -> argparse.ArgumentParser:
     plan_export = plan_sub.add_parser("export")
     plan_export.add_argument("plan_id")
     plan_export.add_argument("--approved-only", action="store_true")
+    plan_status = plan_sub.add_parser("status")
+    plan_status.add_argument("plan_id")
+    plan_replan = plan_sub.add_parser("replan")
+    plan_replan.add_argument("plan_id")
+    plan_replan_mode = plan_replan.add_mutually_exclusive_group(required=True)
+    plan_replan_mode.add_argument("--dry-run", action="store_true")
+    plan_replan_mode.add_argument("--apply", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -768,6 +778,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "plan":
         if args.plan_action == "show":
             return _run(_content_director_command("show", args.plan_id))
+        if args.plan_action == "list":
+            command = _content_director_command("list", "--limit", str(args.limit))
+            if args.creator:
+                command.extend(["--creator", args.creator])
+            return _run(command)
         if args.plan_action == "approve":
             return _run(
                 _content_director_command(
@@ -826,6 +841,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.approved_only:
                 command.append("--approved-only")
             return _run(command)
+        if args.plan_action == "status":
+            return _run(_content_director_command("status", args.plan_id))
+        if args.plan_action == "replan":
+            return _run(
+                _content_director_command(
+                    "replan",
+                    args.plan_id,
+                    "--apply" if args.apply else "--dry-run",
+                )
+            )
         if not args.creator or not args.accounts:
             print("plan requires --creator and --accounts", file=sys.stderr)
             return 2
