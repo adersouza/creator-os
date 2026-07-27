@@ -510,7 +510,7 @@ def plan_production_batch(
         JOIN campaigns c ON c.id = s.campaign_id
         JOIN models m ON m.id = s.model_id
         WHERE lower(m.slug) = ? AND s.media_type = 'image'
-          AND lower(COALESCE(s.status, 'imported')) NOT IN ('rejected', 'quarantined')
+          AND lower(COALESCE(s.status, 'imported')) = 'approved'
         ORDER BY c.updated_at DESC, s.created_at DESC, s.id
         """,
         (creator_slug,),
@@ -563,7 +563,10 @@ def plan_production_batch(
                 f"approved source SHA mismatch for creator {creator}; "
                 "refresh source inventory before generation"
             )
-        raise ValueError(f"no usable approved image inventory for creator {creator}")
+        raise ValueError(
+            f"no explicitly approved image inventory for creator {creator}; "
+            "review and approve sources with `creator-os sources`"
+        )
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,

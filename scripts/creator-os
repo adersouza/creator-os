@@ -47,6 +47,19 @@ def _audio_command(*args: str) -> list[str]:
     ]
 
 
+def _source_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.source_governance",
+        *args,
+    ]
+
+
 def _reference_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -237,6 +250,23 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run configured zero-write network/provider probes",
     )
+
+    sources = sub.add_parser(
+        "sources",
+        help="inspect or explicitly approve creator-bound source inventory",
+    )
+    source_commands = sources.add_subparsers(dest="source_command", required=True)
+    source_list = source_commands.add_parser("list")
+    source_list.add_argument("--creator", required=True)
+    for action in ("approve", "reject"):
+        source_decision = source_commands.add_parser(action)
+        source_decision.add_argument("--creator", required=True)
+        source_decision.add_argument(
+            "--source", required=True, help="exact source ID, SHA-256, or path"
+        )
+        source_decision.add_argument("--operator", required=True)
+        source_decision.add_argument("--reason", required=True)
+        source_decision.add_argument("--apply", action="store_true")
 
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
@@ -597,6 +627,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         doctor_args = args.args[1:] if args.args[:1] == ["--"] else args.args
         return _run(_doctor_command(*doctor_args))
+    if args.command == "sources":
+        command = _source_command(args.source_command, "--creator", args.creator)
+        if args.source_command != "list":
+            command.extend(
+                [
+                    "--source",
+                    args.source,
+                    "--operator",
+                    args.operator,
+                    "--reason",
+                    args.reason,
+                ]
+            )
+            if args.apply:
+                command.append("--apply")
+        return _run(command)
     if args.command == "performance-sync":
         command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
         if args.dry_run:
