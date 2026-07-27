@@ -36,26 +36,26 @@ the static fallback survives a local or remote generation failure.
 Use the monorepo command for normal work:
 
 ```bash
-scripts/creator-os create --mode soul_static --dry-run \
+scripts/creator-os generate --mode soul_static --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png
 
-scripts/creator-os create --mode soul_static --apply --confirm-paid \
+scripts/creator-os generate --mode soul_static --apply --confirm-paid \
   --target Stacey --workspace "$PWD" --campaign campaign_slug \
   --reference-image /path/to/reference.png --max-credits 2 --wait --download
 
-scripts/creator-os create --mode local_wan --dry-run \
+scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_wan22_ti2v_5b_mlx \
   --motion-prompt "She shifts her posture, turns toward the camera, and adjusts her hair" \
   --enable-prompt-expansion
 
-scripts/creator-os create --mode local_wan --dry-run \
+scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/accepted.png \
   --motion-model local_ltx23_distilled_mlx \
   --motion-task image_to_video --generate-audio \
   --motion-prompt "Natural movement with synchronized room sound"
 
-scripts/creator-os create --mode local_wan --dry-run \
+scripts/creator-os generate --mode local_wan --dry-run \
   --campaign campaign_slug --accepted-still /path/to/portrait.png \
   --motion-model local_longcat_avatar15_q4_mlx \
   --motion-task audio_image_to_video --audio /path/to/dialogue.wav \

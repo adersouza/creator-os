@@ -480,7 +480,7 @@ The ordinary command surface is intentionally small:
 
 ```text
 creator-os status
-creator-os create --mode ...
+creator-os create --creator ... --intent ... --count ...
 creator-os review ...
 creator-os approve ...
 creator-os export ...
@@ -489,8 +489,10 @@ creator-os promote ...
 
 `create`, `review`, and `export` are canonical. `generate`, `readiness`, and
 `draft-export` remain deprecated compatibility aliases. New automation must use
-the canonical names. Every new generation run requires an explicit canonical
-mode; no default mode exists.
+the canonical names. Normal `create` resolves its pinned Higgsfield recipe from
+creator intent and never requires an internal mode or provider/model identifier.
+The advanced/manual `generate` compatibility surface still requires an explicit
+mode and has no default.
 
 Model installation, queue recovery, benchmark inspection, Arena diagnostics,
 Router diagnostics, and analyzer snapshots live under `creator-os advanced`.
@@ -645,12 +647,13 @@ at validated draft handoff.
 - `reference_video_remix`: reference motion analysis plus new Soul endpoints,
   followed by an explicitly selected motion provider.
 
-All modes are review-gated and require explicit selection; there is no silent
-provider fallback. Soul ID owns identity. Prompt and asset lineage are
-retained. The normal finished-Reel path selects a duration-compatible Audio
-Radar segment, embeds and verifies AAC, and binds its receipt to the exact final
-MP4 SHA. Native platform audio remains a separately resolved intent and is
-never inferred from an embedded track.
+These advanced/manual modes are review-gated and require explicit selection;
+they are not inputs to normal intent-first `create`. There is no silent provider
+fallback. Soul ID owns identity. Prompt and asset lineage are retained. The
+normal finished-Reel path selects a duration-compatible Audio Radar segment,
+embeds and verifies AAC, and binds its receipt to the exact final MP4 SHA.
+Native platform audio remains a separately resolved intent and is never inferred
+from an embedded track.
 
 The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu
@@ -777,8 +780,9 @@ Campaign has at least three eligible measured examples for that pattern.
 | `status` | read-only live source/runtime/config/DB report; unprobed systems are `NOT_RUN` |
 | `doctor` | read-only fixture-backed integrity audit |
 | `reference-refresh --dry-run|--apply` | local Reference/Audio database and export workflow |
-| `create --list-modes` | read-only canonical five-mode catalog with cost and gates |
-| `create --mode <mode> --dry-run|--apply` | the only generation workflow; mode is mandatory and no mode may schedule or publish |
+| `create --creator <creator> --intent <intent> --count <N> [--apply]` | canonical intent-first production; resolves the pinned Higgsfield recipe internally and never schedules or publishes |
+| `generate --list-modes` | read-only advanced/manual five-mode compatibility catalog |
+| `generate --mode <mode> --dry-run|--apply` | advanced/manual compatibility generation; mode is mandatory and no mode may schedule or publish |
 | `review` | ordinary read-only Campaign creative/QC review |
 | `approve` | signs one immutable Creative Approval v2 from an exact review draft |
 | `export --dry-run|--apply` | bounded validated drafts only; never schedules or publishes |

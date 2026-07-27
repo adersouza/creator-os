@@ -92,8 +92,10 @@ schedule, post, or metric row.
 
 ## Still Operator-Gated
 
-- Paid generation requires an explicit mode, target, workspace, confirmation,
-  and finite credit cap.
+- Normal paid production requires creator intent, explicit apply, and a finite
+  credit cap; it resolves the pinned Higgsfield recipe internally. The
+  advanced/manual compatibility surface additionally requires an explicit
+  mode, target, workspace, and confirmation.
 - Reference Gold/Maybe/Ignore labels remain human decisions.
 - Draft export requires explicit apply and remains draft-only.
 - ThreadsDashboard approval, native-audio proof, scheduling, and publishing are

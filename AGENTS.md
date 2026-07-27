@@ -109,9 +109,11 @@ graphify query "How does Campaign Factory hand off to ThreadsDashboard?"
 Run `pnpm graphify:update` after code changes. `graphify-out/` is local
 architecture output and must not be committed unless explicitly approved.
 
-## Mandatory Generation Mode Selection
+## Advanced Generation Mode Selection
 
-Every new content-generation run must begin by asking the operator exactly:
+Normal production uses intent-first `creator-os create` and does not ask for or
+accept an internal mode or provider/model identifier. Only an explicitly
+requested advanced/manual `creator-os generate` run begins by asking:
 
 > Which Creator OS mode do you want for this run?
 
@@ -124,11 +126,11 @@ Show the current five-mode menu from Campaign Factory's canonical
 4. Best paid motion — paid video
 5. Reference-video remix — paid endpoint stills and paid Seedance/Kling video
 
-Never remember or infer the mode from an earlier run. If the operator already
-named a mode in the current instruction, confirm that mode before execution.
-The canonical non-interactive command must receive `--mode`; a missing mode is
-an error, never a default. This question is only for a new generation run. Do
-not ask it for audits, tests, status checks, or other read-only work.
+Never remember or infer an advanced mode from an earlier run. If the operator
+already named one in the current instruction, confirm it before execution. The
+advanced non-interactive `generate` command must receive `--mode`; a missing
+mode is an error, never a default. Do not ask this question for normal
+intent-first `create`, audits, tests, status checks, or other read-only work.
 
 ## Reel Factory Active Path
 

@@ -41,10 +41,18 @@ presented as creator-voice preservation. The exposed Kling 3 Motion Control
 combination is a REJECTED RECIPE after operator review; that decision does not
 declare all future Higgsfield motion-transfer capabilities permanently closed.
 
-Speak, Lipsync Studio, Kling Avatar, Higgsfield Animate/Recast/Character Swap,
-UGC Factory, AI Influencer, relight, and inpaint were visible in UI/marketing or
+Speak v2 has an official SDK contract at `/v1/speak/higgsfield`: an image URL,
+WAV audio URL, prompt, `mid`/`high` quality, and a 5/10/15-second duration. The
+current SDK type map supports the V2 subscribe client, while its README also
+shows the deprecated V1 generate client. Account entitlement, cost, exact 9:16
+dimensions, voice fidelity, re-encoding behavior, and ambient-audio behavior
+remain unproved. It accepts an uploaded Soul-generated image structurally, not a
+Soul ID directly, and is not an active production recipe.
+
+Lipsync Studio, Kling Avatar, Higgsfield Animate/Recast/Character Swap, UGC
+Factory, AI Influencer, relight, and inpaint were visible in UI/marketing or
 requested for investigation but had no authenticated callable contract through
-the inspected CLI, MCP, or Marketplace manifests. They are not production
+the inspected CLI, MCP, SDK, or Marketplace manifests. They are not production
 recipes.
 
 ## Paid execution boundary
@@ -74,10 +82,11 @@ routing, fallbacks, help, and runtime credential requirements.
 
 ## Future exact-voice validation plan
 
-No paid validation was executed in this change. Only one authenticated
-candidate currently accepts an audio reference at all: Seedance 2. That field
-is not yet proof that the output preserves the supplied creator voice unchanged,
-so it remains EXPERIMENTAL and is not a talking recipe.
+No paid validation was executed in this change. Seedance 2 accepts an audio
+reference through the authenticated catalog, and Speak v2 accepts WAV
+structurally through the official SDK, but neither fact proves that output
+preserves the supplied creator voice unchanged. Both remain unproved and neither
+is an active talking recipe.
 
 A future operator-authorized validation may use one approved Stacey Soul still,
 one 5-8 second script, and one exact creator-voice WAV. It must hash the still,

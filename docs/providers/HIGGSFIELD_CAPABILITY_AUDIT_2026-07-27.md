@@ -33,7 +33,7 @@ promotion, or a new paid generation.
 | image/video upscale | exposed through authenticated MCP | explicit derivative tools; any integration must retain input/output SHA lineage |
 | Kling O1 Edit | advertised but not verifiably exposed | CLI exposed an Omni image model, not the claimed video-edit contract |
 | Lipsync Studio | browser/UI only | no callable CLI/MCP/Marketplace contract found |
-| Higgsfield Speak | advertised but not verifiably exposed | no callable CLI/MCP/Marketplace contract found |
+| Higgsfield Speak v2 | official SDK contract; account entitlement unproved | `/v1/speak/higgsfield` structurally accepts `input_image`, WAV `input_audio`, prompt, `mid`/`high` quality, and 5/10/15-second duration; not exposed by CLI/MCP/Marketplace |
 | Kling Avatar | advertised but not verifiably exposed | no callable CLI/MCP/Marketplace contract found |
 | UGC Factory / AI Influencer | browser/UI only | no manifest proving supplied-voice preservation |
 | Higgsfield Animate / Recast / Character Swap | browser/UI only | no distinct callable contract or Soul-ID input contract found |
@@ -43,3 +43,19 @@ Seedance accepting an audio reference is not itself proof that it preserves the
 voice bytes unchanged. Veo dialogue generation is not exact-voice talking.
 Motion Control is not relabeled as Animate. No parameter in this audit is
 inferred from a marketing page.
+
+## Speak v2 SDK boundary
+
+The official JavaScript SDK includes `/v1/speak/higgsfield` in its V2 endpoint
+type map and documents the same endpoint through the deprecated V1 `generate`
+client. The structural input is one image URL, one WAV audio URL, a prompt,
+quality `mid` or `high`, duration 5, 10, or 15 seconds, and an optional seed.
+The generic V2 response carries a request ID, status URL, cancel URL, and final
+video URL and polls `/requests/{request_id}/status`.
+
+That SDK contract does not prove this authenticated account may call Speak.
+The inspected CLI authentication does not supply the separate SDK API-key
+credentials needed for a non-generating entitlement check. Cost, exact 9:16
+dimensions, voice fidelity, re-encoding behavior, and any ambient-audio behavior
+remain unproved. Speak accepts an uploaded Soul-generated image structurally,
+not a Soul ID directly, and is not an active production recipe.
