@@ -12,6 +12,7 @@ from typing import Any
 
 from campaign_factory.db import connect as connect_campaign_db
 from campaign_factory.db import init_db as init_campaign_db
+from campaign_factory.learning_consumption import observation_bucket
 from campaign_factory.learning_readiness import closed_loop_learning_status
 from campaign_factory.learning_score import (
     DEFAULT_REWARD_BASELINE,
@@ -203,8 +204,8 @@ def fanout_learning_snapshots(
                         )
                         report["fanout"][destination]["superseded"] += 1
                         continue
-                    identity = _destination_identity(destination, result)
-                    if status not in {"written", "updated"} or not identity:
+                    destination_identity = _destination_identity(destination, result)
+                    if status not in {"written", "updated"} or not destination_identity:
                         _record_failure(
                             campaign_conn,
                             key,
@@ -219,7 +220,7 @@ def fanout_learning_snapshots(
                         campaign_conn,
                         key,
                         destination,
-                        identity=identity,
+                        identity=destination_identity,
                         baseline_provenance=baseline_provenance,
                         now=now,
                     )
@@ -448,6 +449,9 @@ def _source_hash(row: dict[str, Any], destination: str, *, eligible: bool) -> st
         "historySource": row.get("history_source"),
         "metricsEligible": row.get("metrics_eligible"),
         "lineageV2Valid": row.get("lineage_v2_valid"),
+        "productionLearningEligibility": _production_learning_outcome(
+            row, _public_snapshot(row)
+        ),
         "eligible": eligible,
     }
     payload = json.dumps(
@@ -466,12 +470,12 @@ def _write_reference(
     previous_identity: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     meta = _campaign_meta(row)
-    lineage = meta.get("generated_asset_lineage") if isinstance(meta, dict) else {}
-    source = lineage.get("source") if isinstance(lineage, dict) else {}
-    prompt_id = str(source.get("promptId") or "") if isinstance(source, dict) else ""
-    reference_id = (
-        str(source.get("referenceId") or "") if isinstance(source, dict) else ""
-    )
+    raw_lineage = meta.get("generated_asset_lineage")
+    lineage: dict[str, Any] = dict(raw_lineage) if isinstance(raw_lineage, dict) else {}
+    raw_source = lineage.get("source")
+    source: dict[str, Any] = dict(raw_source) if isinstance(raw_source, dict) else {}
+    prompt_id = str(source.get("promptId") or "")
+    reference_id = str(source.get("referenceId") or "")
     account = str(public.get("instagramAccountId") or public.get("accountId") or "")
     provenance = provenance_by_account.get(account) or {
         "account": account,
@@ -490,6 +494,7 @@ def _write_reference(
         "scoringVersion": SCORING_VERSION,
         "baselineProvenance": provenance,
         "metrics": public.get("metrics"),
+        **_production_learning_outcome(row, public),
     }
     if (
         prompt_id
@@ -499,9 +504,10 @@ def _write_reference(
     ):
         lineage_path = str(source.get("sourceLineagePath") or "").strip()
         if lineage_path:
-            reference_pattern = (
-                meta.get("reference_pattern")
-                if isinstance(meta.get("reference_pattern"), dict)
+            raw_reference_pattern = meta.get("reference_pattern")
+            reference_pattern: dict[str, Any] = (
+                dict(raw_reference_pattern)
+                if isinstance(raw_reference_pattern, dict)
                 else {}
             )
             register_observed_higgsfield_prompt(
@@ -708,6 +714,69 @@ def _campaign_meta(row: dict[str, Any]) -> dict[str, Any]:
     metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
     meta = metadata.get("campaign_factory") if isinstance(metadata, dict) else {}
     return meta if isinstance(meta, dict) else {}
+
+
+def _production_learning_outcome(
+    row: dict[str, Any], public: dict[str, Any]
+) -> dict[str, Any]:
+    """Preserve exact future eligibility facts; absence stays absent."""
+
+    raw = _json_object(row.get("raw_json"))
+    meta = _campaign_meta(row)
+    lineage = meta.get("generated_asset_lineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    features = lineage.get("features")
+    features = features if isinstance(features, dict) else {}
+    source = lineage.get("source")
+    source = source if isinstance(source, dict) else {}
+    creator = str(
+        row.get("creator_model") or features.get("creator") or meta.get("creator") or ""
+    ).strip()
+    identity_profile = str(
+        lineage.get("creatorIdentityProfile")
+        or lineage.get("soulId")
+        or meta.get("creator_identity_profile")
+        or ""
+    ).strip()
+    media_id = str(
+        raw.get("instagram_media_id")
+        or raw.get("instagramMediaId")
+        or raw.get("instagram_post_id")
+        or raw.get("instagramPostId")
+        or ""
+    ).strip()
+    intent = str(
+        meta.get("content_intent")
+        or meta.get("intent")
+        or lineage.get("contentIntent")
+        or ""
+    ).strip()
+    return {
+        "performanceSnapshotId": row.get("id"),
+        "instagramMediaId": media_id or None,
+        "campaignId": row.get("campaign_id"),
+        "creatorId": creator or None,
+        "creatorIdentityProfile": identity_profile or None,
+        "accountId": row.get("account_id"),
+        "instagramAccountId": row.get("instagram_account_id"),
+        "contentIntent": intent or None,
+        "publishedAt": public.get("publishedAt"),
+        "snapshotAt": public.get("snapshotAt"),
+        "observationBucket": observation_bucket(
+            public.get("publishedAt"), public.get("snapshotAt")
+        ),
+        "sourceAssetId": row.get("source_asset_id"),
+        "sourceSha256": row.get("source_content_hash"),
+        "finalMediaSha256": row.get("content_hash"),
+        "publicationStatus": row.get("status"),
+        "historySource": row.get("history_source"),
+        "metricsEligible": bool(row.get("metrics_eligible")),
+        "lineageV2Valid": bool(row.get("lineage_v2_valid")),
+        "fixture": bool(raw.get("fixture") or raw.get("is_fixture")),
+        "metrics": public.get("metrics"),
+        "promptId": source.get("promptId"),
+        "referenceId": source.get("referenceId"),
+    }
 
 
 def _empty_report(snapshots: list[dict[str, Any]]) -> dict[str, Any]:

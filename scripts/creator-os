@@ -60,6 +60,18 @@ def _reference_command(*args: str) -> list[str]:
     ]
 
 
+def _learning_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        str(ROOT / "scripts" / "learning_refresh.py"),
+        *args,
+    ]
+
+
 def _reel_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -236,6 +248,25 @@ def _parser() -> argparse.ArgumentParser:
     sync_mode = sync.add_mutually_exclusive_group(required=True)
     sync_mode.add_argument("--dry-run", action="store_true")
     sync_mode.add_argument("--apply", action="store_true")
+
+    learning_refresh = sub.add_parser(
+        "learning-refresh",
+        help="preview or apply the versioned Reference-to-Campaign learning refresh",
+    )
+    learning_refresh_mode = learning_refresh.add_mutually_exclusive_group(required=True)
+    learning_refresh_mode.add_argument("--dry-run", action="store_true")
+    learning_refresh_mode.add_argument("--apply", action="store_true")
+
+    learning_review = sub.add_parser(
+        "learning-review",
+        help="inspect or explicitly approve, reject, pin, or revoke recommendations",
+    )
+    learning_review.add_argument(
+        "action", choices=["list", "approve", "reject", "pin", "revoke"]
+    )
+    learning_review.add_argument("--id")
+    learning_review.add_argument("--operator")
+    learning_review.add_argument("--reason")
 
     reference_refresh = sub.add_parser(
         "reference-refresh",
@@ -570,6 +601,22 @@ def main(argv: list[str] | None = None) -> int:
         command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
         if args.dry_run:
             command.append("--dry-run")
+        return _run(command)
+    if args.command == "learning-refresh":
+        return _run(
+            _learning_command(
+                "refresh", "--apply" if args.apply else "--dry-run"
+            )
+        )
+    if args.command == "learning-review":
+        command = _learning_command("review", args.action)
+        for flag, value in (
+            ("--id", args.id),
+            ("--operator", args.operator),
+            ("--reason", args.reason),
+        ):
+            if value:
+                command.extend([flag, value])
         return _run(command)
     if args.command == "reference-refresh":
         source = args.source.expanduser().resolve()

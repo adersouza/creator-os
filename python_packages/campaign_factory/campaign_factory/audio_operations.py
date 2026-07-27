@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .audio_learning_linkage import exact_embedded_audio_selection
 from .persistence import json_load
 
 
@@ -788,6 +789,9 @@ class AudioOperationsRepository:
             if isinstance(raw, dict)
             else {}
         )
+        exact_selection = exact_embedded_audio_selection(
+            self.conn, snapshot=snapshot, raw=raw, utc_now=self._utc_now
+        )
         intent = meta.get("audio_intent") if isinstance(meta, dict) else {}
         selection = (
             intent.get("operator_selection")
@@ -801,9 +805,9 @@ class AudioOperationsRepository:
             and isinstance(intent.get("recommendations"), list)
             else []
         )
-        candidate = selection or next(
-            (item for item in recommendations if isinstance(item, dict)), {}
-        )
+        candidate = (
+            exact_selection.get("selection") if exact_selection else selection
+        ) or next((item for item in recommendations if isinstance(item, dict)), {})
         audio_id = (
             candidate.get("catalog_audio_id")
             or candidate.get("catalogAudioId")
@@ -862,6 +866,17 @@ class AudioOperationsRepository:
             "selectedAudio": selection,
             "recommendedAudioCount": len(recommendations),
         }
+        if exact_selection:
+            stats["exactPublicationLinkage"] = exact_selection
+            prior_links = exact_selection.pop("_priorExactPublicationLinkages", [])
+            by_media_id = {
+                str(item.get("instagramMediaId")): item
+                for item in [*prior_links, exact_selection]
+                if isinstance(item, dict) and item.get("instagramMediaId")
+            }
+            stats["exactPublicationLinkages"] = [
+                by_media_id[key] for key in sorted(by_media_id)
+            ]
         self.conn.execute(
             """
                 INSERT INTO audio_performance_rollups (

@@ -140,6 +140,135 @@ def test_record_audio_performance_snapshot_writes_rollup_and_graph(tmp_path: Pat
         cf.close()
 
 
+def test_future_embedded_audio_selection_links_exact_publication(tmp_path: Path):
+    catalog_path = tmp_path / "audio_memory.json"
+    catalog_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "id": "aud_exact",
+                        "title": "Exact Trend",
+                        "platform": "tiktok",
+                        "nativeAudioId": "music_123",
+                        "resolved": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cf = make_factory(tmp_path)
+    try:
+        cf.domains.audio_recommendations.import_audio_memory(catalog_path)
+        add_rendered_asset(cf, tmp_path)
+        asset = dict(
+            cf.conn.execute(
+                "SELECT * FROM rendered_assets WHERE id = 'asset_1'"
+            ).fetchone()
+        )
+        final_sha = str(asset["content_hash"])
+        now = "2026-07-27T12:00:00Z"
+        payload = {
+            "schema": "campaign_factory.embedded_audio_selection.v1",
+            "renderedAssetId": "asset_1",
+            "audioCatalogId": "aud_exact",
+            "creativeContext": {
+                "creator": "stacey",
+                "account": "stacey-main",
+                "intent": "passive_selfie",
+            },
+            "selection": {
+                "platform": "tiktok",
+                "platformMusicId": "music_123",
+                "acousticFingerprint": "fp_exact",
+            },
+            "selectedTrack": {
+                "trackId": "music_123",
+                "acquiredAudioSha256": "a" * 64,
+            },
+            "selectedSegment": {
+                "startSeconds": 3.0,
+                "endSeconds": 8.0,
+                "processedSha256": "b" * 64,
+            },
+            "finalVideo": {"sha256": final_sha},
+        }
+        campaign = cf.domains.campaign_by_slug("may")
+        cf.conn.execute(
+            """
+            INSERT INTO audio_selections (
+              id, campaign_id, rendered_asset_id, audio_catalog_id, status,
+              selected_by, selected_at, verified_at, payload_json, created_at,
+              updated_at
+            ) VALUES ('audsel_exact', ?, 'asset_1', 'aud_exact', 'verified',
+                      'creator_os_audio_radar', ?, ?, ?, ?, ?)
+            """,
+            (campaign["id"], now, now, json.dumps(payload), now, now),
+        )
+        result = cf.domains.audio_operations.record_audio_performance_snapshot(
+            {
+                "id": "perf_exact",
+                "campaign_id": campaign["id"],
+                "rendered_asset_id": "asset_1",
+                "source_asset_id": asset["source_asset_id"],
+                "content_hash": final_sha,
+                "source_content_hash": None,
+                "caption_hash": None,
+                "caption_text": None,
+                "caption_bank": None,
+                "creator_mix": None,
+                "creator_model": "stacey",
+                "frame_type": None,
+                "length_class": None,
+                "format_class": None,
+                "caption_fit_version": None,
+                "caption_outcome_context_json": "{}",
+                "recipe": "higgsfield_kling3_i2v",
+                "post_id": "post_exact",
+                "permalink": "https://instagram.test/reel/exact",
+                "status": "published",
+                "platform": "instagram",
+                "account_id": "stacey-main",
+                "instagram_account_id": "ig_stacey",
+                "snapshot_at": "2026-07-28T12:00:00Z",
+                "published_at": "2026-07-27T12:00:00Z",
+                "metrics_eligible": 1,
+                "history_source": "metric_history",
+                "lineage_v2_valid": 1,
+                "views": 100,
+                "likes": 10,
+                "comments": 1,
+                "saves": 2,
+                "shares": 1,
+                "impressions": 110,
+                "reach": 90,
+                "watch_time_seconds": 40.0,
+                "raw_json": json.dumps({"instagram_post_id": "18000000000000001"}),
+            }
+        )
+        assert result is not None
+        selection = cf.conn.execute(
+            "SELECT * FROM audio_selections WHERE id = 'audsel_exact'"
+        ).fetchone()
+        linked = json.loads(selection["payload_json"])["publicationLinkage"]
+        assert selection["post_id"] == "post_exact"
+        assert linked["instagramMediaId"] == "18000000000000001"
+        assert linked["finalMediaSha256"] == final_sha
+        assert linked["processedSegmentSha256"] == "b" * 64
+        rollup = cf.conn.execute(
+            "SELECT stats_json FROM audio_performance_rollups"
+        ).fetchone()
+        assert (
+            json.loads(rollup["stats_json"])["exactPublicationLinkage"][
+                "audioSelectionId"
+            ]
+            == "audsel_exact"
+        )
+    finally:
+        cf.close()
+
+
 def test_recommend_next_batch_prefers_performance_ranked_reference_pattern(
     tmp_path: Path,
 ):

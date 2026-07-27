@@ -7,6 +7,7 @@ import os
 import subprocess
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -17,6 +18,7 @@ from creator_os_core.provider_spend import (
     verify_authorization,
 )
 
+from . import learning_consumption
 from .audio_policy import (
     AUDIO_POLICIES,
     build_embedded_trending_audio_intent,
@@ -52,6 +54,8 @@ from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
+from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
+from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
 from .provider_spend import (
     consume_provider_spend_authorization as consume_higgsfield_authorization,
 )
@@ -113,63 +117,6 @@ _UNRESOLVED_INTENT_ERRORS: Final = {
         "lip-sync are not both operator-approved"
     ),
 }
-_CREATOR_SOUL_IDS: Final = {
-    "stacey": "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36",
-    "stacey1": "5828d958-91dd-4d6d-8909-934503f47644",
-    "larissa": "44326567-b12c-410c-95b7-31891bb0629b",
-    "lola": "4c86c548-7aa5-4ad1-bc03-b94aa4ce8385",
-}
-
-_INTENT_PROMPTS: Final[dict[str, str]] = {
-    "passive_selfie": (
-        "Natural eye and gaze movement, subtle head movement, one purposeful hair "
-        "or clothing adjustment, restrained secondary movement, and natural "
-        "handheld social camera behavior. No speaking, exaggerated movement, or "
-        "identity-changing action."
-    ),
-    "flirty_portrait": (
-        "A warm restrained gaze shift, a small confident head turn, one gentle hair "
-        "adjustment, subtle breathing, and a natural handheld creator camera. No "
-        "speaking, exaggerated movement, or identity-changing action."
-    ),
-    "outfit": (
-        "A small posture shift to present the outfit, natural eye movement, one "
-        "purposeful clothing adjustment, restrained fabric movement, and subtle "
-        "handheld camera behavior. No speaking or exaggerated movement."
-    ),
-    "lifestyle": (
-        "Natural eye movement and a subtle head turn, one purposeful interaction "
-        "with clothing or hair, restrained body movement, and casual handheld "
-        "creator camera behavior. No speaking or identity-changing action."
-    ),
-    "animate_existing": (
-        "Natural eye and gaze movement, subtle head movement, one purposeful hair "
-        "or clothing adjustment, restrained secondary movement, and natural "
-        "handheld camera behavior. No speaking, exaggerated movement, or "
-        "identity-changing action."
-    ),
-    "motion_copy": (
-        "Transfer the driving video's body motion and timing faithfully while "
-        "preserving the creator's face, body proportions, clothing, and portrait "
-        "identity. Keep the source portrait framing and avoid camera cuts."
-    ),
-    "dance": (
-        "Transfer the driving dance motion and timing faithfully while preserving "
-        "the creator's face, body proportions, clothing, and portrait identity. "
-        "Keep the source portrait framing and avoid camera cuts."
-    ),
-    "talking_selfie": (
-        "A natural direct-to-camera creator delivery with accurate lip movement, "
-        "subtle facial expression, restrained head motion, steady portrait framing, "
-        "and consistent identity throughout."
-    ),
-    "talking_motion_copy": (
-        "Transfer the driving video's body motion and timing while preserving the "
-        "creator's identity and portrait framing, then synchronize the supplied "
-        "creator voice without changing the face or body."
-    ),
-}
-
 _TALKING_INTENTS: Final = frozenset({"talking_selfie", "talking_motion_copy"})
 _MOTION_CONTROL_INTENTS: Final = frozenset(
     {"motion_copy", "dance", "talking_motion_copy"}
@@ -289,15 +236,28 @@ def fulfill_production_audio(
         account=str(job.get("accountGroup") or ""),
         now=completed_at,
     )
+    creator_slug = str(job.get("creator") or "")
+    audio_learning = learning_consumption.audio_performance_for_candidates
+    previous_performance, audio_recommendation_ids = audio_learning(
+        factory.conn,
+        candidates=discovered,
+        creator=creator_slug,
+        creator_identity_profile=_CREATOR_SOUL_IDS.get(creator_slug, ""),
+        account=str(job.get("accountGroup") or "") or None,
+        intent=intent,
+        now=datetime.fromisoformat(completed_at.replace("Z", "+00:00")),
+    )
+    context = AudioMatchContext(
+        creator=str(job.get("creator") or ""),
+        account=str(job.get("accountGroup") or ""),
+        visual_tags=_audio_fit_tags(intent),
+        motion_tags=(intent,),
+        speaking=False,
+    )
+    base_ranked = rank_candidates(discovered, context)
     ranked = rank_candidates(
         discovered,
-        AudioMatchContext(
-            creator=str(job.get("creator") or ""),
-            account=str(job.get("accountGroup") or ""),
-            visual_tags=_audio_fit_tags(intent),
-            motion_tags=(intent,),
-            speaking=False,
-        ),
+        replace(context, previous_performance=previous_performance),
     )
     if not ranked:
         raise NeedsEmbeddedAudioError(
@@ -317,9 +277,22 @@ def fulfill_production_audio(
     receipt = fulfilled.embedding_receipt
     receipt["creativeContext"] = {
         "creator": job.get("creator"),
+        "creatorIdentityProfile": _CREATOR_SOUL_IDS.get(creator_slug),
         "account": job.get("accountGroup"),
         "intent": job.get("intent"),
         "speaking": False,
+    }
+    receipt["learning"] = {
+        "consulted": True,
+        "recommendationIds": audio_recommendation_ids,
+        "scoreAdjustments": previous_performance,
+        "influencedRanking": bool(
+            previous_performance
+            and base_ranked
+            and ranked
+            and base_ranked[0].candidate.canonical_track_id
+            != ranked[0].candidate.canonical_track_id
+        ),
     }
     receipt["audioIntent"] = build_embedded_trending_audio_intent(
         receipt,
@@ -591,6 +564,17 @@ def plan_production_batch(
                 "refresh source inventory before generation"
             )
         raise ValueError(f"no usable approved image inventory for creator {creator}")
+    sources, selected_prompt, learning_decision = (
+        learning_consumption.apply_learning_to_production_plan(
+            factory.conn,
+            creator=creator_slug,
+            creator_identity_profile=_CREATOR_SOUL_IDS[creator_slug],
+            account=accounts,
+            intent=intent,
+            sources=sources,
+            base_prompt=_INTENT_PROMPTS[intent],
+        )
+    )
     jobs: list[dict[str, Any]] = []
     used_seeds: set[int] = set()
     for index in range(int(count)):
@@ -614,7 +598,7 @@ def plan_production_batch(
             {
                 "source": source_sha,
                 "seed": seed,
-                "prompt": _INTENT_PROMPTS[intent],
+                "prompt": selected_prompt,
                 "model": recipe["modelId"],
                 "speechAudio": speech_sha,
                 "motionReference": motion_reference_sha,
@@ -631,7 +615,7 @@ def plan_production_batch(
                 "sourceResolution": source.get("sourceResolution"),
                 "creator": creator_slug,
                 "intent": intent,
-                "prompt": _INTENT_PROMPTS[intent],
+                "prompt": selected_prompt,
                 "seed": seed,
                 "requestFingerprint": identity,
                 "accountGroup": accounts,
@@ -656,6 +640,7 @@ def plan_production_batch(
         "provider": "higgsfield",
         "providerQuoteStatus": "required_before_apply",
         "quotedProviderCredits": None,
+        "learningDecision": learning_decision,
         "jobs": jobs,
     }
 
@@ -820,7 +805,17 @@ def run_production_batch(
             )
     results.sort(key=lambda item: int(item.get("index") or 0))
     _block_duplicate_provider_outputs(results)
-    return _finalize_production_batch(plan, results, apply=True)
+    learning_consumption.merge_audio_learning_decision(
+        plan["learningDecision"], results
+    )
+    finalized = _finalize_production_batch(plan, results, apply=True)
+    receipt_id = learning_consumption.persist_learning_decision_receipt(
+        factory.conn,
+        decision=plan["learningDecision"],
+        results=results,
+    )
+    finalized["learningDecisionReceiptId"] = receipt_id
+    return finalized
 
 
 def _expand_production_job_prompt(job: Mapping[str, Any]) -> dict[str, Any]:
