@@ -803,6 +803,30 @@ Future Audio Radar learning requires an exact verified embedded-audio selection
 linked to the final MP4 SHA and real Instagram media identity. Historical
 `deferred_to_notify_handoff` rows are not backfilled.
 
+### Supervised Content Director
+
+Campaign Factory also owns a versioned rolling-plan layer. It is a consumer of
+the same approved inventory, supervised recommendations, spend policy, normal
+Higgsfield creation lane, review evidence, and export contracts; it is not a new
+service or generation path.
+
+```text
+approved creator sources + approved patterns + account projection
+  -> seven-day DRAFT plan and item decision receipts
+  -> operator plan approval
+  -> explicit signed generation spend
+  -> existing creator-os create internals
+  -> operator media review
+  -> identity-complete ThreadsDashboard export preview
+```
+
+The default autonomy mode is `SUPERVISED`. `SHADOW` makes no production
+mutations. `APPROVED_PLAN_AUTOPILOT` may execute only already-approved bounded
+items and still has no publication authority. ThreadsDashboard remains final
+scheduling and publication authority. Plan timing is a proposal, exact
+trending audio resolves near finishing, and talking/motion-copy remain
+unsupported rather than receiving replacement audio or a fallback recipe.
+
 ## Operator Command Surface
 
 `scripts/creator-os` is the supported operator entrypoint:
@@ -821,6 +845,9 @@ linked to the final MP4 SHA and real Instagram media identity. Historical
 | `performance-sync --dry-run|--apply` | pinned metrics and learning workflow |
 | `learning-refresh --dry-run|--apply` | idempotent Reference knowledge-pack export, validation, Campaign import, and measured recommendation refresh |
 | `learning-review list|approve|reject|pin|revoke` | explicit supervised recommendation review; blank fields never imply rejection |
+| `plan ... --dry-run|--apply` | versioned supervised content planning; apply persists local plan state but never generates, exports, schedules, or publishes |
+| `plan execute <id> --dry-run|--apply` | delegates eligible approved items to the normal create lane; apply requires a signed credit ceiling |
+| `plan status <id>` | bounded read-only plan control-tower view |
 | `advanced` | developer-only model, queue, benchmark, Arena, Router and analyzer diagnostics |
 | `promote` | guarded source-to-runtime promotion; never a content publish command |
 

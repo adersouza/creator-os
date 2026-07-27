@@ -118,6 +118,17 @@ def test_experiment_changes_exactly_one_variable_and_is_idempotent(
         conn.execute("SELECT count(*) FROM creative_plan_experiments").fetchone()[0]
         == 1
     )
+    classes = [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT exploration_class FROM creative_plan_items
+            WHERE experiment_id = ? ORDER BY item_index
+            """,
+            (first["experimentId"],),
+        ).fetchall()
+    ]
+    assert classes == ["CONTROL", "CONTROLLED_VARIATION"]
     assert "not causal proof" in first["minimumSampleWarning"]
     with pytest.raises(ValueError, match="unsupported"):
         design_experiment(

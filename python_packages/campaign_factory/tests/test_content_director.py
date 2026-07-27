@@ -125,6 +125,12 @@ def test_plan_dry_run_makes_no_writes_and_is_explainable(tmp_path: Path) -> None
     assert all(
         item["audioPolicy"] == "embedded_trending_required" for item in plan["items"]
     )
+    assert all(
+        item["audioProfile"]["batchTrackUniquenessRequired"] is True
+        and item["audioProfile"]["batchSegmentUniquenessRequired"] is True
+        for item in plan["items"]
+    )
+    assert len({item["sourceAssetId"] for item in plan["items"][:3]}) == 3
 
 
 def test_plan_apply_is_idempotent_and_versions_changed_inputs(tmp_path: Path) -> None:
