@@ -47,6 +47,19 @@ def _audio_command(*args: str) -> list[str]:
     ]
 
 
+def _operator_status_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.operator_status",
+        *args,
+    ]
+
+
 def _source_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -258,6 +271,12 @@ def _parser() -> argparse.ArgumentParser:
         "status", help="read-only live configuration/runtime status"
     )
     status.add_argument("--json", action="store_true")
+    status_scope = status.add_mutually_exclusive_group()
+    status_scope.add_argument("--creator")
+    status_scope.add_argument("--campaign")
+    status_scope.add_argument("--generation")
+    status_scope.add_argument("--publication")
+    status_scope.add_argument("--learning", action="store_true")
     status.add_argument(
         "--live-read-only",
         action="store_true",
@@ -412,6 +431,10 @@ def _parser() -> argparse.ArgumentParser:
     audio_refresh_mode = audio_refresh.add_mutually_exclusive_group(required=True)
     audio_refresh_mode.add_argument("--dry-run", action="store_true")
     audio_refresh_mode.add_argument("--apply", action="store_true")
+    audio_status_parser = audio_commands.add_parser(
+        "status", help="summarize the canonical active audio library read-only"
+    )
+    audio_status_parser.add_argument("--json", action="store_true")
 
     create = sub.add_parser(
         "create",
@@ -701,6 +724,22 @@ def main(argv: list[str] | None = None) -> int:
         effective_argv = ["advanced", surface, *effective_argv[1:]]
     args = _parser().parse_args(effective_argv)
     if args.command == "status":
+        status_filters = [
+            ("--creator", args.creator),
+            ("--campaign", args.campaign),
+            ("--generation", args.generation),
+            ("--publication", args.publication),
+        ]
+        selected = next(
+            ((flag, value) for flag, value in status_filters if value), None
+        )
+        if selected or args.learning:
+            command = _operator_status_command(
+                *(selected if selected else ("--learning",))
+            )
+            if args.json:
+                command.append("--json")
+            return _run(command)
         command = _doctor_command("--status")
         if args.json:
             command.append("--json")
@@ -858,6 +897,11 @@ def main(argv: list[str] | None = None) -> int:
                 return code
         return 0
     if args.command == "audio":
+        if args.audio_command == "status":
+            command = _operator_status_command("--audio")
+            if args.json:
+                command.append("--json")
+            return _run(command)
         if args.audio_command != "refresh":
             raise AssertionError(f"unhandled audio command: {args.audio_command}")
         return _run(
