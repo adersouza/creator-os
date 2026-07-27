@@ -296,6 +296,7 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
         intents = ["passive_selfie"]
 
     plan_items: list[dict[str, Any]] = []
+    source_usage: dict[str, int] = {}
     for index in range(count):
         intent = intents[index % len(intents)]
         account = request.accounts[index % len(request.accounts)]
@@ -316,11 +317,19 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             sources=compatible,
             base_prompt=base_prompt,
         )
-        source = (
-            learning_sources[index % len(learning_sources)]
-            if learning_sources
-            else None
-        )
+        source = None
+        if learning_sources:
+            minimum_usage = min(
+                source_usage.get(str(candidate["id"]), 0)
+                for candidate in learning_sources
+            )
+            source = next(
+                candidate
+                for candidate in learning_sources
+                if source_usage.get(str(candidate["id"]), 0) == minimum_usage
+            )
+            source_id = str(source["id"])
+            source_usage[source_id] = source_usage.get(source_id, 0) + 1
         blocking: list[str] = []
         if source is None:
             blocking.append("no_approved_compatible_source")
@@ -338,6 +347,18 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
             "contentIntent": intent,
             "sourceAssetId": source.get("id") if source else None,
             "sourceCandidateIds": [str(row["id"]) for row in compatible],
+            "sourceCooldown": {
+                "scope": "current_plan",
+                "selectionRule": "least_used_approved_compatible_source",
+                "reuseCountAfterSelection": (
+                    source_usage.get(str(source["id"]), 0) if source else 0
+                ),
+                "unavoidableReuse": bool(
+                    source
+                    and source_usage.get(str(source["id"]), 0) > 1
+                    and len(plan_items) >= len(sources)
+                ),
+            },
             "referencePatternId": pattern.get("id") if pattern else None,
             "patternFamily": pattern.get("family") if pattern else "visual_first",
             "prompt": learned_prompt,
@@ -350,6 +371,10 @@ def build_plan(conn: sqlite3.Connection, request: PlanningRequest) -> dict[str, 
                 "resolveAt": "finishing",
                 "trendSignal": "tiktok_primary",
                 "internalPerformanceSignal": "soft_when_exact_linked",
+                "creatorCooldownRequired": True,
+                "accountCooldownRequired": True,
+                "batchTrackUniquenessRequired": True,
+                "batchSegmentUniquenessRequired": True,
             },
             "explorationClass": classes[index],
             "priority": count - index,
@@ -690,6 +715,9 @@ def load_plan(conn: sqlite3.Connection, plan_id: str) -> dict[str, Any]:
         "accounts": json.loads(version["account_scope_json"]),
         "timezone": version["timezone"],
         "objective": version["objective"],
+        "requestedOutputCount": version["requested_output_count"],
+        "estimatedSpend": json.loads(version["estimated_spend_json"]),
+        "signedSpendCeiling": version["signed_spend_ceiling"],
         "autonomyMode": version["autonomy_mode"],
         "status": version["status"],
         "inputFingerprint": version["input_fingerprint"],
@@ -818,6 +846,9 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--apply", action="store_true")
     show = sub.add_parser("show")
     show.add_argument("plan_id")
+    listing = sub.add_parser("list")
+    listing.add_argument("--creator")
+    listing.add_argument("--limit", type=int, default=50)
     approve = sub.add_parser("approve")
     approve.add_argument("plan_id")
     approve.add_argument("--operator", default="authenticated_local_operator")
@@ -851,6 +882,13 @@ def _parser() -> argparse.ArgumentParser:
     export = sub.add_parser("export")
     export.add_argument("plan_id")
     export.add_argument("--approved-only", action="store_true")
+    status = sub.add_parser("status")
+    status.add_argument("plan_id")
+    replan_parser = sub.add_parser("replan")
+    replan_parser.add_argument("plan_id")
+    replan_mode = replan_parser.add_mutually_exclusive_group(required=True)
+    replan_mode.add_argument("--dry-run", action="store_true")
+    replan_mode.add_argument("--apply", action="store_true")
     return parser
 
 
@@ -876,6 +914,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.action == "show":
             result = load_plan(conn, args.plan_id)
+        elif args.action == "list":
+            from .content_director_operations import list_plans
+
+            result = list_plans(conn, creator=args.creator, limit=args.limit)
         elif args.action == "approve":
             result = transition_plan(
                 conn,
@@ -889,7 +931,9 @@ def main(argv: list[str] | None = None) -> int:
                 design_experiment,
                 export_manifest_preview,
                 plan_execution,
+                plan_status,
                 propose_schedule,
+                replan,
                 review_plan_item,
             )
 
@@ -940,6 +984,10 @@ def main(argv: list[str] | None = None) -> int:
                     "items": plan["items"],
                     "operatorVerdict": None,
                 }
+            elif args.action == "status":
+                result = plan_status(conn, args.plan_id)
+            elif args.action == "replan":
+                result = replan(conn, plan_id=args.plan_id, apply=args.apply)
             else:
                 result = export_manifest_preview(conn, args.plan_id)
     finally:

@@ -4,13 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .content_director import _json, _now, load_plan
+from .content_director import (
+    PlanningRequest,
+    _json,
+    _now,
+    build_plan,
+    load_plan,
+    persist_plan,
+)
+from .content_director import (
+    _fingerprint as plan_fingerprint,
+)
 from .production_lane import plan_production_batch, run_production_batch
 
 OBSERVATION_BUCKETS = {
@@ -143,7 +154,11 @@ def design_experiment(
         - {changed_variable}
     )
     assignments = [
-        {"planItemId": item["id"], "variant": variants[index]}
+        {
+            "planItemId": item["id"],
+            "variant": variants[index],
+            "experimentClass": "CONTROL" if index == 0 else "CONTROLLED_VARIATION",
+        }
         for index, item in enumerate(items)
     ]
     receipt = {
@@ -199,12 +214,14 @@ def design_experiment(
             conn.execute(
                 """
                 UPDATE creative_plan_items
-                SET experiment_id = ?, experiment_variant = ?, updated_at = ?
+                SET experiment_id = ?, experiment_variant = ?,
+                    exploration_class = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     experiment_id,
                     assignment["variant"],
+                    assignment["experimentClass"],
                     now,
                     assignment["planItemId"],
                 ),
@@ -473,3 +490,255 @@ def export_manifest_preview(conn: sqlite3.Connection, plan_id: str) -> dict[str,
     }
     manifest["fingerprint"] = _fingerprint(manifest)
     return manifest
+
+
+def plan_status(conn: sqlite3.Connection, plan_id: str) -> dict[str, Any]:
+    """Return one bounded, read-only control-tower view for a plan."""
+    before = conn.total_changes
+    plan = load_plan(conn, plan_id)
+    states: dict[str, int] = {}
+    missing_metrics = 0
+    spent = 0.0
+    for item in plan["items"]:
+        state = str(item["execution_state"])
+        states[state] = states.get(state, 0) + 1
+        generation = json.loads(item["generation_identity_json"])
+        batch = generation.get("normalProductionBatch") or {}
+        spent += float(
+            batch.get("actualProviderCredits")
+            or batch.get("quotedProviderCredits")
+            or 0
+        )
+        missing_metrics += conn.execute(
+            """
+            SELECT count(*) FROM creative_plan_metric_cohorts
+            WHERE plan_item_id = ? AND observation_state = 'MISSING'
+            """,
+            (item["id"],),
+        ).fetchone()[0]
+    experiments = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, content_intent, changed_variable, status,
+                   required_observation_cohort
+            FROM creative_plan_experiments
+            WHERE plan_version_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')
+            ORDER BY created_at, id
+            LIMIT 100
+            """,
+            (plan["planId"],),
+        ).fetchall()
+    ]
+    result = {
+        "schema": "creator_os.plan_status.v1",
+        "planId": plan["planId"],
+        "creator": plan["creator"],
+        "objective": plan["objective"],
+        "autonomyMode": plan["autonomyMode"],
+        "planStatus": plan["status"],
+        "stateCounts": states,
+        "whatShouldBeCreated": states.get("APPROVED", 0)
+        + states.get("GENERATION_READY", 0),
+        "generating": states.get("GENERATING", 0) + states.get("RECONCILING", 0),
+        "readyForReview": states.get("REVIEW_READY", 0),
+        "creativeApproved": states.get("CREATIVE_APPROVED", 0),
+        "waitingForExport": states.get("EXPORT_READY", 0),
+        "scheduled": states.get("SCHEDULED", 0),
+        "published": states.get("PUBLISHED", 0)
+        + states.get("MEASURING", 0)
+        + states.get("LEARNED", 0),
+        "failedOrBlocked": states.get("BLOCKED", 0) + states.get("REJECTED", 0),
+        "safeToRetry": [
+            item["id"]
+            for item in plan["items"]
+            if item["execution_state"] in {"GENERATION_READY", "RECONCILING"}
+            and not json.loads(item["generation_identity_json"])
+        ],
+        "missingMetricCohorts": missing_metrics,
+        "activeExperiments": experiments,
+        "learningChangedItems": plan["decisionReceipt"]
+        .get("learning", {})
+        .get("changedItems", []),
+        "estimatedCredits": plan["estimatedSpend"].get("credits"),
+        "authorizedCredits": plan["signedSpendCeiling"],
+        "actualOrReconciledCredits": round(spent, 4),
+        "runtimeSha": os.environ.get(
+            "CREATOR_OS_RUNTIME_SHA", "unknown_not_bound_to_process"
+        ),
+        "readOnly": True,
+    }
+    if conn.total_changes != before:
+        raise RuntimeError("status surface attempted a database mutation")
+    return result
+
+
+def list_plans(
+    conn: sqlite3.Connection,
+    *,
+    creator: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    if not 1 <= limit <= 100:
+        raise ValueError("plan list limit must be between 1 and 100")
+    params: list[object] = []
+    where = ""
+    if creator:
+        where = "WHERE creator = ?"
+        params.append(creator.strip().lower())
+    params.append(limit)
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            f"""
+            SELECT id, creative_plan_id, version, creator, horizon_start,
+                   horizon_end, objective, autonomy_mode, status, updated_at
+            FROM creative_plan_versions
+            {where}
+            ORDER BY updated_at DESC, id
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    ]
+    return {
+        "schema": "creator_os.plan_list.v1",
+        "creator": creator,
+        "limit": limit,
+        "plans": rows,
+        "readOnly": True,
+    }
+
+
+def replan(
+    conn: sqlite3.Connection,
+    *,
+    plan_id: str,
+    apply: bool,
+) -> dict[str, Any]:
+    """Create a successor version while retaining completed and published evidence."""
+    previous = load_plan(conn, plan_id)
+    start = datetime.fromisoformat(previous["horizon"]["start"]).date()
+    end = datetime.fromisoformat(previous["horizon"]["end"]).date()
+    request = PlanningRequest(
+        creator=previous["creator"],
+        horizon_days=(end - start).days + 1,
+        accounts=tuple(str(row["handle"]) for row in previous["accounts"]),
+        objective=previous["objective"],
+        output_count=int(previous["requestedOutputCount"]),
+        timezone=previous["timezone"],
+        autonomy_mode=previous["autonomyMode"],
+        max_credits=previous["signedSpendCeiling"],
+        start_date=start,
+    )
+    candidate = build_plan(conn, request)
+    retained_states = {
+        "REVIEW_READY",
+        "CREATIVE_APPROVED",
+        "EXPORT_READY",
+        "EXPORTED",
+        "SCHEDULE_READY",
+        "SCHEDULED",
+        "PUBLISHING",
+        "PUBLISHED",
+        "MEASURING",
+        "LEARNED",
+    }
+    retained: list[dict[str, Any]] = []
+    changes: list[dict[str, Any]] = []
+    for old, new in zip(previous["items"], candidate["items"], strict=False):
+        if old["execution_state"] in retained_states:
+            retained.append(
+                {
+                    "previousPlanItemId": old["id"],
+                    "itemIndex": old["item_index"],
+                    "state": old["execution_state"],
+                    "reason": "completed_or_publication_lineage_retained",
+                }
+            )
+        changed_fields = [
+            field
+            for field, old_value, new_value in (
+                ("source", old["source_asset_id"], new["sourceAssetId"]),
+                ("intent", old["content_intent"], new["contentIntent"]),
+                ("account", old["target_account"], new["targetAccount"]),
+                ("prompt", old["prompt_text"], new["prompt"]),
+            )
+            if old_value != new_value
+        ]
+        if changed_fields:
+            changes.append(
+                {
+                    "previousPlanItemId": old["id"],
+                    "itemIndex": old["item_index"],
+                    "changedFields": changed_fields,
+                    "reason": "current scoped inventory_or_evidence_changed",
+                }
+            )
+    replan_context = {
+        "replanOf": previous["planId"],
+        "previousInputFingerprint": previous["inputFingerprint"],
+        "candidateInputFingerprint": candidate["inputFingerprint"],
+        "retained": retained,
+        "changes": changes,
+    }
+    candidate["previousPlanVersionId"] = previous["planId"]
+    candidate["decisionReceipt"]["replan"] = replan_context
+    candidate["inputFingerprint"] = plan_fingerprint(replan_context)
+    candidate["planId"] = f"plan_{candidate['inputFingerprint'][:16]}"
+    result: dict[str, Any] = {
+        "schema": "creator_os.content_plan_replan.v1",
+        "dryRun": not apply,
+        "previousPlanId": previous["planId"],
+        "candidate": candidate,
+        "retainedItems": retained,
+        "changedItems": changes,
+        "providerCalls": 0,
+        "exports": 0,
+        "schedules": 0,
+        "publications": 0,
+    }
+    if not apply:
+        return result
+    stored = persist_plan(conn, candidate)
+    for retained_item in retained:
+        old = next(
+            item
+            for item in previous["items"]
+            if item["id"] == retained_item["previousPlanItemId"]
+        )
+        new = conn.execute(
+            """
+            SELECT id FROM creative_plan_items
+            WHERE plan_version_id = ? AND item_index = ?
+            """,
+            (stored["planId"], old["item_index"]),
+        ).fetchone()
+        if new is None:
+            continue
+        conn.execute(
+            """
+            UPDATE creative_plan_items
+            SET execution_state = ?, generation_identity_json = ?,
+                review_identity_json = ?, export_identity_json = ?,
+                publication_identity_json = ?, metric_cohort_identity_json = ?,
+                learning_outcome_identity_json = ?, experiment_id = ?,
+                experiment_variant = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                old["execution_state"],
+                old["generation_identity_json"],
+                old["review_identity_json"],
+                old["export_identity_json"],
+                old["publication_identity_json"],
+                old["metric_cohort_identity_json"],
+                old["learning_outcome_identity_json"],
+                old["experiment_id"],
+                old["experiment_variant"],
+                _now(),
+                new["id"],
+            ),
+        )
+    conn.commit()
+    return {**result, "candidate": load_plan(conn, stored["planId"]), "written": True}
