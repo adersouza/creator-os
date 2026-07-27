@@ -367,11 +367,17 @@ def test_segment_selection_scores_full_track_and_avoids_zero_default(
     )
 
     selected = select_segment(acquired, reel_duration_seconds=3)
+    cooled = select_segment(
+        acquired,
+        reel_duration_seconds=3,
+        excluded_offsets=(selected.start_offset_seconds,),
+    )
 
     assert selected.start_offset_seconds > 0
     assert selected.duration_seconds == 3
     assert selected.onset_count >= 0
     assert len(selected.decoded_audio_fingerprint) == 64
+    assert abs(cooled.start_offset_seconds - selected.start_offset_seconds) > 0.25
 
 
 def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
@@ -407,8 +413,15 @@ def test_embedding_receipt_builds_verified_embedded_trending_handoff() -> None:
             "platformSoundIds": [{"platform": "instagram", "soundId": "ig-1"}],
             "trendRank": 4,
             "trendVelocity": 4200,
+            "advisoryLabels": {"audioCatalogId": "audio-1"},
         },
         "mixSettings": {"volume": 0.82},
+        "creativeContext": {
+            "creator": "stacey",
+            "account": "stacey-main",
+            "intent": "passive_selfie",
+            "speaking": False,
+        },
     }
 
     intent = build_embedded_trending_audio_intent(
@@ -471,8 +484,15 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
             "platformSoundIds": [{"platform": "instagram", "soundId": "ig-1"}],
             "trendRank": 4,
             "trendVelocity": 4200,
+            "advisoryLabels": {"audioCatalogId": "audio-1"},
         },
         "mixSettings": {"volume": 0.82},
+        "creativeContext": {
+            "creator": "stacey",
+            "account": "stacey-main",
+            "intent": "passive_selfie",
+            "speaking": False,
+        },
     }
     receipt["audioIntent"] = build_embedded_trending_audio_intent(
         receipt,
@@ -518,8 +538,23 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
           created_at TEXT NOT NULL,
           UNIQUE(generation_attempt_id, relation)
         );
+        CREATE TABLE audio_catalog (id TEXT PRIMARY KEY);
+        CREATE TABLE audio_selections (
+          id TEXT PRIMARY KEY,
+          campaign_id TEXT,
+          rendered_asset_id TEXT,
+          audio_catalog_id TEXT,
+          status TEXT,
+          selected_by TEXT,
+          selected_at TEXT,
+          verified_at TEXT,
+          payload_json TEXT,
+          created_at TEXT,
+          updated_at TEXT
+        );
         """
     )
+    conn.execute("INSERT INTO audio_catalog VALUES ('audio-1')")
     conn.execute(
         """
         INSERT INTO rendered_assets
@@ -566,6 +601,13 @@ def test_verified_receipt_rebinds_exact_asset_and_appends_lineage(
         conn.execute("SELECT relation FROM generation_lineage_edges").fetchone()[0]
         == "audio_embedding"
     )
+    selection = conn.execute(
+        "SELECT status, audio_catalog_id, payload_json FROM audio_selections"
+    ).fetchone()
+    assert selection is not None
+    assert selection[0] == "verified"
+    assert selection[1] == "audio-1"
+    assert json.loads(selection[2])["creativeContext"]["creator"] == "stacey"
 
 
 def test_normalized_candidate_serialization_redacts_locator_value() -> None:

@@ -69,6 +69,7 @@ class StaticProvider:
         *,
         status: str = "available",
         observation_valid: bool = False,
+        raw_payloads: list[dict[str, Any]] | None = None,
     ) -> None:
         self.candidates = candidates
         self.last_metadata = {
@@ -76,6 +77,7 @@ class StaticProvider:
             "requests": 1,
             "observationValid": observation_valid,
         }
+        self.last_raw_payloads = raw_payloads or []
         self.calls = 0
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
@@ -283,6 +285,7 @@ def test_socialcrawl_tiktok_uses_real_schema_and_aggregates_music_ids(
         "musicAuthor": "Example Artist",
         "region": "US",
         "providerObservationTime": "2026-07-24T12:00:00Z",
+        "discoverySampleRef": "req_tiktok_redacted:sample-1",
     }
     opaque = next(candidate for candidate in candidates if not candidate.title)
     normalized = normalize_candidates([opaque])[0]
@@ -303,6 +306,34 @@ def test_socialcrawl_tiktok_uses_real_schema_and_aggregates_music_ids(
         observation.get("metadataEnrichedFromSharedSoundId") is True
         for observation in merged[0].advisory_labels["observations"]
     )
+
+
+def test_socialcrawl_tiktok_aggregates_multiple_bounded_samples(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOCIALCRAWL_API_KEY", "fixture-social-key")
+    session = RecordingSession(
+        FakeResponse(_json_fixture("socialcrawl_tiktok_trending.redacted.json"))
+    )
+    provider = SocialCrawlTikTokProvider(session=session)
+
+    candidates = provider.discover_samples(region="US", limit=100, sample_count=2)
+
+    assert len(session.calls) == 2
+    assert provider.last_metadata["requests"] == 2
+    assert provider.last_metadata["sampleCount"] == 2
+    assert provider.last_metadata["rawVideoCount"] == 6
+    assert len(provider.last_raw_payloads) == 2
+    aggregated = next(
+        candidate
+        for candidate in candidates
+        if candidate.platform_sound_ids[0].sound_id == "tt_music_501"
+    )
+    assert aggregated.advisory_labels["sampleAppearanceCount"] == 4
+    assert aggregated.advisory_labels["discoverySampleReferences"] == [
+        "req_tiktok_redacted:sample-1",
+        "req_tiktok_redacted:sample-2",
+    ]
 
 
 def test_socialcrawl_tiktok_rejects_nonempty_feed_without_music_ids(
@@ -493,7 +524,10 @@ def test_single_refresh_never_downloads_more_than_max_new(
         apply=True,
         paths=_paths(tmp_path),
         social_provider=StaticProvider([]),
-        tiktok_social_provider=StaticProvider(candidates),
+        tiktok_social_provider=StaticProvider(
+            candidates,
+            raw_payloads=[{"success": True, "data": {"items": ["private-evidence"]}}],
+        ),
         creative_provider=StaticProvider([]),
         tiklive_resolver=resolver,
         now="2026-07-24T12:00:00Z",
@@ -504,6 +538,11 @@ def test_single_refresh_never_downloads_more_than_max_new(
     assert receipt["sourceStatus"]["tiklive"]["requests"] == 2
     assert len(receipt["acquisitions"]) == 2
     assert len(resolver.calls) == 2
+    raw_path = Path(receipt["providerPayloadReceipt"])
+    assert raw_path.is_file()
+    assert raw_path.stat().st_mode & 0o777 == 0o600
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    assert raw["sources"]["socialcrawlTikTok"][0]["success"] is True
 
 
 def test_creative_center_public_page_parsing_and_request_cap() -> None:
@@ -841,13 +880,68 @@ def test_all_source_invalid_empty_outage_preserves_lifecycle_and_cache(
                 """
             ).fetchone()
         )
-        assert after == before
+    assert after == before
+    with connect(paths.database) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM audio_cache_prune_receipts").fetchone()[
                 0
             ]
             == 0
         )
+
+
+def test_partial_tiktok_sample_does_not_age_omitted_tracks(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    with connect(paths.database) as conn:
+        init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO audio_catalog (
+              id, canonical_track_id, title, platform, lifecycle_state, active,
+              consecutive_absences, last_seen_at, imported_at, updated_at
+            ) VALUES (
+              'existing-track', 'existing-canonical', 'Existing Track', 'tiktok',
+              'HOT', 1, 0, '2026-07-25T12:00:00Z',
+              '2026-07-25T12:00:00Z', '2026-07-25T12:00:00Z'
+            )
+            """
+        )
+        conn.commit()
+
+    receipt = refresh_audio_library(
+        region="US",
+        max_new=0,
+        max_active=30,
+        apply=True,
+        paths=paths,
+        social_provider=FailingProvider(),
+        tiktok_social_provider=StaticProvider(
+            [
+                _candidate(
+                    provider="socialcrawl_tiktok",
+                    platform="tiktok",
+                    sound_id="different-track",
+                )
+            ],
+            status="partial",
+            observation_valid=True,
+        ),
+        creative_provider=FailingProvider(),
+        now="2026-07-27T12:00:00Z",
+    )
+
+    assert receipt["sourceStatus"]["socialcrawlTikTok"]["status"] == "partial"
+    assert receipt["counts"]["tracksMarkedCooling"] == 0
+    assert receipt["counts"]["tracksMarkedStale"] == 0
+    with connect(paths.database) as conn:
+        row = conn.execute(
+            """
+            SELECT lifecycle_state, consecutive_absences
+            FROM audio_catalog WHERE id = 'existing-track'
+            """
+        ).fetchone()
+    assert row["lifecycle_state"] == "HOT"
+    assert row["consecutive_absences"] == 0
 
 
 @pytest.mark.parametrize(
@@ -1077,7 +1171,12 @@ def test_machine_local_schedule_is_configurable_and_never_publishes() -> None:
     assert "PRIVATE_HOUR" in doc
     assert "PRIVATE_MINUTE" in doc
     assert "/Users/aderdesouza/.creator-os/run-job.sh" in doc
+    assert "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" in doc
     assert "CREATOR_OS_AUDIO_REFRESH_ENV" in runner
+    assert (
+        'export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"'
+        in runner
+    )
     assert "--apply" in runner
     assert "creator-os publish" not in runner.lower()
     assert "creator-os schedule" not in runner.lower()

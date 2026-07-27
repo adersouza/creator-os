@@ -33,16 +33,17 @@ from .audio_radar import (
     normalize_candidates,
     rank_candidates,
 )
-from .audio_radar.providers import (
-    ProviderError,
-    SocialCrawlInstagramProvider,
-    TokchartTrendProvider,
-)
 from .production_audio_library import (
     active_audio_library_candidates as _active_audio_library_candidates,
 )
 from .production_audio_library import (
+    apply_audio_usage_policy as _apply_audio_usage_policy,
+)
+from .production_audio_library import (
     audio_candidates_for_job as _audio_candidates_for_job,
+)
+from .production_audio_library import (
+    audio_fit_tags as _audio_fit_tags,
 )
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
@@ -203,24 +204,12 @@ def _audio_policy(value: str) -> str:
 def discover_production_audio_candidates(
     connection: Any | None = None,
 ) -> list[TrendCandidate]:
-    """Prefer the canonical active cache, then use live discovery if it is empty."""
+    """Load only the canonical active cache for production fulfillment."""
 
-    candidates: list[TrendCandidate] = []
     fixture = _approved_audio_fixture_candidate()
     if fixture is not None:
         return normalize_candidates([fixture])
-    active = _active_audio_library_candidates(connection)
-    if active:
-        return active
-    for provider in (
-        SocialCrawlInstagramProvider(),
-        TokchartTrendProvider(),
-    ):
-        try:
-            candidates.extend(provider.discover(region=None, limit=25))
-        except ProviderError:
-            continue
-    return normalize_candidates(candidates)
+    return _active_audio_library_candidates(connection)
 
 
 def _approved_audio_fixture_candidate() -> TrendCandidate | None:
@@ -269,7 +258,9 @@ def fulfill_production_audio(
 ) -> dict[str, Any]:
     """Carry one generated asset through canonical embedded-audio fulfillment."""
 
+    intent = str(job.get("intent") or "")
     policy = _audio_policy(str(job.get("audioPolicy") or ""))
+    _validate_intent_audio_policy(intent, policy)
     if policy != "embedded_trending_required":
         return {"policy": policy, "requiredStage": "separate_optional_path"}
     stage = _motion_stage_result(generation_result)
@@ -283,17 +274,28 @@ def fulfill_production_audio(
     video_path = video_path.resolve()
     if not video_path.is_file():
         raise RuntimeError("production generated video is missing")
+    completed_at = selected_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     discovered = (
-        normalize_candidates(candidates)
+        list(candidates)
         if candidates is not None
         else discover_production_audio_candidates(factory.conn)
+    )
+    if any(not candidate.canonical_track_id for candidate in discovered):
+        discovered = normalize_candidates(discovered)
+    discovered = _apply_audio_usage_policy(
+        factory.conn,
+        discovered,
+        creator=str(job.get("creator") or ""),
+        account=str(job.get("accountGroup") or ""),
+        now=completed_at,
     )
     ranked = rank_candidates(
         discovered,
         AudioMatchContext(
             creator=str(job.get("creator") or ""),
             account=str(job.get("accountGroup") or ""),
-            motion_tags=(str(job.get("intent") or ""),),
+            visual_tags=_audio_fit_tags(intent),
+            motion_tags=(intent,),
             speaking=False,
         ),
     )
@@ -301,7 +303,6 @@ def fulfill_production_audio(
         raise NeedsEmbeddedAudioError(
             [{"status": "failed", "reason": "audio_candidates_exhausted"}]
         )
-    completed_at = selected_at or datetime.now(UTC).isoformat().replace("+00:00", "Z")
     final_path = video_path.with_name(
         f"{video_path.stem}__embedded_trending{video_path.suffix}"
     )
@@ -508,6 +509,7 @@ def plan_production_batch(
         raise ValueError(f"intent {intent!r} has no supported production recipe")
     creator_slug = creator.strip().lower().replace(" ", "_")
     resolved_audio_policy = _audio_policy(audio_preference)
+    _validate_intent_audio_policy(intent, resolved_audio_policy)
     speech_audio = _optional_safe_media(speech_audio_path, "speech audio")
     motion_reference = _optional_safe_media(
         motion_reference_path, "motion reference video"
@@ -656,6 +658,20 @@ def plan_production_batch(
         "quotedProviderCredits": None,
         "jobs": jobs,
     }
+
+
+def _validate_intent_audio_policy(intent: str, policy: str) -> None:
+    if intent in _TALKING_INTENTS:
+        if policy != "creator_voice":
+            raise ValueError(
+                "talking intents require creator_voice and forbid automatic "
+                "trending-audio replacement"
+            )
+        return
+    if intent in _SUPPORTED_PASSIVE_INTENTS and policy != "embedded_trending_required":
+        raise ValueError(
+            "non-talking production intents require embedded_trending_required"
+        )
 
 
 def run_production_batch(

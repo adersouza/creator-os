@@ -584,7 +584,8 @@ reference intake
   -> technical QC plus operator would-post review
   -> placement.py -> caption_render.py when an overlay has a safe lane
   -> ContentForge headless JSON QC and distinctness verdict
-  -> Audio Radar selects a live cached track and compatible segment
+  -> Audio Radar selects a verified TikTok-primary cached track and compatible
+     segment for non-talking content only
   -> verified AAC embedding; audio receipt binds the exact final MP4 SHA
   -> Campaign Factory readiness and pipeline-contract validation
   -> HMAC-signed draft-only ingest request
@@ -654,6 +655,9 @@ normal finished-Reel path selects a duration-compatible Audio Radar segment,
 embeds and verifies AAC, and binds its receipt to the exact final MP4 SHA.
 Native platform audio remains a separately resolved intent and is never inferred
 from an embedded track.
+Talking and supplied-voice content uses `creator_voice`; the automatic Audio
+Radar replacement stage rejects those intents and does not add background
+music.
 
 The retired `motion_edit` and `best_only_kling` identifiers remain valid only
 for historical evidence/schema replay. They are absent from the operator menu

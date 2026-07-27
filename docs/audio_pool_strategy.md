@@ -1,66 +1,62 @@
-# Audio Pool Strategy
+# Audio Radar production strategy
 
-Creator OS now has a reusable seed pool at `docs/examples/audio_catalog_seed_tiktok_20260620.json`.
-Import it into Campaign Factory with:
+Audio Radar is the automatic music path for normal non-talking Reels. The
+operator does not manually choose a song during ordinary production.
 
-```bash
-PYTHONPATH=python_packages/campaign_factory python3 -m campaign_factory.cli import-audio-catalog --path docs/examples/audio_catalog_seed_tiktok_20260620.json
+## Ownership
+
+- SocialCrawl TikTok trending videos are the primary discovery feed.
+- TikTok Creative Center is optional chart enrichment.
+- SocialCrawl Instagram is optional and non-blocking.
+- TikLive resolves selected TikTok music IDs to downloadable audio.
+- Campaign Factory owns the canonical catalog, verified cache, lifecycle,
+  matching, segment selection, AAC embedding, and final-media receipt.
+- ThreadsDashboard publishes the exact completed MP4 unchanged. It does not
+  replace embedded TikTok audio with native Instagram audio.
+
+## Production policy
+
+```text
+non-talking intent
+  -> embedded_trending_required
+  -> verified active Audio Radar track
+  -> duration-compatible segment
+  -> AAC embedded in the final MP4
+  -> receipt bound to the final MP4 SHA-256
+
+talking or supplied-voice intent
+  -> creator_voice
+  -> preserve dialogue
+  -> no automatic music replacement
 ```
 
-Generate a ranked audio intent preview with:
+No valid active cached track means production fails with
+`NEEDS_EMBEDDED_AUDIO`. Production does not fall back to fixtures, random local
+music, native Instagram audio, or silence. A local fixture is available only
+through the explicit test-only `CREATOR_OS_EMBEDDED_AUDIO_FIXTURE` override.
 
-```bash
-PYTHONPATH=python_packages/campaign_factory python3 -m campaign_factory.cli recommend-audio --platform tiktok --content-tags shortform,native_audio_pool --limit 5
+## Rotation and reuse
+
+The active library contains only hash-verified playable cache objects.
+Selection considers lifecycle/freshness, content tags, duration, recent use,
+measured performance, and batch uniqueness. Exact acoustic duplicates are
+removed before batch partitioning.
+
+Machine-local cooldown defaults are configurable:
+
+```sh
+CREATOR_OS_AUDIO_ACCOUNT_TRACK_COOLDOWN_DAYS=7
+CREATOR_OS_AUDIO_CREATOR_SEGMENT_COOLDOWN_DAYS=14
 ```
 
-## Current Split
+A pinned track or measured winner may explicitly override cooldown. Historical
+metadata remains after cache bytes are pruned.
 
-- Reference Factory owns audio intake, review, trend metadata, and `audio_catalog_export.v1`.
-- Campaign Factory owns recommendation, account fit, fatigue/performance rollups, and `audio_intent.v1`.
-- ThreadsDashboard owns user selection, Meta audio search/metadata, native-audio proof, and publish preflight.
+## Weekly refresh
 
-## Product Pattern
+See [`operations/audio_refresh.md`](operations/audio_refresh.md). The supported
+command is:
 
-Do the smallest useful version:
-
-1. Show Campaign Factory recommendations first.
-2. Let the user search platform-native audio when the connected account supports it.
-3. Store the selected platform audio id/title/artist/proof on `audio_intent.operator_selection`.
-4. Block live publishing until native audio is verified by ThreadsDashboard preflight.
-5. Fall back to notification/manual publishing when a platform audio cannot be attached through API.
-
-Do not burn platform/trending audio into rendered videos. For automated IG-login
-publishing, use explicitly licensed local audio only: download or generate the
-track, keep a proof sidecar in `python_packages/reel_factory/03_audio_library`,
-mux it into the MP4, and emit `licensed_music` / `embedded_licensed_audio`
-evidence.
-
-## Local Licensed Audio
-
-Pixabay Music is a good manual source, but its music downloads are not exposed
-through the official Pixabay image/video API. Download selected tracks manually
-from the track page, then import the local file or URL.
-
-Use the canonical `reel_factory.audio_library_import` module to validate the
-audio stream, install it atomically, and write the SHA-256-addressed
-license/provenance sidecar. Repeating
-the same import is idempotent. Pass either `--url` for a direct HTTP(S) audio
-download or `--file` for a local track:
-
-```bash
-uv run --package reel-factory python -m reel_factory.audio_library_import \
-  --root python_packages/reel_factory \
-  --url "https://example.com/track.mp3" \
-  --title "Track Title" \
-  --artist "Artist" \
-  --source pixabay \
-  --license "Pixabay Content License" \
-  --license-url "https://pixabay.com/service/license-summary/" \
-  --page-url "https://pixabay.com/music/..." \
-  --tag moody --tag reel
+```sh
+creator-os audio refresh --region US --max-new 20 --max-active 75 --apply
 ```
-
-For a local download, replace `--url ...` with `--file ~/Downloads/track.mp3`.
-
-Other direct-download royalty-free libraries work the same way. The first local
-seed uses Incompetech CC BY 4.0 tracks, which require attribution tracking.

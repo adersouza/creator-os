@@ -25,8 +25,11 @@ CREATOR_OS_AUDIO_REFRESH_REGION=US
 CREATOR_OS_AUDIO_REFRESH_MAX_NEW=20
 CREATOR_OS_AUDIO_REFRESH_MAX_ACTIVE=75
 CREATOR_OS_AUDIO_REFRESH_WEEKDAY=1
-CREATOR_OS_AUDIO_REFRESH_HOUR=8
-CREATOR_OS_AUDIO_REFRESH_MINUTE=15
+CREATOR_OS_AUDIO_REFRESH_HOUR=4
+CREATOR_OS_AUDIO_REFRESH_MINUTE=0
+CREATOR_OS_AUDIO_TIKTOK_SAMPLE_COUNT=2
+CREATOR_OS_AUDIO_ACCOUNT_TRACK_COOLDOWN_DAYS=7
+CREATOR_OS_AUDIO_CREATOR_SEGMENT_COOLDOWN_DAYS=14
 ```
 
 `TOKCHART_API_TOKEN` remains optional and is not used by the weekly command.
@@ -55,6 +58,11 @@ through `6` Saturday convention.
     <string>audio-refresh</string>
     <string>/absolute/path/to/creator-os/scripts/run_audio_refresh.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Weekday</key>
@@ -70,10 +78,12 @@ through `6` Saturday convention.
 </plist>
 ```
 
-The refresh itself takes a non-blocking single-instance lock and makes at most
-two SocialCrawl discovery requests: Instagram music trending first, then
-TikTok trending videos for the configured region. TikTok videos are aggregated
-by their actual music IDs before selection. Creative Center is optional
+The refresh itself takes a non-blocking single-instance lock and makes one
+optional Instagram request plus two bounded TikTok trending-video samples by
+default. TikTok videos are aggregated by their actual music IDs before
+selection, with a discovery-sample reference retained for every appearance.
+The credentialed SocialCrawl payloads are stored in a private `0600` receipt for
+reconciliation. Creative Center is optional
 additional chart evidence and is capped at four public-page views; its
 unavailability never blocks the SocialCrawl TikTok feed. TikLiveAPI only
 resolves selected TikTok music IDs. TikLive resolution and total downloads are
@@ -99,3 +109,5 @@ CREATOR_OS_AUDIO_WINNER_LOOKBACK_DAYS=60
 CREATOR_OS_AUDIO_WINNER_SCORE=1.0
 CREATOR_OS_AUDIO_CREATIVE_REQUEST_CAP=4
 ```
+
+The recommended LaunchAgent schedule is Monday at 4:00 AM machine-local time.

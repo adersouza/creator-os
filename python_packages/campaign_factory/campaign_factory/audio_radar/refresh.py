@@ -57,6 +57,7 @@ class LifecycleThresholds:
     winner_lookback_days: int = 60
     winner_score: float = 1.0
     creative_center_request_cap: int = 4
+    tiktok_sample_count: int = 2
 
     @classmethod
     def from_env(cls) -> LifecycleThresholds:
@@ -78,6 +79,12 @@ class LifecycleThresholds:
                 "CREATOR_OS_AUDIO_CREATIVE_REQUEST_CAP",
                 4,
                 minimum=1,
+                maximum=4,
+            ),
+            tiktok_sample_count=_env_int(
+                "CREATOR_OS_AUDIO_TIKTOK_SAMPLE_COUNT",
+                2,
+                minimum=2,
                 maximum=4,
             ),
         )
@@ -167,6 +174,7 @@ def refresh_audio_library(
             platform="tiktok",
             region=region,
             limit=100,
+            sample_count=config.tiktok_sample_count,
         )
         creative_tiktok, creative_status = _discover_source(
             creative,
@@ -238,7 +246,7 @@ def refresh_audio_library(
                 },
                 "credits": _credits(sources),
                 "requestCaps": {
-                    "socialcrawl": 2,
+                    "socialcrawl": 1 + config.tiktok_sample_count,
                     "creativeCenter": config.creative_center_request_cap,
                     "tiklive": 0,
                     "downloads": 0,
@@ -373,6 +381,20 @@ def refresh_audio_library(
                 selected_paths.receipts,
                 run_id,
             )
+            raw_payload_path = (
+                selected_paths.receipts.expanduser().resolve()
+                / f"{run_id}-provider-payloads.json"
+            )
+            provider_payloads = {
+                "schema": "creator_os.audio_refresh_provider_payloads.v1",
+                "runId": run_id,
+                "region": region,
+                "capturedAt": completed_at,
+                "sources": {
+                    "socialcrawlInstagram": _provider_payloads(social),
+                    "socialcrawlTikTok": _provider_payloads(tiktok_social),
+                },
+            }
             receipt = {
                 "schema": "creator_os.audio_refresh_receipt.v1",
                 "runId": run_id,
@@ -385,7 +407,7 @@ def refresh_audio_library(
                 "counts": counts,
                 "credits": _credits(sources),
                 "requestCaps": {
-                    "socialcrawl": 2,
+                    "socialcrawl": 1 + config.tiktok_sample_count,
                     "creativeCenter": config.creative_center_request_cap,
                     "tiklive": max_new,
                     "downloads": max_new,
@@ -398,6 +420,7 @@ def refresh_audio_library(
                 "prunes": prunes,
                 "sampleVerification": acquisition["sampleVerification"][:3],
                 "candidatesReceipt": str(candidates_path),
+                "providerPayloadReceipt": str(raw_payload_path),
                 "receiptPath": str(receipt_path),
                 "publishingActions": 0,
                 "schedulingActions": 0,
@@ -406,6 +429,7 @@ def refresh_audio_library(
             safe_discovery = _redact(discovery)
             safe_receipt = _redact(receipt)
             _write_private_json(candidates_path, safe_discovery)
+            _write_private_json(raw_payload_path, _redact(provider_payloads))
             _write_private_json(receipt_path, safe_receipt)
             conn.execute(
                 """
@@ -437,9 +461,19 @@ def _discover_source(
     platform: str,
     region: str,
     limit: int,
+    sample_count: int = 1,
 ) -> tuple[list[TrendCandidate], dict[str, Any]]:
     try:
-        candidates = provider.discover(region=region, limit=limit)
+        discover_samples = getattr(provider, "discover_samples", None)
+        candidates = (
+            discover_samples(
+                region=region,
+                limit=limit,
+                sample_count=sample_count,
+            )
+            if callable(discover_samples) and sample_count > 1
+            else provider.discover(region=region, limit=limit)
+        )
     except ProviderCredentialError:
         return [], {
             "status": "unavailable",
@@ -473,14 +507,26 @@ def _discover_source(
             "requests": request_count,
             "candidateCount": 0,
         }
+    provider_status = (
+        str(metadata.get("status"))
+        if isinstance(metadata, dict) and metadata.get("status") == "partial"
+        else "available"
+    )
     return candidates, {
         **(metadata if isinstance(metadata, dict) else {}),
-        "status": "available",
+        "status": provider_status,
         "source": source,
         "platform": platform,
         "requests": request_count,
         "candidateCount": len(candidates),
     }
+
+
+def _provider_payloads(provider: Any) -> list[Any]:
+    payloads = getattr(provider, "last_raw_payloads", [])
+    if not isinstance(payloads, list):
+        return []
+    return payloads
 
 
 def _combined_tiktok_status(
@@ -1450,7 +1496,7 @@ def _overall_status(sources: dict[str, Any]) -> str:
     ]
     if all(value == "available" for value in primary_discovery):
         return "success"
-    if any(value == "available" for value in primary_discovery) or (
+    if any(value in {"available", "partial"} for value in primary_discovery) or (
         sources.get("tiktokCreativeCenter", {}).get("status") == "available"
     ):
         return "partial"
