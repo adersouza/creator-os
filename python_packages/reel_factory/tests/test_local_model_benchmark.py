@@ -1555,7 +1555,29 @@ def test_provider_free_end_to_end_benchmark_evidence_canary(tmp_path: Path) -> N
     assert result["providerCalls"] == 0
     assert result["productionWrites"] == 0
     assert result["promotionEvaluation"]["eligible"] is True
+    assert result["promotionEvaluation"]["wallTimeRatio"] <= 1.25
+    assert result["promotionEvaluation"]["peakMemoryRatio"] <= 1.25
     assert len(result["benchmarkReceipts"]) == 16
+    assert [
+        receipt["jobId"].split("-")[1] for receipt in result["benchmarkReceipts"]
+    ] == [
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline",
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline",
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline",
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline",
+    ]
     assert len({item["outputSha256"] for item in result["benchmarkReceipts"]}) == 16
     for receipt in result["benchmarkReceipts"]:
         assert receipt["benchmarkRecipeId"] == result["benchmarkRecipeId"]
