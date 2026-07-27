@@ -3,6 +3,11 @@
 set -u
 umask 077
 
+# launchd supplies only the system PATH. Creator OS installs uv through
+# Homebrew on the supported macOS runtime, so make scheduled resolution
+# deterministic while retaining the standard system locations.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 ROOT="${CREATOR_OS_RUNTIME_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ENV_FILE="${CREATOR_OS_AUDIO_REFRESH_ENV:-$HOME/.creator-os/generation.env}"
 REPORT_DIR="${CREATOR_OS_AUDIO_REFRESH_REPORT_DIR:-$HOME/.creator-os/reports/audio-refresh}"

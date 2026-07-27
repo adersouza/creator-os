@@ -51,6 +51,7 @@ def select_segment(
     *,
     reel_duration_seconds: float,
     preferred_offsets: tuple[float, ...] = (),
+    excluded_offsets: tuple[float, ...] = (),
 ) -> SegmentSelection:
     """Evaluate the whole track instead of defaulting to offset zero."""
 
@@ -76,6 +77,18 @@ def select_segment(
         frame = round(max(0.0, offset) / _FRAME_SECONDS)
         if frame <= last_start_frame:
             starts.add(frame)
+    starts = {
+        start
+        for start in starts
+        if not any(
+            abs(start * _FRAME_SECONDS - excluded) <= _WINDOW_STEP_SECONDS
+            for excluded in excluded_offsets
+        )
+    }
+    if not starts:
+        raise SegmentSelectionError(
+            "all duration-compatible segments are inside the creator cooldown"
+        )
     global_mean = statistics.fmean(energies)
     global_std = statistics.pstdev(energies) if len(energies) > 1 else 0.0
     scored: list[tuple[float, int, dict[str, float | int]]] = []

@@ -65,6 +65,7 @@ def fulfill_embedded_trending(
                 acquired,
                 reel_duration_seconds=duration,
                 preferred_offsets=_preferred_offsets(candidate.advisory_labels),
+                excluded_offsets=_excluded_offsets(candidate.advisory_labels),
             )
             receipt = embed_selected_audio(
                 video_path=video_path,
@@ -136,6 +137,21 @@ def _media_duration(path: Path) -> float:
 
 def _preferred_offsets(labels: dict[str, object]) -> tuple[float, ...]:
     value = labels.get("preferred_offsets_seconds")
+    if not isinstance(value, list):
+        return ()
+    offsets: list[float] = []
+    for raw in value:
+        try:
+            offset = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if offset >= 0:
+            offsets.append(offset)
+    return tuple(offsets)
+
+
+def _excluded_offsets(labels: dict[str, object]) -> tuple[float, ...]:
+    value = labels.get("excludedSegmentOffsetsSeconds")
     if not isinstance(value, list):
         return ()
     offsets: list[float] = []

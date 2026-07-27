@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,12 +22,14 @@ from campaign_factory.audio_radar.models import (
 from campaign_factory.creative_approval import asset_requires_creative_approval
 from campaign_factory.generation_execution_plan import build_generation_execution_plan
 from campaign_factory.learning_score import learning_eligible
+from campaign_factory.production_audio_library import apply_audio_usage_policy
 from campaign_factory.production_lane import (
     _audio_candidates_for_job,
     _block_duplicate_provider_outputs,
     _expand_production_job_prompt,
     _run_production_job,
     discover_production_audio_candidates,
+    fulfill_production_audio,
     plan_production_batch,
     run_production_batch,
 )
@@ -217,7 +220,6 @@ def _fixture_candidate(audio: Path) -> TrendCandidate:
 
 def test_production_audio_prefers_canonical_active_cache(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -226,15 +228,16 @@ def test_production_audio_prefers_canonical_active_cache(
         CREATE TABLE audio_catalog (
           id TEXT PRIMARY KEY, canonical_track_id TEXT, canonical_title TEXT,
           canonical_artists_json TEXT, title TEXT, artist_name TEXT,
-          platform TEXT, native_audio_id TEXT, velocity_score REAL,
+          platform TEXT, mood_tags_json TEXT, best_content_types_json TEXT,
+          native_audio_id TEXT, velocity_score REAL,
           trend_score REAL, trend_sources_json TEXT, lifecycle_state TEXT,
           last_seen_at TEXT, refresh_metadata_json TEXT, active INTEGER
         );
         CREATE TABLE audio_cache_objects (
           audio_catalog_id TEXT, provider TEXT, platform TEXT,
           platform_sound_id TEXT, cache_path TEXT, byte_sha256 TEXT,
-          duration_seconds REAL, retrieved_at TEXT, source_metadata_json TEXT,
-          cached INTEGER, pruned_at TEXT
+          acoustic_fingerprint TEXT, duration_seconds REAL, retrieved_at TEXT,
+          source_metadata_json TEXT, cached INTEGER, pruned_at TEXT
         );
         """
     )
@@ -245,7 +248,8 @@ def test_production_audio_prefers_canonical_active_cache(
         """
         INSERT INTO audio_catalog VALUES (
           'audio-1', 'canonical-1', 'Cached Trend', '["Artist"]',
-          'Cached Trend', 'Artist', 'tiktok', 'music-1', 1234, 0.9,
+          'Cached Trend', 'Artist', 'tiktok', '["playful"]', '["lifestyle"]',
+          'music-1', 1234, 0.9,
           '["socialcrawl_tiktok"]', 'HOT', '2026-07-27T00:00:00Z',
           '{"score":42}', 1
         )
@@ -254,20 +258,12 @@ def test_production_audio_prefers_canonical_active_cache(
     conn.execute(
         """
         INSERT INTO audio_cache_objects VALUES (
-          'audio-1', 'tikliveapi', 'tiktok', 'music-1', ?, ?, 60,
+          'audio-1', 'tikliveapi', 'tiktok', 'music-1', ?, ?, ?, 60,
           '2026-07-27T00:01:00Z', '{"soundOwner":"Owner","videoCount":99}',
           1, NULL
         )
         """,
-        (str(cached), digest),
-    )
-    monkeypatch.setattr(
-        "campaign_factory.production_lane.SocialCrawlInstagramProvider.discover",
-        lambda *_args, **_kwargs: pytest.fail("live discovery must not run"),
-    )
-    monkeypatch.setattr(
-        "campaign_factory.production_lane.TokchartTrendProvider.discover",
-        lambda *_args, **_kwargs: pytest.fail("live discovery must not run"),
+        (str(cached), digest, "f" * 64),
     )
 
     candidates = discover_production_audio_candidates(conn)
@@ -279,6 +275,7 @@ def test_production_audio_prefers_canonical_active_cache(
     assert candidate.locator.kind == "local_file"
     assert candidate.locator.value == str(cached)
     assert candidate.artist == "Artist"
+    assert candidate.mood_tags == ("playful", "lifestyle")
     assert candidate.advisory_labels["source"] == "canonical_active_audio_library"
     assert candidate.advisory_labels["soundOwner"] == "Owner"
 
@@ -304,6 +301,94 @@ def test_batch_audio_partitions_avoid_unnecessary_track_reuse(tmp_path: Path) ->
     assert not (
         {id(item) for item in partitions[1]} & {id(item) for item in partitions[2]}
     )
+
+
+def test_batch_audio_excludes_acoustic_duplicates(tmp_path: Path) -> None:
+    candidates = [
+        replace(
+            _fixture_candidate(tmp_path / f"audio-{index}.bin"),
+            candidate_id=f"candidate-{index}",
+            canonical_track_id=f"track-{index}",
+            advisory_labels={"acousticFingerprint": "f" * 64},
+        )
+        for index in range(2)
+    ]
+
+    assert len(_audio_candidates_for_job(candidates, job_index=0, job_count=1)) == 1
+
+
+def test_account_and_creator_audio_cooldowns_with_winner_override(
+    tmp_path: Path,
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE rendered_assets (metadata_json TEXT, updated_at TEXT);
+        CREATE TABLE audio_performance_rollups (
+          audio_catalog_id TEXT, score REAL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO rendered_assets VALUES (?, ?)",
+        (
+            json.dumps(
+                {
+                    "audioEmbeddingReceipt": {
+                        "creativeContext": {
+                            "creator": "stacey",
+                            "account": "stacey-main",
+                        },
+                        "selection": {
+                            "canonicalTrackId": "legacy-normalized-track",
+                            "advisoryLabels": {"audioCatalogId": "audio-1"},
+                            "platformSoundIds": [
+                                {"platform": "tiktok", "soundId": "sound-1"}
+                            ],
+                        },
+                        "selectedSegment": {"start_offset_seconds": 12.5},
+                    }
+                }
+            ),
+            "2026-07-26T12:00:00Z",
+        ),
+    )
+    candidates = [
+        replace(
+            _fixture_candidate(tmp_path / f"audio-{index}.bin"),
+            candidate_id=f"candidate-{index}",
+            canonical_track_id=f"track-{index}",
+            advisory_labels={"audioCatalogId": f"audio-{index}"},
+        )
+        for index in range(1, 3)
+    ]
+
+    cooled = apply_audio_usage_policy(
+        conn,
+        candidates,
+        creator="stacey",
+        account="stacey-main",
+        now="2026-07-27T12:00:00Z",
+    )
+
+    assert [candidate.canonical_track_id for candidate in cooled] == ["track-2"]
+
+    conn.execute("INSERT INTO audio_performance_rollups VALUES ('audio-1', 2.0)")
+    overridden = apply_audio_usage_policy(
+        conn,
+        candidates,
+        creator="stacey",
+        account="stacey-main",
+        now="2026-07-27T12:00:00Z",
+    )
+    winner = next(
+        candidate
+        for candidate in overridden
+        if candidate.canonical_track_id == "track-1"
+    )
+    assert winner.advisory_labels["measuredWinnerCooldownOverride"] is True
+    assert "excludedSegmentOffsetsSeconds" not in winner.advisory_labels
 
 
 def test_golden_approved_source_to_generated_image_capability() -> None:
@@ -350,6 +435,37 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
     assert all(
         job["productionRecipe"]["stages"][0]["sound"] == "off" for job in batch["jobs"]
     )
+
+
+def test_non_talking_production_requires_embedded_trending(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="non-talking production intents require embedded_trending_required",
+    ):
+        plan_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts="stacey-main",
+            audio_preference="creator_voice",
+        )
+
+
+def test_talking_job_cannot_enter_trending_embedding_path() -> None:
+    with pytest.raises(
+        ValueError,
+        match="talking intents require creator_voice",
+    ):
+        fulfill_production_audio(
+            SimpleNamespace(conn=None),
+            job={
+                "intent": "talking_selfie",
+                "audioPolicy": "embedded_trending_required",
+            },
+            generation_result={},
+        )
 
 
 @pytest.mark.parametrize(
@@ -588,7 +704,7 @@ def test_golden_batch_request_has_independent_outputs(tmp_path: Path) -> None:
         count=5,
         execution="cloud",
         accounts="stacey-main",
-        audio_preference="native_trending_required",
+        audio_preference="embedded_trending_required",
     )
     jobs = batch["jobs"]
     assert len(jobs) == 5

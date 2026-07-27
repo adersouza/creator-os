@@ -137,6 +137,7 @@ class SocialCrawlInstagramProvider:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
         self.last_metadata: dict[str, Any] = {}
+        self.last_raw_payloads: list[Mapping[str, Any]] = []
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
         key = _required_env(self.credential_env)
@@ -153,6 +154,7 @@ class SocialCrawlInstagramProvider:
         payload = response.json()
         if not isinstance(payload, Mapping) or payload.get("success") is False:
             raise ProviderError("socialcrawl trending response was unsuccessful")
+        self.last_raw_payloads = [payload]
         self.last_metadata = _provider_metadata(payload, response.headers)
         candidates = self.parse(payload, region=region, limit=limit)
         raw_items = _items(payload)
@@ -270,44 +272,130 @@ class SocialCrawlTikTokProvider:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
         self.last_metadata: dict[str, Any] = {}
+        self.last_raw_payloads: list[Mapping[str, Any]] = []
 
     def discover(self, *, region: str | None, limit: int) -> list[TrendCandidate]:
+        return self.discover_samples(region=region, limit=limit, sample_count=1)
+
+    def discover_samples(
+        self,
+        *,
+        region: str | None,
+        limit: int,
+        sample_count: int,
+    ) -> list[TrendCandidate]:
+        """Retrieve bounded independent samples and aggregate their video evidence."""
+
+        if sample_count < 1 or sample_count > 4:
+            raise ValueError("SocialCrawl TikTok sample count must be between 1 and 4")
         key = _required_env(self.credential_env)
         selected_region = region or "US"
-        response = self.session.get(
-            self.endpoint,
-            headers={"x-api-key": key, "Accept": "application/json"},
-            params={"region": selected_region},
-            timeout=30,
-        )
-        if response.status_code != 200:
-            self.last_metadata = _provider_failure_metadata(response)
-            raise ProviderError(
-                "socialcrawl TikTok trending request failed: "
-                f"HTTP {response.status_code}"
+        payloads: list[Mapping[str, Any]] = []
+        metadata: list[dict[str, Any]] = []
+        sampled_items: list[Mapping[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        requests_made = 0
+        for sample_index in range(sample_count):
+            response = self.session.get(
+                self.endpoint,
+                headers={"x-api-key": key, "Accept": "application/json"},
+                params={"region": selected_region},
+                timeout=30,
             )
-        payload = response.json()
-        if not isinstance(payload, Mapping) or payload.get("success") is not True:
-            raise ProviderError("socialcrawl TikTok trending response was unsuccessful")
-        platform = _string(payload.get("platform")).lower()
-        endpoint = _string(payload.get("endpoint"))
-        if platform and platform != "tiktok":
-            raise ProviderError("socialcrawl TikTok response named another platform")
-        if endpoint and not endpoint.endswith("/v1/tiktok/trending"):
-            raise ProviderError("socialcrawl TikTok response named another endpoint")
-        raw_items = _items(payload)
-        candidates = self.parse(payload, region=selected_region, limit=limit)
-        if raw_items and not candidates:
+            requests_made += 1
+            if response.status_code != 200:
+                failure = _provider_failure_metadata(response)
+                failures.append(failure)
+                if not payloads:
+                    self.last_metadata = {**failure, "requests": requests_made}
+                    raise ProviderError(
+                        "socialcrawl TikTok trending request failed: "
+                        f"HTTP {response.status_code}"
+                    )
+                break
+            payload = response.json()
+            if not isinstance(payload, Mapping) or payload.get("success") is not True:
+                failures.append({"reason": "unsuccessful_response"})
+                if not payloads:
+                    raise ProviderError(
+                        "socialcrawl TikTok trending response was unsuccessful"
+                    )
+                break
+            platform = _string(payload.get("platform")).lower()
+            endpoint = _string(payload.get("endpoint"))
+            if platform and platform != "tiktok":
+                raise ProviderError(
+                    "socialcrawl TikTok response named another platform"
+                )
+            if endpoint and not endpoint.endswith("/v1/tiktok/trending"):
+                raise ProviderError(
+                    "socialcrawl TikTok response named another endpoint"
+                )
+            payloads.append(payload)
+            metadata.append(_provider_metadata(payload, response.headers))
+            request_id = _string(metadata[-1].get("requestId"))
+            sample_ref = (
+                f"{request_id}:sample-{sample_index + 1}"
+                if request_id
+                else f"socialcrawl_tiktok_sample_{sample_index + 1}"
+            )
+            sampled_items.extend(
+                {
+                    **dict(item),
+                    "_creatorOsDiscoverySampleRef": sample_ref,
+                }
+                for item in _items(payload)
+            )
+        observed_values = [
+            _string(payload.get("observed_at"))
+            for payload in payloads
+            if _string(payload.get("observed_at"))
+        ]
+        aggregate_payload: Mapping[str, Any] = {
+            "success": True,
+            "platform": "tiktok",
+            "endpoint": "/v1/tiktok/trending",
+            "observed_at": max(observed_values) if observed_values else _utc_now(),
+            "data": {"items": sampled_items},
+        }
+        candidates = self.parse(
+            aggregate_payload,
+            region=selected_region,
+            limit=max(1, len(sampled_items)),
+        )
+        if sampled_items and not candidates:
             raise ProviderError(
                 "socialcrawl TikTok response contained no usable music IDs"
             )
+        self.last_raw_payloads = payloads
+        credits_used = [
+            value.get("creditsUsed")
+            for value in metadata
+            if isinstance(value.get("creditsUsed"), (int, float))
+        ]
+        credits_remaining = next(
+            (
+                value.get("creditsRemaining")
+                for value in reversed(metadata)
+                if value.get("creditsRemaining") is not None
+            ),
+            None,
+        )
+        request_ids = [
+            str(value["requestId"]) for value in metadata if value.get("requestId")
+        ]
         self.last_metadata = {
-            **_provider_metadata(payload, response.headers),
-            "status": "available",
-            "requests": 1,
+            "status": "partial" if failures else "available",
+            "requests": requests_made,
             "observationValid": True,
-            "rawVideoCount": len(raw_items),
+            "rawVideoCount": len(sampled_items),
             "aggregatedMusicIdCount": len(candidates),
+            "sampleCount": len(payloads),
+            "requestedSampleCount": sample_count,
+            "sampleFailures": failures,
+            "requestIds": request_ids,
+            "creditsUsed": sum(credits_used) if credits_used else None,
+            "creditsRemaining": credits_remaining,
         }
         return candidates
 
@@ -408,6 +496,9 @@ class SocialCrawlTikTokProvider:
                     "musicAuthor": music_author,
                     "region": item_region,
                     "providerObservationTime": observed_at,
+                    "discoverySampleRef": _optional_string(
+                        item.get("_creatorOsDiscoverySampleRef")
+                    ),
                 }
             )
             group = groups.setdefault(
@@ -496,6 +587,13 @@ class SocialCrawlTikTokProvider:
                     "musicAuthors": group["authors"] or None,
                     "regions": group["regions"] or None,
                     "providerObservationTime": observed_at,
+                    "discoverySampleReferences": sorted(
+                        {
+                            str(video["discoverySampleRef"])
+                            for video in videos
+                            if video.get("discoverySampleRef")
+                        }
+                    ),
                     "providerRequestId": provider_metadata.get("requestId"),
                     "creditsUsed": provider_metadata.get("creditsUsed"),
                     "creditsRemaining": provider_metadata.get("creditsRemaining"),

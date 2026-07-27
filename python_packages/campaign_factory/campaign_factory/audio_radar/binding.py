@@ -155,6 +155,13 @@ def bind_embedding_receipt(
                     rendered_asset_id,
                 ),
             )
+            _record_audio_selection(
+                conn,
+                campaign_id=str(row["campaign_id"]),
+                rendered_asset_id=rendered_asset_id,
+                embedding_receipt=embedding_receipt,
+                bound_at=bound_at,
+            )
         return {
             "schema": "campaign_factory.audio_embedding_binding.v1",
             "renderedAssetId": rendered_asset_id,
@@ -209,6 +216,74 @@ def _bound_metadata(
         "output": {"path": str(final_path), "sha256": final_sha},
         "publishability": publishability,
     }
+
+
+def _record_audio_selection(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: str,
+    rendered_asset_id: str,
+    embedding_receipt: dict[str, Any],
+    bound_at: str,
+) -> None:
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'audio_selections'"
+    ).fetchone()
+    if table is None:
+        return
+    selection = _json_record(embedding_receipt.get("selection"))
+    labels = _json_record(selection.get("advisoryLabels"))
+    audio_catalog_id = str(labels.get("audioCatalogId") or "").strip()
+    if not audio_catalog_id:
+        return
+    exists = conn.execute(
+        "SELECT 1 FROM audio_catalog WHERE id = ?",
+        (audio_catalog_id,),
+    ).fetchone()
+    if exists is None:
+        return
+    selection_id = (
+        "audsel_embed_"
+        + hashlib.sha256(
+            f"{rendered_asset_id}:{audio_catalog_id}".encode()
+        ).hexdigest()[:20]
+    )
+    payload = {
+        "schema": "campaign_factory.embedded_audio_selection.v1",
+        "renderedAssetId": rendered_asset_id,
+        "audioCatalogId": audio_catalog_id,
+        "creativeContext": embedding_receipt.get("creativeContext"),
+        "selection": selection,
+        "selectedTrack": embedding_receipt.get("selectedTrack"),
+        "selectedSegment": embedding_receipt.get("selectedSegment"),
+        "finalVideo": embedding_receipt.get("finalVideo"),
+        "selectedAt": bound_at,
+    }
+    conn.execute(
+        """
+        INSERT INTO audio_selections (
+          id, campaign_id, rendered_asset_id, audio_catalog_id, status,
+          selected_by, selected_at, verified_at, payload_json, created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, 'verified', 'creator_os_audio_radar', ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = 'verified',
+          verified_at = excluded.verified_at,
+          payload_json = excluded.payload_json,
+          updated_at = excluded.updated_at
+        """,
+        (
+            selection_id,
+            campaign_id,
+            rendered_asset_id,
+            audio_catalog_id,
+            bound_at,
+            bound_at,
+            json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            bound_at,
+            bound_at,
+        ),
+    )
 
 
 def _safe_file(value: object) -> Path:
