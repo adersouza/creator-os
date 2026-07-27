@@ -47,6 +47,7 @@ from .production_audio_library import (
 from .production_audio_library import (
     audio_fit_tags as _audio_fit_tags,
 )
+from .production_batch_identity import deterministic_seed as _deterministic_seed
 from .production_batch_results import (
     block_duplicate_provider_outputs as _block_duplicate_provider_outputs,
 )
@@ -56,6 +57,7 @@ from .production_batch_results import (
 from .production_batch_results import probe_production_video as _probe_production_video
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
+from .production_source_selection import select_requested_source_assets
 from .provider_spend import (
     consume_provider_spend_authorization as consume_higgsfield_authorization,
 )
@@ -447,18 +449,6 @@ def bind_production_motion_recipe(
     return True
 
 
-def _deterministic_seed(
-    *, creator: str, intent: str, index: int, source_sha256: str, used: set[int]
-) -> int:
-    nonce = 0
-    while True:
-        material = f"{creator}:{intent}:{index}:{source_sha256}:{nonce}".encode()
-        seed = int(hashlib.sha256(material).hexdigest()[:8], 16) % 2_147_483_648
-        if seed not in used:
-            return seed
-        nonce += 1
-
-
 def plan_production_batch(
     factory: Any,
     *,
@@ -568,26 +558,7 @@ def plan_production_batch(
             f"no explicitly approved image inventory for creator {creator}; "
             "review and approve sources with `creator-os sources`"
         )
-    if selected_source_asset_ids is not None:
-        requested_source_ids = tuple(
-            str(value).strip()
-            for value in selected_source_asset_ids
-            if str(value).strip()
-        )
-        if not requested_source_ids:
-            raise ValueError("selected source asset IDs cannot be empty")
-        available_by_id = {str(source["id"]): source for source in sources}
-        missing = [
-            source_id
-            for source_id in requested_source_ids
-            if source_id not in available_by_id
-        ]
-        if missing:
-            raise ValueError(
-                "selected source is not an approved compatible creator asset: "
-                + ", ".join(missing)
-            )
-        sources = [available_by_id[source_id] for source_id in requested_source_ids]
+    sources = select_requested_source_assets(sources, selected_source_asset_ids)
     sources, selected_prompt, learning_decision = (
         learning_consumption.apply_learning_to_production_plan(
             factory.conn,
