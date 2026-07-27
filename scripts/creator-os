@@ -60,6 +60,18 @@ def _source_command(*args: str) -> list[str]:
     ]
 
 
+def _content_director_command(*args: str) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--package",
+        "campaign-factory",
+        "python",
+        "-m",
+        "campaign_factory.content_director",
+        *args,
+    ]
+
 def _reference_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -268,6 +280,46 @@ def _parser() -> argparse.ArgumentParser:
         source_decision.add_argument("--reason", required=True)
         source_decision.add_argument("--apply", action="store_true")
 
+    plan = sub.add_parser(
+        "plan",
+        help="build or operate one supervised rolling creator content plan",
+    )
+    plan_sub = plan.add_subparsers(dest="plan_action")
+    plan.add_argument("--creator")
+    plan.add_argument("--horizon", default="7d")
+    plan.add_argument("--accounts")
+    plan.add_argument(
+        "--goal",
+        choices=[
+            "growth",
+            "consistency",
+            "engagement",
+            "profile_curiosity",
+            "content_testing",
+            "winner_expansion",
+            "warming",
+            "maintenance",
+        ],
+        default="growth",
+    )
+    plan.add_argument("--count", type=int)
+    plan.add_argument("--timezone", default="America/New_York")
+    plan.add_argument(
+        "--mode",
+        choices=["shadow", "supervised", "approved_plan_autopilot"],
+        default="supervised",
+    )
+    plan.add_argument("--max-credits", type=float)
+    plan.add_argument("--start-date")
+    plan_mode = plan.add_mutually_exclusive_group()
+    plan_mode.add_argument("--dry-run", action="store_true")
+    plan_mode.add_argument("--apply", action="store_true")
+    plan_show = plan_sub.add_parser("show")
+    plan_show.add_argument("plan_id")
+    plan_approve = plan_sub.add_parser("approve")
+    plan_approve.add_argument("plan_id")
+    plan_approve.add_argument("--operator", required=True)
+    plan_approve.add_argument("--reason", required=True)
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
 
@@ -642,6 +694,50 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.apply:
                 command.append("--apply")
+        return _run(command)
+    if args.command == "plan":
+        if args.plan_action == "show":
+            return _run(_content_director_command("show", args.plan_id))
+        if args.plan_action == "approve":
+            return _run(
+                _content_director_command(
+                    "approve",
+                    args.plan_id,
+                    "--operator",
+                    args.operator,
+                    "--reason",
+                    args.reason,
+                )
+            )
+        if not args.creator or not args.accounts:
+            print("plan requires --creator and --accounts", file=sys.stderr)
+            return 2
+        if args.dry_run == args.apply:
+            print("plan requires exactly one of --dry-run or --apply", file=sys.stderr)
+            return 2
+        command = _content_director_command(
+            "build",
+            "--creator",
+            args.creator,
+            "--horizon",
+            args.horizon,
+            "--accounts",
+            args.accounts,
+            "--goal",
+            args.goal,
+            "--timezone",
+            args.timezone,
+            "--mode",
+            args.mode,
+            "--apply" if args.apply else "--dry-run",
+        )
+        for flag, value in (
+            ("--count", args.count),
+            ("--max-credits", args.max_credits),
+            ("--start-date", args.start_date),
+        ):
+            if value is not None:
+                command.extend([flag, str(value)])
         return _run(command)
     if args.command == "performance-sync":
         command = [str(ROOT / "scripts/run_threadsdash_performance_sync.sh")]
