@@ -10,7 +10,7 @@ or publish.
 scripts/creator-os plan \
   --creator stacey \
   --horizon 7d \
-  --accounts stacey-main \
+  --accounts bennett_s33 \
   --goal growth \
   --dry-run
 ```

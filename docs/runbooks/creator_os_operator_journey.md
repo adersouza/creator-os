@@ -85,7 +85,7 @@ creator-os create \
   --intent passive_selfie \
   --count 3 \
   --execution cloud \
-  --accounts stacey-main \
+  --accounts bennett_s33 \
   --audio embedded_trending \
   --max-credits <authorized-cap>
 ```
