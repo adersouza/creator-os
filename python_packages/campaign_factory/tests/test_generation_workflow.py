@@ -124,7 +124,7 @@ def test_local_wan_mode_routes_to_the_guarded_motion_stage(
     assert admission["last_image_path"] is None
 
 
-def test_explicit_production_kling_bypasses_arena_router(
+def test_advanced_best_motion_cannot_select_historical_wavespeed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     still = tmp_path / "accepted.png"
@@ -140,24 +140,20 @@ def test_explicit_production_kling_bypasses_arena_router(
         execution="cloud",
         source_sha256=hashlib.sha256(still.read_bytes()).hexdigest(),
     )
-    result = run_generation_workflow(
-        _local_motion_factory(),
-        mode="best_motion",
-        campaign_slug="campaign",
-        accepted_still_path=still,
-        motion_model_id="wavespeed_kling_o3_pro_i2v",
-        production_motion_recipe=recipe,
-        motion_prompt="Natural eye movement and one restrained hair adjustment",
-        audio_policy="native_trending_required",
-        dry_run=True,
-        apply=False,
-    )
-    assert captured["local_motion_admission"] is None
-    assert captured["local_arena_summary_path"] is None
-    assert captured["benchmark_recipe"] is None
-    assert captured["production_motion_recipe"] == recipe
-    assert result["humanReviewRequired"] is False
-    assert result["productionPolicy"]["softScoresRankOnly"] is True
+    with pytest.raises(ValueError, match="WaveSpeed is historical evidence only"):
+        run_generation_workflow(
+            _local_motion_factory(),
+            mode="best_motion",
+            campaign_slug="campaign",
+            accepted_still_path=still,
+            motion_model_id="wavespeed_kling_o3_pro_i2v",
+            production_motion_recipe=recipe,
+            motion_prompt="Natural eye movement and one restrained hair adjustment",
+            audio_policy="native_trending_required",
+            dry_run=True,
+            apply=False,
+        )
+    assert captured == {}
 
 
 def test_local_wan_expands_before_admission_and_preserves_receipt(

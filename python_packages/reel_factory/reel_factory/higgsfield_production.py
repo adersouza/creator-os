@@ -72,7 +72,7 @@ class HiggsfieldCandidate:
     purpose: str
     actual_tool: str | None
     exposed_job_type: str | None
-    status: Literal["available", "unavailable"]
+    status: Literal["supported", "experimental", "unresolved", "rejected_recipe"]
     unavailable_reason: str | None = None
     limitations: tuple[str, ...] = ()
 
@@ -103,6 +103,7 @@ class HiggsfieldProductionRequest:
     model: str | None = None
     duration_seconds: int = 5
     max_credits: float | None = None
+    seed: int | None = None
 
 
 _EXACT_JOB_TYPES = (
@@ -198,7 +199,7 @@ def build_higgsfield_production_plan(
     adapter: HiggsfieldCliAdapter | None = None,
 ) -> dict[str, Any]:
     candidate = higgsfield_candidate_catalog(capabilities)[request.recipe_id]
-    if candidate.status != "available":
+    if candidate.status != "supported":
         raise HiggsfieldFeatureUnavailable(
             candidate.unavailable_reason or f"{request.recipe_id} is unavailable"
         )
@@ -224,6 +225,7 @@ def build_higgsfield_production_plan(
         "speechAudio": speech,
         "prompt": _candidate_prompt(request),
         "model": selected_model,
+        "seed": request.seed,
         "outputPath": str(_output_path(request.output_path)),
     }
     request_fingerprint = _fingerprint(material)
@@ -240,6 +242,7 @@ def build_higgsfield_production_plan(
         "script": request.script,
         "command": command,
         "selectedModel": selected_model,
+        "seed": request.seed,
         "quoteCommand": _quote_command(command, driving=driving),
         "quoteParameters": _quote_parameters(command, driving=driving),
         "outputPath": str(_output_path(request.output_path)),
@@ -295,12 +298,12 @@ def quote_higgsfield_production_plan(
     raw = (adapter or HiggsfieldCliAdapter()).run_json(
         [str(value) for value in command]
     )
-    credits = _find_number(raw, ("credits", "creditCost", "costCredits", "cost"))
-    if credits is None or credits <= 0:
+    cli_credits = _find_number(raw, ("credits", "creditCost", "costCredits", "cost"))
+    if cli_credits is None or cli_credits <= 0:
         raise RuntimeError("higgsfield_quote_missing_credits")
     return {
         "provider": "higgsfield",
-        "amount": credits,
+        "amount": cli_credits,
         "unit": "higgsfield_credits",
         "source": "authenticated_higgsfield_cli_generate_cost",
         "raw": raw,
@@ -355,6 +358,7 @@ def execute_higgsfield_production(
         "provider": "higgsfield",
         "tool": "authenticated_higgsfield_cli",
         "model": plan["selectedModel"],
+        "seed": request.seed,
         "soulId": request.soul_id,
         "source": plan["source"],
         "drivingVideo": plan["drivingVideo"],
@@ -374,6 +378,7 @@ def execute_higgsfield_production(
         "finalOutput": None,
         "registration": None,
         "review": _empty_review(),
+        "evidencePath": str(receipt_path),
         "schedulingAllowed": False,
         "publishingAllowed": False,
     }
@@ -584,6 +589,7 @@ def _register_review_output(
             "soulId": None,
             "params": {
                 "recipeId": request.recipe_id,
+                "seed": request.seed,
                 "soulSourceId": request.soul_id,
                 "creditQuote": receipt.get("creditQuote"),
                 "creditsConsumed": receipt.get("creditsConsumed"),
@@ -631,7 +637,7 @@ def _candidate_capabilities(
             purpose="animate an approved Soul-derived still without soundtrack",
             actual_tool="higgsfield generate create" if passive_models else None,
             exposed_job_type=",".join(passive_models) if passive_models else None,
-            status="available" if passive_models else "unavailable",
+            status="supported" if passive_models else "unresolved",
             unavailable_reason=(
                 None
                 if passive_models
@@ -647,14 +653,18 @@ def _candidate_capabilities(
                 else None
             ),
             exposed_job_type=motion_tool,
-            status="available" if motion_tool else "unavailable",
+            status="rejected_recipe" if motion_tool else "unresolved",
             unavailable_reason=(
-                None
+                (
+                    "the exposed Kling 3.0 Motion Control recipe was rejected by "
+                    "operator visual review"
+                )
                 if motion_tool
                 else "no authenticated motion-transfer job type is exposed"
             ),
             limitations=(
                 "The live CLI names this Kling 3.0 Motion Control, not Animate.",
+                "The tested recipe was rejected by operator visual review.",
             ),
         ),
         "higgsfield_motion_copy_replace": HiggsfieldCandidate(
@@ -662,7 +672,7 @@ def _candidate_capabilities(
             purpose="replace a driving-video performer with a trained Soul identity",
             actual_tool=None,
             exposed_job_type=None,
-            status="unavailable",
+            status="unresolved",
             unavailable_reason="Replace is not exposed by the authenticated CLI or MCP",
         ),
         "higgsfield_talking_speak": HiggsfieldCandidate(
@@ -670,7 +680,7 @@ def _candidate_capabilities(
             purpose="deliver an exact script with an approved creator voice",
             actual_tool=None,
             exposed_job_type=None,
-            status="unavailable",
+            status="unresolved",
             unavailable_reason="Speak is not exposed by the authenticated CLI or MCP",
         ),
         "higgsfield_talking_veo": HiggsfieldCandidate(
@@ -678,9 +688,14 @@ def _candidate_capabilities(
             purpose="vertical Veo direct-to-camera dialogue candidate",
             actual_tool=("higgsfield generate create veo3_1" if veo_tool else None),
             exposed_job_type=veo_tool,
-            status="available" if veo_tool else "unavailable",
+            status="experimental" if veo_tool else "unresolved",
             unavailable_reason=(
-                None if veo_tool else "Veo 3.1 is not exposed by the authenticated CLI"
+                (
+                    "Veo 3.1 has no supplied-audio input and is not an exact-voice "
+                    "talking recipe"
+                )
+                if veo_tool
+                else "Veo 3.1 is not exposed by the authenticated CLI"
             ),
             limitations=(
                 "The exposed Veo contract accepts dialogue text but no supplied voice.",
@@ -692,7 +707,7 @@ def _candidate_capabilities(
             purpose="retain transferred motion while applying exact supplied speech",
             actual_tool=None,
             exposed_job_type=None,
-            status="unavailable",
+            status="unresolved",
             unavailable_reason=(
                 "no standalone Higgsfield lip-sync tool is exposed by the "
                 "authenticated CLI or MCP"
@@ -1140,6 +1155,7 @@ def _request_from_args(args: argparse.Namespace) -> HiggsfieldProductionRequest:
         model=args.model,
         duration_seconds=args.duration,
         max_credits=args.max_credits,
+        seed=args.seed,
     )
 
 
@@ -1187,6 +1203,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--output", type=Path, required=True)
         command.add_argument("--review-root", type=Path, required=True)
         command.add_argument("--max-credits", type=float)
+        command.add_argument("--seed", type=int)
         if name == "run":
             command.add_argument("--confirm-paid", action="store_true")
     return parser

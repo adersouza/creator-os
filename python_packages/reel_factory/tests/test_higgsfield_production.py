@@ -119,20 +119,23 @@ def test_discovers_exact_authenticated_cli_contracts() -> None:
 
     assert result["authentication"]["authenticated"] is True
     assert result["authentication"]["credits"] == 1183.0
-    assert result["candidates"]["higgsfield_passive_selfie"]["status"] == "available"
+    assert result["candidates"]["higgsfield_passive_selfie"]["status"] == "supported"
     assert (
         result["candidates"]["higgsfield_motion_copy_animate"]["exposed_job_type"]
         == "kling3_0_motion_control"
     )
     assert (
-        result["candidates"]["higgsfield_motion_copy_replace"]["status"]
-        == "unavailable"
+        result["candidates"]["higgsfield_motion_copy_replace"]["status"] == "unresolved"
     )
-    assert result["candidates"]["higgsfield_talking_speak"]["status"] == "unavailable"
+    assert result["candidates"]["higgsfield_talking_speak"]["status"] == "unresolved"
     assert (
-        result["candidates"]["higgsfield_talking_motion_copy"]["status"]
-        == "unavailable"
+        result["candidates"]["higgsfield_talking_motion_copy"]["status"] == "unresolved"
     )
+    assert (
+        result["candidates"]["higgsfield_motion_copy_animate"]["status"]
+        == "rejected_recipe"
+    )
+    assert result["candidates"]["higgsfield_talking_veo"]["status"] == "experimental"
     assert set(result["contracts"]) == {
         "kling3_0",
         "seedance_2_0",
@@ -148,7 +151,7 @@ def test_passive_plan_uses_silent_kling_contract(tmp_path: Path) -> None:
         adapter=FakeAdapter([]),  # type: ignore[arg-type]
     )
 
-    assert plan["recipe"]["status"] == "available"
+    assert plan["recipe"]["status"] == "supported"
     assert plan["command"][:4] == [
         "higgsfield",
         "generate",
@@ -167,49 +170,25 @@ def test_passive_plan_uses_silent_kling_contract(tmp_path: Path) -> None:
     assert plan["publishingAllowed"] is False
 
 
-def test_motion_copy_uses_exact_exposed_motion_control_inputs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_rejected_motion_control_recipe_cannot_be_planned(
+    tmp_path: Path,
 ) -> None:
     driving = tmp_path / "driving.mp4"
     driving.write_bytes(b"driving-video")
-    monkeypatch.setattr(
-        subject,
-        "_probe_video",
-        lambda _path: {
-            "durationSeconds": 5.0,
-        },
-    )
-    plan = subject.build_higgsfield_production_plan(
-        _request(
-            tmp_path,
-            recipe_id="higgsfield_motion_copy_animate",
-            model=None,
-            driving_video_path=driving,
-            prompt=(
-                "Transfer the exact driving performance while preserving the "
-                "approved creator identity and portrait framing."
+    with pytest.raises(
+        subject.HiggsfieldFeatureUnavailable,
+        match="rejected by operator visual review",
+    ):
+        subject.build_higgsfield_production_plan(
+            _request(
+                tmp_path,
+                recipe_id="higgsfield_motion_copy_animate",
+                model=None,
+                driving_video_path=driving,
             ),
-        ),
-        capabilities=_capabilities(),
-        adapter=FakeAdapter([]),  # type: ignore[arg-type]
-    )
-
-    assert plan["recipe"]["actual_tool"].endswith("kling3_0_motion_control")
-    assert "--image-references" in plan["command"]
-    assert "--video-references" in plan["command"]
-    assert plan["quoteCommand"] == []
-    assert plan["quoteParameters"] == {
-        "jobType": "kling3_0_motion_control",
-        "durationSeconds": 5.0,
-        "mode": "pro",
-    }
-    quote = subject.quote_higgsfield_production_plan(
-        plan,
-        adapter=FakeAdapter([]),  # type: ignore[arg-type]
-    )
-    assert quote["amount"] == 16.0
-    assert quote["source"] == "authenticated_higgsfield_transaction_duration_rate"
-    assert plan["drivingVideo"]["sha256"]
+            capabilities=_capabilities(),
+            adapter=FakeAdapter([]),  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.parametrize(
@@ -231,7 +210,7 @@ def test_unexposed_marketing_features_fail_before_quote(
         )
 
 
-def test_veo_plan_binds_exact_script_but_rejects_supplied_voice_audio(
+def test_veo_is_experimental_and_cannot_claim_supplied_voice(
     tmp_path: Path,
 ) -> None:
     request = _request(
@@ -244,19 +223,22 @@ def test_veo_plan_binds_exact_script_but_rejects_supplied_voice_audio(
         pacing="unhurried",
         emotion="slightly amused",
     )
-    plan = subject.build_higgsfield_production_plan(
-        request,
-        capabilities=_capabilities(),
-        adapter=FakeAdapter([]),  # type: ignore[arg-type]
-    )
-    assert plan["script"] == request.script
-    assert f'"{request.script}"' in plan["prompt"]
-    assert plan["command"][3] == "veo3_1"
-    assert plan["command"][plan["command"].index("--aspect_ratio") + 1] == "9:16"
+    with pytest.raises(
+        subject.HiggsfieldFeatureUnavailable,
+        match="no supplied-audio input",
+    ):
+        subject.build_higgsfield_production_plan(
+            request,
+            capabilities=_capabilities(),
+            adapter=FakeAdapter([]),  # type: ignore[arg-type]
+        )
 
     audio = tmp_path / "voice.wav"
     audio.write_bytes(b"voice")
-    with pytest.raises(ValueError, match="cannot accept supplied creator audio"):
+    with pytest.raises(
+        subject.HiggsfieldFeatureUnavailable,
+        match="no supplied-audio input",
+    ):
         subject.build_higgsfield_production_plan(
             _request(
                 tmp_path,
@@ -366,73 +348,26 @@ def test_success_hashes_registers_and_preserves_review_fields(
     assert "secret" not in receipts[0].read_text(encoding="utf-8")
 
 
-def test_motion_copy_retains_driving_audio(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_rejected_motion_copy_never_submits(
+    tmp_path: Path,
 ) -> None:
     driving = tmp_path / "driving.mp4"
     driving.write_bytes(b"driving-video")
-    adapter = FakeAdapter(
-        [
-            {"credits": 100.0},
-            {"items": ["motion-generation-1"]},
-            {
-                "items": [
-                    {
-                        "id": "motion-generation-1",
-                        "status": "completed",
-                        "result_url": "https://cdn.example/motion.mp4",
-                    }
-                ]
-            },
-            {"credits": 84.0},
-        ]
-    )
-
-    def fake_download(_url: str, output: Path) -> Path:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_bytes(b"motion-review-video")
-        return output
-
-    monkeypatch.setattr(subject, "download_result", fake_download)
-    monkeypatch.setattr(
-        subject,
-        "_probe_video",
-        lambda _path: {
-            "codec": "h264",
-            "width": 720,
-            "height": 1280,
-            "durationSeconds": 5.0,
-            "videoStreams": 1,
-            "audioStreams": 1,
-            "audio": [{"codec": "aac"}],
-        },
-    )
-    monkeypatch.setattr(
-        subject,
-        "record_asset_generation",
-        lambda *_args, **_kwargs: {
-            "ok": True,
-            "asset_generation_id": "asset-motion-1",
-            "identity": {"status": "unknown"},
-        },
-    )
-
-    receipt = subject.execute_higgsfield_production(
-        _request(
-            tmp_path,
-            recipe_id="higgsfield_motion_copy_animate",
-            model=None,
-            driving_video_path=driving,
-            max_credits=20.0,
-        ),
-        capabilities=_capabilities(),
-        adapter=adapter,  # type: ignore[arg-type]
-        confirm_paid=True,
-    )
-
-    assert receipt["status"] == "completed"
-    assert receipt["model"] == "kling3_0_motion_control"
-    assert receipt["finalOutput"]["probe"]["audioStreams"] == 1
+    adapter = FakeAdapter([])
+    with pytest.raises(subject.HiggsfieldFeatureUnavailable):
+        subject.execute_higgsfield_production(
+            _request(
+                tmp_path,
+                recipe_id="higgsfield_motion_copy_animate",
+                model=None,
+                driving_video_path=driving,
+                max_credits=20.0,
+            ),
+            capabilities=_capabilities(),
+            adapter=adapter,  # type: ignore[arg-type]
+            confirm_paid=True,
+        )
+    assert adapter.commands == []
 
 
 def test_ambiguous_submission_is_never_retried(

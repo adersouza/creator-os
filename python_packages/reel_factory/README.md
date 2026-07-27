@@ -1,9 +1,10 @@
 # Reel Factory
 
 Reel Factory owns Creator OS media creation: direct Soul stills, local static
-MP4s, local Wan/LTX/LongCat and WaveSpeed motion, safe caption placement/rendering,
-audio intent, and asset lineage. Campaign Factory owns campaign decisions and ThreadsDashboard
-owns publishing.
+MP4s, pinned Higgsfield passive motion, safe caption placement/rendering, audio
+finishing, and asset lineage. Campaign Factory owns campaign decisions and
+ThreadsDashboard owns publishing. Historical local/WaveSpeed workers remain
+advanced evidence readers, not normal production routing.
 
 Reel Factory does not initialize or maintain a posting ledger. Its pipeline ends
 at a ranked approved-export artifact for Campaign Factory intake.
@@ -17,9 +18,10 @@ single-person reference image
   -> optional text-only body-emphasis candidate
   -> QC and human acceptance
   -> local zero-provider-cost static MP4
-  -> optional pinned local Wan/LTX/LongCat MLX or authorized WaveSpeed motion
-  -> machine-wide local worker lease + measured Mac memory admission
-  -> motion/identity/anatomy/audio/lip-sync evidence gate
+  -> optional pinned Higgsfield Kling 3 or Seedance 2 passive motion
+  -> one-submit authorization, polling, download, probe, and output hash
+  -> motion/identity/anatomy evidence gate
+  -> Audio Radar segment -> verified AAC -> final MP4 SHA binding
   -> placement.py -> caption_render.py when a safe lane exists
   -> audio_intent.v1 and generated_asset_lineage
   -> Campaign Factory
@@ -59,10 +61,10 @@ scripts/creator-os create --mode local_wan --dry-run \
   --motion-task audio_image_to_video --audio /path/to/dialogue.wav \
   --motion-prompt "Natural direct-to-camera delivery with stable identity"
 
-scripts/creator-os create --mode best_motion --dry-run \
-  --campaign campaign_slug --accepted-still /path/to/accepted.png \
-  --motion-model wavespeed_wan27_i2v_pro --resolution 1080p --duration 5 \
-  --motion-prompt "Natural breathing and a gentle camera push"
+scripts/creator-os create \
+  --creator stacey --intent passive_selfie --count 3 \
+  --execution cloud --accounts stacey-main \
+  --audio embedded_trending
 ```
 
 The second command requires confirmation, target identity, exact checkout, and
@@ -90,15 +92,13 @@ new internal callers import the owning module directly.
 validated `campaign_factory.recommendations.next_batch.v1` export and preserves
 that Campaign Factory payload in the run state as its decision provenance.
 
-`motion_generate` is the narrow motion worker boundary. Historical explicit
-local Wan/LTX/LongCat runs can execute without provider authority; the active
-intent-first production path uses WaveSpeed Kling O3 Pro, Kling 3.0 Pro Motion
-Control, InfiniteTalk, and Sync Lipsync 2 Pro. Every WaveSpeed apply requires a
-Campaign-issued, short-lived v2 spend authorization bound to exact input hashes
-and parameters. Local tasks, LoRAs, inputs, and source audio are explicit; the
-worker never silently changes the model or task.
-The worker submits a paid prediction once, never automatically retries an
-ambiguous POST, and downloads the temporary result immediately.
+`motion_generate` remains the narrow historical/advanced local and WaveSpeed
+worker boundary. The normal intent-first path does not call it. Active paid
+motion goes through the authenticated Higgsfield adapter with a Campaign-issued
+one-time native-credit authorization. It submits once, never blindly retries an
+ambiguous create, downloads the temporary result, and records exact provider
+and output evidence. Historical receipts and lineage remain readable and are
+never rewritten.
 
 There are no flat top-level Python facade modules and no Reel browser/API
 operator surface.

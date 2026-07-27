@@ -1,118 +1,88 @@
-# Authenticated Higgsfield Production Candidates
+# Higgsfield Production
 
-Higgsfield is a first-class paid production candidate alongside WaveSpeed.
-Neither provider is the default until the operator reviews comparable outputs.
-The ordinary `creator-os create --apply` path therefore remains blocked on
-`intent_video_recipe_selection_pending_operator_visual_review`.
+Higgsfield is the only visual-generation provider in normal Creator OS
+production. The authenticated contract, not product-page language, determines
+what Creator OS can offer.
 
-## Verified live surfaces
+## Supported recipes
 
-The contracts below were read from the authenticated account on 2026-07-24 by
-using the official CLI and MCP discovery surfaces. Runtime discovery repeats
-these checks instead of trusting this document:
-
-- CLI `1.1.19`: account status, Soul list, model list/get, workflow list/get,
-  generation cost/create/wait/get, local-media upload, result download, and
-  credit transactions.
-- MCP: ready Soul list, model catalog/schema discovery, video generation,
-  Kling 3.0 motion control, voices, Marketplace app search/describe/invoke, and
-  media upload.
-- Ready trained identities: Stacey, Stacey1, Larissa, and Lola were visible to
-  the authenticated account. IDs remain explicit runtime inputs and are not
-  inferred from creator names.
-
-The exact live video contracts used by the adapter are:
-
-| Actual contract | Inputs used | Candidate |
+| Intent | Pinned implementation | Product status |
 | --- | --- | --- |
-| `kling3_0` | start image, prompt, 9:16, duration, mode, sound | passive selfie |
-| `seedance_2_0` | start image, prompt, 9:16, duration, resolution, mode, generated-audio flag | passive selfie |
-| `kling3_0_motion_control` | image reference, video reference, mode | motion copy |
-| `veo3_1` | start image, prompt/dialogue, 9:16, duration, quality, variant | talking selfie |
+| `soul_static` | Soul 2.0 still plus deterministic local static MP4 | SUPPORTED |
+| `passive_selfie` | Kling 3 (`kling3_0`) or Seedance 2 (`seedance_2_0`) | SUPPORTED |
+| `talking_selfie` | No exact supplied-audio contract exposed | UNRESOLVED |
+| `motion_copy` / `dance` | No operator-approved distinct transfer recipe | UNRESOLVED |
+| `talking_motion` | Requires both approved motion and supplied-audio lip-sync | UNRESOLVED |
 
-`Kling 3.0 Motion Control` is the actual callable name of the exposed
-motion-transfer surface. The adapter records that name and does not relabel it
-as the marketing product “Animate.”
+The passive recipe is pinned by product configuration. Ordinary operators give
+creator intent, not provider/model identifiers. A failed or ambiguous
+Higgsfield call is retained for reconciliation and is never silently retried
+or routed to WaveSpeed.
 
-## Unavailable exact features
+Kling 3 runs with `sound=off`; Seedance 2 runs with
+`generate_audio=false`. Creator OS then selects a duration-compatible Audio
+Radar segment, embeds and verifies AAC, and binds the audio receipt to the exact
+final MP4 SHA.
 
-The authenticated CLI/MCP did not expose callable tools named Replace or Speak,
-and did not expose a standalone Higgsfield lip-sync operation. Marketplace app
-search also returned no matching callable apps. Those three recipes are
-represented in the candidate catalog but fail before quote or submission.
+## Authenticated contract snapshot
 
-Veo 3.1 accepts dialogue text but the exposed contract has no supplied-voice
-input. It is therefore a usable visual/dialogue candidate, not proof of exact
-creator-voice preservation.
+The detailed read-only reconciliation is
+[`HIGGSFIELD_CAPABILITY_AUDIT_2026-07-27.md`](./HIGGSFIELD_CAPABILITY_AUDIT_2026-07-27.md).
+The installed CLI exposed authenticated account/Soul inspection,
+model/workflow list/get, generation cost/create/get/wait, upload, download, and
+credit transactions. The production adapter quotes the exact plan before
+submission, checks the batch credit cap and balance, submits once, polls by
+generation ID, downloads, probes, hashes, registers, and records immutable
+lineage.
 
-## Review-only command
+The exposed Veo 3.1 contract accepts dialogue text but no supplied creator-audio
+file. It is EXPERIMENTAL as a visual/dialogue capability and must not be
+presented as creator-voice preservation. The exposed Kling 3 Motion Control
+combination is a REJECTED RECIPE after operator review; that decision does not
+declare all future Higgsfield motion-transfer capabilities permanently closed.
 
-Discovery is free:
+Speak, Lipsync Studio, Kling Avatar, Higgsfield Animate/Recast/Character Swap,
+UGC Factory, AI Influencer, relight, and inpaint were visible in UI/marketing or
+requested for investigation but had no authenticated callable contract through
+the inspected CLI, MCP, or Marketplace manifests. They are not production
+recipes.
 
-```text
-scripts/creator-os video-bakeoff capabilities
-```
+## Paid execution boundary
 
-The comparison manifest accepts exactly three passive-selfie samples, two
-motion-copy samples, two talking-selfie samples, and one combined
-talking-motion-copy sample. Each local file is hashed once; every candidate for
-that sample receives the same input fingerprint. A sample object uses
-`creator`, `soulId`, `sourceImage`, and `sourceApproval`, plus:
+Normal production remains intent-first:
 
-- `drivingVideo` and `drivingApproval` for motion-copy samples;
-- `speechAudio`, `speechApproval`, and the exact `script` for talking samples.
-
-```text
-scripts/creator-os video-bakeoff manifest \
-  --spec <approved-input-spec.json> \
-  --review-folder <private-review-folder> \
-  --out <private-review-folder>/manifest.json
-```
-
-The manifest includes all usable Higgsfield and WaveSpeed candidates, accurately
-marks unavailable Higgsfield features, and initializes the same operator review
-fields for every planned output. It does not submit jobs or select defaults.
-
-Every paid run requires the current explicit Creator OS mode, a ready Soul ID,
-an approved source reference, `--confirm-paid`, and a finite `--max-credits`.
-The adapter quotes through the authenticated CLI before submission, submits
-once, polls by generation ID, downloads, probes, hashes, and records the result
-under the chosen review folder. It never schedules or publishes.
-
-```text
-scripts/creator-os video-bakeoff run \
-  --mode best_motion \
-  --recipe higgsfield_passive_selfie \
+```bash
+scripts/creator-os create \
   --creator stacey \
-  --soul-id <ready-soul-id> \
-  --source-approval <approval-reference> \
-  --source-image <approved-still> \
-  --model kling3_0 \
-  --prompt <expanded-casual-motion-prompt> \
-  --duration 5 \
-  --output <review-folder>/higgsfield-kling.mp4 \
-  --review-root <review-folder> \
-  --max-credits <bounded-cap> \
-  --confirm-paid
+  --intent passive_selfie \
+  --count 3 \
+  --execution cloud \
+  --accounts stacey-main \
+  --audio embedded_trending \
+  --max-credits 100 \
+  --apply
 ```
 
-Receipts retain the generation ID, actual CLI job type, Soul source identity,
-source/driving/audio SHA-256 values, quote and observed consumption when
-exposed, elapsed time, output SHA-256, stream probe, evidence-store registration,
-and empty operator-review fields for:
+Every job binds its creator, Soul ID, source asset/SHA, expanded prompt, pinned
+model/tool, seed, quote, authorization, generation ID, provider receipt, output
+SHA, technical QC, and final audio-bound media SHA. The command cannot schedule
+or publish.
 
-- identity preservation;
-- body consistency;
-- face stability;
-- hand/anatomy quality;
-- motion similarity;
-- casual-phone appearance;
-- lip-sync;
-- expressiveness;
-- attractiveness;
-- generation time;
-- credits consumed;
-- dollar cost;
-- would-post decision.
+Historical WaveSpeed models, receipts, rows, hashes, and media remain readable
+for audit and migration. They are absent from normal create, active paid
+routing, fallbacks, help, and runtime credential requirements.
 
-No automated identity or anatomy approval is claimed.
+## Future exact-voice validation plan
+
+No paid validation was executed in this change. Only one authenticated
+candidate currently accepts an audio reference at all: Seedance 2. That field
+is not yet proof that the output preserves the supplied creator voice unchanged,
+so it remains EXPERIMENTAL and is not a talking recipe.
+
+A future operator-authorized validation may use one approved Stacey Soul still,
+one 5-8 second script, and one exact creator-voice WAV. It must hash the still,
+script, and WAV; obtain the live Seedance quote before submission; submit once
+under a finite credit cap; retain ambiguous calls without retry; and leave
+identity, lip-sync, voice preservation, naturalness, and would-post ratings
+blank for operator review. Fewer than two comparable supplied-audio candidates
+are currently exposed, so no honest multi-model comparison can yet be planned.

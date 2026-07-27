@@ -37,8 +37,9 @@ explicitly reopens model evaluation:
 - Higgsfield Kling 3 and Higgsfield Seedance 2 are the only accepted passive
   selfie-motion candidates.
 - WaveSpeed Kling O3 Pro and Vidu Q3 Pro are rejected for production quality.
-- Higgsfield and WaveSpeed Kling Motion Control are rejected. Do not use either
-  output as a lip-sync base or spend on a second motion-copy reference.
+- The tested Higgsfield and WaveSpeed Kling Motion Control recipes are rejected.
+  Motion copy itself remains unresolved, not permanently closed. Do not use
+  either rejected output as a lip-sync base.
 - WaveSpeed InfiniteTalk is rejected because the voice sounded robotic and the
   result was not postable.
 - Higgsfield Veo 3.1 produced no reviewable output. There is no accepted talking
@@ -51,8 +52,9 @@ explicitly reopens model evaluation:
 Do not average technical scores over the operator's would-post judgment. The
 supported creative scope is Soul still/static Reel plus explicitly authorized
 passive motion using one of the two accepted Higgsfield candidates. Talking,
-motion-copy, dance transfer, and talking-motion-copy are unsupported production
-intents unless a later operator-approved bakeoff changes this decision.
+motion-copy, dance transfer, and talking-motion-copy are UNRESOLVED production
+intents unless an authenticated contract and later operator-approved bakeoff
+change this decision.
 
 ## Contract Ownership
 

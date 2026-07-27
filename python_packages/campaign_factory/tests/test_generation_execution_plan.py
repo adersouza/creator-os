@@ -33,10 +33,12 @@ def test_generation_execution_plans_cover_exactly_five_modes() -> None:
     assert plans["local_wan"].provider_authorization == "forbidden"
     assert plans["soul_static"].motion_strategy == "static_mp4_only"
     assert plans["best_motion"].motion_strategy == "best_paid_motion"
-    assert plans["best_motion"].providers == ("higgsfield", "wavespeed")
-    assert "higgsfield_kling3_motion_control" in plans["best_motion"].models
-    assert "higgsfield_veo31_talking" in plans["best_motion"].models
-    assert "wavespeed_sync_lipsync3" in plans["best_motion"].models
+    assert plans["best_motion"].providers == ("higgsfield",)
+    assert plans["best_motion"].models == (
+        "higgsfield_kling3_i2v",
+        "higgsfield_seedance2_i2v",
+        "static_mp4",
+    )
     assert "creative_approval_v2" in plans["local_wan"].required_approvals
     assert "creative_approval_v2" in plans["best_motion"].required_approvals
     assert plans["reference_video_remix"].motion_strategy == "seedance_or_kling_remix"

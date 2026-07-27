@@ -1,19 +1,17 @@
-# Creator OS Video Models And Paid Motion Candidates
+# Historical And Advanced Video Model Evidence
 
-Creator OS retains the historical explicit local-model surface, but the
-intent-first production command now recognizes independently authorized
-Higgsfield and WaveSpeed candidates:
+This document preserves research, compatibility, and receipt-reading details.
+It is not the normal production model map. The intent-first production command
+uses only the pinned Higgsfield Kling 3 or Seedance 2 passive recipe and never
+selects WaveSpeed.
 
-- pinned, offline Apple-silicon MLX models for zero-provider-cost generation;
-- authenticated Higgsfield CLI models using the existing Soul identities and
-  account credit pool;
-- explicitly authorized WaveSpeed endpoints for paid remote generation.
+Local models and WaveSpeed code remain available only where advanced tools,
+historical receipts, migrations, or immutable lineage require them. Historical
+provider rows, media, hashes, and receipts must not be deleted or rewritten.
 
-The candidates are not production defaults. The operator's like-for-like visual
-review selects the final tiny intent map. No model or provider is a silent
-fallback for another model. A local failure preserves the static MP4 and honest
-failure lineage. It never calls a paid provider. A paid failure never falls back
-to a different billable endpoint.
+WaveSpeed Kling O3, Vidu Q3, Kling Motion Control, and InfiniteTalk are rejected
+recipes from the completed operator bakeoff. LongCat and Sync Lipsync 2/3 were
+not selected. None is an active fallback or runtime credential requirement.
 
 The Mac-specific adoption and deferral record lives in
 [`docs/architecture/MAC_LOCAL_VIDEO_STACK_2026.md`](../architecture/MAC_LOCAL_VIDEO_STACK_2026.md).
@@ -27,10 +25,10 @@ The Mac-specific adoption and deferral record lives in
 | `local_ltx23_distilled_mlx` | local MLX | fast image motion with jointly generated audio | 576x1024, 24 fps, 5-8 s | generated | 20 GB plus 8.1 GB shared Gemma |
 | `local_ltx23_dev_hq_mlx` | local MLX | HQ motion, source audio, keyframes, retake, and extension | 576x1024, 24 fps, 5-8 s | source, generated, or explicitly preserved retake audio | 37 GB plus 8.1 GB shared Gemma |
 | `local_longcat_avatar15_q4_mlx` | local MLX | experimental speech-driven portrait video | 480x832, 25 fps, 3-6 s | source required | 25.0 GB |
-| `higgsfield_kling3_i2v` | Higgsfield CLI | passive-selfie still-animation candidate | 9:16, 4-15 s | disabled | account credits |
-| `higgsfield_seedance2_i2v` | Higgsfield CLI | passive-selfie still-animation candidate | 9:16, 4-15 s | disabled | account credits |
-| `higgsfield_kling3_motion_control` | Higgsfield CLI | exposed motion-transfer candidate | driving-video length | disabled | account credits |
-| `higgsfield_veo31_talking` | Higgsfield CLI | vertical dialogue candidate without supplied-voice input | 9:16, 8 s | generated | account credits |
+| `higgsfield_kling3_i2v` | Higgsfield CLI | supported passive-selfie recipe | 9:16, 4-15 s | disabled | account credits |
+| `higgsfield_seedance2_i2v` | Higgsfield CLI | supported passive-selfie recipe | 9:16, 4-15 s | disabled | account credits |
+| `higgsfield_kling3_motion_control` | Higgsfield CLI | rejected tested motion-transfer recipe | driving-video length | disabled | account credits |
+| `higgsfield_veo31_talking` | Higgsfield CLI | experimental dialogue-only evidence, not exact voice | 9:16, 8 s | generated | account credits |
 | `wavespeed_kling_o3_pro_i2v` | WaveSpeed | ordinary premium portrait animation | provider output, 3-15 s | disabled | remote |
 | `wavespeed_vidu_q3_i2v_pro` | WaveSpeed | seeded still-animation challenger | 720p-4K, 1-16 s | disabled | remote |
 | `wavespeed_kling_v3_pro_motion_control` | WaveSpeed | driving-video motion copy and dance | driving-video length, up to 30 s | disabled | remote |

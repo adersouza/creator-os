@@ -291,7 +291,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--count", type=int, default=1)
     create.add_argument("--execution", choices=["cloud"], default="cloud")
-    create.add_argument("--max-usd", type=float)
+    create.add_argument("--max-credits", type=float)
     create.add_argument("--concurrency", type=int)
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
@@ -315,8 +315,7 @@ def _parser() -> argparse.ArgumentParser:
     video_bakeoff = sub.add_parser(
         "video-bakeoff",
         help=(
-            "inspect or run the explicit Higgsfield/WaveSpeed visual bakeoff; "
-            "never schedules or publishes"
+            "inspect historical provider bakeoff evidence; never schedules or publishes"
         ),
     )
     video_bakeoff.add_argument("args", nargs=argparse.REMAINDER)
@@ -629,11 +628,14 @@ def main(argv: list[str] | None = None) -> int:
             command.extend(["--speech-audio", str(args.speech_audio)])
         if args.motion_reference:
             command.extend(["--motion-reference", str(args.motion_reference)])
-        if args.max_usd is not None:
-            if not math.isfinite(args.max_usd) or args.max_usd <= 0:
-                print("--max-usd must be finite and greater than zero", file=sys.stderr)
+        if args.max_credits is not None:
+            if not math.isfinite(args.max_credits) or args.max_credits <= 0:
+                print(
+                    "--max-credits must be finite and greater than zero",
+                    file=sys.stderr,
+                )
                 return 2
-            command.extend(["--max-usd", str(args.max_usd)])
+            command.extend(["--max-credits", str(args.max_credits)])
         if args.concurrency is not None:
             if not 1 <= args.concurrency <= 4:
                 print("--concurrency must be between 1 and 4", file=sys.stderr)

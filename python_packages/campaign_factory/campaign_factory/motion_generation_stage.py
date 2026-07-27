@@ -947,8 +947,8 @@ def _paid_generation_evidence(
     authorization_path: Path | None,
     produced_at: str,
 ) -> dict[str, Any]:
-    """Snapshot exact paid execution lineage while the provider result is present."""
-
+    if isinstance(override := worker_result.get("paidGenerationEvidence"), Mapping):
+        return dict(override)
     if authorization is None or authorization_path is None:
         raise RuntimeError("paid_generation_authorization_evidence_missing")
     auth_path = Path(authorization_path).expanduser().resolve()

@@ -217,17 +217,17 @@ technical pass rates—set the production-quality boundary:
 | Intent | Current decision | Production behavior |
 |---|---|---|
 | Soul still / static Reel | Supported | Direct Higgsfield Soul still, optional approved body-emphasis variant, static MP4 fallback |
-| Passive selfie motion | Two accepted candidates | Higgsfield Kling 3 and Higgsfield Seedance 2 may be used only when explicitly selected and spend-authorized |
+| Passive selfie motion | Supported | A pinned product configuration selects operator-approved Higgsfield Kling 3 or Seedance 2; ordinary operators do not select models |
 | WaveSpeed passive motion | Rejected | Kling O3 Pro and Vidu Q3 Pro are not production choices |
-| Motion copy / dance transfer | Rejected | Both tested Kling Motion Control implementations were not postable; do not route or lip-sync their outputs |
-| Talking selfie | No accepted recipe | InfiniteTalk was rejected for robotic voice quality; Higgsfield Veo produced no reviewable output |
-| Talking motion copy | Unsupported | No accepted motion-transfer base exists; Sync Lipsync 2/3 are not defaults |
+| Motion copy / dance transfer | Unresolved | The tested Kling Motion Control recipes were rejected; no distinct authenticated recipe has operator approval |
+| Talking selfie | Unresolved | No authenticated contract proves exact supplied-creator-audio preservation; Veo text dialogue is not a substitute |
+| Talking motion copy | Unresolved | No accepted transfer base and no authenticated supplied-audio lip-sync path |
 | Wan/LTX local motion | Advanced historical/experimental only | Not an active production default and not a prerequisite for normal creation |
 
-This closes creative-model research for the supported Creator OS scope. New
-provider architecture, Arena, Router, benchmark expansion, or speculative model
-calls are not required. A future talking or motion-copy feature is new product
-work and must begin with a new explicit operator decision.
+This closes provider/model selection for the currently supported scope without
+declaring unresolved capabilities permanently closed. New provider
+architecture, Arena, Router, benchmark expansion, or speculative model calls
+are not required.
 
 The supported product path is complete in scope when it can take an approved
 creator source through Soul still or accepted passive motion, technical and
@@ -241,7 +241,7 @@ Normal supported production begins with:
 ```text
 creator + intent + count + execution + account group + audio preference
 -> approved creator image inventory
--> static Reel or explicitly selected Higgsfield Kling 3/Seedance 2 passive recipe
+-> static Reel or product-pinned Higgsfield Kling 3/Seedance 2 passive recipe
 -> N independent source/prompt/seed/request identities
 -> local or authorized cloud worker
 -> hard QC blockers + soft ranking signals
@@ -509,15 +509,16 @@ combined boundary.
 publishing. It requires an exact clean merged commit and live GitHub verification
 of trusted workflow/app identities. Historical independent-review approvals
 remain readable; the active single-owner mode binds the authenticated
-write-capable operator to strict branch protection, all nine required checks,
-conversation resolution, admin enforcement, and a zero-review policy instead
-of inventing a second reviewer. A deterministic runtime-scoped lock prevents
+write-capable operator to admin-enforced branch protection requiring
+`affected`, `hygiene`, and `Secret scan`, plus successful trusted release and
+security evidence on the exact target SHA. It does not invent a second reviewer.
+A deterministic runtime-scoped lock prevents
 alternate state roots from racing one checkout. Promotion accepts only an
 initially detached runtime, revalidates mutable authority under the lock,
 creates and verifies a Git bundle plus backup manifest, and runs verification
 under a credential-scrubbed environment. Health policy
-`creator_os.runtime_live_read_only_health.v1` requires its exact nine-check
-inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
+`creator_os.runtime_live_read_only_health.v1` requires its complete runtime
+health inventory, all `PASS`. Authenticated journals and receipts are fail-closed;
 recovery verifies the bundle and can re-import the prior commit before
 rollback. It never mutates operational databases, ThreadsDashboard, providers,
 schedules, or posts.

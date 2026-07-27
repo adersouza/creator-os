@@ -325,7 +325,17 @@ def run_generation_workflow(
                 )
             ):
                 raise ValueError("local Router evidence applies only to local_wan")
-            selected_model = motion_model_id or "wavespeed_kling_o3_pro_i2v"
+            if motion_model_id is None:
+                raise ValueError(
+                    "advanced best_motion generation is disabled; use the "
+                    "intent-first `creator-os create` Higgsfield production lane"
+                )
+            if str(motion_model_id).startswith("wavespeed_"):
+                raise ValueError(
+                    "WaveSpeed is historical evidence only and cannot be selected "
+                    "for active production"
+                )
+            selected_model = motion_model_id
             local_benchmark_recipe = None
             local_analyzer_registry = None
         result = run_motion_generation_stage(
@@ -400,6 +410,8 @@ def run_generation_workflow(
             )
             _require(first_frame_approval_id, "first_frame_approval_id")
             _require(last_frame_approval_id, "last_frame_approval_id")
+            if max_credits is None:
+                raise ValueError("max_credits is required for paid generation")
             result = run_reference_video_remix_stage(
                 factory,
                 campaign_slug=campaign_slug,
@@ -495,6 +507,8 @@ def _run_library_reuse_mode(
 ) -> dict[str, Any]:
     require_generation_execution_mode(execution_plan, "library_reuse")
     _require(library_folder, "library_folder")
+    if library_folder is None:
+        raise ValueError("library_folder is required")
     folder = Path(library_folder).expanduser().resolve()
     _require(model_slug, "model_slug")
     if variant_count <= 0 or workers <= 0:

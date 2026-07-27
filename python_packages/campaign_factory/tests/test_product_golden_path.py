@@ -226,7 +226,7 @@ def test_golden_approved_source_to_static_mp4_capability() -> None:
 
 
 def test_production_create_rejects_retired_local_wan_lane(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="requires --execution cloud"):
+    with pytest.raises(ValueError, match="requires Higgsfield cloud execution"):
         plan_production_batch(
             _production_factory(tmp_path),
             creator="stacey",
@@ -238,7 +238,7 @@ def test_production_create_rejects_retired_local_wan_lane(tmp_path: Path) -> Non
         )
 
 
-def test_cloud_production_uses_kling_o3_not_wan(tmp_path: Path) -> None:
+def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) -> None:
     batch = plan_production_batch(
         _production_factory(tmp_path),
         creator="stacey",
@@ -249,62 +249,56 @@ def test_cloud_production_uses_kling_o3_not_wan(tmp_path: Path) -> None:
         audio_preference="embedded_trending",
     )
     assert {job["productionRecipe"]["modelId"] for job in batch["jobs"]} == {
-        "wavespeed_kling_o3_pro_i2v"
+        "higgsfield_kling3_i2v"
     }
-    assert batch["estimatedProviderCostUsd"] == 1.68
-    assert all("wan" not in job["productionRecipe"]["modelId"] for job in batch["jobs"])
+    assert batch["provider"] == "higgsfield"
+    assert batch["providerQuoteStatus"] == "required_before_apply"
+    assert batch["quotedProviderCredits"] is None
+    assert all(
+        job["productionRecipe"]["stages"][0]["sound"] == "off" for job in batch["jobs"]
+    )
 
 
-def test_talking_and_motion_copy_intents_use_deterministic_premium_recipes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("intent", "error"),
+    [
+        ("motion_copy", "motion_copy_unresolved"),
+        ("dance", "motion_copy_unresolved"),
+        ("talking_selfie", "talking_selfie_unresolved"),
+        ("talking_motion_copy", "talking_motion_unresolved"),
+    ],
+)
+def test_unresolved_intents_fail_before_provider_planning(
+    tmp_path: Path,
+    intent: str,
+    error: str,
 ) -> None:
     speech = tmp_path / "speech.wav"
     driving = tmp_path / "driving.mp4"
     speech.write_bytes(b"speech")
     driving.write_bytes(b"driving")
-    monkeypatch.setattr(
-        "campaign_factory.production_lane._media_duration_seconds",
-        lambda _path, label: 8.0 if "speech" in label else 6.0,
-    )
-    factory = _production_factory(tmp_path)
-
-    talking = plan_production_batch(
-        factory,
-        creator="stacey",
-        intent="talking_selfie",
-        count=1,
-        execution="cloud",
-        accounts="stacey-main",
-        audio_preference="creator_voice",
-        speech_audio_path=speech,
-    )
-    assert [
-        stage["modelId"] for stage in talking["jobs"][0]["productionRecipe"]["stages"]
-    ] == ["wavespeed_infinitetalk"]
-    assert talking["estimatedProviderCostUsd"] == 0.48
-
-    motion = plan_production_batch(
-        factory,
-        creator="stacey",
-        intent="talking_motion_copy",
-        count=1,
-        execution="cloud",
-        accounts="stacey-main",
-        audio_preference="creator_voice",
-        speech_audio_path=speech,
-        motion_reference_path=driving,
-    )
-    assert [
-        stage["modelId"] for stage in motion["jobs"][0]["productionRecipe"]["stages"]
-    ] == [
-        "wavespeed_kling_v3_pro_motion_control",
-        "wavespeed_sync_lipsync2_pro",
-    ]
-    assert motion["estimatedProviderCostUsd"] == 1.648
+    with pytest.raises(ValueError, match=error):
+        plan_production_batch(
+            _production_factory(tmp_path),
+            creator="stacey",
+            intent=intent,
+            count=1,
+            execution="cloud",
+            accounts="stacey-main",
+            audio_preference=(
+                "creator_voice" if intent.startswith("talking") else "none"
+            ),
+            speech_audio_path=speech if intent.startswith("talking") else None,
+            motion_reference_path=(
+                driving
+                if intent in {"motion_copy", "dance", "talking_motion_copy"}
+                else None
+            ),
+        )
 
 
 def test_talking_inputs_fail_before_any_paid_submission(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="require --speech-audio"):
+    with pytest.raises(ValueError, match="talking_selfie_unresolved"):
         plan_production_batch(
             _production_factory(tmp_path),
             creator="stacey",
@@ -314,95 +308,6 @@ def test_talking_inputs_fail_before_any_paid_submission(tmp_path: Path) -> None:
             accounts="stacey-main",
             audio_preference="creator_voice",
         )
-
-
-def test_talking_motion_copy_runs_motion_then_lipsync_and_retains_both_stages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    factory = _production_factory(tmp_path)
-    driving, speech = _fixture_media(tmp_path)
-    monkeypatch.setattr(
-        "campaign_factory.production_lane._media_duration_seconds",
-        lambda _path, label: 4.0 if "speech" in label else 3.0,
-    )
-    plan = plan_production_batch(
-        factory,
-        creator="stacey",
-        intent="talking_motion_copy",
-        count=1,
-        execution="cloud",
-        accounts="stacey-main",
-        audio_preference="creator_voice",
-        speech_audio_path=speech,
-        motion_reference_path=driving,
-    )
-    calls: list[dict] = []
-    outputs = [tmp_path / "motion-stage.mp4", tmp_path / "lipsync-stage.mp4"]
-    for output in outputs:
-        shutil.copy2(driving, output)
-
-    def fake_generation(*_args, **kwargs):
-        calls.append(kwargs)
-        output = outputs[len(calls) - 1]
-        return {
-            "registeredAsset": {
-                "id": f"stage-{len(calls)}",
-                "output_path": str(output),
-                "content_hash": hashlib.sha256(output.read_bytes()).hexdigest(),
-            }
-        }
-
-    monkeypatch.setattr(
-        "campaign_factory.production_lane.run_generation_workflow",
-        fake_generation,
-    )
-    result = _run_production_job(
-        factory,
-        job=plan["jobs"][0],
-        audio_candidates=[],
-        max_usd_per_job=plan["estimatedProviderCostUsd"],
-    )
-
-    assert result["status"] == "completed"
-    assert [call["motion_task"] for call in calls] == [
-        "motion_control",
-        "video_lipsync",
-    ]
-    assert calls[0]["motion_model_id"] == ("wavespeed_kling_v3_pro_motion_control")
-    assert calls[1]["motion_model_id"] == "wavespeed_sync_lipsync2_pro"
-    assert calls[1]["source_video_path"] == outputs[0]
-    assert calls[1]["audio_path"] == speech
-    assert len(result["stageResults"]) == 2
-
-    calls.clear()
-
-    def fail_lipsync(*_args, **kwargs):
-        calls.append(kwargs)
-        if len(calls) == 2:
-            raise RuntimeError("lipsync failed")
-        output = outputs[0]
-        return {
-            "registeredAsset": {
-                "id": "retained-motion-stage",
-                "output_path": str(output),
-                "content_hash": hashlib.sha256(output.read_bytes()).hexdigest(),
-            }
-        }
-
-    monkeypatch.setattr(
-        "campaign_factory.production_lane.run_generation_workflow",
-        fail_lipsync,
-    )
-    partial = _run_production_job(
-        factory,
-        job=plan["jobs"][0],
-        audio_candidates=[],
-        max_usd_per_job=plan["estimatedProviderCostUsd"],
-    )
-    assert partial["status"] == "failed"
-    assert partial["error"] == "lipsync failed"
-    assert len(partial["stageResults"]) == 1
-    assert outputs[0].is_file()
 
 
 def test_cloud_source_resolution_skips_non_reel_aspect_ratios(
@@ -462,8 +367,16 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     factory = _production_factory(tmp_path)
     video, audio = _fixture_media(tmp_path)
     monkeypatch.setattr(
-        "campaign_factory.production_lane.run_generation_workflow",
-        lambda *_args, **_kwargs: _fake_generation(factory, video),
+        "campaign_factory.production_lane._execute_higgsfield_provider_job",
+        lambda *_args, **_kwargs: (
+            _fake_generation(factory, video),
+            {
+                "requestId": "higgsfield-test",
+                "outputSha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "generationDurationSeconds": 1.0,
+                "providerCostCredits": 8,
+            },
+        ),
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane._expand_production_job_prompt",
@@ -472,6 +385,12 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
     monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
         lambda: [_fixture_candidate(audio)],
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._authorize_higgsfield_jobs",
+        lambda _factory, jobs, max_total_credits: [
+            {**job, "quotedProviderCredits": 8} for job in jobs
+        ],
     )
 
     batch = run_production_batch(
@@ -483,7 +402,7 @@ def test_golden_production_embeds_ranked_audio_and_binds_exact_media(
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
-        max_total_usd=0.56,
+        max_total_credits=10,
     )
 
     assert batch["summary"]["completed"] == 1, json.dumps(batch, default=str)
@@ -525,8 +444,16 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
     factory = _production_factory(tmp_path)
     video, _audio = _fixture_media(tmp_path)
     monkeypatch.setattr(
-        "campaign_factory.production_lane.run_generation_workflow",
-        lambda *_args, **_kwargs: _fake_generation(factory, video),
+        "campaign_factory.production_lane._execute_higgsfield_provider_job",
+        lambda *_args, **_kwargs: (
+            _fake_generation(factory, video),
+            {
+                "requestId": "higgsfield-test",
+                "outputSha256": hashlib.sha256(video.read_bytes()).hexdigest(),
+                "generationDurationSeconds": 1.0,
+                "providerCostCredits": 8,
+            },
+        ),
     )
     monkeypatch.setattr(
         "campaign_factory.production_lane._expand_production_job_prompt",
@@ -535,6 +462,12 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
     monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
         lambda: [],
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._authorize_higgsfield_jobs",
+        lambda _factory, jobs, max_total_credits: [
+            {**job, "quotedProviderCredits": 8} for job in jobs
+        ],
     )
 
     batch = run_production_batch(
@@ -546,7 +479,7 @@ def test_golden_missing_audio_candidates_blocks_without_silence(
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
-        max_total_usd=0.56,
+        max_total_credits=10,
     )
 
     assert batch["summary"]["blocked"] == 1, json.dumps(batch, default=str)
@@ -606,9 +539,9 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
     def fake_expand(job):
         return dict(job)
 
-    def fake_isolated(_factory, *, job, audio_candidates, max_usd_per_job):
+    def fake_isolated(_factory, *, job, audio_candidates, max_credits_per_job):
         nonlocal active, peak
-        assert max_usd_per_job == 0.56
+        assert max_credits_per_job == 8
         with lock:
             active += 1
             peak = max(peak, active)
@@ -631,7 +564,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
                 "requestId": f"prediction-{job['index']}",
                 "outputSha256": digest,
                 "generationDurationSeconds": 1.0,
-                "providerCostUsd": 0.05,
+                "providerCostCredits": 8,
             },
             "result": {
                 "audioFulfillment": {
@@ -648,6 +581,12 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         "campaign_factory.production_lane._run_production_job_isolated", fake_isolated
     )
     monkeypatch.setattr(
+        "campaign_factory.production_lane._authorize_higgsfield_jobs",
+        lambda _factory, jobs, max_total_credits: [
+            {**job, "quotedProviderCredits": 8} for job in jobs
+        ],
+    )
+    monkeypatch.setattr(
         "campaign_factory.production_lane.discover_production_audio_candidates",
         lambda: [],
     )
@@ -660,7 +599,7 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         accounts="stacey-main",
         audio_preference="embedded_trending",
         apply=True,
-        max_total_usd=3,
+        max_total_credits=40,
         max_concurrency=2,
     )
     assert peak == 2
@@ -677,31 +616,45 @@ def test_cloud_batch_uses_bounded_concurrency_and_preserves_partial_failure(
         "published": 0,
         "uniqueOutputs": 3,
         "uniqueFinalOutputs": 3,
-        "totalProviderCostUsd": 0.15,
-        "providerCostReported": True,
-        "estimatedProviderCostUsd": 2.24,
+        "totalProviderCredits": 24.0,
+        "providerCreditsReported": True,
+        "quotedProviderCredits": 32.0,
         "generationTimesSeconds": [1.0, 1.0, 1.0],
     }
 
 
-def test_cloud_batch_spend_cap_blocks_before_prompt_expansion(
+def test_cloud_batch_spend_cap_blocks_before_provider_submission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         "campaign_factory.production_lane._OPERATOR_VISUAL_SELECTION_COMPLETE",
         True,
     )
-    called = False
+    provider_called = False
 
-    def unexpected(_job):
-        nonlocal called
-        called = True
+    def block_quote(_factory, jobs, *, max_total_credits):
+        raise PermissionError(
+            "production_batch_quote_exceeds_total_credit_cap: 48 > 20"
+        )
+
+    def unexpected_provider(*_args, **_kwargs):
+        nonlocal provider_called
+        provider_called = True
         raise AssertionError
 
     monkeypatch.setattr(
-        "campaign_factory.production_lane._expand_production_job_prompt", unexpected
+        "campaign_factory.production_lane._expand_production_job_prompt",
+        lambda job: dict(job),
     )
-    with pytest.raises(PermissionError, match="total_spend_cap"):
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._authorize_higgsfield_jobs",
+        block_quote,
+    )
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._execute_higgsfield_provider_job",
+        unexpected_provider,
+    )
+    with pytest.raises(PermissionError, match="exceeds_total_credit_cap"):
         run_production_batch(
             _production_factory(tmp_path),
             creator="stacey",
@@ -711,28 +664,17 @@ def test_cloud_batch_spend_cap_blocks_before_prompt_expansion(
             accounts=None,
             audio_preference="embedded_trending",
             apply=True,
+            max_total_credits=20,
         )
-    assert called is False
+    assert provider_called is False
 
 
-def test_unreviewed_intent_defaults_block_apply_before_prompt_expansion(
+def test_invalid_passive_recipe_configuration_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    called = False
-
-    def unexpected(_job):
-        nonlocal called
-        called = True
-        raise AssertionError
-
-    monkeypatch.setattr(
-        "campaign_factory.production_lane._expand_production_job_prompt", unexpected
-    )
-    with pytest.raises(
-        PermissionError,
-        match="selection_pending_operator_visual_review",
-    ):
-        run_production_batch(
+    monkeypatch.setenv("CREATOR_OS_PASSIVE_VIDEO_RECIPE", "wavespeed_anything")
+    with pytest.raises(ValueError, match="must pin one operator-approved"):
+        plan_production_batch(
             _production_factory(tmp_path),
             creator="stacey",
             intent="passive_selfie",
@@ -740,10 +682,61 @@ def test_unreviewed_intent_defaults_block_apply_before_prompt_expansion(
             execution="cloud",
             accounts="stacey-main",
             audio_preference="embedded_trending",
-            apply=True,
-            max_total_usd=1,
         )
-    assert called is False
+
+
+def test_higgsfield_create_does_not_require_wavespeed_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WAVESPEED_API_KEY", raising=False)
+    batch = run_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=2,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+        apply=False,
+    )
+    assert batch["provider"] == "higgsfield"
+    assert batch["summary"]["created"] == 2
+    assert batch["summary"]["submitted"] == 0
+
+
+def test_higgsfield_failure_never_falls_back_to_wavespeed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def fail_higgsfield(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("higgsfield_failed")
+
+    monkeypatch.setattr(
+        "campaign_factory.production_lane._execute_higgsfield_provider_job",
+        fail_higgsfield,
+    )
+    job = plan_production_batch(
+        _production_factory(tmp_path),
+        creator="stacey",
+        intent="passive_selfie",
+        count=1,
+        execution="cloud",
+        accounts="stacey-main",
+        audio_preference="embedded_trending",
+    )["jobs"][0]
+    result = _run_production_job(
+        _production_factory(tmp_path),
+        job=job,
+        audio_candidates=[],
+        max_credits_per_job=10,
+    )
+    assert calls == 1
+    assert result["status"] == "failed"
+    assert result["error"] == "higgsfield_failed"
+    assert result["providers"] == []
 
 
 def test_qwen_expansion_is_bound_to_cloud_job_recipe(

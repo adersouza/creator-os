@@ -96,12 +96,20 @@ completes the old transaction; otherwise the runtime is restored to the
 journaled prior commit. Unknown or conflicting checkout state fails closed for
 manual investigation.
 
-The live-read-only command is validated semantically, not only by process exit
-code. Policy `creator_os.runtime_live_read_only_health.v1` requires exactly nine
-unique checks: `repository`, `venv-entrypoints`, `contracts`, `local-config`,
-`canonical-roots`, `runtime`, `campaign-database`, `provider-readiness`, and
-`threadsdashboard-handshake`. Every status must be `PASS`; a missing, extra,
-duplicate, `WARN`, `NOT_RUN`, malformed, or empty result triggers rollback.
+Promotion authorization requires admin-enforced live branch protection with the
+three required PR contexts `affected`, `hygiene`, and `Secret scan`, each
+successful. The exact target main SHA must separately have complete, successful
+release and security evidence from trusted repository workflow identities.
+Missing, pending, failed, cancelled, skipped when required, untrusted, stale, or
+wrong-SHA evidence blocks promotion. Authenticated single-owner authority does
+not require an invented second reviewer; the independent-review path remains
+available.
+
+After authorization, the live-read-only runtime command is validated
+semantically, not only by process exit code. Policy
+`creator_os.runtime_live_read_only_health.v1` still requires its complete
+runtime-health inventory, all `PASS`; this health inventory is not the branch
+protection check list.
 
 The receipt includes exact before/after commits, backup paths/fingerprints,
 resolved toolchain evidence, verification outcomes, failure/rollback state,
@@ -118,7 +126,7 @@ userinfo, and percent-encoded credential material before they are persisted.
 The commands verify the bundle and fetch its objects before checking out the
 old commit, so recovery still works if the old object is no longer present in
 the runtime object database. Paths are shell-quoted. The final command reruns
-the exact nine-check live-read-only health policy. These commands are recovery
+the complete live-read-only health policy. These commands are recovery
 information, not permission to skip the promotion lock or receipt review; the
 normal automatic rollback and authenticated interrupted-transaction recovery
 remain the preferred paths.

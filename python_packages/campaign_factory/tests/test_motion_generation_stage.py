@@ -1836,7 +1836,7 @@ def test_local_wan_text_to_video_apply_registers_immutable_prompt_source_only(
         cf.close()
 
 
-def test_wavespeed_dry_run_has_zero_provider_calls_and_no_authorization(
+def test_active_best_motion_rejects_historical_wavespeed_before_authorization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cf = make_factory(tmp_path)
@@ -1861,23 +1861,24 @@ def test_wavespeed_dry_run_has_zero_provider_calls_and_no_authorization(
             "campaign_factory.motion_generation_stage.issue_wavespeed_spend_authorization",
             lambda *_args, **_kwargs: pytest.fail("dry-run must not authorize spend"),
         )
-        result = run_motion_generation_stage(
-            cf,
-            execution_plan=build_generation_execution_plan("best_motion"),
-            campaign_slug="may",
-            still_path=still,
-            prompt=PROMPT,
-            model_id="wavespeed_kling_o3_pro_i2v",
-            duration_seconds=5,
-            resolution="provider_default",
-            seed=42,
-            steps=40,
-            dry_run=True,
-            apply=False,
-        )
-        assert result["paidGeneration"] is True
-        assert result["providerCalls"] == 0
-        assert result["registeredAsset"] is None
+        with pytest.raises(
+            PermissionError,
+            match="does not authorize model wavespeed_kling_o3_pro_i2v",
+        ):
+            run_motion_generation_stage(
+                cf,
+                execution_plan=build_generation_execution_plan("best_motion"),
+                campaign_slug="may",
+                still_path=still,
+                prompt=PROMPT,
+                model_id="wavespeed_kling_o3_pro_i2v",
+                duration_seconds=5,
+                resolution="provider_default",
+                seed=42,
+                steps=40,
+                dry_run=True,
+                apply=False,
+            )
     finally:
         cf.close()
 

@@ -152,19 +152,27 @@ def _candidate_matrix(
             "candidateId": candidate_id,
             "provider": "higgsfield",
             "pipeline": pipeline or [candidate_id],
-            "available": candidate.status == "available",
+            "available": candidate.status in {"supported", "experimental"},
+            "capabilityStatus": candidate.status,
             "unavailableReason": candidate.unavailable_reason,
             "actualTool": candidate.actual_tool,
             "actualJobType": candidate.exposed_job_type,
         }
 
-    def wavespeed(candidate_id: str, *pipeline: str) -> dict[str, Any]:
+    def wavespeed(
+        candidate_id: str,
+        *pipeline: str,
+        capability_status: str = "rejected_recipe",
+    ) -> dict[str, Any]:
         return {
             "candidateId": candidate_id,
             "provider": "wavespeed",
             "pipeline": list(pipeline or (candidate_id,)),
-            "available": True,
-            "unavailableReason": None,
+            "available": False,
+            "capabilityStatus": capability_status,
+            "unavailableReason": (
+                "WaveSpeed is retained for historical bakeoff evidence only"
+            ),
         }
 
     return {
@@ -189,7 +197,10 @@ def _candidate_matrix(
             hf_candidate("higgsfield_speak", "higgsfield_talking_speak"),
             hf_candidate("higgsfield_veo31_talking", "higgsfield_talking_veo"),
             wavespeed("wavespeed_infinitetalk"),
-            wavespeed("wavespeed_longcat_avatar15"),
+            wavespeed(
+                "wavespeed_longcat_avatar15",
+                capability_status="unresolved",
+            ),
         ],
         "talkingMotionCopy": [
             hf_candidate(
@@ -204,11 +215,13 @@ def _candidate_matrix(
                 "wavespeed_motion_control_plus_sync2",
                 "wavespeed_kling_v3_pro_motion_control",
                 "wavespeed_sync_lipsync2_pro",
+                capability_status="unresolved",
             ),
             wavespeed(
                 "wavespeed_motion_control_plus_sync3",
                 "wavespeed_kling_v3_pro_motion_control",
                 "wavespeed_sync_lipsync3",
+                capability_status="unresolved",
             ),
         ],
     }

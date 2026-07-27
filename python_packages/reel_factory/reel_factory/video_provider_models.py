@@ -422,7 +422,7 @@ WAVESPEED_SYNC_LIPSYNC3 = VideoModel(
 )
 
 # These are authenticated Higgsfield CLI contracts, not marketing-page aliases.
-# They remain bakeoff candidates until the operator selects production defaults.
+# Kling 3 and Seedance 2 are the operator-approved passive production recipes.
 HIGGSFIELD_KLING3_I2V = VideoModel(
     id="higgsfield_kling3_i2v",
     backend="higgsfield_cli",
@@ -434,7 +434,7 @@ HIGGSFIELD_KLING3_I2V = VideoModel(
     default_resolution="720x1280",
     default_duration=5,
     paid=True,
-    quality_tier="bakeoff_candidate_passive_selfie",
+    quality_tier="production_passive_selfie",
     provider_accepts_negative_prompt=False,
     provider_accepts_seed=False,
 )
@@ -451,7 +451,7 @@ HIGGSFIELD_SEEDANCE2_I2V = VideoModel(
     default_duration=5,
     generated_audio_supported=True,
     paid=True,
-    quality_tier="bakeoff_candidate_passive_selfie",
+    quality_tier="production_passive_selfie",
     provider_accepts_negative_prompt=False,
     provider_accepts_seed=False,
 )
@@ -492,7 +492,7 @@ HIGGSFIELD_VEO31_TALKING = VideoModel(
     provider_accepts_seed=False,
 )
 
-_MODELS = {
+_ACTIVE_MODELS = {
     model.id: model
     for model in (
         LOCAL_WAN22_TI2V_5B,
@@ -500,6 +500,13 @@ _MODELS = {
         LOCAL_LTX23_DISTILLED,
         LOCAL_LTX23_DEV_HQ,
         LOCAL_LONGCAT_AVATAR15_Q4,
+        HIGGSFIELD_KLING3_I2V,
+        HIGGSFIELD_SEEDANCE2_I2V,
+    )
+}
+_HISTORICAL_MODELS = {
+    model.id: model
+    for model in (
         WAVESPEED_WAN22_I2V_5B_720P,
         WAVESPEED_WAN27_I2V,
         WAVESPEED_WAN27_I2V_PRO,
@@ -512,8 +519,6 @@ _MODELS = {
         WAVESPEED_LONGCAT_AVATAR15,
         WAVESPEED_SYNC_LIPSYNC2_PRO,
         WAVESPEED_SYNC_LIPSYNC3,
-        HIGGSFIELD_KLING3_I2V,
-        HIGGSFIELD_SEEDANCE2_I2V,
         HIGGSFIELD_KLING3_MOTION_CONTROL,
         HIGGSFIELD_VEO31_TALKING,
     )
@@ -523,7 +528,7 @@ _MODELS = {
 def video_model(model_id: str) -> VideoModel:
     normalized = str(model_id or "").strip().lower().replace("-", "_")
     try:
-        return _MODELS[normalized]
+        return _ACTIVE_MODELS.get(normalized) or _HISTORICAL_MODELS[normalized]
     except KeyError as exc:
         raise ValueError(f"unsupported video model: {model_id}") from exc
 
@@ -531,7 +536,17 @@ def video_model(model_id: str) -> VideoModel:
 def video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
     return tuple(
         model.id
-        for model in _MODELS.values()
+        for model in _ACTIVE_MODELS.values()
+        if task is None or task in (model.supported_tasks or (model.task,))
+    )
+
+
+def historical_video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
+    """Return retired provider IDs only for evidence readers and migrations."""
+
+    return tuple(
+        model.id
+        for model in _HISTORICAL_MODELS.values()
         if task is None or task in (model.supported_tasks or (model.task,))
     )
 
@@ -539,7 +554,8 @@ def video_model_ids(*, task: Task | None = None) -> tuple[str, ...]:
 def video_model_catalog() -> dict[str, object]:
     return {
         "schema": "reel_factory.video_model_catalog.v1",
-        "models": [model.to_dict() for model in _MODELS.values()],
+        "activeProvider": "higgsfield",
+        "models": [model.to_dict() for model in _ACTIVE_MODELS.values()],
         "routing": {
             "localImageMotion": LOCAL_WAN22_TI2V_5B.id,
             "localImageMotionQuality": LOCAL_WAN22_I2V_A14B_Q4.id,
@@ -547,37 +563,26 @@ def video_model_catalog() -> dict[str, object]:
             "localAudioMotionQuality": LOCAL_LTX23_DEV_HQ.id,
             "localTextToVideo": LOCAL_LTX23_DISTILLED.id,
             "localSpeakingVideo": LOCAL_LONGCAT_AVATAR15_Q4.id,
-            "paidImageMotion": None,
-            "paidImageMotionQuality": None,
+            "paidImageMotion": HIGGSFIELD_KLING3_I2V.id,
+            "paidImageMotionQuality": HIGGSFIELD_SEEDANCE2_I2V.id,
             "paidImageMotionSeededAlternative": None,
-            "paidReferenceMotion": WAVESPEED_WAN27_REFERENCE.id,
+            "paidReferenceMotion": None,
             "paidMotionControl": None,
             "paidSpeakingVideo": None,
             "paidSpeakingChallenger": None,
             "paidVideoLipsync": None,
-            "operatorVisualSelectionRequired": True,
-            "passiveSelfieCandidates": [
+            "operatorVisualSelectionRequired": False,
+            "supportedPassiveSelfieRecipes": [
                 HIGGSFIELD_KLING3_I2V.id,
                 HIGGSFIELD_SEEDANCE2_I2V.id,
-                WAVESPEED_KLING_O3_PRO_I2V.id,
-                WAVESPEED_VIDU_Q3_I2V_PRO.id,
             ],
-            "motionCopyCandidates": [
-                HIGGSFIELD_KLING3_MOTION_CONTROL.id,
-                WAVESPEED_KLING_V3_PRO_MOTION_CONTROL.id,
-            ],
-            "talkingSelfieCandidates": [
-                HIGGSFIELD_VEO31_TALKING.id,
-                WAVESPEED_INFINITETALK.id,
-                WAVESPEED_LONGCAT_AVATAR15.id,
-            ],
-            "talkingMotionCopyLipsyncCandidates": [
-                WAVESPEED_SYNC_LIPSYNC2_PRO.id,
-                WAVESPEED_SYNC_LIPSYNC3.id,
-            ],
-            "advancedBudgetFallback": WAVESPEED_WAN22_I2V_5B_720P.id,
+            "experimentalMotionCopyRecipes": [],
+            "experimentalTalkingSelfieRecipes": [],
+            "experimentalTalkingMotionRecipes": [],
+            "advancedBudgetFallback": None,
             "silentProviderFallbackAllowed": False,
         },
+        "historicalProviderModelsReadable": list(historical_video_model_ids()),
     }
 
 
