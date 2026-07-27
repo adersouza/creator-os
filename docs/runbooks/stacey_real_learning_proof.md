@@ -5,8 +5,9 @@ Read-only design only. Do not publish from this document.
 ## Candidate cohort
 
 The comparable visual inputs are three distinct approved-by-chat Stacey Kling 3
-canaries, each 5.041667 seconds, 1080×1920 H.264 with verified AAC and passed
-technical QC:
+canaries, each 5.041667 seconds, 1080×1920 H.264 with verified AAC. Their full
+Campaign technical-QC and creative-approval states must be revalidated before
+any export:
 
 | Candidate | Source asset / SHA | Generation ID | TikTok music ID | Final candidate SHA |
 |---|---|---|---|---|
