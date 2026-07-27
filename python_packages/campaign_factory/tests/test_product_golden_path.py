@@ -101,7 +101,7 @@ def _production_factory(tmp_path: Path, *, source_count: int = 2) -> SimpleNames
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         conn.execute(
             "INSERT INTO source_assets VALUES (?, 'campaign-1', 'model-1', ?, ?, "
-            "'image', 'imported', ?)",
+            "'image', 'approved', ?)",
             (f"source-{index}", digest, str(path), f"2026-{index}"),
         )
     return SimpleNamespace(conn=conn)
@@ -547,6 +547,45 @@ def test_cloud_source_resolution_skips_non_reel_aspect_ratios(
 
     assert batch["jobs"][0]["sourceAssetId"] != first["id"]
     assert batch["jobs"][0]["sourceResolution"]["aspectRatio"] == 0.5625
+
+
+def test_normal_create_ignores_imported_but_unapproved_sources(
+    tmp_path: Path,
+) -> None:
+    factory = _production_factory(tmp_path)
+    factory.conn.execute(
+        "UPDATE source_assets SET status = 'imported' WHERE id = 'source-0'"
+    )
+
+    batch = plan_production_batch(
+        factory,
+        creator="stacey",
+        intent="passive_selfie",
+        count=2,
+        execution="cloud",
+        accounts=None,
+        audio_preference="embedded_trending",
+    )
+
+    assert {job["sourceAssetId"] for job in batch["jobs"]} == {"source-1"}
+
+
+def test_normal_create_fails_closed_without_explicit_source_approval(
+    tmp_path: Path,
+) -> None:
+    factory = _production_factory(tmp_path)
+    factory.conn.execute("UPDATE source_assets SET status = 'imported'")
+
+    with pytest.raises(ValueError, match="no explicitly approved image inventory"):
+        plan_production_batch(
+            factory,
+            creator="stacey",
+            intent="passive_selfie",
+            count=1,
+            execution="cloud",
+            accounts=None,
+            audio_preference="embedded_trending",
+        )
 
 
 def test_golden_reel_caption_hook_audio_to_postable_handoff() -> None:

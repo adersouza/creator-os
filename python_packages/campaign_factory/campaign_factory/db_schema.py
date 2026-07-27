@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-SCHEMA = """
+from .content_director_schema import CONTENT_DIRECTOR_SCHEMA
+
+BASE_SCHEMA = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -1493,3 +1495,4 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
   last_synced_at TEXT NOT NULL
 );
 """
+SCHEMA = BASE_SCHEMA + CONTENT_DIRECTOR_SCHEMA
