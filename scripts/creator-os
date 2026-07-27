@@ -72,7 +72,6 @@ def _content_director_command(*args: str) -> list[str]:
         *args,
     ]
 
-
 def _reference_command(*args: str) -> list[str]:
     return [
         "uv",
@@ -321,7 +320,6 @@ def _parser() -> argparse.ArgumentParser:
     plan_approve.add_argument("plan_id")
     plan_approve.add_argument("--operator", required=True)
     plan_approve.add_argument("--reason", required=True)
-
     doctor = sub.add_parser("doctor", help="read-only fixture-backed integrity audit")
     doctor.add_argument("args", nargs=argparse.REMAINDER)
 
