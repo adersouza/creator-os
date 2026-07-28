@@ -1,274 +1,388 @@
 # Creator OS Master Operating Specification
 
-Status: **LOCKED — operator questionnaire answered 2026-07-11**
+**Status:** active product policy
+**Reconciled:** 2026-07-28
 
-This document is the implementation authority for the current Creator OS
-production-readiness goal. It incorporates the operator's 101 answers and
-explicit confirmation that every depicted model is over 18. Where the operator
-selected the recommendation, the recommendation is binding until changed here.
+This document records the operator's current product decisions. The durable
+component map is [`../../CREATOR_OS_SYSTEM_MAP.md`](../../CREATOR_OS_SYSTEM_MAP.md).
+Dated audits preserve historical proof but do not override this policy.
 
-## Locked Outcome
+## Product Outcome
 
-Creator OS must become a usable headless production system that:
+Creator OS must provide a dependable daily content system that:
 
-1. Accepts a reference image and creates a Soul still with captured provider
-   prompt and complete lineage.
-2. Supports an original candidate and an explicitly governed text-only sexy
-   candidate without accidentally repeating the paid reference generation.
-3. Automatically creates a free static MP4 for every accepted Soul still.
-4. Keeps the static MP4 as the zero-cost fallback output.
-5. Offers paid Kling animation only for the best approved candidates.
-6. Enforces explicit spend limits and approval boundaries before paid Kling
-   submission.
-7. Runs identity, anatomy, Reel Factory, and ContentForge gates before draft
-   handoff.
-8. Sends only signed, draft-only payloads to ThreadsDashboard until publishing
-   is separately approved.
-9. Preserves ThreadsDashboard as the scheduling and publishing authority.
-10. Collects real 1h, 24h, and 72h outcomes and feeds them back into selection
-    and reference learning.
+1. starts from an approved creator identity and source;
+2. creates or reuses a postable visual;
+3. applies only a supported creative recipe;
+4. adds the correct verified audio;
+5. preserves complete immutable lineage;
+6. blocks technically invalid media;
+7. requires exact-SHA human creative approval;
+8. exports a validated draft;
+9. leaves account scheduling and publication to ThreadsDashboard;
+10. learns only from real, comparable, publication-linked outcomes.
 
-Creator OS is multi-mode rather than tied to one creative recipe. Its supported
-operator modes are library reuse, Soul-to-static MP4, local Wan/LTX motion,
-best paid motion, and structural reference-video remix. Every generation run
-selects one of these modes explicitly; neither a new reference nor a previous
-run supplies an implicit default. The former deterministic motion-edit and
-best-only Kling identifiers remain readable only for historical evidence and
-are rejected before runtime state access.
+The normal operator thinks in creator, intent, count, account, audio, and
+budget—not provider implementation identifiers.
 
-## Locked Operator Decisions
+## Active Creative Policy
 
-### Business outcome and scale
+### Normal provider
 
-- Primary outcome: grow Stacey's Instagram reach and drive trackable traffic to
-  her OnlyFans funnel. Revenue is not a learning input because it is not
-  currently observable; use views, engagement, follows, profile visits, and
-  attributable link clicks in a weighted score.
-- Benchmark direction: the manually operated `@staceybennetx` Instagram account.
-- Stacey launches first, then Stacey1, Larissa, Lola, and the operator's other
-  verified models. Every creator learns independently.
-- Target fleet: approximately 200 accounts. Existing generated media is the
-  launch inventory; reference-conditioned Higgsfield generation ramps in over
-  subsequent weeks instead of blocking launch.
-- Per-account target: one regular reel daily for a healthy eligible account,
-  plus one or two trial reels daily where configured. Every-other-day cadence
-  is reserved for warming, account-health/platform constraints, insufficient
-  approved inventory, or an explicit operator choice. The planner treats this
-  as a capacity target, not a reason to bypass inventory, uniqueness,
-  account-health, or publish gates.
-- Initial proof remains a bounded 50-post cohort. It is a launch gate, not the
-  long-term manual workflow.
-- Instagram is the initial platform.
+Higgsfield is the only active normal visual-generation provider.
 
-### Creative and age policy
+Normal production must not:
 
-- All depicted models are verified by the operator as over 18.
-- When age wording improves Soul output, the creative prompt uses exactly
-  `19 years old`. Age verification stays in metadata/QC, not in creative prose.
-  Do not use `adult`, `woman`, `girl`, `teen`, or ambiguous `young` age wording
-  in the generation prompt.
-- Default look: strongly sexy, candid/amateur, believable phone/selfie or
-  propped-camera footage. Mirror selfies, selfies, and casually placed-camera
-  scenes are preferred over polished luxury/editorial scenes.
-- Sexy does not mean only more exposed skin. Allowed emphasis includes fuller
-  cleavage, tight clothing, an amateur feel, and a mischievous expression.
-- Preserve identity, pose, outfit, setting, lighting, and expression. Do not
-  alter the waist or add unrelated body/scene changes. Selfies may emphasize
-  chest/cleavage; full-body shots may additionally emphasize a rounder butt.
-- Stacey identity guidance includes dark hair and no tattoos. Identity guidance
-  must be applied without overriding the Soul identity.
-- Bikinis, lingerie, sheer-but-covered clothing, and deep cleavage are allowed.
-  Reject visible nipples, explicit nudity, extreme explicitness, age ambiguity,
-  or failed identity/anatomy evidence.
-- Block cigarettes, drugs, weapons, and controversial themes by default. Keep
-  the reference setting rather than inventing luxury context.
+- choose WaveSpeed;
+- fall back to WaveSpeed;
+- require `WAVESPEED_API_KEY`;
+- route through Arena or Router;
+- choose a local model;
+- silently substitute an unresolved recipe.
 
-### References and generation
+Historical WaveSpeed receipts, rows, costs, media, hashes, and lineage remain
+readable.
 
-- Reference inputs may come from Reference Factory, operator-uploaded folders,
-  and reviewed public examples/accounts.
-- Gold references are automatic-first; `maybe` requires approval; `ignore` is
-  excluded and may be deleted after evidence retention.
-- Select by measured performance when available, balance visual-driven and
-  caption-driven patterns, and cap source-account concentration.
-- Reuse strong references when useful, but vary captions/timing and keep similar
-  uses separated across accounts. Crop salvageable interface borders; reject
-  interface elements covering the subject.
-- Reference approval is batch-based and must be easy for the operator to review.
-- One reference-conditioned Soul pass produces and preserves the original.
-  Capture its provider prompt. Create one text-only sexy candidate without
-  paying to regenerate the original. One automatic retry is allowed only after
-  identity/anatomy failure; then reject the reference.
-- Generate in the aspect ratio that best serves the shot (`3:4`, `2:3`, or
-  `9:16`), then produce the Instagram-ready 9:16 reel without destructive
-  subject cropping.
-- Reference Factory is the long-term learning source: successful past assets,
-  prompts, patterns, captions, and measured outcomes become future generation
-  examples so the system does not depend forever on new reference images.
+### Supported visual recipes
 
-### Static MP4, captions, and audio
+| Product need | Current policy |
+|---|---|
+| New creator still | Higgsfield Soul 2 with explicit creator Soul ID |
+| Zero-cost Reel from still | deterministic local static MP4 |
+| Passive motion | product-pinned Higgsfield Kling 3 or Seedance 2 |
+| Finished Creator OS media | strict existing-media reconciliation |
+| Reference-Reel structure recreation | bounded experimental Seedance 2 path |
 
-- Every QC-passing still produces a free-provider-cost static MP4; failed stills
-  do not. Duration is deterministically randomized within 5–7 seconds.
-- Preserve a clean locked/no-zoom MP4 and, when caption placement passes, a
-  captioned MP4. The clean static remains the fallback for every candidate.
-- Overlay hooks come from the caption bank. Use Instagram Sans Condensed by
-  default and the approved larger bold style occasionally. Caption work remains
-  an active weekly optimization area.
-- Placement must find the best safe lane and never cover the face/body focal
-  area. If no safe lane survives measurement, regenerate for negative space or
-  use the clean MP4; do not force an unsafe overlay.
-- Burned overlay text and post captions remain separate. Campaign Factory owns
-  post captions.
-- Native/platform audio remains a ThreadsDashboard or Notify Publish decision.
-  Evaluate a free audio path, but do not burn or license audio speculatively.
+The passive recipe disables provider-generated sound. The product configuration,
+not the ordinary operator, selects Kling 3 or Seedance 2.
 
-### Paid Kling policy
+### Unresolved capabilities
 
-- Kling may run only after at least two safe, human-approved static candidates
-  are ranked and one unique best candidate receives a durable selection receipt.
-- Rank with identity/anatomy as hard gates and a balanced score using visual
-  quality, attractiveness, reference fidelity, predicted engagement, and the
-  optional Higgsfield virality predictor when it is free. Explain wins/losses.
-- Never animate a candidate that failed identity, anatomy, ContentForge, human
-  approval, or receipt validation. If Kling fails, retain/use the static MP4.
-- Operational ceiling: at most 10 Kling videos in one day, with zero automatic
-  paid retries. This is a ceiling, not a daily target.
-- Hard monthly provider ceiling: 1,000 credits across Soul/Higgsfield/Kling,
-  subject to live balance verification. Pace daily spending so the monthly
-  allocation cannot be exhausted early; the runtime must fail closed if current
-  balance or price is unknown.
-- Each Kling charge requires explicit approval until at least five real paid
-  runs complete successfully. Afterwards, only receipt-backed candidates may
-  use an operator-configured automatic budget lane.
-- Investigate provider-supported no-audio/short-duration/settings options before
-  changing the assumed price. Never claim savings without a live quote.
+- talking selfie with exact supplied creator voice;
+- motion copy or dance transfer;
+- talking motion copy.
 
-### Drafts, scheduling, and publishing
+The tested Kling Motion Control results remain rejected. InfiniteTalk remains
+rejected for robotic voice quality. Veo text dialogue is not represented as
+creator-voice preservation. Unresolved does not mean permanently removed; it
+means normal production must fail before a paid request.
 
-- After approval, signed HMAC draft creation is automatic and idempotent: one
-  winning asset creates exactly one ThreadsDashboard draft.
-- Creator OS never publishes directly. All posts flow through ThreadsDashboard,
-  which either uses the approved Meta publishing path or sends a Notify Publish
-  handoff to the operator's phone for accounts operated there.
-- Human final approval is required during the initial cohort and the first day
-  or two of launch. The target state is no routine manual posting except phone
-  Notify Publish accounts.
-- After proof, high-confidence posts may auto-schedule and automatic publishing
-  becomes an operator-controlled option. Native-audio/publishability proof still
-  applies to direct TD publishing.
-- Account assignment is automatic. Trial reels test non-follower distribution
-  and may use different/randomized posting windows from regular reels.
-- Use randomized, testable posting windows. Keep identical/similar visuals and
-  captions far apart across accounts; change overlay/caption/other safe features
-  where appropriate.
-- One confirmed publish/reauth failure pauses the account. A global kill switch
-  stops paid generation, drafts, scheduling, and publishing.
+### Human quality authority
 
-### Learning, operations, and operator experience
+The operator's would-post decision outranks vendor marketing and aggregate
+technical scores. Review binds the exact final MP4 SHA.
 
-- Always collect 1h, 24h, and 72h evidence; 24h is the primary reward.
-  Normalize per account and learn original-vs-sexy and Kling-vs-static lift.
-- Notify actionable failures immediately via macOS and Discord; send routine
-  state in a daily digest.
-- Run headlessly after reboot. Keep the machine light: short local hot retention,
-  offload durable approved media/evidence to the configured Supabase recovery
-  layer, and delete expired rejected media only after retention proof.
-- Produce a weekly improvement digest covering performance, caption/reference/
-  timing experiments, Kling ROI, failures, recommended configuration changes,
-  and the next bounded tests. Recommendations must cite real outcome evidence.
-- The operator experience must not require terminal commands for routine use.
+Required human fields may include:
 
-## Current Safety State
+- identity;
+- anatomy;
+- attractiveness;
+- natural motion;
+- motion-copy accuracy when relevant;
+- casual-phone appearance;
+- lip-sync and voice quality when relevant;
+- would post;
+- notes.
 
-- Paid generation stays disabled except for an explicitly approved bounded run.
-- `CREATOR_OS_KILL_SWITCH=1` is the canonical emergency stop. It blocks every
-  Creator OS paid-generation reservation and outbound ThreadsDashboard draft
-  export while leaving read-only checks and local zero-cost static rendering
-  available for diagnosis and recovery.
-- Automatic publishing stays disabled.
-- Native audio is selected and verified in ThreadsDashboard, not burned into
-  Creator OS MP4s.
-- A ContentForge blocking code rejects the candidate.
-- No readiness claim may substitute tests or fixtures for a real approved post
-  completing the performance loop.
+Blank means unknown/unreviewed. Automated identity or anatomy approval must not
+be claimed when no analyzer reported it.
 
-## Resolved Implementation Gaps
+## Source And Identity Policy
 
-1. Campaign Factory now invokes the captured-prompt variant policy directly:
-   the completed reference-conditioned original supplies the provider prompt,
-   and a separate image-only call creates the text-only sexy candidate without
-   attaching the reference or triggering Kling.
-2. The variant helper previously implied a second reference-conditioned
-   “original” run after the first run already produced it. Its contract now
-   reuses that first result and plans exactly one additional text-only sexy
-   generation.
-3. The deterministic Kling compiler previously emitted terms rejected by the
-   Kling prompt validator. The compiler now validates its own output against
-   the shared contract before returning it.
-4. A live read-only provider quote on 2026-07-11 reports 1 credit for the
-   planned Soul still and 8 credits for five-second Kling Pro with sound off.
-   The active path now reserves those native-credit quotes atomically; no live
-   Kling result is present in current runtime evidence.
-5. Free static MP4 rendering now runs as a mandatory, idempotent transition in
-   the same live front-generation invocation that downloads each QC-passing
-   original or sexy Soul still. It no longer waits for a second
-   `--accepted-still` command, and an original fallback remains durable if the
-   later sexy candidate fails.
-6. Historical best-only Kling receipt validation proves that the selected candidate is
-   the unique evidence-backed rank-one result, that every eligible candidate is
-   present exactly once, and that ranking itself cannot authorize spending or
-   publishing. The retired receipt can be reconciled, but cannot launch new
-   generation; current paid motion uses the guarded `best_motion` workflow.
+- Every source must be creator-bound and explicitly approved.
+- Stored source bytes must match their SHA-256 before use.
+- A creator Soul ID is explicit internal configuration and must match the
+  selected creator.
+- Source compatibility is checked before paid submission.
+- Learning may reorder approved sources but cannot approve one.
+- A source failure or incompatibility must remain visible so later batches do
+  not repeatedly spend against it.
+- Reference-performer identity never substitutes for the intended creator.
 
-## Current Live Evidence Snapshot — 2026-07-12
+## Batch Policy
 
-This table separates current runtime proof from code/test coverage. `PARTIAL`
-means the system must not claim the master goal is complete yet.
+`count=N` means N independent retained jobs.
 
-| Requirement | Status | Current authoritative evidence | Remaining proof |
-| --- | --- | --- | --- |
-| Locked operating behavior | PROVEN | This specification records the operator's 101 answers and the active runtime implements the locked age, creative, approval, spend, and publishing boundaries | Reopen only when the operator changes a locked decision |
-| Release audit and repository hygiene | PROVEN | Creator OS runtime code was promoted to audited commit `70f55c93` before the evidence-only status update. PR #430 fixed detached-checkout branch reporting, all applicable CI jobs passed, and nine merged feature branches plus five clean obsolete worktrees were removed. A fresh checkout of that exact code commit with the live ThreadsDashboard snapshot and production-frontend Playwright artifact produced 39 PASS, 7 WARN, and 0 FAIL; the browser artifact proves the deployed frontend routes with mocked auth/API data, not live authenticated backend behavior | Re-run after the real 24h/72h metric fanout and any separately approved paid proof; open Time Machine/auth/ownership warnings remain warnings rather than hidden failures |
-| Free static fallback for an accepted Soul still | PROVEN | Apply-mode front-generation job `job_443a93c3f0a0` reused `asset_a1d5edab7bee` as the same 1080x1920 H.264 file (5.533s, 209,703 bytes) with its audio-intent sidecar and complete lineage; rendered/static/cost/reservation/receipt deltas were all zero | None for the accepted-still transition |
-| Persisted static fallback inventory | PROVEN | Two current Stacey static assets (`asset_a1d5edab7bee`, `asset_8e6348fd5fb0`) exist with distinct real Higgsfield provider job IDs, prompt/reference lineage, `paidGeneration=false`, `estimatedCostUsd=0`, and locked/no-audio renders. The published red candidate is now `approved`; the unposted black candidate remains `review_ready` | Continue enforcing the same invariant for every future accepted still |
-| Automatic original plus sexy pair materialization | PARTIAL | The active front-generation code and regression suite create a static fallback for every QC-passing downloaded original/sexy candidate before review and preserve an earlier fallback if a later candidate fails | One explicitly approved live paid Soul pair must prove both candidates and both static fallbacks were created by the same invocation; do not spend merely to satisfy this row |
-| Best-only Kling boundary | RETIRED | Historical evidence remains readable. The supported workflow and the front-generation worker now reject this mode before factory, file, job, or provider access | Use `best_motion` with its current spend and QC evidence for any new paid motion |
-| Kling candidate approval | PARTIAL | Both real static candidates have current safe `approved_candidate` audits. Publication of lineage-matching Trial Reel `3a69a80f-dda1-4a04-95d6-f60271d4e2aa` supplies explicit operator evidence for red candidate `asset_8e6348fd5fb0`; durable decision `approval_67e9b3d03946` records that approval for free ranking only. The black candidate remains `review_ready`, and a dry-run pair ranking fails closed on its missing approval without adding a cost, reservation, or receipt | Operator must explicitly approve or reject black candidate `asset_a1d5edab7bee`; only then may the free pair ranking receipt be created. Paid Kling still requires a separate fresh go |
-| Spend and kill-switch guard | PROVEN | Runtime policy is 100 credits/day, 1,000/month, 10/run, 150/cohort, minimum balance 25, and at most 10 Kling generations/day; a read-only balance check returned 465.97 credits. A live subprocess proof with `CREATOR_OS_KILL_SWITCH=1` blocked paid front generation before a provider call while leaving the zero-cost static reuse available; cost/reservation/receipt/asset deltas were zero and publishing remained false | Recheck balance and obtain a fresh native quote immediately before any explicitly approved paid request |
-| Paid Kling generation | PENDING | No new paid Kling request was made; current receipt count remains zero | Requires a fresh explicit operator go, a bounded live quote/reservation, one downloaded winner, QC, cost evidence, and retained static fallback |
-| Signed review-only draft handoff | PROVEN | Day-2 Trial draft `a13b001d-97d6-49de-9c2b-71103a377b23` and regular draft `4ef9bd38-7a85-4283-be52-7205faa48b8f` were inserted exactly once for `bennett_s33`, with no schedule or QStash publish dispatch | Operator review remains separate from draft creation |
-| Notify Publish and post reconciliation | PROVEN | Trial post `3a69a80f-dda1-4a04-95d6-f60271d4e2aa` reconciles exactly once to Instagram media `18094620473086400` and permalink `https://www.instagram.com/reel/DaqdKAqxUW3/`; read-only closed-loop proof passes against `bennett_s33`. ThreadsDashboard PR #313 and production migration `20260712043726` make Mark Posted idempotent, preserve the real Instagram timestamp, cancel stale QStash, and close the matching schedule item. The live batch item is now `completed` while retaining its original QStash receipt; because the operator published early after an account reroute, that receipt proves scheduling rather than notification delivery | Preserve the same invariant for future posts and separately prove scheduled notification delivery on a post that actually waits for its due time |
-| Metrics learning loop | PARTIAL | One eligible post and one real 1h history row are reconciled; the current snapshot is 2 views and 1 reach. QStash log receipt `msg_26hZCxZCuWyyTWPmSVBrNB8829kwoVQ4CeGAJUbhkJwkrWdeKLVfRpwTh4HUMV8` targets the exact 24h timestamp `2026-07-12T18:54:35Z`. Because this post predated the deployed 72h scheduler, the missing account and per-post jobs were added explicitly and verified as `msg_26hZCxZCuWyyTWPmSVBrNCtiJFEWKTbGoZSNmBxz9taLm7Pc3dxvcBLU5rNVaTN` and `msg_26hZCxZCuWyyTWPmSVBrNC1RACoiiih7uFWy2iQb6Y1AoxxRVCRWLJQwgWij44x`, both targeting `2026-07-14T18:54:35Z` with two retries | Real 24h and 72h rows must arrive and fan out through Campaign Factory and reference/reel learning before closure; queued receipts are not snapshot evidence |
-| Weekly improvement | PROVEN | Launchd job `com.creator-os.weekly-improvement` ran the merged runtime with exit 0 and produced a read-only live report from one measured snapshot. It proposed no underpowered creative changes, separated six recovered failures from one review item, reported zero Kling calls, and marked two legacy provider-call credit amounts as unknown rather than zero | Accumulate at least three measured samples per pattern before accepting a creative recommendation |
-| Operations and recovery | PARTIAL | Local backup, ops digest, weekly digest, hourly performance sync, and daily cohort launchd jobs last exited 0. A backup-scope audit found and fixed that runtime-only accepted media was absent from the older canonical-data snapshot. The corrected local mirror now preserves runtime source stills, processed reels, Campaign Factory campaigns/approvals, orchestrator state, acceptance artifacts, and an explicit non-secret recovery-script/launchd allowlist while excluding env/password/key/notification files. The black candidate still and approved static MP4 matched their source SHA-256 hashes after local copy. Encrypted Restic snapshot `c194bbef` was uploaded to the private Supabase recovery bucket; a full repository check reported no errors, and a clean temporary restore recovered 3.142 GiB across 5,528 files/directories, verified 4,746 files, passed integrity checks for all four SQLite databases, and passed every new runtime/config scope assertion. ThreadsDashboard PR #314 changed the Vercel fallback branch glob from `*` to `**`; a real `codex/...` push then created no redundant preview deployment | `tmutil destinationinfo` reports no Time Machine destination and no external disk is attached; the operator must attach/select a destination before Time Machine can be claimed |
+Each job keeps:
 
-No paid credits or publishing authority were granted by the static-fallback
-proof. The 24h/72h metric windows and the optional explicitly approved paid
-Kling smoke remain independent gates.
+- source identity and SHA;
+- prompt and fingerprint;
+- seed;
+- provider request/generation ID;
+- quote and authorization;
+- output and output SHA;
+- QC evidence;
+- audio choice and segment;
+- final media SHA.
 
-## Required Completion Evidence
+Partial success is preserved. An ambiguous provider submission is reconciled,
+not blindly retried.
 
-| Requirement | Authoritative proof |
-| --- | --- |
-| Reference-conditioned Soul still | Real provider result, captured prompt, local artifact, cost record, and lineage |
-| Original/sexy behavior | Exactly two provider charges total, distinct original and text-only sexy lineage, identity/anatomy QC, and selection explanation |
-| Automatic static MP4 | One live front-generation invocation creates a registered 1080x1920 H.264 MP4 plus audio intent for every QC-passing downloaded original/sexy still, with no second command; a later candidate failure leaves earlier fallbacks durable |
-| Historical best-only Kling | Receipt and ranking evidence remain readable, but no retired-mode execution is allowed |
-| Kling generation | Real downloaded video, provider receipt, cost record, identity/visual QC, and static fallback retained |
-| Draft handoff | Signed HMAC request, durable draft record, and proof that no schedule or publish row was created |
-| Publishing boundary | ThreadsDashboard approval/native-audio proof and guarded manual publish receipt |
-| Learning loop | The published post has eligible 1h, 24h, and 72h snapshots and updates the correct campaign/reference/reel outcomes |
-| Operations | Runtime checkout, launchd health, budget/kill switches, notifications, backup check, and operator runbook verified |
-| Weekly improvement | Scheduled weekly digest uses real outcomes and proposes bounded evidence-backed experiments |
+## Spend Policy
 
-## Completion Rule
+- Dry-run is the default for generation planning.
+- Every paid apply requires a finite maximum credit ceiling.
+- Quote and live balance are checked before submission when exposed.
+- Unknown cost is not zero.
+- Authorization is scoped to the exact creator, job, provider, model/tool,
+  request fingerprint, amount, and expiry.
+- Authorization is consumed once at the provider-call boundary.
+- A batch may not exceed its total cap.
+- No automatic paid retry is allowed for ambiguity.
+- The global kill switch blocks paid generation and outbound draft export while
+  leaving read-only diagnosis and zero-cost local rendering available.
 
-The master goal is complete only when the operator can upload or select library
-content and wake up to new high-quality reels that were selected, gated,
-drafted, and scheduled across the fleet; ThreadsDashboard either publishes them
-through its approved Meta path or sends the required Notify Publish handoff;
-paid generation remains inside budget; real metrics update learning; and the
-weekly digest recommends improvements. Routine operation must not require code
-or terminal commands. Green unit tests, an open pull request, a preview
-deployment, or an isolated paid still do not by themselves prove completion.
+Provider caps are operator/runtime configuration, not an invitation to spend
+the entire amount.
+
+## Visual And Caption Policy
+
+### Still generation
+
+The active still path is direct reference-image Soul generation. It preserves
+the input reference, Soul ID, provider prompt, generation ID, and output hash.
+
+The established original/body-emphasis variant recipe remains:
+
+1. clean the reference of cropable UI;
+2. run one reference-conditioned Soul generation;
+3. capture and clean the provider composition prompt;
+4. retain that output as the original;
+5. create the optional body-emphasis variant text-only so the edit survives;
+6. preserve both receipts and review the exact outputs.
+
+### Burned overlay text
+
+- Overlay text comes from the caption bank.
+- Reel Factory placement decides the lane.
+- Instagram Sans Condensed is the default font.
+- Stacey/Larissa use the `stacey_static_center` preset when appropriate.
+- No safe lane means no burned overlay.
+- Post captions remain separate Campaign/ThreadsDashboard metadata.
+
+Do not force an overlay across the creator's face or body focal area.
+
+## Audio Policy
+
+For eligible non-talking Reels, the normal path is verified embedded trending
+audio:
+
+```text
+active Audio Radar cache
+  -> fit/cooldown/uniqueness ranking
+  -> duration-compatible segment
+  -> source probe and SHA
+  -> processed-segment SHA
+  -> AAC embedding
+  -> final stream verification
+  -> exact final MP4 binding
+```
+
+Provider-generated audio remains disabled for passive motion.
+
+The receipt must preserve:
+
+- platform and music ID;
+- title;
+- canonical artist when known;
+- sound owner separately;
+- trend source;
+- source track SHA;
+- acoustic fingerprint;
+- segment start/end;
+- processed segment SHA;
+- final MP4 SHA.
+
+A re-embed creates a new final artifact and requires a new binding and review.
+
+Talking content cannot use trending audio as a substitute for unresolved
+creator speech.
+
+## Audio Radar Refresh Policy
+
+- SocialCrawl TikTok trending videos are the primary TikTok discovery source.
+- SocialCrawl Instagram is used when available.
+- TikTok Creative Center is optional enrichment.
+- TikLiveAPI resolves selected TikTok music IDs.
+- The per-run download cap is `--max-new`.
+- Provider failures and invalid empty feeds are unavailable observations, not
+  successful absences.
+- An all-source outage cannot age or prune active tracks.
+- Pruning requires two valid consecutive absences and all retention gates.
+- Sound-owner metadata is not silently presented as performer metadata.
+
+The refresh never generates, exports, schedules, or publishes.
+
+## QC And Approval Policy
+
+Hard technical blockers remain mandatory:
+
+- missing, symlinked, escaped, or hash-mismatched files;
+- invalid or undecodable media;
+- unacceptable stream/aspect/duration requirements;
+- duplicate output bytes where distinct jobs are required;
+- blocking collision/distinctness evidence;
+- unsafe or unverified caption placement;
+- missing required embedded-audio proof;
+- final receipt/media SHA mismatch;
+- invalid lineage;
+- revoked or missing creative approval.
+
+Soft attractiveness, motion, and taste signals may rank candidates but do not
+replace the human would-post decision.
+
+## Existing-Media Policy
+
+Existing-media intake is allowed only for media whose source, generation,
+provider receipt, raw visual, final MP4, audio, and technical-QC evidence can
+all be resolved by exact hashes.
+
+Intake:
+
+- is dry-run first;
+- does not regenerate or re-encode;
+- is idempotent;
+- does not copy arbitrary downloaded/camera-roll media into canonical state;
+- does not approve, export, schedule, or publish.
+
+Exact-SHA review and compatible plan attachment remain separate actions.
+
+## Reference-Reel Policy
+
+`recreate_reel` accepts one explicitly authorized Instagram, TikTok, YouTube
+Short, direct-media URL, or local video. Creator OS uses its own downloader and
+private local storage; third-party downloader websites are not part of the
+system.
+
+- Dry-run downloads and derives media only in a temporary directory.
+- Authorized apply deduplicates by platform/media identity and exact SHA,
+  stores private artifacts outside Git, and records the reference audio as one
+  canonical Audio Radar identity plus occurrence.
+- `--through analyze` stops before provider selection, spend authorization, or
+  generation.
+- Planning classifies the source, selects a bounded coherent excerpt, and
+  proposes scene-matched Soul anchors.
+- Every generated anchor requires human identity and
+  `WOULD_USE_AS_ANCHOR` approval before video generation.
+- `AUTO` may recommend an experimental route but may not silently submit it.
+- Passive Kling 3 is accepted; structural Seedance, Motion Control, and
+  first/last remain explicitly reviewed experimental routes.
+- Motion Control does not claim exact choreography, Seedance does not claim
+  performer replacement, and talking remains blocked when exact supplied-voice
+  entitlement is absent.
+
+The inspiration Reel is reference evidence, never the intended creator asset.
+No intake or plan action exports, schedules, or publishes.
+
+## Content Director Policy
+
+The Content Director is supervised planning inside Campaign Factory.
+
+- `SHADOW` proposes only.
+- `SUPERVISED` persists only operator-reviewed bounded decisions.
+- `APPROVED_PLAN_AUTOPILOT` may execute only an immutable already-approved item
+  set inside signed bounds.
+- No mode grants publication authority.
+
+Planning may use only approved sources and approved prompt patterns. It may not
+change identity, Soul ID, provider, visual recipe policy, QC, spend, account
+authorization, safety, or publication eligibility.
+
+## Cadence And Scheduling Policy
+
+- A healthy eligible account normally targets approximately one regular Reel
+  per day.
+- Every-other-day cadence is reserved for warming, account health/platform
+  limits, insufficient approved inventory, or explicit operator choice.
+- Each account advances independently.
+- Minimum post gaps remain enforced.
+- Pending or stale schedules must be reconciled before new external schedules.
+- Content Director times are proposals.
+- ThreadsDashboard is final scheduling authority.
+- Learned timing is false unless valid supervised timing evidence actually
+  applied.
+
+The current fixed Stacey cohort proposes three consecutive eligible account-
+local days at approximately the same local time. Publication does not wait for
+the previous Reel's 72-hour observation.
+
+## Publication Policy
+
+Creator OS ends at validated draft handoff.
+
+ThreadsDashboard owns:
+
+- account projection and health;
+- final account authorization;
+- draft approval;
+- scheduling;
+- publish preflight;
+- QStash/Meta/Notify Publish behavior;
+- Instagram media-ID reconciliation;
+- canonical analytics.
+
+Queue, upload, handoff, schedule, and notification evidence are not publication.
+Publication requires a real reconciled Instagram media ID.
+
+## Learning Policy
+
+Production influence requires:
+
+- at least three real eligible examples;
+- same creator and identity profile;
+- matching account scope;
+- same content intent;
+- equal-age 24-hour or 72-hour observations;
+- real Instagram media identity;
+- valid source/final-media lineage;
+- current fingerprints;
+- explicit operator approval.
+
+One-hour evidence is advisory. Missing is never zero.
+
+Only `SUPERVISED_ACTIVE` recommendations may affect:
+
+- ordering among approved sources;
+- ordering among imported approved hooks/prompt patterns;
+- Audio Radar soft performance ranking with exact publication linkage.
+
+Learning cannot select a provider/model, modify spend or QC, authorize a source,
+change account policy, or publish.
+
+## Runtime And Promotion Policy
+
+Source and runtime remain separate clean checkouts. Merge does not promote.
+
+Promotion requires:
+
+- exact clean `origin/main`;
+- strict admin-enforced branch protection;
+- protected PR checks `affected`, `hygiene`, and `Secret scan`;
+- separate exact-SHA release, Secret scan, CodeQL JavaScript/TypeScript, CodeQL
+  Python, and Trivy evidence;
+- authenticated operator authority;
+- runtime lock, backup manifest, Git bundle, rollback, dependency verification,
+  and complete read-only runtime health.
+
+Promotion must not mutate providers, databases, schedules, publishing,
+production accounts, or ThreadsDashboard deployment.
+
+## Operational Completion
+
+Creator OS source is complete for the supported scope when the exact merged
+source can produce an approved visual, verified embedded audio, final hash-bound
+approval, and valid draft handoff.
+
+Runtime is aligned only after explicit promotion to that exact SHA.
+
+The production loop is operationally proven only when:
+
+1. a real approved Reel is published through ThreadsDashboard;
+2. its real Instagram identity and final media are reconciled;
+3. equal-age 24-hour or 72-hour observations are stored;
+4. at least three comparable examples create an eligible recommendation;
+5. the operator activates it;
+6. a later create decision receipt proves an allowed choice actually changed.
+
+Do not use fixtures, queued receipts, or a single early observation to claim
+that real adaptive improvement is proven.

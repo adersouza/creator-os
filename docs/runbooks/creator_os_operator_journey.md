@@ -3,6 +3,11 @@
 This is the normal product path. Advanced model, benchmark, queue, and analyzer
 commands are diagnostics, not normal inputs.
 
+Creator OS owns creation through validated draft handoff. ThreadsDashboard owns
+the final account preflight, schedule, publication, and real Instagram
+reconciliation. Normal daily use does not require choosing Higgsfield model
+identifiers, WaveSpeed, a local model, Arena, or Router.
+
 ## 1. Inspect the system
 
 ```bash
@@ -97,7 +102,28 @@ and explicitly state that it will not export, schedule, or publish.
 After reviewing the bounded quote, repeat with `--apply`. Three independent
 jobs must preserve partial successes and produce three local review-ready MP4s.
 
-## 5. Review
+## 5. Recreate From An Authorized Reference Reel
+
+Analyze a public URL without a provider call or persistent write:
+
+```bash
+creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-url 'https://www.instagram.com/reel/...' \
+  --recreate-mode auto \
+  --through analyze \
+  --audio auto
+```
+
+An authorized apply persists only the canonical private reference, frame/anchor
+evidence, and exact reference-audio identity. Omit `--through analyze` to
+receive the deterministic recreation plan and bounded read-only quotes. Review
+the proposed excerpt and Soul anchor requests; every anchor and experimental
+video route remains separately approval-gated. No intake or planning command
+exports, schedules, or publishes.
+
+## 6. Review
 
 ```bash
 creator-os review --campaign <campaign>
@@ -107,28 +133,28 @@ Compare source, output, prompt, recipe, audio, cost, lineage, and technical QC.
 Record identity, anatomy, motion, phone-native appearance, audio fit, would-post
 decision, and notes. Blank fields are unreviewed, not rejected.
 
-## 6. Approve Reel 2
+## 7. Approve the selected Reel
 
 Use the exact rendered asset shown by review:
 
 ```bash
 creator-os approve \
   --campaign <campaign> \
-  --rendered-asset-id <reel-2-asset-id> \
+  --rendered-asset-id <selected-asset-id> \
   --user-id <threadsdashboard-user-id> \
   --approved-by <operator>
 ```
 
 Approval binds the exact MP4 hash and QC/lineage evidence. It does not publish.
 
-## 7. Preview and export
+## 8. Preview and export
 
 ```bash
 creator-os export \
   --dry-run \
   --campaign <campaign> \
   --user-id <threadsdashboard-user-id> \
-  --rendered-asset-id <reel-2-asset-id> \
+  --rendered-asset-id <selected-asset-id> \
   --max-drafts 1
 ```
 
@@ -140,19 +166,25 @@ creator-os export \
   --apply \
   --campaign <campaign> \
   --user-id <threadsdashboard-user-id> \
-  --rendered-asset-id <reel-2-asset-id> \
+  --rendered-asset-id <selected-asset-id> \
   --max-drafts 1
 ```
 
 Creator OS ends at validated draft handoff.
 
-## 8. Publish through ThreadsDashboard
+## 9. Publish through ThreadsDashboard
 
 In ThreadsDashboard, verify the stable draft identity and account preflight,
 then explicitly schedule or publish. A queue receipt is not publication.
 Closure requires a reconciled Instagram media ID.
 
-## 9. Metrics and learning
+Healthy eligible accounts normally target one regular Reel per account-local
+day. Use every-other-day cadence only for warming, account/platform
+constraints, insufficient approved inventory, or an explicit operator choice.
+ThreadsDashboard must reconcile stale or pending schedule state before adding a
+new post.
+
+## 10. Metrics and learning
 
 Machine-local performance sync records canonical metric history. Compare like
 age with like age. Missing remains missing.
@@ -258,12 +290,16 @@ downloaded-Reel, or arbitrary historical upload path.
      --asset <asset-3> \
      --observation-cohorts 1h,24h,72h \
      --mode supervised \
+     --timezone America/New_York \
      --dry-run
    ```
 
    Apply performs only versioned planning, observation expectations, and exact
    existing-asset attachment. It makes no provider call and does not export,
-   schedule, or publish. Ordinary rolling plans retain their diversity rules.
+   schedule, or publish. With no explicit `--start-date`, the account/cohort
+   timezone determines the date. The three assets propose three consecutive
+   eligible local days at approximately the same local time with
+   `learnedTiming=false`. Ordinary rolling plans retain their diversity rules.
 7. Export only after source approval, exact technical QC, `WOULD_POST` review,
    compatible plan attachment, and all ordinary export gates pass.
 

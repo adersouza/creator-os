@@ -34,8 +34,10 @@ High-priority reminders:
   live in `fonts/`, and the allowed font set is in `recipe_loader.py`.
 - Overlay text comes from `caption_banks/` through `caption_bank.py`; never
   freehand it and never burn Higgsfield prompt text into the video.
-- Native platform audio is not burned into MP4s. Emit/consume `audio_intent.v1`
-  and let ThreadsDashboard select and verify native audio before publish.
+- Normal non-talking production embeds a verified Audio Radar segment as AAC,
+  emits/consumes `audio_intent.v1`, and binds the receipt to the exact final MP4
+  SHA. ThreadsDashboard publishes those completed bytes unchanged. Native
+  platform audio remains a separate explicit policy, never a silent replacement.
 
 Legacy Grok/grid execution files and the empty experiments package have been
 removed. Keep any explicit experimental analysis in Reference Factory and do

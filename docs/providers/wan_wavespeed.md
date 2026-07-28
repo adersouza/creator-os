@@ -29,14 +29,14 @@ The Mac-specific adoption and deferral record lives in
 | `higgsfield_seedance2_i2v` | Higgsfield CLI | supported passive-selfie recipe | 9:16, 4-15 s | disabled | account credits |
 | `higgsfield_kling3_motion_control` | Higgsfield CLI | rejected tested motion-transfer recipe | driving-video length | disabled | account credits |
 | `higgsfield_veo31_talking` | Higgsfield CLI | experimental dialogue-only evidence, not exact voice | 9:16, 8 s | generated | account credits |
-| `wavespeed_kling_o3_pro_i2v` | WaveSpeed | ordinary premium portrait animation | provider output, 3-15 s | disabled | remote |
-| `wavespeed_vidu_q3_i2v_pro` | WaveSpeed | seeded still-animation challenger | 720p-4K, 1-16 s | disabled | remote |
-| `wavespeed_kling_v3_pro_motion_control` | WaveSpeed | driving-video motion copy and dance | driving-video length, up to 30 s | disabled | remote |
-| `wavespeed_infinitetalk` | WaveSpeed | direct talking portrait candidate | 480p or 720p, speech length | source required | remote |
-| `wavespeed_longcat_avatar15` | WaveSpeed | talking portrait challenger | 480p or 720p, up to 64 s | source required | remote |
-| `wavespeed_sync_lipsync2_pro` | WaveSpeed | lipsync after motion control | source resolution and length | source required | remote |
-| `wavespeed_sync_lipsync3` | WaveSpeed | lipsync 3 candidate after motion control | source resolution and length | source required | remote |
-| `wavespeed_wan27_reference` | WaveSpeed | 1-5 identity/style references | 1080p, 5 s | none | remote |
+| `wavespeed_kling_o3_pro_i2v` | WaveSpeed | rejected historical passive candidate | provider output, 3-15 s | disabled | remote |
+| `wavespeed_vidu_q3_i2v_pro` | WaveSpeed | rejected historical passive candidate | 720p-4K, 1-16 s | disabled | remote |
+| `wavespeed_kling_v3_pro_motion_control` | WaveSpeed | rejected historical motion-copy candidate | driving-video length, up to 30 s | disabled | remote |
+| `wavespeed_infinitetalk` | WaveSpeed | rejected historical talking candidate | 480p or 720p, speech length | source required | remote |
+| `wavespeed_longcat_avatar15` | WaveSpeed | unselected historical talking challenger | 480p or 720p, up to 64 s | source required | remote |
+| `wavespeed_sync_lipsync2_pro` | WaveSpeed | unselected historical lip-sync challenger | source resolution and length | source required | remote |
+| `wavespeed_sync_lipsync3` | WaveSpeed | unselected historical lip-sync challenger | source resolution and length | source required | remote |
+| `wavespeed_wan27_reference` | WaveSpeed | historical contract/receipt compatibility | 1080p, 5 s | none | remote |
 
 Wan models remain readable for historical receipts and the explicit advanced
 compatibility surface. They are not selected by `creator-os create`.

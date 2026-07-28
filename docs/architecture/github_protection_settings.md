@@ -24,27 +24,36 @@ GitHub before treating the monorepo as production runtime source.
 
 ## Required Checks
 
-Require these checks before merge:
+The intentionally consolidated permanent PR branch-protection contexts are:
 
-- `Creator OS Monorepo CI / contracts`
-- `Creator OS Monorepo CI / architecture`
-- `Creator OS Monorepo CI / javascript`
-- `Creator OS Monorepo CI / python`
-- `Creator OS Monorepo CI / hygiene`
-- `Security / CodeQL (javascript-typescript)`
-- `Security / CodeQL (python)`
-- `Security / Secret scan` after the current-tree hygiene step is confirmed
-  blocking and the full-history incident scan is either clean or explicitly
-  kept report-only during the documented secret incident.
-- `Security / Trivy filesystem scan`
-- `OpenSSF Scorecard / Scorecard report` after the first SARIF baseline is
-  reviewed. Scorecard starts in report mode so baseline findings do not block
-  unrelated migration work.
+- `affected`
+- `hygiene`
+- `Secret scan`
 
-The Trivy baseline is blocking in the repository workflow and should be a
-required branch check. SBOM provenance jobs can become required after their
-runtime and CI cost are reviewed. Dashboard visual regression and build
-provenance belong to the external ThreadsDashboard repository, not Creator OS.
+`affected` expands to every genuinely impacted package/test tier. `hygiene`
+owns the repository-wide static and artifact boundary. `Secret scan` remains
+the protected security context. Do not restore the older collection of
+package-level workflow names as permanent required contexts merely so promotion
+can inspect release evidence.
+
+The exact merged `main` SHA must separately receive complete, successful
+promotion-time evidence from:
+
+- `release`;
+- `Secret scan`;
+- `CodeQL (javascript-typescript)`;
+- `CodeQL (python)`;
+- `Trivy filesystem scan`.
+
+Those workflow/check identities are verified live by the promotion validator
+and must belong to the exact target SHA and trusted repository workflows.
+Missing, pending, failed, cancelled, skipped when required, stale, substituted,
+or wrong-SHA evidence blocks promotion.
+
+Scorecard and SBOM remain repository supply-chain evidence, but they are not
+permanent protected PR contexts or substitutes for the exact-SHA release and
+security set. Dashboard visual regression and build provenance belong to the
+external ThreadsDashboard repository.
 
 ## Merge Queue
 
@@ -61,10 +70,10 @@ gh api repos/adersouza/creator-os/branches/main/protection \
 
 The live payload, not this checklist, is the authority. For the current
 single-owner policy require `reviews == 0`, `last_push == false`,
-`conversations == true`, strict status checks, admin enforcement, and the full
-required-check inventory above. Changing these repository settings requires a
-GitHub administrator; a checked-in documentation change is not proof that the
-control is active.
+`conversations == true`, strict status checks, admin enforcement, and exactly
+the three protected contexts `affected`, `hygiene`, and `Secret scan`.
+Changing these repository settings requires a GitHub administrator; a
+checked-in documentation change is not proof that the control is active.
 
 ## Protected Environments
 

@@ -53,6 +53,19 @@ It cannot change creator identity, Soul ID, Higgsfield, Kling/Seedance policy,
 approved status, QC, spend, account authorization, safety, or publication
 eligibility.
 
+## Cadence authority
+
+Healthy eligible accounts target their configured daily cadence. Reduced
+every-other-day cadence is valid only for warming, account health/platform
+constraints, insufficient approved inventory, or an explicit operator choice.
+Accounts advance independently and retain minimum-gap enforcement.
+
+Campaign schedule windows are proposals with an explicit account-local
+timezone. ThreadsDashboard reconciles pending/stale schedules and remains the
+final scheduling authority. Metric workers calculate overlapping 1h/24h/72h
+observations from each actual publication timestamp; they do not serialize
+publication or compare unlike observation ages.
+
 ## Autonomy modes
 
 - `SHADOW`: plan and explain only; no production mutation.
@@ -78,6 +91,8 @@ cooldown, pattern, audio-uniqueness, and exploration rules. It does not
 generate, export, schedule, or publish. Its experiment receipt is classified
 `MECHANICAL_LEARNING_PROOF`: multiple creative and audio variables may differ,
 so it supports mechanical lineage proof but no causal creative conclusion.
+The exact assets propose consecutive eligible account-local dates at
+approximately the same local time, with `learnedTiming=false`.
 
 ## Cost receipt
 

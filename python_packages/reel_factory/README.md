@@ -23,7 +23,7 @@ single-person reference image
   -> motion/identity/anatomy evidence gate
   -> Audio Radar segment -> verified AAC -> final MP4 SHA binding
   -> placement.py -> caption_render.py when a safe lane exists
-  -> audio_intent.v1 and generated_asset_lineage
+  -> embedded audio_intent.v1 and generated_asset_lineage
   -> Campaign Factory
 ```
 
@@ -31,9 +31,25 @@ Soul identity, prompt evidence, provider receipts, accepted-still hashes, QC,
 and downstream asset IDs remain in lineage. Motion is never the only output;
 the static fallback survives a local or remote generation failure.
 
+The count-one `recreate_reel` planner may provide a reviewed Soul anchor plus a
+private reference excerpt to a truthfully matched Higgsfield recipe. Passive
+Kling is accepted; structural Seedance, Motion Control, and first/last are
+experimental and never silently submitted by AUTO. Talking remains blocked
+without exact supplied-voice entitlement.
+
 ## Operator Commands
 
-Use the monorepo command for normal work:
+Use the intent-first monorepo command for normal work:
+
+```bash
+scripts/creator-os create \
+  --creator stacey --intent passive_selfie --count 3 \
+  --execution cloud --accounts bennett_s33 \
+  --audio embedded_trending
+```
+
+The explicit-mode commands below are advanced/manual compatibility and local
+research surfaces, not the normal production path:
 
 ```bash
 scripts/creator-os generate --mode soul_static --dry-run \
@@ -61,10 +77,6 @@ scripts/creator-os generate --mode local_wan --dry-run \
   --motion-task audio_image_to_video --audio /path/to/dialogue.wav \
   --motion-prompt "Natural direct-to-camera delivery with stable identity"
 
-scripts/creator-os create \
-  --creator stacey --intent passive_selfie --count 3 \
-  --execution cloud --accounts bennett_s33 \
-  --audio embedded_trending
 ```
 
 The second command requires confirmation, target identity, exact checkout, and
@@ -110,12 +122,16 @@ Overlay text must come from `caption_banks/` and pass through `placement.py` and
 `caption_render.py`. The canonical font is Instagram Sans Condensed. A missing
 safe lane means no burned overlay; the hook can remain the post caption.
 
-LTX can mux source or generated audio into a review derivative and preserves a
-hashed WAV sidecar. Experimental LongCat accepts a portrait plus source speech,
-preserves the source-audio hash, derives a bounded PCM sidecar, and muxes an AAC
-track from that sidecar. Those tracks are never represented as Instagram native audio.
-Reel Factory still emits `audio_intent.v1`; ThreadsDashboard separately resolves
-and verifies publishable native audio.
+LTX can mux source or generated audio into an advanced review derivative and
+preserves a hashed WAV sidecar. Experimental LongCat accepts a portrait plus
+source speech, preserves the source-audio hash, derives a bounded PCM sidecar,
+and muxes an AAC track from that sidecar. Those tracks are never represented as
+Instagram native audio.
+
+Normal non-talking production uses Audio Radar finishing: select one active
+track and duration-compatible segment, embed AAC, verify the streams, and bind
+`audio_intent.v1` to the exact final MP4 SHA. ThreadsDashboard publishes that
+completed MP4 unchanged. Native platform audio is a separate explicit policy.
 
 Local model setup is explicit and never occurs during generation:
 

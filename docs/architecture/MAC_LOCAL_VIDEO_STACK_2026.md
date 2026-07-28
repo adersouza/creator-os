@@ -1,5 +1,11 @@
 # Mac Local Video Stack — 2026 Decision Record
 
+> **Historical advanced-research record.** The “Adopted” entries below describe
+> the local qualification design at capture time, not current normal production.
+> Normal production is Higgsfield-only; Wan/LTX are not defaults or fallbacks.
+> Use [`../../CREATOR_OS_SYSTEM_MAP.md`](../../CREATOR_OS_SYSTEM_MAP.md) for the
+> current product boundary.
+
 Creator OS optimizes for one commercial, recoverable Apple-silicon generation
 path. A capability is not added merely because a demo launches on MPS. It must
 have an exact runtime revision, exact model revisions, bounded inputs, offline
@@ -9,8 +15,8 @@ execution, output validation, durable lineage, and a ContentForge review path.
 
 | Capability | Creator OS implementation | Status |
 |---|---|---|
-| High-volume still motion | Wan 2.2 TI2V-5B Q8 through pinned `mlx-video` | production contract; visual canary required |
-| Higher-fidelity still motion | Wan 2.2 I2V-A14B Q4 through pinned `mlx-video` | production contract; visual canary required |
+| High-volume still motion | Wan 2.2 TI2V-5B Q8 through pinned `mlx-video` | historical advanced contract; not normal production |
+| Higher-fidelity still motion | Wan 2.2 I2V-A14B Q4 through pinned `mlx-video` | historical advanced contract; not normal production |
 | Fast joint audio/video | LTX-2.3 Q4 through pinned `ltx-2-mlx` | generated audio only |
 | HQ joint audio/video | LTX-2.3 Q8 through pinned `ltx-2-mlx` | generated or supplied audio |
 | First/last frames | LTX Q8 repeatable keyframe conditioning | exact endpoint hashes retained |

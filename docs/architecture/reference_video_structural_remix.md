@@ -1,148 +1,175 @@
-# Reference Video Structural Remix
+# Reference-Video Creation Boundaries
 
-## Purpose
+Creator OS contains two deliberately different reference-video surfaces. They
+must not be described as one workflow.
 
-This is an opt-in Campaign Factory workflow for an **operator-selected
-OFM/reference video**. Reel Factory owns the validated plan and provider command;
-Campaign Factory owns execution, spend gates, approvals, registration, and final
-review state. It does not recreate the tutorial that explained the idea, and it
-is not a literal clone workflow.
+## Normal Experimental Intent: `recreate_reel`
 
-Initial scope is deliberately narrow:
+`creator-os create --intent recreate_reel` is the current bounded experimental
+production path.
 
-- one continuous 9:16 shot;
-- 5–12 seconds;
-- no cuts or scene changes;
-- local reference video and endpoint images;
-- two operator-approved Stacey endpoint frames;
-- one approval-gated Seedance or Kling animation;
-- ContentForge distinctness/QC before final approval;
-- no publishing from Reel Factory.
+### Purpose
 
-## Flow
+Use one private, operator-authorized Reel as inspiration while preserving the
+approved creator identity:
 
 ```text
-operator-selected reference video + rights confirmation
-→ deterministic ffprobe + PySceneDetect one-shot validation
-→ source endpoint extraction
-→ Gemini motion-only analysis JSON
-→ validate reference_video_motion_analysis.v1
-→ quoted/reserved reference-conditioned Soul first and last frames
-→ separate hash-bound operator approvals for both endpoint frames
-→ free, silent, locked 9:16 static MP4 from the primary endpoint
-→ deterministic Seedance/Kling routing
-→ provider quote + atomic credit reservation + paid approval (still required)
-→ generated video
-→ eight blocking ContentForge checks + registered lineage and receipts
-→ review-ready asset blocked on final operator approval
-→ normal Campaign Factory handoff (separate step; never schedule/publish here)
+Instagram/TikTok/Short/direct-media URL or local video
+  -> private temporary download or local-file intake
+  -> canonical platform/media identity + exact SHA
+  -> full-source analysis, clean frame candidates, and reference-audio evidence
+  -> deterministic classification and bounded coherent excerpt
+  -> one scene-matched Soul anchor or two endpoint anchors
+  -> exact-SHA human anchor approval
+  -> truthfully matched Higgsfield recreation mode
+  -> provider-generated audio disabled or explicitly replaced
+  -> technical QC
+  -> exact-SHA operator review
 ```
 
-The two endpoint-frame requests reuse Reel Factory's existing
-`reference-image-dry-run` contract: Soul V2, direct reference conditioning,
-9:16, no captured-prompt reuse, and no prompt append. The source first and last
-frames preserve composition endpoints. They are not automatically accepted:
-unchanged source frames are rejected, both generated endpoints require distinct
-file hashes and approval IDs, and the final video remains blocked on
-ContentForge source-master distinctness.
+This path targets broad:
 
-## Contracts
+- shot structure;
+- performance energy;
+- action progression;
+- pacing;
+- camera/framing progression.
 
-- `reel_factory.reference_video_motion_analysis.v1` is the only accepted
-  Gemini/operator analysis shape. It requires one continuous 5–12 second shot,
-  a fully covered timeline, motion-only source-text handling, identity/text
-  transformation, and at least one additional visual transformation.
-- `reel_factory.reference_video_remix_plan.v1` records source hashes, analysis
-  hash, source/accepted endpoint hashes, chosen provider/model, QC requirements,
-  approval boundaries, and the provider request that may be executed later.
+It does not claim:
 
-The planner validates both contracts and emits a lineage seed. The Campaign
-stage copies that evidence into `reference_video_remix_lineage.v1`, adds source
-and endpoint hashes, provider jobs, redacted quote/reservation receipts, the
-static fallback, ContentForge evidence, and the registered Campaign asset ID.
+- exact choreography;
+- exact motion copy;
+- performer replacement;
+- voice preservation;
+- talking-video support.
 
-## Gemini Analysis Ingestion
+### Inputs
 
-`gemini_motion_analysis_instruction(reference_id)` returns the bounded provider
-instruction. Gemini is an analysis provider here, not the active still-image
-generator. Its response must be JSON only and must not contain a transcript,
-source caption wording, creator identity, or a request to reproduce the source
-literally.
+- exactly one `--reference-url` or `--reference-video`;
+- explicit `--reference-authorized` before persistent apply;
+- creator, account, `--recreate-mode`, audio policy, and finite credit cap;
+- approved creator source inventory from which anchors may be planned;
+- `count=1`.
 
-The checked-in example is:
+`--through analyze` stops before a provider route or paid request. Dry-run uses
+temporary files and makes no database mutation. Authorized apply persists
+private artifacts outside Git and remains idempotent for the same
+platform/media identity and exact SHA.
 
-`packages/pipeline_contracts/pipeline_contracts/schemas/reference_video_motion_analysis.v1.example.json`
+### Provider binding
 
-The Campaign stage calls Gemini through the environment-only
-`CREATOR_OS_REFERENCE_REMIX_DRIVER` phase adapter. The response is validated
-against the contract and cross-checked against ffprobe duration/aspect evidence.
-No credential is accepted in argv or persisted in the lineage artifact.
+The planner exposes only contracts proven by the authenticated Higgsfield
+catalog:
 
-## Deterministic Provider Routing
+| Mode | Contract | Status |
+|---|---|---|
+| `passive` | approved Soul anchor to Kling 3, sound off | accepted after anchor approval |
+| `structural` | Soul anchor in `image_references`, Reel in `video_references`, Seedance 2 720p standard, generated audio off | experimental structural recreation |
+| `motion` | `kling3_0_motion_control`, image + video reference, Pro mode | experimental; never an automatic submission |
+| `first_last` | two approved Soul endpoints to Kling 3 start/end, sound off | experimental transition |
+| `talking` | exact supplied-voice entitlement required | blocked as `talking_route_not_entitled` |
 
-The default `auto` route is:
+Soul is the upstream identity system. Seedance consumes the approved
+Soul-generated image bytes; it does not receive a raw Soul ID.
 
-1. Choose Seedance when the analysis says reference-video conditioning is
-   required and Seedance is available.
-2. Otherwise choose Kling when Kling is available; it receives the accepted
-   first/last frame pair and the structural motion prompt.
-3. If only Seedance is available, use Seedance as the deterministic fallback.
-4. An explicitly selected unavailable provider is an error. There is no silent
-   provider substitution.
+Normal create never falls back to WaveSpeed or a local model. `AUTO` may
+recommend a compatible route but may not silently submit experimental Motion
+Control, structural Seedance, first/last, talking, multi-shot, or multi-person
+work.
 
-Seedance receives the accepted first and last frames, the local reference
-video, and the structural motion prompt. Kling receives the accepted first and
-last frames plus the prompt, without the source video. Both reuse
-`generate_assets.build_video_cmd` and keep sound off.
+### Audio
 
-The analysis and lineage preserve the exact source duration, including a
-fraction such as `7.5`. Provider duration is a separate integer field because
-both current video models require integer seconds. Reel Factory uses bounded
-half-up rounding (`7.5 → 8`, always clamped to the supported 5–12 second
-window), records both values, and passes only the integer to `--duration`.
+`--audio auto` requires creator/reference speech for talking, requires reference
+audio for synchronized dance, prefers an explicit comparison for eligible
+structural or motion audio, and uses Audio Radar for passive work. Explicit
+reference audio, embedded trending audio, and explicit silence remain separate
+policies.
 
-## Spend, QC, And Approval Boundaries
+The final audio receipt binds the exact segment and final MP4 SHA. Talking
+creator speech is unresolved and cannot be inferred from reference audio.
 
-The Reel Factory planner never executes its generated command. The Campaign
-stage may execute only after all live gates pass. Every plan hard-codes:
+### Spend and ambiguity
 
-- `paidGenerationAuthorized: false`;
-- provider quote required;
-- atomic credit reservation required;
-- endpoint-frame approval required;
-- paid-animation approval required;
-- final-asset approval required;
-- `publishingAllowed: false`.
+Dry-run performs local analysis and may use authenticated read-only quoting.
+Apply requires explicit reference authority, anchor approval, paid
+authorization, and a finite credit ceiling. One invocation submits at most one
+video request. An ambiguous submission is preserved for reconciliation and
+never blindly retried.
 
-After generation, ContentForge must block on source-master distinctness,
-sibling distinctness, identity verification, endpoint continuity, readability,
-safe zone, watchability, and visual QC. Any failure returns the asset to review.
+### Review
 
-## Canonical Operator Preflight
+Review the exact final SHA for:
 
-```bash
-scripts/creator-os generate --mode reference_video_remix --dry-run \
-  --campaign campaign_slug --reference-video /path/reference.mp4 \
-  --target Stacey \
-  --soul-id d63ea9c7-b2c7-439c-bf0c-edfdf9938a36 \
-  --workspace "$PWD" --operator-selected --rights-confirmed --max-credits 3
-```
+- intended creator identity;
+- face/body stability;
+- hands/anatomy;
+- broad action fidelity;
+- camera/framing fidelity;
+- pacing;
+- social-native appearance;
+- attractiveness;
+- obvious AI artifacts;
+- audio synchronization;
+- would-post.
 
-This returns a provider-free preflight and performs no extraction or generation.
-PySceneDetect runs locally before Campaign rows, output directories, or paid
-seams. A detected cut rejects the source with scene-boundary evidence; the
-workflow never guesses that a multi-shot video is safe.
-An `--apply` additionally requires explicit paid confirmation, both endpoint
-approval IDs, a finite cap, and the configured phase driver. A fake-provider E2E
-proves the complete Campaign chain. A real provider smoke remains a separate
-operator-approved action and has not been run by tests.
+Technical similarity measurements are advisory and cannot replace operator
+review.
+
+## Advanced Manual Mode: `reference_video_remix`
+
+The five-mode compatibility catalog also retains an older advanced/manual
+`creator-os generate --mode reference_video_remix` contract. It uses
+operator-selected endpoint-frame planning, motion analysis, explicit provider
+selection policy, and additional approvals.
+
+It is:
+
+- not the normal `recreate_reel` intent;
+- not called by intent-first create;
+- not a fallback;
+- not a production default;
+- retained for historical evidence and explicit advanced work.
+
+Its historical contracts remain:
+
+- `reel_factory.reference_video_motion_analysis.v1`;
+- `reel_factory.reference_video_remix_plan.v1`;
+- endpoint image approvals;
+- source/endpoint hashes;
+- provider quote and atomic reservation;
+- final ContentForge and human review.
+
+The advanced planner does not execute its generated provider command by itself.
+It grants no export, scheduling, or publishing authority.
+
+## Shared Safety Rules
+
+Both surfaces require:
+
+- operator authority to use the private reference;
+- exact local source hashes;
+- approved creator identity;
+- bounded duration and portrait compatibility;
+- provider-generated sound disabled unless explicitly part of a reviewed
+  advanced contract;
+- finite spend authorization;
+- no blind retry;
+- retained source/provider/output lineage;
+- ContentForge and media integrity checks;
+- final exact-SHA operator review;
+- separate export;
+- no scheduling or publishing.
+
+Neither surface registers the inspiration Reel as the creator's rendered asset.
+Neither may present the reference performer as the intended creator.
 
 ## Deliberate Non-Goals
 
-- no Instagram tutorial recreation;
-- no arbitrary multi-scene video decomposition;
-- no private-platform scraping or login automation;
-- no paid provider call without quote, atomic reservation, and confirmation;
-- no automatic approval, draft export, schedule, or publish;
-- no change to the default direct-reference still workflow;
-- no bypass of ContentForge distinctness or final operator review.
+- no arbitrary multi-scene decomposition;
+- no browser-controlled third-party downloader websites;
+- no copying captions/transcripts from the reference;
+- no automatic paid fallback;
+- no bypass of source approval, distinctness, or final review;
+- no automatic draft export, schedule, or publication;
+- no claim that structural recreation solves the unresolved motion-copy or
+  talking products.
