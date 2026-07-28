@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from creator_os_core.sqlite import connect_sqlite
 
@@ -812,6 +813,21 @@ def _horizon(value: str) -> int:
     return int(normalized[:-1])
 
 
+def _resolve_start_date(
+    value: str | None,
+    timezone: str,
+    *,
+    now: datetime | None = None,
+) -> date:
+    if value:
+        return date.fromisoformat(value)
+    zone = ZoneInfo(timezone)
+    current = now or datetime.now(zone)
+    if current.tzinfo is None:
+        raise ValueError("start-date clock must be timezone-aware")
+    return current.astimezone(zone).date()
+
+
 def _request(args: argparse.Namespace) -> PlanningRequest:
     accounts = tuple(
         item.strip() for item in str(args.accounts or "").split(",") if item.strip()
@@ -956,9 +972,7 @@ def main(argv: list[str] | None = None) -> int:
                     observation_cohorts=observation_cohorts,
                     autonomy_mode=args.mode.upper(),
                     timezone=args.timezone,
-                    start_date=date.fromisoformat(
-                        args.start_date or date.today().isoformat()
-                    ),
+                    start_date=_resolve_start_date(args.start_date, args.timezone),
                 ),
             )
             result = apply_fixed_asset_cohort(conn, preview) if args.apply else preview

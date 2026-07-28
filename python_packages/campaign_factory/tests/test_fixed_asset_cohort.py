@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from campaign_factory.content_director import PlanningRequest, build_plan, persist_plan
+from campaign_factory.content_director import (
+    PlanningRequest,
+    _resolve_start_date,
+    build_plan,
+    persist_plan,
+)
 from campaign_factory.content_director_operations import create_metric_cohorts
 from campaign_factory.db import init_db
 from campaign_factory.fixed_asset_cohort import (
@@ -574,6 +579,35 @@ def test_observation_cost_and_learning_truth_are_retained(tmp_path: Path) -> Non
     )
 
 
+def test_explicit_start_date_and_schedule_authority_are_preserved(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture(tmp_path)
+    before = conn.total_changes
+    preview = build_fixed_asset_cohort(
+        conn,
+        _request(
+            start_date=date(2031, 2, 3),
+            timezone="Pacific/Honolulu",
+        ),
+    )
+
+    assert conn.total_changes == before
+    assert preview["persistentWrites"] == 0
+    assert preview["horizon"] == {"start": "2031-02-03", "end": "2031-02-05"}
+    assert [item["proposedWindow"]["windowStart"] for item in preview["items"]] == [
+        "2031-02-03T18:30:00-10:00",
+        "2031-02-04T18:30:00-10:00",
+        "2031-02-05T18:30:00-10:00",
+    ]
+    assert all(
+        item["proposedWindow"]["learnedTiming"] is False
+        and item["proposedWindow"]["threadsdashboardFinalAuthority"] is True
+        and item["proposedWindow"]["status"] == "PROPOSED_NOT_SCHEDULED"
+        for item in preview["items"]
+    )
+
+
 def test_apply_revalidates_and_rolls_back_all_rows_on_stale_preview(
     tmp_path: Path,
 ) -> None:
@@ -656,3 +690,40 @@ def test_cohort_identity_is_stable_across_implicit_schedule_dates(
     assert next_day["planId"] == first["planId"]
     assert next_day["idempotent"] is True
     assert next_day["blockers"] == []
+
+
+def test_omitted_start_date_uses_requested_timezone_at_utc_midnight_boundary() -> None:
+    instant = datetime(2031, 2, 4, 2, 15, tzinfo=UTC)
+
+    assert _resolve_start_date(None, "UTC", now=instant) == date(2031, 2, 4)
+    assert _resolve_start_date(None, "America/New_York", now=instant) == date(
+        2031, 2, 3
+    )
+    assert _resolve_start_date(None, "Pacific/Honolulu", now=instant) == date(
+        2031, 2, 3
+    )
+    assert _resolve_start_date(None, "Asia/Tokyo", now=instant) == date(2031, 2, 4)
+
+
+def test_explicit_start_date_is_unchanged_by_timezone_or_clock() -> None:
+    instant = datetime(2031, 2, 4, 23, 59, tzinfo=UTC)
+
+    assert _resolve_start_date(
+        "2029-12-31",
+        "Pacific/Kiritimati",
+        now=instant,
+    ) == date(2029, 12, 31)
+    assert _resolve_start_date(
+        "2029-12-31",
+        "Pacific/Honolulu",
+        now=instant,
+    ) == date(2029, 12, 31)
+
+
+def test_omitted_start_date_rejects_naive_test_clock() -> None:
+    with pytest.raises(ValueError, match="clock must be timezone-aware"):
+        _resolve_start_date(
+            None,
+            "America/New_York",
+            now=datetime(2031, 2, 4, 2, 15),
+        )
