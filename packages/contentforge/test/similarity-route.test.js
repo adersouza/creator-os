@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "child_process";
 import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
-import { POST } from "../lib/similarity.js";
+import { DEFAULT_SIMILARITY_LAYERS, POST } from "../lib/similarity.js";
 import { LEGACY_FINAL_DIR, UPLOADS_DIR } from "../lib/paths.js";
 import { skipWhenMissingTools } from "./tool-availability.js";
 
@@ -48,6 +48,20 @@ function similarityRequest(body) {
     body: JSON.stringify(body),
   });
 }
+
+test("default similarity layers omit the optional legacy temporal approximation", function () {
+  assert.equal(DEFAULT_SIMILARITY_LAYERS.includes("temporal"), false);
+  assert.deepEqual(DEFAULT_SIMILARITY_LAYERS, [
+    "pdq",
+    "sscd",
+    "audio",
+    "forensics",
+    "compression",
+    "provenance",
+    "reference",
+    "ssim",
+  ]);
+});
 
 function run(command, args) {
   return new Promise(function (resolve, reject) {
@@ -129,6 +143,25 @@ test("/api/similarity returns 200 for Campaign Factory staged source and output/
     assert.equal(typeof body.layers.forensics, "object");
     assert.equal(["pass", "warn", "fail"].includes(body.overallVerdict), true);
     assert.equal(Object.hasOwn(body.verdicts, "forensics"), true);
+  } finally {
+    await cleanupCampaignFactoryFiles(files);
+  }
+});
+
+test("/api/similarity preserves explicit legacy temporal audits", async function () {
+  var files = await seedCampaignFactoryFiles();
+  try {
+    var response = await POST(similarityRequest({
+      source: files.sourceName,
+      layers: ["temporal"],
+    }));
+    var body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.layers.temporal.available, false);
+    assert.match(body.layers.temporal.reason, /requires video/);
+    assert.equal(body.verdicts.temporal, "warn");
+    assert.equal(body.readinessSummary.warningCodes.includes("temporal_review"), true);
+    assert.equal(body.readinessSummary.uploadReady, true);
   } finally {
     await cleanupCampaignFactoryFiles(files);
   }

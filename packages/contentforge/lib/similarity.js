@@ -19,6 +19,16 @@ var SUPPORTED_EXTS = [".mp4", ".mov", ".webm", ".jpg", ".jpeg", ".png"];
 var VIDEO_EXTS = [".mp4", ".mov", ".webm"];
 var VALID_LAYERS = new Set(["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim", "safeZone", "readability", "cover", "hookVisibility", "watchability", "originality", "creativeQuality", "virality", "videoAnalysis"]);
 var REVIEW_ONLY_LAYERS = new Set(["pdq", "sscd", "audio", "reference", "temporal", "ssim"]);
+export const DEFAULT_SIMILARITY_LAYERS = Object.freeze([
+  "pdq",
+  "sscd",
+  "audio",
+  "forensics",
+  "compression",
+  "provenance",
+  "reference",
+  "ssim",
+]);
 var VALID_AUDIT_PROFILES = new Set(["default", "campaign_factory_v1"]);
 var CAMPAIGN_FACTORY_CONTRACT_VERSION = "campaign_factory_audit.v1.10";
 var OCR_ENGINE_CHOICES = new Set(["auto", "apple_vision", "tesseract", "heuristic"]);
@@ -833,7 +843,7 @@ function runReferenceQuery(outputDir) {
   });
 }
 
-// ─── Layer 7: Temporal PDQ (TMK Level 1 approximation for video) ───
+// ─── Optional legacy temporal PDQ approximation for video ───
 function runTemporalPDQ(sourcePath, outputDir) {
   return runPythonJson("temporal_pdq.py", [sourcePath, outputDir, "20"], {
     layer: "temporal",
@@ -2141,7 +2151,7 @@ export async function POST(request) {
     var body = await request.json();
     var sourcePath = resolveUploadPath(body.source);
     var runId = body.runId || "latest";
-    var layers = body.layers || ["pdq", "sscd", "audio", "forensics", "compression", "provenance", "reference", "temporal", "ssim"];
+    var layers = body.layers || DEFAULT_SIMILARITY_LAYERS;
     var auditProfile = VALID_AUDIT_PROFILES.has(body.auditProfile) ? body.auditProfile : "default";
     var animationMode = typeof body.animationMode === "string" ? body.animationMode : null;
     var allowStaticOpening = body.allowStaticOpening === true && animationMode === "static_image_mp4";

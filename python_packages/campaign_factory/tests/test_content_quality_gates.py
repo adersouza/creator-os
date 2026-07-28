@@ -1128,6 +1128,7 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
         assert target_file.startswith("campaign_factory_variant_")
         assert audit_profile == "campaign_factory_v1"
         assert "pdq" in layers
+        assert "temporal" not in layers
         return {
             "auditProfile": audit_profile,
             "targetFile": target_file,
@@ -1169,6 +1170,62 @@ def test_contentforge_cli_audit_records_pass_result(tmp_path: Path, monkeypatch)
         ).fetchone()
         assert row["overall_verdict"] == "pass"
         assert json.loads(row["verdicts_json"]) == {"pdq": "pass"}
+    finally:
+        cf.close()
+
+
+def test_contentforge_cli_audit_preserves_explicit_legacy_temporal_layer(
+    tmp_path: Path, monkeypatch
+):
+    cf = make_factory(tmp_path)
+    seen_layers: list[str] = []
+
+    def fake_similarity(
+        _contentforge_root,
+        *,
+        source,
+        target_file=None,
+        audit_profile=None,
+        layers,
+        run_id=None,
+    ):
+        del source, target_file, audit_profile, run_id
+        seen_layers.extend(layers)
+        return {
+            "layers": {
+                "temporal": {
+                    "available": False,
+                    "reason": "Source video too short for temporal analysis",
+                }
+            },
+            "verdicts": {"temporal": "warn"},
+            "overallVerdict": "warn",
+            "readinessSummary": {
+                "summaryText": "Upload-ready candidate with review warnings.",
+                "uploadReady": True,
+                "blockingReasons": [],
+                "warnings": ["temporal: layer needs review"],
+                "blockingCodes": [],
+                "warningCodes": ["temporal_review"],
+                "topWarnings": [],
+                "recommendedAction": "review",
+            },
+            "filesAnalyzed": 1,
+        }
+
+    monkeypatch.setattr(contentforge_adapter, "_post_similarity", fake_similarity)
+    try:
+        add_rendered_asset(cf, tmp_path)
+        result = audit_campaign(
+            cf,
+            campaign_slug="may",
+            layers=["temporal"],
+        )
+        assert seen_layers == ["temporal"]
+        report = result["reports"][0]
+        assert report["overallVerdict"] == "warn"
+        assert report["warnings"] == ["temporal", "temporal_review"]
+        assert report["failedChecks"] == []
     finally:
         cf.close()
 
