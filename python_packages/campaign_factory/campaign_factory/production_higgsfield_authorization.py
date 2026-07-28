@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -126,6 +128,10 @@ def prepare_higgsfield_job_quotes(
             request,
             capabilities=capabilities,
         )
+        recovery = _completed_higgsfield_recovery(
+            candidate,
+            provider_plan=provider_plan,
+        )
         quote = quote_higgsfield_production_plan(provider_plan)
         amount = float(quote["amount"])
         total = round(total + amount, 4)
@@ -139,6 +145,7 @@ def prepare_higgsfield_job_quotes(
                 "_higgsfieldCapabilities": capabilities,
                 "_higgsfieldQuote": quote,
                 "_campaignId": str(campaign["id"]),
+                "_higgsfieldRecovery": recovery,
             }
         )
     if total > max_total_credits:
@@ -164,6 +171,15 @@ def authorize_higgsfield_jobs(
     authorized: list[dict[str, Any]] = []
     for job in prepared:
         scope = higgsfield_spend_scope(job)
+        if job.get("_higgsfieldRecovery") is not None:
+            authorized.append(
+                {
+                    **job,
+                    "_higgsfieldSpendScope": scope,
+                    "_higgsfieldAuthorization": None,
+                }
+            )
+            continue
         authorization = issue_provider_spend_authorization(
             factory.conn,
             scope=scope,
@@ -180,3 +196,127 @@ def authorize_higgsfield_jobs(
             }
         )
     return authorized
+
+
+def _completed_higgsfield_recovery(
+    job: Mapping[str, Any],
+    *,
+    provider_plan: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return exact completed receipt evidence without authorizing another call."""
+
+    receipt_path = (
+        Path(str(provider_plan["reviewRoot"])).expanduser().resolve()
+        / "receipts"
+        / f"{provider_plan['requestFingerprint']}.higgsfield_submission.json"
+    )
+    if not receipt_path.exists():
+        return None
+    if receipt_path.is_symlink() or not receipt_path.is_file():
+        raise PermissionError("higgsfield_recovery_receipt_is_unsafe")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PermissionError("higgsfield_recovery_receipt_is_invalid") from exc
+    final = receipt.get("finalOutput") if isinstance(receipt, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("status") != "completed"
+        or receipt.get("requestFingerprint") != provider_plan["requestFingerprint"]
+        or not receipt.get("generationId")
+        or not isinstance(final, dict)
+    ):
+        raise PermissionError("higgsfield_recovery_receipt_is_incomplete")
+    output = Path(str(final.get("path") or "")).expanduser()
+    expected_output = Path(str(job["providerOutputPath"])).expanduser().resolve()
+    if (
+        output.is_symlink()
+        or output.resolve() != expected_output
+        or not expected_output.is_file()
+        or _sha256_file(expected_output) != final.get("sha256")
+    ):
+        raise PermissionError("higgsfield_recovery_output_binding_mismatch")
+    source = receipt.get("source")
+    driving = receipt.get("drivingVideo")
+    if (
+        not isinstance(source, dict)
+        or source.get("sha256") != job.get("sourceSha256")
+        or (
+            job.get("referenceVideoSha256")
+            and (
+                not isinstance(driving, dict)
+                or driving.get("sha256") != job.get("referenceVideoSha256")
+            )
+        )
+    ):
+        raise PermissionError("higgsfield_recovery_source_binding_mismatch")
+    return {
+        "receiptPath": str(receipt_path),
+        "receiptSha256": _sha256_file(receipt_path),
+        "generationId": str(receipt["generationId"]),
+        "outputPath": str(expected_output),
+        "outputSha256": str(final["sha256"]),
+    }
+
+
+def recovered_higgsfield_cost_binding(
+    factory: Any,
+    *,
+    job: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    spend_scope: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a completed receipt to its one consumed authorization and cost row."""
+
+    generation_id = str(receipt.get("generationId") or "")
+    credits = receipt.get("creditsConsumed")
+    if (
+        not generation_id
+        or isinstance(credits, bool)
+        or not isinstance(credits, (int, float))
+        or float(credits) <= 0
+    ):
+        raise PermissionError("higgsfield_recovery_cost_evidence_missing")
+    rows = factory.conn.execute(
+        """
+        SELECT e.id AS cost_event_id, e.amount AS cost_amount, e.unit AS cost_unit,
+               a.authorization_id, a.reservation_id,
+               a.request_fingerprint, a.amount AS authorized_amount,
+               a.unit AS authorized_unit, a.status AS authorization_status
+        FROM ai_cost_events e
+        JOIN provider_spend_authorizations a
+          ON a.reservation_id = e.reservation_id
+        WHERE e.provider = 'higgsfield'
+          AND e.operation = 'video_generation'
+          AND e.source_event_key =
+              'campaign_factory:' || a.authorization_id || ':' || ?
+        """,
+        (generation_id,),
+    ).fetchall()
+    if len(rows) != 1:
+        raise PermissionError("higgsfield_recovery_cost_binding_is_ambiguous")
+    row = dict(rows[0])
+    expected_scope_fingerprint = str(spend_scope.get("requestFingerprint") or "")
+    if (
+        row["authorization_status"] != "consumed"
+        or row["request_fingerprint"] != expected_scope_fingerprint
+        or row["cost_unit"] != "higgsfield_credits"
+        or row["authorized_unit"] != "higgsfield_credits"
+        or abs(float(row["cost_amount"]) - float(credits)) > 0.0001
+        or abs(float(row["authorized_amount"]) - float(credits)) > 0.0001
+        or float(job["quotedProviderCredits"]) + 0.0001 < float(credits)
+    ):
+        raise PermissionError("higgsfield_recovery_cost_binding_mismatch")
+    return {
+        "authorizationId": row["authorization_id"],
+        "reservationId": row["reservation_id"],
+        "costEventIds": [row["cost_event_id"]],
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

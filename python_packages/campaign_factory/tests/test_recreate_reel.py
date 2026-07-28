@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sqlite3
 import subprocess
@@ -11,6 +12,7 @@ from typing import Any
 import campaign_factory.production_lane as production_lane
 import pytest
 from campaign_factory.production_higgsfield_authorization import (
+    _completed_higgsfield_recovery,
     higgsfield_spend_scope,
 )
 from campaign_factory.production_lane import plan_production_batch
@@ -229,6 +231,98 @@ def test_reference_audio_policy_retains_exact_source_audio_identity(
         job["referenceVideo"]["audio"]["identity"]["sourceVideoSha256"]
         == job["referenceVideoSha256"]
     )
+
+
+def test_completed_receipt_is_recovered_only_with_exact_source_and_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    source.write_bytes(b"source")
+    reference = tmp_path / "reference.mp4"
+    reference.write_bytes(b"reference")
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"completed output")
+    source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    reference_sha = hashlib.sha256(reference.read_bytes()).hexdigest()
+    output_sha = hashlib.sha256(output.read_bytes()).hexdigest()
+    fingerprint = "a" * 64
+    review_root = tmp_path / "review"
+    receipt_path = (
+        review_root / "receipts" / f"{fingerprint}.higgsfield_submission.json"
+    )
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "requestFingerprint": fingerprint,
+                "generationId": "generation-1",
+                "source": {"sha256": source_sha},
+                "drivingVideo": {"sha256": reference_sha},
+                "finalOutput": {"path": str(output), "sha256": output_sha},
+            }
+        ),
+        encoding="utf-8",
+    )
+    recovery = _completed_higgsfield_recovery(
+        {
+            "providerOutputPath": str(output),
+            "sourceSha256": source_sha,
+            "referenceVideoSha256": reference_sha,
+        },
+        provider_plan={
+            "reviewRoot": str(review_root),
+            "requestFingerprint": fingerprint,
+        },
+    )
+
+    assert recovery == {
+        "receiptPath": str(receipt_path),
+        "receiptSha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+        "generationId": "generation-1",
+        "outputPath": str(output),
+        "outputSha256": output_sha,
+    }
+
+
+def test_completed_receipt_recovery_rejects_wrong_source(tmp_path: Path) -> None:
+    output = tmp_path / "output.mp4"
+    output.write_bytes(b"completed output")
+    fingerprint = "a" * 64
+    review_root = tmp_path / "review"
+    receipt_path = (
+        review_root / "receipts" / f"{fingerprint}.higgsfield_submission.json"
+    )
+    receipt_path.parent.mkdir(parents=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "requestFingerprint": fingerprint,
+                "generationId": "generation-1",
+                "source": {"sha256": "b" * 64},
+                "drivingVideo": {"sha256": "c" * 64},
+                "finalOutput": {
+                    "path": str(output),
+                    "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PermissionError, match="source_binding_mismatch"):
+        _completed_higgsfield_recovery(
+            {
+                "providerOutputPath": str(output),
+                "sourceSha256": "d" * 64,
+                "referenceVideoSha256": "c" * 64,
+            },
+            provider_plan={
+                "reviewRoot": str(review_root),
+                "requestFingerprint": fingerprint,
+            },
+        )
 
 
 def test_reference_audio_policy_rejects_silent_reference(tmp_path: Path) -> None:
