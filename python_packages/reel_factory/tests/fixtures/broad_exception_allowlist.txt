@@ -26,11 +26,12 @@ reel_factory/manifest.py:get_analysis:454
 reel_factory/placement.py:probe_caption_region_luminance:128
 reel_factory/placement.py:probe_caption_region_luminance:134
 reel_factory/placement.py:_extract_probe_frame:180
-reel_factory/placement.py:_seg_net:285
-reel_factory/placement.py:_person_head_coverage_from_frame:328
-reel_factory/placement.py:probe_caption_layout_for_window:863
-reel_factory/placement.py:probe_caption_layout:1036
-reel_factory/placement.py:probe_caption_layout:1044
+reel_factory/placement.py:_seg_net:293
+reel_factory/placement.py:_person_head_coverage_from_frame:336
+reel_factory/placement.py:_pose_landmarker:651
+reel_factory/placement.py:probe_caption_layout_for_window:923
+reel_factory/placement.py:probe_caption_layout:1096
+reel_factory/placement.py:probe_caption_layout:1104
 reel_factory/post_render.py:_read_caption_meta:46
 reel_factory/post_render.py:_probe_duration:96
 reel_factory/post_render.py:_caption_kind:106

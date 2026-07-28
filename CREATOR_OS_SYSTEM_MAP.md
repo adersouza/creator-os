@@ -378,6 +378,14 @@ manifest/weights, pinned runtime, executable tool revisions, hardware, and
 commercial-use license policy. Mixed or drifted identities cannot share a
 promotion cohort.
 
+The local pose-continuity analyzer uses Apple Vision body and hand landmarks to
+record sampled frames, coverage, discontinuity candidates, and exact
+media/toolchain/source fingerprints. This is technical continuity evidence
+only: it does not approve anatomy, identity, attractiveness, or would-post
+quality. Those decisions remain explicit human review fields. Historical
+trusted analyses with the previous five-analyzer set remain readable; new
+analyses bind the current six-analyzer set exactly.
+
 The public ContentForge `motion-qc` surface accepts only canonical trusted-media
 analysis, the exact AnalyzerRegistry snapshot, and a complete structured human
 review. Raw analyzer values remain diagnostic-only and cannot produce a
@@ -389,17 +397,23 @@ implementation file hashes before storing an immutable registration. Legacy v1
 receipts remain historical evidence but are not publishability evidence.
 
 Trusted analysis operates on an immutable private snapshot, rejects symlinks
-and non-regular media, and rehashes before signing. Temporal inspection covers
-the full duration at 8 fps and 180x320, records the deterministic frame set and
-brief-frame outliers, and scores discontinuity from robust outlier candidates
-rather than ordinary high motion. Speaking-video evidence uses actual Apple
-Vision inner/outer-lip landmarks at 12 fps plus decoded PCM: at least 36 usable
+and non-regular media, and rehashes before signing. The legacy temporal-PDQ
+approximation is excluded from normal Campaign and ContentForge audits; it may
+still be requested explicitly for historical comparison, and its existing
+receipts remain readable. Speaking-video evidence uses actual Apple Vision
+inner/outer-lip landmarks at 12 fps plus decoded PCM: at least 36 usable
 samples are split into 24+ training and 12+ holdout observations, lag is chosen
 only on training data, and support is computed once on holdout with a
 one-sided Fisher statistic against the practical-null correlation. Fixed face
 rectangles, best-of-small-sample scores, and direct correlation-to-confidence
 mapping are rejected. Missing audio, speech, landmarks, face coverage, samples,
 or exact toolchain identity is a blocked measurement, never an inferred pass.
+
+Reel Factory focal-safe placement uses MediaPipe Tasks PoseLandmarker, not the
+removed `mediapipe.solutions` API. The official pose-landmarker model URL and
+SHA-256 are pinned, model bytes are verified before use, and one inference is
+reused per sampled frame. Missing or drifted model evidence fails detection
+cleanly rather than inventing a safe overlay lane.
 
 Overlay OCR runs even when the plan declares no burned text. A completed scan
 with no detected text is the only no-overlay pass; undeclared text or app UI
@@ -680,6 +694,9 @@ they are not inputs to normal intent-first `create`. There is no silent provider
 fallback. Soul ID owns identity. Prompt and asset lineage are retained. The
 normal finished-Reel path selects a duration-compatible Audio Radar segment,
 embeds and verifies AAC, and binds its receipt to the exact final MP4 SHA.
+The selection receipt also records exact start/end boundaries and the SHA-256
+of the canonical decoded `s16le_mono_16000hz` segment bytes; a truncated decode
+is rejected instead of being labeled a complete segment.
 Native platform audio remains a separately resolved intent and is never inferred
 from an embedded track.
 Talking and supplied-voice content uses `creator_voice`; the automatic Audio
@@ -721,6 +738,11 @@ strong distortion presets and platform-avoidance transformations are not part
 of the production quality path. Readiness scores remain `null` or explicitly
 unverified until backed by live operational evidence—fixture or simulated
 results are never presented as production ratings.
+
+C2PA signing is not part of the current production contract. Exact source,
+segment, final-media, receipt, and lineage hashes remain the authoritative
+provenance boundary; adding a second provenance envelope is deferred until it
+has a concrete consumer and operating requirement.
 
 Draft payloads validate against Pipeline Contracts before an HMAC-signed request
 to ThreadsDashboard's draft-ingest endpoint. HMAC tests cover signature,

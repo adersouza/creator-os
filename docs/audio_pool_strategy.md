@@ -22,7 +22,7 @@ non-talking intent
   -> verified active Audio Radar track
   -> duration-compatible segment
   -> AAC embedded in the final MP4
-  -> receipt bound to the final MP4 SHA-256
+  -> receipt binds exact segment bytes and final MP4 SHA-256
 
 talking or supplied-voice intent
   -> creator_voice
@@ -51,6 +51,39 @@ CREATOR_OS_AUDIO_CREATOR_SEGMENT_COOLDOWN_DAYS=14
 
 A pinned track or measured winner may explicitly override cooldown. Historical
 metadata remains after cache bytes are pruned.
+
+## Segment lineage
+
+Every production selection records:
+
+- exact segment start, end, and duration;
+- SHA-256 of the canonical decoded `s16le_mono_16000hz` segment bytes;
+- decoded-audio fingerprint;
+- source track identity and hash;
+- final verified MP4 SHA-256 after AAC embedding.
+
+The processed-segment hash and decoded fingerprint intentionally identify the
+same canonical byte slice. Selection fails if the decoded source cannot supply
+the complete requested duration. Publication learning accepts the live
+snake-case receipt fields while retaining read compatibility for historical
+camel-case receipts; it never invents missing historical linkage.
+
+## Development-only segment challenger
+
+The normal production selector is unchanged. A bounded, read-only librosa
+challenger is available only through the optional `audio-eval` dependency group
+for local development:
+
+```sh
+uv run --group audio-eval python -m \
+  campaign_factory.audio_radar.development_evaluator \
+  --duration 5 /absolute/path/to/audio.mp3
+```
+
+It evaluates at most ten regular local files and at most 90 seconds per file,
+prints JSON to stdout, and performs no provider, network, database, cache, or
+persistent artifact writes. Its RMS, onset, and beat evidence is comparative
+development output, not a production default or automatic promotion signal.
 
 ## Weekly refresh
 
