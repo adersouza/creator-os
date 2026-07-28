@@ -49,6 +49,10 @@ from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
+from .production_batch_results import provider_execution as _provider_execution
+from .production_batch_results import (
+    provider_receipt_summary as _provider_receipt_summary,
+)
 from .production_creative_evidence import (
     build_job_creative_evidence,
     persist_asset_creative_evidence,
@@ -65,6 +69,9 @@ from .production_higgsfield_authorization import (
 )
 from .production_higgsfield_authorization import (
     prepare_higgsfield_job_quotes as _prepare_higgsfield_job_quotes,
+)
+from .production_higgsfield_authorization import (
+    recovered_higgsfield_cost_binding as _recovered_higgsfield_cost_binding,
 )
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
@@ -1088,28 +1095,33 @@ def _execute_higgsfield_provider_job(
 
     from .motion_generation_stage import _register_review_asset
 
+    recovery_value = job.get("_higgsfieldRecovery")
+    recovery = recovery_value if isinstance(recovery_value, dict) else None
     authorization_value = job.get("_higgsfieldAuthorization")
     scope_value = job.get("_higgsfieldSpendScope")
     capabilities_value = job.get("_higgsfieldCapabilities")
-    if not isinstance(authorization_value, dict):
+    if recovery is None and not isinstance(authorization_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(scope_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
     if not isinstance(capabilities_value, dict):
         raise PermissionError("higgsfield_spend_authorization_missing")
-    authorization = authorization_value
+    authorization = (
+        authorization_value if isinstance(authorization_value, dict) else None
+    )
     scope = scope_value
     capabilities = capabilities_value
-    secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
-    verify_authorization(
-        authorization,
-        expected_scope=scope,
-        secret=secret,
-        now=datetime.now(UTC),
-    )
-    consume_higgsfield_authorization(
-        factory.conn, str(authorization["authorizationId"])
-    )
+    if authorization is not None:
+        secret = os.environ.get("CREATOR_OS_SPEND_AUTH_SECRET", "")
+        verify_authorization(
+            authorization,
+            expected_scope=scope,
+            secret=secret,
+            now=datetime.now(UTC),
+        )
+        consume_higgsfield_authorization(
+            factory.conn, str(authorization["authorizationId"])
+        )
     campaign = factory.domains.campaign_by_slug(str(job["campaign"]))
     model_slug = factory.domains.reel_execution.model_slug_for_campaign(campaign["id"])
     pipeline_job = factory.domains.events.create_pipeline_job(
@@ -1128,11 +1140,22 @@ def _execute_higgsfield_provider_job(
     factory.domains.events.start_pipeline_job(pipeline_job["id"])
     try:
         request = _higgsfield_request(job, max_credits=max_credits)
-        receipt = execute_higgsfield_production(
-            request,
-            capabilities=capabilities,
-            confirm_paid=True,
-        )
+        if recovery is not None:
+            receipt_path = Path(str(recovery["receiptPath"])).expanduser().resolve()
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            cost_binding = _recovered_higgsfield_cost_binding(
+                factory,
+                job=job,
+                receipt=receipt,
+                spend_scope=scope,
+            )
+        else:
+            receipt = execute_higgsfield_production(
+                request,
+                capabilities=capabilities,
+                confirm_paid=True,
+            )
+            cost_binding = None
         output = receipt.get("finalOutput")
         if not isinstance(output, dict):
             raise RuntimeError("higgsfield_final_output_missing")
@@ -1149,25 +1172,37 @@ def _execute_higgsfield_provider_job(
             or _sha256_file(output_path) != output_sha
         ):
             raise RuntimeError("higgsfield_provider_evidence_mismatch")
-        cost_ids = record_provider_execution(
-            factory.conn,
-            authorization=authorization,
-            execution={
-                "events": [
-                    {
-                        "provider": "higgsfield",
-                        "operation": "video_generation",
-                        "model": receipt["model"],
-                        "jobId": receipt["generationId"],
-                        "actualCredits": receipt.get("creditsConsumed"),
-                    }
-                ]
-            },
-        )
+        if cost_binding is not None:
+            cost_ids = list(cost_binding["costEventIds"])
+            authorization_id = str(cost_binding["authorizationId"])
+            reservation_id = str(cost_binding["reservationId"])
+        else:
+            assert authorization is not None
+            cost_ids = record_provider_execution(
+                factory.conn,
+                authorization=authorization,
+                execution={
+                    "events": [
+                        {
+                            "provider": "higgsfield",
+                            "operation": "video_generation",
+                            "model": receipt["model"],
+                            "jobId": receipt["generationId"],
+                            "actualCredits": receipt.get("creditsConsumed"),
+                        }
+                    ]
+                },
+            )
+            authorization_id = str(authorization["authorizationId"])
+            reservation_id = str(authorization["reservationId"])
         provider = {
             "requestId": receipt["generationId"],
             "model": receipt["model"],
-            "status": receipt["status"],
+            "status": (
+                "completed_reconciled" if recovery is not None else receipt["status"]
+            ),
+            "reconciled": recovery is not None,
+            "providerCalls": 0 if recovery is not None else 1,
             "submittedAt": receipt.get("submittedAt"),
             "completedAt": receipt.get("completedAt"),
             "outputUrl": receipt.get("resultUrl"),
@@ -1180,8 +1215,8 @@ def _execute_higgsfield_provider_job(
         paid_evidence = {
             "schema": "campaign_factory.higgsfield_paid_generation_evidence.v1",
             "provider": "higgsfield",
-            "authorizationId": authorization["authorizationId"],
-            "reservationId": authorization["reservationId"],
+            "authorizationId": authorization_id,
+            "reservationId": reservation_id,
             "spendScopeFingerprint": scope["requestFingerprint"],
             "providerPlanFingerprint": job["providerPlanFingerprint"],
             "providerModel": receipt["model"],
@@ -1202,7 +1237,8 @@ def _execute_higgsfield_provider_job(
             "schema": "reel_factory.higgsfield_motion_generation.v1",
             "backend": "higgsfield_cli",
             "paidGeneration": True,
-            "providerCalls": 1,
+            "providerCalls": 0 if recovery is not None else 1,
+            "reconciledCompletedRequest": recovery is not None,
             "paidGenerationEvidence": paid_evidence,
             "result": {
                 "predictionId": receipt["generationId"],
@@ -1248,7 +1284,7 @@ def _execute_higgsfield_provider_job(
             "dryRun": False,
             "apply": True,
             "paidGeneration": True,
-            "providerCalls": 1,
+            "providerCalls": 0 if recovery is not None else 1,
             "worker": worker_result,
             "registeredAsset": registered,
             "pipelineJobId": pipeline_job["id"],
@@ -1265,37 +1301,6 @@ def _execute_higgsfield_provider_job(
             {"jobId": job["jobId"], "provider": "higgsfield"},
         )
         raise
-
-
-def _provider_execution(generation_result: Mapping[str, Any]) -> dict[str, Any] | None:
-    stage = _motion_stage_result(dict(generation_result))
-    worker = stage.get("worker")
-    worker = worker if isinstance(worker, dict) else {}
-    execution = worker.get("result")
-    if not isinstance(execution, dict) or not execution.get("predictionId"):
-        return None
-    return _provider_receipt_summary(execution)
-
-
-def _provider_receipt_summary(
-    execution: Mapping[str, Any], *, evidence_path: Path | None = None
-) -> dict[str, Any]:
-    return {
-        "requestId": execution.get("predictionId"),
-        "model": execution.get("providerModel"),
-        "status": execution.get("status"),
-        "submittedAt": execution.get("submittedAt"),
-        "completedAt": execution.get("completedAt"),
-        "outputUrl": execution.get("outputUrl"),
-        "outputSha256": execution.get("outputSha256"),
-        "outputRecords": execution.get("outputRecords") or [],
-        "generationDurationSeconds": execution.get("generationDurationSeconds"),
-        "providerInferenceMilliseconds": execution.get("providerInferenceMilliseconds"),
-        "providerCostUsd": execution.get("providerCostUsd"),
-        "requestFingerprint": execution.get("requestFingerprint"),
-        "evidencePath": execution.get("evidencePath")
-        or (str(evidence_path) if evidence_path is not None else None),
-    }
 
 
 def _failed_provider_execution(

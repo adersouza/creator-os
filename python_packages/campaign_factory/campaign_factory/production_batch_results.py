@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,39 @@ def probe_production_video(path: Path) -> dict[str, Any]:
     }
 
 
+def provider_execution(
+    generation_result: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    stage = _motion_stage_result(dict(generation_result))
+    worker = stage.get("worker")
+    worker = worker if isinstance(worker, dict) else {}
+    execution = worker.get("result")
+    if not isinstance(execution, dict) or not execution.get("predictionId"):
+        return None
+    return provider_receipt_summary(execution)
+
+
+def provider_receipt_summary(
+    execution: Mapping[str, Any], *, evidence_path: Path | None = None
+) -> dict[str, Any]:
+    return {
+        "requestId": execution.get("predictionId"),
+        "model": execution.get("providerModel"),
+        "status": execution.get("status"),
+        "submittedAt": execution.get("submittedAt"),
+        "completedAt": execution.get("completedAt"),
+        "outputUrl": execution.get("outputUrl"),
+        "outputSha256": execution.get("outputSha256"),
+        "outputRecords": execution.get("outputRecords") or [],
+        "generationDurationSeconds": execution.get("generationDurationSeconds"),
+        "providerInferenceMilliseconds": execution.get("providerInferenceMilliseconds"),
+        "providerCostUsd": execution.get("providerCostUsd"),
+        "requestFingerprint": execution.get("requestFingerprint"),
+        "evidencePath": execution.get("evidencePath")
+        or (str(evidence_path) if evidence_path is not None else None),
+    }
+
+
 def block_duplicate_provider_outputs(results: list[dict[str, Any]]) -> None:
     seen: set[str] = set()
     for item in results:
@@ -120,6 +154,14 @@ def finalize_production_batch(
             )
         elif isinstance(item.get("provider"), dict):
             provider_rows.append(item["provider"])
+    submitted_provider_rows = [
+        provider for provider in provider_rows if provider.get("reconciled") is not True
+    ]
+    submitted_final_rows = [
+        provider
+        for provider in final_provider_rows
+        if provider.get("reconciled") is not True
+    ]
     raw_hashes = {
         str(provider.get("outputSha256"))
         for provider in final_provider_rows
@@ -154,32 +196,38 @@ def finalize_production_batch(
         for value in costs
         if isinstance(value, (int, float)) and not isinstance(value, bool)
     ]
+    summary: dict[str, Any] = {
+        "requested": plan["requested"],
+        "created": len(results),
+        "submitted": len(submitted_provider_rows),
+        "jobsSubmitted": len(submitted_final_rows),
+        "completed": statuses.count("completed"),
+        "blocked": statuses.count("blocked"),
+        "failed": statuses.count("failed"),
+        "approved": statuses.count("completed"),
+        "scheduled": 0,
+        "published": 0,
+        "uniqueOutputs": len(raw_hashes or final_hashes),
+        "uniqueFinalOutputs": len(final_hashes),
+        "totalProviderCredits": (
+            round(sum(numeric_costs), 4) if costs_reported else None
+        ),
+        "providerCreditsReported": costs_reported,
+        "quotedProviderCredits": plan["quotedProviderCredits"],
+        "generationTimesSeconds": [
+            provider.get("generationDurationSeconds") for provider in provider_rows
+        ],
+    }
+    reconciled_count = sum(
+        provider.get("reconciled") is True for provider in provider_rows
+    )
+    if reconciled_count:
+        summary["reconciledCompletedRequests"] = reconciled_count
     return {
         **public_plan,
         "apply": apply,
         "results": results,
-        "summary": {
-            "requested": plan["requested"],
-            "created": len(results),
-            "submitted": len(provider_rows),
-            "jobsSubmitted": len(final_provider_rows),
-            "completed": statuses.count("completed"),
-            "blocked": statuses.count("blocked"),
-            "failed": statuses.count("failed"),
-            "approved": statuses.count("completed"),
-            "scheduled": 0,
-            "published": 0,
-            "uniqueOutputs": len(raw_hashes or final_hashes),
-            "uniqueFinalOutputs": len(final_hashes),
-            "totalProviderCredits": (
-                round(sum(numeric_costs), 4) if costs_reported else None
-            ),
-            "providerCreditsReported": costs_reported,
-            "quotedProviderCredits": plan["quotedProviderCredits"],
-            "generationTimesSeconds": [
-                provider.get("generationDurationSeconds") for provider in provider_rows
-            ],
-        },
+        "summary": summary,
         "schedulingAllowed": False,
         "publishingAllowed": False,
     }
