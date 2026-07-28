@@ -24,7 +24,7 @@ import { evaluateMotionSpecificQc } from "./motion-specific-qc.js";
 import { getPythonCommand } from "./python-runtime.js";
 import { runTrustedCaptionOverlayAudit } from "./similarity.js";
 
-export const TRUSTED_ANALYZERS = Object.freeze([
+export const LEGACY_TRUSTED_ANALYZERS = Object.freeze([
   Object.freeze({
     analyzerId: "contentforge.media_integrity",
     analyzerVersion: "1.0.0",
@@ -51,6 +51,14 @@ export const TRUSTED_ANALYZERS = Object.freeze([
     evidenceKinds: Object.freeze(["lip_sync_observation"]),
   }),
 ]);
+export const TRUSTED_ANALYZERS = Object.freeze([
+  ...LEGACY_TRUSTED_ANALYZERS,
+  Object.freeze({
+    analyzerId: "contentforge.pose_continuity",
+    analyzerVersion: "1.0.0",
+    evidenceKinds: Object.freeze(["pose_continuity_observation"]),
+  }),
+]);
 
 const ANALYSIS_SCHEMA = "contentforge.trusted_media_analysis.v1";
 const SAMPLE_FRAMES_PER_SECOND = 8;
@@ -74,6 +82,10 @@ const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const LIP_SYNC_ANALYZER_PATH = path.join(
   REPOSITORY_ROOT,
   "packages/contentforge/scripts/local-lip-sync-analyzer.py",
+);
+const POSE_CONTINUITY_ANALYZER_PATH = path.join(
+  REPOSITORY_ROOT,
+  "packages/contentforge/scripts/local-pose-continuity-analyzer.py",
 );
 const OVERLAY_SEMANTIC_BRIDGE = [
   "import hashlib, inspect, json, sys",
@@ -165,10 +177,16 @@ function validateAnalysisRecord(analysis) {
     if (observations.has(identity)) throw new Error("trusted_media_analysis_duplicate_analyzer");
     observations.set(identity, record);
   }
-  var expected = new Set(TRUSTED_ANALYZERS.map(function (item) {
-    return `${item.analyzerId}@${item.analyzerVersion}`;
-  }));
-  if (observations.size !== expected.size || [...expected].some(function (key) { return !observations.has(key); })) {
+  var acceptedSets = [LEGACY_TRUSTED_ANALYZERS, TRUSTED_ANALYZERS].map(function (definitions) {
+    return new Set(definitions.map(function (item) {
+      return `${item.analyzerId}@${item.analyzerVersion}`;
+    }));
+  });
+  var knownExactSet = acceptedSets.some(function (expected) {
+    return observations.size === expected.size
+      && [...expected].every(function (key) { return observations.has(key); });
+  });
+  if (!knownExactSet) {
     throw new Error("trusted_media_analysis_required_analyzers_mismatch");
   }
   for (var requiredMeasured of ["contentforge.media_integrity@1.0.0", "contentforge.temporal_motion@1.0.0"]) {
@@ -967,6 +985,68 @@ async function lipSyncObservations(mediaPath, probe, runner, visualRegistration)
   };
 }
 
+async function poseContinuityObservations(mediaPath, mediaSha256, runner) {
+  var result = await runner(
+    getPythonCommand(),
+    [POSE_CONTINUITY_ANALYZER_PATH, mediaPath],
+    { timeout: 60000, maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (!result.ok) {
+    return {
+      available: false,
+      reason: "local_pose_continuity_analysis_failed",
+      error: result.error || "unknown",
+    };
+  }
+  var observation;
+  try {
+    observation = JSON.parse(String(result.stdout || "{}"));
+  } catch (error) {
+    return {
+      available: false,
+      reason: "local_pose_continuity_analysis_invalid_json",
+      error: String(error.message || error),
+    };
+  }
+  if (observation.available !== true) {
+    return {
+      ...observation,
+      available: false,
+      reason: observation.reason || "local_pose_continuity_analysis_unavailable",
+    };
+  }
+  var toolchain = observation.toolchainEvidence;
+  var toolchainCore = toolchain && typeof toolchain === "object"
+    ? { ...toolchain }
+    : null;
+  if (toolchainCore) delete toolchainCore.toolchainFingerprint;
+  if (observation.evidenceScope !== "technical_landmark_continuity_only"
+    || observation.identityApproval !== false
+    || observation.anatomyApproval !== false
+    || observation.mediaSha256 !== mediaSha256
+    || !toolchainCore
+    || toolchain.schema !== "contentforge.apple_vision_toolchain.v1"
+    || !Array.isArray(toolchain.visionRequests)
+    || !toolchain.visionRequests.includes("VNDetectHumanBodyPoseRequest")
+    || !toolchain.visionRequests.includes("VNDetectHumanHandPoseRequest")
+    || !/^[a-f0-9]{64}$/.test(toolchain.toolchainFingerprint || "")
+    || fingerprint(toolchainCore) !== toolchain.toolchainFingerprint
+    || observation.landmarkEvidence?.toolchainFingerprint
+      !== toolchain.toolchainFingerprint
+    || !/^[a-f0-9]{64}$/.test(
+      observation.landmarkEvidence?.fingerprint || "",
+    )
+    || !/^[a-f0-9]{64}$/.test(
+      observation.sampling?.frameSetFingerprint || "",
+    )) {
+    return {
+      available: false,
+      reason: "pose_continuity_evidence_invalid",
+    };
+  }
+  return observation;
+}
+
 async function runCanonicalOverlaySemanticEvaluation(timedSequence, runner) {
   var payload = {
     segments: (timedSequence || []).map(function (item) {
@@ -1278,7 +1358,7 @@ export async function analyzeTrustedMedia({
       `trusted_media_analysis_critical_measurement_missing:contentforge.temporal_motion@1.0.0:${temporal.reason || "measurement_unavailable"}`,
     );
   }
-  var [audio, lipSync] = await Promise.all([
+  var [audio, lipSync, poseContinuity] = await Promise.all([
     audioObservations(snapshot.path, probe, runner),
     lipSyncObservations(
       snapshot.path,
@@ -1286,6 +1366,7 @@ export async function analyzeTrustedMedia({
       runner,
       registry.registrations.get("contentforge.local_face_mouth_track@1.0.0"),
     ),
+    poseContinuityObservations(snapshot.path, mediaSha256, runner),
   ]);
   var overlay = await overlayObservations({
     overlaysExist,
@@ -1328,7 +1409,9 @@ export async function analyzeTrustedMedia({
           ? audio
           : definition.analyzerId.endsWith("local_lip_sync")
             ? lipSync
-            : overlay;
+            : definition.analyzerId.endsWith("pose_continuity")
+              ? poseContinuity
+              : overlay;
     var registration = registry.registrations.get(`${definition.analyzerId}@${definition.analyzerVersion}`);
     return analyzerResult(definition, registration, registry, observations, tools);
   });
@@ -1377,6 +1460,10 @@ export async function analyzeTrustedMedia({
       } : {}),
       ...(lipSync.available === true ? {} : {
         lipSync: lipSync.reason || "local_lip_sync_measurement_unavailable",
+      }),
+      ...(poseContinuity.available === true ? {} : {
+        bodyHandPoseContinuity:
+          poseContinuity.reason || "local_pose_continuity_measurement_unavailable",
       }),
     },
     humanReviewSampling: {

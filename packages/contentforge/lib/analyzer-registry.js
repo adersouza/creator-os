@@ -23,6 +23,10 @@ const LIP_SYNC_IMPLEMENTATION_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../scripts/local-lip-sync-analyzer.py",
 );
+const POSE_CONTINUITY_IMPLEMENTATION_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../scripts/local-pose-continuity-analyzer.py",
+);
 const DEFAULT_REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
@@ -74,6 +78,8 @@ export async function snapshotTrustedMediaAnalyzerRegistry({
         definition,
         definition.analyzerId === "contentforge.overlay_delivery"
           ? OVERLAY_IMPLEMENTATION_PATH
+          : definition.analyzerId === "contentforge.pose_continuity"
+            ? POSE_CONTINUITY_IMPLEMENTATION_PATH
           : TRUSTED_MEDIA_IMPLEMENTATION_PATH,
         root,
       );
