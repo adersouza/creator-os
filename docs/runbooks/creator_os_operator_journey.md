@@ -179,6 +179,76 @@ Run the next `creator-os create` dry-run normally. Its decision receipt must say
 whether learning was consulted, eligible, applied, and actually changed the
 final choice. Consultation alone is not adaptation.
 
+## Existing Media Intake
+
+Use this path only for an already-finished Creator OS MP4 with exact retained
+source, generation, audio, QC, and final-media lineage. It is not a camera-roll,
+downloaded-Reel, or arbitrary historical upload path.
+
+1. Build or inspect one private `creator_os.existing_video_intake.v1` manifest.
+   It must identify the exact creator-bound source, generation attempt and
+   provider receipt, raw visual, final MP4, audio fulfillment receipt, and
+   technical-QC receipt by path and SHA-256.
+2. Resolve it without writes:
+
+   ```bash
+   creator-os media intake-existing \
+     --manifest /absolute/private/path/video.intake.json \
+     --dry-run
+   ```
+
+   Review every resolved hash, blocker, existing canonical asset, and proposed
+   mutation. A filename is never evidence. Dry-run creates no approval, asset,
+   plan binding, export, schedule, or publication.
+3. Approve the exact source separately with `creator-os sources approve
+   --apply` only after its hash-bound preview is reviewed. Intake may preserve
+   historical evidence while the source remains unapproved, but the asset
+   cannot become executable or export-ready.
+4. Apply the intake:
+
+   ```bash
+   creator-os media intake-existing \
+     --manifest /absolute/private/path/video.intake.json \
+     --apply
+   ```
+
+   Apply registers or reconciles one canonical `rendered_asset`. It does not
+   copy, re-encode, replace audio, or alter the MP4. Repeating the exact intake
+   reconciles the existing identity. Original generation spend remains in its
+   lineage; intake itself invokes no provider.
+5. Record a durable review for the exact final asset and SHA:
+
+   ```bash
+   creator-os media review-existing \
+     --asset <rendered-asset-id> \
+     --final-sha <sha256> \
+     --reviewer <operator> \
+     --verdict WOULD_POST \
+     --apply
+   ```
+
+   `WOULD_POST`, `USABLE_AFTER_EDIT`, and `REJECT` are distinct verdicts.
+   Blank granular fields remain unknown, and approval of one final SHA never
+   transfers to another re-embedded SHA.
+6. Attach only to a compatible approved plan item:
+
+   ```bash
+   creator-os plan attach-existing <plan-id> \
+     --item <plan-item-id> \
+     --asset <rendered-asset-id> \
+     --dry-run
+   ```
+
+   After reviewing all gates, repeat with `--apply`. Attachment records
+   `existing_canonical_asset`, costs zero, retains the original generation
+   history, and does not claim the Content Director generated the media during
+   that plan.
+7. Export only after source approval, exact technical QC, `WOULD_POST` review,
+   compatible plan attachment, and all ordinary export gates pass.
+
+Source approval and creative approval are separate decisions. Intake and plan
+attachment never publish; a draft or queue receipt is not publication proof.
+
 ## Recovery
 
 - Provider ambiguity: reconcile the original generation ID; never resubmit
