@@ -30,8 +30,32 @@ CREATE TABLE IF NOT EXISTS source_files (
   source_likes INTEGER,
   source_comments INTEGER,
   source_posted_at TEXT,
+  source_platform TEXT,
+  native_media_id TEXT,
+  original_url TEXT,
+  canonical_url TEXT,
+  extractor TEXT,
+  extractor_version TEXT,
+  intake_metadata_json TEXT NOT NULL DEFAULT '{}',
+  intake_receipt_path TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reference_anchor_receipts (
+  id TEXT PRIMARY KEY,
+  reference_id TEXT NOT NULL REFERENCES source_files(reference_id),
+  source_media_sha256 TEXT NOT NULL,
+  selected_frame_sample_id TEXT NOT NULL REFERENCES frame_samples(id),
+  selected_frame_sha256 TEXT NOT NULL,
+  selected_time_sec REAL NOT NULL,
+  score REAL NOT NULL,
+  candidate_measurements_json TEXT NOT NULL,
+  toolchain_json TEXT NOT NULL,
+  implementation_fingerprint TEXT NOT NULL,
+  receipt_path TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(reference_id, implementation_fingerprint)
 );
 
 CREATE TABLE IF NOT EXISTS video_probes (
@@ -359,6 +383,12 @@ CREATE TABLE IF NOT EXISTS prompt_post_outcomes (
 
 CREATE INDEX IF NOT EXISTS idx_source_files_kind ON source_files(kind);
 CREATE INDEX IF NOT EXISTS idx_source_files_account ON source_files(account);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_files_platform_media
+  ON source_files(source_platform, native_media_id)
+  WHERE source_platform IS NOT NULL AND native_media_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_source_files_content_hash ON source_files(content_hash);
+CREATE INDEX IF NOT EXISTS idx_reference_anchor_reference
+  ON reference_anchor_receipts(reference_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_video_probes_valid ON video_probes(valid);
 CREATE INDEX IF NOT EXISTS idx_review_labels_reference ON review_labels(reference_id);
 CREATE INDEX IF NOT EXISTS idx_public_posts_owner ON public_posts(owner_username);
@@ -393,6 +423,20 @@ def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     _ensure_schema_columns(conn)
     backfill_source_metrics_from_sidecars(conn)
     conn.executescript("\n".join(_schema_statements("INDEX")))
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_update
+        BEFORE UPDATE ON reference_anchor_receipts
+        BEGIN
+          SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS reference_anchor_receipts_immutable_delete
+        BEFORE DELETE ON reference_anchor_receipts
+        BEGIN
+          SELECT RAISE(ABORT, 'reference anchor receipts are immutable');
+        END;
+        """
+    )
     return conn
 
 

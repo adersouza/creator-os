@@ -92,7 +92,25 @@ Historical WaveSpeed models, receipts, rows, hashes, and media remain readable
 for audit and migration. They are absent from normal create, active paid
 routing, fallbacks, help, and runtime credential requirements.
 
-An experimental recreation is planned through the same intent-first surface:
+Reference URL intake and analysis use the same intent-first surface and stop
+before any provider:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-url 'https://www.instagram.com/reel/...' \
+  --recreate-mode auto \
+  --through analyze \
+  --audio auto
+```
+
+Dry-run media and derivatives are temporary. Authorized apply persists the
+canonical Reference Factory source/anchor receipt and the Campaign Audio Radar
+audio identity/occurrence. It makes no Higgsfield call. Creator OS never sends
+the URL to a third-party downloader website.
+
+The local-file recreation compatibility path remains:
 
 ```bash
 scripts/creator-os create \

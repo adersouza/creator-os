@@ -15,6 +15,11 @@ def connect_sqlite(
     wal: bool = True,
     busy_timeout_ms: int = 30_000,
 ) -> sqlite3.Connection:
+    if str(db_path) == ":memory:":
+        conn = sqlite3.connect(":memory:", timeout=30.0)
+        conn.row_factory = row_factory
+        conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
+        return conn
     path = Path(db_path).expanduser()
     if readonly:
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", timeout=30.0, uri=True)

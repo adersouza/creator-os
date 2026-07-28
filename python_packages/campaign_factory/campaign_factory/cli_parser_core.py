@@ -37,10 +37,18 @@ def register_core_commands(sub) -> None:
     create.add_argument("--accounts")
     create.add_argument("--speech-audio", type=Path)
     create.add_argument("--motion-reference", type=Path)
-    create.add_argument("--reference-video", type=Path)
+    reference_input = create.add_mutually_exclusive_group()
+    reference_input.add_argument("--reference-video", type=Path)
+    reference_input.add_argument("--reference-url")
     create.add_argument("--reference-platform")
     create.add_argument("--reference-authorized", action="store_true")
     create.add_argument("--reference-talking", action="store_true")
+    create.add_argument(
+        "--recreate-mode",
+        choices=["auto", "passive", "motion", "structural", "first_last", "talking"],
+        default="auto",
+    )
+    create.add_argument("--through", choices=["analyze", "anchor"])
     create.add_argument(
         "--audio",
         dest="audio_preference",
@@ -53,6 +61,7 @@ def register_core_commands(sub) -> None:
             "royalty_free",
             "silent_allowed",
             "reference_audio_required",
+            "auto",
         ],
         default="embedded_trending_required",
     )

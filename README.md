@@ -53,8 +53,28 @@ jobs and receipts, bounded concurrency, native-credit authorization, and exact
 output lineage. Provider/model IDs remain internal. There is no WaveSpeed
 fallback.
 
-An experimental reference-Reel recreation can be planned without selecting a
-provider or model:
+Reference URLs can be downloaded and analyzed without selecting or calling a
+provider:
+
+```bash
+scripts/creator-os create \
+  --creator stacey \
+  --intent recreate_reel \
+  --reference-url 'https://www.instagram.com/reel/...' \
+  --recreate-mode auto \
+  --through analyze \
+  --audio auto
+```
+
+The dry-run uses private temporary media and makes no persistent reference or
+audio-library mutation. `--apply --reference-authorized` persists one
+deduplicated Reference Factory identity, receipt-linked frame derivatives, an
+independently selected scene anchor, and exact reference-audio evidence. It
+does not generate, export, schedule, or publish. Instagram, TikTok, YouTube
+Shorts, direct HTTP(S) media, and the local-file fallback are supported through
+Creator OS's own yt-dlp path; third-party downloader sites are not used.
+
+The existing local-file recreation path remains available:
 
 ```bash
 scripts/creator-os create \

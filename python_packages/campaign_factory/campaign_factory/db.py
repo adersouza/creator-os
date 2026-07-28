@@ -213,6 +213,21 @@ def init_db(conn: sqlite3.Connection) -> None:
             "refresh_metadata_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
+    _ensure_columns(
+        conn,
+        "audio_cache_objects",
+        {
+            "encoded_audio_sha256": "TEXT",
+            "canonical_pcm_sha256": "TEXT",
+            "chromaprint": "TEXT",
+            "chromaprint_version": "TEXT",
+            "chromaprint_duration_seconds": "REAL",
+            "container": "TEXT",
+            "channel_layout": "TEXT",
+            "loudness_json": "TEXT NOT NULL DEFAULT '{}'",
+            "extraction_receipt_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_audio_catalog_canonical

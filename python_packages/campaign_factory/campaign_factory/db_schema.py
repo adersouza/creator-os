@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from .audio_cache_schema import AUDIO_CACHE_SCHEMA
 from .content_director_schema import CONTENT_DIRECTOR_SCHEMA
 from .existing_media_schema import EXISTING_MEDIA_SCHEMA
+from .reference_audio_schema import REFERENCE_AUDIO_SCHEMA
 
 BASE_SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -1185,32 +1187,6 @@ CREATE TABLE IF NOT EXISTS audio_platform_sound_ids (
   FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS audio_cache_objects (
-  id TEXT PRIMARY KEY, audio_catalog_id TEXT NOT NULL,
-  provider TEXT NOT NULL, platform TEXT NOT NULL, platform_sound_id TEXT NOT NULL,
-  cache_path TEXT NOT NULL, byte_sha256 TEXT NOT NULL,
-  acoustic_fingerprint TEXT NOT NULL, duration_seconds REAL NOT NULL,
-  size_bytes INTEGER NOT NULL, codec TEXT NOT NULL, sample_rate INTEGER, channels INTEGER,
-  source_fingerprint TEXT NOT NULL, source_metadata_json TEXT NOT NULL DEFAULT '{}',
-  cached INTEGER NOT NULL DEFAULT 1, retrieved_at TEXT NOT NULL,
-  pruned_at TEXT, prune_reason TEXT, created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE(audio_catalog_id, byte_sha256),
-  FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS audio_cache_prune_receipts (
-  id TEXT PRIMARY KEY, refresh_run_id TEXT NOT NULL,
-  audio_cache_object_id TEXT NOT NULL, audio_catalog_id TEXT NOT NULL,
-  cache_path TEXT NOT NULL, byte_sha256 TEXT NOT NULL,
-  acoustic_fingerprint TEXT NOT NULL, size_bytes INTEGER NOT NULL,
-  reason TEXT NOT NULL, pruned_at TEXT NOT NULL, created_at TEXT NOT NULL,
-  UNIQUE(refresh_run_id, audio_cache_object_id),
-  FOREIGN KEY(refresh_run_id) REFERENCES audio_refresh_runs(id) ON UPDATE CASCADE,
-  FOREIGN KEY(audio_cache_object_id) REFERENCES audio_cache_objects(id) ON UPDATE CASCADE,
-  FOREIGN KEY(audio_catalog_id) REFERENCES audio_catalog(id) ON UPDATE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS campaign_reference_plans (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL,
@@ -1230,8 +1206,6 @@ CREATE INDEX IF NOT EXISTS idx_audio_selections_recommendation ON audio_selectio
 CREATE INDEX IF NOT EXISTS idx_audio_performance_campaign ON audio_performance_rollups(campaign_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_audio_platform_sound_catalog
   ON audio_platform_sound_ids(audio_catalog_id, platform);
-CREATE INDEX IF NOT EXISTS idx_audio_cache_catalog
-  ON audio_cache_objects(audio_catalog_id, cached, retrieved_at);
 CREATE INDEX IF NOT EXISTS idx_audio_refresh_started
   ON audio_refresh_runs(started_at, status);
 CREATE INDEX IF NOT EXISTS idx_campaign_reference_plans_campaign ON campaign_reference_plans(campaign_id, created_at);
@@ -1496,4 +1470,10 @@ CREATE TABLE IF NOT EXISTS content_graph_sync_state (
   last_synced_at TEXT NOT NULL
 );
 """
-SCHEMA = BASE_SCHEMA + CONTENT_DIRECTOR_SCHEMA + EXISTING_MEDIA_SCHEMA
+SCHEMA = (
+    BASE_SCHEMA
+    + AUDIO_CACHE_SCHEMA
+    + CONTENT_DIRECTOR_SCHEMA
+    + EXISTING_MEDIA_SCHEMA
+    + REFERENCE_AUDIO_SCHEMA
+)

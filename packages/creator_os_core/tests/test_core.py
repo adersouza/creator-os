@@ -43,6 +43,15 @@ def test_sqlite_connection_and_idempotent_columns(tmp_path: Path) -> None:
         assert columns == {"id", "label"}
 
 
+def test_sqlite_connection_supports_true_in_memory_database(tmp_path: Path) -> None:
+    marker = tmp_path / ":memory:"
+    with connect_sqlite(":memory:", wal=False) as conn:
+        conn.execute("CREATE TABLE example (value TEXT)")
+        conn.execute("INSERT INTO example VALUES ('ok')")
+        assert conn.execute("SELECT value FROM example").fetchone()[0] == "ok"
+    assert not marker.exists()
+
+
 def test_vector_contract() -> None:
     assert normalize_vector([3.0, 4.0]) == [0.6, 0.8]
     assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == 1.0
