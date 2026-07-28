@@ -7,7 +7,6 @@ dependencies = [
   "creator-os-core",
   "pdqhash>=0.2.8,<1",
   "pipeline-contracts",
-  "pytest>=9.0.3,<10",
   "reference-factory",
   "reel-factory",
 ]
@@ -48,6 +47,7 @@ dev = [
     "hypothesis-jsonschema>=0.23,<1",
     "import-linter>=2.11",
     "mypy>=1.11,<2",
+    "pytest>=9.0.3,<10",
     "ruff>=0.8,<1",
     "setuptools>=83",
 ]
