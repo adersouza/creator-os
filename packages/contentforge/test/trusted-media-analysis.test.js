@@ -488,6 +488,35 @@ function run(command, args) {
   });
 }
 
+test("real pose analyzer toolchain fingerprint matches the trusted validator", async function () {
+  var script = path.join(
+    ROOT,
+    "packages/contentforge/scripts/local-pose-continuity-analyzer.py",
+  );
+  var probe = [
+    "import importlib.util, json, sys",
+    "from types import SimpleNamespace",
+    "from unittest.mock import patch",
+    "spec = importlib.util.spec_from_file_location('pose_analyzer', sys.argv[1])",
+    "module = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(module)",
+    "responses = [",
+    "  SimpleNamespace(returncode=0, stdout='Swift fixture\\n'),",
+    "  SimpleNamespace(returncode=0, stdout='fixture-macos\\n'),",
+    "  SimpleNamespace(returncode=0, stdout='fixture-build\\n'),",
+    "]",
+    "with patch.object(module.subprocess, 'run', side_effect=responses):",
+    "  result = module._toolchain_identity(sys.executable, {})",
+    "print(json.dumps(result, sort_keys=True))",
+  ].join("\n");
+  var { stdout } = await run("python3", ["-c", probe, script]);
+  var toolchain = JSON.parse(stdout);
+  var core = { ...toolchain };
+  delete core.toolchainFingerprint;
+  assert.equal(core.available, true);
+  assert.equal(toolchain.toolchainFingerprint, fingerprint(core));
+});
+
 test("produces deterministic raw observations from exact media", async function () {
   await withFixture(async function ({ media, source }) {
     var args = {
