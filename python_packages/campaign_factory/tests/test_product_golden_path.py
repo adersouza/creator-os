@@ -435,6 +435,14 @@ def test_cloud_production_uses_pinned_higgsfield_kling_recipe(tmp_path: Path) ->
     assert all(
         job["productionRecipe"]["stages"][0]["sound"] == "off" for job in batch["jobs"]
     )
+    assert all(
+        job["promptCard"]["source"]["sha256"] == job["sourceSha256"]
+        for job in batch["jobs"]
+    )
+    assert all(job["compatibility"]["providerCalls"] == 0 for job in batch["jobs"])
+    assert all(
+        job["compiledPrompt"]["compiledPromptFingerprint"] for job in batch["jobs"]
+    )
 
 
 def test_non_talking_production_requires_embedded_trending(tmp_path: Path) -> None:

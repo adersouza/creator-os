@@ -73,6 +73,27 @@ _COMMON_SAFETY = (
     "large camera moves, or major pose changes."
 )
 
+PASSIVE_SAFETY_CONSTRAINTS = (
+    "same creator identity",
+    "same outfit",
+    "same setting",
+    "same pose family",
+    "restrained casual movement",
+    "full face and head visibility",
+    "no unexpected text",
+    "no extra people",
+    "no cuts",
+    "no outfit changes",
+    "no location changes",
+    "no generated soundtrack",
+)
+
+
+def passive_safety_prompt() -> str:
+    """Shared deterministic safety language for supported passive recipes."""
+
+    return _COMMON_SAFETY
+
 
 @dataclass(frozen=True)
 class ReelMotionPrompt:

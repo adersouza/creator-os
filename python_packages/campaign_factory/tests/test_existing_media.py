@@ -12,6 +12,7 @@ from campaign_factory.existing_media import (
     attach_existing_to_plan,
     inspect_intake,
     review_existing_asset,
+    summarize_existing_reviews,
 )
 
 SOUL_ID = "d63ea9c7-b2c7-439c-bf0c-edfdf9938a36"
@@ -423,6 +424,88 @@ def test_review_binds_exact_sha_and_does_not_transfer(tmp_path: Path) -> None:
             notes=None,
             apply=False,
         )
+
+
+def test_review_reasons_are_exact_sha_bound_and_blanks_stay_unknown(
+    tmp_path: Path,
+) -> None:
+    conn, manifest, files = _fixture(tmp_path)
+    asset = apply_intake(conn, inspect_intake(conn, manifest, probe=_probe))[
+        "renderedAssetId"
+    ]
+    reviewed = review_existing_asset(
+        conn,
+        rendered_asset_id=asset,
+        final_sha256=_sha(files["final"]),
+        reviewer="operator",
+        verdict="REJECT",
+        results={},
+        rejection_reasons=["MOTION_UNNATURAL"],
+        notes=None,
+        apply=True,
+    )
+    assert reviewed["sourceSha256"] == _sha(files["source"])
+    assert reviewed["rejectionReasons"] == ["MOTION_UNNATURAL"]
+    assert reviewed["promptCardFingerprint"] is None
+    row = conn.execute(
+        "SELECT * FROM existing_media_asset_reviews WHERE id = ?",
+        (reviewed["reviewId"],),
+    ).fetchone()
+    assert json.loads(row["rejection_reasons_json"]) == ["MOTION_UNNATURAL"]
+    summary = summarize_existing_reviews(conn)
+    assert summary["explicitReasonCount"] == 1
+    assert summary["groups"][0]["rejectionReason"] == "MOTION_UNNATURAL"
+
+
+def test_historical_review_rows_remain_readable_and_not_counted_as_reasons(
+    tmp_path: Path,
+) -> None:
+    conn, manifest, files = _fixture(tmp_path)
+    asset = apply_intake(conn, inspect_intake(conn, manifest, probe=_probe))[
+        "renderedAssetId"
+    ]
+    conn.execute(
+        """
+        INSERT INTO existing_media_asset_reviews (
+          id, rendered_asset_id, final_sha256, creator, reviewer, verdict,
+          results_json, notes, contract_version, created_at
+        ) VALUES ('old', ?, ?, 'stacey', 'operator', 'WOULD_POST',
+                  '{}', NULL, 'existing-video-intake.v1', '2026-01-01T00:00:00Z')
+        """,
+        (asset, _sha(files["final"])),
+    )
+    summary = summarize_existing_reviews(conn)
+    assert summary["reviewCount"] == 1
+    assert summary["explicitReasonCount"] == 0
+    assert summary["groups"] == []
+
+
+def test_review_summary_reads_pre_upgrade_table_without_migration() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE existing_media_asset_reviews (
+          id TEXT PRIMARY KEY,
+          rendered_asset_id TEXT NOT NULL,
+          final_sha256 TEXT NOT NULL,
+          creator TEXT NOT NULL,
+          reviewer TEXT NOT NULL,
+          verdict TEXT NOT NULL,
+          results_json TEXT NOT NULL DEFAULT '{}',
+          notes TEXT,
+          contract_version TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO existing_media_asset_reviews VALUES (
+          'old', 'asset', 'abc', 'stacey', 'operator', 'WOULD_POST',
+          '{}', NULL, 'existing-video-intake.v1', '2026-01-01T00:00:00Z'
+        );
+        """
+    )
+    summary = summarize_existing_reviews(conn)
+    assert summary["reviewCount"] == 1
+    assert summary["explicitReasonCount"] == 0
 
 
 def _plan(conn: sqlite3.Connection, *, source_id: str = "source") -> None:

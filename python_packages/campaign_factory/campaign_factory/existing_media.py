@@ -24,11 +24,30 @@ from .db import init_db
 
 INTAKE_SCHEMA = "creator_os.existing_video_intake.v1"
 INTAKE_RECEIPT_SCHEMA = "creator_os.existing_video_intake_receipt.v1"
-REVIEW_SCHEMA = "creator_os.existing_video_review.v1"
+REVIEW_SCHEMA = "creator_os.existing_video_review.v2"
+REVIEW_SUMMARY_SCHEMA = "creator_os.existing_video_review_summary.v1"
 ATTACHMENT_SCHEMA = "creator_os.existing_video_plan_attachment.v1"
 CONTRACT_VERSION = "existing-video-intake.v1"
+REVIEW_CONTRACT_VERSION = "existing-video-review.v2"
 REVIEW_VERDICTS = frozenset({"WOULD_POST", "USABLE_AFTER_EDIT", "REJECT"})
 REVIEW_RESULTS = frozenset({"identity", "anatomy", "motion", "phoneNative", "audioFit"})
+REJECTION_REASONS = frozenset(
+    {
+        "IDENTITY_FAILURE",
+        "BODY_PROPORTION_FAILURE",
+        "ANATOMY_FAILURE",
+        "MOTION_UNNATURAL",
+        "EXPRESSION_MISMATCH",
+        "LIGHTING_SYNTHETIC",
+        "SETTING_DRIFT",
+        "OUTFIT_DRIFT",
+        "CAMERA_FAILURE",
+        "AUDIO_MISMATCH",
+        "PROMPT_MISMATCH",
+        "DUPLICATE_OR_TOO_SIMILAR",
+        "NOT_POSTABLE_GENERAL",
+    }
+)
 STRUCTURAL_BLOCKERS = frozenset(
     {
         "manifest_schema_invalid",
@@ -792,6 +811,7 @@ def review_existing_asset(
     reviewer: str,
     verdict: str,
     results: dict[str, str] | None,
+    rejection_reasons: list[str] | tuple[str, ...] | None = None,
     notes: str | None,
     apply: bool,
 ) -> dict[str, Any]:
@@ -803,7 +823,7 @@ def review_existing_asset(
         raise ValueError("reviewer is required")
     row = conn.execute(
         """
-        SELECT ra.*, m.slug AS creator
+        SELECT ra.*, m.slug AS creator, sa.content_hash AS source_sha256
         FROM rendered_assets ra
         JOIN source_assets sa ON sa.id = ra.source_asset_id
         JOIN models m ON m.id = sa.model_id
@@ -823,16 +843,75 @@ def review_existing_asset(
         for key, value in (results or {}).items()
         if key in REVIEW_RESULTS and _text(value)
     }
+    normalized_reasons = sorted(
+        {_text(value).upper() for value in (rejection_reasons or []) if _text(value)}
+    )
+    unsupported = set(normalized_reasons) - REJECTION_REASONS
+    if unsupported:
+        raise ValueError(
+            "unsupported rejection reason: " + ", ".join(sorted(unsupported))
+        )
+    intake_row = conn.execute(
+        """
+        SELECT receipt_json FROM existing_media_intakes
+        WHERE rendered_asset_id = ? AND final_sha256 = ?
+        ORDER BY updated_at DESC, id DESC LIMIT 1
+        """,
+        (rendered_asset_id, final_sha256),
+    ).fetchone()
+    intake = _record(json.loads(intake_row["receipt_json"])) if intake_row else {}
+    generation = _record(intake.get("generation"))
+    metadata = _record(json.loads(asset.get("metadata_json") or "{}"))
+    paid_generation = _record(metadata.get("paidGenerationEvidence"))
+    production_recipe = _record(metadata.get("productionMotionRecipe"))
+    if not generation:
+        generation = {
+            "provider": paid_generation.get("provider"),
+            "model": paid_generation.get("providerModel") or metadata.get("modelId"),
+            "recipe": production_recipe.get("recipeId"),
+            "generationId": paid_generation.get("generationId"),
+            "seed": paid_generation.get("seed"),
+        }
+    prompt_card = _record(metadata.get("promptCard"))
+    compiled_prompt = _record(metadata.get("compiledPrompt"))
+    source_class = _text(metadata.get("sourceClass") or asset.get("frame_type")) or None
+    evidence = {
+        "sourceSha256": _text(asset.get("source_sha256")) or None,
+        "promptCardFingerprint": _text(
+            prompt_card.get("promptCardFingerprint")
+            or metadata.get("promptCardFingerprint")
+        )
+        or None,
+        "compiledPromptFingerprint": _text(
+            compiled_prompt.get("compiledPromptFingerprint")
+            or metadata.get("compiledPromptFingerprint")
+        )
+        or None,
+        "provider": _text(generation.get("provider")) or None,
+        "modelTool": _text(generation.get("model")) or None,
+        "recipeId": _text(generation.get("recipe")) or None,
+        "generationId": _text(generation.get("generationId")) or None,
+        "seed": generation.get("seed")
+        if isinstance(generation.get("seed"), int)
+        else None,
+        "contentIntent": _text(
+            intake.get("contentIntent") or metadata.get("contentIntent")
+        )
+        or None,
+        "sourceClass": source_class,
+    }
     core = {
         "schema": REVIEW_SCHEMA,
-        "contractVersion": CONTRACT_VERSION,
+        "contractVersion": REVIEW_CONTRACT_VERSION,
         "renderedAssetId": rendered_asset_id,
         "finalSha256": final_sha256,
         "creator": asset["creator"],
         "reviewer": reviewer,
         "verdict": verdict,
+        "rejectionReasons": normalized_reasons,
         "results": normalized_results,
         "notes": notes,
+        **evidence,
     }
     review_id = f"review_existing_{_fingerprint(core)[:20]}"
     preview = {
@@ -854,20 +933,34 @@ def review_existing_asset(
     conn.execute(
         """
         INSERT OR IGNORE INTO existing_media_asset_reviews (
-          id, rendered_asset_id, final_sha256, creator, reviewer, verdict,
-          results_json, notes, contract_version, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, rendered_asset_id, final_sha256, source_sha256,
+          prompt_card_fingerprint, compiled_prompt_fingerprint, provider,
+          model_tool, recipe_id, generation_id, seed, creator, content_intent, source_class,
+          reviewer, verdict, rejection_reasons_json, results_json, notes,
+          contract_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             review_id,
             rendered_asset_id,
             final_sha256,
+            evidence["sourceSha256"],
+            evidence["promptCardFingerprint"],
+            evidence["compiledPromptFingerprint"],
+            evidence["provider"],
+            evidence["modelTool"],
+            evidence["recipeId"],
+            evidence["generationId"],
+            evidence["seed"],
             asset["creator"],
+            evidence["contentIntent"],
+            evidence["sourceClass"],
             reviewer,
             verdict,
+            _json(normalized_reasons),
             _json(normalized_results),
             notes,
-            CONTRACT_VERSION,
+            REVIEW_CONTRACT_VERSION,
             now,
         ),
     )
@@ -878,6 +971,88 @@ def review_existing_asset(
     )
     conn.commit()
     return {**preview, "dryRun": False, "reviewedAt": now}
+
+
+def summarize_existing_reviews(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Summarize only explicitly recorded reasons; blanks remain unknown."""
+
+    columns = (
+        {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(existing_media_asset_reviews)"
+            ).fetchall()
+        }
+        if _table_exists(conn, "existing_media_asset_reviews")
+        else set()
+    )
+
+    def selected(column: str) -> str:
+        return column if column in columns else f"NULL AS {column}"
+
+    rows = (
+        conn.execute(
+            f"""
+            SELECT creator, {selected("content_intent")}, {selected("provider")},
+                   {selected("model_tool")}, {selected("recipe_id")},
+                   {selected("source_class")}, {selected("rejection_reasons_json")}
+            FROM existing_media_asset_reviews
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        if _table_exists(conn, "existing_media_asset_reviews")
+        else []
+    )
+    counts: dict[tuple[str, str, str, str, str], int] = {}
+    reviewed = 0
+    explicit = 0
+    for row in rows:
+        reviewed += 1
+        try:
+            reasons = json.loads(row["rejection_reasons_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            reasons = []
+        if not isinstance(reasons, list):
+            reasons = []
+        for reason in reasons:
+            normalized = _text(reason).upper()
+            if normalized not in REJECTION_REASONS:
+                continue
+            explicit += 1
+            key = (
+                _text(row["creator"]) or "unknown",
+                _text(row["content_intent"]) or "unknown",
+                "/".join(
+                    value
+                    for value in (
+                        _text(row["provider"]),
+                        _text(row["model_tool"]),
+                        _text(row["recipe_id"]),
+                    )
+                    if value
+                )
+                or "unknown",
+                _text(row["source_class"]) or "unknown",
+                normalized,
+            )
+            counts[key] = counts.get(key, 0) + 1
+    return {
+        "schema": REVIEW_SUMMARY_SCHEMA,
+        "predictiveClaim": False,
+        "reviewCount": reviewed,
+        "explicitReasonCount": explicit,
+        "groups": [
+            {
+                "creator": key[0],
+                "intent": key[1],
+                "modelRecipe": key[2],
+                "sourceClass": key[3],
+                "rejectionReason": key[4],
+                "count": count,
+            }
+            for key, count in sorted(counts.items())
+        ],
+    }
 
 
 def attach_existing_to_plan(
@@ -1144,6 +1319,12 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument("--motion")
     review.add_argument("--phone-native", dest="phoneNative")
     review.add_argument("--audio-fit", dest="audioFit")
+    review.add_argument(
+        "--rejection-reason",
+        action="append",
+        default=[],
+        choices=sorted(REJECTION_REASONS),
+    )
     review.add_argument("--notes")
     review_mode = review.add_mutually_exclusive_group(required=True)
     review_mode.add_argument("--dry-run", action="store_true")
@@ -1155,6 +1336,7 @@ def _parser() -> argparse.ArgumentParser:
     attach_mode = attach.add_mutually_exclusive_group(required=True)
     attach_mode.add_argument("--dry-run", action="store_true")
     attach_mode.add_argument("--apply", action="store_true")
+    sub.add_parser("review-summary")
     return parser
 
 
@@ -1180,10 +1362,11 @@ def main(argv: list[str] | None = None) -> int:
                 reviewer=args.reviewer,
                 verdict=args.verdict,
                 results=results,
+                rejection_reasons=args.rejection_reason,
                 notes=args.notes,
                 apply=args.apply,
             )
-        else:
+        elif args.command == "attach":
             result = attach_existing_to_plan(
                 conn,
                 plan_id=args.plan,
@@ -1191,6 +1374,8 @@ def main(argv: list[str] | None = None) -> int:
                 rendered_asset_id=args.asset,
                 apply=args.apply,
             )
+        else:
+            result = summarize_existing_reviews(conn)
     finally:
         conn.close()
     print(json.dumps(result, indent=2, sort_keys=True))

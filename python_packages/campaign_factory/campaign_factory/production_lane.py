@@ -55,6 +55,14 @@ from .production_batch_results import (
     finalize_production_batch as _finalize_production_batch,
 )
 from .production_batch_results import probe_production_video as _probe_production_video
+from .production_creative_evidence import (
+    build_job_creative_evidence,
+    persist_asset_creative_evidence,
+    prepare_source_creative_evidence,
+)
+from .production_creative_evidence import (
+    expand_production_job_prompt as _expand_production_job_prompt,
+)
 from .production_prompts import CREATOR_SOUL_IDS as _CREATOR_SOUL_IDS
 from .production_prompts import INTENT_PROMPTS as _INTENT_PROMPTS
 from .production_source_selection import select_requested_source_assets
@@ -386,32 +394,6 @@ def build_production_motion_recipe(
     return {**core, "recipeFingerprint": _fingerprint(core)}
 
 
-def bind_production_prompt_expansion(
-    recipe: Mapping[str, Any],
-    *,
-    original_prompt: str,
-    expansion: Mapping[str, Any],
-) -> dict[str, Any]:
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    if len(expanded_prompt) < 20:
-        raise ValueError("Qwen Wan prompt expansion did not return a usable prompt")
-    core = {
-        key: value for key, value in dict(recipe).items() if key != "recipeFingerprint"
-    }
-    core.update(
-        {
-            "originalPromptSha256": hashlib.sha256(
-                " ".join(original_prompt.split()).encode("utf-8")
-            ).hexdigest(),
-            "expandedPromptSha256": hashlib.sha256(
-                expanded_prompt.encode("utf-8")
-            ).hexdigest(),
-            "promptExpansion": dict(expansion),
-        }
-    )
-    return {**core, "recipeFingerprint": _fingerprint(core)}
-
-
 def validate_production_motion_recipe(
     recipe: dict[str, Any], *, model_id: str, source_sha256: str
 ) -> dict[str, Any]:
@@ -530,9 +512,6 @@ def plan_production_batch(
                 continue
             width, height = resolution
             ratio = width / height
-            if not 0.50 <= ratio <= 0.65:
-                incompatible_sources += 1
-                continue
             if intent in _MOTION_CONTROL_INTENTS and min(width, height) < 300:
                 incompatible_sources += 1
                 continue
@@ -541,6 +520,10 @@ def plan_production_batch(
                 "height": height,
                 "aspectRatio": round(ratio, 6),
             }
+        prepare_source_creative_evidence(source)
+        if source["compatibility"]["hardBlockers"]:
+            incompatible_sources += 1
+            continue
         source["stored_path"] = str(path)
         seen_source_hashes.add(recorded_sha)
         sources.append(source)
@@ -589,11 +572,19 @@ def plan_production_batch(
             execution=execution,
             source_sha256=source_sha,
         )
+        prompt_card, compiled_prompt = build_job_creative_evidence(
+            creator=creator_slug,
+            intent=intent,
+            source=source,
+            selected_prompt=selected_prompt,
+            learning_decision=learning_decision,
+        )
         identity = _fingerprint(
             {
                 "source": source_sha,
                 "seed": seed,
-                "prompt": selected_prompt,
+                "prompt": compiled_prompt["text"],
+                "promptCard": prompt_card["promptCardFingerprint"],
                 "model": recipe["modelId"],
                 "speechAudio": speech_sha,
                 "motionReference": motion_reference_sha,
@@ -611,6 +602,9 @@ def plan_production_batch(
                 "creator": creator_slug,
                 "intent": intent,
                 "prompt": selected_prompt,
+                "promptCard": prompt_card,
+                "compiledPrompt": compiled_prompt,
+                "compatibility": source["compatibility"],
                 "seed": seed,
                 "requestFingerprint": identity,
                 "accountGroup": accounts,
@@ -813,37 +807,6 @@ def run_production_batch(
     )
     finalized["learningDecisionReceiptId"] = receipt_id
     return finalized
-
-
-def _expand_production_job_prompt(job: Mapping[str, Any]) -> dict[str, Any]:
-    from reel_factory.worker_api import expand_local_wan_i2v_prompt
-
-    source = Path(str(job["sourcePath"])).expanduser().resolve()
-    expansion = expand_local_wan_i2v_prompt(
-        image_path=source,
-        original_prompt=str(job["prompt"]),
-    )
-    expanded_prompt = " ".join(str(expansion.get("expandedPrompt") or "").split())
-    recipe = bind_production_prompt_expansion(
-        job["productionRecipe"],
-        original_prompt=str(job["prompt"]),
-        expansion=expansion,
-    )
-    return {
-        **dict(job),
-        "originalPrompt": job["prompt"],
-        "prompt": expanded_prompt,
-        "promptExpansion": expansion,
-        "productionRecipe": recipe,
-        "requestFingerprint": _fingerprint(
-            {
-                "source": job["sourceSha256"],
-                "seed": job["seed"],
-                "prompt": expanded_prompt,
-                "model": recipe["modelId"],
-            }
-        ),
-    }
 
 
 def _supports_isolated_factories(factory: Any) -> bool:
@@ -1238,6 +1201,11 @@ def _execute_higgsfield_provider_job(
             prompt=str(job["prompt"]),
             audio_policy=str(job["audioPolicy"]),
             pipeline_job_id=str(pipeline_job["id"]),
+        )
+        persist_asset_creative_evidence(
+            factory.conn,
+            registered=registered,
+            job=job,
         )
         result = {
             "schema": "campaign_factory.motion_generation_stage_run.v1",
