@@ -140,7 +140,62 @@ def test_record_audio_performance_snapshot_writes_rollup_and_graph(tmp_path: Pat
         cf.close()
 
 
-def test_future_embedded_audio_selection_links_exact_publication(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("creative_context", "selection", "selected_track", "selected_segment"),
+    [
+        (
+            {
+                "creator": "stacey",
+                "creatorIdentityProfile": "soul_stacey",
+                "account": "stacey-main",
+                "intent": "passive_selfie",
+            },
+            {
+                "platform": "tiktok",
+                "platformMusicId": "music_123",
+                "acousticFingerprint": "fp_exact",
+            },
+            {
+                "trackId": "music_123",
+                "acquiredAudioSha256": "a" * 64,
+            },
+            {
+                "startSeconds": 3.0,
+                "endSeconds": 8.0,
+                "processedSha256": "b" * 64,
+            },
+        ),
+        (
+            {
+                "creator": "stacey",
+                "creator_identity_profile": "soul_stacey",
+                "account_id": "stacey-main",
+                "content_intent": "passive_selfie",
+            },
+            {
+                "platform": "tiktok",
+                "platform_music_id": "music_123",
+                "advisoryLabels": {"acousticFingerprint": "fp_exact"},
+            },
+            {
+                "trackId": "music_123",
+                "acquired_audio_sha256": "a" * 64,
+            },
+            {
+                "start_offset_seconds": 0.0,
+                "end_seconds": 5.0,
+                "processed_segment_sha256": "b" * 64,
+            },
+        ),
+    ],
+)
+def test_future_embedded_audio_selection_links_exact_publication(
+    tmp_path: Path,
+    creative_context: dict[str, object],
+    selection: dict[str, object],
+    selected_track: dict[str, object],
+    selected_segment: dict[str, object],
+):
     catalog_path = tmp_path / "audio_memory.json"
     catalog_path.write_text(
         json.dumps(
@@ -173,26 +228,10 @@ def test_future_embedded_audio_selection_links_exact_publication(tmp_path: Path)
             "schema": "campaign_factory.embedded_audio_selection.v1",
             "renderedAssetId": "asset_1",
             "audioCatalogId": "aud_exact",
-            "creativeContext": {
-                "creator": "stacey",
-                "creatorIdentityProfile": "soul_stacey",
-                "account": "stacey-main",
-                "intent": "passive_selfie",
-            },
-            "selection": {
-                "platform": "tiktok",
-                "platformMusicId": "music_123",
-                "acousticFingerprint": "fp_exact",
-            },
-            "selectedTrack": {
-                "trackId": "music_123",
-                "acquiredAudioSha256": "a" * 64,
-            },
-            "selectedSegment": {
-                "startSeconds": 3.0,
-                "endSeconds": 8.0,
-                "processedSha256": "b" * 64,
-            },
+            "creativeContext": creative_context,
+            "selection": selection,
+            "selectedTrack": selected_track,
+            "selectedSegment": selected_segment,
             "finalVideo": {"sha256": final_sha},
         }
         campaign = cf.domains.campaign_by_slug("may")
@@ -257,6 +296,11 @@ def test_future_embedded_audio_selection_links_exact_publication(tmp_path: Path)
         assert linked["instagramMediaId"] == "18000000000000001"
         assert linked["finalMediaSha256"] == final_sha
         assert linked["processedSegmentSha256"] == "b" * 64
+        assert linked["segmentStartSeconds"] == (
+            selected_segment.get("startSeconds")
+            if "startSeconds" in selected_segment
+            else selected_segment["start_offset_seconds"]
+        )
         rollup = cf.conn.execute(
             "SELECT stats_json FROM audio_performance_rollups"
         ).fetchone()

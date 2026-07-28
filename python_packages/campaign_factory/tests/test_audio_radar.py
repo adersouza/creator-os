@@ -312,6 +312,7 @@ def test_embedding_refuses_to_replace_its_source_video(tmp_path: Path) -> None:
     )
     segment = SegmentSelection(
         start_offset_seconds=0,
+        end_seconds=5,
         duration_seconds=5,
         segment_score=1,
         rms_energy=1,
@@ -322,6 +323,7 @@ def test_embedding_refuses_to_replace_its_source_video(tmp_path: Path) -> None:
         hook_evidence="test",
         selection_reason="test",
         decoded_audio_fingerprint="c" * 64,
+        processed_segment_sha256="c" * 64,
     )
 
     with pytest.raises(AudioEmbeddingError, match="must differ"):
@@ -374,9 +376,12 @@ def test_segment_selection_scores_full_track_and_avoids_zero_default(
     )
 
     assert selected.start_offset_seconds > 0
+    assert selected.end_seconds == selected.start_offset_seconds + 3
     assert selected.duration_seconds == 3
     assert selected.onset_count >= 0
     assert len(selected.decoded_audio_fingerprint) == 64
+    assert selected.processed_segment_sha256 == selected.decoded_audio_fingerprint
+    assert selected.processed_segment_format == "s16le_mono_16000hz"
     assert abs(cooled.start_offset_seconds - selected.start_offset_seconds) > 0.25
 
 
