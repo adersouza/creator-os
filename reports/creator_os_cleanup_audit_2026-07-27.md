@@ -12,9 +12,9 @@ merged local task branches, 12 merged remote task branches, ignored development
 caches, and package-manager objects reported unused. Four open Dependabot PRs
 were preserved.
 
-The measured footprint fell by 31,143,585,915 logical bytes and 990,924 files.
+The measured footprint fell by 31,123,438,743 logical bytes and 989,917 files.
 Because the worktrees used APFS clone sharing, actual filesystem free space rose
-by 3,432,222,720 bytes; the larger summed block-size delta is not presented as
+by 3,113,721,856 bytes; the larger summed block-size delta is not presented as
 real disk recovery.
 
 ## Starting truth
@@ -191,11 +191,11 @@ were retained for operational review.
 
 | Metric | Before | After automatic cleanup |
 | --- | ---: | ---: |
-| Logical bytes | 218,689,316,007 | 187,545,730,092 |
-| File-block bytes | 223,121,379,328 | 189,124,542,464 |
-| Files | 1,509,609 | 518,685 |
-| Directories | 224,853 | 90,884 |
-| Available disk | 523,542,142,976 | 526,974,365,696 |
+| Logical bytes | 218,689,316,007 | 187,565,877,264 |
+| File-block bytes | 223,121,379,328 | 189,147,009,024 |
+| Files | 1,509,609 | 519,692 |
+| Directories | 224,853 | 90,935 |
+| Available disk | 523,542,142,976 | 526,655,864,832 |
 | Worktrees | 16 | 4 after creating two active cleanup PR worktrees |
 | Local branches | 15 | 3 including two active cleanup branches |
 
