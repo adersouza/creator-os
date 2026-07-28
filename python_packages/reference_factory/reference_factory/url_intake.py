@@ -684,9 +684,22 @@ def _find_existing(
             "SELECT receipt_path FROM reference_anchor_receipts WHERE reference_id = ? ORDER BY created_at DESC LIMIT 1",
             (row["reference_id"],),
         ).fetchone()
+        frame_samples = [
+            dict(item)
+            for item in conn.execute(
+                """
+                SELECT role,frame_path,time_sec
+                FROM frame_samples
+                WHERE reference_id = ?
+                ORDER BY role
+                """,
+                (row["reference_id"],),
+            ).fetchall()
+        ]
         return {
             **dict(row),
             "receipt_path": receipt["receipt_path"] if receipt else None,
+            "frame_samples": frame_samples,
             "duplicateReason": reason,
         }
     finally:
@@ -698,10 +711,40 @@ def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if receipt_path.is_file():
         payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    source_path = Path(str(existing["path"]))
+    media = _probe_media(
+        source_path,
+        ffprobe=shutil.which("ffprobe") or "ffprobe",
+    )
+    duration = float(media.get("durationSeconds") or 0)
+    metadata = json.loads(str(existing.get("intake_metadata_json") or "{}"))
+    frame_derivatives = {}
+    for sample in existing.get("frame_samples") or []:
+        frame_path = Path(str(sample["frame_path"]))
+        frame_derivatives[str(sample["role"])] = {
+            "path": str(frame_path),
+            "proposedPath": str(frame_path),
+            "sha256": content_hash(frame_path) if frame_path.is_file() else None,
+            "timeSec": float(sample["time_sec"]),
+        }
+    contact_sheet_path = source_path.parent / "scene_contact_sheet.jpg"
+    candidates = [
+        {
+            "timeSec": candidate.get("timeSec"),
+            "sha256": candidate.get("sha256"),
+            "score": candidate.get("score"),
+            "excluded": candidate.get("excluded"),
+            "exclusions": candidate.get("exclusions"),
+            "measurements": candidate.get("measurements") or {},
+        }
+        for candidate in payload.get("candidateFrames") or []
+        if isinstance(candidate, dict)
+    ]
     return {
         "schema": SCHEMA,
         "referenceId": existing["reference_id"],
         "apply": apply,
+        "media": media,
         "source": {
             "path": existing["path"],
             "sha256": existing["content_hash"],
@@ -710,9 +753,27 @@ def _load_receipt(existing: dict[str, Any], *, apply: bool) -> dict[str, Any]:
             "originalUrl": existing.get("original_url"),
             "canonicalUrl": existing.get("canonical_url"),
         },
+        "sourceSpeakingClassification": (
+            "DECLARED_TALKING" if metadata.get("declaredTalking") else "UNKNOWN"
+        ),
+        "sceneCutsSeconds": _detect_scene_cuts(
+            source_path,
+            duration=duration,
+            ffmpeg=shutil.which("ffmpeg") or "ffmpeg",
+        ),
         "selectedAnchor": payload.get("selectedFrame"),
         "anchorReceiptPath": str(receipt_path) if receipt_path.is_file() else None,
-        "frameDerivatives": {},
+        "frameDerivatives": frame_derivatives,
+        "contactSheet": {
+            "path": str(contact_sheet_path) if contact_sheet_path.is_file() else None,
+            "proposedPath": str(contact_sheet_path),
+            "sha256": (
+                content_hash(contact_sheet_path)
+                if contact_sheet_path.is_file()
+                else None
+            ),
+        },
+        "anchorCandidates": candidates,
     }
 
 

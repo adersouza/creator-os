@@ -136,6 +136,15 @@ def test_dry_run_is_write_free_and_apply_is_idempotent(
     assert first["duplicateResult"] == "created"
     assert existing_dry["duplicateResult"] == "reused_platform_media_id"
     assert existing_dry["apply"] is False
+    assert existing_dry["media"]["durationSeconds"] == pytest.approx(1.0)
+    assert existing_dry["media"]["width"] == 360
+    assert existing_dry["media"]["height"] == 640
+    assert existing_dry["sourceSpeakingClassification"] == "UNKNOWN"
+    assert len(existing_dry["anchorCandidates"]) == len(first["anchorCandidates"])
+    assert (
+        existing_dry["frameDerivatives"]["best_anchor"]["sha256"]
+        == first["frameDerivatives"]["best_anchor"]["sha256"]
+    )
     assert before == after
     assert second["duplicateResult"] == "reused_platform_media_id"
     with sqlite3.connect(db_path) as conn:
