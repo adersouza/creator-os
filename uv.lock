@@ -433,7 +433,6 @@ dependencies = [
     { name = "creator-os-core" },
     { name = "pdqhash" },
     { name = "pipeline-contracts" },
-    { name = "pytest" },
     { name = "reel-factory" },
     { name = "reference-factory" },
 ]
@@ -444,6 +443,7 @@ dev = [
     { name = "hypothesis-jsonschema" },
     { name = "import-linter" },
     { name = "mypy" },
+    { name = "pytest" },
     { name = "ruff" },
     { name = "setuptools" },
 ]
@@ -454,7 +454,6 @@ requires-dist = [
     { name = "creator-os-core", editable = "packages/creator_os_core" },
     { name = "pdqhash", specifier = ">=0.2.8,<1" },
     { name = "pipeline-contracts", editable = "packages/pipeline_contracts" },
-    { name = "pytest", specifier = ">=9.0.3,<10" },
     { name = "reel-factory", editable = "python_packages/reel_factory" },
     { name = "reference-factory", editable = "python_packages/reference_factory" },
 ]
@@ -465,6 +464,7 @@ dev = [
     { name = "hypothesis-jsonschema", specifier = ">=0.23,<1" },
     { name = "import-linter", specifier = ">=2.11" },
     { name = "mypy", specifier = ">=1.11,<2" },
+    { name = "pytest", specifier = ">=9.0.3,<10" },
     { name = "ruff", specifier = ">=0.8,<1" },
     { name = "setuptools", specifier = ">=83" },
 ]
