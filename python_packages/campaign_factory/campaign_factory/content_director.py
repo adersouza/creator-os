@@ -37,6 +37,7 @@ PLAN_STATES = frozenset(
         "DRAFT",
         "REVIEWED",
         "APPROVED",
+        "EXISTING_ASSET_READY",
         "BLOCKED",
         "GENERATION_READY",
         "GENERATING",
@@ -58,7 +59,13 @@ PLAN_STATES = frozenset(
 PLAN_TRANSITIONS = {
     "DRAFT": {"REVIEWED", "APPROVED", "BLOCKED", "CANCELLED"},
     "REVIEWED": {"APPROVED", "BLOCKED", "CANCELLED"},
-    "APPROVED": {"GENERATION_READY", "BLOCKED", "CANCELLED"},
+    "APPROVED": {
+        "GENERATION_READY",
+        "EXISTING_ASSET_READY",
+        "BLOCKED",
+        "CANCELLED",
+    },
+    "EXISTING_ASSET_READY": {"CREATIVE_APPROVED", "BLOCKED", "CANCELLED"},
     "BLOCKED": {"DRAFT", "APPROVED", "CANCELLED"},
     "GENERATION_READY": {"GENERATING", "BLOCKED", "CANCELLED"},
     "GENERATING": {"RECONCILING", "REVIEW_READY", "BLOCKED"},
@@ -846,6 +853,21 @@ def _parser() -> argparse.ArgumentParser:
     mode = build.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
+    cohort = sub.add_parser(
+        "cohort",
+        help="build or apply one explicit supervised fixed-asset learning cohort",
+    )
+    cohort.add_argument("--creator", required=True)
+    cohort.add_argument("--account", required=True)
+    cohort.add_argument("--intent", required=True)
+    cohort.add_argument("--asset", action="append", required=True)
+    cohort.add_argument("--observation-cohorts", required=True)
+    cohort.add_argument("--mode", choices=["supervised"], required=True)
+    cohort.add_argument("--timezone", default=_policy()["defaultTimezone"])
+    cohort.add_argument("--start-date")
+    cohort_mode = cohort.add_mutually_exclusive_group(required=True)
+    cohort_mode.add_argument("--dry-run", action="store_true")
+    cohort_mode.add_argument("--apply", action="store_true")
     show = sub.add_parser("show")
     show.add_argument("plan_id")
     listing = sub.add_parser("list")
@@ -912,6 +934,34 @@ def main(argv: list[str] | None = None) -> int:
                     "persistentWrites": conn.total_changes - before,
                 }
             )
+        elif args.action == "cohort":
+            from .fixed_asset_cohort import (
+                FixedAssetCohortRequest,
+                apply_fixed_asset_cohort,
+                build_fixed_asset_cohort,
+            )
+
+            observation_cohorts = tuple(
+                value.strip()
+                for value in args.observation_cohorts.split(",")
+                if value.strip()
+            )
+            preview = build_fixed_asset_cohort(
+                conn,
+                FixedAssetCohortRequest(
+                    creator=args.creator,
+                    account=args.account,
+                    intent=args.intent,
+                    asset_ids=tuple(args.asset),
+                    observation_cohorts=observation_cohorts,
+                    autonomy_mode=args.mode.upper(),
+                    timezone=args.timezone,
+                    start_date=date.fromisoformat(
+                        args.start_date or date.today().isoformat()
+                    ),
+                ),
+            )
+            result = apply_fixed_asset_cohort(conn, preview) if args.apply else preview
         elif args.action == "show":
             result = load_plan(conn, args.plan_id)
         elif args.action == "list":
