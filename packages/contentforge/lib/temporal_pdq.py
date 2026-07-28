@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""
-Temporal PDQ video matcher for ContentForge.
-Approximates Meta's TMK Level 1 features by extracting frames at fixed intervals
-and comparing PDQ hash sequences.
+"""Legacy optional temporal PDQ approximation for ContentForge.
 
-TMK Level 1: slotwise average of per-frame PDQ hashes = compact temporal descriptor.
-We extract N frames at 1fps, compute PDQ per frame, then compare:
-1. Average hash distance (approximates TMK Level 1 cosine similarity)
-2. Sequence alignment (catches temporal reordering)
-
-Research: TMK Level 1 threshold >= 0.7 for filtering, >= 0.9 for exact match.
+This implementation extracts fixed-interval frames, averages their PDQ bit
+vectors, and compares aligned frame sequences. It is not Meta's official TMK or
+vPDQ implementation. The result shape remains supported for explicit audits and
+historical receipt compatibility.
 """
 
 import json
@@ -87,11 +82,7 @@ def compute_frame_hashes(frame_paths):
 
 
 def compute_level1_descriptor(hashes):
-    """
-    Compute TMK Level 1 approximation: average of frame hashes.
-    Since PDQ hashes are binary, we compute the mean bit value per position,
-    then threshold at 0.5 to get a consensus hash.
-    """
+    """Compute the legacy mean-bit descriptor from a sequence of PDQ hashes."""
     if not hashes:
         return None
     arr = np.stack(hashes).astype(np.float32)
@@ -255,7 +246,7 @@ def main():
             )
             continue
 
-        # Level 1: cosine similarity of temporal descriptors
+        # Legacy cosine similarity of mean-bit temporal descriptors.
         sim = cosine_similarity(src_descriptor, var_descriptor)
         similarities.append(sim)
 

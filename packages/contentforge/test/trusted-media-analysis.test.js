@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -56,6 +56,33 @@ function resignReview(review) {
     operatorAttestation: signEvidenceAttestation(signedPayload, {
       issuer: "reel_factory.structured_human_media_review",
       issuedAt: signedPayload.reviewedAt,
+    }),
+  };
+}
+
+function resignAnalysis(analysis) {
+  var core = deepClone(analysis);
+  delete core.analysisFingerprint;
+  delete core.producerAttestation;
+  core.analysisId = "analysis_" + fingerprint({
+    mediaSha256: core.subject.mediaSha256,
+    sourceSha256: core.subject.sourceSha256,
+    registryFingerprint: core.analyzerRegistry.registryFingerprint,
+    analyzers: core.rawObservations,
+  }).slice(0, 24);
+  core.analyzerVerdicts = core.rawObservations.map(function (observation) {
+    var existing = analysis.analyzerVerdicts.find(function (verdict) {
+      return verdict.policy.id === observation.analyzerId
+        && verdict.policy.version === observation.analyzerVersion;
+    });
+    return { ...existing, analysisId: core.analysisId };
+  });
+  var signed = { ...core, analysisFingerprint: fingerprint(core) };
+  return {
+    ...signed,
+    producerAttestation: signEvidenceAttestation(signed, {
+      issuer: "contentforge.trusted_media_analysis",
+      issuedAt: signed.producedAt,
     }),
   };
 }
@@ -152,6 +179,25 @@ function fixtureLipToolchain() {
   return { ...core, toolchainFingerprint: fingerprint(core) };
 }
 
+function fixturePoseToolchain() {
+  var core = {
+    available: true,
+    schema: "contentforge.apple_vision_toolchain.v1",
+    macosProductVersion: "fixture-macos",
+    macosBuildVersion: "fixture-build",
+    machineArchitecture: "arm64",
+    swiftExecutable: "/usr/bin/swift",
+    swiftExecutableSha256: "e".repeat(64),
+    swiftVersion: "Swift fixture",
+    visionRequests: [
+      "VNDetectHumanBodyPoseRequest",
+      "VNDetectHumanHandPoseRequest",
+    ],
+    embeddedSwiftSourceSha256: "f".repeat(64),
+  };
+  return { ...core, toolchainFingerprint: fingerprint(core) };
+}
+
 function fixturePcm(envelope, {
   shiftSeconds = 0,
   silent = false,
@@ -183,6 +229,7 @@ function fixtureRunner({
 } = {}) {
   var lipEnvelope = fixtureLipEnvelope();
   var toolchain = fixtureLipToolchain();
+  var poseToolchain = fixturePoseToolchain();
   var exactTemporalFrameValues = temporalFrameValues || Array.from(
     { length: 48 },
     function (_, index) {
@@ -275,6 +322,50 @@ function fixtureRunner({
           mouthMotionEnvelope: lipSyncMode === "insufficient_samples"
             ? lipEnvelope.slice(0, 20)
             : lipEnvelope,
+        }),
+        stderr: "",
+        error: null,
+      };
+    }
+    if (String(args[0]).endsWith("local-pose-continuity-analyzer.py")) {
+      var mediaSha256 = createHash("sha256")
+        .update(await readFile(args[1]))
+        .digest("hex");
+      return {
+        ok: true,
+        stdout: JSON.stringify({
+          available: true,
+          passed: true,
+          evidenceScope: "technical_landmark_continuity_only",
+          identityApproval: false,
+          anatomyApproval: false,
+          mediaSha256,
+          sampling: {
+            requestedFramesPerSecond: 8,
+            effectiveFramesPerSecond: 8,
+            sampledFrames: 48,
+            frameSetFingerprint: "1".repeat(64),
+          },
+          body: {
+            status: "measured",
+            trackedFrames: 48,
+            trackCoverage: 1,
+          },
+          hands: {
+            status: "not_applicable",
+            reason: "hands_not_detected",
+            trackedFrames: 0,
+            trackCoverage: 0,
+          },
+          landmarkEvidence: {
+            provider: "apple_vision",
+            requests: poseToolchain.visionRequests,
+            bodyFrameCount: 48,
+            handFrameCount: 0,
+            fingerprint: "2".repeat(64),
+            toolchainFingerprint: poseToolchain.toolchainFingerprint,
+          },
+          toolchainEvidence: poseToolchain,
         }),
         stderr: "",
         error: null,
@@ -418,16 +509,25 @@ test("produces deterministic raw observations from exact media", async function 
     assert.equal(first.producerAttestation.issuedAt, first.producedAt);
     assert.match(first.producerAttestation.signature, /^[a-f0-9]{64}$/);
     assert.match(first.analyzerRegistry.registryFingerprint, /^[a-f0-9]{64}$/);
-    assert.equal(first.rawObservations.length, 5);
-    assert.equal(first.analyzerVerdicts.length, 5);
+    assert.equal(first.rawObservations.length, 6);
+    assert.equal(first.analyzerVerdicts.length, 6);
     assert.ok(first.analyzerVerdicts.every(function (item) {
       return item.subjectSha256 === first.subject.mediaSha256 && item.passed;
     }));
     var mediaObservation = first.rawObservations.find(function (item) {
       return item.analyzerId === "contentforge.media_integrity";
     });
+    var poseObservation = first.rawObservations.find(function (item) {
+      return item.analyzerId === "contentforge.pose_continuity";
+    });
     assert.equal(mediaObservation.observations.video.width, 1080);
     assert.equal(mediaObservation.observations.video.height, 1920);
+    assert.equal(
+      poseObservation.observations.evidenceScope,
+      "technical_landmark_continuity_only",
+    );
+    assert.equal(poseObservation.observations.identityApproval, false);
+    assert.equal(poseObservation.observations.anatomyApproval, false);
     assert.equal(mediaObservation.observations.video.framesPerSecond, 30);
     var temporal = first.rawObservations.find(function (item) {
       return item.analyzerId === "contentforge.temporal_motion";
@@ -463,6 +563,31 @@ test("produces deterministic raw observations from exact media", async function 
     assert.equal(lipSync.observations.aligned, true);
     assert.ok(lipSync.observations.confidence >= 0.65);
     assert.equal(Object.hasOwn(first.unavailableMeasurements, "lipSync"), false);
+  });
+});
+
+test("preserves exact legacy analyzer-set readability", async function () {
+  await withFixture(async function ({ media, source }) {
+    var analysis = await analyzeTrustedMedia({
+      mediaPath: media,
+      sourcePath: source,
+      producedAt: "2026-07-22T20:00:00Z",
+      analyzerRegistry: await registry("2026-07-22T20:00:00Z"),
+      repositoryRoot: ROOT,
+      runner: fixtureRunner(),
+    });
+    var legacy = deepClone(analysis);
+    legacy.rawObservations = legacy.rawObservations.filter(function (item) {
+      return item.analyzerId !== "contentforge.pose_continuity";
+    });
+    legacy.analyzerVerdicts = legacy.analyzerVerdicts.filter(function (item) {
+      return item.policy.id !== "contentforge.pose_continuity";
+    });
+    legacy = resignAnalysis(legacy);
+
+    var evidence = motionEvidenceFromTrustedAnalysis(legacy);
+
+    assert.equal(evidence.trustedAnalysis.analysisId, legacy.analysisId);
   });
 });
 
@@ -893,6 +1018,10 @@ test("adapts measured local lip sync and complete human review", async function 
       applicable: false,
       reason: "hands_not_visible_in_reviewed_media",
     });
+    assert.equal(
+      withReview.anatomy.analyzer,
+      "reel_factory.structured_human_media_review",
+    );
     assert.equal(withReview.lipSync.available, true);
     assert.equal(withReview.lipSync.aligned, true);
     assert.equal(withReview.audioAlignment.offsetMs, 40);

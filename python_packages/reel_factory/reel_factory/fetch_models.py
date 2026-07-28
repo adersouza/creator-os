@@ -13,6 +13,7 @@ public SSCD model, and InsightFace's public buffalo_l release asset.
 
 from __future__ import annotations
 
+import hashlib
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -31,12 +32,29 @@ MODELS = {
         "sscd_disc_mixup.torchscript.pt"
     ),
 }
+PINNED_MODELS = {
+    "pose_landmarker_lite.task": {
+        "url": (
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+            "pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
+        ),
+        "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+    },
+}
 DEST = Path(__file__).resolve().parents[1] / "models"
 INSIGHTFACE_URL = (
     "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
 )
 INSIGHTFACE_DIR = DEST / "insightface" / "models" / "buffalo_l"
 INSIGHTFACE_REQUIRED = ("det_10g.onnx", "w600k_r50.onnx")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def fetch(*, force: bool = False) -> list[Path]:
@@ -51,6 +69,25 @@ def fetch(*, force: bool = False) -> list[Path]:
             print(f"fetch {name} ...")
             urllib.request.urlretrieve(url, p)  # noqa: S310 — pinned OpenCV Zoo URL
             print(f"  -> {p} ({p.stat().st_size} bytes)")
+        out.append(p)
+    for name, specification in PINNED_MODELS.items():
+        p = DEST / name
+        expected = specification["sha256"]
+        present = p.exists() and p.stat().st_size > 0
+        if present and _sha256(p) == expected and not force:
+            print(f"skip {name} (present, sha256 verified)")
+        else:
+            print(f"fetch {name} ...")
+            temporary = p.with_suffix(f"{p.suffix}.download")
+            urllib.request.urlretrieve(specification["url"], temporary)  # noqa: S310
+            observed = _sha256(temporary)
+            if observed != expected:
+                temporary.unlink(missing_ok=True)
+                raise RuntimeError(
+                    f"{name} sha256 mismatch: expected {expected}, observed {observed}"
+                )
+            temporary.replace(p)
+            print(f"  -> {p} ({p.stat().st_size} bytes, sha256 verified)")
         out.append(p)
     if not force and all(
         (INSIGHTFACE_DIR / name).exists() for name in INSIGHTFACE_REQUIRED

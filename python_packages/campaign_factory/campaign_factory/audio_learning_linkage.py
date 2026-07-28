@@ -11,6 +11,15 @@ from .learning_consumption import observation_bucket
 from .persistence import json_load
 
 
+def _first_present(record: dict[str, Any], *keys: str) -> Any:
+    """Return the first present value without treating numeric zero as missing."""
+
+    for key in keys:
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
+
+
 def exact_embedded_audio_selection(
     conn: sqlite3.Connection,
     *,
@@ -56,6 +65,8 @@ def exact_embedded_audio_selection(
     selected_segment = selected_segment if isinstance(selected_segment, dict) else {}
     creative = payload.get("creativeContext")
     creative = creative if isinstance(creative, dict) else {}
+    advisory = chosen.get("advisoryLabels")
+    advisory = advisory if isinstance(advisory, dict) else {}
     linkage = {
         "schema": "campaign_factory.audio_publication_linkage.v1",
         "audioSelectionId": row["id"],
@@ -64,26 +75,50 @@ def exact_embedded_audio_selection(
             or chosen.get("platform_music_id")
             or selected_track.get("trackId")
         ),
-        "trackSha256": selected_track.get("acquiredAudioSha256"),
-        "acousticFingerprint": chosen.get("acousticFingerprint"),
-        "segmentStartSeconds": (
-            selected_segment.get("startSeconds")
-            or selected_segment.get("start_seconds")
+        "trackSha256": _first_present(
+            selected_track,
+            "acquiredAudioSha256",
+            "acquired_audio_sha256",
         ),
-        "segmentEndSeconds": (
-            selected_segment.get("endSeconds") or selected_segment.get("end_seconds")
+        "acousticFingerprint": _first_present(
+            chosen,
+            "acousticFingerprint",
+            "acoustic_fingerprint",
+        )
+        or _first_present(
+            advisory,
+            "acousticFingerprint",
+            "acoustic_fingerprint",
         ),
-        "processedSegmentSha256": (
-            selected_segment.get("processedSha256")
-            or selected_segment.get("processed_sha256")
+        "segmentStartSeconds": _first_present(
+            selected_segment,
+            "startSeconds",
+            "start_seconds",
+            "start_offset_seconds",
+        ),
+        "segmentEndSeconds": _first_present(
+            selected_segment,
+            "endSeconds",
+            "end_seconds",
+        ),
+        "processedSegmentSha256": _first_present(
+            selected_segment,
+            "processedSha256",
+            "processed_sha256",
+            "processed_segment_sha256",
         ),
         "finalMediaSha256": final_sha,
         "instagramMediaId": media_id,
         "metricSnapshotIds": [snapshot.get("id")],
-        "creator": creative.get("creator"),
-        "creatorIdentityProfile": creative.get("creatorIdentityProfile"),
-        "account": creative.get("account") or snapshot.get("account_id"),
-        "intent": creative.get("intent"),
+        "creator": _first_present(creative, "creator", "creator_id"),
+        "creatorIdentityProfile": _first_present(
+            creative,
+            "creatorIdentityProfile",
+            "creator_identity_profile",
+        ),
+        "account": _first_present(creative, "account", "account_id")
+        or snapshot.get("account_id"),
+        "intent": _first_present(creative, "intent", "content_intent"),
         "publishedAt": snapshot.get("published_at"),
         "snapshotAt": snapshot.get("snapshot_at"),
         "observationBucket": observation_bucket(

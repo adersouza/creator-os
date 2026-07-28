@@ -39,13 +39,20 @@ MOTION_QC_BLOCKING_CODES = {
     "lip_sync_qc_required",
 }
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-_TRUSTED_ANALYZER_IDS = {
+_LEGACY_TRUSTED_ANALYZER_IDS = {
     ("contentforge.media_integrity", "1.0.0"),
     ("contentforge.temporal_motion", "1.0.0"),
     ("contentforge.audio_integrity", "1.0.0"),
     ("contentforge.overlay_delivery", "1.0.0"),
     ("contentforge.local_lip_sync", "1.0.0"),
 }
+_TRUSTED_ANALYZER_IDS = _LEGACY_TRUSTED_ANALYZER_IDS | {
+    ("contentforge.pose_continuity", "1.0.0"),
+}
+_ACCEPTED_TRUSTED_ANALYZER_SETS = (
+    frozenset(_LEGACY_TRUSTED_ANALYZER_IDS),
+    frozenset(_TRUSTED_ANALYZER_IDS),
+)
 _DECISIVE_ANALYZER_IDS = {
     (MOTION_QC_POLICY_ID, MOTION_QC_POLICY_VERSION),
     ("reel_factory.structured_human_media_review", "1.0.0"),
@@ -651,7 +658,7 @@ class MotionQcPublishabilityMixin:
                     failures.append(
                         "motion_specific_qc_analysis_registry_binding_mismatch"
                     )
-            if seen != _TRUSTED_ANALYZER_IDS:
+            if frozenset(seen) not in _ACCEPTED_TRUSTED_ANALYZER_SETS:
                 failures.append("motion_specific_qc_analysis_analyzer_set_mismatch")
             expected_analysis_id = (
                 "analysis_"

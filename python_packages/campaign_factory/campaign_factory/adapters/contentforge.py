@@ -19,7 +19,6 @@ DEFAULT_LAYERS = [
     "forensics",
     "compression",
     "provenance",
-    "temporal",
     "ssim",
 ]
 DEFAULT_AUDIT_PROFILE = "campaign_factory_v1"

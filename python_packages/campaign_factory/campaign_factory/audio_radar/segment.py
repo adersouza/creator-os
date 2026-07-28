@@ -28,6 +28,7 @@ class SegmentSelection:
     """Exact segment and deterministic evidence used by FFmpeg embedding."""
 
     start_offset_seconds: float
+    end_seconds: float
     duration_seconds: float
     segment_score: float
     rms_energy: float
@@ -38,6 +39,8 @@ class SegmentSelection:
     hook_evidence: str
     selection_reason: str
     decoded_audio_fingerprint: str
+    processed_segment_sha256: str
+    processed_segment_format: str = "s16le_mono_16000hz"
 
     def receipt(self) -> dict[str, Any]:
         return {
@@ -141,9 +144,16 @@ def select_segment(
         max(0.0, acquired.duration_seconds - target),
     )
     segment_pcm = _slice_pcm(pcm, start_seconds, target)
-    fingerprint = hashlib.sha256(segment_pcm.tobytes()).hexdigest()
+    expected_samples = max(1, round(target * _SAMPLE_RATE))
+    if len(segment_pcm) != expected_samples:
+        raise SegmentSelectionError(
+            "decoded audio does not contain the full selected segment"
+        )
+    canonical_segment_bytes = segment_pcm.tobytes()
+    fingerprint = hashlib.sha256(canonical_segment_bytes).hexdigest()
     return SegmentSelection(
         start_offset_seconds=round(start_seconds, 6),
+        end_seconds=round(start_seconds + target, 6),
         duration_seconds=target,
         segment_score=round(score, 6),
         rms_energy=round(float(evidence["rms"]), 8),
@@ -161,6 +171,7 @@ def select_segment(
             "peak energy, onset density, and energy change"
         ),
         decoded_audio_fingerprint=fingerprint,
+        processed_segment_sha256=fingerprint,
     )
 
 

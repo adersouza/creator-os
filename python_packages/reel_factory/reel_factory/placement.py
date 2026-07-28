@@ -266,6 +266,14 @@ def _warn_if_blind() -> None:
 _PPHUMANSEG_MODEL_PATH = (
     Path(__file__).parent / "models" / "human_segmentation_pphumanseg_2023mar.onnx"
 )
+_MEDIAPIPE_POSE_MODEL_PATH = (
+    Path(__file__).parent / "models" / "pose_landmarker_lite.task"
+)
+_MEDIAPIPE_POSE_MODEL_SHA256 = (
+    "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+)
+_POSE_LANDMARKER: Any | None = None
+_POSE_LANDMARKER_TRIED = False
 _SEG_NET = None
 _SEG_NET_TRIED = False
 
@@ -577,92 +585,133 @@ def _focal_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] |
     return scores[0], scores[1], scores[2]
 
 
-def _pose_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | None:
-    """Optional MediaPipe Pose signal for upper-body-aware placement."""
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _pose_tasks_provenance() -> dict[str, Any]:
+    if not _MEDIAPIPE_POSE_MODEL_PATH.is_file():
+        return {
+            "available": False,
+            "reason": "mediapipe_pose_model_missing",
+            "modelPath": str(_MEDIAPIPE_POSE_MODEL_PATH),
+        }
+    observed = _sha256_path(_MEDIAPIPE_POSE_MODEL_PATH)
+    if observed != _MEDIAPIPE_POSE_MODEL_SHA256:
+        return {
+            "available": False,
+            "reason": "mediapipe_pose_model_sha256_mismatch",
+            "modelPath": str(_MEDIAPIPE_POSE_MODEL_PATH),
+            "modelSha256": observed,
+        }
+    try:
+        import mediapipe as mp  # type: ignore
+    except ImportError:
+        return {"available": False, "reason": "mediapipe_not_installed"}
+    return {
+        "available": True,
+        "api": "mediapipe.tasks.vision.PoseLandmarker",
+        "mediapipeVersion": str(mp.__version__),
+        "modelPath": str(_MEDIAPIPE_POSE_MODEL_PATH),
+        "modelSha256": observed,
+        "options": {
+            "runningMode": "IMAGE",
+            "numPoses": 1,
+            "minPoseDetectionConfidence": 0.5,
+            "minPosePresenceConfidence": 0.5,
+        },
+    }
+
+
+def _pose_landmarker() -> Any | None:
+    global _POSE_LANDMARKER, _POSE_LANDMARKER_TRIED
+    if _POSE_LANDMARKER_TRIED:
+        return _POSE_LANDMARKER
+    _POSE_LANDMARKER_TRIED = True
+    if _pose_tasks_provenance().get("available") is not True:
+        return None
+    try:
+        from mediapipe.tasks.python import (
+            BaseOptions,  # type: ignore
+            vision,  # type: ignore
+        )
+
+        options = vision.PoseLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(_MEDIAPIPE_POSE_MODEL_PATH)),
+            running_mode=vision.RunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.5,
+            min_pose_presence_confidence=0.5,
+        )
+        _POSE_LANDMARKER = vision.PoseLandmarker.create_from_options(options)
+    except Exception:
+        _POSE_LANDMARKER = None
+    return _POSE_LANDMARKER
+
+
+def _pose_coverages_from_frame(
+    frame_path: Path,
+) -> tuple[tuple[float, float, float], tuple[float, float]] | None:
+    """One MediaPipe Tasks inference reused for vertical and side coverage."""
+    landmarker = _pose_landmarker()
+    if landmarker is None:
+        return None
     try:
         import cv2  # type: ignore
         import mediapipe as mp  # type: ignore
-
-        if not hasattr(mp, "solutions"):
-            return None
-    except (ImportError, AttributeError):
+    except ImportError:
         return None
     img = cv2.imread(str(frame_path))
     if img is None:
         return None
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    h, w = rgb.shape[:2]
-    pose = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=0)
-    try:
-        result = pose.process(rgb)
-    finally:
-        pose.close()
+    result = landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
     if not result.pose_landmarks:
         return None
-    landmarks = result.pose_landmarks.landmark
-    idxs = [11, 12, 23, 24]  # shoulders and hips
+    landmarks = result.pose_landmarks[0]
     visible = [
-        lm
-        for i, lm in enumerate(landmarks)
-        if i in idxs and getattr(lm, "visibility", 1.0) >= 0.4
+        landmarks[index]
+        for index in (11, 12, 23, 24)
+        if index < len(landmarks)
+        and getattr(landmarks[index], "visibility", 1.0) >= 0.4
+        and getattr(landmarks[index], "presence", 1.0) >= 0.4
     ]
     if len(visible) < 2:
         return None
-    y0 = max(0.0, min(lm.y for lm in visible) * h)
-    y1 = min(float(h), max(lm.y for lm in visible) * h)
-    if y1 <= y0:
+    h, w = rgb.shape[:2]
+    x0 = max(0.0, min(landmark.x for landmark in visible) * w)
+    x1 = min(float(w), max(landmark.x for landmark in visible) * w)
+    y0 = max(0.0, min(landmark.y for landmark in visible) * h)
+    y1 = min(float(h), max(landmark.y for landmark in visible) * h)
+    if y1 <= y0 or x1 <= x0:
         return None
     third = h / 3.0
-    cov = [0.0, 0.0, 0.0]
     body_h = max(1.0, y1 - y0)
-    for i in range(3):
-        band_top = i * third
-        band_bot = (i + 1) * third
-        overlap = max(0.0, min(y1, band_bot) - max(y0, band_top))
-        cov[i] = (overlap / body_h) * w
-    return cov[0], cov[1], cov[2]
-
-
-def _pose_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | None:
-    try:
-        import cv2  # type: ignore
-        import mediapipe as mp  # type: ignore
-
-        if not hasattr(mp, "solutions"):
-            return None
-    except (ImportError, AttributeError):
-        return None
-    img = cv2.imread(str(frame_path))
-    if img is None:
-        return None
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    h, w = rgb.shape[:2]
-    pose = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=0)
-    try:
-        result = pose.process(rgb)
-    finally:
-        pose.close()
-    if not result.pose_landmarks:
-        return None
-    landmarks = result.pose_landmarks.landmark
-    idxs = [11, 12, 23, 24]
-    visible = [
-        lm
-        for i, lm in enumerate(landmarks)
-        if i in idxs and getattr(lm, "visibility", 1.0) >= 0.4
-    ]
-    if len(visible) < 2:
-        return None
-    x0 = max(0.0, min(lm.x for lm in visible) * w)
-    x1 = min(float(w), max(lm.x for lm in visible) * w)
-    if x1 <= x0:
-        return None
+    vertical = tuple(
+        max(0.0, min(y1, (index + 1) * third) - max(y0, index * third)) / body_h * w
+        for index in range(3)
+    )
     mid = w / 2.0
     body_w = max(1.0, x1 - x0)
-    return (
+    side = (
         max(0.0, min(x1, mid) - max(x0, 0.0)) / body_w * h,
         max(0.0, min(x1, float(w)) - max(x0, mid)) / body_w * h,
     )
+    return (vertical[0], vertical[1], vertical[2]), side
+
+
+def _pose_coverage_from_frame(frame_path: Path) -> tuple[float, float, float] | None:
+    result = _pose_coverages_from_frame(frame_path)
+    return result[0] if result else None
+
+
+def _pose_side_coverage_from_frame(frame_path: Path) -> tuple[float, float] | None:
+    result = _pose_coverages_from_frame(frame_path)
+    return result[1] if result else None
 
 
 def _pick_free_side_zone(
@@ -697,7 +746,7 @@ def _pick_free_side_zone(
         + (right_face / max_face) * 45.0
         + (right_pose / max_pose) * 45.0,
     }
-    side = min(scores, key=scores.get)
+    side = min(scores, key=lambda candidate: scores[candidate])
     other = "right" if side == "left" else "left"
     # Only use side placement when it is meaningfully clearer than the other
     # side. This avoids random side captions on centered or low-signal clips.
@@ -738,44 +787,55 @@ def _score_placement_from_frames(
         c for f in frames if (c := _focal_coverage_from_frame(f)) is not None
     ]
     side_std_samples = [
-        s for f in frames if (s := _side_stddev_from_frame(f)) is not None
+        side_std
+        for frame in frames
+        if (side_std := _side_stddev_from_frame(frame)) is not None
     ]
     face_side_samples = [
-        c for f in frames if (c := _face_side_coverage_from_frame(f)) is not None
+        face_side
+        for frame in frames
+        if (face_side := _face_side_coverage_from_frame(frame)) is not None
     ]
     subject_side_samples = [
-        s for f in frames if (s := _side_subject_score_from_frame(f)) is not None
+        subject_side
+        for frame in frames
+        if (subject_side := _side_subject_score_from_frame(frame)) is not None
     ]
     motion_samples = _band_motion_from_frames(frames)
     pose_samples = None
     pose_side_samples = None
     if placement_signals == "pose":
+        pose_provenance = _pose_tasks_provenance()
         cached = (
-            manifest.get_analysis(src_hash, "mediapipe_pose_v1")
+            manifest.get_analysis(src_hash, "mediapipe_pose_tasks_v2")
             if cache_pose and manifest and src_hash
             else None
         )
-        if cached and isinstance(cached.get("pose_samples"), list):
+        if (
+            cached
+            and isinstance(cached.get("pose_samples"), list)
+            and cached.get("provenance") == pose_provenance
+        ):
             pose_samples = [tuple(sample) for sample in cached["pose_samples"]]
             pose_side_samples = [
                 tuple(sample) for sample in cached.get("pose_side_samples", [])
             ]
         else:
-            pose_samples = [
-                c for f in frames if (c := _pose_coverage_from_frame(f)) is not None
+            coverages = [
+                result
+                for frame in frames
+                if (result := _pose_coverages_from_frame(frame)) is not None
             ]
-            pose_side_samples = [
-                c
-                for f in frames
-                if (c := _pose_side_coverage_from_frame(f)) is not None
-            ]
+            pose_samples = [result[0] for result in coverages]
+            pose_side_samples = [result[1] for result in coverages]
             if cache_pose and manifest and src_hash:
                 manifest.set_analysis(
                     src_hash,
-                    "mediapipe_pose_v1",
+                    "mediapipe_pose_tasks_v2",
                     {
                         "pose_samples": pose_samples,
                         "pose_side_samples": pose_side_samples,
+                        "provenance": pose_provenance,
                     },
                 )
 
