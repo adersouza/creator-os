@@ -62,9 +62,8 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
         print_json(operator_control_check(settings))
         return 0
     if args.cmd == "create":
-        if (
-            args.intent == "recreate_reel"
-            and getattr(args, "through", None) == "analyze"
+        if args.intent == "recreate_reel" and (
+            getattr(args, "reference_url", None) or args.reference_video
         ):
             print_json(
                 run_reference_analysis(
@@ -75,15 +74,14 @@ def dispatch_pipeline_commands(args, cf, settings) -> int | None:
                     reference_platform=args.reference_platform,
                     reference_authorized=args.reference_authorized,
                     declared_talking=args.reference_talking,
+                    recreate_mode=args.recreate_mode,
+                    through=getattr(args, "through", None),
+                    audio_policy=args.audio_preference,
+                    max_credits=args.max_credits,
                     apply=args.apply,
                 )
             )
             return 0
-        if getattr(args, "reference_url", None):
-            raise ValueError(
-                "--reference-url currently requires --through analyze; "
-                "generation routing arrives in the sequential recreation-mode change"
-            )
         print_json(
             run_production_batch(
                 cf,

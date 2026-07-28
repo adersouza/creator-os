@@ -74,7 +74,14 @@ does not generate, export, schedule, or publish. Instagram, TikTok, YouTube
 Shorts, direct HTTP(S) media, and the local-file fallback are supported through
 Creator OS's own yt-dlp path; third-party downloader sites are not used.
 
-The existing local-file recreation path remains available:
+Omit `--through analyze` to receive the deterministic recreation plan. Creator
+OS classifies the source, chooses a bounded excerpt, proposes one or two
+Soul 2 anchors, selects a truthful mode, applies `--audio auto`, and obtains
+read-only quotes without submitting a paid request. AUTO never silently submits
+Motion Control, structural Seedance, first/last, talking, multi-shot, or
+multi-person work. Soul IDs and internal provider choices remain private.
+
+The local-file recreation path uses the same planner:
 
 ```bash
 scripts/creator-os create \
@@ -83,17 +90,16 @@ scripts/creator-os create \
   --reference-video /private/path/reference.mp4 \
   --reference-platform instagram \
   --reference-authorized \
-  --count 1 \
-  --execution cloud \
-  --accounts bennett_s33 \
-  --audio embedded_trending
+  --recreate-mode auto \
+  --audio auto
 ```
 
-Creator OS analyzes the private reference locally, selects only an approved
-same-creator image, and pins Seedance 2 internally. This is broad
-structure/performance/camera recreation, not exact choreography. It remains
-experimental until an authorized output receives exact-SHA operator approval;
-talking references fail closed.
+Supported mode truth is explicit: passive continues through accepted Kling 3
+motion after an approved anchor; Motion Control is experimental; Seedance 2 is
+structural recreation rather than identity replacement; first/last is a
+coherent transition rather than exact motion copy; talking remains blocked as
+`talking_route_not_entitled`. Every video request remains blocked until the
+Soul anchor has a human identity and WOULD_USE_AS_ANCHOR approval.
 
 Use `creator-os review` for calibration exceptions, `creator-os export` for the
 validated draft boundary, and ThreadsDashboard for account health, scheduling,

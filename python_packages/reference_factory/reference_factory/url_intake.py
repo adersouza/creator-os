@@ -30,6 +30,7 @@ FRAME_ROLES = (
     "literal_first",
     "literal_final",
     "first_clean",
+    "last_clean",
     "best_anchor",
     "best_face_visible",
     "best_body_visible",
@@ -199,7 +200,7 @@ def analyze_url_reference(
             if apply
             else [
                 "persist canonical Reference Factory source",
-                "persist seven receipt-linked frame derivatives",
+                "persist eight receipt-linked frame derivatives",
                 "persist immutable anchor-selection receipt",
             ]
         ),
@@ -578,6 +579,7 @@ def _role_map(
 ) -> dict[str, dict[str, Any]]:
     clean = [item for item in candidates if not item.get("hardBlockers")] or candidates
     first_clean = min(clean, key=lambda item: float(item["timeSec"]))
+    last_clean = max(clean, key=lambda item: float(item["timeSec"]))
     midpoint = min(
         clean,
         key=lambda item: abs(
@@ -602,6 +604,7 @@ def _role_map(
         "literal_first": candidates[0],
         "literal_final": candidates[-1],
         "first_clean": first_clean,
+        "last_clean": last_clean,
         "best_anchor": selected,
         "best_face_visible": best_face,
         "best_body_visible": best_body,

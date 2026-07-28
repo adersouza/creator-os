@@ -110,7 +110,14 @@ canonical Reference Factory source/anchor receipt and the Campaign Audio Radar
 audio identity/occurrence. It makes no Higgsfield call. Creator OS never sends
 the URL to a third-party downloader website.
 
-The local-file recreation compatibility path remains:
+Without `--through analyze`, the same command adds a zero-paid-call recreation
+plan: stable run ID, classification evidence, bounded excerpt, one/two
+scene-matched Soul 2 anchor requests, audio decision, exact/bounded quotes,
+mode-specific request, review package, and explicit blockers. The configured
+Soul identity is represented only by a fingerprint; the Soul ID is never
+printed.
+
+The local-file recreation path is identical:
 
 ```bash
 scripts/creator-os create \
@@ -119,23 +126,30 @@ scripts/creator-os create \
   --reference-video /private/path/reference.mp4 \
   --reference-platform instagram \
   --reference-authorized \
-  --count 1 \
-  --execution cloud \
-  --accounts bennett_s33 \
-  --audio embedded_trending
+  --recreate-mode auto \
+  --audio auto
 ```
 
-The dry-run performs bounded local reference analysis and an authenticated
-read-only quote, but issues no spend authorization and submits no generation.
-`--apply` additionally requires `--reference-authorized`, an explicit finite
-credit ceiling, and the existing signed spend authorization. One invocation is
-limited to one reference, one output, and one Seedance request. Ambiguous
-submission is retained for reconciliation and never retried blindly.
+The mode contracts are:
 
-`reference_audio_required` deterministically selects and embeds the exact
-reference-video audio segment, `embedded_trending` uses Audio Radar finishing,
-and `silent_allowed` is explicit. A talking reference fails before quoting or
-submission because supplied creator-voice preservation is not qualified.
+- `passive`: accepted Kling 3 passive motion after anchor approval, sound off;
+- `motion`: current authenticated `kling3_0_motion_control` contract with one
+  image reference, one video reference, `background_source=input_image`, and
+  Pro mode; experimental and never an AUTO submission;
+- `structural`: Seedance 2 start image plus video reference, 720p standard mode,
+  generated audio off; no character-replacement claim;
+- `first_last`: two reviewed Soul anchors into Kling 3 start/end, sound off;
+- `talking`: `talking_route_not_entitled`, with no Veo/Seedance fallback.
+
+Dry-run may call authenticated cost/catalog surfaces but creates no spend
+authorization and submits no generation. Paid steps require the existing
+finite-credit authorization and are never blindly retried after ambiguity.
+
+`--audio auto` requires creator/reference audio for talking, requires reference
+audio for synchronized dance, prefers an explicit comparison for eligible
+structural/motion reference audio, and defaults passive work to Audio Radar.
+Provider-generated audio remains off. Final audio still requires exact segment,
+canonical PCM, final MP4 SHA, and AAC binding evidence.
 
 ## Future exact-voice validation plan
 
